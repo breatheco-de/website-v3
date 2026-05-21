@@ -3,6 +3,9 @@ dist
 .DS_Store
 artifacts
 
+# Local DB/cache seed JSON (generated in dev, not versioned)
+.cache/
+
 # Conversation screenshots (not marketing content)
 attached_assets/Screenshot_*
 attached_assets/Captura_*
