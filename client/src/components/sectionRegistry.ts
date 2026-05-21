@@ -46,6 +46,15 @@ for (const filePath of Object.keys(sectionLoaders)) {
   pathIndex[type][variantName] = filePath;
 }
 
+/** When a type has only one variant file, YAML without variant (→ "default") can still load it. */
+for (const type of Object.keys(pathIndex)) {
+  const registry = pathIndex[type];
+  const variantKeys = Object.keys(registry).filter((k) => k !== "default");
+  if (variantKeys.length === 1 && !registry.default) {
+    registry.default = registry[variantKeys[0]];
+  }
+}
+
 const componentCache = new Map<string, ComponentType<unknown>>();
 
 function cacheKey(type: string, variant: string): string {
@@ -56,7 +65,16 @@ function resolveModulePath(type: string, variant: string): string | undefined {
   const registry = pathIndex[type];
   if (!registry) return undefined;
   const normalized = normalizeSectionVariant(variant);
-  return registry[normalized] ?? registry.default;
+  if (registry[normalized]) return registry[normalized];
+  if (registry.default) return registry.default;
+  const keys = Object.keys(registry).filter((k) => k !== "default");
+  if (normalized === "default" && keys.length === 1) return registry[keys[0]];
+  return undefined;
+}
+
+/** True when a code-split chunk exists for this type + variant (after default / sole-variant fallbacks). */
+export function hasSectionChunk(type: string, variant?: string): boolean {
+  return !!resolveModulePath(type, variant ?? "default");
 }
 
 /** Returns a component already loaded via loadSectionComponent, or null. */
@@ -152,7 +170,85 @@ export async function preloadSections(sections: SectionRef[]): Promise<void> {
 }
 
 /** Matches SectionRenderer default when settings.loading.eager_count is unset. */
-const DEFAULT_EAGER_COUNT = 3;
+export const DEFAULT_EAGER_COUNT = 3;
+
+export function getEagerCount(settings?: {
+  loading?: { eager_count?: number };
+}): number {
+  const count = settings?.loading?.eager_count;
+  return typeof count === "number" && count >= 0 ? count : DEFAULT_EAGER_COUNT;
+}
+
+type SectionLike = {
+  type: string;
+  variant?: string;
+  load?: string;
+};
+
+/** Mirrors SectionRenderer resolveLoadStrategy for chunk preload (SPA navigation). */
+export function shouldPreloadSectionChunk(
+  section: SectionLike,
+  index: number,
+  settings?: { loading?: { eager_count?: number } },
+  isEditMode = false,
+): boolean {
+  if (isEditMode) return true;
+  if (section.load === "lazy") return false;
+  if (section.load === "eager") return true;
+  return index < getEagerCount(settings);
+}
+
+/** Section refs for above-the-fold chunks (eager_count + load: eager). */
+export function collectEagerSectionRefs(
+  sections: SectionLike[],
+  settings?: { loading?: { eager_count?: number } },
+  isEditMode = false,
+): SectionRef[] {
+  const refs: SectionRef[] = [];
+  for (let i = 0; i < sections.length; i++) {
+    const section = sections[i];
+    if (!section?.type) continue;
+    if (!shouldPreloadSectionChunk(section, i, settings, isEditMode)) continue;
+    refs.push({ type: section.type, variant: section.variant });
+  }
+  return refs;
+}
+
+export function areEagerSectionChunksCached(
+  sections: SectionLike[],
+  settings?: { loading?: { eager_count?: number } },
+  isEditMode = false,
+): boolean {
+  const refs = collectEagerSectionRefs(sections, settings, isEditMode);
+  if (refs.length === 0) return true;
+  return refs.every(({ type, variant }) => {
+    const v = variant ?? "default";
+    if (!hasSectionChunk(type, v)) return true;
+    return !!getCachedSectionComponent(type, v);
+  });
+}
+
+/** Preload eager section chunks on SPA route changes (see SectionRenderer). */
+export async function preloadEagerSections(
+  sections: SectionLike[],
+  settings?: { loading?: { eager_count?: number } },
+  isEditMode = false,
+): Promise<void> {
+  const refs = collectEagerSectionRefs(sections, settings, isEditMode).filter(
+    ({ type, variant }) => hasSectionChunk(type, variant),
+  );
+  const loads: Promise<unknown>[] = [preloadSections(refs)];
+
+  if (
+    !isEditMode &&
+    sections.slice(0, getEagerCount(settings)).some((s) => objectHasFormKey(s)) &&
+    hasSectionType("lead_form")
+  ) {
+    loads.push(loadSectionComponent("lead_form", "default"));
+  }
+
+  await Promise.all(loads);
+}
 
 function isLeadFormConfig(value: unknown): boolean {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -177,11 +273,9 @@ function objectHasFormKey(obj: unknown, maxDepth = 4, depth = 0): boolean {
 function getEagerCountFromPageData(data: unknown): number {
   if (!data || typeof data !== "object") return DEFAULT_EAGER_COUNT;
   const settings = (data as Record<string, unknown>).settings as
-    | Record<string, unknown>
+    | { loading?: { eager_count?: number } }
     | undefined;
-  const loading = settings?.loading as Record<string, unknown> | undefined;
-  const count = loading?.eager_count;
-  return typeof count === "number" && count >= 0 ? count : DEFAULT_EAGER_COUNT;
+  return getEagerCount(settings);
 }
 
 function pageDataListFromPayload(payload: InitialDataPayload | null): unknown[] {

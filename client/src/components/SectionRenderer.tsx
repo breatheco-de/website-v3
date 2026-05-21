@@ -9,10 +9,12 @@ import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables
 import { resolveDeep, resolveTemplateString, type VariableContext } from "@/lib/variable-manager";
 import { SectionContextProvider } from "@/contexts/SectionContext";
 import {
+  areEagerSectionChunksCached,
   getCachedSectionComponent,
   hasSectionType,
   loadSectionComponent,
   normalizeSectionVariant,
+  preloadEagerSections,
 } from "@/components/sectionRegistry";
 
 
@@ -616,6 +618,60 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
   const { data: varDefinitions } = useVariableDefinitions();
   const varContext = useVariableContext();
 
+  const eagerPreloadKey = useMemo(
+    () =>
+      sections
+        .map(
+          (s) =>
+            `${(s as { type: string }).type}:${(s as { variant?: string }).variant ?? "default"}`,
+        )
+        .join("|"),
+    [sections],
+  );
+
+  const [eagerPreloadGeneration, setEagerPreloadGeneration] = useState(0);
+  const [eagerPreloadSettled, setEagerPreloadSettled] = useState(() =>
+    typeof document === "undefined" ||
+    areEagerSectionChunksCached(sections, settings, isEditMode),
+  );
+
+  const eagerChunksReady = useMemo(
+    () =>
+      areEagerSectionChunksCached(sections, settings, isEditMode) ||
+      eagerPreloadSettled,
+    [sections, settings, isEditMode, eagerPreloadKey, eagerPreloadGeneration, eagerPreloadSettled],
+  );
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    if (areEagerSectionChunksCached(sections, settings, isEditMode)) {
+      setEagerPreloadSettled(true);
+      return;
+    }
+
+    let cancelled = false;
+    setEagerPreloadSettled(false);
+
+    preloadEagerSections(sections, settings, isEditMode).finally(() => {
+      if (!cancelled) {
+        setEagerPreloadGeneration((n) => n + 1);
+        setEagerPreloadSettled(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    contentType,
+    slug,
+    locale,
+    eagerPreloadKey,
+    isEditMode,
+    settings?.loading?.eager_count,
+  ]);
+
   useEffect(() => {
     if (!contentType || !slug || !locale) return;
 
@@ -881,7 +937,16 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
 
   const isMobilePreview = isEditMode && previewBreakpoint === 'mobile';
 
-  const content = (
+  const showEagerPreloadPlaceholder =
+    !eagerChunksReady && !isMobilePreview && sections.length > 0;
+
+  const content = showEagerPreloadPlaceholder ? (
+    <div
+      className="min-h-[50vh]"
+      aria-hidden="true"
+      data-testid="section-eager-preload-placeholder"
+    />
+  ) : (
     <>
       <AddSectionButton
         insertIndex={0}

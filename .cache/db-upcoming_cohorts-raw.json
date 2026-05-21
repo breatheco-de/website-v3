@@ -1,0 +1,1054 @@
+{
+  "fetched_at": "2026-05-21T03:46:04.170Z",
+  "items": [
+    {
+      "id": 1617,
+      "slug": "miami-ft-ai-engineering-2",
+      "name": "miami-ft-ai-engineering-2",
+      "never_ends": false,
+      "private": false,
+      "micro_cohorts": [
+        {
+          "id": 1602,
+          "name": "Web UI Fundamentals with Tailwind",
+          "slug": "web-ui-fundamentals-with-tailwind-miami-self-paced",
+          "syllabus_version": {
+            "id": 550,
+            "version": 2,
+            "slug": "web-ui-fundamentals-with-tailwind",
+            "name": "Web UI fundamentals with Tailwind",
+            "syllabus": 350
+          }
+        },
+        {
+          "id": 1603,
+          "name": "Command Line Git and Github",
+          "slug": "command-line-git-and-github",
+          "syllabus_version": {
+            "id": 551,
+            "version": 2,
+            "slug": "command-line-git-and-github",
+            "name": "Command Line, Git and Github",
+            "syllabus": 351
+          }
+        },
+        {
+          "id": 1604,
+          "name": "Coding Fundamentals with Typescript",
+          "slug": "coding-fundamentals-with-typescript-miami-self-paced",
+          "syllabus_version": {
+            "id": 552,
+            "version": 2,
+            "slug": "coding-fundamentals-with-typescript",
+            "name": "Coding fundamentals with TypeScript",
+            "syllabus": 352
+          }
+        },
+        {
+          "id": 1619,
+          "name": "Front End Development With Coding Agents",
+          "slug": "front-end-development-with-coding-agents-selfpaced-miami",
+          "syllabus_version": {
+            "id": 557,
+            "version": 2,
+            "slug": "frontend-development-with-coding-agents",
+            "name": "Frontend development with Coding Agents",
+            "syllabus": 354
+          }
+        },
+        {
+          "id": 1680,
+          "name": "Coding Fundamentals with Python Miami",
+          "slug": "coding-fundamentals-with-python-miami",
+          "syllabus_version": {
+            "id": 558,
+            "version": 2,
+            "slug": "coding-fundamentals-with-python",
+            "name": "Coding fundamentals with Python",
+            "syllabus": 353
+          }
+        },
+        {
+          "id": 1681,
+          "name": "Backend Development with Coding Agents Miami",
+          "slug": "backend-development-with-coding-agents-miami",
+          "syllabus_version": {
+            "id": 596,
+            "version": 2,
+            "slug": "backend-development-with-coding-agents",
+            "name": "Backend development with Coding Agents",
+            "syllabus": 389
+          }
+        },
+        {
+          "id": 1605,
+          "name": "Working with AI Coding Agents",
+          "slug": "working-with-ai-coding-agents-miami-self-paced",
+          "syllabus_version": {
+            "id": 553,
+            "version": 2,
+            "slug": "working-with-ai-coding-agents",
+            "name": "Working with AI coding agents",
+            "syllabus": 349
+          }
+        },
+        {
+          "id": 1679,
+          "name": "Authentication in Web Applications",
+          "slug": "authentication-in-web-applications",
+          "syllabus_version": {
+            "id": 599,
+            "version": 2,
+            "slug": "authentication-in-web-applications",
+            "name": "Authentication in web applications",
+            "syllabus": 390
+          }
+        },
+        {
+          "id": 1683,
+          "name": "Personal Assistants with Open Claw Self Paced",
+          "slug": "personal-assistants-with-open-claw-self-paced-usa",
+          "syllabus_version": {
+            "id": 601,
+            "version": 2,
+            "slug": "personal-assistants-with-openclaw",
+            "name": "Personal assistants with Openclaw",
+            "syllabus": 391
+          }
+        }
+      ],
+      "language": "en",
+      "kickoff_date": "2026-05-27T00:00:00Z",
+      "ending_date": "2026-10-11T00:00:00Z",
+      "remote_available": true,
+      "syllabus_version": {
+        "version": 2,
+        "status": "PUBLISHED",
+        "slug": "ai-engineer-ft-15w",
+        "name": "AI Engineer FT 15w",
+        "syllabus": 348,
+        "duration_in_hours": 225,
+        "duration_in_days": 75,
+        "week_hours": 15,
+        "github_url": null,
+        "logo": "https://breathecode.herokuapp.com/v1/media/file/ai-engineer-logo-light-png?width=400",
+        "private": false
+      },
+      "academy": {
+        "id": 4,
+        "slug": "downtown-miami",
+        "name": "4Geeks Miami",
+        "country": {
+          "id": "us",
+          "code": "us",
+          "name": "USA"
+        },
+        "city": {
+          "id": 3,
+          "name": "Miami",
+          "country": {
+            "id": "us",
+            "code": "us",
+            "name": "USA"
+          }
+        },
+        "logo_url": "https://storage.googleapis.com/admissions-breathecode/location-downtown-miami",
+        "is_hidden_on_prework": true,
+        "main_currency": {
+          "code": "USD",
+          "name": "US Dollar"
+        }
+      },
+      "distance": null,
+      "timezone": "America/New_York",
+      "schedule": {
+        "id": 411,
+        "name": "FT ai-engineering",
+        "schedule_type": "PART-TIME",
+        "description": "Everyday of the week 10AM-1PM",
+        "syllabus": 348
+      },
+      "timeslots": [
+        {
+          "id": 2623,
+          "starting_at": "2026-02-23T15:00:00Z",
+          "ending_at": "2026-02-23T18:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2624,
+          "starting_at": "2026-02-24T15:00:00Z",
+          "ending_at": "2026-02-24T18:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2625,
+          "starting_at": "2026-02-25T15:00:00Z",
+          "ending_at": "2026-02-25T18:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2626,
+          "starting_at": "2026-02-26T15:00:00Z",
+          "ending_at": "2026-02-26T18:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2627,
+          "starting_at": "2026-02-27T15:00:00Z",
+          "ending_at": "2026-02-27T18:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        }
+      ]
+    },
+    {
+      "id": 1687,
+      "slug": "spain-fs-pt-139",
+      "name": "spain-fs-pt-139",
+      "never_ends": false,
+      "private": false,
+      "micro_cohorts": [],
+      "language": "es",
+      "kickoff_date": "2026-06-01T00:00:00Z",
+      "ending_date": "2026-10-02T00:00:00Z",
+      "remote_available": true,
+      "syllabus_version": {
+        "version": 4,
+        "status": "PUBLISHED",
+        "slug": "full-stack-pt-18w",
+        "name": "Full-Stack Software Developer 18w",
+        "syllabus": 152,
+        "duration_in_hours": 360,
+        "duration_in_days": 54,
+        "week_hours": 9,
+        "github_url": null,
+        "logo": "https://storage.googleapis.com/breathecode/logos-technologias/full-stack.png",
+        "private": false
+      },
+      "academy": {
+        "id": 6,
+        "slug": "madrid-spain",
+        "name": "4Geeks Madrid",
+        "country": {
+          "id": "es",
+          "code": "es",
+          "name": "Spain"
+        },
+        "city": {
+          "id": 1,
+          "name": "Madrid",
+          "country": {
+            "id": "es",
+            "code": "es",
+            "name": "Spain"
+          }
+        },
+        "logo_url": "https://storage.googleapis.com/admissions-breathecode/location-madrid-spain",
+        "is_hidden_on_prework": true,
+        "main_currency": {
+          "code": "EUR",
+          "name": "Euro"
+        }
+      },
+      "distance": null,
+      "timezone": "Europe/Madrid",
+      "schedule": {
+        "id": 407,
+        "name": "MWF-Rotativo",
+        "schedule_type": "PART-TIME",
+        "description": "Every monday, wednesday and friday from 10 to 13pm and from 18:30 to 21:30pm",
+        "syllabus": 152
+      },
+      "timeslots": [
+        {
+          "id": 2696,
+          "starting_at": "2026-02-09T09:00:00Z",
+          "ending_at": "2026-02-09T12:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2697,
+          "starting_at": "2026-02-09T17:30:00Z",
+          "ending_at": "2026-02-09T20:30:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2698,
+          "starting_at": "2026-02-11T09:00:00Z",
+          "ending_at": "2026-02-11T12:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2699,
+          "starting_at": "2026-02-11T17:30:00Z",
+          "ending_at": "2026-02-11T20:30:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2700,
+          "starting_at": "2026-02-13T09:00:00Z",
+          "ending_at": "2026-02-13T12:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2701,
+          "starting_at": "2026-02-13T17:30:00Z",
+          "ending_at": "2026-02-13T20:30:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        }
+      ]
+    },
+    {
+      "id": 1675,
+      "slug": "miami-ai-engineering-3",
+      "name": "miami-ai-engineering-3",
+      "never_ends": false,
+      "private": false,
+      "micro_cohorts": [
+        {
+          "id": 1602,
+          "name": "Web UI Fundamentals with Tailwind",
+          "slug": "web-ui-fundamentals-with-tailwind-miami-self-paced",
+          "syllabus_version": {
+            "id": 550,
+            "version": 2,
+            "slug": "web-ui-fundamentals-with-tailwind",
+            "name": "Web UI fundamentals with Tailwind",
+            "syllabus": 350
+          }
+        },
+        {
+          "id": 1603,
+          "name": "Command Line Git and Github",
+          "slug": "command-line-git-and-github",
+          "syllabus_version": {
+            "id": 551,
+            "version": 2,
+            "slug": "command-line-git-and-github",
+            "name": "Command Line, Git and Github",
+            "syllabus": 351
+          }
+        },
+        {
+          "id": 1604,
+          "name": "Coding Fundamentals with Typescript",
+          "slug": "coding-fundamentals-with-typescript-miami-self-paced",
+          "syllabus_version": {
+            "id": 552,
+            "version": 2,
+            "slug": "coding-fundamentals-with-typescript",
+            "name": "Coding fundamentals with TypeScript",
+            "syllabus": 352
+          }
+        },
+        {
+          "id": 1619,
+          "name": "Front End Development With Coding Agents",
+          "slug": "front-end-development-with-coding-agents-selfpaced-miami",
+          "syllabus_version": {
+            "id": 557,
+            "version": 2,
+            "slug": "frontend-development-with-coding-agents",
+            "name": "Frontend development with Coding Agents",
+            "syllabus": 354
+          }
+        },
+        {
+          "id": 1680,
+          "name": "Coding Fundamentals with Python Miami",
+          "slug": "coding-fundamentals-with-python-miami",
+          "syllabus_version": {
+            "id": 558,
+            "version": 2,
+            "slug": "coding-fundamentals-with-python",
+            "name": "Coding fundamentals with Python",
+            "syllabus": 353
+          }
+        },
+        {
+          "id": 1681,
+          "name": "Backend Development with Coding Agents Miami",
+          "slug": "backend-development-with-coding-agents-miami",
+          "syllabus_version": {
+            "id": 596,
+            "version": 2,
+            "slug": "backend-development-with-coding-agents",
+            "name": "Backend development with Coding Agents",
+            "syllabus": 389
+          }
+        },
+        {
+          "id": 1605,
+          "name": "Working with AI Coding Agents",
+          "slug": "working-with-ai-coding-agents-miami-self-paced",
+          "syllabus_version": {
+            "id": 553,
+            "version": 2,
+            "slug": "working-with-ai-coding-agents",
+            "name": "Working with AI coding agents",
+            "syllabus": 349
+          }
+        },
+        {
+          "id": 1679,
+          "name": "Authentication in Web Applications",
+          "slug": "authentication-in-web-applications",
+          "syllabus_version": {
+            "id": 599,
+            "version": 2,
+            "slug": "authentication-in-web-applications",
+            "name": "Authentication in web applications",
+            "syllabus": 390
+          }
+        },
+        {
+          "id": 1683,
+          "name": "Personal Assistants with Open Claw Self Paced",
+          "slug": "personal-assistants-with-open-claw-self-paced-usa",
+          "syllabus_version": {
+            "id": 601,
+            "version": 2,
+            "slug": "personal-assistants-with-openclaw",
+            "name": "Personal assistants with Openclaw",
+            "syllabus": 391
+          }
+        }
+      ],
+      "language": "en",
+      "kickoff_date": "2026-06-17T22:00:00Z",
+      "ending_date": "2026-11-28T00:00:00Z",
+      "remote_available": true,
+      "syllabus_version": {
+        "version": 2,
+        "status": "PUBLISHED",
+        "slug": "ai-engineer",
+        "name": "AI Engineer",
+        "syllabus": 338,
+        "duration_in_hours": 480,
+        "duration_in_days": 72,
+        "week_hours": 20,
+        "github_url": null,
+        "logo": "https://breathecode.herokuapp.com/v1/media/file/ai-engineer-logo-light-png?width=400",
+        "private": false
+      },
+      "academy": {
+        "id": 4,
+        "slug": "downtown-miami",
+        "name": "4Geeks Miami",
+        "country": {
+          "id": "us",
+          "code": "us",
+          "name": "USA"
+        },
+        "city": {
+          "id": 3,
+          "name": "Miami",
+          "country": {
+            "id": "us",
+            "code": "us",
+            "name": "USA"
+          }
+        },
+        "logo_url": "https://storage.googleapis.com/admissions-breathecode/location-downtown-miami",
+        "is_hidden_on_prework": true,
+        "main_currency": {
+          "code": "USD",
+          "name": "US Dollar"
+        }
+      },
+      "distance": null,
+      "timezone": "America/New_York",
+      "schedule": {
+        "id": 406,
+        "name": "Monday- Wednesday-Friday-6PM-9PM",
+        "schedule_type": "PART-TIME",
+        "description": "Monday- Wednesday-Friday-6PM-9PM",
+        "syllabus": 338
+      },
+      "timeslots": [
+        {
+          "id": 2687,
+          "starting_at": "2026-01-19T23:00:00Z",
+          "ending_at": "2026-01-20T02:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2688,
+          "starting_at": "2026-01-21T23:00:00Z",
+          "ending_at": "2026-01-22T02:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2689,
+          "starting_at": "2026-01-23T23:00:00Z",
+          "ending_at": "2026-01-24T02:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        }
+      ]
+    },
+    {
+      "id": 1673,
+      "slug": "miami-data-science-16",
+      "name": "miami-data-science-16",
+      "never_ends": false,
+      "private": false,
+      "micro_cohorts": [],
+      "language": "en",
+      "kickoff_date": "2026-06-22T22:00:00Z",
+      "ending_date": "2026-10-17T00:00:00Z",
+      "remote_available": true,
+      "syllabus_version": {
+        "version": 6,
+        "status": "PUBLISHED",
+        "slug": "machine-learning-pt-16w",
+        "name": "Data Science and Machine Learning - 16 wks",
+        "syllabus": 42,
+        "duration_in_hours": 320,
+        "duration_in_days": 48,
+        "week_hours": 20,
+        "github_url": null,
+        "logo": "https://storage.googleapis.com/breathecode/logos-technologias/datascience.jpg",
+        "private": false
+      },
+      "academy": {
+        "id": 4,
+        "slug": "downtown-miami",
+        "name": "4Geeks Miami",
+        "country": {
+          "id": "us",
+          "code": "us",
+          "name": "USA"
+        },
+        "city": {
+          "id": 3,
+          "name": "Miami",
+          "country": {
+            "id": "us",
+            "code": "us",
+            "name": "USA"
+          }
+        },
+        "logo_url": "https://storage.googleapis.com/admissions-breathecode/location-downtown-miami",
+        "is_hidden_on_prework": true,
+        "main_currency": {
+          "code": "USD",
+          "name": "US Dollar"
+        }
+      },
+      "distance": null,
+      "timezone": "America/New_York",
+      "schedule": {
+        "id": 35,
+        "name": "Mon-Wed-Fri 6pm-9pm",
+        "schedule_type": "PART-TIME",
+        "description": "Mon-Wed-Fri 6pm-9pm",
+        "syllabus": 42
+      },
+      "timeslots": [
+        {
+          "id": 2679,
+          "starting_at": "2022-05-02T22:00:00Z",
+          "ending_at": "2022-05-03T01:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2680,
+          "starting_at": "2022-05-04T22:00:00Z",
+          "ending_at": "2022-05-05T01:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2681,
+          "starting_at": "2022-05-06T22:00:00Z",
+          "ending_at": "2022-05-07T01:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        }
+      ]
+    },
+    {
+      "id": 1678,
+      "slug": "miami-ft-ai-engineering-3",
+      "name": "miami-ft-ai-engineering-3",
+      "never_ends": false,
+      "private": false,
+      "micro_cohorts": [
+        {
+          "id": 1602,
+          "name": "Web UI Fundamentals with Tailwind",
+          "slug": "web-ui-fundamentals-with-tailwind-miami-self-paced",
+          "syllabus_version": {
+            "id": 550,
+            "version": 2,
+            "slug": "web-ui-fundamentals-with-tailwind",
+            "name": "Web UI fundamentals with Tailwind",
+            "syllabus": 350
+          }
+        },
+        {
+          "id": 1603,
+          "name": "Command Line Git and Github",
+          "slug": "command-line-git-and-github",
+          "syllabus_version": {
+            "id": 551,
+            "version": 2,
+            "slug": "command-line-git-and-github",
+            "name": "Command Line, Git and Github",
+            "syllabus": 351
+          }
+        },
+        {
+          "id": 1604,
+          "name": "Coding Fundamentals with Typescript",
+          "slug": "coding-fundamentals-with-typescript-miami-self-paced",
+          "syllabus_version": {
+            "id": 552,
+            "version": 2,
+            "slug": "coding-fundamentals-with-typescript",
+            "name": "Coding fundamentals with TypeScript",
+            "syllabus": 352
+          }
+        },
+        {
+          "id": 1619,
+          "name": "Front End Development With Coding Agents",
+          "slug": "front-end-development-with-coding-agents-selfpaced-miami",
+          "syllabus_version": {
+            "id": 557,
+            "version": 2,
+            "slug": "frontend-development-with-coding-agents",
+            "name": "Frontend development with Coding Agents",
+            "syllabus": 354
+          }
+        },
+        {
+          "id": 1680,
+          "name": "Coding Fundamentals with Python Miami",
+          "slug": "coding-fundamentals-with-python-miami",
+          "syllabus_version": {
+            "id": 558,
+            "version": 2,
+            "slug": "coding-fundamentals-with-python",
+            "name": "Coding fundamentals with Python",
+            "syllabus": 353
+          }
+        },
+        {
+          "id": 1681,
+          "name": "Backend Development with Coding Agents Miami",
+          "slug": "backend-development-with-coding-agents-miami",
+          "syllabus_version": {
+            "id": 596,
+            "version": 2,
+            "slug": "backend-development-with-coding-agents",
+            "name": "Backend development with Coding Agents",
+            "syllabus": 389
+          }
+        },
+        {
+          "id": 1605,
+          "name": "Working with AI Coding Agents",
+          "slug": "working-with-ai-coding-agents-miami-self-paced",
+          "syllabus_version": {
+            "id": 553,
+            "version": 2,
+            "slug": "working-with-ai-coding-agents",
+            "name": "Working with AI coding agents",
+            "syllabus": 349
+          }
+        },
+        {
+          "id": 1679,
+          "name": "Authentication in Web Applications",
+          "slug": "authentication-in-web-applications",
+          "syllabus_version": {
+            "id": 599,
+            "version": 2,
+            "slug": "authentication-in-web-applications",
+            "name": "Authentication in web applications",
+            "syllabus": 390
+          }
+        },
+        {
+          "id": 1683,
+          "name": "Personal Assistants with Open Claw Self Paced",
+          "slug": "personal-assistants-with-open-claw-self-paced-usa",
+          "syllabus_version": {
+            "id": 601,
+            "version": 2,
+            "slug": "personal-assistants-with-openclaw",
+            "name": "Personal assistants with Openclaw",
+            "syllabus": 391
+          }
+        }
+      ],
+      "language": "en",
+      "kickoff_date": "2026-07-06T14:00:00Z",
+      "ending_date": "2026-10-23T16:00:00Z",
+      "remote_available": true,
+      "syllabus_version": {
+        "version": 2,
+        "status": "PUBLISHED",
+        "slug": "ai-engineer-ft-15w",
+        "name": "AI Engineer FT 15w",
+        "syllabus": 348,
+        "duration_in_hours": 225,
+        "duration_in_days": 75,
+        "week_hours": 15,
+        "github_url": null,
+        "logo": "https://breathecode.herokuapp.com/v1/media/file/ai-engineer-logo-light-png?width=400",
+        "private": false
+      },
+      "academy": {
+        "id": 4,
+        "slug": "downtown-miami",
+        "name": "4Geeks Miami",
+        "country": {
+          "id": "us",
+          "code": "us",
+          "name": "USA"
+        },
+        "city": {
+          "id": 3,
+          "name": "Miami",
+          "country": {
+            "id": "us",
+            "code": "us",
+            "name": "USA"
+          }
+        },
+        "logo_url": "https://storage.googleapis.com/admissions-breathecode/location-downtown-miami",
+        "is_hidden_on_prework": true,
+        "main_currency": {
+          "code": "USD",
+          "name": "US Dollar"
+        }
+      },
+      "distance": null,
+      "timezone": "America/New_York",
+      "schedule": {
+        "id": 411,
+        "name": "FT ai-engineering",
+        "schedule_type": "PART-TIME",
+        "description": "Everyday of the week 10AM-1PM",
+        "syllabus": 348
+      },
+      "timeslots": [
+        {
+          "id": 2682,
+          "starting_at": "2026-02-23T15:00:00Z",
+          "ending_at": "2026-02-23T18:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2683,
+          "starting_at": "2026-02-24T15:00:00Z",
+          "ending_at": "2026-02-24T18:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2684,
+          "starting_at": "2026-02-25T15:00:00Z",
+          "ending_at": "2026-02-25T18:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2685,
+          "starting_at": "2026-02-26T15:00:00Z",
+          "ending_at": "2026-02-26T18:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2686,
+          "starting_at": "2026-02-27T15:00:00Z",
+          "ending_at": "2026-02-27T18:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        }
+      ]
+    },
+    {
+      "id": 1676,
+      "slug": "miami-ai-engineering-4",
+      "name": "miami-ai-engineering-4",
+      "never_ends": false,
+      "private": false,
+      "micro_cohorts": [
+        {
+          "id": 1602,
+          "name": "Web UI Fundamentals with Tailwind",
+          "slug": "web-ui-fundamentals-with-tailwind-miami-self-paced",
+          "syllabus_version": {
+            "id": 550,
+            "version": 2,
+            "slug": "web-ui-fundamentals-with-tailwind",
+            "name": "Web UI fundamentals with Tailwind",
+            "syllabus": 350
+          }
+        },
+        {
+          "id": 1603,
+          "name": "Command Line Git and Github",
+          "slug": "command-line-git-and-github",
+          "syllabus_version": {
+            "id": 551,
+            "version": 2,
+            "slug": "command-line-git-and-github",
+            "name": "Command Line, Git and Github",
+            "syllabus": 351
+          }
+        },
+        {
+          "id": 1604,
+          "name": "Coding Fundamentals with Typescript",
+          "slug": "coding-fundamentals-with-typescript-miami-self-paced",
+          "syllabus_version": {
+            "id": 552,
+            "version": 2,
+            "slug": "coding-fundamentals-with-typescript",
+            "name": "Coding fundamentals with TypeScript",
+            "syllabus": 352
+          }
+        },
+        {
+          "id": 1619,
+          "name": "Front End Development With Coding Agents",
+          "slug": "front-end-development-with-coding-agents-selfpaced-miami",
+          "syllabus_version": {
+            "id": 557,
+            "version": 2,
+            "slug": "frontend-development-with-coding-agents",
+            "name": "Frontend development with Coding Agents",
+            "syllabus": 354
+          }
+        }
+      ],
+      "language": "en",
+      "kickoff_date": "2026-07-20T22:00:00Z",
+      "ending_date": "2027-01-26T00:00:00Z",
+      "remote_available": true,
+      "syllabus_version": {
+        "version": 2,
+        "status": "PUBLISHED",
+        "slug": "ai-engineer",
+        "name": "AI Engineer",
+        "syllabus": 338,
+        "duration_in_hours": 480,
+        "duration_in_days": 72,
+        "week_hours": 20,
+        "github_url": null,
+        "logo": "https://breathecode.herokuapp.com/v1/media/file/ai-engineer-logo-light-png?width=400",
+        "private": false
+      },
+      "academy": {
+        "id": 4,
+        "slug": "downtown-miami",
+        "name": "4Geeks Miami",
+        "country": {
+          "id": "us",
+          "code": "us",
+          "name": "USA"
+        },
+        "city": {
+          "id": 3,
+          "name": "Miami",
+          "country": {
+            "id": "us",
+            "code": "us",
+            "name": "USA"
+          }
+        },
+        "logo_url": "https://storage.googleapis.com/admissions-breathecode/location-downtown-miami",
+        "is_hidden_on_prework": true,
+        "main_currency": {
+          "code": "USD",
+          "name": "US Dollar"
+        }
+      },
+      "distance": null,
+      "timezone": "America/New_York",
+      "schedule": {
+        "id": 406,
+        "name": "Monday- Wednesday-Friday-6PM-9PM",
+        "schedule_type": "PART-TIME",
+        "description": "Monday- Wednesday-Friday-6PM-9PM",
+        "syllabus": 338
+      },
+      "timeslots": [
+        {
+          "id": 2690,
+          "starting_at": "2026-01-19T23:00:00Z",
+          "ending_at": "2026-01-20T02:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2691,
+          "starting_at": "2026-01-21T23:00:00Z",
+          "ending_at": "2026-01-22T02:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2692,
+          "starting_at": "2026-01-23T23:00:00Z",
+          "ending_at": "2026-01-24T02:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        }
+      ]
+    },
+    {
+      "id": 1677,
+      "slug": "miami-ai-engineering-5",
+      "name": "miami-ai-engineering-5",
+      "never_ends": false,
+      "private": false,
+      "micro_cohorts": [
+        {
+          "id": 1602,
+          "name": "Web UI Fundamentals with Tailwind",
+          "slug": "web-ui-fundamentals-with-tailwind-miami-self-paced",
+          "syllabus_version": {
+            "id": 550,
+            "version": 2,
+            "slug": "web-ui-fundamentals-with-tailwind",
+            "name": "Web UI fundamentals with Tailwind",
+            "syllabus": 350
+          }
+        },
+        {
+          "id": 1603,
+          "name": "Command Line Git and Github",
+          "slug": "command-line-git-and-github",
+          "syllabus_version": {
+            "id": 551,
+            "version": 2,
+            "slug": "command-line-git-and-github",
+            "name": "Command Line, Git and Github",
+            "syllabus": 351
+          }
+        },
+        {
+          "id": 1604,
+          "name": "Coding Fundamentals with Typescript",
+          "slug": "coding-fundamentals-with-typescript-miami-self-paced",
+          "syllabus_version": {
+            "id": 552,
+            "version": 2,
+            "slug": "coding-fundamentals-with-typescript",
+            "name": "Coding fundamentals with TypeScript",
+            "syllabus": 352
+          }
+        },
+        {
+          "id": 1619,
+          "name": "Front End Development With Coding Agents",
+          "slug": "front-end-development-with-coding-agents-selfpaced-miami",
+          "syllabus_version": {
+            "id": 557,
+            "version": 2,
+            "slug": "frontend-development-with-coding-agents",
+            "name": "Frontend development with Coding Agents",
+            "syllabus": 354
+          }
+        }
+      ],
+      "language": "en",
+      "kickoff_date": "2026-08-24T22:00:00Z",
+      "ending_date": "2027-02-27T00:00:00Z",
+      "remote_available": true,
+      "syllabus_version": {
+        "version": 2,
+        "status": "PUBLISHED",
+        "slug": "ai-engineer",
+        "name": "AI Engineer",
+        "syllabus": 338,
+        "duration_in_hours": 480,
+        "duration_in_days": 72,
+        "week_hours": 20,
+        "github_url": null,
+        "logo": "https://breathecode.herokuapp.com/v1/media/file/ai-engineer-logo-light-png?width=400",
+        "private": false
+      },
+      "academy": {
+        "id": 4,
+        "slug": "downtown-miami",
+        "name": "4Geeks Miami",
+        "country": {
+          "id": "us",
+          "code": "us",
+          "name": "USA"
+        },
+        "city": {
+          "id": 3,
+          "name": "Miami",
+          "country": {
+            "id": "us",
+            "code": "us",
+            "name": "USA"
+          }
+        },
+        "logo_url": "https://storage.googleapis.com/admissions-breathecode/location-downtown-miami",
+        "is_hidden_on_prework": true,
+        "main_currency": {
+          "code": "USD",
+          "name": "US Dollar"
+        }
+      },
+      "distance": null,
+      "timezone": "America/New_York",
+      "schedule": {
+        "id": 406,
+        "name": "Monday- Wednesday-Friday-6PM-9PM",
+        "schedule_type": "PART-TIME",
+        "description": "Monday- Wednesday-Friday-6PM-9PM",
+        "syllabus": 338
+      },
+      "timeslots": [
+        {
+          "id": 2693,
+          "starting_at": "2026-01-19T23:00:00Z",
+          "ending_at": "2026-01-20T02:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2694,
+          "starting_at": "2026-01-21T23:00:00Z",
+          "ending_at": "2026-01-22T02:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        },
+        {
+          "id": 2695,
+          "starting_at": "2026-01-23T23:00:00Z",
+          "ending_at": "2026-01-24T02:00:00Z",
+          "recurrent": true,
+          "recurrency_type": "WEEKLY"
+        }
+      ]
+    }
+  ],
+  "raw_count": 7
+}
