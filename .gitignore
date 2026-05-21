@@ -5,6 +5,7 @@ artifacts
 
 # Local DB/cache seed JSON (generated in dev, not versioned)
 .cache/
+desarrollo/
 
 # Conversation screenshots (not marketing content)
 attached_assets/Screenshot_*
