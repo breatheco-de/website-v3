@@ -32,3 +32,4 @@ reports/lighthouse/**/*.json
 # Cursor IDE settings (optional - uncomment if not sharing rules)
 # Note: .cursor/rules/ should be committed if sharing team rules
 # .cursor/.cache/
+.cursor/rules/personal-rules.mdc

@@ -1,0 +1,333 @@
+{
+  "fetched_at": "2026-05-21T15:06:19.529Z",
+  "items": [
+    {
+      "locale": "en",
+      "title": "4Geeks, Harvard, Oxford, and Columbia chosen to deliver AI education by the Government of the Bahamas.",
+      "category": "Government",
+      "excerpt": "When institutions with due diligence requirements and public accountability choose a coding school, they do not choose lightly.",
+      "priority": 1,
+      "organization": "Government of the Bahamas",
+      "year": "2018",
+      "tags": [
+        "Harvard",
+        "Oxford",
+        "Columbia",
+        "4Geeks"
+      ],
+      "link_url": "https://www.entnerd.com/startup-chilena-es-reclutada-por-bahamas-junto-a-oxford-columbia-y-harvard-para-dar-clases-gratuitas-online/",
+      "link_text": "Read article",
+      "image": "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&q=80"
+    },
+    {
+      "locale": "en",
+      "title": "Exclusive Tech Training Partner for IDB Workforce Programs Across 3 Countries",
+      "category": "Multilateral  Institution",
+      "excerpt": "The largest development bank in Latin America  chose 4Geeks as their sole coding school partner across Costa Rica, Uruguay and Mexico after evaluating multiple providers. Over 600 graduates have completed the program, running continuously since 2020.",
+      "priority": 2,
+      "organization": "Inter-American Development Bank",
+      "stat_label": "countries",
+      "stat_value": "3",
+      "tags": [
+        "Costa Rica",
+        "Uruguay",
+        "Mexico"
+      ]
+    },
+    {
+      "locale": "en",
+      "title": "Selected to Run a Tech Training Program for Women from High-Unemployment Areas in Costa Rica",
+      "category": "Non-Profit",
+      "excerpt": " The Costa Rica-US Foundation for Cooperation selected 4Geeks to deliver employment-first tech training, targeting women from high-unemployment areas. Two cohorts completed with a 100% graduation rate and 75% hiring rate.\n",
+      "priority": 9,
+      "organization": "CRUSA Foundation · Costa Rica",
+      "stat_label": "graduation rate across both cohorts",
+      "stat_value": "100% ",
+      "tags": [
+        "Costa Rica"
+      ]
+    },
+    {
+      "locale": "en",
+      "title": "Selected by the Bahamas Government for National AI Education, Alongside Harvard, Oxford and Columbia",
+      "category": "Government Partnership",
+      "excerpt": "The Bahamas government contracted 4Geeks to reskill their national workforce for the AI economy. First Caribbean deployment for 4Geeks, in a country whose tech industry is growing at 18% annually.\n",
+      "priority": 4,
+      "organization": "Bahamas Upskilling Project ",
+      "stat_label": "annual tech industry growth in the Bahamas",
+      "stat_value": "18% ",
+      "tags": [
+        "The Bahamas"
+      ]
+    },
+    {
+      "locale": "en",
+      "title": "8 Years as the Tech Curriculum Partner for One of the Largest Colleges in the U.S.",
+      "category": "University Partnership",
+      "excerpt": "8 years as the tech curriculum partner for one of the largest colleges in the United States\nDescription: Miami Dade College serves 160,000+ students annually across Miami-Dade County. Over 400 students have completed 4Geeks programs through this partnership, across Full Stack, Web Development and Applied AI, graduating with a dual certification by both institutions.\n\n\n",
+      "priority": 5,
+      "stat_label": "graduates, 8 years and counting",
+      "stat_value": "Stat: 400+",
+      "tags": [
+        "South Florida"
+      ]
+    },
+    {
+      "locale": "en",
+      "title": "The Only Coding School Chosen for MacKenzie Scott-Funded Workforce Initiative in Miami",
+      "category": "Non-Profit",
+      "excerpt": "United Way Miami chose 4Geeks to receive 100 fully funded scholarships for Miami-Dade residents changing careers into tech, covering tuition and living stipends. Over 1,000 people applied.\n",
+      "priority": 6,
+      "organization": "United Way Miami",
+      "stat_label": "max living stipend per student",
+      "stat_value": "$6,400 ",
+      "tags": [
+        "South Florida"
+      ]
+    },
+    {
+      "locale": "en",
+      "title": "Chosen by Clark University  as Tech Education Partner for a US Department of Labor Workforce Program",
+      "category": "University Partnership",
+      "excerpt": "Clark University selected 4Geeks as their IT education providers for TechBoost, a national workforce program funded by the US Department of Labor. $4,000 scholarships were made available directly toward 4Geeks program tuition for qualifying students nationwide.",
+      "priority": 7,
+      "organization": " Clark University ",
+      "stat_label": "scholarship per student",
+      "stat_value": "$4,000",
+      "tags": [
+        "South Florida"
+      ]
+    },
+    {
+      "locale": "en",
+      "title": "5 Best Online Full-Stack Bootcamps Of 2024",
+      "excerpt": "Full-stack developers create and troubleshoot both the back-end and front-end of websites and software—an indispensable skill set for companies across industries.",
+      "priority": 18,
+      "logo": "https://storage.googleapis.com/4geeks-academy-website/media/forbes-logo-award_1764709625651.webp",
+      "link_url": "https://www.forbes.com/advisor/education/bootcamps/best-full-stack-developer-bootcamp/",
+      "link_text": "Read Article"
+    },
+    {
+      "locale": "en",
+      "title": "Best Data Science Bootcamps Online In 2024",
+      "excerpt": "Current and prospective tech professionals can complete data science bootcamps to sharpen their existing skills, change fields or advance in their current careers.",
+      "priority": 12,
+      "logo": "https://storage.googleapis.com/4geeks-academy-website/media/forbes-logo-award_1764709625651.webp",
+      "link_url": "https://www.forbes.com/advisor/education/bootcamps/best-data-science-bootcamps/",
+      "link_text": "Read Article"
+    },
+    {
+      "locale": "en",
+      "title": "Global Coding Bootcamp Market 2021-2025",
+      "excerpt": "The publisher's robust vendor analysis is designed to help clients improve their market position, and in line with this, this report provides a detailed analysis of several leading coding bootcamp market vendors that include 4Geeks Academy LLC",
+      "priority": 13,
+      "logo": "businesswire-logo",
+      "link_url": "https://www.businesswire.com/news/home/20210519005401/en/Global-Coding-Bootcamp-Market-2021-2025---Low-Cost-of-Bootcamps-and-an-Increase-in-Student-Enrollments-to-Drive-Growth---ResearchAndMarkets.com",
+      "link_text": "Read Article"
+    },
+    {
+      "locale": "en",
+      "title": "Miami-based coding school 4Geeks is breaking down the barriers to becoming a software developer",
+      "excerpt": "Miami-based Marcelo Ricigliano is helping South Floridians hope on these trends and change their lives. Ricigliano is the CEO of coding school 4Geeks Academy, which aims to lower the barrier to entry to tech jobs.",
+      "priority": 14,
+      "logo": "refresh-miami-logo",
+      "link_url": "https://refreshmiami.com/miami-based-coding-school-4geeks-is-breaking-down-the-barriers-to-becoming-a-software-developer/",
+      "link_text": "See Interview"
+    },
+    {
+      "locale": "en",
+      "title": "Web Development Coding Bootcamp",
+      "excerpt": "On a research made and published by Forbes while specified all the possible ways you can become a web developer in the USA.",
+      "priority": 16,
+      "logo": "https://storage.googleapis.com/4geeks-academy-website/media/forbes-logo-award_1764709625651.webp",
+      "link_url": "https://www.forbes.com/advisor/education/what-is-web-development",
+      "link_text": "Read Article"
+    },
+    {
+      "locale": "en",
+      "title": "Student With Autism Learns to Code",
+      "excerpt": "Victor Fitchhorn, who has autism, is learning how to code at Miami-based 4Geeks Academy, a coding bootcamp. NBC 6's Ari Odzer reports.",
+      "priority": 17,
+      "logo": "nbc-logo",
+      "link_url": "https://www.nbcmiami.com/on-air/as-seen-on/students-with-autism-learn-to-code_miami/159640/",
+      "link_text": "Watch Video"
+    },
+    {
+      "locale": "en",
+      "title": "Chosen by Uruguay's National University to Teach  Nationwide Tech Programs",
+      "category": "University Partnership",
+      "excerpt": "\nThe Inter-American Development Bank funded 4Geeks and UTEC to deliver Full Stack and AI programs remotely and in-person, reaching communities across the entire country. 200+ graduates with programs ongoing since 2021.",
+      "priority": 8,
+      "organization": "UTEC · Universidad Tecnológica del Uruguay",
+      "stat_label": "graduates, programs ongoing since 2021",
+      "stat_value": "200+",
+      "tags": [
+        "Uruguay"
+      ]
+    },
+    {
+      "locale": "en",
+      "title": "Selected in Mexico to Deliver Tech Training for Women, with 90%  Funded  by Foundation",
+      "category": "Non-Profit ",
+      "excerpt": "Fundación ACAPI partnered with 4Geeks to deliver tech training reserving 75% of seats for women, with multiple cohorts running since launch. Graduates achieved a 91% graduation rate, 80% employment rate, and an average salary increase of 53%.",
+      "priority": 10,
+      "organization": "Fundación ACAPI · Mexico",
+      "stat_label": "employment rate post-graduation",
+      "stat_value": "80%",
+      "tags": [
+        "Mexico"
+      ]
+    },
+    {
+      "locale": "en",
+      "title": "Chosen from 50+ Applicants to Train South Florida's Workforce Through a US Federal Government Grant",
+      "category": "University Partnerships",
+      "excerpt": "Miami Dade College chose 4Geeks to deliver workforce training for underserved communities under a $10M federal EDA grant. 74 graduates placed in tech roles averaging $74K annually. Every federal placement target met and exceeded.\n",
+      "priority": 3,
+      "organization": "Miami Dade College/ U.S. Economic Development Administration ",
+      "stat_label": " of federal placement targets achieved",
+      "stat_value": "116% ",
+      "tags": [
+        "South Florida"
+      ]
+    },
+    {
+      "locale": "en",
+      "title": "Selected for the Texas Workforce Commission's Initiative to Train Dallas Residents",
+      "category": "U.S. State Government",
+      "excerpt": "\n\nDescription: Kosmos, a nonprofit focused on career readiness, chose 4Geeks to deliver fully funded tech training for unemployed and underemployed Dallas residents as part of the Texas Workforce Commission's Lone Star Workforce of the Future program.\n",
+      "priority": 11,
+      "organization": "Texas Workforce Commission · Lone Star Workforce of the Future",
+      "stat_label": "full scholarships for Dallas residents",
+      "stat_value": "25"
+    },
+    {
+      "locale": "es",
+      "title": "4Geeks, Harvard, Oxford y Columbia elegidos para impartir educación en IA por el Gobierno de las Bahamas.",
+      "category": "Gobierno",
+      "excerpt": "Cuando instituciones con exigencias de debida diligencia y rendición de cuentas públicas eligen una escuela de programación, no lo hacen a la ligera.",
+      "priority": 1,
+      "year": "2026",
+      "tags": [
+        "Harvard",
+        "Oxford",
+        "Columbia",
+        "4Geeks"
+      ],
+      "link_url": "https://www.entnerd.com/startup-chilena-es-reclutada-por-bahamas-junto-a-oxford-columbia-y-harvard-para-dar-clases-gratuitas-online/",
+      "link_text": "Leer artículo",
+      "image": "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&q=80"
+    },
+    {
+      "locale": "es",
+      "title": "Socio exclusivo de formación tecnológica para programas laborales del BID en 3 países",
+      "category": "Multilateral",
+      "excerpt": "El mayor banco de desarrollo de América Latina eligió a 4Geeks como su único socio en Costa Rica, Uruguay y México tras evaluar múltiples proveedores. Más de 600 graduados, en funcionamiento continuo desde 2020.",
+      "priority": 2,
+      "organization": "Banco Interamericano de Desarrollo",
+      "stat_label": "países",
+      "stat_value": "3",
+      "tags": [
+        "Costa Rica",
+        "Uruguay",
+        "Mexico"
+      ]
+    },
+    {
+      "locale": "es",
+      "title": "Elegidos entre más de 50 postulantes para formar la fuerza laboral del sur de Florida mediante una subvención federal de EE.UU.",
+      "category": "Universidad",
+      "excerpt": "Miami Dade College eligió a 4Geeks para impartir formación laboral a comunidades desatendidas bajo una subvención federal EDA de $10M. 74 graduados colocados en roles tecnológicos con un salario promedio de $74K anuales.",
+      "priority": 3,
+      "organization": "Miami Dade College / EDA de EE.UU",
+      "stat_label": "metas federales alcanzadas",
+      "stat_value": "116%"
+    },
+    {
+      "locale": "es",
+      "title": "Seleccionados por el Gobierno de las Bahamas para educación nacional en IA, junto a Harvard, Oxford y Columbia",
+      "category": "Gobierno",
+      "excerpt": "El gobierno de las Bahamas contrató a 4Geeks para reconvertir su fuerza laboral nacional hacia la economía de IA. Primer despliegue caribeño de 4Geeks, en un país cuya industria tecnológica crece un 18% anual.",
+      "priority": 4,
+      "organization": "Proyecto de Capacitación de las Bahamas",
+      "stat_label": "crecimiento tech anual",
+      "stat_value": "18%",
+      "tags": [
+        "Bahamas"
+      ]
+    },
+    {
+      "locale": "es",
+      "title": "8 años como socio de currículo tecnológico de una de las universidades más grandes de EE.UU.",
+      "category": "Universidad",
+      "excerpt": "Miami Dade College atiende a más de 160.000 estudiantes al año. Más de 400 estudiantes han completado programas de 4Geeks a través de esta alianza, graduándose con doble certificación de ambas instituciones.",
+      "priority": 5,
+      "organization": "Miami Dade College · Educación Continua",
+      "stat_label": "graduados en 8 años",
+      "stat_value": "400+",
+      "tags": [
+        "Sur de Florida"
+      ]
+    },
+    {
+      "locale": "es",
+      "title": "La única escuela de programación elegida para la iniciativa laboral financiada por MacKenzie Scott en Miami",
+      "category": "ONG",
+      "excerpt": "United Way Miami eligió a 4Geeks para recibir 100 becas completas para residentes de Miami-Dade que buscan cambiar de carrera hacia la tecnología. Más de 1,000 personas aplicaron.",
+      "priority": 6,
+      "organization": "United Way Miami",
+      "stat_label": "estipendio máximo",
+      "stat_value": "$6,400",
+      "tags": [
+        "Sur de Florida"
+      ]
+    },
+    {
+      "locale": "es",
+      "title": "Elegidos por Clark University para ejecutar el proyecto de desarrollo laboral de Miami",
+      "category": "Universidad",
+      "excerpt": "Clark University otorgó becas de hasta $4,000 por estudiante, aplicadas directamente a la matrícula de 4Geeks, para residentes desempleados de Miami-Dade. Cero costo inicial. Todas las metas fueron superadas.",
+      "priority": 7,
+      "organization": "Clark University",
+      "stat_label": "beca por estudiante",
+      "stat_value": "$4,000",
+      "tags": [
+        "Sur de Florida"
+      ]
+    },
+    {
+      "locale": "es",
+      "title": "Elegidos por la universidad nacional de Uruguay para impartir programas tecnológicos en todo el país",
+      "category": "Universidad",
+      "excerpt": "El BID financió a 4Geeks y UTEC para impartir programas de Full Stack e IA de forma remota y presencial, llegando a comunidades en todo el país. Más de 200 graduados con programas en funcionamiento desde 2021.",
+      "priority": 8,
+      "organization": "UTEC · Universidad Tecnológica del Uruguay",
+      "stat_label": "graduados desde 2021",
+      "stat_value": "200+"
+    },
+    {
+      "locale": "es",
+      "title": "Seleccionados para ejecutar un programa de formación tecnológica para mujeres en zonas de alto desempleo en Costa Rica",
+      "category": "ONG",
+      "excerpt": "La Fundación CRUSA seleccionó a 4Geeks para impartir formación tecnológica orientada al empleo, dirigida a mujeres de zonas de alto desempleo. Dos cohortes con tasa de graduación del 100% y contratación del 75%.",
+      "priority": 9,
+      "organization": "Fundación CRUSA · Costa Rica",
+      "stat_label": "tasa de graduación",
+      "stat_value": "100%",
+      "tags": [
+        "Costa Rica"
+      ]
+    },
+    {
+      "locale": "es",
+      "title": "Seleccionados en México para formación tecnológica para mujeres, con 90% financiado por fundación",
+      "category": "ONG",
+      "excerpt": "Fundación ACAPI seleccionó a 4Geeks y cubrió el 90% de los costos del programa, reservando el 75% de los cupos para mujeres. Tasa de graduación del 91%, empleo del 80% y aumento salarial promedio del 53%.",
+      "priority": 10,
+      "organization": "Fundación ACAPI · México",
+      "stat_label": "tasa de empleo",
+      "stat_value": "80%"
+    }
+  ],
+  "raw_count": 27
+}
