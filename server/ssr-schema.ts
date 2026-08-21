@@ -23,6 +23,55 @@ import {
 import { child } from "./logger";
 const log = child({ module: "ssr-schema" });
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Match a single `<meta …>` (possibly multiline) that carries attr="value".
+ * Stops at the tag's own `>` so it does not swallow neighboring metas.
+ */
+function removeMetaTagsByAttr(html: string, attr: "name" | "property", value: string): string {
+  const re = new RegExp(
+    `<meta\\b(?:(?!\\/?>)[\\s\\S])*?\\b${attr}\\s*=\\s*["']${escapeRegExp(value)}["'](?:(?!\\/?>)[\\s\\S])*?\\/?>\\s*`,
+    "gi",
+  );
+  return html.replace(re, "");
+}
+
+/**
+ * Append SSR head fragments without duplicating tags already present in the
+ * document shell (index.html defaults and/or injectSsrMetaTags updates).
+ */
+export function injectSsrSchemaHtml(html: string, ssrSchemaHtml: string): string {
+  if (!ssrSchemaHtml || !html.includes("</head>")) return html;
+
+  const names = new Set<string>();
+  const properties = new Set<string>();
+  for (const match of ssrSchemaHtml.matchAll(/\bname\s*=\s*["']([^"']+)["']/gi)) {
+    names.add(match[1]);
+  }
+  for (const match of ssrSchemaHtml.matchAll(/\bproperty\s*=\s*["']([^"']+)["']/gi)) {
+    properties.add(match[1]);
+  }
+
+  for (const name of names) {
+    html = removeMetaTagsByAttr(html, "name", name);
+  }
+  for (const property of properties) {
+    html = removeMetaTagsByAttr(html, "property", property);
+  }
+
+  if (/<title[\s>]/i.test(ssrSchemaHtml)) {
+    html = html.replace(/<title\b[^>]*>[\s\S]*?<\/title>\s*/i, "");
+  }
+  if (/\brel\s*=\s*["']canonical["']/i.test(ssrSchemaHtml)) {
+    html = html.replace(/<link\b(?:(?!\/>)[\s\S])*?\brel\s*=\s*["']canonical["'](?:(?!\/>)[\s\S])*?\/?>\s*/gi, "");
+  }
+
+  return html.replace("</head>", `${ssrSchemaHtml}\n</head>`);
+}
+
 /**
  * Static listing projections omit `content`. Blog templates bind
  * `{{ single.content }}` into the article section — without this body,
@@ -302,8 +351,6 @@ export async function generateDatabaseSsrHtml(
   const recordUrl = `${baseUrl}${resolveUrlPatternWithMapping(urlPattern, recordForUrl, locale, null)}`;
   const scripts: string[] = [];
 
-  const title = ((record.title as string) || "").replace(/"/g, "&quot;");
-  const description = ((record.description as string) || (record.preview as string) || "").replace(/"/g, "&quot;");
   const image = (record.preview as string) || (record.image as string) || "";
   const publishedAt = (record.published_at as string) || "";
   const updatedAt =
@@ -370,20 +417,14 @@ export async function generateDatabaseSsrHtml(
     log.error({ err }, `[SSR-Schema] Error collecting section schemas for ${contentType}`);
   }
 
-  const robots = resolveEffectiveRobots(
-    typeof record.robots === "string" ? record.robots : undefined,
-    contentRoot,
-  );
+  // Title / description / robots / og|twitter title+description are owned by
+  // injectSsrMetaTags (shared single_template meta). Re-emitting them here
+  // duplicated every database/blog <head> when this fragment is appended.
   const ogType = contentType === "blog" ? "article" : "website";
   const twitterHandle = getOrganizationTwitterHandle(contentRoot);
   const imageDimensions = image ? getImageDimensions(image, contentRoot) : null;
   const metaTags = [
-    `<title>${title} | 4Geeks Academy</title>`,
-    `<meta name="robots" content="${robots}" />`,
-    `<meta name="description" content="${description}" />`,
     `<meta property="og:type" content="${ogType}" />`,
-    `<meta property="og:title" content="${title}" />`,
-    `<meta property="og:description" content="${description}" />`,
     `<meta property="og:url" content="${recordUrl}" />`,
     image ? `<meta property="og:image" content="${image}" />` : "",
     imageDimensions ? `<meta property="og:image:width" content="${imageDimensions.width}" />` : "",
@@ -391,8 +432,6 @@ export async function generateDatabaseSsrHtml(
     `<meta name="twitter:card" content="${image ? "summary_large_image" : "summary"}" />`,
     twitterHandle ? `<meta name="twitter:site" content="${twitterHandle}" />` : "",
     twitterHandle ? `<meta name="twitter:creator" content="${twitterHandle}" />` : "",
-    `<meta name="twitter:title" content="${title}" />`,
-    `<meta name="twitter:description" content="${description}" />`,
     image ? `<meta name="twitter:image" content="${image}" />` : "",
     publishedAt ? `<meta property="article:published_time" content="${publishedAt}" />` : "",
     updatedAt ? `<meta property="article:modified_time" content="${updatedAt}" />` : "",

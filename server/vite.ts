@@ -28,6 +28,7 @@ import { createServer as createViteServer, createLogger, type ViteDevServer } fr
 import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { resolveInitialData, resolvePreloadHints, injectSsrMetaTags, type PreloadHint, type InitialDataPayload } from "./initial-data-middleware";
+import { injectSsrSchemaHtml } from "./ssr-schema";
 import { resolvePublicHtmlStatus } from "./public-html-status";
 import { applyEntryModulePreload } from "./utils/html-transforms";
 import { getEntryAssets, buildEntryPreloadTags, buildEntryLinkHeader } from "./utils/vite-manifest";
@@ -232,8 +233,8 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
       html = injectSsrMetaTags(html, initialDataPayload, (res.locals as any).site?.contentRoot);
 
       const ssrSchemaHtml = (req as any).ssrSchemaHtml as string | undefined;
-      if (ssrSchemaHtml && html.includes("</head>")) {
-        html = html.replace("</head>", `${ssrSchemaHtml}\n</head>`);
+      if (ssrSchemaHtml) {
+        html = injectSsrSchemaHtml(html, ssrSchemaHtml);
       }
 
       if (initialDataPayload) {
@@ -381,8 +382,8 @@ export function serveStatic(app: Express) {
         html = injectPreloadTags(html, preloadTags);
         html = injectSsrMetaTags(html, initialDataPayload, (res.locals as any).site?.contentRoot);
 
-        if (ssrSchemaHtml && html.includes("</head>")) {
-          html = html.replace("</head>", `${ssrSchemaHtml}\n</head>`);
+        if (ssrSchemaHtml) {
+          html = injectSsrSchemaHtml(html, ssrSchemaHtml);
         }
 
         if (initialDataPayload) {
@@ -414,9 +415,7 @@ export function serveStatic(app: Express) {
     if (ssrSchemaHtml) {
       try {
         let html = await fs.promises.readFile(indexHtmlPath, "utf-8");
-        if (html.includes("</head>")) {
-          html = html.replace("</head>", `${ssrSchemaHtml}\n</head>`);
-        }
+        html = injectSsrSchemaHtml(html, ssrSchemaHtml);
         html = applyEntryModulePreload(html);
         html = applyEntryPreloads(html, res);
         html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
