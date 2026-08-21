@@ -9,6 +9,7 @@ import {
   clearSsrSchemaCache,
   generateSsrSchemaHtml,
   generateDatabaseSsrHtml,
+  injectSsrSchemaHtml,
   type FaqSection,
 } from "./ssr-schema";
 import { applyIgnoredEntries } from "@shared/faq-listing";
@@ -446,5 +447,48 @@ description: What the AI Act requires.
     expect(html).toContain('"@type":"BlogPosting"');
     expect(html).toContain("Full article body about the AI Act");
     expect(html).toContain('"headline":"AI Act for companies"');
+  });
+
+  it("does not re-emit description / og:description / twitter:description (owned by injectSsrMetaTags)", async () => {
+    writeBlogTemplateFixture();
+    const html = await generateDatabaseSsrHtml("blog", record, "en", contentIndex, contentRoot);
+
+    expect(html).not.toMatch(/name=["']description["']/);
+    expect(html).not.toMatch(/property=["']og:description["']/);
+    expect(html).not.toMatch(/name=["']twitter:description["']/);
+    expect(html).not.toMatch(/<title>/);
+    expect(html).toContain('property="og:type" content="article"');
+    expect(html).toContain('rel="canonical"');
+  });
+});
+
+describe("injectSsrSchemaHtml", () => {
+  it("replaces shell description metas instead of duplicating them", () => {
+    const shell = `<!DOCTYPE html><html><head>
+    <meta
+      name="description"
+      content="Shell default description"
+    />
+    <meta property="og:description" content="Shell og desc" />
+    <meta name="twitter:description" content="Shell tw desc" />
+    <meta property="og:type" content="website" />
+</head><body></body></html>`;
+
+    const fragment = [
+      `<meta name="description" content="Post description" />`,
+      `<meta property="og:description" content="Post description" />`,
+      `<meta name="twitter:description" content="Post description" />`,
+      `<meta property="og:type" content="article" />`,
+    ].join("\n");
+
+    const html = injectSsrSchemaHtml(shell, fragment);
+
+    expect(countOccurrences(html, 'name="description"')).toBe(1);
+    expect(countOccurrences(html, 'property="og:description"')).toBe(1);
+    expect(countOccurrences(html, 'name="twitter:description"')).toBe(1);
+    expect(countOccurrences(html, 'property="og:type"')).toBe(1);
+    expect(html).toContain('content="Post description"');
+    expect(html).toContain('content="article"');
+    expect(html).not.toContain("Shell default description");
   });
 });
