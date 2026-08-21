@@ -1,0 +1,23 @@
+name: "Inline Compact"
+description: "Compact inline form for wide sections, fewer fields"
+yaml: |
+  - type: lead_form
+    version: "1.0"
+    variant: inline
+    submit_label: "Submit"
+    fields:
+      email:
+        visible: true
+        required: true
+      first_name:
+        visible: true
+        required: false
+      phone:
+        visible: true
+        required: false
+      program:
+        visible: true
+        required: true
+        default: "auto"
+    success:
+      message: "Thank you! Check your email for next steps."

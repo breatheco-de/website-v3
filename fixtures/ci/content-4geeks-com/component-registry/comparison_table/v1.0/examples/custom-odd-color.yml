@@ -1,0 +1,37 @@
+type: comparison_table
+version: "1.0"
+title: Plan Features Comparison
+subtitle: Compare features across different plans
+odd_row_color: bg-muted/50
+columns:
+  - name: Feature
+    highlight: true
+  - name: Free
+  - name: Pro
+  - name: Enterprise
+rows:
+  - feature: Users
+    values:
+      - "1"
+      - "10"
+      - "Unlimited"
+  - feature: Storage
+    values:
+      - "5 GB"
+      - "100 GB"
+      - "Unlimited"
+  - feature: API Access
+    values:
+      - "no"
+      - "yes"
+      - "yes"
+  - feature: Priority Support
+    values:
+      - "no"
+      - "no"
+      - "yes"
+  - feature: Custom Integrations
+    values:
+      - "no"
+      - "yes"
+      - "yes"

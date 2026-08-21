@@ -1,0 +1,11 @@
+type: horizontal_bars
+version: "1.0"
+title: "Average Salary Increase by Region"
+subtitle: "Percentage increase after graduation"
+items:
+  - label: "LATAM"
+    value: 233
+  - label: "U.S."
+    value: 55
+  - label: "Spain"
+    value: 30

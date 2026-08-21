@@ -1,0 +1,31 @@
+name: "Resource Showcase — Lead Capture"
+description: "Two-column section with resource preview and benefits on the left, optional lead form on the right"
+variant: resourceShowcase
+yaml: |
+  - type: cta_banner
+    variant: resourceShowcase
+    maxWidth:
+      desktop: 6xl
+    eyebrow: "Guía descargable"
+    title: "Arma tu propio flujo de captación con <span style='color: hsl(var(--primary))'>IA</span>."
+    subtitle: "Guía paso a paso para conectar Apollo, Claude y Slack."
+    preview:
+      title: "Growth Machine con IA — Handout"
+      description: "8 páginas · Marcelo Ricigliano, 4Geeks"
+      icon: "file-text"
+    benefits:
+      - label: "Configuraciones y ejemplos listos para copiar"
+      - label: "Errores comunes y cómo resolverlos"
+    form_card_title: "Recibe la guía gratis"
+    form_card_subtitle: "Tu copia, en minutos"
+    form:
+      submit_label: "Enviarme la guía"
+      fields:
+        first_name:
+          visible: true
+          required: true
+          placeholder: "Tu nombre"
+        email:
+          visible: true
+          required: true
+          placeholder: "Tu email de trabajo"

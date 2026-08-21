@@ -1,0 +1,118 @@
+type: career_support_explain
+maxWidth:
+  desktop: 6xl
+heading: GeekForce Career Support
+description: Our career support program is designed to help you land your first job in tech
+background: hsl(var(--secondary))
+tabs:
+  - tab_label: Job-Ready, Faster
+    layout: three_columns
+    col1_subtitle: Build a recruiter-ready profile, smarter.
+    col1_description: |-
+      Prepare for real hiring processes using a combination of AI tools and 1-on-1 coaching.
+      We connect you directly with hiring partners and decision-makers. Your profile is shared with companies actively recruiting 4Geeks graduates, supported by a targeted networking strategy.
+    col1_tagline: We'll help you create tailored job search materials
+    col1_boxes:
+      - icon: linkedin
+        text: LinkedIn
+      - icon: IconFileText
+        text: Resume
+      - icon: briefcase-business
+        text: Portfolio
+      - icon: IconMail
+        text: Cover letter
+    col2_heading: Professional Placement & Coaching
+    col2_bullets:
+      - icon: IconRobot
+        text: 24/7 feedback from RigoBot to audit your LinkedIn and resume
+      - icon: IconUsers
+        text: 1-on-1 career coaching and strategy sessions
+      - icon: IconMicrophone
+        text: Mock interviews and technical interview prep
+    col3_image_id: 4geeks_member
+    col3_object_fit: cover
+    col3_object_position: center
+  - tab_label: Real Hiring Access
+    layout: two_column_cards
+    title: Access the hidden job market.
+    left_text: We connect you directly with hiring partners and decision-makers. Your profile is shared with companies actively recruiting 4Geeks graduates, supported by a targeted networking strategy.
+    left_image_id: career_team_women
+    left_image_object_fit: cover
+    left_image_object_position: center
+    left_stat:
+      value: 250+
+      label: companies in 4Geeks employer network
+    right_bullets:
+      - icon: IconUserPlus
+        text: Direct referrals to hiring partners
+      - icon: target
+        text: Curated job matches based on your profile
+      - icon: bot-message-square
+        text: Networking and recruiter conversation coaching
+    right_logos:
+      - image_id: logo_google
+        alt: Google
+      - image_id: logo_meta
+        alt: Meta
+      - image_id: logo_microsoft
+        alt: Microsoft
+      - image_id: logo_uber
+        alt: Uber
+      - image_id: logo_ebay
+        alt: eBay
+      - image_id: logo_kpmg
+        alt: KPMG
+  - tab_label: Proof That Converts
+    layout: text_and_image
+    title: Projects that demonstrate real skill.
+    left_description: |-
+      Visibility gets attention. Proof closes the gap.
+      Graduate with a portfolio that shows what you can actually build. From hands-on projects to a capstone that solves real business problems, your work becomes clear evidence of your ability.
+    left_bullets:
+      - icon: briefcase-business
+        text: Industry-aligned, real-world projects
+      - icon: IconPresentation
+        text: A showcase-ready capstone project
+      - icon: github
+        text: GitHub optimization and professional code review
+    right_image_id: geekforce_valentina_ancieta
+    right_image_object_fit: cover
+    right_image_object_position: center
+  - tab_label: Your Best-Fit Role
+    layout: text_with_testimonials_carousel
+    title: Turn your background into an advantage.
+    left_description: |-
+      Once offers are on the table, we help you choose and negotiate with confidence.
+      Your previous experience matters. We map transferable skills, focus your job search on the right roles, and support you through salary negotiation and long-term growth.
+    left_bullets:
+      - icon: IconTransfer
+        text: Transferable skills mapping
+      - icon: IconMap
+        text: Personalized career roadmap
+      - icon: IconCoin
+        text: Salary negotiation coaching
+      - icon: IconUsers
+        text: Ongoing alumni career support
+    testimonials:
+      - image_id: mailinh_tran
+        image_object_fit: cover
+        image_object_position: center
+        contributor_logos:
+          - image_id: clark_university
+        description: MaiLinh Tran is an entrepreneur with a passion for technology, now focusing on the dev side of her endeavor.
+        achievement: She has launched her startup, is capable of hiring new tech talent, and coordinates a dev team!
+      - image_id: martin_coimbra
+        image_object_fit: cover
+        image_object_position: center top
+        contributor_logos:
+          - image_id: logo_utec
+        description: Martín joined the first program we launched together with UTEC and IDB. He landed a better-paying job, a career he is passionate about, and a whole new professional life.
+        achievement: He achieved a 100% salary increase.
+      - image_id: melanie_galaretto
+        image_object_fit: cover
+        image_object_position: center
+        contributor_logos:
+          - image_id: logo_utec
+          - image_id: bid_logo
+        description: Melanie is a young professional who dreamed of achieving the life she now has. She is a resourceful and committed software developer working at a software company in her home country.
+        achievement: She achieved a 100% salary increase.

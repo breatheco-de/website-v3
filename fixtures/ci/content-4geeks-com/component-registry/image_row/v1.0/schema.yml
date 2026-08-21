@@ -1,0 +1,141 @@
+name: Image Row
+version: "1.0"
+component: ImageRow
+file: client/src/components/image_row/variants/ImageRowDefault.tsx
+description: >-
+  A flexible horizontal row of images with an optional highlight panel (single message or rotating slides with
+  typewriter-style emphasis). Supports configurable gaps, heights, and light parallax on scroll.
+when_to_use: |
+  Use to showcase people (students, team), photo strips, or brand imagery alongside a short value proposition.
+  Pair with highlight.slides for rotating testimonials or messaging; omit highlight for a simple image band.
+image_sizes:
+  default.images[].src: "(min-width: 768px) 500px, 300px"
+props:
+  images:
+    type: array
+    required: true
+    items:
+      src:
+        type: string
+        required: true
+        description: Image URL or path
+      alt:
+        type: string
+        required: true
+        description: Accessible alternative text
+      object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+          - scale-down
+        description: CSS object-fit for this cell
+      object_position:
+        type: string
+        required: false
+        description: CSS object-position (e.g. center top, 20% 50%)
+      height:
+        type: string
+        required: false
+        description: Per-image height; overrides the section-level height for that item only
+        example: 400px
+    description: At least one image object. URLs or paths; supports registry resolution where applicable.
+  highlight:
+    type: object
+    required: false
+    properties:
+      text_1:
+        type: string
+        required: false
+        description: First rich-text block (single-slide mode)
+      text_2:
+        type: string
+        required: false
+        description: Second rich-text block (single-slide mode)
+      heading:
+        type: string
+        required: false
+        description: Deprecated; use text_1 instead
+      text:
+        type: string
+        required: false
+        description: Deprecated; use text_2 instead
+      reverse_text_order:
+        type: boolean
+        required: false
+        description: When true, shows the second text block above the first
+      slides:
+        type: array
+        required: false
+        items:
+          text_1:
+            type: string
+            required: true
+            description: First rich-text block for this slide
+          text_2:
+            type: string
+            required: true
+            description: Second rich-text block for this slide
+          heading:
+            type: string
+            required: false
+            description: Deprecated; use text_1
+          text:
+            type: string
+            required: false
+            description: Deprecated; use text_2
+        description: Multiple slides; each item needs text_1 and text_2
+      background:
+        type: string
+        required: false
+        options:
+          - primary
+          - accent
+          - muted
+          - card
+        description: Semantic theme for the highlight panel background
+      width:
+        type: number
+        required: false
+        description: Relative width of the highlight column vs image columns in the desktop layout
+      autoplay_interval:
+        type: number
+        required: false
+        description: Milliseconds between automatic slide changes when multiple slides are present
+      show_indicators:
+        type: boolean
+        required: false
+        description: Show dot indicators for multi-slide mode (defaults to true when multiple slides exist)
+    description: |
+      Optional panel with rich text blocks. Provide either slides (multi) or text_1 + text_2 (single).
+      Legacy heading + text is still accepted and mapped to text_1 / text_2.
+  height:
+    type: string
+    required: false
+    description: Desktop row height (CSS length), applied via CSS variables to image cells
+    example: 31rem
+  mobile_height:
+    type: string
+    required: false
+    description: Height on small viewports
+    example: 24rem
+  gap:
+    type: string
+    required: false
+    options:
+      - sm
+      - md
+      - lg
+    description: Spacing between image columns
+  rounded:
+    type: boolean
+    required: false
+    description: Apply rounded corners to images
+  background:
+    type: string
+    required: false
+    description: Optional section wrapper background; uses semantic keys (primary, accent, muted, card, background) when recognized
+    example: muted

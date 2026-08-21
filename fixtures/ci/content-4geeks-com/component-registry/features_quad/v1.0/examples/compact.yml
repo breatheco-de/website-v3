@@ -1,0 +1,23 @@
+name: "Features Quad - Compact"
+description: "Compact cards showing only icon and title (no description)"
+yaml: |
+  - type: features_quad
+    version: "1.0"
+    variant: default
+    compact: true
+    heading: "Program Benefits"
+    description: "Everything you need to succeed in your AI engineering career."
+    cards:
+      - icon: "Trophy"
+        title: "Industry Recognition"
+        description: "Top-ranked bootcamp"
+      - icon: "Wallet"
+        title: "Affordable Tuition"
+        description: "Flexible payments"
+      - icon: "Clock"
+        title: "Flexible Schedule"
+        description: "Part-time available"
+      - icon: "Users"
+        title: "Career Support"
+        description: "Unlimited mentorship"
+    background: "bg-muted/30"

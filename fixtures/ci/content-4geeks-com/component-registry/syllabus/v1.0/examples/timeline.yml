@@ -1,0 +1,43 @@
+- type: syllabus
+  variant: timeline
+  title: Syllabus
+  subtitle: 5 lessons · 3 projects · 2 quizzes
+  modules:
+    - title: Introduction to JavaScript
+      description: Learn about data types, built-in methods, and variables — the building blocks of every program.
+      video: https://www.youtube.com/embed/W6NZfCO5SIk
+      items:
+        - type: Lesson
+          label: Introduction to JavaScript
+        - type: Lesson
+          label: Variables and Data Types
+        - type: Project
+          label: Kelvin Weather Converter
+        - type: Project
+          label: Dog Years Calculator
+        - type: Quiz
+          label: JavaScript Basics Quiz
+
+    - title: Conditionals
+      description: Control the flow of your programs using if/else, switch statements, and ternary operators.
+      items:
+        - type: Lesson
+          label: If / Else Statements
+        - type: Lesson
+          label: Logical Operators
+        - type: Lesson
+          label: Switch Statements
+        - type: Project
+          label: Magic Eight Ball
+        - type: Quiz
+          label: Conditionals Quiz
+
+    - title: Functions
+      description: Write reusable blocks of code with modern JavaScript function syntax, including arrow functions and closures.
+      items:
+        - type: Lesson
+          label: Function Declarations
+        - type: Lesson
+          label: Arrow Functions & Scope
+        - type: Project
+          label: Sleep Debt Calculator

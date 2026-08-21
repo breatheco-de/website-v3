@@ -1,0 +1,3079 @@
+name: Hero Section
+version: "1.0"
+component: Hero
+file: client/src/components/hero/Hero.tsx
+description: Main banner at the top of the page with title, subtitle, and call-to-action. Supports multiple layout variants.
+when_to_use: |
+  Every page should start with a hero section. Choose the variant that best fits your content:
+  - singleColumn: Centered content with optional trust bar and award badges (best for program pages)
+  - showcase: 3-column layout with images on sides (best for landing pages)
+  - productShowcase: Text on left with video on right (best for product/service introductions)
+  - simpleTwoColumn: Image on left, text with CTAs on right (best for promotions, announcements)
+behaviors:
+  ecommerce:
+    role: funnel
+    events:
+      - view_item
+      - add_to_cart
+    notes: >-
+      Course variant only: fires view_item when the page has a purchasable product. Field-editor
+      course:signup_card.cta_button binds cta.tracking (add_to_cart for payment-component). Other hero variants do not
+      bind cta-tracking.
+  conversion:
+    via: form-settings
+    notes: >-
+      Forms tab on course (signup_card.form), productShowcase, ApplyFormProductShowcase, and exercise only. CTA-only
+      variants (orbit, credibility, singleColumn, etc.) have no form-settings binding.
+  schema_org:
+    requires:
+      - companion_type: schema_org
+        schema_type: Course
+        when_variant: course
+    notes: >-
+      Course variant only: requires ≥1 merged schema_org section with schema_type Course. Hero does not emit Course
+      JSON-LD itself.
+image_sizes:
+  singleColumn.image.src: "(min-width: 768px) 800px, 100vw"
+  singleColumn.trust_bar.avatars: 32px
+  credibility.pills[].logos[].image_id: "(min-width: 768px) 45px, 60px"
+  course.students_enrolled.avatars[].src: 40px
+  course.tutors[].image: 45px
+  simpleTwoColumn.image.src: 300px
+variants:
+  ApplyFormProductShowcase: {}
+  course:
+    description: Two column layout with content on left (title, bullet points, tutors) and media + signup card on right
+    best_for: Course landing pages, self-paced program pages
+  credibility:
+    description: >-
+      Two column hero with large rich-text title on the left and a vertical stack of credibility pills on the right,
+      plus an optional muted watermark marquee at the bottom
+    best_for: Homepage hero sections, trust-building landing pages, program overview pages
+  exercise:
+    description: >-
+      Two-column layout with badge, title, description, and "This exercise includes" card on the left; an enrollment
+      form card on the right; and a stats bar that overlaps the bottom of the hero.
+    best_for: Interactive exercise landing pages
+  orbit:
+    description: >-
+      Two-column hero with eyebrow, large title and CTAs on the left, and an animated multi-ring orbit diagram on the
+      right. Orbit badges are categorized as highlight (primary color) or default (muted). Fully responsive — collapses
+      to single column on mobile.
+    best_for: >-
+      Homepage hero sections, AI/tech product pages, program overview pages where the concept of convergence or
+      interconnection is key
+  productShowcase:
+    description: Two column layout with brand mark, text on left and video on right
+    best_for: Product/service introductions, feature pages
+  singleColumn:
+    description: Centered single column with badge, title, subtitle, CTAs, trust bar, and award badges
+    best_for: Program pages, course pages
+  showcase:
+    description: 3-column layout with images on left/right, centered content with trust bar
+    best_for: Landing pages, marketing pages
+  simpleTwoColumn:
+    description: Two column layout with image on left and title, subtitle, CTA buttons on right
+    best_for: Guarantee pages, feature announcements, promotional sections
+  simpleStacked: {}
+  twoColumn:
+    description: Two-column hero with image or media on one side and text/CTAs on the other (legacy variant)
+    best_for: General landing pages, legacy pages using the older two-column hero layout
+variant_props:
+  ApplyFormProductShowcase:
+    brand_mark:
+      type: object
+      required: false
+      properties:
+        prefix:
+          type: string
+          required: false
+        highlight:
+          type: string
+          required: true
+        suffix:
+          type: string
+          required: false
+        color:
+          type: string
+          required: false
+          options:
+            - primary
+            - accent
+            - destructive
+            - chart-1
+            - chart-2
+            - chart-3
+            - chart-4
+            - chart-5
+    description:
+      type: string
+      required: false
+    footer:
+      type: string
+      required: false
+    form:
+      type: object
+      required: true
+      properties:
+        variant:
+          type: string
+          required: false
+          options:
+            - stacked
+            - inline
+        conversion_name:
+          type: string
+          required: false
+        title:
+          type: string
+          required: false
+        subtitle:
+          type: string
+          required: false
+        submit_label:
+          type: string
+          required: false
+        tags:
+          type: string
+          required: false
+        automations:
+          type: string
+          required: false
+        webhook:
+          type: object
+          required: false
+          properties:
+            url:
+              type: string
+              required: true
+            method:
+              type: string
+              required: true
+        fields:
+          type: object
+          required: false
+          properties:
+            email:
+              type: object
+              required: false
+              properties:
+                visible:
+                  type: boolean
+                  required: false
+                required:
+                  type: boolean
+                  required: false
+                default:
+                  type: string
+                  required: false
+                default_country:
+                  type: string
+                  required: false
+                helper_text:
+                  type: string
+                  required: false
+                placeholder:
+                  type: string
+                  required: false
+                show_label:
+                  type: boolean
+                  required: false
+                label:
+                  type: string
+                  required: false
+                slugs:
+                  type: array
+                  required: false
+                  items:
+                    type:
+                      type: string
+                      required: true
+                source:
+                  type: object
+                  required: false
+                  properties:
+                    content_type:
+                      type: string
+                      required: false
+                    database:
+                      type: string
+                      required: false
+                    related_field:
+                      type: string
+                      required: false
+                    query:
+                      type: string
+                      required: false
+                    value_path:
+                      type: string
+                      required: true
+                    label_path:
+                      type: string
+                      required: true
+                component_renderer:
+                  type: string
+                  required: false
+                  options:
+                    - text
+                    - phone
+                    - textarea
+                    - select
+                    - cards
+                    - simple-list
+                    - grouped-list
+                options:
+                  type: array
+                  required: false
+                  items:
+                    value:
+                      type: string
+                      required: true
+            first_name:
+              type: object
+              required: false
+              properties:
+                visible:
+                  type: boolean
+                  required: false
+                required:
+                  type: boolean
+                  required: false
+                default:
+                  type: string
+                  required: false
+                default_country:
+                  type: string
+                  required: false
+                helper_text:
+                  type: string
+                  required: false
+                placeholder:
+                  type: string
+                  required: false
+                show_label:
+                  type: boolean
+                  required: false
+                label:
+                  type: string
+                  required: false
+                slugs:
+                  type: array
+                  required: false
+                  items:
+                    type:
+                      type: string
+                      required: true
+                source:
+                  type: object
+                  required: false
+                  properties:
+                    content_type:
+                      type: string
+                      required: false
+                    database:
+                      type: string
+                      required: false
+                    related_field:
+                      type: string
+                      required: false
+                    query:
+                      type: string
+                      required: false
+                    value_path:
+                      type: string
+                      required: true
+                    label_path:
+                      type: string
+                      required: true
+                component_renderer:
+                  type: string
+                  required: false
+                  options:
+                    - text
+                    - phone
+                    - textarea
+                    - select
+                    - cards
+                    - simple-list
+                    - grouped-list
+                options:
+                  type: array
+                  required: false
+                  items:
+                    value:
+                      type: string
+                      required: true
+            last_name:
+              type: object
+              required: false
+              properties:
+                visible:
+                  type: boolean
+                  required: false
+                required:
+                  type: boolean
+                  required: false
+                default:
+                  type: string
+                  required: false
+                default_country:
+                  type: string
+                  required: false
+                helper_text:
+                  type: string
+                  required: false
+                placeholder:
+                  type: string
+                  required: false
+                show_label:
+                  type: boolean
+                  required: false
+                label:
+                  type: string
+                  required: false
+                slugs:
+                  type: array
+                  required: false
+                  items:
+                    type:
+                      type: string
+                      required: true
+                source:
+                  type: object
+                  required: false
+                  properties:
+                    content_type:
+                      type: string
+                      required: false
+                    database:
+                      type: string
+                      required: false
+                    related_field:
+                      type: string
+                      required: false
+                    query:
+                      type: string
+                      required: false
+                    value_path:
+                      type: string
+                      required: true
+                    label_path:
+                      type: string
+                      required: true
+                component_renderer:
+                  type: string
+                  required: false
+                  options:
+                    - text
+                    - phone
+                    - textarea
+                    - select
+                    - cards
+                    - simple-list
+                    - grouped-list
+                options:
+                  type: array
+                  required: false
+                  items:
+                    value:
+                      type: string
+                      required: true
+            phone:
+              type: object
+              required: false
+              properties:
+                visible:
+                  type: boolean
+                  required: false
+                required:
+                  type: boolean
+                  required: false
+                default:
+                  type: string
+                  required: false
+                default_country:
+                  type: string
+                  required: false
+                helper_text:
+                  type: string
+                  required: false
+                placeholder:
+                  type: string
+                  required: false
+                show_label:
+                  type: boolean
+                  required: false
+                label:
+                  type: string
+                  required: false
+                slugs:
+                  type: array
+                  required: false
+                  items:
+                    type:
+                      type: string
+                      required: true
+                source:
+                  type: object
+                  required: false
+                  properties:
+                    content_type:
+                      type: string
+                      required: false
+                    database:
+                      type: string
+                      required: false
+                    related_field:
+                      type: string
+                      required: false
+                    query:
+                      type: string
+                      required: false
+                    value_path:
+                      type: string
+                      required: true
+                    label_path:
+                      type: string
+                      required: true
+                component_renderer:
+                  type: string
+                  required: false
+                  options:
+                    - text
+                    - phone
+                    - textarea
+                    - select
+                    - cards
+                    - simple-list
+                    - grouped-list
+                options:
+                  type: array
+                  required: false
+                  items:
+                    value:
+                      type: string
+                      required: true
+            program:
+              type: object
+              required: false
+              properties:
+                visible:
+                  type: boolean
+                  required: false
+                required:
+                  type: boolean
+                  required: false
+                default:
+                  type: string
+                  required: false
+                default_country:
+                  type: string
+                  required: false
+                helper_text:
+                  type: string
+                  required: false
+                placeholder:
+                  type: string
+                  required: false
+                show_label:
+                  type: boolean
+                  required: false
+                label:
+                  type: string
+                  required: false
+                slugs:
+                  type: array
+                  required: false
+                  items:
+                    type:
+                      type: string
+                      required: true
+                source:
+                  type: object
+                  required: false
+                  properties:
+                    content_type:
+                      type: string
+                      required: false
+                    database:
+                      type: string
+                      required: false
+                    related_field:
+                      type: string
+                      required: false
+                    query:
+                      type: string
+                      required: false
+                    value_path:
+                      type: string
+                      required: true
+                    label_path:
+                      type: string
+                      required: true
+                component_renderer:
+                  type: string
+                  required: false
+                  options:
+                    - text
+                    - phone
+                    - textarea
+                    - select
+                    - cards
+                    - simple-list
+                    - grouped-list
+                options:
+                  type: array
+                  required: false
+                  items:
+                    value:
+                      type: string
+                      required: true
+            region:
+              type: object
+              required: false
+              properties:
+                visible:
+                  type: boolean
+                  required: false
+                required:
+                  type: boolean
+                  required: false
+                default:
+                  type: string
+                  required: false
+                default_country:
+                  type: string
+                  required: false
+                helper_text:
+                  type: string
+                  required: false
+                placeholder:
+                  type: string
+                  required: false
+                show_label:
+                  type: boolean
+                  required: false
+                label:
+                  type: string
+                  required: false
+                slugs:
+                  type: array
+                  required: false
+                  items:
+                    type:
+                      type: string
+                      required: true
+                source:
+                  type: object
+                  required: false
+                  properties:
+                    content_type:
+                      type: string
+                      required: false
+                    database:
+                      type: string
+                      required: false
+                    related_field:
+                      type: string
+                      required: false
+                    query:
+                      type: string
+                      required: false
+                    value_path:
+                      type: string
+                      required: true
+                    label_path:
+                      type: string
+                      required: true
+                component_renderer:
+                  type: string
+                  required: false
+                  options:
+                    - text
+                    - phone
+                    - textarea
+                    - select
+                    - cards
+                    - simple-list
+                    - grouped-list
+                options:
+                  type: array
+                  required: false
+                  items:
+                    value:
+                      type: string
+                      required: true
+            location:
+              type: object
+              required: false
+              properties:
+                visible:
+                  type: boolean
+                  required: false
+                required:
+                  type: boolean
+                  required: false
+                default:
+                  type: string
+                  required: false
+                default_country:
+                  type: string
+                  required: false
+                helper_text:
+                  type: string
+                  required: false
+                placeholder:
+                  type: string
+                  required: false
+                show_label:
+                  type: boolean
+                  required: false
+                label:
+                  type: string
+                  required: false
+                slugs:
+                  type: array
+                  required: false
+                  items:
+                    type:
+                      type: string
+                      required: true
+                source:
+                  type: object
+                  required: false
+                  properties:
+                    content_type:
+                      type: string
+                      required: false
+                    database:
+                      type: string
+                      required: false
+                    related_field:
+                      type: string
+                      required: false
+                    query:
+                      type: string
+                      required: false
+                    value_path:
+                      type: string
+                      required: true
+                    label_path:
+                      type: string
+                      required: true
+                component_renderer:
+                  type: string
+                  required: false
+                  options:
+                    - text
+                    - phone
+                    - textarea
+                    - select
+                    - cards
+                    - simple-list
+                    - grouped-list
+                options:
+                  type: array
+                  required: false
+                  items:
+                    value:
+                      type: string
+                      required: true
+            coupon:
+              type: object
+              required: false
+              properties:
+                visible:
+                  type: boolean
+                  required: false
+                required:
+                  type: boolean
+                  required: false
+                default:
+                  type: string
+                  required: false
+                default_country:
+                  type: string
+                  required: false
+                helper_text:
+                  type: string
+                  required: false
+                placeholder:
+                  type: string
+                  required: false
+                show_label:
+                  type: boolean
+                  required: false
+                label:
+                  type: string
+                  required: false
+                slugs:
+                  type: array
+                  required: false
+                  items:
+                    type:
+                      type: string
+                      required: true
+                source:
+                  type: object
+                  required: false
+                  properties:
+                    content_type:
+                      type: string
+                      required: false
+                    database:
+                      type: string
+                      required: false
+                    related_field:
+                      type: string
+                      required: false
+                    query:
+                      type: string
+                      required: false
+                    value_path:
+                      type: string
+                      required: true
+                    label_path:
+                      type: string
+                      required: true
+                component_renderer:
+                  type: string
+                  required: false
+                  options:
+                    - text
+                    - phone
+                    - textarea
+                    - select
+                    - cards
+                    - simple-list
+                    - grouped-list
+                options:
+                  type: array
+                  required: false
+                  items:
+                    value:
+                      type: string
+                      required: true
+            client_comments:
+              type: object
+              required: false
+              properties:
+                visible:
+                  type: boolean
+                  required: false
+                required:
+                  type: boolean
+                  required: false
+                default:
+                  type: string
+                  required: false
+                default_country:
+                  type: string
+                  required: false
+                helper_text:
+                  type: string
+                  required: false
+                placeholder:
+                  type: string
+                  required: false
+                show_label:
+                  type: boolean
+                  required: false
+                label:
+                  type: string
+                  required: false
+                slugs:
+                  type: array
+                  required: false
+                  items:
+                    type:
+                      type: string
+                      required: true
+                source:
+                  type: object
+                  required: false
+                  properties:
+                    content_type:
+                      type: string
+                      required: false
+                    database:
+                      type: string
+                      required: false
+                    related_field:
+                      type: string
+                      required: false
+                    query:
+                      type: string
+                      required: false
+                    value_path:
+                      type: string
+                      required: true
+                    label_path:
+                      type: string
+                      required: true
+                component_renderer:
+                  type: string
+                  required: false
+                  options:
+                    - text
+                    - phone
+                    - textarea
+                    - select
+                    - cards
+                    - simple-list
+                    - grouped-list
+                options:
+                  type: array
+                  required: false
+                  items:
+                    value:
+                      type: string
+                      required: true
+        success:
+          type: object
+          required: false
+          properties:
+            url:
+              type: string
+              required: false
+            message:
+              type: string
+              required: false
+        terms_url:
+          type: string
+          required: false
+        privacy_url:
+          type: string
+          required: false
+        consent:
+          type: object
+          required: false
+          properties:
+            email:
+              type: boolean
+              required: false
+            sms:
+              type: boolean
+              required: false
+            whatsapp:
+              type: boolean
+              required: false
+            marketing:
+              type: boolean
+              required: false
+            marketing_text:
+              type: string
+              required: false
+            sms_text:
+              type: string
+              required: false
+            sms_usa_only:
+              type: boolean
+              required: false
+        show_terms:
+          type: boolean
+          required: false
+        className:
+          type: string
+          required: false
+        button_className:
+          type: string
+          required: false
+        terms_className:
+          type: string
+          required: false
+    form_vertical_align:
+      type: string
+      required: false
+      options:
+        - top
+        - center
+        - bottom
+    form_card_background:
+      type: string
+      required: false
+    form_card_text_color:
+      type: string
+      required: false
+    form_card_title:
+      type: string
+      required: false
+    form_card_subtitle:
+      type: string
+      required: false
+    form_card_image:
+      type: string
+      required: false
+    form_card_image_alt:
+      type: string
+      required: false
+    form_card_image_object_fit:
+      type: string
+      required: false
+    form_card_image_object_position:
+      type: string
+      required: false
+    form_card_image_width:
+      type: string
+      required: false
+    form_card_image_height:
+      type: string
+      required: false
+    form_card_image_opacity:
+      type: number
+      required: false
+    form_card_image_border_radius:
+      type: string
+      required: false
+    form_terms_color:
+      type: string
+      required: false
+    cta_button:
+      type: object
+      required: false
+      properties:
+        text:
+          type: string
+          required: true
+        url:
+          type: string
+          required: true
+        variant:
+          type: string
+          required: true
+          options:
+            - primary
+            - secondary
+            - outline
+        tracking:
+          type: string
+          required: false
+          options:
+            - none
+            - add_to_cart
+            - begin_checkout
+        button_variant:
+          type: string
+          required: false
+        text_color:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+        us_only:
+          type: boolean
+          required: false
+    trust_bar:
+      type: object
+      required: false
+      properties:
+        rating:
+          type: string
+          required: false
+        review_count:
+          type: string
+          required: false
+        review_logos:
+          type: array
+          required: false
+          items:
+            name:
+              type: string
+              required: true
+            logo:
+              type: string
+              required: false
+    video:
+      type: object
+      required: false
+      properties:
+        url:
+          type: string
+          required: false
+        ratio:
+          type: string
+          required: false
+        mobile_ratio:
+          type: string
+          required: false
+        width:
+          type: string
+          required: false
+        muted:
+          type: boolean
+          required: false
+        autoplay:
+          type: boolean
+          required: false
+        loop:
+          type: boolean
+          required: false
+        preview_image_url:
+          type: string
+          required: false
+        with_shadow_border:
+          type: boolean
+          required: false
+    image:
+      type: string
+      required: false
+    image_alt:
+      type: string
+      required: false
+    image_object_fit:
+      type: string
+      required: false
+    image_object_position:
+      type: string
+      required: false
+    background_image:
+      type: object
+      required: false
+      properties:
+        src:
+          type: string
+          required: true
+        alt:
+          type: string
+          required: false
+    show_awards_marquee:
+      type: boolean
+      required: false
+    awards_marquee:
+      type: object
+      required: false
+      properties:
+        items:
+          type: array
+          required: true
+          items:
+            id:
+              type: string
+              required: true
+            alt:
+              type: string
+              required: true
+            logo:
+              type: string
+              required: false
+            logoHeight:
+              type: string
+              required: false
+            source:
+              type: string
+              required: false
+            name:
+              type: string
+              required: false
+            year:
+              type: string
+              required: false
+        speed:
+          type: number
+          required: false
+        gradient:
+          type: boolean
+          required: false
+        gradientWidth:
+          type: number
+          required: false
+  course:
+    badge:
+      type: object
+      required: false
+      properties:
+        text:
+          type: string
+          required: true
+          description: Badge label text
+          example: New Course
+        color:
+          type: string
+          required: false
+          options:
+            - primary
+            - secondary
+            - accent
+            - muted
+            - destructive
+          description: Semantic color token for the badge pill. Defaults to primary (the standard blue).
+          example: primary
+        background:
+          type: string
+          required: false
+        text_color:
+          type: string
+          required: false
+      description: Small pill badge displayed above the title
+    title_highlight:
+      type: string
+      required: false
+    subtitle:
+      type: string
+      required: false
+    students_enrolled:
+      type: object
+      required: false
+      properties:
+        avatars:
+          type: array
+          required: false
+          items:
+            type:
+              type: string
+              required: true
+          description: Array of avatar image URLs
+        count:
+          type: string
+          required: true
+          description: Text showing enrollment count
+          example: +48 students enrolled
+      description: Display enrolled students count with optional avatars
+    bullet_points:
+      type: array
+      required: false
+      items:
+        type:
+          type: string
+          required: true
+      description: List of key features/benefits with checkmarks
+      example:
+        - Learn prompt engineering techniques to control AI outputs precisely
+        - Create professional images, videos, and documents using AI tools
+    rating:
+      type: object
+      required: false
+      properties:
+        value:
+          type: number
+          required: true
+        count:
+          type: string
+          required: true
+        reviews_anchor:
+          type: string
+          required: false
+    tutors:
+      type: array
+      required: false
+      items:
+        name:
+          type: string
+          required: true
+        role:
+          type: string
+          required: true
+        image:
+          type: string
+          required: true
+      description: List of tutors/instructors
+    tutors_label:
+      type: string
+      required: false
+      description: Label above tutors section
+    description:
+      type: string
+      required: false
+      description: Extended description paragraph at bottom of left column
+    video:
+      type: object
+      required: false
+      properties:
+        url:
+          type: string
+          required: false
+        ratio:
+          type: string
+          required: false
+        mobile_ratio:
+          type: string
+          required: false
+        width:
+          type: string
+          required: false
+        muted:
+          type: boolean
+          required: false
+        autoplay:
+          type: boolean
+          required: false
+        loop:
+          type: boolean
+          required: false
+        preview_image_url:
+          type: string
+          required: false
+        with_shadow_border:
+          type: boolean
+          required: false
+    media:
+      type: object
+      required: false
+      properties:
+        type:
+          type: string
+          required: true
+          options:
+            - video
+            - image
+        src:
+          type: string
+          required: true
+          description: Video URL or image source
+        thumbnail:
+          type: string
+          required: false
+          description: Thumbnail image for video (shows play button overlay)
+        alt:
+          type: string
+          required: false
+      description: Video or image displayed at top of right column
+    signup_card:
+      type: object
+      required: false
+      properties:
+        title:
+          type: string
+          required: true
+          example: Sign up to 4Geeks Plus
+        description:
+          type: string
+          required: false
+        form:
+          type: object
+          required: false
+          properties:
+            variant:
+              type: string
+              required: false
+              options:
+                - stacked
+                - inline
+            conversion_name:
+              type: string
+              required: false
+            title:
+              type: string
+              required: false
+            subtitle:
+              type: string
+              required: false
+            submit_label:
+              type: string
+              required: false
+            tags:
+              type: string
+              required: false
+            automations:
+              type: string
+              required: false
+            webhook:
+              type: object
+              required: false
+              properties:
+                url:
+                  type: string
+                  required: true
+                method:
+                  type: string
+                  required: true
+            fields:
+              type: object
+              required: false
+              properties:
+                email:
+                  type: object
+                  required: false
+                  properties:
+                    visible:
+                      type: boolean
+                      required: false
+                    required:
+                      type: boolean
+                      required: false
+                    default:
+                      type: string
+                      required: false
+                    default_country:
+                      type: string
+                      required: false
+                    helper_text:
+                      type: string
+                      required: false
+                    placeholder:
+                      type: string
+                      required: false
+                    show_label:
+                      type: boolean
+                      required: false
+                    label:
+                      type: string
+                      required: false
+                    slugs:
+                      type: array
+                      required: false
+                      items:
+                        type:
+                          type: string
+                          required: true
+                    source:
+                      type: object
+                      required: false
+                      properties:
+                        content_type:
+                          type: string
+                          required: false
+                        database:
+                          type: string
+                          required: false
+                        related_field:
+                          type: string
+                          required: false
+                        query:
+                          type: string
+                          required: false
+                        value_path:
+                          type: string
+                          required: true
+                        label_path:
+                          type: string
+                          required: true
+                    component_renderer:
+                      type: string
+                      required: false
+                      options:
+                        - text
+                        - phone
+                        - textarea
+                        - select
+                        - cards
+                        - simple-list
+                        - grouped-list
+                    options:
+                      type: array
+                      required: false
+                      items:
+                        value:
+                          type: string
+                          required: true
+                first_name:
+                  type: object
+                  required: false
+                  properties:
+                    visible:
+                      type: boolean
+                      required: false
+                    required:
+                      type: boolean
+                      required: false
+                    default:
+                      type: string
+                      required: false
+                    default_country:
+                      type: string
+                      required: false
+                    helper_text:
+                      type: string
+                      required: false
+                    placeholder:
+                      type: string
+                      required: false
+                    show_label:
+                      type: boolean
+                      required: false
+                    label:
+                      type: string
+                      required: false
+                    slugs:
+                      type: array
+                      required: false
+                      items:
+                        type:
+                          type: string
+                          required: true
+                    source:
+                      type: object
+                      required: false
+                      properties:
+                        content_type:
+                          type: string
+                          required: false
+                        database:
+                          type: string
+                          required: false
+                        related_field:
+                          type: string
+                          required: false
+                        query:
+                          type: string
+                          required: false
+                        value_path:
+                          type: string
+                          required: true
+                        label_path:
+                          type: string
+                          required: true
+                    component_renderer:
+                      type: string
+                      required: false
+                      options:
+                        - text
+                        - phone
+                        - textarea
+                        - select
+                        - cards
+                        - simple-list
+                        - grouped-list
+                    options:
+                      type: array
+                      required: false
+                      items:
+                        value:
+                          type: string
+                          required: true
+                last_name:
+                  type: object
+                  required: false
+                  properties:
+                    visible:
+                      type: boolean
+                      required: false
+                    required:
+                      type: boolean
+                      required: false
+                    default:
+                      type: string
+                      required: false
+                    default_country:
+                      type: string
+                      required: false
+                    helper_text:
+                      type: string
+                      required: false
+                    placeholder:
+                      type: string
+                      required: false
+                    show_label:
+                      type: boolean
+                      required: false
+                    label:
+                      type: string
+                      required: false
+                    slugs:
+                      type: array
+                      required: false
+                      items:
+                        type:
+                          type: string
+                          required: true
+                    source:
+                      type: object
+                      required: false
+                      properties:
+                        content_type:
+                          type: string
+                          required: false
+                        database:
+                          type: string
+                          required: false
+                        related_field:
+                          type: string
+                          required: false
+                        query:
+                          type: string
+                          required: false
+                        value_path:
+                          type: string
+                          required: true
+                        label_path:
+                          type: string
+                          required: true
+                    component_renderer:
+                      type: string
+                      required: false
+                      options:
+                        - text
+                        - phone
+                        - textarea
+                        - select
+                        - cards
+                        - simple-list
+                        - grouped-list
+                    options:
+                      type: array
+                      required: false
+                      items:
+                        value:
+                          type: string
+                          required: true
+                phone:
+                  type: object
+                  required: false
+                  properties:
+                    visible:
+                      type: boolean
+                      required: false
+                    required:
+                      type: boolean
+                      required: false
+                    default:
+                      type: string
+                      required: false
+                    default_country:
+                      type: string
+                      required: false
+                    helper_text:
+                      type: string
+                      required: false
+                    placeholder:
+                      type: string
+                      required: false
+                    show_label:
+                      type: boolean
+                      required: false
+                    label:
+                      type: string
+                      required: false
+                    slugs:
+                      type: array
+                      required: false
+                      items:
+                        type:
+                          type: string
+                          required: true
+                    source:
+                      type: object
+                      required: false
+                      properties:
+                        content_type:
+                          type: string
+                          required: false
+                        database:
+                          type: string
+                          required: false
+                        related_field:
+                          type: string
+                          required: false
+                        query:
+                          type: string
+                          required: false
+                        value_path:
+                          type: string
+                          required: true
+                        label_path:
+                          type: string
+                          required: true
+                    component_renderer:
+                      type: string
+                      required: false
+                      options:
+                        - text
+                        - phone
+                        - textarea
+                        - select
+                        - cards
+                        - simple-list
+                        - grouped-list
+                    options:
+                      type: array
+                      required: false
+                      items:
+                        value:
+                          type: string
+                          required: true
+                program:
+                  type: object
+                  required: false
+                  properties:
+                    visible:
+                      type: boolean
+                      required: false
+                    required:
+                      type: boolean
+                      required: false
+                    default:
+                      type: string
+                      required: false
+                    default_country:
+                      type: string
+                      required: false
+                    helper_text:
+                      type: string
+                      required: false
+                    placeholder:
+                      type: string
+                      required: false
+                    show_label:
+                      type: boolean
+                      required: false
+                    label:
+                      type: string
+                      required: false
+                    slugs:
+                      type: array
+                      required: false
+                      items:
+                        type:
+                          type: string
+                          required: true
+                    source:
+                      type: object
+                      required: false
+                      properties:
+                        content_type:
+                          type: string
+                          required: false
+                        database:
+                          type: string
+                          required: false
+                        related_field:
+                          type: string
+                          required: false
+                        query:
+                          type: string
+                          required: false
+                        value_path:
+                          type: string
+                          required: true
+                        label_path:
+                          type: string
+                          required: true
+                    component_renderer:
+                      type: string
+                      required: false
+                      options:
+                        - text
+                        - phone
+                        - textarea
+                        - select
+                        - cards
+                        - simple-list
+                        - grouped-list
+                    options:
+                      type: array
+                      required: false
+                      items:
+                        value:
+                          type: string
+                          required: true
+                region:
+                  type: object
+                  required: false
+                  properties:
+                    visible:
+                      type: boolean
+                      required: false
+                    required:
+                      type: boolean
+                      required: false
+                    default:
+                      type: string
+                      required: false
+                    default_country:
+                      type: string
+                      required: false
+                    helper_text:
+                      type: string
+                      required: false
+                    placeholder:
+                      type: string
+                      required: false
+                    show_label:
+                      type: boolean
+                      required: false
+                    label:
+                      type: string
+                      required: false
+                    slugs:
+                      type: array
+                      required: false
+                      items:
+                        type:
+                          type: string
+                          required: true
+                    source:
+                      type: object
+                      required: false
+                      properties:
+                        content_type:
+                          type: string
+                          required: false
+                        database:
+                          type: string
+                          required: false
+                        related_field:
+                          type: string
+                          required: false
+                        query:
+                          type: string
+                          required: false
+                        value_path:
+                          type: string
+                          required: true
+                        label_path:
+                          type: string
+                          required: true
+                    component_renderer:
+                      type: string
+                      required: false
+                      options:
+                        - text
+                        - phone
+                        - textarea
+                        - select
+                        - cards
+                        - simple-list
+                        - grouped-list
+                    options:
+                      type: array
+                      required: false
+                      items:
+                        value:
+                          type: string
+                          required: true
+                location:
+                  type: object
+                  required: false
+                  properties:
+                    visible:
+                      type: boolean
+                      required: false
+                    required:
+                      type: boolean
+                      required: false
+                    default:
+                      type: string
+                      required: false
+                    default_country:
+                      type: string
+                      required: false
+                    helper_text:
+                      type: string
+                      required: false
+                    placeholder:
+                      type: string
+                      required: false
+                    show_label:
+                      type: boolean
+                      required: false
+                    label:
+                      type: string
+                      required: false
+                    slugs:
+                      type: array
+                      required: false
+                      items:
+                        type:
+                          type: string
+                          required: true
+                    source:
+                      type: object
+                      required: false
+                      properties:
+                        content_type:
+                          type: string
+                          required: false
+                        database:
+                          type: string
+                          required: false
+                        related_field:
+                          type: string
+                          required: false
+                        query:
+                          type: string
+                          required: false
+                        value_path:
+                          type: string
+                          required: true
+                        label_path:
+                          type: string
+                          required: true
+                    component_renderer:
+                      type: string
+                      required: false
+                      options:
+                        - text
+                        - phone
+                        - textarea
+                        - select
+                        - cards
+                        - simple-list
+                        - grouped-list
+                    options:
+                      type: array
+                      required: false
+                      items:
+                        value:
+                          type: string
+                          required: true
+                coupon:
+                  type: object
+                  required: false
+                  properties:
+                    visible:
+                      type: boolean
+                      required: false
+                    required:
+                      type: boolean
+                      required: false
+                    default:
+                      type: string
+                      required: false
+                    default_country:
+                      type: string
+                      required: false
+                    helper_text:
+                      type: string
+                      required: false
+                    placeholder:
+                      type: string
+                      required: false
+                    show_label:
+                      type: boolean
+                      required: false
+                    label:
+                      type: string
+                      required: false
+                    slugs:
+                      type: array
+                      required: false
+                      items:
+                        type:
+                          type: string
+                          required: true
+                    source:
+                      type: object
+                      required: false
+                      properties:
+                        content_type:
+                          type: string
+                          required: false
+                        database:
+                          type: string
+                          required: false
+                        related_field:
+                          type: string
+                          required: false
+                        query:
+                          type: string
+                          required: false
+                        value_path:
+                          type: string
+                          required: true
+                        label_path:
+                          type: string
+                          required: true
+                    component_renderer:
+                      type: string
+                      required: false
+                      options:
+                        - text
+                        - phone
+                        - textarea
+                        - select
+                        - cards
+                        - simple-list
+                        - grouped-list
+                    options:
+                      type: array
+                      required: false
+                      items:
+                        value:
+                          type: string
+                          required: true
+                client_comments:
+                  type: object
+                  required: false
+                  properties:
+                    visible:
+                      type: boolean
+                      required: false
+                    required:
+                      type: boolean
+                      required: false
+                    default:
+                      type: string
+                      required: false
+                    default_country:
+                      type: string
+                      required: false
+                    helper_text:
+                      type: string
+                      required: false
+                    placeholder:
+                      type: string
+                      required: false
+                    show_label:
+                      type: boolean
+                      required: false
+                    label:
+                      type: string
+                      required: false
+                    slugs:
+                      type: array
+                      required: false
+                      items:
+                        type:
+                          type: string
+                          required: true
+                    source:
+                      type: object
+                      required: false
+                      properties:
+                        content_type:
+                          type: string
+                          required: false
+                        database:
+                          type: string
+                          required: false
+                        related_field:
+                          type: string
+                          required: false
+                        query:
+                          type: string
+                          required: false
+                        value_path:
+                          type: string
+                          required: true
+                        label_path:
+                          type: string
+                          required: true
+                    component_renderer:
+                      type: string
+                      required: false
+                      options:
+                        - text
+                        - phone
+                        - textarea
+                        - select
+                        - cards
+                        - simple-list
+                        - grouped-list
+                    options:
+                      type: array
+                      required: false
+                      items:
+                        value:
+                          type: string
+                          required: true
+            success:
+              type: object
+              required: false
+              properties:
+                url:
+                  type: string
+                  required: false
+                message:
+                  type: string
+                  required: false
+            terms_url:
+              type: string
+              required: false
+            privacy_url:
+              type: string
+              required: false
+            consent:
+              type: object
+              required: false
+              properties:
+                email:
+                  type: boolean
+                  required: false
+                sms:
+                  type: boolean
+                  required: false
+                whatsapp:
+                  type: boolean
+                  required: false
+                marketing:
+                  type: boolean
+                  required: false
+                marketing_text:
+                  type: string
+                  required: false
+                sms_text:
+                  type: string
+                  required: false
+                sms_usa_only:
+                  type: boolean
+                  required: false
+            show_terms:
+              type: boolean
+              required: false
+            className:
+              type: string
+              required: false
+            button_className:
+              type: string
+              required: false
+            terms_className:
+              type: string
+              required: false
+        cta_button:
+          type: object
+          required: false
+          properties:
+            text:
+              type: string
+              required: true
+            url:
+              type: string
+              required: true
+            variant:
+              type: string
+              required: true
+              options:
+                - primary
+                - secondary
+                - outline
+            tracking:
+              type: string
+              required: false
+              options:
+                - none
+                - add_to_cart
+                - begin_checkout
+            button_variant:
+              type: string
+              required: false
+            text_color:
+              type: string
+              required: false
+            icon:
+              type: string
+              required: false
+            us_only:
+              type: boolean
+              required: false
+        login_link:
+          type: object
+          required: false
+          properties:
+            text:
+              type: string
+              required: true
+            url:
+              type: string
+              required: false
+        features:
+          type: array
+          required: false
+          items:
+            icon:
+              type: string
+              required: true
+              description: "Icon name: book, code, briefcase, robot, users, calendar, play"
+            text:
+              type: string
+              required: true
+            count:
+              type: string
+              required: false
+          description: List of features with icons and optional counts
+      description: Signup/CTA card below media
+    layout_reversed:
+      type: boolean
+      required: false
+      description: When true, media and signup card are on the left, text content on the right
+  credibility:
+    description:
+      type: string
+      required: false
+      description: Short supporting text displayed above the title in muted color
+      example: Immersive programs built to launch AI careers.
+    cta_buttons:
+      type: array
+      required: false
+      items:
+        text:
+          type: string
+          required: true
+        url:
+          type: string
+          required: true
+        variant:
+          type: string
+          required: true
+          options:
+            - primary
+            - secondary
+            - outline
+        tracking:
+          type: string
+          required: false
+          options:
+            - none
+            - add_to_cart
+            - begin_checkout
+        button_variant:
+          type: string
+          required: false
+        text_color:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+          description: Tabler icon name (without 'Icon' prefix)
+        us_only:
+          type: boolean
+          required: false
+      description: "Call-to-action buttons (recommended: 2 buttons max)"
+    pills:
+      type: array
+      required: false
+      items:
+        category:
+          type: string
+          required: true
+          description: Small uppercase label above the pill text (e.g. "Institutional Backing")
+        logos:
+          type: array
+          required: false
+          items:
+            image_id:
+              type: string
+              required: true
+              description: Image registry ID of the logo
+          description: One or more logo images displayed in the pill's logo area
+        label:
+          type: string
+          required: true
+          description: Main pill text shown below the category label
+        background_color:
+          type: string
+          required: false
+          description: CSS color value for the pill background (defaults to white)
+          example: white
+      description: Vertical stack of credibility pills displayed in the right column
+    pills_url:
+      type: string
+      required: false
+    show_marquee:
+      type: boolean
+      required: false
+      description: Whether to show the muted watermark marquee at the bottom (defaults to true)
+    marquee_static:
+      type: boolean
+      required: false
+      description: When true, the marquee items are displayed as a static row instead of scrolling (defaults to false)
+    marquee_items:
+      type: array
+      required: false
+      items:
+        bold_text:
+          type: string
+          required: true
+          description: Bold/emphasized text (e.g. platform name or stat)
+        light_text:
+          type: string
+          required: true
+          description: Light/muted text following the bold text (e.g. rating or description)
+      description: Items for the watermark marquee. If omitted, default items are used.
+    logo_rotation_ms_time:
+      type: number
+      required: false
+      description: >-
+        How many milliseconds each logo is shown before rotating to the next one. All badges rotate simultaneously.
+        Defaults to 2500ms.
+      example: 2500
+    colored_logos:
+      type: boolean
+      required: false
+      description: When true, logos are shown in full color. When false (default), logos are displayed in grayscale.
+  exercise:
+    badge:
+      type: string
+      required: false
+      description: Short pill label shown at top-left (e.g. "Free")
+      example: Free
+    exercise_type:
+      type: string
+      required: false
+      description: Plain label next to the badge (e.g. "Interactive exercise")
+      example: Interactive exercise
+    description:
+      type: string
+      required: false
+      description: Short subtitle below the title. Rendered with line-clamp-2.
+    includes_title:
+      type: string
+      required: false
+      description: Header text of the "This exercise includes" card
+      example: This exercise includes
+    category:
+      type: string
+      required: false
+      description: Badge label shown in the top-right of the includes card
+      example: Hard Skills for developers
+    technologies:
+      type: string
+      required: false
+      description: Technology pills shown in the includes card
+      example:
+        - JavaScript
+        - Node.js
+        - HTML/CSS
+    features:
+      type: array
+      required: false
+      items:
+        icon:
+          type: string
+          required: false
+          description: Tabler icon name (without 'Icon' prefix)
+        text:
+          type: string
+          required: false
+      description: Feature bullet list inside the includes card. Icon is selectable via icon-picker.
+      example:
+        - icon: Sparkles
+          text: AI assistance for guided help
+        - icon: Code
+          text: Real code, real-time output
+    stats:
+      type: array
+      required: false
+      items:
+        icon:
+          type: string
+          required: false
+          description: Tabler icon name (without 'Icon' prefix)
+        label:
+          type: string
+          required: false
+          description: Uppercase label shown above the value
+          example: Skill level
+        value:
+          type: string
+          required: false
+          description: The stat value. If missing/empty, the entire stat slot is hidden.
+          example: Beginner
+        value_label:
+          type: string
+          required: false
+          description: Optional unit/suffix shown after value (e.g. "hours"). Only rendered when value is present.
+          example: hours
+      description: Stats shown in the bar that overlaps the bottom of the hero. Icon is selectable via icon-picker.
+      example:
+        - icon: ChartBar
+          label: Skill level
+          value: Beginner
+        - icon: Clock
+          label: Time to complete
+          value: 15
+          value_label: minutes
+    form_card_title:
+      type: string
+      required: false
+      description: Title displayed at the top of the enrollment form card
+      example: Keep your progress
+    form_card_subtitle:
+      type: string
+      required: false
+      description: Subtitle below the form card title
+      example: Save this exercise and unlock your full learning path with LearnPack.
+    form_card_disclaimer:
+      type: string
+      required: false
+      description: Small disclaimer text below the form (e.g. "No spam. Unsubscribe anytime.")
+      example: No spam. Unsubscribe anytime.
+    form_card_image:
+      type: string
+      required: false
+      description: >-
+        Decorative image/badge overlaid on the top-right corner of the form card (desktop). On mobile it appears
+        centered above the form title. Same field as productShowcase.
+      example: https://storage.googleapis.com/4geeks-academy-website/media/Course-Report-Badge-2025_1764709632231.webp
+    form_card_image_alt:
+      type: string
+      required: false
+      description: Alt text for form_card_image when form_card_image is a bare URL string
+    form_card_image_object_fit:
+      type: string
+      required: false
+      description: CSS object-fit for form_card_image (default contain)
+    form_card_image_object_position:
+      type: string
+      required: false
+      description: CSS object-position for form_card_image (default top right)
+    form_card_image_width:
+      type: string
+      required: false
+      description: Width of form_card_image (default 140px)
+    form_card_image_height:
+      type: string
+      required: false
+      description: Height of form_card_image (default 140px)
+    form_card_image_opacity:
+      type: number
+      required: false
+      description: Opacity of form_card_image (0–1)
+    form_card_image_border_radius:
+      type: string
+      required: false
+      description: Border radius of form_card_image
+    form:
+      type: string
+      required: false
+      description: Lead capture form. Passed directly to the LeadForm component.
+  orbit:
+    eyebrow:
+      type: string
+      required: false
+      description: Small uppercase label above the title, shown with a green live-dot
+      example: NO MATTER WHAT YOU'RE SEEKING
+    body:
+      type: string
+      required: false
+      description: Short description paragraph below the title
+    stat:
+      type: string
+      required: false
+      description: Single stat line shown at the bottom-left. Supports HTML — use <strong> for bold numbers
+      example: <strong>1.3M</strong> new AI roles opening
+    background:
+      type: string
+      required: false
+      description: Optional CSS background value. Defaults to a subtle primary gradient.
+    cta_buttons:
+      type: array
+      required: false
+      items:
+        text:
+          type: string
+          required: true
+        url:
+          type: string
+          required: true
+        variant:
+          type: string
+          required: true
+          options:
+            - primary
+            - secondary
+            - outline
+        tracking:
+          type: string
+          required: false
+          options:
+            - none
+            - add_to_cart
+            - begin_checkout
+        button_variant:
+          type: string
+          required: false
+        text_color:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+          description: Tabler icon name (without 'Icon' prefix)
+        us_only:
+          type: boolean
+          required: false
+      description: "Call-to-action buttons (recommended: 2 max)"
+    orbit_diagram:
+      type: object
+      required: false
+      properties:
+        center_label:
+          type: string
+          required: false
+          description: Text inside the center sphere
+          example: AI
+        legend_start:
+          type: string
+          required: false
+          description: Label for the gray (muted) legend dot
+          example: Where you started
+        legend_highlight:
+          type: string
+          required: false
+          description: Label for the primary-color legend dot
+          example: Where 4Geeks is now
+        badges:
+          type: object
+          required: false
+          properties:
+            inner:
+              type: array
+              required: false
+              items:
+                label:
+                  type: string
+                  required: true
+                highlight:
+                  type: boolean
+                  required: false
+                  description: true = primary color pill, false = muted pill
+            middle:
+              type: array
+              required: false
+              items:
+                label:
+                  type: string
+                  required: true
+                highlight:
+                  type: boolean
+                  required: false
+            outer:
+              type: array
+              required: false
+              items:
+                label:
+                  type: string
+                  required: true
+                highlight:
+                  type: boolean
+                  required: false
+          description: Badge pills for each of the three orbit rings. Each ring accepts 2 or more items.
+  productShowcase:
+    subtitle:
+      type: string
+      required: false
+    welcome_text:
+      type: string
+      required: false
+      description: Text displayed above the title
+      example: Welcome to
+    brand_mark:
+      type: object
+      required: false
+      properties:
+        prefix:
+          type: string
+          required: false
+          description: Text before the highlighted portion
+          example: Geek
+        highlight:
+          type: string
+          required: true
+          description: The highlighted/colored portion of the brand
+          example: FORCE
+        suffix:
+          type: string
+          required: false
+          description: Text after the highlighted portion
+          example: ":"
+        color:
+          type: string
+          required: false
+          options:
+            - primary
+            - accent
+            - destructive
+            - chart-1
+            - chart-2
+            - chart-3
+            - chart-4
+            - chart-5
+          description: Semantic color token for the highlight
+          example: chart-5
+      description: Configurable brand text with colored highlight
+    description:
+      type: string
+      required: false
+      description: Longer description text below subtitle
+    bullets:
+      type: string
+      required: false
+    footer:
+      type: string
+      required: false
+    marquee:
+      type: string
+      required: false
+    video:
+      type: object
+      required: false
+      properties:
+        url:
+          type: string
+          required: false
+          description: Video URL (YouTube, Vimeo, or local video path)
+        ratio:
+          type: string
+          required: false
+          description: Aspect ratio (e.g., "16:9", "9:12")
+        mobile_ratio:
+          type: string
+          required: false
+        width:
+          type: string
+          required: false
+        muted:
+          type: boolean
+          required: false
+          description: Whether video should be muted
+        autoplay:
+          type: boolean
+          required: false
+          description: Whether video should autoplay
+        loop:
+          type: boolean
+          required: false
+          description: Whether video should loop
+        preview_image_url:
+          type: string
+          required: false
+          description: Thumbnail image URL
+        with_shadow_border:
+          type: boolean
+          required: false
+    video_id:
+      type: string
+      required: false
+    video_ratio:
+      type: string
+      required: false
+    image:
+      type: string
+      required: false
+      description: Alternative to video - static image on right side
+    image_alt:
+      type: string
+      required: false
+    image_object_fit:
+      type: string
+      required: false
+    image_object_position:
+      type: string
+      required: false
+    background_image:
+      type: string
+      required: false
+      description: >-
+        Full-width background image for the section.  NOTE: Background image is only displayed on screens >= 1280px
+        width.  On smaller screens, a gradient fallback is shown instead for better mobile experience.
+    left_images:
+      type: array
+      required: false
+      items:
+        src:
+          type: string
+          required: true
+        alt:
+          type: string
+          required: true
+    right_images:
+      type: array
+      required: false
+      items:
+        src:
+          type: string
+          required: true
+        alt:
+          type: string
+          required: true
+    form:
+      type: string
+      required: false
+      description: >-
+        Lead capture form using the LeadForm component. Supports inline (email + button on one line) or stacked (labeled
+        fields) variants.
+    form_vertical_align:
+      type: string
+      required: false
+      options:
+        - top
+        - center
+        - bottom
+    form_card_background:
+      type: string
+      required: false
+    form_card_text_color:
+      type: string
+      required: false
+    form_card_title:
+      type: string
+      required: false
+    form_card_subtitle:
+      type: string
+      required: false
+    form_card_image:
+      type: string
+      required: false
+    form_card_image_alt:
+      type: string
+      required: false
+    form_card_image_object_fit:
+      type: string
+      required: false
+    form_card_image_object_position:
+      type: string
+      required: false
+    form_card_image_width:
+      type: string
+      required: false
+    form_card_image_height:
+      type: string
+      required: false
+    form_card_image_opacity:
+      type: number
+      required: false
+    form_card_image_border_radius:
+      type: string
+      required: false
+    form_terms_color:
+      type: string
+      required: false
+    cta_button:
+      type: string
+      required: false
+      description: Alternative to form - single CTA button
+    trust_bar:
+      type: string
+      required: false
+      description: Social proof with ratings and review logos
+    show_awards_marquee:
+      type: boolean
+      required: false
+    awards_marquee_at_left_column:
+      type: boolean
+      required: false
+    awards_marquee:
+      type: object
+      required: false
+      properties:
+        items:
+          type: array
+          required: true
+          items:
+            id:
+              type: string
+              required: true
+            alt:
+              type: string
+              required: true
+            logo:
+              type: string
+              required: false
+            logoHeight:
+              type: string
+              required: false
+            source:
+              type: string
+              required: false
+            name:
+              type: string
+              required: false
+            year:
+              type: string
+              required: false
+        speed:
+          type: number
+          required: false
+        gradient:
+          type: boolean
+          required: false
+        gradientWidth:
+          type: number
+          required: false
+  singleColumn:
+    subtitle:
+      type: string
+      required: false
+    badge:
+      type: string
+      required: false
+      description: Small label displayed above the title
+      example: Career Program
+    cta_buttons:
+      type: array
+      required: false
+      items:
+        text:
+          type: string
+          required: true
+          description: Button label
+        url:
+          type: string
+          required: true
+          description: Link destination
+        variant:
+          type: string
+          required: true
+          options:
+            - primary
+            - secondary
+            - outline
+        tracking:
+          type: string
+          required: false
+          options:
+            - none
+            - add_to_cart
+            - begin_checkout
+        button_variant:
+          type: string
+          required: false
+        text_color:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+          description: Tabler icon name (without 'Icon' prefix)
+        us_only:
+          type: boolean
+          required: false
+      description: "Call-to-action buttons (recommended: 2 buttons max)"
+    trust_bar:
+      type: object
+      required: false
+      properties:
+        rating:
+          type: string
+          required: false
+          example: 4.8/5
+        rating_count:
+          type: string
+          required: false
+          example: 2,500+
+        trusted_text:
+          type: string
+          required: true
+          example: Trusted by 10,000+ students
+        avatars:
+          type: array
+          required: false
+          items:
+            type:
+              type: string
+              required: true
+      description: Social proof with ratings
+    award_badges:
+      type: array
+      required: false
+      items:
+        name:
+          type: string
+          required: true
+        source:
+          type: string
+          required: true
+        year:
+          type: string
+          required: false
+      description: Award logos to display
+    image:
+      type: object
+      required: false
+      properties:
+        src:
+          type: string
+          required: true
+        alt:
+          type: string
+          required: false
+        fallback:
+          type: string
+          required: false
+    image_full_width:
+      type: boolean
+      required: false
+    image_width:
+      type: string
+      required: false
+  showcase:
+    subtitle:
+      type: string
+      required: false
+    trust_bar:
+      type: object
+      required: false
+      properties:
+        rating:
+          type: string
+          required: false
+        rating_count:
+          type: string
+          required: false
+        trusted_text:
+          type: string
+          required: true
+        avatars:
+          type: array
+          required: false
+          items:
+            type:
+              type: string
+              required: true
+          description: Image registry IDs or URLs for avatar images in the trust bar
+      description: Social proof with ratings and optional avatars
+    cta_button:
+      type: object
+      required: true
+      properties:
+        text:
+          type: string
+          required: true
+        url:
+          type: string
+          required: true
+        variant:
+          type: string
+          required: true
+          options:
+            - primary
+            - secondary
+            - outline
+        tracking:
+          type: string
+          required: false
+          options:
+            - none
+            - add_to_cart
+            - begin_checkout
+        button_variant:
+          type: string
+          required: false
+        text_color:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+        us_only:
+          type: boolean
+          required: false
+      description: Single call-to-action button
+    left_images:
+      type: array
+      required: false
+      items:
+        src:
+          type: string
+          required: true
+        alt:
+          type: string
+          required: true
+      description: Images to display on the left side
+    right_images:
+      type: array
+      required: false
+      items:
+        src:
+          type: string
+          required: true
+        alt:
+          type: string
+          required: true
+      description: Images to display on the right side
+    show_arrow:
+      type: boolean
+      required: false
+      description: Show decorative arrow pointing to CTA
+  simpleTwoColumn:
+    subtitle:
+      type: string
+      required: false
+    badge:
+      type: string
+      required: false
+      description: Small label displayed below the subtitle
+      example: Coding Bootcamp Projects & Alumni
+    image:
+      type: string
+      required: false
+      description: Hero image displayed on the right side
+    image_alt:
+      type: string
+      required: false
+    image_object_fit:
+      type: string
+      required: false
+    image_object_position:
+      type: string
+      required: false
+    video:
+      type: object
+      required: false
+      properties:
+        url:
+          type: string
+          required: false
+        ratio:
+          type: string
+          required: false
+        mobile_ratio:
+          type: string
+          required: false
+        width:
+          type: string
+          required: false
+        muted:
+          type: boolean
+          required: false
+        autoplay:
+          type: boolean
+          required: false
+        loop:
+          type: boolean
+          required: false
+        preview_image_url:
+          type: string
+          required: false
+        with_shadow_border:
+          type: boolean
+          required: false
+    cta_buttons:
+      type: array
+      required: false
+      items:
+        text:
+          type: string
+          required: true
+          description: Button label
+        url:
+          type: string
+          required: true
+          description: Link destination
+        variant:
+          type: string
+          required: true
+          options:
+            - primary
+            - secondary
+            - outline
+        tracking:
+          type: string
+          required: false
+          options:
+            - none
+            - add_to_cart
+            - begin_checkout
+        button_variant:
+          type: string
+          required: false
+        text_color:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+          description: Tabler icon name (without 'Icon' prefix)
+        us_only:
+          type: boolean
+          required: false
+      description: "Call-to-action buttons (recommended: 2 buttons max)"
+    background:
+      type: string
+      required: false
+      description: Background Tailwind class
+  simpleStacked:
+    subtitle:
+      type: string
+      required: false
+    badge:
+      type: string
+      required: false
+    image:
+      type: object
+      required: false
+      properties:
+        src:
+          type: string
+          required: true
+        alt:
+          type: string
+          required: true
+    cta_buttons:
+      type: array
+      required: false
+      items:
+        text:
+          type: string
+          required: true
+        url:
+          type: string
+          required: true
+        variant:
+          type: string
+          required: true
+          options:
+            - primary
+            - secondary
+            - outline
+        tracking:
+          type: string
+          required: false
+          options:
+            - none
+            - add_to_cart
+            - begin_checkout
+        button_variant:
+          type: string
+          required: false
+        text_color:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+        us_only:
+          type: boolean
+          required: false
+    background:
+      type: string
+      required: false
+  twoColumn:
+    subtitle:
+      type: string
+      required: false
+    badge:
+      type: string
+      required: false
+    image:
+      type: string
+      required: false
+    image_alt:
+      type: string
+      required: false
+    cta_buttons:
+      type: array
+      required: false
+      items:
+        text:
+          type: string
+          required: true
+        url:
+          type: string
+          required: true
+        variant:
+          type: string
+          required: true
+          options:
+            - primary
+            - secondary
+            - outline
+        tracking:
+          type: string
+          required: false
+          options:
+            - none
+            - add_to_cart
+            - begin_checkout
+        button_variant:
+          type: string
+          required: false
+        text_color:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+        us_only:
+          type: boolean
+          required: false
+    background:
+      type: string
+      required: false
+props:
+  title:
+    type: string
+    required: true
+    description: Main headline (keep under 60 characters for best display)
+    example: Full Stack Development with AI

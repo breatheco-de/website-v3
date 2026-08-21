@@ -1,0 +1,17 @@
+name: "Mentorship & Support Options"
+description: "Showcases the human support available alongside AI tools"
+
+yaml: |
+  type: mentorship
+  title: "Mentorship & Support"
+  subtitle: "You're never alone in your learning journey"
+  cards:
+    - icon: "user"
+      title: "1-on-1 Mentorship"
+      description: "Weekly sessions with experienced developers who guide you through challenges and help you grow professionally."
+    - icon: "users"
+      title: "Career Coaching"
+      description: "Dedicated career coaches help you build your resume, prepare for interviews, and connect with hiring partners."
+    - icon: "headset"
+      title: "24/7 Community Support"
+      description: "Join our Slack community of students and alumni. Get help anytime from peers who understand your journey."

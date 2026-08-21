@@ -1,0 +1,30 @@
+name: awards_badges
+yaml: |
+  - type: award_badges
+    version: v1.0
+    variant: detailed
+    showBorder: false
+    items:
+      - id: course-report-badge
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/Course-Report-Badge-2025_1764709632231.webp
+        alt: Course Report Badge 2025
+        logoHeight: 64px
+        description: Recognized as one of the best coding bootcamps worldwide
+        link: https://www.coursereport.com/schools/4geeks-academy
+        linkText: Read reviewsn
+      - id: logo-switchup-best-bootcamps-2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup-best-bootcamps-2025_1770392145139.png
+        alt: SwitchUp Best Bootcamps 2025
+        logoHeight: 64px
+        description: Top-rated bootcamp based on verified student reviews
+        link: https://www.switchup.org/bootcamps/4geeks-academy
+        linkText: See rankings
+      - id: 4geeks-academy-reviews-cost-courses-and-outcomes-05-26-2026-10-59-am
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/4Geeks-Academy-Reviews-Cost-Courses-and-Outcomes-05-26-2026_10_59_AM.png
+        alt: "Image: 4Geeks-Academy-Reviews-Cost-Courses-and-Outcomes-05-26-2026_10_59_AM"
+        logoHeight: 64px
+        description: Best coding bootcamp for career changers and beginners
+        link: https://careerkarma.com/schools/4geeks-academy/
+        linkText: Learn more
+    paddingY:
+      desktop: sm

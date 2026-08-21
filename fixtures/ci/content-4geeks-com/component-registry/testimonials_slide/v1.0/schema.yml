@@ -1,0 +1,70 @@
+name: Testimonials Slide
+version: "1.0"
+component: TestimonialsSlide
+file: client/src/components/TestimonialsSlide.tsx
+description: >-
+  A sliding marquee of testimonial cards with photos, country flags, and achievement badges. Cards auto-scroll
+  horizontally and pause on hover.
+when_to_use: >-
+  Use this component for showcasing multiple student testimonials with rich content including photos, country info, and
+  achievements. Best for career support and program pages where social proof is important.
+image_sizes:
+  default.items[].student_thumb: 60px
+props:
+  title:
+    type: string
+    required: true
+    description: Main heading for the testimonials section
+    example: Real Careers Start Here — Just Ask Our Students
+  description:
+    type: string
+    required: true
+    description: Supporting text that introduces the testimonials
+    example: Our grads are in high demand, with over 84% hired within six months of finishing the program.
+  background:
+    type: string
+    required: false
+    description: "Background color class (default: bg-sidebar)"
+    example: bg-muted
+  testimonials:
+    type: array
+    required: false
+    items:
+      name:
+        type: string
+        required: true
+      img:
+        type: string
+        required: true
+      status:
+        type: string
+        required: false
+      country:
+        type: object
+        required: true
+        properties:
+          name:
+            type: string
+            required: true
+          iso:
+            type: string
+            required: true
+      contributor:
+        type: string
+        required: true
+      description:
+        type: string
+        required: true
+      achievement:
+        type: string
+        required: false
+  related_features:
+    type: array
+    required: false
+    items:
+      type:
+        type: string
+        required: true
+  limit:
+    type: number
+    required: false

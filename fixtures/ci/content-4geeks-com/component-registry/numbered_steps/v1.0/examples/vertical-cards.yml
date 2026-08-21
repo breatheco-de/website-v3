@@ -1,0 +1,28 @@
+name: "Vertical Cards Layout"
+description: "Steps with square badges, vertical timeline on left, and each step in a card"
+yaml: |
+  - type: numbered_steps
+    version: "1.0"
+    variant: verticalCards
+    title: "How the Refund Works"
+    description: "We've made it simple: if you complete all the required steps, and you don't land a qualifying job within 9 months after graduation, we'll refund 100% of your tuition."
+    description_link:
+      text: "Conditions Apply."
+      url: "/terms"
+    background: "bg-muted/30"
+    bullet_icon: "Check"
+    bullet_icon_color: "text-primary"
+    steps:
+      - icon: "ClipboardX"
+        title: "Not Hired Within 9 Months"
+        text: "You were not hired into a qualifying role within 9 months of graduation."
+      - icon: "UserSearch"
+        title: "Requirements Verified"
+        text: "Our team verifies that you met all Job Guarantee requirements."
+        bullets:
+          - "Completed all coursework and projects"
+          - "Attended all career sessions"
+          - "Applied to minimum required jobs"
+      - icon: "CashBanknote"
+        title: "Receive Your Refund"
+        text: "Once verified, we process your 100% tuition refund within 30 days."

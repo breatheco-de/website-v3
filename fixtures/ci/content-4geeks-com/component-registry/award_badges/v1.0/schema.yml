@@ -1,0 +1,59 @@
+name: Award badges Section
+version: "1.0"
+component: AwardBadges
+file: client/src/components/award_badges/AwardBadges.tsx
+description: Displays a collection of award badges with logos or text fallback. Supports mobile carousel with autoplay.
+when_to_use: |
+  Use to showcase awards, certifications, and industry recognition in a visual badge format.
+  Best placed after a hero or credibility strip to reinforce trust signals. Works well on
+  homepage, about, and program pages. Use the mobile carousel for collections of 4+ badges.
+props:
+  title:
+    type: string
+    required: false
+  variant:
+    type: string
+    required: false
+    options:
+      - simple
+      - detailed
+  showBorder:
+    type: boolean
+    required: false
+  items:
+    type: array
+    required: true
+    items:
+      id:
+        type: string
+        required: true
+      alt:
+        type: string
+        required: true
+      logo:
+        type: string
+        required: false
+      logoHeight:
+        type: string
+        required: false
+      description:
+        type: string
+        required: false
+      link:
+        type: string
+        required: false
+      linkText:
+        type: string
+        required: false
+      source:
+        type: string
+        required: false
+      name:
+        type: string
+        required: false
+      year:
+        type: string
+        required: false
+variants:
+  detailed: {}
+  simple: {}

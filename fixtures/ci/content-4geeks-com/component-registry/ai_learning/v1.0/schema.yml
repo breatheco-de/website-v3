@@ -1,0 +1,204 @@
+name: AI Learning Section
+version: "1.0"
+component: AILearningSection
+file: client/src/components/AILearningSection.tsx
+description: Showcases AI-powered learning tools with Rigobot, feature cards, and optional video content
+when_to_use: |
+  Use to highlight Rigobot AI tutor, mentorship benefits, and community learning.
+  Best placed after program overview to emphasize unique learning experience.
+
+  Variants:
+  - feature-tabs (default): Shows 3 interactive hover cards with expandable content panel
+  - highlight: Shows text + video side-by-side layout for simple messaging
+variants:
+  feature-tabs:
+    description: 3 interactive hover cards with expandable content panel showing video/image and bullets
+    best_for: Program pages, detailed feature showcases
+  highlight:
+    description: Simple two-column layout with text content and video side-by-side
+    best_for: Landing pages, quick value propositions
+variant_props:
+  feature-tabs:
+    features:
+      type: array
+      required: true
+      items:
+        icon:
+          type: string
+          required: true
+          description: Tabler icon name (e.g., Robot, Headset, Users)
+        title:
+          type: string
+          required: true
+        description:
+          type: string
+          required: true
+        show_rigobot_logo:
+          type: boolean
+          required: false
+        bullets:
+          type: array
+          required: false
+          items:
+            text:
+              type: string
+              required: true
+            icon:
+              type: string
+              required: false
+        video_url:
+          type: string
+          required: false
+        video:
+          type: object
+          required: false
+          properties:
+            url:
+              type: string
+              required: false
+            ratio:
+              type: string
+              required: false
+            mobile_ratio:
+              type: string
+              required: false
+            width:
+              type: string
+              required: false
+            muted:
+              type: boolean
+              required: false
+            autoplay:
+              type: boolean
+              required: false
+            loop:
+              type: boolean
+              required: false
+            preview_image_url:
+              type: string
+              required: false
+            with_shadow_border:
+              type: boolean
+              required: false
+        image_id:
+          type: string
+          required: false
+        cta:
+          type: string
+          required: false
+      description: "Feature cards to display (recommended: 3)"
+    chat_example:
+      type: object
+      required: false
+      properties:
+        bot_name:
+          type: string
+          required: true
+        bot_status:
+          type: string
+          required: true
+        user_message:
+          type: string
+          required: true
+        bot_response:
+          type: string
+          required: true
+      description: Interactive chat demo showing AI tutor in action (legacy)
+  highlight:
+    bullets:
+      type: array
+      required: false
+      items:
+        text:
+          type: string
+          required: true
+        icon:
+          type: string
+          required: false
+      description: Bullet points for key benefits
+    video_position:
+      type: string
+      required: false
+      options:
+        - left
+        - right
+    cta:
+      type: object
+      required: false
+      properties:
+        text:
+          type: string
+          required: true
+        url:
+          type: string
+          required: true
+        variant:
+          type: string
+          required: true
+          options:
+            - primary
+            - secondary
+            - outline
+        tracking:
+          type: string
+          required: false
+          options:
+            - none
+            - add_to_cart
+            - begin_checkout
+        button_variant:
+          type: string
+          required: false
+        text_color:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+        us_only:
+          type: boolean
+          required: false
+props:
+  badge:
+    type: string
+    required: false
+  title:
+    type: string
+    required: true
+  description:
+    type: string
+    required: true
+  video_url:
+    type: string
+    required: false
+  video:
+    type: object
+    required: false
+    properties:
+      url:
+        type: string
+        required: false
+      ratio:
+        type: string
+        required: false
+      mobile_ratio:
+        type: string
+        required: false
+      width:
+        type: string
+        required: false
+      muted:
+        type: boolean
+        required: false
+      autoplay:
+        type: boolean
+        required: false
+      loop:
+        type: boolean
+        required: false
+      preview_image_url:
+        type: string
+        required: false
+      with_shadow_border:
+        type: boolean
+        required: false

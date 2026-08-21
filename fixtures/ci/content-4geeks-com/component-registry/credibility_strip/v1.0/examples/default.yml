@@ -1,0 +1,39 @@
+type: credibility_strip
+version: v1.0
+cta: /partners
+item_badge_shape: true
+item_background_color: hsl(var(--muted))
+logo_rotation_ms_time: 2000
+items:
+  - label: University Partners
+    logos:
+      - image_id: premios_tecnologia
+        alt: Technology Awards XXI Century
+        id: premios-tecnologia
+      - image_id: logo_razz
+        alt: Razz logo
+        id: logo-razz
+      - image_id: ebootcamp_top
+        alt: eBootcamp Top Award
+        id: ebootcamp-top
+  - label: Government Programs
+    logos:
+      - image_id: bid_logo
+      - image_id: logo_jooble
+        alt: Jooble logo
+        id: logo-jooble
+      - image_id: logo_course_report
+        alt: Course Report logo
+        id: logo-course-report
+  - label: Top Ranked, Every Year
+    logos:
+      - image_id: logo_overseas
+        alt: Overseas logo
+        id: logo-overseas
+      - image_id: logo_telefonica
+        alt: Telefonica logo
+        id: logo-telefonica
+      - image_id: logo_twilio
+        alt: Twilio logo
+        id: logo-twilio
+section_id: credibility_strip-vcpur5

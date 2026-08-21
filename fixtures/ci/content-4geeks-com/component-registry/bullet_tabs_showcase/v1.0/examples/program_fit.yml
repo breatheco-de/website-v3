@@ -1,0 +1,28 @@
+name: program fit
+yaml: |
+  - type: bullet_tabs_showcase
+    version: "1.0"
+    heading: ¿Este programa es para ti?
+    tabs:
+      - label: Compromiso intensivo
+        description: |-
+          Listo para un compromiso intensivo:
+          20-24 horas/semana durante 24 semanas. (Clases en vivo + ~12 h de tareas)
+        image_id: group_original
+      - label: Enfocado en carrera
+        description: |-
+          Enfocado en resultados de carrera:
+          Quieres habilidades en IA que abran roles bien pagados y demandados.
+        image_id: students_group_collaboration
+      - label: Motivado por la estructura
+        description: |-
+          Motivado por la estructura:
+          Prefieres hitos claros, instructores expertos y una cohorte que te apoye.
+        image_id: student_coding_laptop
+    image_position: right
+    marginY:
+      mobile: xl lg
+      desktop: lg
+    paddingY:
+      mobile: none
+      desktop: none

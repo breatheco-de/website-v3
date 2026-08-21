@@ -1,0 +1,28 @@
+name: "Hero with CTA Buttons"
+description: "Single column hero section with badge, two call-to-action buttons, and award badges"
+yaml: |
+  - type: hero
+    version: "1.0"
+    variant: singleColumn
+    badge: "Career Program"
+    title: "Full Stack Development with AI"
+    subtitle: "Learn at your own pace with AI-powered tools and unlimited mentorship"
+    cta_buttons:
+      - text: "Start Learning Now"
+        url: "/signup"
+        variant: "primary"
+        icon: "Rocket"
+      - text: "View Curriculum"
+        url: "/curriculum"
+        variant: "outline"
+        icon: "Book"
+    trust_bar:
+      rating: "4.8/5"
+      rating_count: "2,500+"
+      trusted_text: "Trusted by 10,000+ students"
+    award_badges:
+      - name: "Best Coding Bootcamp"
+        source: "Forbes"
+        year: "2024"
+      - name: "Top Tech School"
+        source: "Course Report"

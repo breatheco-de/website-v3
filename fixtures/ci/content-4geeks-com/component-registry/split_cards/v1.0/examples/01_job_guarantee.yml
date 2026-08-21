@@ -1,0 +1,15 @@
+name: "Job Guarantee (Primary Left)"
+description: "Job guarantee messaging with benefits list on the right"
+yaml: |
+  - type: split_cards
+    variant: primary-left
+    background: muted
+    primary:
+      badge: "Results-Backed Promise"
+      heading: "The Confidence of a Job Guarantee"
+      description: "The strongest proof that we believe in our model? We back it with a Job Guarantee. Most schools promise \"career support.\" At 4Geeks, we promise results: get hired within 9 months, or we refund your tuition in full. Conditions apply."
+    secondary:
+      benefits:
+        - text: "Our curriculum is industry-aligned and AI-ready"
+        - text: "Our mentorship is unlimited and personalized"
+        - text: "Our career support never expires"

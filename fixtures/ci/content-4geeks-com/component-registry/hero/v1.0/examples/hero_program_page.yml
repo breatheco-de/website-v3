@@ -1,0 +1,61 @@
+name: hero program page
+yaml: |
+  - type: hero
+    version: "1.0"
+    variant: course
+    title: Stay Relevant in Your Career. Lead with AI.
+    title_highlight: Lead with AI
+    subtitle: Gain the AI skills to stay competitive and advance your career in just 6 weeks. Learn to apply AI at work for greater efficiency, creativity, and impact.
+    students_enrolled:
+      avatars:
+        - https://storage.googleapis.com/4geeks-academy-website/media/coimbra_1764725341501.png
+        - https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+        - https://storage.googleapis.com/4geeks-academy-website/media/JeanSt.Cloud_1764725356935.jpeg
+        - https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh2_1770856306817.webp
+      count: +6000 graduates
+    bullet_points:
+      - Learn practical AI skills you can apply immediately in your current role or business workflows.
+      - Use AI to improve productivity, creativity, decision-making, and day-to-day execution at work.
+      - Build confidence using modern AI tools in real professional contexts, not just theory.
+      - Hyper-personalized learning with unlimited 1:1 mentorship and support that continues beyond the program.
+      - Ideal for professionals looking to stay relevant in an AI-powered job market.
+    tutors:
+      - name: Marco Gonzalo
+        role: Main Instructor
+        image: https://storage.googleapis.com/4geeks-academy-website/media/410890.jpg
+      - name: Rigo
+        role: AI Tutor
+        image: https://storage.googleapis.com/4geeks-academy-website/media/rigobot-logo_1764707022198.webp
+    tutors_label: "Your support system:"
+    media:
+      type: video
+      src: https://www.youtube.com/watch?v=E9RpwJhJi-k
+      thumbnail: https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&h=450&fit=crop
+      alt: Artificial Intelligence for Professionals program introduction
+    signup_card:
+      title: Download Course Details
+      description: Receive the full course overview, learning structure, schedule, and the practical AI skills you’ll develop in just 6 weeks.
+      cta_button:
+        text: Download Course Details
+        url: "#modal-o9bufw"
+        variant: primary
+      login_link:
+        text: Already a student? Login here.
+        url: https://4geeks.com/login
+      features:
+        - icon: calendar
+          text: 6-Week Professional AI Program
+        - icon: IconRobot
+          text: Practical AI Skills for Real Work
+        - icon: briefcase-business
+          text: Career-Relevant, Productivity-Focused Training
+        - icon: IconUsers
+          text: Hyper-Personalized Learning Experience
+        - icon: IconUserCheck
+          text: Unlimited 1:1 Mentorship
+        - icon: book
+          text: Real-World AI Applications
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: none

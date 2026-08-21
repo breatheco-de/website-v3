@@ -1,0 +1,34 @@
+name: testimonials spanish
+yaml: |
+  - type: cards_deck
+    version: "1.0"
+    heading: Historias reales de cambios de carrera
+    subtitle: Miles de graduados han utilizado nuestros programas para entrar en el mundo de la tecnología. Estas son solo algunas de sus historias, desde aumentos salariales hasta reinvenciones completas de carrera.
+    cards:
+      - video:
+          url: https://www.youtube.com/watch?v=B01-eTfgqqc
+        image: ""
+        brand_image: https://storage.googleapis.com/4geeks-academy-website/media/geekpal-logo-new.png
+        author_name: Mattia Tozzi
+        title: "\"4Geeks ha empujado mi futuro laboral\""
+        description: Las tutorías ilimitadas de 4Geeks fueron clave para elegirlos. Con la ayuda de sus profesores y la comunidad, pudo resolver todas sus dudas rápidamente y avanzar en su aprendizaje.
+        alt: Geekpal
+      - video:
+          url: https://www.youtube.com/watch?v=XqyM_QSVcOs
+        image: ""
+        brand_image: https://storage.googleapis.com/4geeks-academy-website/media/geekpal-logo-new.png
+        author_name: Ana Romero
+        title: "\"He superado mi miedo a programar\""
+        description: Están ahí siempre para brindarte apoyo. Sus buenos mentores, guías de programación y las herramientas de 4Geeks son excelentes. La recomendaría un millón de veces.
+        alt: Geekpal
+      - video:
+          url: https://www.youtube.com/watch?v=rtpfwwfE0yY
+        image: ""
+        brand_image: https://storage.googleapis.com/4geeks-academy-website/media/geekforce-logo-new.png
+        author_name: Joshua Bravo
+        title: "\"De asistente de cocina a Desarrollador Full Stack\""
+        description: Joshua pasó de trabajar en cocina y contabilidad a conseguir empleo como desarrollador en Regcheq, una startup fintech en Chile, tras completar el bootcamp de 4Geeks.
+        alt: Geekforce
+    marginY:
+      desktop: none xl
+    background: hsl(var(--card))

@@ -1,0 +1,810 @@
+name: Sticky CTA
+version: "1.0"
+component: StickyCallToAction
+file: client/src/components/StickyCallToAction.tsx
+description: >-
+  A sticky bottom bar that follows users as they scroll. Contains a heading and an "Apply" button that expands to reveal
+  a lead capture form.
+when_to_use: |
+  Use this component to maximize conversions on landing pages:
+  - When you want a persistent call-to-action visible at all times
+  - For long-form landing pages where users might scroll past the main CTA
+  - To capture leads without requiring users to scroll back up
+  - When you want an unobtrusive but accessible application form
+behaviors:
+  conversion:
+    via: form-settings
+    notes: Lead/form conversion settings via Forms tab.
+section_defaults:
+  load: eager
+props:
+  heading:
+    type: string
+    required: true
+    description: Text displayed in the sticky bar next to the button
+    example: Ready to start your tech career?
+  button_label:
+    type: string
+    required: true
+    description: Label for the expand/apply button
+    example: Apply Now
+  show_dismiss:
+    type: string
+    required: true
+  form:
+    type: object
+    required: false
+    properties:
+      variant:
+        type: string
+        required: false
+        options:
+          - stacked
+          - inline
+        description: Layout variant for the form
+      conversion_name:
+        type: string
+        required: false
+      title:
+        type: string
+        required: false
+        description: Form heading (optional, since sticky bar already has heading)
+      subtitle:
+        type: string
+        required: false
+      submit_label:
+        type: string
+        required: false
+        description: Text for the submit button
+      tags:
+        type: string
+        required: false
+      automations:
+        type: string
+        required: false
+      webhook:
+        type: object
+        required: false
+        properties:
+          url:
+            type: string
+            required: true
+          method:
+            type: string
+            required: true
+      fields:
+        type: object
+        required: false
+        properties:
+          email:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              default_country:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+              slugs:
+                type: array
+                required: false
+                items:
+                  type:
+                    type: string
+                    required: true
+              source:
+                type: object
+                required: false
+                properties:
+                  content_type:
+                    type: string
+                    required: false
+                  database:
+                    type: string
+                    required: false
+                  related_field:
+                    type: string
+                    required: false
+                  query:
+                    type: string
+                    required: false
+                  value_path:
+                    type: string
+                    required: true
+                  label_path:
+                    type: string
+                    required: true
+              component_renderer:
+                type: string
+                required: false
+                options:
+                  - text
+                  - phone
+                  - textarea
+                  - select
+                  - cards
+                  - simple-list
+                  - grouped-list
+              options:
+                type: array
+                required: false
+                items:
+                  value:
+                    type: string
+                    required: true
+          first_name:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              default_country:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+              slugs:
+                type: array
+                required: false
+                items:
+                  type:
+                    type: string
+                    required: true
+              source:
+                type: object
+                required: false
+                properties:
+                  content_type:
+                    type: string
+                    required: false
+                  database:
+                    type: string
+                    required: false
+                  related_field:
+                    type: string
+                    required: false
+                  query:
+                    type: string
+                    required: false
+                  value_path:
+                    type: string
+                    required: true
+                  label_path:
+                    type: string
+                    required: true
+              component_renderer:
+                type: string
+                required: false
+                options:
+                  - text
+                  - phone
+                  - textarea
+                  - select
+                  - cards
+                  - simple-list
+                  - grouped-list
+              options:
+                type: array
+                required: false
+                items:
+                  value:
+                    type: string
+                    required: true
+          last_name:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              default_country:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+              slugs:
+                type: array
+                required: false
+                items:
+                  type:
+                    type: string
+                    required: true
+              source:
+                type: object
+                required: false
+                properties:
+                  content_type:
+                    type: string
+                    required: false
+                  database:
+                    type: string
+                    required: false
+                  related_field:
+                    type: string
+                    required: false
+                  query:
+                    type: string
+                    required: false
+                  value_path:
+                    type: string
+                    required: true
+                  label_path:
+                    type: string
+                    required: true
+              component_renderer:
+                type: string
+                required: false
+                options:
+                  - text
+                  - phone
+                  - textarea
+                  - select
+                  - cards
+                  - simple-list
+                  - grouped-list
+              options:
+                type: array
+                required: false
+                items:
+                  value:
+                    type: string
+                    required: true
+          phone:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              default_country:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+              slugs:
+                type: array
+                required: false
+                items:
+                  type:
+                    type: string
+                    required: true
+              source:
+                type: object
+                required: false
+                properties:
+                  content_type:
+                    type: string
+                    required: false
+                  database:
+                    type: string
+                    required: false
+                  related_field:
+                    type: string
+                    required: false
+                  query:
+                    type: string
+                    required: false
+                  value_path:
+                    type: string
+                    required: true
+                  label_path:
+                    type: string
+                    required: true
+              component_renderer:
+                type: string
+                required: false
+                options:
+                  - text
+                  - phone
+                  - textarea
+                  - select
+                  - cards
+                  - simple-list
+                  - grouped-list
+              options:
+                type: array
+                required: false
+                items:
+                  value:
+                    type: string
+                    required: true
+          program:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              default_country:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+              slugs:
+                type: array
+                required: false
+                items:
+                  type:
+                    type: string
+                    required: true
+              source:
+                type: object
+                required: false
+                properties:
+                  content_type:
+                    type: string
+                    required: false
+                  database:
+                    type: string
+                    required: false
+                  related_field:
+                    type: string
+                    required: false
+                  query:
+                    type: string
+                    required: false
+                  value_path:
+                    type: string
+                    required: true
+                  label_path:
+                    type: string
+                    required: true
+              component_renderer:
+                type: string
+                required: false
+                options:
+                  - text
+                  - phone
+                  - textarea
+                  - select
+                  - cards
+                  - simple-list
+                  - grouped-list
+              options:
+                type: array
+                required: false
+                items:
+                  value:
+                    type: string
+                    required: true
+          region:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              default_country:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+              slugs:
+                type: array
+                required: false
+                items:
+                  type:
+                    type: string
+                    required: true
+              source:
+                type: object
+                required: false
+                properties:
+                  content_type:
+                    type: string
+                    required: false
+                  database:
+                    type: string
+                    required: false
+                  related_field:
+                    type: string
+                    required: false
+                  query:
+                    type: string
+                    required: false
+                  value_path:
+                    type: string
+                    required: true
+                  label_path:
+                    type: string
+                    required: true
+              component_renderer:
+                type: string
+                required: false
+                options:
+                  - text
+                  - phone
+                  - textarea
+                  - select
+                  - cards
+                  - simple-list
+                  - grouped-list
+              options:
+                type: array
+                required: false
+                items:
+                  value:
+                    type: string
+                    required: true
+          location:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              default_country:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+              slugs:
+                type: array
+                required: false
+                items:
+                  type:
+                    type: string
+                    required: true
+              source:
+                type: object
+                required: false
+                properties:
+                  content_type:
+                    type: string
+                    required: false
+                  database:
+                    type: string
+                    required: false
+                  related_field:
+                    type: string
+                    required: false
+                  query:
+                    type: string
+                    required: false
+                  value_path:
+                    type: string
+                    required: true
+                  label_path:
+                    type: string
+                    required: true
+              component_renderer:
+                type: string
+                required: false
+                options:
+                  - text
+                  - phone
+                  - textarea
+                  - select
+                  - cards
+                  - simple-list
+                  - grouped-list
+              options:
+                type: array
+                required: false
+                items:
+                  value:
+                    type: string
+                    required: true
+          coupon:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              default_country:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+              slugs:
+                type: array
+                required: false
+                items:
+                  type:
+                    type: string
+                    required: true
+              source:
+                type: object
+                required: false
+                properties:
+                  content_type:
+                    type: string
+                    required: false
+                  database:
+                    type: string
+                    required: false
+                  related_field:
+                    type: string
+                    required: false
+                  query:
+                    type: string
+                    required: false
+                  value_path:
+                    type: string
+                    required: true
+                  label_path:
+                    type: string
+                    required: true
+              component_renderer:
+                type: string
+                required: false
+                options:
+                  - text
+                  - phone
+                  - textarea
+                  - select
+                  - cards
+                  - simple-list
+                  - grouped-list
+              options:
+                type: array
+                required: false
+                items:
+                  value:
+                    type: string
+                    required: true
+          client_comments:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              default_country:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+              slugs:
+                type: array
+                required: false
+                items:
+                  type:
+                    type: string
+                    required: true
+              source:
+                type: object
+                required: false
+                properties:
+                  content_type:
+                    type: string
+                    required: false
+                  database:
+                    type: string
+                    required: false
+                  related_field:
+                    type: string
+                    required: false
+                  query:
+                    type: string
+                    required: false
+                  value_path:
+                    type: string
+                    required: true
+                  label_path:
+                    type: string
+                    required: true
+              component_renderer:
+                type: string
+                required: false
+                options:
+                  - text
+                  - phone
+                  - textarea
+                  - select
+                  - cards
+                  - simple-list
+                  - grouped-list
+              options:
+                type: array
+                required: false
+                items:
+                  value:
+                    type: string
+                    required: true
+        description: Configuration for form fields (email, first_name, phone, etc.)
+      success:
+        type: object
+        required: false
+        properties:
+          url:
+            type: string
+            required: false
+            description: Redirect URL after success
+          message:
+            type: string
+            required: false
+            description: Success message to display
+      terms_url:
+        type: string
+        required: false
+      privacy_url:
+        type: string
+        required: false
+      consent:
+        type: object
+        required: false
+        properties:
+          email:
+            type: boolean
+            required: false
+          sms:
+            type: boolean
+            required: false
+          whatsapp:
+            type: boolean
+            required: false
+          marketing:
+            type: boolean
+            required: false
+          marketing_text:
+            type: string
+            required: false
+          sms_text:
+            type: string
+            required: false
+          sms_usa_only:
+            type: boolean
+            required: false
+      show_terms:
+        type: boolean
+        required: false
+      className:
+        type: string
+        required: false
+      button_className:
+        type: string
+        required: false
+      terms_className:
+        type: string
+        required: false
+    description: LeadForm configuration shown when the bar expands

@@ -1,0 +1,35 @@
+name: "Stacked with program source"
+description: "Stacked form using query-driven program options via fields.program.source"
+yaml: |
+  - type: lead_form
+    version: "1.0"
+    variant: stacked
+    title: "Start Your Tech Career Today"
+    subtitle: "Get free information about our programs"
+    submit_label: "Get Information"
+    tags: "website-lead"
+    automations: "strong"
+    fields:
+      email:
+        visible: true
+        required: true
+      first_name:
+        visible: true
+        required: true
+      phone:
+        visible: true
+        required: true
+      program:
+        visible: true
+        required: true
+        source:
+          content_type: program
+          query: "purchasable=true"
+          value_path: bc_slug
+          label_path: title
+        # Subset: query: "slug=ai-fluency,ai-flex"
+        # This entry’s pointers: source.related_field: programs
+        #   value_path: slug
+        #   label_path: title
+    success:
+      message: "Thanks! We'll contact you within 24 hours."

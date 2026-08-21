@@ -1,0 +1,236 @@
+type: ai_flex_selector
+variant: default
+
+badge_text: "Build your path"
+title: "Your AI curriculum,"
+title_highlight: "built around you."
+subtitle: "4 questions. No commitment. We map the exact courses you need."
+icon: "4GeeksAvatar"
+back_label: "Back"
+restart_label: "Start over and change my answers"
+skills_breakdown_label: "Skills breakdown"
+max_selections: 4
+tools_marquee: true
+
+results:
+  ready_label: "Your path is ready"
+  subtitle: "View your courses or build your own path"
+  counter_label: "selected"
+  tools_label: "Tools in this path"
+
+cta:
+  title: "Start with a 7-day free trial."
+  subtitle: "No commitment. Cancel anytime. Your path stays saved."
+  banner: true
+  buttons:
+    - text: "Start free trial"
+      url: "/en/apply"
+      variant: primary
+
+questions:
+  - subtitle: "Question 1 of 4"
+    text: "What's your main goal right now?"
+    options:
+      - label: "Use AI to be more productive at my current job"
+      - label: "Automate repetitive tasks without writing code"
+      - label: "Build apps or technical projects with AI"
+      - label: "Work with data, analytics, or machine learning"
+
+  - subtitle: "Question 2 of 4"
+    text: "How comfortable are you with coding?"
+    options:
+      - label: "No experience — and I'd like to keep it that way"
+      - label: "No experience — but I'm open to basics"
+      - label: "Some basics (scripts, spreadsheets, HTML)"
+      - label: "I code regularly"
+
+  - subtitle: "Question 3 of 4"
+    text: "What skill would make the biggest difference in your work right now?"
+    options:
+      - label: "Getting reliable, professional-quality results from AI tools"
+      - label: "Building automations that run without me"
+      - label: "Setting up AI assistants for my existing tools"
+      - label: "Writing code or building software with AI"
+      - label: "Analyzing data and making smarter decisions"
+
+  - subtitle: "Question 4 of 4"
+    text: "How do you plan to use what you learn?"
+    options:
+      - label: "Get better at what I already do"
+      - label: "Add a new capability to my current role"
+      - label: "Prepare for a career shift into tech"
+      - label: "Explore — not sure yet"
+
+courses:
+  - name: "Prompt Engineering"
+    tagline: "Prompting patterns & reusable libraries"
+    hrs: "~8 hrs"
+    tools:
+      - ChatGPT
+      - Claude
+      - Gemini
+      - Perplexity
+    skills:
+      - name: "Prompting patterns"
+        skill_percentage: 55
+      - name: "Output control"
+        skill_percentage: 28
+      - name: "Context management"
+        skill_percentage: 17
+
+  - name: "Applied AI"
+    tagline: "AI for real professional work tasks"
+    hrs: "~12 hrs"
+    tools:
+      - ChatGPT
+      - Notion
+      - Otter.ai
+      - Grammarly
+      - Gamma
+    skills:
+      - name: "AI writing & editing"
+        skill_percentage: 40
+      - name: "Research tools"
+        skill_percentage: 35
+      - name: "Workflow documentation"
+        skill_percentage: 25
+
+  - name: "No-Code & Automations"
+    tagline: "Visual workflows with n8n, Zapier, Make"
+    hrs: "~10 hrs"
+    tools:
+      - n8n
+      - Make
+      - Zapier
+      - Airtable
+      - Webhooks
+    skills:
+      - name: "Visual workflows"
+        skill_percentage: 45
+      - name: "App integrations"
+        skill_percentage: 35
+      - name: "AI steps in pipelines"
+        skill_percentage: 20
+
+  - name: "Vibe Coding with AI"
+    tagline: "Build apps with AI coding assistants"
+    hrs: "~12 hrs"
+    tools:
+      - Cursor
+      - GitHub Copilot
+      - Replit
+      - Vercel
+    skills:
+      - name: "AI-assisted coding"
+        skill_percentage: 50
+      - name: "Shipping projects"
+        skill_percentage: 30
+      - name: "Debug & review"
+        skill_percentage: 20
+
+  - name: "OpenClaw"
+    tagline: "Personal AI assistant setup & integration"
+    hrs: "~6 hrs"
+    tools:
+      - OpenClaw
+      - Slack
+      - Notion
+      - Google Sheets
+    skills:
+      - name: "Assistant setup"
+        skill_percentage: 50
+      - name: "Custom skill design"
+        skill_percentage: 30
+      - name: "Tool connection"
+        skill_percentage: 20
+
+  - name: "Backend Dev with Python"
+    tagline: "APIs with FastAPI, databases, deployment"
+    hrs: "~20 hrs"
+    tools:
+      - FastAPI
+      - PostgreSQL
+      - Docker
+      - Railway
+      - Supabase
+    skills:
+      - name: "REST API design"
+        skill_percentage: 45
+      - name: "Database & deploy"
+        skill_percentage: 35
+      - name: "AI API integration"
+        skill_percentage: 20
+
+  - name: "Deep Dive into Python"
+    tagline: "Python fundamentals to advanced"
+    hrs: "~18 hrs"
+    tools:
+      - Python
+      - VS Code
+      - Git
+      - GitHub
+    skills:
+      - name: "Python foundations"
+        skill_percentage: 50
+      - name: "OOP & structures"
+        skill_percentage: 30
+      - name: "Project setup"
+        skill_percentage: 20
+
+  - name: "Data Science & ML"
+    tagline: "Data analysis, ML models, predictions"
+    hrs: "~22 hrs"
+    tools:
+      - Pandas
+      - NumPy
+      - scikit-learn
+      - Jupyter
+      - Streamlit
+    skills:
+      - name: "Data analysis & viz"
+        skill_percentage: 45
+      - name: "ML model building"
+        skill_percentage: 35
+      - name: "Model evaluation"
+        skill_percentage: 20
+
+paths:
+  - name: "The Data-Driven Analyst"
+    tagline: "Python, data science and ML with AI tools"
+    courses:
+      - "Deep Dive into Python"
+      - "Data Science & ML"
+      - "Applied AI"
+      - "Prompt Engineering"
+
+  - name: "The Builder"
+    tagline: "Build real products with AI, code-optional"
+    courses:
+      - "Vibe Coding with AI"
+      - "Backend Dev with Python"
+      - "No-Code & Automations"
+      - "OpenClaw"
+
+  - name: "The Career Switcher"
+    tagline: "Code foundations + applied AI for career pivoters"
+    courses:
+      - "Deep Dive into Python"
+      - "Backend Dev with Python"
+      - "Vibe Coding with AI"
+      - "Applied AI"
+
+  - name: "The Automation Specialist"
+    tagline: "No-code workflows and AI pipelines"
+    courses:
+      - "No-Code & Automations"
+      - "Prompt Engineering"
+      - "OpenClaw"
+      - "Applied AI"
+
+  - name: "The AI-First Professional"
+    tagline: "AI tools mastery for knowledge workers"
+    courses:
+      - "Prompt Engineering"
+      - "Applied AI"
+      - "No-Code & Automations"
+      - "OpenClaw"

@@ -1,0 +1,69 @@
+name: "Stacked with route conditions"
+description: >-
+  Stacked lead form with submit routes and a program field using simple-list
+  modal (menu layout + onSelect). Each route uses conditions (field_property_slug
+  + value, AND). First match overrides conversion_name, success, and tags; if
+  none match, root form values apply. Condition values must match submitted
+  field values (program uses bc_slug). Optional fields.*.options merge by value
+  over the programs pool for marketing copy.
+yaml: |
+  - type: lead_form
+    version: "1.0"
+    variant: stacked
+    title: "Start Your Tech Career Today"
+    subtitle: "Get free information about our programs"
+    submit_label: "Get Information"
+    conversion_name: request_more_info
+    tags: "website-lead"
+    automations: "strong"
+    fields:
+      email:
+        visible: true
+        required: true
+      first_name:
+        visible: true
+        required: true
+      phone:
+        visible: true
+        required: true
+      program:
+        visible: true
+        required: true
+        component_renderer: simple-list
+        options:
+          - value: ai-engineering
+            label: AI Engineering
+            description: Build production AI systems with mentors.
+          - value: full-stack
+            label: Full-Stack Developer
+            description: From zero to hireable full-stack engineer.
+      plan:
+        visible: true
+        required: false
+    success:
+      message: "Thanks! We'll contact you within 24 hours."
+    routes:
+      - conditions:
+          - field_property_slug: program
+            value: ai-engineering
+        conversion_name: student_application
+        success:
+          url: /en/thank-you-ai
+          message: "Thanks! An AI admissions advisor will follow up."
+        tags: ai-lead
+      - conditions:
+          - field_property_slug: program
+            value: full-stack
+          - field_property_slug: plan
+            value: part-time
+        conversion_name: student_application
+        success:
+          url: /en/thank-you-fullstack-part-time
+        tags: fullstack-lead,part-time
+      - conditions:
+          - field_property_slug: program
+            value: full-stack
+        conversion_name: student_application
+        success:
+          url: /en/thank-you-fullstack
+        tags: fullstack-lead

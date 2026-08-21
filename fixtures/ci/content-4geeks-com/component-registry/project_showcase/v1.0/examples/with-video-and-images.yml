@@ -1,0 +1,20 @@
+type: project_showcase
+version: "1.0"
+project_title: "WonderTracker"
+description: "A platform capable of keeping your travel information and documents saved in an absolute secure system. It also lets you track places where you have been, and gather information that you thought was important to save for as long as you want - all in just one place."
+creators:
+  - name: "Fernando Funes"
+    github_url: "https://github.com/fernandofunes"
+  - name: "George Mihov"
+    github_url: "https://github.com/georgemihov"
+    linkedin_url: "https://linkedin.com/in/georgemihov"
+media:
+  - type: video
+    src: "OZfv9kYl0_o"
+  - type: image
+    src: "https://storage.googleapis.com/4geeks-academy-website/media/Screenshot_2023-05-11_at_5.59_1_1765310496047.png"
+    alt: "Project screenshot"
+  - type: image
+    src: "https://storage.googleapis.com/4geeks-academy-website/media/image_1765310359129.png"
+    alt: "Project demo"
+media_position: left

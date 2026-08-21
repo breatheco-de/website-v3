@@ -1,0 +1,18 @@
+name: "Why Learn AI - Laptop Edge Variant"
+description: "Modern design with code editor laptop extending to screen edge"
+yaml: |
+  - type: why_learn_ai
+    version: "1.0"
+    variant: laptop-edge
+    laptop_image:
+      image_id: laptop
+    title: "Why Should I Learn to Build and Code with AI?"
+    subtitle: "Software Development as You Know It Will Cease to Exist"
+    description: "Coding with AI will become a new standard, but it's a very different profession from traditional software development. The developers who embrace AI tools now will have a significant advantage in the job market."
+    laptop_image:
+      image_id: "image_feature_5"
+      alt: "Code editor on laptop"
+    cta:
+      text: "Join now!"
+      url: "/signup"
+      variant: "primary"

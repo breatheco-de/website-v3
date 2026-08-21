@@ -1,0 +1,17 @@
+name: "Stats Cards"
+description: "Two-column layout with stat cards on the left and title/description on the right"
+yaml: |
+  - type: features_grid
+    version: "1.0"
+    variant: stats-cards
+    title: Why AI Engineering Now
+    subtitle: The talent shortage is your opportunity
+    description: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+    card_color: "bg-background"
+    items:
+      - value: 3.5M
+        title: AI-related roles expected by 2026
+      - value: 47%
+        title: Year-over-year growth in AI job postings
+      - value: $95K-$135K
+        title: Average starting salary for AI Engineers

@@ -1,0 +1,392 @@
+name: Pricing Section
+version: "1.0"
+component: PricingSection
+file: client/src/components/career-programs/PricingSection.tsx
+description: Pricing card with monthly/yearly toggle, features grid, and tech icons
+when_to_use: |
+  Use to display subscription pricing options.
+  Shows pricing with discount badges, features included, and tech stack icons.
+variants:
+  default: {}
+  plan_cards: {}
+  plan_cards_comparison: {}
+  product: {}
+variant_props:
+  default:
+    monthly:
+      type: object
+      required: true
+      properties:
+        discount_badge:
+          type: string
+          required: true
+        price:
+          type: string
+          required: true
+        period:
+          type: string
+          required: true
+        original_price:
+          type: string
+          required: false
+        savings_badge:
+          type: string
+          required: false
+    yearly:
+      type: object
+      required: true
+      properties:
+        discount_badge:
+          type: string
+          required: true
+        price:
+          type: string
+          required: true
+        period:
+          type: string
+          required: true
+        original_price:
+          type: string
+          required: false
+        savings_badge:
+          type: string
+          required: false
+    tech_icons:
+      type: array
+      required: false
+      items:
+        type:
+          type: string
+          required: true
+    static_icons:
+      type: boolean
+      required: false
+    features_title:
+      type: string
+      required: false
+    features:
+      type: array
+      required: true
+      items:
+        icon:
+          type: string
+          required: false
+        text:
+          type: string
+          required: true
+        use_rigobot_icon:
+          type: boolean
+          required: false
+    cta:
+      type: object
+      required: true
+      properties:
+        text:
+          type: string
+          required: true
+        url:
+          type: string
+          required: true
+        variant:
+          type: string
+          required: true
+          options:
+            - primary
+            - secondary
+            - outline
+        tracking:
+          type: string
+          required: false
+          options:
+            - none
+            - add_to_cart
+            - begin_checkout
+        button_variant:
+          type: string
+          required: false
+        text_color:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+        us_only:
+          type: boolean
+          required: false
+  plan_cards:
+    plans:
+      type: array
+      required: true
+      items:
+        name:
+          type: string
+          required: true
+        tag:
+          type: string
+          required: true
+        for_label:
+          type: string
+          required: true
+        currency:
+          type: string
+          required: true
+        amount:
+          type: string
+          required: true
+        cents:
+          type: string
+          required: false
+        period:
+          type: string
+          required: true
+        billing_note:
+          type: string
+          required: true
+        featured:
+          type: boolean
+          required: false
+        top_badge:
+          type: string
+          required: false
+        bottom_label:
+          type: string
+          required: false
+        bottom_badges:
+          type: array
+          required: false
+          items:
+            type:
+              type: string
+              required: true
+        cta:
+          type: object
+          required: true
+          properties:
+            label:
+              type: string
+              required: true
+            url:
+              type: string
+              required: true
+        features:
+          type: array
+          required: false
+          items:
+            text:
+              type: string
+              required: true
+            not_included:
+              type: boolean
+              required: false
+    addon:
+      type: object
+      required: false
+      properties:
+        label:
+          type: string
+          required: false
+        title:
+          type: string
+          required: true
+        description:
+          type: string
+          required: false
+        currency:
+          type: string
+          required: true
+        amount:
+          type: string
+          required: true
+        period:
+          type: string
+          required: false
+  plan_cards_comparison:
+    plans:
+      type: array
+      required: true
+      items:
+        name:
+          type: string
+          required: true
+        tag:
+          type: string
+          required: true
+        for_label:
+          type: string
+          required: true
+        currency:
+          type: string
+          required: true
+        amount:
+          type: string
+          required: true
+        cents:
+          type: string
+          required: false
+        period:
+          type: string
+          required: true
+        billing_note:
+          type: string
+          required: true
+        featured:
+          type: boolean
+          required: false
+        top_badge:
+          type: string
+          required: false
+        bottom_label:
+          type: string
+          required: false
+        bottom_badges:
+          type: array
+          required: false
+          items:
+            type:
+              type: string
+              required: true
+        cta:
+          type: object
+          required: true
+          properties:
+            label:
+              type: string
+              required: true
+            url:
+              type: string
+              required: true
+    features:
+      type: array
+      required: true
+      items:
+        text:
+          type: string
+          required: true
+        exclude_from_plans:
+          type: array
+          required: false
+          items:
+            type:
+              type: string
+              required: true
+    addon:
+      type: object
+      required: false
+      properties:
+        label:
+          type: string
+          required: false
+        title:
+          type: string
+          required: true
+        description:
+          type: string
+          required: false
+        currency:
+          type: string
+          required: true
+        amount:
+          type: string
+          required: true
+        period:
+          type: string
+          required: false
+  product:
+    discount_text:
+      type: string
+      required: false
+    financing_text:
+      type: string
+      required: false
+    financing_amount:
+      type: string
+      required: false
+    financing_period:
+      type: string
+      required: false
+    tech_icons:
+      type: array
+      required: false
+      items:
+        type:
+          type: string
+          required: true
+    static_icons:
+      type: boolean
+      required: false
+    features_title:
+      type: string
+      required: false
+    features:
+      type: array
+      required: true
+      items:
+        icon:
+          type: string
+          required: false
+        text:
+          type: string
+          required: true
+        use_rigobot_icon:
+          type: boolean
+          required: false
+    cta:
+      type: object
+      required: true
+      properties:
+        text:
+          type: string
+          required: true
+        url:
+          type: string
+          required: true
+        variant:
+          type: string
+          required: true
+          options:
+            - primary
+            - secondary
+            - outline
+        tracking:
+          type: string
+          required: false
+          options:
+            - none
+            - add_to_cart
+            - begin_checkout
+        button_variant:
+          type: string
+          required: false
+        text_color:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+        us_only:
+          type: boolean
+          required: false
+    footer:
+      type: string
+      required: false
+    footer_badges:
+      type: array
+      required: false
+      items:
+        label:
+          type: string
+          required: true
+        tag:
+          type: string
+          required: false
+props:
+  title:
+    type: string
+    required: true
+    description: Main heading for the pricing section
+    example: Get access to all of our learning database, courses, and services
+  subtitle:
+    type: string
+    required: false
+    description: Supporting text below title
+    example: Earn new skills every 30 min, never get stuck or lost again.

@@ -1,0 +1,15 @@
+name: "Strip — Resource Download"
+description: "Compact horizontal bar promoting a downloadable resource with a text-link CTA"
+variant: strip
+yaml: |
+  - type: cta_banner
+    variant: strip
+    maxWidth:
+      desktop: 6xl
+    icon: "download"
+    text: "<b>Guía gratis (PDF):</b> arma tu propio flujo de captación con IA — Apollo, Claude y Slack"
+    cta_buttons:
+      - text: "Descargar"
+        url: "/guia-ia"
+        variant: link
+        icon: "arrow-right"

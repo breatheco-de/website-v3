@@ -1,0 +1,20 @@
+export type EditorType = "icon-picker" | "color-picker" | "image-picker" | "link-picker";
+export const fieldEditors: Record<string, EditorType> = {
+  "default_box_color": "color-picker",
+  "default_name_color": "color-picker",
+  "default_role_color": "color-picker",
+  "default_comment_color": "color-picker",
+  "default_star_color": "color-picker",
+  "title_color": "color-picker",
+  "subtitle_color": "color-picker",
+  "background": "color-picker",
+  "items[].box_color": "color-picker",
+  "items[].name_color": "color-picker",
+  "items[].role_color": "color-picker",
+  "items[].comment_color": "color-picker",
+  "items[].star_color": "color-picker",
+  "items[].linkedin_color": "color-picker",
+  "items[].avatar": "image-picker",
+  "items[].linkedin_url": "link-picker",
+  "items[].media.url": "link-picker",
+};

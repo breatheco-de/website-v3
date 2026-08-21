@@ -1,0 +1,67 @@
+name: Testimonials Grid
+version: "1.0"
+component: TestimonialsGrid
+file: client/src/components/TestimonialsGrid.tsx
+description: Masonry-style testimonial grid with customizable box colors and image/video support per testimonial
+when_to_use: |
+  Use when you need a dense, Pinterest/masonry-style testimonial layout.
+  Each testimonial card can have its own background color and optional media (image or video).
+  Great for showing many testimonials at once with visual variety.
+props:
+  title:
+    type: string
+    required: false
+    description: Section heading
+    example: What Our Students Say
+  subtitle:
+    type: string
+    required: false
+    description: Supporting text below the title
+  title_color:
+    type: string
+    required: false
+  subtitle_color:
+    type: string
+    required: false
+  default_box_color:
+    type: string
+    required: false
+    description: Default background color for testimonial boxes (CSS value). Individual items can override this.
+    example: hsl(var(--muted))
+  default_name_color:
+    type: string
+    required: false
+  default_role_color:
+    type: string
+    required: false
+  default_comment_color:
+    type: string
+    required: false
+  default_star_color:
+    type: string
+    required: false
+  default_linkedin_color:
+    type: string
+    required: false
+  columns:
+    type: number
+    required: false
+    description: Number of columns in the grid (2-4). Defaults to 3.
+    example: 3
+  related_features:
+    type: array
+    required: false
+    items:
+      type:
+        type: string
+        required: true
+  limit:
+    type: number
+    required: false
+  item_styles:
+    type: object
+    required: false
+  background:
+    type: string
+    required: false
+    description: Section background color

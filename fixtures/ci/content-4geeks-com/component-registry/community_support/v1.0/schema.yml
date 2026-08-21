@@ -1,0 +1,101 @@
+name: Community Support
+version: "1.0"
+component: CommunitySupport
+file: client/src/components/CommunitySupport.tsx
+description: Displays community features with accent bars, badges, descriptions and optional CTAs
+when_to_use: |
+  Use for showcasing community features like Slack channels, online platforms,
+  or support networks. Features accent-colored bars, badges, and optional
+  call-to-action buttons. Great for community pages or support sections.
+props:
+  eyebrow:
+    type: string
+    required: false
+    description: Small label above the heading (defaults to "Our Community" when omitted)
+    example: Our Community
+  heading:
+    type: string
+    required: true
+    description: Main section heading
+    example: A Global Developer Community Supporting Your Growth
+  description:
+    type: string
+    required: true
+    description: Section description text
+    example: 4Geeks is more than a bootcamp — it's a supportive network of tech pros, mentors, and fellow geeks.
+  bullet_groups:
+    type: array
+    required: true
+    description: Array of community groups with accent styling
+    items:
+      title:
+        type: string
+        required: true
+        description: Group title (e.g., "Slack Community")
+      description:
+        type: string
+        required: false
+        description: Description of the community feature
+      image:
+        type: string
+        required: false
+        description: Optional image URL for the group icon
+      icon:
+        type: string
+        required: false
+        description: Optional Tabler icon name (e.g., BrandSlack)
+      badge:
+        type: string
+        required: false
+        description: Optional badge text (e.g., "6,000+ Members")
+      accent_color:
+        type: string
+        required: false
+        description: Accent color for the bar and badge (primary, accent, or hex)
+        example: primary
+      bullets:
+        type: array
+        required: false
+        items:
+          text:
+            type: string
+            required: true
+          icon:
+            type: string
+            required: false
+      button:
+        type: object
+        required: false
+        properties:
+          text:
+            type: string
+            required: true
+          url:
+            type: string
+            required: true
+          variant:
+            type: string
+            required: false
+            options:
+              - primary
+              - secondary
+              - outline
+  footer_description:
+    type: string
+    required: false
+    description: Optional footer text
+  image:
+    type: string
+    required: false
+    description: Header image URL
+    example: https://storage.googleapis.com/4geeks-academy-website/media/community-image.webp
+  image_alt:
+    type: string
+    required: false
+    description: Alt text for the header image
+    example: 4Geeks global developer community
+  background:
+    type: string
+    required: false
+    description: Tailwind background class
+    example: bg-primary/5

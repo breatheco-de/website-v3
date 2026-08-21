@@ -1,0 +1,8 @@
+type: list_press_mentions
+variant: cards
+title: Featured in the Press
+columns: 3
+dynamic_entries:
+  database: press_mentions
+  limit: 6
+  sort: priority

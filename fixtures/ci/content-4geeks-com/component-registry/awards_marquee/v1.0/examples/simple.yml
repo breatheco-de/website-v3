@@ -1,0 +1,37 @@
+- type: awards_marquee
+  speed: 60
+  gradient: true
+  gradientWidth: 100
+  items:
+    - id: switchup-2025
+      logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+      alt: SwitchUp - Best Coding Bootcamps 2025
+      logoHeight: 56px
+    - id: course-report-2024
+      logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+      alt: Course Report - Best Coding Bootcamp 2024
+      logoHeight: 56px
+    - id: tech-hub
+      logo: https://storage.googleapis.com/4geeks-academy-website/media/south-florida-tech-hub_1765548979070.jpeg
+      alt: South Florida Tech Hub
+      logoHeight: 56px
+    - id: ebootcamp
+      logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp-top_1765549056325.png
+      alt: eBootcamp Top
+      logoHeight: 56px
+    - id: premios-tecnologia
+      logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+      alt: Premios Tecnologia Siglo XXI
+      logoHeight: 56px
+    - id: newsweek
+      logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_1764709608255.webp
+      alt: Newsweek
+      logoHeight: 56px
+    - id: reviews-coursereport
+      logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+      alt: 4.9 on Course Report Reviews
+      logoHeight: 56px
+    - id: excelencia-educativa
+      logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia-educativa-es_1765549347699.png
+      alt: Excelencia Educativa - Institutional Quality
+      logoHeight: 56px

@@ -1,0 +1,29 @@
+name: "Default Modal with Form"
+description: "A modal that opens when the URL hash matches #apply-modal, containing a lead capture form"
+yaml: |
+  - type: modal
+    version: "1.0"
+    section_id: "apply-modal"
+    heading: "Start Your Application"
+    description: "Fill out the form below and we'll get back to you within 24 hours."
+    show_close: true
+    size: md
+    form:
+      variant: stacked
+      submit_label: "Submit Application"
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        phone:
+          visible: true
+          required: false
+        program:
+          visible: true
+          required: true
+          default: "auto"
+      success:
+        message: "Thanks! We'll be in touch within 24 hours."

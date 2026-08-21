@@ -1,0 +1,57 @@
+name: "Course Hero with Inline Lead Form"
+description: "Course variant hero section with an inline lead form embedded in the signup card instead of a CTA button"
+yaml: |
+  - type: hero
+    version: "1.0"
+    variant: course
+    badge:
+      text: Career Program
+      color: primary
+    title: Full Stack Development with AI Program
+    title_highlight: Full Stack Developer with AI
+    subtitle: Train for high-demand software development roles with an AI-powered full stack curriculum, personalized mentorship, and proven career outcomes.
+    students_enrolled:
+      avatars:
+        - https://storage.googleapis.com/4geeks-academy-website/media/coimbra_1764725341501.png
+        - https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+        - https://storage.googleapis.com/4geeks-academy-website/media/JeanSt.Cloud_1764725356935.jpeg
+        - https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh2_1770856306817.webp
+      count: 1,000+ students enrolled across LATAM and the U.S.
+    bullet_points:
+      - Master modern frontend development with HTML, CSS, JavaScript, and React
+      - Build scalable backend systems with Python, APIs, and database architecture
+      - Integrate AI tools and workflows into real-world web applications
+      - Unlimited career support, 1:1 mentorship, and access to an optional Job Guarantee
+    tutors:
+      - name: Expert Instructor
+        role: Lead Instructor
+        image: https://randomuser.me/api/portraits/men/10.jpg
+      - name: Rigo
+        role: AI Learning Assistant
+        image: https://storage.googleapis.com/4geeks-academy-website/media/rigobot-logo_1764707022198.webp
+    tutors_label: "Your instructors:"
+    description: Build modern, production-ready web applications with AI and position yourself for the next generation of AI-fluent full stack development roles.
+    signup_card:
+      title: Get the full program overview
+      description: Receive the complete syllabus, program structure, schedule options, tuition details, and career support framework.
+      form:
+        variant: stacked
+        submit_label: Send me the details
+        fields:
+          email: { visible: true, required: true }
+          first_name: { visible: true, required: true }
+          phone: { visible: true, required: true }
+          program: { visible: false, required: true, default: full-stack }
+      features:
+        - icon: IconCalendar
+          text: 20-week track
+        - icon: IconCalendarBolt
+          text: 12-week accelerated morning track
+        - icon: code
+          text: Interactive coding exercises
+        - icon: bot
+          text: AI-powered feedback
+        - icon: calendar
+          text: 1:7 teacher student ratio
+        - icon: users
+          text: 1:1 mentorship

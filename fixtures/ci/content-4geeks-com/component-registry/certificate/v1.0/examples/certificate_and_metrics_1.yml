@@ -1,0 +1,55 @@
+name: certificate and metrics
+yaml: |
+  - type: certificate
+    title: Your Certificate. Your Career Leverage.
+    description: "Earn an industry-recognized certificate from a Florida Department of Education accredited institution. Step into roles paying:"
+    benefits:
+      - text: "AI Engineer: $95K–$135K"
+      - text: "Forward-Deployed Engineer: $105K–$155K"
+      - text: "Full-Stack Engineer (AI-Fluent): $100K–$145K"
+      - text: "Workflow Automation Engineer: $85K–$120K"
+    card:
+      title: AI Engineer
+      subtitle: 4Geeks Academy Certificate
+      program_name: AI Engineering
+    stats:
+      - value: {{ global.global_job_placement_rate | 84 }}%
+        label: Hiring rate
+        description: Graduate with the credentials, portfolio, and professional profile to get hired — not just qualified.
+        benefits:
+          - text: Certificate recognized by the Florida Department of Education
+          - text: End-to-end AI-engineered company in your portfolio
+          - text: Demonstrated experience with agents, workflows, and AI systems
+          - text: Optimized professional profile and job-search strategy
+      - value: 3-6 months
+        label: Time to get hired
+        description: Most graduates land their first role within 3–6 months. A structured 3-step career process turns your skills into offers fast.
+        benefits:
+          - text: Resume, portfolio, and profiles optimized to attract recruiters and pass AI-based screening
+          - text: Technical and behavioral interview preparation
+          - text: Personalized job-search strategy with access to relevant hiring networks
+      - value: {{ global.global_salary_increase | 55 }}%
+        label: Average salary increase
+        description: AI skills are exactly what companies can't find enough of. Step into high-priority roles with immediate growth and long-term upside.
+        benefits:
+          - text: "AI Software Engineer: {{ global.average_salary_ai_engineer | $115K–$165K }}"
+          - text: "Forward-Deployed Engineer: {{ global.average_salary_ai_fluent_software_developer | $125K–$185K }}"
+          - text: "Agentic Systems Engineer: {{ global.average_salary_agent_engineer | $140K–$210K }}"
+          - text: "Workflow Automation Engineer: {{ global.average_salary_workflow_automation_engineer | $95K–$145K }}"
+      - value: 400+
+        label: Hiring partners
+        description: 400+ companies actively hiring our graduates. Get exclusive access, priority referrals, and direct connections to the people making hiring decisions.
+        benefits:
+          - text: Exclusive job board access
+          - text: Priority referrals to partner companies
+          - text: Networking events with hiring managers
+          - text: Companies include Google, Meta, Amazon, startups
+    certificate_position: right
+    useSolidCard: true
+    marginY:
+      mobile: none
+      desktop: none sm
+    paddingY:
+      mobile: lg
+      desktop: lg
+    background: hsl(var(--muted))

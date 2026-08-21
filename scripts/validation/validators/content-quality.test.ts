@@ -1,11 +1,22 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { dump } from "js-yaml";
-import { contentQualityValidator } from "./content-quality";
 import type { ContentFile, ValidationContext } from "../shared/types";
 import { resetRegistry } from "../../../server/content-types";
+
+vi.mock("../../../server/redirects", () => ({
+  createPublicUrlResolver: () => ({
+    test: () => ({ pageExists: false }),
+    isLive: (raw: string) => {
+      const pathOnly = (raw.split(/[?#]/)[0] ?? raw).trim();
+      return pathOnly === "/en/payment-component" || pathOnly === "/en/apply";
+    },
+  }),
+}));
+
+import { contentQualityValidator } from "./content-quality";
 
 function tempYaml(data: Record<string, unknown>): { filePath: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), "content-quality-"));

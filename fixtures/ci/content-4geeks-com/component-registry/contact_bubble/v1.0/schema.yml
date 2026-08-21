@@ -1,0 +1,46 @@
+name: Contact Bubble
+version: "1.0"
+component: ContactBubbleDefault
+file: client/src/components/contact_bubble/variants/ContactBubbleDefault.tsx
+description: Floating circular bubble fixed at the bottom-right corner of the page that links to any URL.
+when_to_use: |
+  Use when a page needs a persistent, always-visible contact or booking shortcut
+  (e.g. a Calendly link). The bubble stays fixed at the bottom-right while the
+  user scrolls. Shows an image (priority) or a Tabler icon, and reveals a
+  hover text label on hover/focus.
+props:
+  url:
+    type: string
+    required: true
+    description: Destination URL opened when the bubble is clicked. External http(s) URLs open in a new tab.
+    example: https://calendly.com/example/30min
+  size:
+    type: string
+    required: false
+    description: >-
+      Bubble diameter. Preset "sm" (48px), "md" (64px, default), "lg" (80px), or a custom number in pixels. Always a
+      circle.
+    example: md
+  icon:
+    type: string
+    required: false
+    description: Tabler icon name shown inside the bubble (used only when no img is set).
+    example: IconCalendar
+  img:
+    type: object
+    required: false
+    properties:
+      url:
+        type: string
+        required: true
+        description: Image URL.
+      alt:
+        type: string
+        required: false
+        description: Alt text for the image.
+    description: Image shown inside the bubble. Takes priority over icon.
+  hover_text:
+    type: string
+    required: false
+    description: Text label revealed next to the bubble on hover or keyboard focus.
+    example: Book a call with Eli

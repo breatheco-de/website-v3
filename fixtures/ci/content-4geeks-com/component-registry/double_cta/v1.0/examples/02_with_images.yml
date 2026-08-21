@@ -1,0 +1,40 @@
+name: "Programs Comparison (With Images)"
+description: "Two side-by-side CTAs showcasing different programs, each with an accompanying image"
+yaml: |
+  - type: double_cta
+    title: "Choose Your Path Into Tech"
+    subtitle: "Whether you're starting from scratch or leveling up, we have the right program for you."
+    background: muted
+    left:
+      heading: "Full-Stack Development"
+      description: "Master front-end and back-end technologies in our most popular program. Build real-world projects and graduate job-ready."
+      bullets:
+        - icon: "IconCode"
+          text: "JavaScript, React, Python, Flask"
+        - icon: "IconClock"
+          text: "16 weeks full-time or 36 weeks part-time"
+        - icon: "IconCertificate"
+          text: "Industry-recognized certification"
+      image_id: "student_coding_laptop"
+      image_object_fit: "cover"
+      image_object_position: "center"
+      cta_text: "Explore Full-Stack"
+      cta_url: "/en/full-stack"
+      sub_text: "Next cohort starts soon - Limited spots available"
+    right:
+      heading: "AI & Machine Learning"
+      description: "Dive into the future of tech with our AI engineering program. Learn to build intelligent systems from day one."
+      bullets:
+        - icon: "IconBrain"
+          text: "Python, TensorFlow, LLMs, Prompt Engineering"
+        - icon: "IconClock"
+          text: "16 weeks full-time or 36 weeks part-time"
+        - icon: "IconRocket"
+          text: "Fastest-growing career track in tech"
+      image_id: "graduates_coding"
+      image_object_fit: "cover"
+      image_object_position: "center"
+      cta_text: "Explore AI Engineering"
+      cta_url: "/en/ai-engineering"
+      cta_variant: "secondary"
+      sub_text: "Scholarships available - Apply to learn more"

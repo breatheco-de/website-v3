@@ -1,0 +1,16 @@
+name: "Text Left, Image Right"
+description: "Two-column layout with text content on the left and an image on the right"
+yaml: |
+  - type: two_column
+    proportions: [7, 5]
+    alignment: "center"
+    gap: "12"
+    left:
+      heading: "Learn By Doing"
+      sub_heading: "Hands-on projects from day one"
+      description: "Our project-based curriculum ensures you're building real applications while learning core concepts. No more boring tutorials—start creating immediately."
+      text_align: "left"
+    right:
+      image: "https://images.unsplash.com/photo-1531482615713-2afd69097998?w=600&h=400&fit=crop"
+      image_alt: "Student coding on laptop"
+      justify: "end"

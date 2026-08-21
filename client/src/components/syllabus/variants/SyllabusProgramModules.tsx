@@ -21,7 +21,7 @@ interface ModuleAccordionProps {
   testId: string;
   expandLabel?: string;
   collapseLabel?: string;
-}
+} 
 
 function renderSectionIcon(iconName: string, className?: string) {
   const cls = className || "w-5 h-5 text-primary";
@@ -452,7 +452,7 @@ function SyllabusProgramModulesVariant({ data }: { data: SyllabusProgramModules 
             <Card className="h-full p-6 lg:p-8 bg-primary/5 shadow-card border-0 lg:border-l-4 lg:border-l-primary lg:rounded-r-none">
               <div className="mb-8 ">
                 <h2 
-                  className="text-h2 text-foreground mb-1"
+                  className="text-h2 text-foreground mb-3"
                   data-testid="text-syllabus-program-title"
                 >
                   {data.program_title}

@@ -1,0 +1,66 @@
+name: Projects Section
+version: "1.0"
+component: ProjectsSection
+file: client/src/components/career-programs/ProjectsSection.tsx
+description: Showcase of real-world projects students will build during the program
+when_to_use: |
+  Use to demonstrate hands-on learning and portfolio-building projects.
+  Shows project cards with difficulty, duration, and technology tags.
+props:
+  title:
+    type: string
+    required: true
+    description: Section heading
+    example: Learn by Building Real-Life Projects
+  subtitle:
+    type: string
+    required: false
+    description: Supporting description
+    example: The tasks you'll tackle will closely resemble those encountered in a real-world tech position.
+  items:
+    type: array
+    required: true
+    items:
+      title:
+        type: string
+        required: true
+        description: Project name
+        example: Build a StarWars REST API
+      description:
+        type: string
+        required: true
+        description: What students will learn/build
+        example: Practice building a REST API using Express or Flask with SQLAlchemy ORM.
+      image:
+        type: string
+        required: true
+        description: Image identifier for the project
+        example: star-wars
+      tags:
+        type: array
+        required: false
+        items:
+          type:
+            type: string
+            required: true
+        description: Technology/concept tags
+        example:
+          - REST
+          - Python
+      duration:
+        type: string
+        required: false
+        description: Estimated completion time
+        example: 8 HOURS
+      difficulty:
+        type: string
+        required: false
+        options:
+          - easy
+          - medium
+          - hard
+        description: Project difficulty level
+      date:
+        type: string
+        required: false
+    description: "List of project cards (recommended: 3 projects)"

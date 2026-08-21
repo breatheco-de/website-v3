@@ -1,0 +1,474 @@
+name: FeaturesGrid
+version: "1.0"
+component: FeaturesGrid
+file: client/src/components/features-grid/FeaturesGrid.tsx
+description: A unified grid component with multiple variants for displaying features, stats, and metrics in card layouts.
+when_to_use: |
+  Use "highlight" (default) for stats/metrics with icons and values.
+  Use "detailed" for program cards with descriptions, categories, and action links.
+  Use "spotlight" for interactive cards with auto-rotation and hover highlighting.
+  Use "stats-cards" for simple stat cards arranged in a grid.
+  Use "stats-text-card" for a two-column layout with stats on left and descriptive text in a card on right.
+image_sizes:
+  cardHeader.image: "(min-width: 768px) 280px, 100vw"
+variants:
+  cardHeader: {}
+  detailed:
+    description: Full feature cards with descriptions, categories, and links
+    when_to_use: Programs, services, or features needing full descriptions
+    best_for: Program listings, feature showcases
+  highlight:
+    description: Stats/metrics cards with icons and large value numbers
+    when_to_use: Showcasing key metrics, statistics, or simple features
+    best_for: Statistics, achievements, key numbers
+  spotlight:
+    description: Interactive cards with auto-rotation and hover highlighting
+    when_to_use: When one card should be prominently highlighted
+    best_for: Testimonials, featured programs
+  stats-charts: {}
+  stats-cards:
+    description: Simple stat cards in a grid layout
+    when_to_use: Displaying multiple statistics in card format
+    best_for: Key performance indicators, quick stats
+  stats-text-card:
+    description: Two-column layout with stats on left and text card on right
+    when_to_use: Combining statistics with explanatory content
+    best_for: Why sections, value propositions with supporting data
+  stats-text: {}
+  textOnly: {}
+variant_props:
+  cardHeader:
+    heading:
+      type: string
+      required: true
+    description:
+      type: string
+      required: false
+    cta:
+      type: object
+      required: false
+      properties:
+        text:
+          type: string
+          required: true
+        url:
+          type: string
+          required: true
+    image:
+      type: string
+      required: false
+    image_alt:
+      type: string
+      required: false
+    collapsible_mobile:
+      type: boolean
+      required: false
+    cards:
+      type: array
+      required: true
+      items:
+        icon:
+          type: string
+          required: true
+        text:
+          type: string
+          required: true
+  detailed:
+    title:
+      type: string
+      required: false
+    subtitle:
+      type: string
+      required: false
+    items:
+      type: array
+      required: true
+      items:
+        id:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+        icon_color:
+          type: string
+          required: false
+        image:
+          type: object
+          required: false
+          properties:
+            src:
+              type: string
+              required: true
+            alt:
+              type: string
+              required: true
+        category:
+          type: string
+          required: false
+        title:
+          type: string
+          required: true
+        description:
+          type: string
+          required: true
+        link_url:
+          type: string
+          required: false
+        link_text:
+          type: string
+          required: false
+    columns:
+      type: number
+      required: false
+      description: Number of columns (1-4)
+    icon_color:
+      type: string
+      required: false
+    collapsible_mobile:
+      type: boolean
+      required: false
+      description: Whether to collapse items on mobile
+    show_workflow_diagram:
+      type: boolean
+      required: false
+    workflow_diagram_label:
+      type: string
+      required: false
+  highlight:
+    title:
+      type: string
+      required: false
+    subtitle:
+      type: string
+      required: false
+    items:
+      type: array
+      required: true
+      items:
+        id:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: true
+        icon_color:
+          type: string
+          required: false
+        value:
+          type: string
+          required: false
+        title:
+          type: string
+          required: true
+        description:
+          type: string
+          required: false
+    columns:
+      type: number
+      required: false
+      description: Number of columns (1-4)
+    icon_color:
+      type: string
+      required: false
+      description: Hex color for icons (e.g., "#0097CD")
+    footer_link:
+      type: object
+      required: false
+      properties:
+        url:
+          type: string
+          required: true
+        text:
+          type: string
+          required: true
+    footer_note:
+      type: string
+      required: false
+  spotlight:
+    title:
+      type: string
+      required: false
+    subtitle:
+      type: string
+      required: false
+    items:
+      type: array
+      required: true
+      items:
+        id:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: true
+        icon_color:
+          type: string
+          required: false
+        value:
+          type: string
+          required: false
+        title:
+          type: string
+          required: true
+        description:
+          type: string
+          required: false
+    columns:
+      type: number
+      required: false
+    icon_color:
+      type: string
+      required: false
+    spotlight_config:
+      type: object
+      required: false
+      properties:
+        initial_index:
+          type: number
+          required: false
+          description: Which item to highlight initially (0-indexed)
+        auto_rotate_ms:
+          type: number
+          required: false
+          description: Milliseconds between auto-rotation (default 4000)
+        pause_on_hover:
+          type: boolean
+          required: false
+          description: Pause rotation on hover (default true)
+      description: Configuration for spotlight behavior
+  stats-charts:
+    title:
+      type: string
+      required: false
+    subtitle:
+      type: string
+      required: false
+    description:
+      type: string
+      required: false
+    card_bars_accent:
+      type: string
+      required: false
+    card_gauge_accent:
+      type: string
+      required: false
+    card_trend_accent:
+      type: string
+      required: false
+    card_bars:
+      type: object
+      required: false
+      properties:
+        badge:
+          type: string
+          required: false
+        title:
+          type: string
+          required: false
+        description:
+          type: string
+          required: false
+        stat_value:
+          type: string
+          required: false
+        stat_label:
+          type: string
+          required: false
+        years:
+          type: array
+          required: false
+          items:
+            type:
+              type: string
+              required: true
+        displaced_label:
+          type: string
+          required: false
+        created_label:
+          type: string
+          required: false
+    card_gauge:
+      type: object
+      required: false
+      properties:
+        badge:
+          type: string
+          required: false
+        title:
+          type: string
+          required: false
+        description:
+          type: string
+          required: false
+        stat_value:
+          type: string
+          required: false
+        stat_label:
+          type: string
+          required: false
+        inner_stat_percentage:
+          type: number
+          required: false
+        outer_stat_percentage:
+          type: number
+          required: false
+        show_gauge:
+          type: boolean
+          required: false
+        inner_stat_highlight:
+          type: boolean
+          required: false
+        gauge_label:
+          type: string
+          required: false
+        bar1_label:
+          type: string
+          required: false
+        bar2_label:
+          type: string
+          required: false
+    card_trend:
+      type: object
+      required: false
+      properties:
+        badge:
+          type: string
+          required: false
+        title:
+          type: string
+          required: false
+        description:
+          type: string
+          required: false
+        stat_value:
+          type: string
+          required: false
+        stat_label:
+          type: string
+          required: false
+        end_label:
+          type: string
+          required: false
+  stats-cards:
+    title:
+      type: string
+      required: false
+    subtitle:
+      type: string
+      required: false
+    description:
+      type: string
+      required: false
+    card_color:
+      type: string
+      required: false
+      description: Background color for cards (e.g., "bg-background")
+    use_card:
+      type: boolean
+      required: false
+      description: Whether to wrap stats in card styling
+    items:
+      type: array
+      required: true
+      items:
+        id:
+          type: string
+          required: false
+        value:
+          type: string
+          required: true
+        title:
+          type: string
+          required: true
+        value_size:
+          type: string
+          required: false
+  stats-text-card:
+    title:
+      type: string
+      required: false
+    subtitle:
+      type: string
+      required: false
+    description:
+      type: string
+      required: false
+      description: Long-form text content for the card on the right
+    card_color:
+      type: string
+      required: false
+      description: Background color for the text card
+    items:
+      type: array
+      required: true
+      items:
+        id:
+          type: string
+          required: false
+        value:
+          type: string
+          required: true
+        title:
+          type: string
+          required: true
+        value_size:
+          type: string
+          required: false
+  stats-text:
+    title:
+      type: string
+      required: false
+    subtitle:
+      type: string
+      required: false
+    description:
+      type: string
+      required: false
+    items:
+      type: array
+      required: true
+      items:
+        id:
+          type: string
+          required: false
+        value:
+          type: string
+          required: true
+        title:
+          type: string
+          required: true
+        value_size:
+          type: string
+          required: false
+  textOnly:
+    title:
+      type: string
+      required: false
+    subtitle:
+      type: string
+      required: false
+    items:
+      type: array
+      required: true
+      items:
+        id:
+          type: string
+          required: false
+        headline:
+          type: string
+          required: true
+        subline:
+          type: string
+          required: false
+        description:
+          type: string
+          required: false
+    columns:
+      type: number
+      required: false
+props:
+  background:
+    type: string
+    required: false
+    description: Background color class (e.g., "bg-muted/30")

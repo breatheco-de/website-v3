@@ -1,0 +1,157 @@
+name: Graduates Stats
+version: "1.0"
+component: GraduatesStats
+file: client/src/components/GraduatesStats.tsx
+description: Display graduate outcomes with image collage and statistics. Supports multiple layout variants.
+when_to_use: |
+  Use for showcasing graduate outcomes, success metrics, or achievement statistics.
+  The collage creates visual interest while stats communicate key results.
+  Great for career pages, outcomes sections, or testimonial areas.
+image_sizes:
+  default.collage_images[].image_id: "(min-width: 768px) 350px, 600px"
+  fullBleed.featured_images[].image_id: "(min-width: 768px) 500px, 50vw"
+  fullBleed.collage_images[].image_id: "(min-width: 768px) 350px, 50vw"
+variants:
+  asymmetric: {}
+  fullBleed:
+    description: Two featured images bleed to the left screen edge with collage and compact stats
+    best_for: Hero-like impact sections, landing pages
+  standard:
+    description: Default layout with image collage on left and stacked stats on right
+    best_for: General use, career outcomes pages
+variant_props:
+  asymmetric:
+    tall_image:
+      type: string
+      required: true
+    stacked_images:
+      type: array
+      required: true
+      items:
+        type:
+          type: string
+          required: true
+  fullBleed:
+    collage_images:
+      type: array
+      required: true
+      items:
+        image_id:
+          type: string
+          required: true
+        col_span:
+          type: number
+          required: false
+        row_span:
+          type: number
+          required: false
+        col_start:
+          type: number
+          required: false
+        row_start:
+          type: number
+          required: false
+        object_position:
+          type: string
+          required: false
+        object_scale:
+          type: number
+          required: false
+        transform_origin:
+          type: string
+          required: false
+    featured_images:
+      type: array
+      required: true
+      items:
+        image_id:
+          type: string
+          required: true
+        col_span:
+          type: number
+          required: false
+        row_span:
+          type: number
+          required: false
+        col_start:
+          type: number
+          required: false
+        row_start:
+          type: number
+          required: false
+        object_position:
+          type: string
+          required: false
+        object_scale:
+          type: number
+          required: false
+        transform_origin:
+          type: string
+          required: false
+    image_bordered:
+      type: string
+      required: true
+  standard:
+    collage_images:
+      type: array
+      required: true
+      items:
+        image_id:
+          type: string
+          required: true
+        col_span:
+          type: number
+          required: false
+        row_span:
+          type: number
+          required: false
+        col_start:
+          type: number
+          required: false
+        row_start:
+          type: number
+          required: false
+        object_position:
+          type: string
+          required: false
+        object_scale:
+          type: number
+          required: false
+        transform_origin:
+          type: string
+          required: false
+props:
+  heading:
+    type: string
+    required: false
+    description: Main heading text displayed above the component
+    example: Does the Job Guarantee deliver results?
+  subheading:
+    type: string
+    required: false
+    description: Descriptive text below the heading
+    example: Yes, and we've got the numbers to back it up.
+  stats:
+    type: array
+    required: true
+    items:
+      value:
+        type: string
+        required: true
+        description: The statistic value (e.g., "84", "3-6")
+      unit:
+        type: string
+        required: false
+        description: The unit displayed smaller after the value (e.g., "%", "months")
+      label:
+        type: string
+        required: true
+        description: Label explaining the statistic (e.g., "Job placement rate")
+    description: List of statistics to display
+  background:
+    type: string
+    required: false
+    description: Background color class (e.g., "bg-primary/5")
+  value_size:
+    type: string
+    required: false

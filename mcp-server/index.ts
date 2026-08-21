@@ -559,13 +559,13 @@ app.all("/mcp", authMiddleware, async (req, res) => {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, "0.0.0.0", () => {
+app.listen(PORT, "127.0.0.1", () => {
   console.log(`[MCP] Content-pages MCP server running on port ${PORT}`);
-  console.log(`[MCP] Endpoint: http://0.0.0.0:${PORT}/mcp`);
+  console.log(`[MCP] Endpoint: http://127.0.0.1:${PORT}/mcp`);
   console.log(`[MCP] Auth: OAuth 2.0 (primary); legacy Breathecode token header still accepted`);
-  console.log(`[MCP] OAuth: http://0.0.0.0:${PORT}/oauth/authorize`);
+  console.log(`[MCP] OAuth: http://127.0.0.1:${PORT}/oauth/authorize`);
   console.log(
-    `[MCP] OAuth registration: http://0.0.0.0:${PORT}/oauth/register`,
+    `[MCP] OAuth registration: http://127.0.0.1:${PORT}/oauth/register`,
   );
   console.log(`[MCP] Health: http://0.0.0.0:${PORT}/health`);
 

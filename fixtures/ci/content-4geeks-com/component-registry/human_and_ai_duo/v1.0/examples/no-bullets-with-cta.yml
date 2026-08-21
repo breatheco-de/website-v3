@@ -1,0 +1,11 @@
+name: "Human and AI Duo - No bullet groups, with CTA"
+description: "Heading, description, and CTA button on the left with images on the right — bullet groups omitted"
+yaml: |
+  - type: human_and_ai_duo
+    version: "1.0"
+    heading: "Acompañamiento de verdad, ¡no estás solo!"
+    description: "Es normal tener dudas, pero te ayudamos a resolverlas: accede a una clase en vivo cada semana y a una mentoría 1:1 de regalo."
+    cta:
+      text: Inscríbete ahora
+      url: /es/apply
+      variant: primary

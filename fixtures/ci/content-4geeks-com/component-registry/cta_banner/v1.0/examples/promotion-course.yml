@@ -1,0 +1,18 @@
+name: "Promotion — Course CTA"
+description: "Horizontal promotional bar with eyebrow, rich title and subtitle on the left, CTA buttons on the right"
+variant: promotion
+yaml: |
+  - type: cta_banner
+    variant: promotion
+    maxWidth:
+      desktop: 6xl
+    eyebrow: "Curso · IA aplicada"
+    title: "Domina la <span style='color: hsl(var(--primary))'>IA</span> en 8 semanas"
+    subtitle: "De prompts a agentes y RAG en producción. Empieza aunque no sepas programar."
+    cta_buttons:
+      - text: "Reservar mi plaza"
+        url: "/inscribirse"
+        variant: primary
+      - text: "Ver plan de estudios"
+        url: "/plan-de-estudios"
+        variant: outline

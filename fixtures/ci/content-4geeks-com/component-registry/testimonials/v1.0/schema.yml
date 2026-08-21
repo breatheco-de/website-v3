@@ -1,0 +1,87 @@
+name: Testimonials Section
+version: "1.0"
+component: TestimonialsSection
+file: client/src/components/career-programs/TestimonialsSection.tsx
+description: Display student reviews and success stories with ratings, photos, and outcomes
+when_to_use: |
+  Use testimonials to build trust and show real results from past students.
+  Place after the certificate section and before FAQ for maximum impact.
+  Include 3-6 testimonials for optimal display across all screen sizes.
+props:
+  title:
+    type: string
+    required: true
+    description: Section heading
+    example: What Our Students Say
+  subtitle:
+    type: string
+    required: false
+    description: Supporting text below the title
+    example: Real stories from graduates who transformed their careers
+  rating_summary:
+    type: object
+    required: false
+    properties:
+      average:
+        type: string
+        required: true
+        description: Average rating score
+        example: "4.9"
+      count:
+        type: string
+        required: true
+        description: Total number of reviews
+        example: 2,847
+    description: Overall rating display shown above testimonials
+  items:
+    type: array
+    required: false
+    items:
+      name:
+        type: string
+        required: true
+        description: Student's full name
+        example: Maria Rodriguez
+      role:
+        type: string
+        required: true
+        description: Current job title
+        example: Software Engineer
+      company:
+        type: string
+        required: false
+        description: Current employer
+        example: Google
+      rating:
+        type: number
+        required: true
+        description: Star rating from 1-5
+        example: 5
+      comment:
+        type: string
+        required: true
+        description: The testimonial text (keep under 200 characters for best display)
+        example: This program changed my life. I went from zero coding experience to landing my dream job in 6 months.
+      outcome:
+        type: string
+        required: false
+        description: Badge showing key achievement
+        example: Hired in 4 months
+      avatar:
+        type: string
+        required: false
+        description: URL to profile photo (uses colorful illustration if not provided)
+    description: "List of testimonials (recommended: 3-6 for best layout)"
+  related_features:
+    type: array
+    required: false
+    items:
+      type:
+        type: string
+        required: true
+  limit:
+    type: number
+    required: false
+  filter_by_location:
+    type: string
+    required: false

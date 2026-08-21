@@ -1,0 +1,78 @@
+name: syllabus data science
+yaml: |
+  - type: syllabus
+    variant: program-modules
+    program_title: Data Science and Machine Learning Program Overview
+    program_description: Master the industry-standard toolkit used by modern data teams. Go beyond simple analysis to build production-ready systems—from engineering raw data to deploying the predictive models that companies use to drive innovation and scale.
+    tech_logos:
+      - name: Python
+        icon: python
+      - name: TensorFlow
+        icon: tensorflow
+      - name: Pandas
+        icon: pandas
+      - name: NumPy
+        icon: numpy
+      - name: SQL
+        icon: sql
+      - name: Git
+        icon: git
+    module_cards:
+      - title: Python Basics & Notebooks
+        duration: Weeks 1-3
+        objectives:
+          - Master Python fundamentals including conditionals, functions, and data structures
+          - Work with Jupyter notebooks for interactive data exploration
+          - Build a strong programming foundation for machine learning
+        projects: Complete Python exercises and create your first data analysis notebook
+        orientation: vertical
+        icon: IconBrandPython
+      - title: Data Analysis & Visualization
+        duration: Weeks 4-6
+        objectives:
+          - Analyze and manipulate data with Pandas
+          - Clean, normalize, and transform datasets
+          - Create impactful visualizations with Matplotlib and Seaborn
+        projects: Build interactive data dashboards and exploratory analysis reports
+        orientation: vertical
+        icon: IconChartBar
+      - title: Data Collection with SQL, Scraping & APIs
+        duration: Weeks 7-8
+        objectives:
+          - Write SQL queries to extract data from databases
+          - Scrape websites with BeautifulSoup
+          - Work with REST APIs to gather real-world data
+        projects: Build a data pipeline that collects and processes data from multiple sources
+        orientation: vertical
+        icon: IconDatabase
+      - title: Math & Probability Foundations
+        duration: Weeks 9-10
+        objectives:
+          - Master probability and statistics concepts
+          - Understand linear algebra fundamentals
+          - Learn matrix operations that power ML algorithms
+        projects: Apply statistical analysis to real-world datasets
+        orientation: vertical
+        icon: IconMath
+      - title: Applied Machine Learning
+        duration: Weeks 11-14
+        objectives:
+          - Build regression and classification models
+          - Implement decision trees, random forests, and boosting
+          - Master clustering and time series forecasting
+        projects: Train, evaluate, and optimize ML models for real-world problems
+        orientation: vertical
+        icon: IconBrain
+      - title: Deep Learning, NLP & Model Deployment
+        duration: Weeks 15-16
+        objectives:
+          - Build neural networks with TensorFlow and Keras
+          - Implement natural language processing techniques
+          - Deploy models to production environments
+        projects: Create and deploy a complete ML web application
+        orientation: vertical
+        icon: IconRocket
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: md lg

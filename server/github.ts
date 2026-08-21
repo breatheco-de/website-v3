@@ -28,6 +28,12 @@ import {
 } from './sync-state';
 import { child } from "./logger";
 import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
+import {
+  contentFolderFromRegistryPath,
+  isComponentRegistryContentPath,
+  mirrorComponentRegistryToPersistent,
+  mirrorComponentRegistryToPersistentForFile,
+} from "./component-registry-persistent";
 const log = child({ module: "github" });
 
 const FORCE_PULL_TMP_PREFIX = 'website-v3-force-pull-';
@@ -2039,7 +2045,10 @@ export async function pullSingleFile(
       // Remove from sync state (scoped to the site that owns this file)
       const { removeFileFromState } = await import("./sync-state");
       removeFileFromState(filePath, contentRoot);
-      
+
+      // Hybrid deploy: registry is a release copy — mirror to persistent so deletes stick.
+      mirrorComponentRegistryToPersistentForFile(filePath);
+
       return { success: true };
     } catch (error) {
       log.error({ err: error }, 'Error deleting local file:');
@@ -2081,7 +2090,10 @@ export async function pullSingleFile(
     // Update sync state with the commit we pulled from (per-site when contentRoot is set)
     const { updateFileAfterPull } = await import("./sync-state");
     updateFileAfterPull(filePath, remoteCommit || undefined, committedAt, contentRoot);
-    
+
+    // Hybrid deploy: registry is a release copy — mirror to persistent after pull write.
+    mirrorComponentRegistryToPersistentForFile(filePath);
+
     return { success: true };
   } catch (error) {
     // Leave the original destination untouched; remove a partial temp if present.
@@ -2894,6 +2906,20 @@ function pruneLocalFilesMissingFromRemote(
       }
     } catch (err) {
       log.warn({ err, filePath: normalized }, "Force-pull: failed to prune local-only file");
+    }
+  }
+
+  // After pruning release copies, sync component-registry trees back to persistent/
+  // so the next atomic deploy does not resurrect deleted registry files.
+  if (deletedFiles.length > 0) {
+    const sites = new Set<string>();
+    for (const f of deletedFiles) {
+      if (!isComponentRegistryContentPath(f)) continue;
+      const site = contentFolderFromRegistryPath(f);
+      if (site) sites.add(site);
+    }
+    for (const site of sites) {
+      mirrorComponentRegistryToPersistent(site);
     }
   }
 

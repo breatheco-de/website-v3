@@ -8,6 +8,7 @@ on:
 
 concurrency:
   group: deploy-vps
+  # New push to main cancels an in-flight deploy; atomic releases make that safe.
   cancel-in-progress: true
 
 jobs:
@@ -16,25 +17,150 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script_stop: true
-          command_timeout: 25m
-          script: |
-            set -euo pipefail
-            bash /opt/website-v3/scripts/deploy.sh
-            cd /opt/website-v3
-            git log -1 --oneline
-            for i in $(seq 1 60); do
-              if curl -fsS http://127.0.0.1:5000/health >/dev/null; then
-                curl -fsS http://127.0.0.1:5000/health
-                exit 0
-              fi
-              sleep 2
-            done
-            echo "App did not become healthy within 120s" >&2
+      - name: Pack _WEBSITE_ runtime env
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: |
+          python3 << 'PY'
+          import base64
+          import json
+          import os
+
+          prefix = "_WEBSITE_"
+          secrets = json.loads(os.environ.get("SECRETS_JSON") or "{}")
+          variables = json.loads(os.environ.get("VARS_JSON") or "{}")
+          if not isinstance(secrets, dict):
+              secrets = {}
+          if not isinstance(variables, dict):
+              variables = {}
+          merged = dict(variables)
+          merged.update(secrets)
+          out = {}
+          for key, value in merged.items():
+              if not isinstance(key, str) or not key.startswith(prefix):
+                  continue
+              name = key[len(prefix) :]
+              if not name or value is None or str(value) == "":
+                  continue
+              out[name] = str(value)
+          packed = base64.b64encode(json.dumps(out, separators=(",", ":")).encode()).decode("ascii")
+          # Base64 blob is not an exact match for any single secret, so Actions
+          # would not mask it if it leaked into logs. Register it explicitly.
+          print(f"::add-mask::{packed}")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+              fh.write(f"WEBSITE_RUNTIME_B64={packed}\n")
+          print("[runtime-env] packed", len(out), "keys:", ", ".join(sorted(out)) or "(none)")
+          PY
+
+      # WEBSITE_RUNTIME_B64 stays in the job env for later steps. Do not add
+      # third-party/notification steps after this that dump the environment.
+      # Never enable bash set -x in the SSH step (would expand the blob).
+
+      - name: Skip if not latest commit
+        id: latest
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          LATEST="$(git ls-remote "https://github.com/${REPO}.git" refs/heads/main | cut -f1)"
+          if [ -z "$LATEST" ]; then
+            echo "Unable to resolve latest SHA for main" >&2
             exit 1
+          fi
+          if [ "$LATEST" != "$EXPECTED_SHA" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "A newer commit is already on main ($LATEST), skipping deploy for $EXPECTED_SHA"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Deploying latest SHA $EXPECTED_SHA"
+          fi
+
+      - name: Deploy via SSH
+        if: steps.latest.outputs.skip != 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+          WEBSITE_RUNTIME_B64: ${{ env.WEBSITE_RUNTIME_B64 }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+          KEY="$RUNNER_TEMP/gha_deploy"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$KEY"
+          chmod 600 "$KEY"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          {
+            printf 'export WEBSITE_RUNTIME_B64=%q\n' "$WEBSITE_RUNTIME_B64"
+            printf 'export DEPLOY_SHA=%q\n' "$DEPLOY_SHA"
+            cat <<'REMOTE'
+          set -euo pipefail
+          # cancel-in-progress can kill SSH before trap runs; recover stale locks.
+          LOCK_DIR="/tmp/website-v3-deploy.lock"
+          LOCK_WAIT_SECONDS=10
+          LOCK_TIMEOUT_SECONDS=900
+          LOCK_STALE_SECONDS=1800
+          waited=0
+
+          lock_is_stale() {
+            local pid_file="$LOCK_DIR/pid"
+            if [ -f "$pid_file" ]; then
+              local pid
+              pid="$(cat "$pid_file" 2>/dev/null || true)"
+              if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+                return 1
+              fi
+              return 0
+            fi
+            # No pid (legacy lock) — treat as stale if older than LOCK_STALE_SECONDS.
+            local age
+            age="$(( $(date +%s) - $(stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0) ))"
+            [ "$age" -ge "$LOCK_STALE_SECONDS" ]
+          }
+
+          while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+            if lock_is_stale; then
+              echo "[deploy-lock] removing stale lock (cancelled deploy or dead pid)"
+              rm -rf "$LOCK_DIR"
+              continue
+            fi
+            if [ "$waited" -ge "$LOCK_TIMEOUT_SECONDS" ]; then
+              echo "[deploy-lock] another deploy is still running after ${LOCK_TIMEOUT_SECONDS}s" >&2
+              exit 1
+            fi
+            echo "[deploy-lock] another deploy is running; waiting ${LOCK_WAIT_SECONDS}s"
+            sleep "$LOCK_WAIT_SECONDS"
+            waited=$((waited + LOCK_WAIT_SECONDS))
+          done
+          echo $$ > "$LOCK_DIR/pid"
+          cleanup() {
+            rm -rf "$LOCK_DIR"
+          }
+          trap cleanup EXIT INT TERM
+
+          APP_ROOT=/opt/website-v3
+          : "${DEPLOY_SHA:?DEPLOY_SHA is required}"
+
+          # Always run deploy.sh from the commit being deployed (root tree may be stale).
+          git -C "$APP_ROOT" fetch --prune origin "$DEPLOY_SHA"
+          SCRIPT="/tmp/website-deploy-${DEPLOY_SHA}.sh"
+          git -C "$APP_ROOT" show "${DEPLOY_SHA}:scripts/deploy.sh" > "$SCRIPT"
+          chmod +x "$SCRIPT"
+          bash "$SCRIPT"
+          REMOTE
+          } | ssh -i "$KEY" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=50 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            'bash -s'

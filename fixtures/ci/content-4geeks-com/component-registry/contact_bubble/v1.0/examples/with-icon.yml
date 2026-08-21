@@ -1,0 +1,9 @@
+name: Bubble with icon
+description: Floating bubble using a Tabler icon and hover text.
+yaml: |
+  sections:
+    - type: contact_bubble
+      url: https://calendly.com/example/30min
+      size: md
+      icon: IconCalendar
+      hover_text: Book a 30-min call

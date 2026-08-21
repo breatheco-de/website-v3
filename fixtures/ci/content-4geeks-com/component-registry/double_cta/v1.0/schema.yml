@@ -1,0 +1,142 @@
+name: Double CTA
+version: "1.0"
+component: DoubleCTA
+file: client/src/components/double-cta/DoubleCTA.tsx
+description: >-
+  Two side-by-side CTA boxes with expanding/collapsing hover interaction. Left box is active by default. On hover, the
+  hovered box expands while the other shrinks and fades. Each box supports heading, description, bullet points, CTA
+  button, sub-text, and an optional image.
+when_to_use: |
+  Use as a dual call-to-action section when you want to present two distinct actions side by side.
+  Great for offering alternatives like "Book a consultation" vs "Apply now".
+  The interactive hover effect draws attention and encourages engagement.
+props:
+  variant:
+    type: string
+    required: false
+    options:
+      - expandable
+  title:
+    type: string
+    required: false
+    description: Section title displayed above the two boxes
+    example: Take the Next Step in Your Tech Career
+  subtitle:
+    type: string
+    required: false
+    description: Section subtitle displayed below the title
+    example: Join thousands of students who have transformed their careers
+  background:
+    type: string
+    required: false
+    description: Section background color (semantic token)
+  left:
+    type: object
+    required: false
+    properties:
+      heading:
+        type: string
+        required: false
+      description:
+        type: string
+        required: false
+      bullets:
+        type: array
+        required: false
+        items:
+          icon:
+            type: string
+            required: false
+          text:
+            type: string
+            required: false
+      image_id:
+        type: string
+        required: false
+      image_object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+      image_object_position:
+        type: string
+        required: false
+      image_beside_bullets:
+        type: boolean
+        required: false
+      cta_text:
+        type: string
+        required: false
+      cta_url:
+        type: string
+        required: false
+      cta_variant:
+        type: string
+        required: false
+        options:
+          - primary
+          - secondary
+          - outline
+      sub_text:
+        type: string
+        required: false
+    description: Left box content
+  right:
+    type: object
+    required: false
+    properties:
+      heading:
+        type: string
+        required: false
+      description:
+        type: string
+        required: false
+      bullets:
+        type: array
+        required: false
+        items:
+          icon:
+            type: string
+            required: false
+          text:
+            type: string
+            required: false
+      image_id:
+        type: string
+        required: false
+      image_object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+      image_object_position:
+        type: string
+        required: false
+      image_beside_bullets:
+        type: boolean
+        required: false
+      cta_text:
+        type: string
+        required: false
+      cta_url:
+        type: string
+        required: false
+      cta_variant:
+        type: string
+        required: false
+        options:
+          - primary
+          - secondary
+          - outline
+      sub_text:
+        type: string
+        required: false
+    description: Right box content
+variants:
+  expandable: {}

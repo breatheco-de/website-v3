@@ -1,0 +1,45 @@
+name: Trust Cards
+version: "1.0"
+component: TrustCards
+file: client/src/components/trust-cards/index.tsx
+description: A row of trust cards showing review platform logos with star ratings, review counts, and trust text
+when_to_use: |
+  Use trust cards to display credibility signals from review platforms like Google, Trustpilot, Course Report, etc.
+  Best placed below the hero section or after testimonials to reinforce social proof.
+  Each card shows a platform logo, star rating, optional review count, and optional trust text.
+props:
+  title:
+    type: string
+    required: false
+    description: Optional section heading
+    example: Trusted by Students Worldwide
+  subtitle:
+    type: string
+    required: false
+    description: Optional supporting text below the title
+    example: See what review platforms say about us
+  items:
+    type: array
+    required: true
+    items:
+      image:
+        type: string
+        required: true
+        description: URL to the review platform logo
+        example: https://example.com/google-reviews-logo.png
+      rating:
+        type: number
+        required: true
+        description: Star rating from 0 to 5 (supports half stars like 4.5)
+        example: 4.9
+      review_count:
+        type: string
+        required: false
+        description: Text showing number of reviews (displayed next to stars)
+        example: 2,847 reviews
+      trusted_text:
+        type: string
+        required: false
+        description: Additional trust text displayed below the rating
+        example: Verified by Google
+    description: "List of trust cards (recommended: 4 for best layout)"

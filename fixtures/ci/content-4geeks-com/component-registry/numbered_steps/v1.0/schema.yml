@@ -1,0 +1,116 @@
+name: Numbered Steps
+version: "1.0"
+component: NumberedSteps
+file: client/src/components/NumberedSteps.tsx
+description: >-
+  Displays a numbered list of steps with icons in a 3-column grid layout, with optional title, description and link.
+  Supports both simple single-text steps and detailed multi-item steps with bullet points.
+when_to_use: |
+  Use for showing sequential processes, how-to guides, or multi-step workflows.
+  Great for refund processes, onboarding steps, career development phases, or any content 
+  that benefits from numbered, visual step-by-step presentation.
+
+  Simple mode: Use `text` for single-line step descriptions (e.g., refund process).
+  Detailed mode: Use `title` + `bullets` for steps with multiple bullet points (e.g., career development).
+variants:
+  bubbleText: {}
+  default: {}
+  verticalCards: {}
+variant_props:
+  bubbleText: {}
+  default:
+    bullet_icon:
+      type: string
+      required: false
+    bullet_icon_color:
+      type: string
+      required: false
+    bullet_char:
+      type: string
+      required: false
+    collapsible_mobile:
+      type: boolean
+      required: false
+  verticalCards:
+    bullet_icon:
+      type: string
+      required: false
+    bullet_icon_color:
+      type: string
+      required: false
+    bullet_char:
+      type: string
+      required: false
+props:
+  title:
+    type: string
+    required: false
+    description: Main heading for the section (h2)
+    example: How the Refund Works
+  description:
+    type: string
+    required: false
+    description: Optional paragraph text below the title, centered
+    example: Our commitment to your success means a full refund if you meet the criteria.
+  description_link:
+    type: object
+    required: false
+    properties:
+      text:
+        type: string
+        required: true
+      url:
+        type: string
+        required: true
+    description: Optional link displayed below the description
+  steps:
+    type: array
+    required: true
+    items:
+      icon:
+        type: string
+        required: true
+        description: Tabler icon name without 'Icon' prefix
+        example: School
+      text:
+        type: string
+        required: false
+        description: Simple step description text (use for single-line steps)
+        example: Complete our intensive coding bootcamp and graduate within 180 days
+      title:
+        type: string
+        required: false
+        description: Step title heading (use with bullets for detailed steps)
+        example: Profile Optimization
+      bullets:
+        type: array
+        required: false
+        items:
+          type:
+            type: string
+            required: true
+        description: Array of bullet point strings (use with title for detailed steps)
+        example:
+          - Polish LinkedIn, GitHub, and portfolio to attract recruiters
+          - Build a resume that clears applicant tracking systems
+      bullet_icon:
+        type: string
+        required: false
+        description: Override default bullet icon for this step
+        example: CircleCheck
+      bullet_icon_color:
+        type: string
+        required: false
+        description: Override bullet icon color for this step
+        example: text-chart-5
+      bullet_char:
+        type: string
+        required: false
+        description: Override with text character for this step's bullets
+        example: •
+    description: Array of step objects to display
+  background:
+    type: string
+    required: false
+    description: Tailwind background class for the section
+    example: bg-muted/30

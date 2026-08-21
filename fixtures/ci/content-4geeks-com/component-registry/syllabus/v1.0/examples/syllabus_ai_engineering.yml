@@ -1,0 +1,173 @@
+name: syllabus AI engineering
+yaml: |
+  - type: syllabus
+    variant: program-modules
+    program_title: AI Native Full Stack — Program Modules
+    program_description: Build real AI-powered systems from day one. This curriculum is organized around two tracks — Core AI and Agents, and Infrastructure for AI — plus a capstone that integrates everything into a fully transformed, deployed company. Supported by complementary foundations in modern development tools and practices throughout.
+    tech_logos:
+      - name: Python
+        icon: python
+      - name: OpenAI
+        icon: openai
+      - name: n8n
+        icon: n8n
+      - name: Docker
+        icon: docker
+      - name: React
+        icon: react
+    module_cards:
+      - title: Personal Assistants with OpenClaw
+        duration: Core AI and Agents
+        objectives:
+          - Configure an open-source AI agent as a personal assistant
+          - Assign tasks and integrate external applications with the agent
+        projects: Deploy and configure a self-hosted AI assistant — yours, under your control, without relying on external vendors.
+        orientation: vertical
+        icon: IconRobot
+      - title: Advanced Personal Assistants with OpenClaw
+        duration: Core AI and Agents
+        objectives:
+          - Identify scenarios where an agent solves real business problems
+          - Develop custom skills for OpenClaw
+          - Implement contextual memory (episodic, semantic, procedural)
+          - Advanced configuration and extension of the agent
+        projects: Take your basic assistant agent to a productive tool with real autonomy in business contexts.
+        orientation: vertical
+        icon: IconRobot
+      - title: Working with AI Coding Agents
+        duration: Core AI and Agents
+        objectives:
+          - Build memory banks and context rules from an existing codebase
+          - Write executable specifications for agents (agent specs)
+          - Synthesize reusable skills so agents act with precision
+        projects: Build memory banks and context rules that turn a coding agent into a collaborator that understands your codebase.
+        orientation: vertical
+        icon: IconCode
+      - title: LLMs, Training & RAG
+        duration: Core AI and Agents
+        objectives:
+          - Prepare data and select models for training
+          - Implement RAG techniques on proprietary knowledge bases
+          - Work with vector databases
+          - Evaluate, debug, and integrate models in production
+        projects: Implement RAG so your agent answers with proprietary, up-to-date knowledge.
+        orientation: vertical
+        icon: IconDatabase
+      - title: Agentic Engineering
+        duration: Core AI and Agents
+        objectives:
+          - Build agents with tool calling (real function calls)
+          - Implement guardrails as a security and control mechanism
+          - Provide tools to the agent via CLIs optimized for AI
+          - Extend agent capabilities with the Model Context Protocol (MCP)
+          - Give an agent persistent memory
+        projects: Build agents that call tools, access external systems via MCPs and CLIs, and operate with persistent memory.
+        orientation: vertical
+        icon: IconBolt
+      - title: Agentic Workflows
+        duration: Core AI and Agents
+        objectives:
+          - Design multi-agent systems with routing and arbitration
+          - Implement shared memory across agents
+          - Deploy agentic workflows with serverless and durable functions
+        projects: Design systems where multiple agents collaborate, distribute tasks, and run autonomously at scale.
+        orientation: vertical
+        icon: IconLayoutKanban
+      - title: Backend Development with Coding Agents
+        duration: Infrastructure for AI
+        objectives:
+          - Design backend architectures for AI-powered solutions
+          - Create agent loops integrating LLMs with APIs
+          - Implement lightweight storage and CSV data processing
+          - Build and expose REST APIs for frontends and agents
+        projects: Build robust APIs with FastAPI, implement agent loops in Python, and design backend architectures for AI use cases.
+        orientation: vertical
+        icon: IconServer
+      - title: Workflow Automations
+        duration: Infrastructure for AI
+        objectives:
+          - Model business logic with workflow diagrams
+          - Implement basic and advanced flows in n8n
+          - Integrate LLMs and external apps in automations
+          - Deploy maintainable workflows with error handling
+        projects: Build AI-powered business automations in n8n that run autonomously without manual intervention.
+        orientation: vertical
+        icon: IconCode
+      - title: Data Pipelines
+        duration: Infrastructure for AI
+        objectives:
+          - Manipulate and prepare datasets with Python
+          - Build data pipelines from the application to analysis systems
+        projects: Build pipelines that take raw data, transform it, and leave it ready to feed models, reports, or agents.
+        orientation: vertical
+        icon: IconChartBar
+      - title: Telemetry
+        duration: Infrastructure for AI
+        objectives:
+          - Optimize storage for reporting and data integrity
+          - Identify data collection opportunities in real scenarios
+          - Collect telemetry and user context from the application
+          - Build reports from telemetry data
+        projects: Instrument applications to collect behavioral data and make decisions based on real evidence.
+        orientation: vertical
+        icon: IconChartBar
+      - title: Asynchronous Processing and Offloading
+        duration: Infrastructure for AI
+        objectives:
+          - Implement background processing for costly tasks
+          - Manage process queues with workers
+          - Use queues to delegate work between agents and services
+        projects: Implement background processing and queue systems that let agents delegate heavy work without blocking users.
+        orientation: vertical
+        icon: IconServer
+      - title: Real-Time
+        duration: Infrastructure for AI
+        objectives:
+          - Build support chats with LLMs in real time
+          - Implement response streaming with generators (yield)
+          - Integrate webhooks and pub/sub in AI applications
+        projects: Implement real-time communication between users and language models using streaming, WebSockets, and event-driven architectures.
+        orientation: vertical
+        icon: IconBolt
+      - title: Web Application Authentication
+        duration: Infrastructure for AI
+        objectives:
+          - Implement authentication and route restrictions in FastAPI
+          - Build complete authentication flows (login, tokens, sessions)
+        projects: Implement secure authentication in FastAPI and build complete login flows that define what each user — and agent — can do.
+        orientation: vertical
+        icon: IconCode
+      - title: Error Handling, Debugging and Testing
+        duration: Infrastructure for AI
+        objectives:
+          - Understand and manage runtime errors with flow control
+          - Develop test suites for robust applications
+        projects: Verify AI-generated code with controlled error handling and test suites that validate expected behavior.
+        orientation: vertical
+        icon: IconCode
+      - title: Cybersecurity in AI Applications
+        duration: Infrastructure for AI
+        objectives:
+          - Identify and fix OWASP Top 10 vulnerabilities in web applications
+          - Implement security practices specific to AI integrations
+          - Use LLMs as a cybersecurity auditing tool
+        projects: Identify critical vulnerabilities in AI applications and implement safe practices in model integration.
+        orientation: vertical
+        icon: IconCode
+      - title: AI-Transformed Company
+        duration: Capstone
+        objectives:
+          - AI-generated frontend
+          - API with full authentication
+          - Telemetry and reporting pipeline
+          - Agent-generated automated workflows
+          - RAG knowledge layer
+          - Agents with tool calling
+          - Real-time communication
+        projects: Integrate everything you have learned into a working, deployed system — a full transformation of a company through AI.
+        orientation: horizontal
+        icon: IconCode
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: md

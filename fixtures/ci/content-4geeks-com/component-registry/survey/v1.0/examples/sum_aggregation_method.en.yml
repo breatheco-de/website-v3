@@ -1,0 +1,108 @@
+type: survey
+variant: default
+aggregation_method: sum
+infinite_progress_bar: false
+
+badge_text: "Build your path"
+title: "Your AI curriculum,"
+title_highlight: "built around you."
+subtitle: "A few questions. No commitment. We map the exact courses you need."
+icon: "4GeeksAvatar"
+back_label: "Back"
+restart_label: "Start over"
+step_label: "Question"
+step_of_label: "of"
+max_questions: 4
+alternate_link:
+  label: "Browse the catalog instead"
+  url: inline#ai-flex-path-data-driven-analyst
+
+questions:
+  - text: "What's your main goal right now?"
+    options:
+      - label: "Use AI to be more productive at my current job"
+        value: 1
+        action:
+          next_question: 2
+      - label: "Automate repetitive tasks without writing code"
+        value: 5
+        action:
+          next_question: 2
+      - label: "Build apps or technical projects with AI"
+        value: 12
+        action:
+          next_question: 2
+      - label: "Work with data, analytics, or machine learning"
+        value: 20
+        action:
+          next_question: 2
+
+  - text: "How comfortable are you with coding?"
+    options:
+      - label: "No experience — and I'd like to keep it that way"
+        value: 0
+        action:
+          next_question: 3
+      - label: "No experience — but I'm open to basics"
+        value: 2
+        action:
+          next_question: 3
+      - label: "Some basics (scripts, spreadsheets, HTML)"
+        value: 4
+        action:
+          next_question: 3
+      - label: "I code regularly"
+        value: 7
+        action:
+          next_question: 3
+
+  - text: "What skill would make the biggest difference in your work right now?"
+    options:
+      - label: "Getting reliable, professional-quality results from AI tools"
+        value: 0
+        action:
+          next_question: 4
+      - label: "Building automations that run without me"
+        value: 1
+        action:
+          next_question: 4
+      - label: "Setting up AI assistants for my existing tools"
+        value: 0
+        action:
+          next_question: 4
+      - label: "Writing code or building software with AI"
+        value: 3
+        action:
+          next_question: 4
+      - label: "Analyzing data and making smarter decisions"
+        value: 6
+        action:
+          next_question: 4
+
+  - text: "How do you plan to use what you learn?"
+    options:
+      - label: "Get better at what I already do"
+        value: 0
+      - label: "Add a new capability to my current role"
+        value: 1
+      - label: "Prepare for a career shift into tech"
+        value: 8
+      - label: "Explore — not sure yet"
+        value: 0
+
+routes:
+  thresholds:
+    - until: 3
+      url: inline#ai-flex-path-ai-first
+    - until: 9
+      url: inline#ai-flex-path-automation-specialist
+    - until: 18
+      url: inline#ai-flex-path-career-switcher
+    - until: 28
+      url: inline#ai-flex-path-builder
+    - until: 45
+      url: inline#ai-flex-path-data-driven-analyst
+  fallback:
+    url: inline#ai-flex-path-data-driven-analyst
+maxWidth:
+  desktop: xl

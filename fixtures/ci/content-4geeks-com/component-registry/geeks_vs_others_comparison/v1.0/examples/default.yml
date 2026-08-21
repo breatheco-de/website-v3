@@ -1,0 +1,28 @@
+type: geeks_vs_others_comparison
+version: "1.0"
+title: "Launching Successful Tech Careers in the AI Era"
+subtitle: "Helping students build lasting tech careers is our mission. From an industry-aligned, future-proof syllabus to a lifelong support system, here's how we outperform the competition:"
+columns:
+  - name: "Feature"
+  - name: "4Geeks Academy"
+    highlight: true
+  - name: "Industry Average / Competitors"
+rows:
+  - feature: "Career Support"
+    values: ["Personalized support for a lifetime", "Limited, ending with 1st job"]
+  - feature: "Teacher: Student Ratio"
+    values: ["1:7", "1:10+"]
+  - feature: "AI-Powered Feedback"
+    values: ["Personalized to your progress", "Generic or non-existent"]
+  - feature: "1-on-1 Mentoring"
+    values: ["Unlimited and for a lifetime", "Limited sessions"]
+  - feature: "Curriculum"
+    values: ["Continuously updated to match industry needs", "Slow to adapt"]
+  - feature: "% Hiring Rate"
+    values: ["~84% within 6 months", "Often Unknown"]
+  - feature: "Community"
+    values: ["Strong local & global network", "Depends on school"]
+  - feature: "Class Format"
+    values: ["Online, in-person", "Usually only one format"]
+  - feature: "Previous Knowledge"
+    values: ["None", "Entry tests or prior coding experience"]

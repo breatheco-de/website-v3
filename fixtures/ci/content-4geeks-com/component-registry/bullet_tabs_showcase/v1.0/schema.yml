@@ -1,0 +1,74 @@
+name: Bullet Tabs Showcase
+version: "1.0"
+component: BulletTabsShowcase
+file: client/src/components/BulletTabsShowcase.tsx
+description: Two-column layout with interactive bullet tabs on one side and dynamic images on the other
+when_to_use: |
+  Use for showcasing features, benefits, or concepts with clickable bullet items
+  that reveal corresponding images. Great for product tours, feature explanations,
+  or step-by-step visual guides where users can explore at their own pace.
+props:
+  variant:
+    type: string
+    required: false
+    options:
+      - withBigBorder
+      - withoutBorder
+    description: >-
+      Visual style variant. "withBigBorder" shows primary background behind image. "withoutBorder" shows centered image
+      without background and smaller text.
+  heading:
+    type: string
+    required: false
+    description: Main heading text displayed above the bullet tabs
+    example: Ideate and specify what to build next
+  subheading:
+    type: string
+    required: false
+    description: Descriptive text below the heading
+    example: Transform your ideas into actionable tasks seamlessly
+  subheading_centered:
+    type: boolean
+    required: false
+    description: >-
+      When true, subheading appears centered below the heading. When false, it appears in the text column above the
+      bullet tabs.
+  tabs:
+    type: array
+    required: true
+    items:
+      label:
+        type: string
+        required: true
+        description: Tab button label text
+      description:
+        type: string
+        required: false
+        description: Additional text shown when tab is active
+      image_id:
+        type: string
+        required: true
+        description: ID of the image from the image registry to display when tab is active
+      image_object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+          - scale-down
+      image_object_position:
+        type: string
+        required: false
+    description: List of tab items with labels, descriptions, and images
+  image_position:
+    type: string
+    required: false
+    options:
+      - left
+      - right
+    description: Position of the image relative to the text content
+variants:
+  withBigBorder: {}
+  withoutBorder: {}

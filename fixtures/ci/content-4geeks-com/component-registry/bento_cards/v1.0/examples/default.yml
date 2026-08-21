@@ -1,0 +1,31 @@
+name: "Rigobot AI Benefits"
+description: "7 ways Rigobot helps students with a right-bleeding bento grid layout"
+yaml: |
+  - type: bento_cards
+    version: "1.0"
+    title: "7 Ways Rigobot Keeps You Moving"
+    subtitle: "Never get stuck again"
+    description: "Rigobot is your AI-powered coding companion that ensures you never lose momentum. Whether you're debugging at 2am or preparing for an exam, Rigobot is there to help you push through challenges and keep learning."
+    items:
+      - icon: CodeReview
+        title: "Code Review"
+        description: "Get instant feedback on your code quality, best practices, and potential improvements."
+      - icon: Brain
+        title: "AI Mentoring"
+        description: "Personalized guidance that adapts to your learning style and pace."
+      - icon: School
+        title: "Homework & Exam Prep"
+        description: "Practice problems and explanations to help you ace your assessments."
+      - icon: TrendingUp
+        title: "Skill Building"
+        description: "Targeted exercises to strengthen weak areas and build new competencies."
+      - icon: Bug
+        title: "Debugging Assistant"
+        description: "Step-by-step help to understand and fix errors in your code."
+      - icon: Lightbulb
+        title: "Concept Explanations"
+        description: "Clear, patient explanations of complex programming concepts."
+      - icon: Clock
+        title: "24/7 Availability"
+        description: "Get help whenever you need it, no waiting for office hours."
+    background: bg-background

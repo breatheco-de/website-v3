@@ -1,0 +1,68 @@
+name: Vertical Bars Cards
+description: Cards with vertical animated bars comparing values across years/periods per metric. Each card represents one metric with multiple year bars inside.
+when_to_use: Use when displaying multiple metrics where each metric needs year-over-year comparison. Best for outcomes data, progress tracking, or performance metrics.
+
+props:
+  type:
+    type: string
+    required: true
+    description: Must be "vertical_bars_cards"
+    
+  version:
+    type: string
+    required: false
+    description: Component version (e.g., "1.0")
+    
+  title:
+    type: string
+    required: false
+    description: Section title displayed above the cards
+    
+  subtitle:
+    type: string
+    required: false
+    description: Section subtitle/description
+    
+  background:
+    type: string
+    required: false
+    description: Background color class (e.g., "bg-muted")
+    
+  metrics:
+    type: array
+    required: true
+    description: Array of metric cards to display
+    items:
+      title:
+        type: string
+        required: true
+        description: Metric card title (e.g., "Job Placement Rate")
+      unit:
+        type: string
+        required: false
+        description: Unit description (e.g., "Graduates hired within 6 months")
+      icon:
+        type: string
+        required: false
+        description: Icon name for the metric (optional)
+      description:
+        type: string
+        required: false
+        description: Detailed description shown when card is expanded on hover
+      years:
+        type: array
+        required: true
+        description: Array of year values to compare
+        items:
+          year:
+            type: string
+            required: true
+            description: Year label (e.g., "2024")
+          value:
+            type: number
+            required: true
+            description: Numeric value for bar height calculation
+          displayValue:
+            type: string
+            required: true
+            description: Formatted display value (e.g., "84%", "$12.5k", "45 days")

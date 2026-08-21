@@ -1,0 +1,17 @@
+- type: testimonials_grid
+  title: What Our Students Say
+  subtitle: Real stories from graduates who transformed their careers
+  title_color: "hsl(var(--foreground))"
+  subtitle_color: "hsl(var(--muted-foreground))"
+  default_box_color: "hsl(var(--muted))"
+  default_name_color: "hsl(var(--foreground))"
+  default_role_color: "hsl(var(--muted-foreground))"
+  default_comment_color: "hsl(var(--muted-foreground))"
+  default_star_color: "hsl(45 93% 47%)"
+  columns: 3
+  background: "hsl(var(--background))"
+  related_features:
+    - outcomes
+    - career-support
+    - mentors-and-teachers
+  limit: 12

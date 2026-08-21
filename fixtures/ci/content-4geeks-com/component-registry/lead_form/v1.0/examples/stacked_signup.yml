@@ -1,0 +1,40 @@
+name: "Signup Form"
+description: "Stacked form with signup enabled — guests register via site auth settings; logged-in visitors skip known identity fields"
+yaml: |
+  - type: lead_form
+    version: "1.0"
+    variant: stacked
+    is_signup: true
+    tags: "website-signup"
+    fields:
+      email:
+        visible: true
+        required: true
+      first_name:
+        visible: true
+        required: true
+      last_name:
+        visible: true
+        required: false
+      phone:
+        visible: true
+        required: false
+      plan:
+        visible: false
+        default: ai-fluency
+    success:
+      message: "Welcome! Your account is ready."
+    messages:
+      guest:
+        subtitle: "Sign up to get started — if you're already logged in, we'll skip fields we already know"
+        submit_label: "Create Account"
+      login:
+        subtitle: "Use your 4Geeks account to continue"
+        submit_label: "Log in"
+        back_label: "Back to create account"
+      incomplete:
+        subtitle: "We still need a couple of details to finish."
+        submit_label: "Continue"
+      ready:
+        subtitle: "Confirm to continue — we already have everything we need."
+        submit_label: "Confirm"

@@ -1,0 +1,67 @@
+name: Project Showcase
+version: "1.0"
+component: ProjectShowcase
+file: client/src/components/ProjectShowcase.tsx
+description: >-
+  Displays a graduate project with a media carousel (videos and images) alongside project details including title,
+  creators with social links, and description.
+when_to_use: |
+  Use this component to showcase student/graduate projects with:
+  - A media carousel featuring videos and images
+  - Project title and description
+  - Creator credits with GitHub and LinkedIn links
+  Best for: Graduates page, portfolio showcases, project galleries
+props:
+  project_title:
+    type: string
+    required: true
+  description:
+    type: string
+    required: true
+  creators:
+    type: array
+    required: true
+    items:
+      name:
+        type: string
+        required: true
+      role:
+        type: string
+        required: false
+      github_url:
+        type: string
+        required: false
+      linkedin_url:
+        type: string
+        required: false
+  media:
+    type: array
+    required: false
+    items:
+      type:
+        type: string
+        required: true
+        options:
+          - video
+          - image
+      src:
+        type: string
+        required: true
+      alt:
+        type: string
+        required: false
+  image:
+    type: string
+    required: false
+  video_id:
+    type: string
+    required: false
+  background:
+    type: string
+    required: false
+  media_position:
+    type: string
+    required: false
+    options:
+      - left
+      - right

@@ -1,0 +1,27 @@
+name: "Default Sticky CTA"
+description: "Standard sticky bar with heading, apply button, and compact lead form"
+yaml: |
+  - type: sticky_cta
+    version: "1.0"
+    heading: "Ready to start your tech career?"
+    button_label: "Apply Now"
+    show_dismiss: false
+    form:
+      variant: inline
+      submit_label: "Submit Application"
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        phone:
+          visible: true
+          required: false
+        program:
+          visible: true
+          required: true
+          default: "auto"
+      success:
+        message: "Thanks! We'll be in touch within 24 hours."

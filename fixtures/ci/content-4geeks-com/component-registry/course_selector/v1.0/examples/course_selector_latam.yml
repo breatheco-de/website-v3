@@ -1,0 +1,91 @@
+name: course selector LATAM
+yaml: |
+  - type: course_selector
+    version: "1.0"
+    variant: solid
+    heading: Program Tuition
+    subheading: "<span style=\"font-size: 1.125rem;\">See tuition and funding options for each program.&nbsp;<div></div></span><div><span style=\"font-size: 0.875rem;\">*The Job Guarantee is not available in all regions.<span style=\"color: hsl(var(--primary));\"> <a href=\"https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/job-guarantee-en.pdf\">Terms and conditions apply.</a></span><a href=\"https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/job-guarantee-en.pdf\"></a></span></div>"
+    courses:
+      - name: AI Engineering
+        icon: Brain
+        duration: 24 weeks
+        label: Updated in 2026
+        title: AI Engineering
+        badges:
+          - icon: DollarSign
+            text: $3,500 full tuition
+          - icon: CheckCircle
+            text: Qualifies for 10% upfront discount and up to 6 interest-free installments.
+        description: Build and scale a fully AI-native business while learning production-ready AI systems and workflows.
+        price: $227
+        price_info: installment subject to lender approval.
+        cta_text: Discover program
+        cta_url: /en/career-programs/ai-engineering
+        course_background: accent
+      - name: Full Stack Development with AI
+        icon: Code
+        duration: 20 weeks
+        label: Updated in 2026
+        title: Full Stack Software Development
+        badges:
+          - icon: DollarSign
+            text: $2,500 full tuition
+          - icon: CheckCircle
+            text: Qualifies for 10% upfront discount and up to 6 interest-free installments.
+        tags:
+          - icon: ""
+            text: ""
+        description: Master modern web development from frontend to backend and build production-ready applications using industry-standard tools.
+        price: $150
+        price_info: or less depending on your plan
+        cta_text: View Program Details
+        cta_url: /en/career-programs/full-stack
+        course_background: hsl(var(--destructive))
+      - name: Data Science & ML
+        icon: ChartLine
+        duration: 16 weeks
+        label: Updated in 2026
+        title: Data Science & Machine Learning with AI
+        badges:
+          - icon: DollarSign
+            text: $3,250 full tuition
+          - icon: CheckCircle
+            text: Qualifies for 10% upfront discount and up to 6 interest-free installments.
+        description: Master AI-powered data analysis and build intelligent models to solve real-world problems.
+        price: $170
+        price_info: or less depending on your plan
+        cta_text: Discover program
+        cta_url: /en/career-programs/data-science-ml
+        course_background: primary
+      - name: Cybersecurity
+        icon: Shield
+        duration: 16 weeks
+        label: Updated in 2026
+        title: Cybersecurity
+        badges:
+          - icon: DollarSign
+            text: $2,500 full tuition
+          - icon: CheckCircle
+            text: Qualifies for 10% upfront discount and up to 6 interest-free installments.
+        description: Learn to protect systems and data with modern cybersecurity tools, hands-on labs, and practical exercises.
+        price: $150
+        price_info: or less depending on your plan
+        cta_text: Discover program
+        cta_url: /en/career-programs/cybersecurity
+        course_background: hsl(var(--secondary-foreground))
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: none
+    showOnLocations:
+      - bogota-colombia
+      - buenosaires-argentina
+      - costa-rica
+      - caracas-venezuela
+      - lapaz-bolivia
+      - lima-peru
+      - mexicocity-mexico
+      - montevideo-uruguay
+      - panamacity-panama
+      - quito-ecuador
+      - santiago-chile

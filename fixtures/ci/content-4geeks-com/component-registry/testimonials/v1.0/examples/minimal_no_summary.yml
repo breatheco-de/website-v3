@@ -1,0 +1,17 @@
+- type: testimonials
+  title: "Student Success Stories"
+  items:
+    - name: "Alex Johnson"
+      role: "Junior Developer"
+      company: "Startup Inc"
+      rating: 5
+      comment: "Best investment I've ever made in myself. The curriculum is up-to-date and industry-relevant."
+    - name: "Lisa Park"
+      role: "Web Developer"
+      company: "Freelance"
+      rating: 5
+      comment: "I now work remotely from anywhere in the world, all thanks to this program."
+    - name: "Michael Brown"
+      role: "Software Developer"
+      rating: 4
+      comment: "Great community and support. Made friends for life while learning to code."

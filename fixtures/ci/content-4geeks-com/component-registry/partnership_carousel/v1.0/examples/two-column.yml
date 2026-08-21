@@ -1,0 +1,91 @@
+type: partnership_carousel
+variant: split-card
+vertical_cards: true
+version: v1.0
+heading: Our Global Partnerships
+subtitle: Collaborating with leading institutions to bring coding education worldwide
+background: bg-primary/5
+slides:
+  - image_id: costa_rica_city
+    object_position: 100% 80%
+    title: CRUSA Forte Scholarship
+    subtitle: Empowering Costa Rican talent through tech education
+    description: United Wkforce Project=nd training to Miami-Dade County residents and is made possible by a multi-million gift from philanthropist Mackenzie Scott. Admitted students will receive coding training with no upfront costs.
+    stats:
+      - value: 200+
+        label: Scholarships awarded
+      - value: 85%
+        label: Employment rate
+    institution_logos:
+      - image_id: logo_crusa
+        alt: CRUSA Foundation
+        logo_height: 50px
+      - image_id: logo_utec
+        alt: CRUSA Foundation
+        logo_height: 50px
+      - image_id: bid_logo
+        alt: BID logo
+        logo_height: 50px
+    press_references:
+      - url: https://example.com/article-1
+        source: La Nación
+      - text: 4Geeks Academy and CRUSA Foundation partner to bring tech education to Costa Rica
+        url: https://example.com/article-1
+        source: La Nación
+    cta:
+      text: Learn More
+      url: /en/costa-rica
+      variant: primary
+  - image_id: united_way_event
+    object_position: 100% 80%
+    title: CRUSA Forte Scholarship
+    subtitle: Empowering Costa Rican talent through tech education
+    description: In colith hi In collaboration with Forte and Crusa, 4Geeks As, focusing on women from areas with hi In collaboration with Forte and Crusa, 4Geeks As, focusing on women from areas with hi from areas with hi on women from areas with high unemployment. Through the program, participants receive free training, enabling them to access better jobs in the 4.0 industry and contribute to the country's economic growth.
+    stats:
+      - value: 200+
+        label: Scholarships awarded
+      - value: 85%
+        label: Employment rate
+    institution_logos:
+      - image_id: logo_crusa
+        alt: CRUSA Foundation
+        logo_height: 50px
+      - image_id: logo_utec
+        alt: CRUSA Foundation
+        logo_height: 50px
+      - image_id: bid_logo
+        alt: BID logo
+        logo_height: 50px
+    press_references:
+      - text: 4Geeks Academy and CRUSA Foundation partner to bring tech education to Costa Rica
+        url: https://example.com/article-1
+        source: La Nación
+      - text: 4Geeks Academy and CRUSA Foundation partner to bring tech education to Costa Rica
+        url: https://example.com/article-1
+        source: La Nación
+    cta:
+      text: Learn More
+      url: /en/costa-rica
+      variant: primary
+  - image_id: uruguay_city
+    object_position: 10% 80%
+    title: Uruguay Tech Initiative
+    subtitle: Expanding coding education across Latin America
+    description: Our expansion to Uruguay brings world-class coding education to Montevideo, partnering with local institutions to develop a thriving tech ecosystem in the region.
+    stats:
+      - value: "3"
+        label: Campuses
+      - value: 500+
+        label: Graduates
+    institution_logos:
+      - image_id: united_way_event
+        alt: United Way Miami
+        logo_height: 40px
+    press_references:
+      - text: United Way and 4Geeks bring free coding bootcamp to underserved communities
+        url: https://example.com/article-2
+        source: Miami Herald
+    cta:
+      text: Explore Uruguay
+      url: /en/uruguay
+      variant: outline

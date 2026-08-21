@@ -1,0 +1,77 @@
+name: Split Cards
+version: "1.0"
+component: SplitCards
+file: client/src/components/split_cards/SplitCards.tsx
+description: >-
+  Two-card split layout with responsive sizing. Primary card (3/4 desktop, 50% tablet) has dark background with heading,
+  description, and optional floating icons. Secondary card (1/4 desktop, 50% tablet) displays a benefits list with
+  checkmarks.
+when_to_use: |
+  Use for sections that pair a bold headline message with a concise benefits list — such as
+  a program value proposition alongside key feature checkmarks. The dark primary card creates
+  high contrast while the smaller secondary card reinforces the message with scannable bullets.
+  Great for mid-page conversion sections or feature introductions.
+image_sizes:
+  primary-left.secondary.image_id: "(min-width: 768px) 300px, 200px"
+  primary-right.secondary.image_id: "(min-width: 768px) 300px, 200px"
+props:
+  variant:
+    type: string
+    required: true
+  primary_width:
+    type: string
+    required: false
+    options:
+      - narrow
+      - default
+      - wide
+  primary:
+    type: object
+    required: true
+    properties:
+      heading:
+        type: string
+        required: true
+      description:
+        type: string
+        required: false
+      badge:
+        type: string
+        required: false
+      tool_icons:
+        type: string
+        required: false
+  secondary:
+    type: object
+    required: true
+    properties:
+      benefits:
+        type: array
+        required: false
+        items:
+          text:
+            type: string
+            required: true
+          icon:
+            type: string
+            required: false
+      bullet_icon:
+        type: string
+        required: false
+      image_id:
+        type: string
+        required: false
+      image_object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+      image_object_position:
+        type: string
+        required: false
+  background:
+    type: string
+    required: false

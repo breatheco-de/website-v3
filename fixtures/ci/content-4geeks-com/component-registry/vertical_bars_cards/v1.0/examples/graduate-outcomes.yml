@@ -1,0 +1,41 @@
+type: vertical_bars_cards
+version: "1.0"
+title: "Graduate Success Metrics"
+subtitle: "Tracking our graduates' career outcomes across recent years"
+metrics:
+  - title: "Job Placement Rate"
+    unit: "Graduates hired within 6 months"
+    years:
+      - year: "2023"
+        value: 86
+        displayValue: "86%"
+      - year: "2024"
+        value: 84
+        displayValue: "84%"
+      - year: "Mid 2025"
+        value: 82
+        displayValue: "82%"
+  - title: "Average Salary Increase"
+    unit: "Compared to pre-bootcamp salary"
+    years:
+      - year: "2023"
+        value: 12500
+        displayValue: "$12.5k"
+      - year: "2024"
+        value: 14200
+        displayValue: "$14.2k"
+      - year: "Mid 2025"
+        value: 15800
+        displayValue: "$15.8k"
+  - title: "Days to First Job"
+    unit: "Average time from graduation to offer"
+    years:
+      - year: "2023"
+        value: 52
+        displayValue: "52 days"
+      - year: "2024"
+        value: 48
+        displayValue: "48 days"
+      - year: "Mid 2025"
+        value: 45
+        displayValue: "45 days"

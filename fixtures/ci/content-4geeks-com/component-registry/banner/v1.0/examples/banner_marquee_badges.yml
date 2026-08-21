@@ -1,0 +1,39 @@
+type: banner
+version: v1.0
+variant: marqueeBadges
+subtitle: No matter what you came searching for
+title: "AI is <span style=\"color: hsl(var(--primary));\"><i>the way</i></span>."
+body: |
+  Every one of those paths now runs on AI — and that's where the hiring is. So we rebuilt 4Geeks into three AI tracks built for the new job market: AI Engineering, AI Fluency and AI Flex.
+cta_buttons:
+  - text: Find your AI track
+    url: "#hero-1v86vv"
+    variant: primary
+    icon: arrow-right
+top_badges:
+  - Full Stack
+  - Data Science
+  - Machine Learning
+  - Web Development
+  - Data Analytics
+  - DevOps
+  - AI Engineering
+  - Cloud Computing
+  - Backend Dev
+  - AI Flex
+bottom_badges:
+  - Python
+  - Front End
+  - SQL & Databases
+  - Networking
+  - Cybersecurity
+  - AI Fluency
+  - Engineering
+  - React
+  - Node.js
+  - Prompt Engineering
+marquee_speed: 35
+section_id: banner-qrp5dz
+paddingY:
+  desktop: sm
+background: hsl(var(--muted))

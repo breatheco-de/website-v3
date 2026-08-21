@@ -1,0 +1,39 @@
+name: metrics with charts
+yaml: |
+  - type: features_grid
+    version: "1.0"
+    variant: stats-charts
+    subtitle: This is your opportunity.
+    title: <!--StartFragment--><h2 class="text-2xl md:text-h2 mb-2 text-foreground" data-testid="text-stats-text-title">AI is replacing jobs. It's also creating new ones faster than the workforce is prepared to fill.</h2><!--EndFragment-->
+    description: Every week, companies post AI roles they cannot fill. They need engineers who build with AI, analysts who work with AI, and security professionals who defend against it. The talent gap is real, and it is widening fast.
+    card_bars_accent: hsl(var(--primary))
+    card_gauge_accent: hsl(var(--destructive) / 0.5)
+    card_trend_accent: hsl(var(--accent))
+    card_bars:
+      badge: More New AI Roles Than Job Losses
+      stat_value: +340%
+      stat_label: net new AI roles created since 2022
+      years:
+        - "2022"
+        - "2023"
+        - "2024"
+        - "2025"
+        - "2026"
+      displaced_label: Displaced
+      created_label: Created by AI
+    card_gauge:
+      badge: Who's ready for AI roles?
+
+      inner_stat_percentage: 3
+      outer_stat_percentage: 97
+      show_gauge: true
+      inner_stat_highlight: true
+      gauge_label: qualified
+      stat_label: of the workforce is not ready for AI roles today
+      bar1_label: Traditional workforce
+      bar2_label: AI-ready professionals
+    card_trend:
+      badge: Demand Is Accelerating
+      stat_value: 1.3M
+      stat_label: new AI roles expected by 2027
+      end_label: 1.3M · 2027

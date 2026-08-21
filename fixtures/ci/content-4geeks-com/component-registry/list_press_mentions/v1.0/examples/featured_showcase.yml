@@ -1,0 +1,18 @@
+type: list_press_mentions
+variant: featured_showcase
+title: Governments, banks, and universities have audited us. Then hired us.
+subtitle: When institutions with due diligence requirements and public accountability choose a coding school, they do not choose lightly.
+show_links: false
+show_logos: true
+footer_text: Institutions with public accountability and due diligence requirements. Not awards programs.
+footer_stats:
+  - value: "$20M+"
+    label: Institutional funding mobilized
+  - value: "700+"
+    label: Subsidized graduates across 6 countries
+  - value: "84%+"
+    label: Employment rate across programs
+dynamic_entries:
+  database: press_mentions
+  limit: 4
+  sort: priority

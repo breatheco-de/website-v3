@@ -1,0 +1,60 @@
+name: Awards Marquee Section
+version: "1.0"
+component: AwardsMarquee
+file: client/src/components/AwardsMarquee.tsx
+description: >-
+  Displays a continuously scrolling horizontal band of award logos using react-fast-marquee. Ideal for showcasing
+  multiple awards and certifications.
+when_to_use: |
+  Use when you have many award logos (5+) that would clutter a static grid. The continuous
+  scroll creates visual movement and fits a large number of badges in a small vertical footprint.
+  Best placed below the hero section or credibility strip as a secondary trust layer.
+image_sizes:
+  default.items[].logo: "(min-width: 768px) 220px, 80px"
+props:
+  speed:
+    type: number
+    required: false
+    description: Scroll speed in pixels per second (default 40)
+  gradient:
+    type: boolean
+    required: false
+    description: Whether to show fade gradient at edges (default true)
+  gradientColor:
+    type: string
+    required: false
+  gradientWidth:
+    type: number
+    required: false
+    description: Width of fade gradient in pixels (default 100)
+  title:
+    type: string
+    required: false
+  title_above_carousel:
+    type: boolean
+    required: false
+  items:
+    type: array
+    required: true
+    items:
+      id:
+        type: string
+        required: true
+      alt:
+        type: string
+        required: true
+      logo:
+        type: string
+        required: false
+      logoHeight:
+        type: string
+        required: false
+      source:
+        type: string
+        required: false
+      name:
+        type: string
+        required: false
+      year:
+        type: string
+        required: false
