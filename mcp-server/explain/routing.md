@@ -41,6 +41,16 @@ The frontend router reads all content types at startup and generates routes for 
 
 After writes, the content index must refresh before new URLs become routable. If a mutate tool reports `index_refresh_failed`, run `refresh_content_index` and re-check the URL.
 
+## Public HTML page cache (production)
+
+Anonymous SSR HTML is LRU-cached ~5 min (`server/html-page-cache.ts`). Key: site + path + variant (`live` / `force_variant`). **Dev:** no HTML page cache.
+
+**Preferred bypass (no login):** append `?cache=false` to the public URL. Skips HTML cache read/write; does not enable edit-mode UI.
+
+Also bypass (legacy / other): `?edit=1`, `?edit_mode=…`, `?__site=…`. Session/auth cookies and `X-Debug-Token` bypass too.
+
+**Non-effects:** `?cache=false` does **not** refresh ContentIndex, DB mapped caches, or immutable JS/CSS. For disk→memory routing freshness first, call `refresh_content_index` (or wait for mutate-side refresh). Then open the public URL with `?cache=false` to verify the latest rendered HTML.
+
 ## Sitemap
 
 Routes are also used to generate the sitemap automatically. Every page with a valid `url_pattern` and at least one **live** locale file (`en.yml` / `es.yml`) is included. Unpublished drafts (only `{variant}.{locale}.yml`) are not indexed and are not in the sitemap.

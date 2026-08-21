@@ -197,6 +197,13 @@ export function sharedTemplateBlastSideEffect(contentType: string, locale: strin
   };
 }
 
+/** After type_single / shared-template writes — async flush + path-scoped HTML bust. */
+export const SHARED_TEMPLATE_HTML_CACHE_WARNING: McpWarning = {
+  code: "shared_template_html_cache_async",
+  message:
+    "Shared-template write: path-scoped HTML bust for this entry (+ bound_updates if any). Other URLs that share single.*.yml may keep previous anonymous HTML until TTL (~5 min). Slow content-index scan is async/coalesced; redirect writes still sync-slow. Non-effect: does not invalidate all DB/template entry URLs. See server/content-write-flush.ts, server/html-page-cache.ts, server/content-index.ts.",
+};
+
 export function localeSiblingSyncSideEffect(summary: string): McpSideEffect {
   return {
     kind: "locale_sibling_sync",

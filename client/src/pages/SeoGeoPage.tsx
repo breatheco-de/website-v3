@@ -648,7 +648,15 @@ function ClusterHealthPanel({
                       </div>
                       {row.path ? (
                         <p className="font-mono text-[11px] text-muted-foreground truncate" title={row.path}>
-                          {row.path}
+                          <a
+                            href={row.path}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:text-foreground hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {row.path}
+                          </a>
                         </p>
                       ) : null}
                       {row.main_keyword ? (
@@ -2769,6 +2777,43 @@ export function SeoTab({ data }: { data: SeoOverview }) {
             </div>
           </CardContent>
         </Card>
+
+      <ManagedSeoModal
+        open={seoModalOpen}
+        onOpenChange={(open) => {
+          setSeoModalOpen(open);
+          if (!open) setSeoModalTarget(null);
+        }}
+        target={seoModalTarget}
+        onSaved={() => {
+          invalidateClusterQueries();
+        }}
+      />
+
+      {seoPickerPending ? (
+        <SeoContextPickerDialog
+          open={seoPickerOpen}
+          onOpenChange={(open) => {
+            setSeoPickerOpen(open);
+            if (!open) setSeoPickerPending(null);
+          }}
+          contentType={seoPickerPending.contentType}
+          slug={seoPickerPending.slug}
+          locale={seoPickerPending.locale}
+          onConfirm={(choice) => {
+            setSeoModalTarget({
+              contentType: seoPickerPending.contentType,
+              slug: seoPickerPending.slug,
+              locale: seoPickerPending.locale,
+              initialTab: seoPickerPending.initialTab,
+              variant: choice.type === "variant" ? choice.variant : undefined,
+            });
+            setSeoPickerOpen(false);
+            setSeoPickerPending(null);
+            setSeoModalOpen(true);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -2911,43 +2956,6 @@ export function GeoTab({ data, brand }: { data: SeoOverview; brand: BrandContext
           </CardContent>
         </Card>
       </div>
-
-      <ManagedSeoModal
-        open={seoModalOpen}
-        onOpenChange={(open) => {
-          setSeoModalOpen(open);
-          if (!open) setSeoModalTarget(null);
-        }}
-        target={seoModalTarget}
-        onSaved={() => {
-          invalidateClusterQueries();
-        }}
-      />
-
-      {seoPickerPending ? (
-        <SeoContextPickerDialog
-          open={seoPickerOpen}
-          onOpenChange={(open) => {
-            setSeoPickerOpen(open);
-            if (!open) setSeoPickerPending(null);
-          }}
-          contentType={seoPickerPending.contentType}
-          slug={seoPickerPending.slug}
-          locale={seoPickerPending.locale}
-          onConfirm={(choice) => {
-            setSeoModalTarget({
-              contentType: seoPickerPending.contentType,
-              slug: seoPickerPending.slug,
-              locale: seoPickerPending.locale,
-              initialTab: seoPickerPending.initialTab,
-              variant: choice.type === "variant" ? choice.variant : undefined,
-            });
-            setSeoPickerOpen(false);
-            setSeoPickerPending(null);
-            setSeoModalOpen(true);
-          }}
-        />
-      ) : null}
     </div>
   );
 }

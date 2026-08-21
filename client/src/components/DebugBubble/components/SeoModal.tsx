@@ -855,7 +855,8 @@ export function SeoModal({
                   WebSite/Organization belong on the home page as <code className="font-mono">schema_org</code> sections; elsewhere they are page-local overrides. Course hero needs a Course companion section.
                 </p>
                 <p>
-                  This tab is a read-only preview of resolved JSON-LD. Edit sections on the page (or SEO &amp; GEO → Schema.org for site templates) — legacy <code className="font-mono">schema.include</code> is removed and ignored.
+                  On a live page, missing companions (Course, LocalBusiness, etc.) show as Diagnostics / validation errors — Add Section is not blocked by that rule.
+                  Publish and promote still require companions and required SEO. This tab is a read-only preview of resolved JSON-LD. Edit sections on the page (or SEO &amp; GEO → Schema.org for site templates) — legacy <code className="font-mono">schema.include</code> is removed and ignored.
                 </p>
                 <Collapsible open={schemaAdvancedOpen} onOpenChange={setSchemaAdvancedOpen}>
                   <CollapsibleTrigger asChild>
@@ -875,6 +876,9 @@ export function SeoModal({
                     <p>server/schema-org-seed.ts</p>
                     <p>schema-org.yml</p>
                     <p>client/src/components/settings/SchemaOrgTab.tsx</p>
+                    <p>shared/validationScope.ts</p>
+                    <p>server/live-entry-seo-gate.ts</p>
+                    <p>scripts/validation/validators/schema-org-companions.ts</p>
                   </CollapsibleContent>
                 </Collapsible>
               </div>

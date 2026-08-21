@@ -38,14 +38,34 @@ vi.mock("./content-index", () => ({
   },
 }));
 vi.mock("./schema-org-requirements", () => ({
-  formatSchemaOrgCompanionGateError: () => null,
+  formatSchemaOrgCompanionGateError: (opts: { sections: unknown }) => {
+    const sections = Array.isArray(opts.sections) ? opts.sections : [];
+    const hasHeroCourse = sections.some(
+      (s) =>
+        !!s &&
+        typeof s === "object" &&
+        (s as { type?: string }).type === "hero" &&
+        (s as { variant?: string }).variant === "course",
+    );
+    const hasCourse = sections.some(
+      (s) =>
+        !!s &&
+        typeof s === "object" &&
+        (s as { type?: string }).type === "schema_org" &&
+        (s as { schema_type?: string }).schema_type === "Course",
+    );
+    if (hasHeroCourse && !hasCourse) {
+      return "hero variant course requires companion schema_org Course section";
+    }
+    return null;
+  },
 }));
 
 import { evaluateLiveEntrySeoAndRequiredFields } from "./live-entry-seo-gate";
 import { LIVE_REQUIRED_FIELDS_CODE } from "@shared/liveSeoGate";
 
 describe("evaluateLiveEntrySeoAndRequiredFields", () => {
-  it("returns missing_fields for both meta and editor.required gaps together", () => {
+  it("publish: returns missing_fields for both meta and editor.required gaps together", () => {
     const failure = evaluateLiveEntrySeoAndRequiredFields({
       contentType: "blog",
       slug: "how-to-pay-a-coding-bootcamp-2022",
@@ -55,6 +75,7 @@ describe("evaluateLiveEntrySeoAndRequiredFields", () => {
         title: "",
         description: "",
       },
+      intent: "publish",
       isDraftWrite: false,
     });
     expect(failure).not.toBeNull();
@@ -67,6 +88,70 @@ describe("evaluateLiveEntrySeoAndRequiredFields", () => {
     ]);
     expect(failure?.message).toContain("CIRCULAR_REQUIRED_FIELDS");
     expect(failure?.message).toContain("update_fields");
+  });
+
+  it("micro with empty touchedPaths skips required meta (structural add path)", () => {
+    const failure = evaluateLiveEntrySeoAndRequiredFields({
+      contentType: "blog",
+      slug: "how-to-pay-a-coding-bootcamp-2022",
+      locale: "en",
+      pageData: {
+        meta: { page_title: "", description: "" },
+        title: "",
+        description: "",
+        sections: [{ type: "hero", variant: "course" }],
+      },
+      intent: "micro",
+      touchedPaths: [],
+      isDraftWrite: false,
+    });
+    expect(failure).toBeNull();
+  });
+
+  it("publish fails when Course companion missing for hero course", () => {
+    const failure = evaluateLiveEntrySeoAndRequiredFields({
+      contentType: "program",
+      slug: "full-stack",
+      locale: "en",
+      pageData: {
+        meta: {
+          page_title: "Full Stack",
+          description: "A complete program description for SEO gate.",
+        },
+        title: "Full Stack",
+        description: "A complete program description for SEO gate.",
+        sections: [{ type: "hero", variant: "course" }],
+      },
+      intent: "publish",
+      isDraftWrite: false,
+    });
+    expect(failure).not.toBeNull();
+    expect(failure?.code).toBe("schema_org_companion");
+    expect(failure?.message).toContain("companion schema_org Course");
+  });
+
+  it("micro empty touchedPaths allows missing Course companion", () => {
+    const failure = evaluateLiveEntrySeoAndRequiredFields({
+      contentType: "program",
+      slug: "full-stack",
+      locale: "en",
+      pageData: {
+        meta: {
+          page_title: "Full Stack",
+          description: "A complete program description for SEO gate.",
+        },
+        title: "Full Stack",
+        description: "A complete program description for SEO gate.",
+        sections: [
+          { type: "schema_org", schema_type: "WebSite", properties: {} },
+          { type: "hero", variant: "course" },
+        ],
+      },
+      intent: "micro",
+      touchedPaths: [],
+      isDraftWrite: false,
+    });
+    expect(failure).toBeNull();
   });
 
   it("passes when meta and required fields are populated", () => {
@@ -82,6 +167,7 @@ describe("evaluateLiveEntrySeoAndRequiredFields", () => {
         title: "How to pay",
         description: "A helpful overview of financing options.",
       },
+      intent: "publish",
       isDraftWrite: false,
     });
     expect(failure).toBeNull();
@@ -107,6 +193,7 @@ describe("evaluateLiveEntrySeoAndRequiredFields", () => {
       slug: "ai-engineering-program-ad-mx",
       locale: "es",
       pageData,
+      intent: "publish",
       isDraftWrite: false,
     });
     expect(failure).toBeNull();
@@ -168,7 +255,7 @@ describe("evaluateLiveEntrySeoAndRequiredFields", () => {
     );
   });
 
-  it("fails when full meta replace drops title and description (legacy broken path)", () => {
+  it("publish fails when full meta replace drops title and description", () => {
     const failure = evaluateLiveEntrySeoAndRequiredFields({
       contentType: "landing",
       slug: "ai-engineering-program-ad-mx",
@@ -180,6 +267,7 @@ describe("evaluateLiveEntrySeoAndRequiredFields", () => {
           change_frequency: "weekly",
         },
       },
+      intent: "publish",
       isDraftWrite: false,
     });
     expect(failure).not.toBeNull();

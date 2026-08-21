@@ -36,6 +36,12 @@ import {
 } from "@/components/ui/popover";
 import { collectEditorFieldTokens } from "@shared/editor-field-values";
 import { compileJsonSchema } from "@shared/json-field";
+import {
+  FILL_INTENT_GOAL_PRESETS,
+  isValidFillIntent,
+  parseFillIntent,
+  type EditorFillIntent,
+} from "@shared/fillIntent";
 
 export type EditorHint = {
   type?: string;
@@ -48,6 +54,8 @@ export type EditorHint = {
   description?: string;
   /** Required for publish / cannot clear when live. `"attached"` = only when not detached. */
   required?: boolean | "attached";
+  /** Declarative fill brief (required when editor.required is set). */
+  fill_intent?: EditorFillIntent;
   /**
    * Required when type is `json`. JSON Schema document validated on Apply
    * and used to lint/persist structured field values.
@@ -131,6 +139,10 @@ export function EditorTypeDialog({
   const [allowCustom, setAllowCustom] = useState(false);
   const [splitComma, setSplitComma] = useState(false);
   const [description, setDescription] = useState("");
+  const [fillGoal, setFillGoal] = useState("");
+  const [fillPurpose, setFillPurpose] = useState("");
+  const [fillConstraintsText, setFillConstraintsText] = useState("");
+  const [fillIntentError, setFillIntentError] = useState<string | null>(null);
   const [schemaText, setSchemaText] = useState("");
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [relationSource, setRelationSource] = useState("");
@@ -159,6 +171,11 @@ export function EditorTypeDialog({
     setAllowCustom(hint.allow_custom_values ?? false);
     setSplitComma(hint.split_comma_values ?? false);
     setDescription(hint.description || "");
+    const fi = parseFillIntent(hint.fill_intent);
+    setFillGoal(fi?.goal || "");
+    setFillPurpose(fi?.purpose || "");
+    setFillConstraintsText(fi?.constraints?.join("\n") || "");
+    setFillIntentError(null);
     setSchemaText(
       hint.schema && typeof hint.schema === "object"
         ? JSON.stringify(hint.schema, null, 2)
@@ -233,7 +250,43 @@ export function EditorTypeDialog({
   const handleApply = () => {
     const resolvedType = lockImageType ? "image" : type;
     const hint: EditorHint = { type: resolvedType };
+    if (initialHint?.required === true || initialHint?.required === "attached") {
+      hint.required = initialHint.required;
+    }
     if (description.trim()) hint.description = description.trim();
+
+    const goal = fillGoal.trim();
+    const purpose = fillPurpose.trim();
+    const constraints = fillConstraintsText
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const draftIntent =
+      goal || purpose || constraints.length > 0
+        ? {
+            goal,
+            purpose,
+            ...(constraints.length > 0 ? { constraints } : {}),
+          }
+        : undefined;
+
+    if (hint.required === true || hint.required === "attached") {
+      if (!draftIntent || !isValidFillIntent(draftIntent)) {
+        setFillIntentError(
+          "Required fields need fill_intent: non-empty goal and purpose.",
+        );
+        return;
+      }
+    }
+    if (draftIntent) {
+      if (!isValidFillIntent(draftIntent)) {
+        setFillIntentError("fill_intent needs both a non-empty goal and purpose (or clear both).");
+        return;
+      }
+      hint.fill_intent = parseFillIntent(draftIntent) ?? undefined;
+    }
+    setFillIntentError(null);
+
     if (resolvedType === "select" || resolvedType === "tags") {
       if (options.length > 0) {
         hint.options = options.map((o) =>
@@ -376,6 +429,96 @@ export function EditorTypeDialog({
               className="w-full text-sm px-3 py-1.5 rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
               data-testid="input-hint-description"
             />
+          </div>
+          <div
+            className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-3"
+            data-testid="fill-intent-editor"
+          >
+            <div className="space-y-0.5">
+              <Label className="text-xs">Fill intent</Label>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Declarative why/how agents and Diagnostics should fill this field. Required when the
+                field is marked required for publish. Goal is an open tag — presets are shortcuts;
+                custom goals are fine. Purpose is the brief.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Goal</Label>
+              <div className="flex flex-col gap-1.5 sm:flex-row">
+                <Select
+                  value={
+                    (FILL_INTENT_GOAL_PRESETS as readonly string[]).includes(fillGoal)
+                      ? fillGoal
+                      : fillGoal
+                        ? "__custom__"
+                        : ""
+                  }
+                  onValueChange={(v) => {
+                    if (v === "__custom__") {
+                      if ((FILL_INTENT_GOAL_PRESETS as readonly string[]).includes(fillGoal)) {
+                        setFillGoal("");
+                      }
+                      return;
+                    }
+                    setFillGoal(v);
+                    setFillIntentError(null);
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs sm:w-44" data-testid="select-fill-intent-goal-preset">
+                    <SelectValue placeholder="Preset…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FILL_INTENT_GOAL_PRESETS.map((g) => (
+                      <SelectItem key={g} value={g} className="text-xs">
+                        {g}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="__custom__" className="text-xs">
+                      Custom…
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <input
+                  type="text"
+                  value={fillGoal}
+                  onChange={(e) => {
+                    setFillGoal(e.target.value);
+                    setFillIntentError(null);
+                  }}
+                  placeholder="goal slug (e.g. geo_llm or lead_nurture)"
+                  className="w-full flex-1 text-sm px-3 py-1.5 rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                  data-testid="input-fill-intent-goal"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Purpose</Label>
+              <Textarea
+                value={fillPurpose}
+                onChange={(e) => {
+                  setFillPurpose(e.target.value);
+                  setFillIntentError(null);
+                }}
+                placeholder="Why this field exists and how to fill it well…"
+                className="text-xs min-h-[4.5rem] resize-y"
+                data-testid="textarea-fill-intent-purpose"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Constraints (optional, one per line)</Label>
+              <Textarea
+                value={fillConstraintsText}
+                onChange={(e) => setFillConstraintsText(e.target.value)}
+                placeholder={"At least 5 items\nNever invent CRM tags\nRefresh frequently"}
+                className="text-xs min-h-[3.5rem] resize-y font-mono"
+                data-testid="textarea-fill-intent-constraints"
+              />
+            </div>
+            {fillIntentError && (
+              <p className="text-[11px] text-destructive" data-testid="text-fill-intent-error">
+                {fillIntentError}
+              </p>
+            )}
           </div>
           {type === "json" && !lockImageType && (
             <div className="space-y-2" data-testid="json-schema-editor">

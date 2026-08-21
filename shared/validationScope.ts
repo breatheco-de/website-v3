@@ -71,15 +71,16 @@ export function resolveMicroValidationFlags(opts: {
 
   const paths = normalizePaths(touchedPaths);
 
-  // Backward compat: callers that omit touchedPaths still run full gate on live writes.
+  // Empty touchedPaths on micro = skip full gate (structural add/reorder, unspecified micro).
+  // Full enforcement is intent: "publish" (promote / replace_all_sections / full locale YAML).
   if (paths.length === 0) {
     return {
-      runFull: true,
-      metaKeys: null,
-      bodyKeys: null,
-      runEmptyDetached: true,
-      runSchemaOrgCompanion: true,
-      runFormSources: true,
+      runFull: false,
+      metaKeys: [],
+      bodyKeys: [],
+      runEmptyDetached: false,
+      runSchemaOrgCompanion: false,
+      runFormSources: false,
     };
   }
 

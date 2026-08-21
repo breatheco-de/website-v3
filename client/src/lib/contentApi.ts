@@ -18,6 +18,9 @@ export interface ContentEditResponse {
   updatedSections?: unknown[];
   warning?: string;
   error?: string;
+  /** Education: shared-template save HTML cache / async flush note (not a failure). */
+  shared_template_html_cache?: string;
+  boundUpdates?: string[];
 }
 
 export interface CommonEditRequest {

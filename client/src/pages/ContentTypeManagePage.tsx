@@ -60,6 +60,7 @@ import { SharedLayoutEnableDialog } from "@/components/editing/SharedLayoutEnabl
 import { LinkedDatabaseExplainDialog } from "@/components/editing/LinkedDatabaseExplainDialog";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
 import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
+import { isValidFillIntent } from "@shared/fillIntent";
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
 import { getMetaIssues } from "@/lib/metaIssues";
 import { isUsableOgImageUrl } from "@shared/ogImageUrl";
@@ -133,6 +134,8 @@ interface ContentTypeConfig {
     split_comma_values?: boolean;
     cache_images?: boolean;
     description?: string;
+    required?: boolean | "attached";
+    fill_intent?: { goal: string; purpose: string; constraints?: string[] };
     schema?: Record<string, unknown>;
   }>;
   indexes?: string[];
@@ -732,8 +735,20 @@ function RequiredFieldConfirmDialog({
             <code className="font-mono bg-muted px-1 rounded text-xs">meta.description</code> — separate
             from this asterisk.
           </p>
+          <p>
+            Marking a field required also requires{" "}
+            <code className="font-mono text-[10px]">fill_intent</code> (goal + purpose; optional
+            constraints). That is the declarative why/how for agents and Diagnostics — short Description
+            stays a UI hint only. Goal is an open tag (presets like{" "}
+            <code className="font-mono text-[10px]">geo_llm</code> /{" "}
+            <code className="font-mono text-[10px]">conversion</code> are shortcuts). Set fill intent in
+            the field settings (sliders) before or when enabling required. Schema rules like{" "}
+            <code className="font-mono text-[10px]">minItems</code> enforce structure; fill_intent does not
+            replace them.
+          </p>
           <p className="text-xs">
             Read more:{" "}
+            <code className="font-mono text-[10px]">shared/fillIntent.ts</code>,{" "}
             <code className="font-mono text-[10px]">shared/validateRequiredFields.ts</code>,{" "}
             <code className="font-mono text-[10px]">server/live-entry-seo-gate.ts</code>,{" "}
             <code className="font-mono text-[10px]">scripts/validation/validators/required-fields.ts</code>
@@ -4565,7 +4580,14 @@ function FieldMappingDialog({
       onApply={(hint) => {
         const field = hintDialogField;
         if (!field) return;
-        setEditorHints((prev) => ({ ...prev, [field]: hint }));
+        setEditorHints((prev) => {
+          const prevHint = prev[field] || {};
+          const merged: EditorHint = { ...hint };
+          if (prevHint.required === true || prevHint.required === "attached") {
+            merged.required = prevHint.required;
+          }
+          return { ...prev, [field]: merged };
+        });
         setHintDialogField(null);
       }}
     />
@@ -4588,6 +4610,20 @@ function FieldMappingDialog({
       onSelect={(nextRequired) => {
         const field = pendingRequiredField;
         if (!field) return;
+        if (nextRequired !== false) {
+          const cur = editorHints[field] || {};
+          if (!isValidFillIntent(cur.fill_intent)) {
+            toast({
+              title: "Fill intent required",
+              description:
+                "Set fill_intent (goal + purpose) in field settings before marking this field required.",
+              variant: "destructive",
+            });
+            setPendingRequiredField(null);
+            setHintDialogField(field);
+            return;
+          }
+        }
         setEditorHints((prev) => {
           const cur = prev[field] || {};
           if (nextRequired === false) {

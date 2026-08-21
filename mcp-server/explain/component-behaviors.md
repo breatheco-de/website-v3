@@ -37,7 +37,12 @@ For product scope (`ecommerce_products`, `programs[].id`, inherit), conversion f
 
 `conversion_name` on lead forms / embedded `form:` / blog `call_to_action.conversion_name` **must** match a name from `{content_folder}/settings.yml` → `tracking.conversion_events` (folder from `sites.yml`; pass `site` on this tool). Validators reject unknown names.
 
-**Agents:** before setting `conversion_name`, use this live catalog. If intent is ambiguous → ask a human. Never invent event names. This topic does **not** list which forms use which name.
+**Agents:**
+
+1. Call this topic and read the **Intent** blocks (`when_to_use` / `when_not_to_use`) below.
+2. Match the **current section’s visitor CTA proposition** (submit label, form card title, success url/message, visible fields, page offer) — not SEO alone.
+3. Duplicate wipe is intentional: **never** restore `conversion_name` from the source page, a sibling locale, or a pre-wipe value.
+4. If intent is ambiguous → ask a human. Never invent event names.
 
 <!-- @dynamic:conversion_events -->
 <!-- /dynamic -->

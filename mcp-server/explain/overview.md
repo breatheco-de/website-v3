@@ -27,7 +27,7 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 |---|---|
 | `overview` | This file — start here for a general map of the codebase |
 | `content_system` | How YAML content files are structured, merged, and loaded safely |
-| `routing` | How URL patterns and locale prefixes work |
+| `routing` | URL patterns, locale prefixes, `?cache=false` HTML cache bypass |
 | `images` | How images are registered, referenced, and rendered |
 | `sections` | Section components, registry, in-page CTA hashes (`#section_id` modal/scroll, `inline#`, `#top`/`#bottom`) |
 | `semantic_search` | Qdrant, local embeddings, database `vector_search`, keyword fallback |

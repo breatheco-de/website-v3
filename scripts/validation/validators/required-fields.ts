@@ -1,15 +1,21 @@
 /**
  * Validates editor.required fields are non-empty (and JSON-schema-valid) on live content entries.
+ * Also errors when a content type marks fields required without a valid fill_intent.
  */
 
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
-import { getContentTypeConfig } from "../../../server/content-types";
+import { getContentTypeConfig, getAllConfigs } from "../../../server/content-types";
 import {
   listRequiredEditorFields,
   satisfyRequiredEditorField,
   effectiveRequiredMode,
+  buildRequiredFieldSuggestion,
   type EditorRequiredHint,
 } from "../../../shared/validateRequiredFields";
+import {
+  listRequiredFieldsMissingFillIntent,
+  listNonPresetFillIntentGoals,
+} from "../../../shared/fillIntent";
 import { isVariantLayerFile } from "../shared/draftFiles";
 import {
   isEntryDetached,
@@ -35,10 +41,51 @@ function trackingOpts(contentRoot?: string): {
   }
 }
 
+function emitTypeLevelFillIntentIssues(
+  contentRoot: string | undefined,
+  errors: ValidationIssue[],
+  warnings: ValidationIssue[],
+): void {
+  const configs = getAllConfigs(contentRoot);
+  for (const [contentType, config] of Object.entries(configs)) {
+    const editor = (config.editor || {}) as Record<
+      string,
+      { required?: unknown; fill_intent?: unknown }
+    >;
+    const gaps = listRequiredFieldsMissingFillIntent(editor);
+    for (const gap of gaps) {
+      errors.push({
+        type: "error",
+        code: "REQUIRED_FIELD_MISSING_FILL_INTENT",
+        message:
+          `Content type "${contentType}" field "${gap.field}" has editor.required but ` +
+          `${gap.reason === "missing" ? "no fill_intent" : "an invalid fill_intent"} ` +
+          `(need non-empty goal + purpose).`,
+        file: `${contentRoot || "site"}/content-types.yml`,
+        suggestion:
+          `Add editor.${gap.field}.fill_intent with goal (open string; presets optional) and purpose. ` +
+          `Fields UI → field settings, or edit content-types.yml.`,
+      });
+    }
+    for (const { field, goal } of listNonPresetFillIntentGoals(editor)) {
+      warnings.push({
+        type: "warning",
+        code: "FILL_INTENT_GOAL_NOT_PRESET",
+        message:
+          `Content type "${contentType}" field "${field}" fill_intent.goal "${goal}" ` +
+          `is outside the suggested preset list (custom goals are allowed).`,
+        file: `${contentRoot || "site"}/content-types.yml`,
+        suggestion:
+          `Keep the custom goal if intentional, or pick a preset (geo_llm, conversion, seo, editorial, structural, compliance, other).`,
+      });
+    }
+  }
+}
+
 export const requiredFieldsValidator: Validator = {
   name: "required-fields",
   description:
-    "Validates editor.required fields (true | attached) are satisfied on live entries",
+    "Validates editor.required fields (true | attached) are satisfied on live entries, and that required fields declare fill_intent",
   apiExposed: true,
   estimatedDuration: "fast",
   category: "content",
@@ -48,6 +95,8 @@ export const requiredFieldsValidator: Validator = {
     const errors: ValidationIssue[] = [];
     const warnings: ValidationIssue[] = [];
     const semantics = trackingOpts(context.contentRoot);
+
+    emitTypeLevelFillIntentIssues(context.contentRoot, errors, warnings);
 
     for (const file of context.contentFiles) {
       if (isVariantLayerFile(file.filePath)) continue;
@@ -86,10 +135,11 @@ export const requiredFieldsValidator: Validator = {
             mode === "attached"
               ? "REQUIRED_ATTACHED_FIELD_EMPTY"
               : "REQUIRED_FIELD_EMPTY";
-          const suggestion =
-            mode === "attached"
-              ? `Set a valid non-empty value for "${fe.field}" on the locale/_common fields (editor.required: attached), or detach the entry if it should own CTA/FAQ/body in sections instead of shared-template bindings.`
-              : `Set a non-empty value for "${fe.field}" before publish / on live saves (editor.required: true).`;
+          const suggestion = buildRequiredFieldSuggestion({
+            fieldPath: fe.field,
+            mode,
+            hint,
+          });
           errors.push({
             type: "error",
             code,
@@ -113,7 +163,14 @@ export const requiredFieldsValidator: Validator = {
       warnings,
       duration,
       artifacts: {
-        emptyRequired: errors.length,
+        emptyRequired: errors.filter(
+          (e) =>
+            e.code === "REQUIRED_FIELD_EMPTY" ||
+            e.code === "REQUIRED_ATTACHED_FIELD_EMPTY",
+        ).length,
+        missingFillIntent: errors.filter(
+          (e) => e.code === "REQUIRED_FIELD_MISSING_FILL_INTENT",
+        ).length,
       },
     };
   },

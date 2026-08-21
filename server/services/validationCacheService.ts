@@ -324,6 +324,87 @@ export class ValidationCacheService {
     }
   }
 
+  /**
+   * Dev-only: overwrite local validation-cache.json with the production GCS copy.
+   * Never uploads. Production hosts already load from the bucket on boot.
+   */
+  async pullFromBucket(): Promise<{
+    success: boolean;
+    pulled: boolean;
+    gcsKey: string;
+    issueCount: number;
+    reason?: string;
+  }> {
+    const gcsKey = this.gcsKey();
+    const currentCount = () => Object.keys(this.issues).length;
+
+    if (IS_PRODUCTION) {
+      return {
+        success: false,
+        pulled: false,
+        gcsKey,
+        issueCount: currentCount(),
+        reason:
+          "Pull production is only available in development. This host already uses the production validation cache.",
+      };
+    }
+
+    if (!gcs.available) {
+      gcs.initBootstrapFromEnv();
+    }
+    if (!gcs.available) {
+      return {
+        success: false,
+        pulled: false,
+        gcsKey,
+        issueCount: currentCount(),
+        reason: "GCS is unavailable — missing GCS_BUCKET_NAME or credentials.",
+      };
+    }
+
+    try {
+      const result = await gcs.downloadFirstExisting(validationCacheReadKeys(this.contentFolder));
+      if (!result) {
+        return {
+          success: false,
+          pulled: false,
+          gcsKey,
+          issueCount: currentCount(),
+          reason: "No validation-cache.json found in GCS.",
+        };
+      }
+
+      const parsed = JSON.parse(result.data.toString("utf-8")) as ValidationCacheFile;
+      if (!parsed || typeof parsed !== "object") {
+        return {
+          success: false,
+          pulled: false,
+          gcsKey: result.key,
+          issueCount: currentCount(),
+          reason: "GCS validation-cache.json is invalid.",
+        };
+      }
+
+      this.applyLoadedData(migrateCache(parsed));
+      this.writeLocalFile();
+      const issueCount = Object.keys(this.issues).length;
+      log.info(
+        { gcsKey: result.key, issueCount },
+        "[ValidationCache] Pulled production cache from GCS (local only; no upload)",
+      );
+      return { success: true, pulled: true, gcsKey: result.key, issueCount };
+    } catch (err) {
+      log.error({ err }, "[ValidationCache] Failed to pull from GCS:");
+      return {
+        success: false,
+        pulled: false,
+        gcsKey,
+        issueCount: currentCount(),
+        reason: err instanceof Error ? err.message : "Failed to pull validation cache from GCS.",
+      };
+    }
+  }
+
   resolveEntryKeyFromUrl(url: string): string | undefined {
     return this.indexes.byUrl[url];
   }
@@ -667,6 +748,38 @@ export class ValidationCacheService {
     this.lastSiteWideRunAt = null;
     await this.flush();
     log.info("[ValidationCache] Cleared all issues and run metadata");
+  }
+
+  /**
+   * Drop v4→v5 migration orphans tagged `validator: "legacy"`.
+   * Replace-by-validator never clears these when real validators re-run.
+   * Does not touch other issues or wipe run metadata (only removes `legacy` stamps).
+   */
+  async purgeLegacyIssues(): Promise<{ removed: number }> {
+    const toDelete = Object.values(this.issues).filter(
+      (issue) => issue.validator === "legacy",
+    );
+    for (const issue of toDelete) delete this.issues[issue.id];
+
+    for (const meta of Object.values(this.runMetaByEntry)) {
+      if (meta.byValidator?.legacy) {
+        delete meta.byValidator.legacy;
+      }
+    }
+    for (const meta of Object.values(this.runMetaByScope)) {
+      if (meta?.byValidator?.legacy) {
+        delete meta.byValidator.legacy;
+      }
+    }
+
+    if (toDelete.length > 0) {
+      this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
+      await this.flush();
+      log.info(
+        `[ValidationCache] Purged ${toDelete.length} legacy validator issue(s)`,
+      );
+    }
+    return { removed: toDelete.length };
   }
 
   flush(): Promise<void> {

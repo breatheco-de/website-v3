@@ -32,7 +32,8 @@ type Topic = (typeof VALID_TOPICS)[number];
 const TOPIC_DESC: Record<string, string> = {
   overview: "Start here — architectural summary and guide to all topics",
   content_system: "YAML content files, _common.yml merge, safeYamlLoad requirement",
-  routing: "URL patterns, locale prefixes (/en/, /es/), dynamic route generation",
+  routing:
+    "URL patterns, locale prefixes (/en/, /es/), dynamic routes, ?cache=false HTML cache bypass",
   images: "Image registry, UniversalImage component, image_id referencing",
   sections: "SectionRenderer, component registry, in-page CTA hashes (#section_id modal/scroll, inline#, #top/#bottom)",
   semantic_search:
@@ -152,21 +153,32 @@ function resolveConversionEvents(contentPath: string): string {
     return "_No tracking.conversion_events defined in settings.yml_";
   }
   const lines: string[] = [
-    "| Name | Description | Default tags |",
-    "|---|---|---|",
+    "| Name | Default tags |",
+    "|---|---|",
   ];
+  const intentBlocks: string[] = ["", "### Intent", ""];
   for (const entry of events) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
     const e = entry as Record<string, unknown>;
     const name = typeof e.name === "string" ? e.name : "";
     if (!name) continue;
-    const description = typeof e.description === "string" ? e.description : "";
     const tags = Array.isArray(e.tags)
       ? e.tags.filter((t): t is string => typeof t === "string").map((t) => `\`${t}\``).join(", ")
       : "—";
-    lines.push(`| \`${name}\` | ${description || "—"} | ${tags || "—"} |`);
+    lines.push(`| \`${name}\` | ${tags || "—"} |`);
+
+    const whenToUse =
+      typeof e.when_to_use === "string" && e.when_to_use.trim() ? e.when_to_use.trim() : "—";
+    const whenNot =
+      typeof e.when_not_to_use === "string" && e.when_not_to_use.trim()
+        ? e.when_not_to_use.trim()
+        : "—";
+    intentBlocks.push(`#### \`${name}\``);
+    intentBlocks.push(`- **when_to_use:** ${whenToUse}`);
+    intentBlocks.push(`- **when_not_to_use:** ${whenNot}`);
+    intentBlocks.push("");
   }
-  return lines.join("\n");
+  return [...lines, ...intentBlocks].join("\n").trimEnd();
 }
 
 function resolveCrmTags(contentPath: string): string {
@@ -233,7 +245,7 @@ export function registerExplainTools(
       "Call this tool BEFORE making any structural change to the codebase — it explains how key subsystems work. " +
       "Live catalogs (conversion_events, CRM tags, locales, content types, image presets) are loaded from that site's content folder (sites.yml content_folder, e.g. site_4geeks-com/). " +
       "Valid topics: 'overview' (start here — summary + list of all topics), 'content_system' (YAML content files, _common.yml merge, safeYamlLoad), " +
-      "'routing' (URL patterns, locale prefixes, /en/ vs /es/), " +
+      "'routing' (URL patterns, locale prefixes, /en/ vs /es/, ?cache=false HTML cache bypass), " +
       "'images' (image registry, UniversalImage, image_id usage), " +
       "'sections' (SectionRenderer, component registry, how sections are authored), " +
       "'semantic_search' (Qdrant, local embeddings, vector_search config, keyword fallback), " +
@@ -251,7 +263,7 @@ export function registerExplainTools(
       topic: z
         .string()
         .describe(
-          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, ecommerce, shared-layout, relation-fields, lead-forms, redirects.",
+          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, ecommerce, shared-layout, relation-fields, lead-forms, redirects. Topic routing includes ?cache=false HTML page-cache bypass.",
         ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },

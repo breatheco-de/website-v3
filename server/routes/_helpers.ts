@@ -485,14 +485,22 @@ export function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
 
 
 export function invalidateContentCaches(contentType?: string, ci: typeof contentIndex = contentIndex): void {
-  if (contentType) {
-    ci.invalidateCommonFields(contentType);
-  }
-  clearSsrSchemaCache();
+  invalidateContentCachesWithoutHtml(contentType, ci);
   // Drop rendered HTML pages so anonymous visitors get fresh SSR after edits/sync.
   void import("../html-page-cache").then(({ invalidateHtmlPageCache }) => {
     invalidateHtmlPageCache();
   }).catch(() => {});
+}
+
+/** Common-fields + SSR schema only — no HTML page cache clear (path-scoped bust lives in flush). */
+export function invalidateContentCachesWithoutHtml(
+  contentType?: string,
+  ci: typeof contentIndex = contentIndex,
+): void {
+  if (contentType) {
+    ci.invalidateCommonFields(contentType);
+  }
+  clearSsrSchemaCache();
 }
 
 export type FixerItemStatus = "ok" | "skipped" | "failed";

@@ -67,14 +67,25 @@ import {
   eventConsentToCardValues,
   extraConsentYamlFieldsFromObject,
 } from "@shared/consent-settings";
+import {
+  CONVERSION_INTENT_MAX_CHARS,
+  CONVERSION_INTENT_MIN_CHARS,
+  isConversionIntentFieldValid,
+} from "@shared/conversionEventIntent";
 import { buildWebhookSamplePayload } from "@/lib/webhookPayload";
 import { useSession } from "@/contexts/SessionContext";
+import { Textarea } from "@/components/ui/textarea";
 
 const SAMPLE_USER_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+
+const INTENT_FIELD_HINT = `2–4 sentences · ${CONVERSION_INTENT_MIN_CHARS}–${CONVERSION_INTENT_MAX_CHARS} characters. Agents match visitor CTA copy to these fields when choosing conversion_name.`;
 
 interface EditingEventState {
   originalName: string;
   name: string;
+  description: string;
+  when_to_use: string;
+  when_not_to_use: string;
   automations: string;
   tags: string[];
   consent: ConsentValues;
@@ -91,6 +102,9 @@ function makeEditingState(entry: ConversionEventEntry): EditingEventState {
   return {
     originalName: entry.name,
     name: entry.name,
+    description: entry.description ?? "",
+    when_to_use: entry.when_to_use ?? "",
+    when_not_to_use: entry.when_not_to_use ?? "",
     automations: entry.automations ?? "",
     tags: entry.tags ?? [],
     consent: eventConsentToCardValues(entry.consent),
@@ -102,6 +116,19 @@ function makeEditingState(entry: ConversionEventEntry): EditingEventState {
     webhookAuthHeader: entry.webhook?.auth_header ?? "",
     webhookEditing: false,
   };
+}
+
+function IntentCharCount({ value }: { value: string }) {
+  const n = value.trim().length;
+  const ok = isConversionIntentFieldValid(value);
+  return (
+    <span className={ok ? "text-muted-foreground" : "text-destructive"}>
+      {n}/{CONVERSION_INTENT_MAX_CHARS}
+      {n > 0 && n < CONVERSION_INTENT_MIN_CHARS
+        ? ` · need ${CONVERSION_INTENT_MIN_CHARS - n} more`
+        : ""}
+    </span>
+  );
 }
 
 interface UsageEntry {
@@ -253,6 +280,8 @@ function ConversionsPageInner() {
   const [addEventOpen, setAddEventOpen] = useState(false);
   const [newEventName, setNewEventName] = useState("");
   const [newEventDesc, setNewEventDesc] = useState("");
+  const [newEventWhenToUse, setNewEventWhenToUse] = useState("");
+  const [newEventWhenNotToUse, setNewEventWhenNotToUse] = useState("");
   const [deleteConfirmEvent, setDeleteConfirmEvent] = useState<string | null>(null);
   const [editingEvent, setEditingEvent] = useState<EditingEventState | null>(null);
   const [mergeTarget, setMergeTarget] = useState("");
@@ -339,10 +368,25 @@ function ConversionsPageInner() {
   });
 
   const addEventMutation = useMutation({
-    mutationFn: async ({ name, description }: { name: string; description: string }) => {
-      const updated = [
+    mutationFn: async ({
+      name,
+      description,
+      when_to_use,
+      when_not_to_use,
+    }: {
+      name: string;
+      description: string;
+      when_to_use: string;
+      when_not_to_use: string;
+    }) => {
+      const updated: ConversionEventEntry[] = [
         ...conversionEventEntries,
-        { name: name.trim(), description: description.trim() || "Form submission" },
+        {
+          name: name.trim(),
+          ...(description.trim() ? { description: description.trim() } : {}),
+          when_to_use: when_to_use.trim(),
+          when_not_to_use: when_not_to_use.trim(),
+        },
       ];
       const res = await apiRequest("PUT", "/api/settings/tracking", { conversion_events: updated });
       if (!res.ok) {
@@ -356,6 +400,8 @@ function ConversionsPageInner() {
       setAddEventOpen(false);
       setNewEventName("");
       setNewEventDesc("");
+      setNewEventWhenToUse("");
+      setNewEventWhenNotToUse("");
       toast({ title: "Event added", description: `"${newEventName.trim()}" added to conversion events.` });
     },
     onError: (err: Error) => {
@@ -536,7 +582,9 @@ function ConversionsPageInner() {
             });
             const updated: ConversionEventEntry = {
               name: effectiveName,
-              ...(entry.description ? { description: entry.description } : {}),
+              ...(event.description.trim() ? { description: event.description.trim() } : {}),
+              when_to_use: event.when_to_use.trim(),
+              when_not_to_use: event.when_not_to_use.trim(),
               ...(event.automations.trim() ? { automations: event.automations.trim() } : {}),
               ...(event.tags.length > 0 ? { tags: event.tags } : {}),
               ...(Object.keys(consent).length > 0 ? { consent } : {}),
@@ -912,6 +960,9 @@ function ConversionsPageInner() {
                       const hasTags = (entry?.tags?.length ?? 0) > 0;
                       const hasAutomation = !!entry?.automations;
                       const hasConsent = entry?.consent ? Object.keys(entry.consent).length > 0 : false;
+                      const hasIntent =
+                        isConversionIntentFieldValid(entry?.when_to_use) &&
+                        isConversionIntentFieldValid(entry?.when_not_to_use);
                       return (
                         <Fragment key={ev.name}>
                           <tr className="border-b last:border-0">
@@ -944,6 +995,23 @@ function ConversionsPageInner() {
                                     }}
                                   >
                                     {count} {count === 1 ? "form" : "forms"}
+                                  </Badge>
+                                )}
+                                {hasIntent ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] px-1 py-0 leading-4 font-normal text-muted-foreground"
+                                    data-testid={`badge-intent-${ev.name}`}
+                                  >
+                                    intent
+                                  </Badge>
+                                ) : (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] px-1 py-0 leading-4 font-normal text-destructive border-destructive/40"
+                                    data-testid={`badge-intent-missing-${ev.name}`}
+                                  >
+                                    intent needed
                                   </Badge>
                                 )}
                                 {hasWebhook && (
@@ -1475,8 +1543,9 @@ function ConversionsPageInner() {
           <SheetHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <SheetTitle className="text-base">Edit conversion event</SheetTitle>
             <SheetDescription className="text-xs">
-              Set default values for automations, consents, and a per-event webhook.
-              Form-level settings always take precedence over these defaults.
+              When to use / when not to use tell agents (and staff) which visitor offer maps to this
+              event — required before save. Also set automations, consents, and optional webhook
+              defaults (form-level settings always win).
             </SheetDescription>
           </SheetHeader>
 
@@ -1501,6 +1570,77 @@ function ConversionsPageInner() {
                   Use snake_case. Renaming updates all YAML references automatically.
                 </p>
               </div>
+
+              {editingEvent && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-event-desc" className="text-sm font-medium">
+                    Description{" "}
+                    <span className="text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Input
+                    id="edit-event-desc"
+                    placeholder="Short staff label"
+                    value={editingEvent.description}
+                    onChange={(e) =>
+                      setEditingEvent({ ...editingEvent, description: e.target.value })
+                    }
+                    data-testid="input-edit-event-desc"
+                  />
+                </div>
+              )}
+
+              {editingEvent && (
+                <div className="space-y-3 rounded-md border border-border bg-muted/40 p-3">
+                  <p className="text-xs text-muted-foreground leading-snug">{INTENT_FIELD_HINT}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Advanced:{" "}
+                    <code className="text-[10px]">site_*/settings.yml</code> →{" "}
+                    <code className="text-[10px]">tracking.conversion_events</code>; agents read via
+                    MCP <code className="text-[10px]">explain_site</code> topic{" "}
+                    <code className="text-[10px]">component-behaviors</code>.
+                  </p>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="edit-when-to-use" className="text-sm font-medium">
+                        When to use
+                      </Label>
+                      <IntentCharCount value={editingEvent.when_to_use} />
+                    </div>
+                    <Textarea
+                      id="edit-when-to-use"
+                      rows={3}
+                      maxLength={CONVERSION_INTENT_MAX_CHARS}
+                      placeholder="Visitor is applying / enrolling…"
+                      value={editingEvent.when_to_use}
+                      onChange={(e) =>
+                        setEditingEvent({ ...editingEvent, when_to_use: e.target.value })
+                      }
+                      data-testid="input-edit-when-to-use"
+                      className="text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="edit-when-not-to-use" className="text-sm font-medium">
+                        When not to use
+                      </Label>
+                      <IntentCharCount value={editingEvent.when_not_to_use} />
+                    </div>
+                    <Textarea
+                      id="edit-when-not-to-use"
+                      rows={3}
+                      maxLength={CONVERSION_INTENT_MAX_CHARS}
+                      placeholder="Soft info-only, downloads, newsletter…"
+                      value={editingEvent.when_not_to_use}
+                      onChange={(e) =>
+                        setEditingEvent({ ...editingEvent, when_not_to_use: e.target.value })
+                      }
+                      data-testid="input-edit-when-not-to-use"
+                      className="text-sm"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Automations & Tags */}
               {editingEvent && (
@@ -1621,6 +1761,8 @@ function ConversionsPageInner() {
               onClick={() => editingEvent && saveEventMutation.mutate(editingEvent)}
               disabled={
                 !editingEvent?.name.trim() ||
+                !isConversionIntentFieldValid(editingEvent?.when_to_use) ||
+                !isConversionIntentFieldValid(editingEvent?.when_not_to_use) ||
                 saveEventMutation.isPending
               }
               data-testid="button-save-edit-event"
@@ -1685,15 +1827,17 @@ function ConversionsPageInner() {
             setAddEventOpen(false);
             setNewEventName("");
             setNewEventDesc("");
+            setNewEventWhenToUse("");
+            setNewEventWhenNotToUse("");
           }
         }}
       >
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add conversion event</DialogTitle>
             <DialogDescription>
-              The event name becomes the GTM trigger key. Description is shown in this table for
-              reference.
+              Event name is the GTM trigger key. When to use / when not to use are required so
+              agents can match visitor CTA intent (not a duplicated page&apos;s old conversion_name).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-1">
@@ -1704,11 +1848,6 @@ function ConversionsPageInner() {
                 placeholder="e.g. scholarship_application"
                 value={newEventName}
                 onChange={(e) => setNewEventName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && newEventName.trim()) {
-                    addEventMutation.mutate({ name: newEventName, description: newEventDesc });
-                  }
-                }}
                 data-testid="input-new-event-name"
                 className="font-mono text-sm"
               />
@@ -1726,13 +1865,43 @@ function ConversionsPageInner() {
                 placeholder="e.g. Scholarship form submitted"
                 value={newEventDesc}
                 onChange={(e) => setNewEventDesc(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && newEventName.trim()) {
-                    addEventMutation.mutate({ name: newEventName, description: newEventDesc });
-                  }
-                }}
                 data-testid="input-new-event-desc"
               />
+            </div>
+            <div className="space-y-3 rounded-md border border-border bg-muted/40 p-3">
+              <p className="text-xs text-muted-foreground leading-snug">{INTENT_FIELD_HINT}</p>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="new-when-to-use">When to use</Label>
+                  <IntentCharCount value={newEventWhenToUse} />
+                </div>
+                <Textarea
+                  id="new-when-to-use"
+                  rows={3}
+                  maxLength={CONVERSION_INTENT_MAX_CHARS}
+                  placeholder="Visitor is applying / enrolling…"
+                  value={newEventWhenToUse}
+                  onChange={(e) => setNewEventWhenToUse(e.target.value)}
+                  data-testid="input-new-when-to-use"
+                  className="text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="new-when-not-to-use">When not to use</Label>
+                  <IntentCharCount value={newEventWhenNotToUse} />
+                </div>
+                <Textarea
+                  id="new-when-not-to-use"
+                  rows={3}
+                  maxLength={CONVERSION_INTENT_MAX_CHARS}
+                  placeholder="Soft info-only, downloads, newsletter…"
+                  value={newEventWhenNotToUse}
+                  onChange={(e) => setNewEventWhenNotToUse(e.target.value)}
+                  data-testid="input-new-when-not-to-use"
+                  className="text-sm"
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -1742,6 +1911,8 @@ function ConversionsPageInner() {
                 setAddEventOpen(false);
                 setNewEventName("");
                 setNewEventDesc("");
+                setNewEventWhenToUse("");
+                setNewEventWhenNotToUse("");
               }}
               data-testid="button-cancel-add-event"
             >
@@ -1749,9 +1920,19 @@ function ConversionsPageInner() {
             </Button>
             <Button
               onClick={() =>
-                addEventMutation.mutate({ name: newEventName, description: newEventDesc })
+                addEventMutation.mutate({
+                  name: newEventName,
+                  description: newEventDesc,
+                  when_to_use: newEventWhenToUse,
+                  when_not_to_use: newEventWhenNotToUse,
+                })
               }
-              disabled={!newEventName.trim() || addEventMutation.isPending}
+              disabled={
+                !newEventName.trim() ||
+                !isConversionIntentFieldValid(newEventWhenToUse) ||
+                !isConversionIntentFieldValid(newEventWhenNotToUse) ||
+                addEventMutation.isPending
+              }
               data-testid="button-confirm-add-event"
             >
               {addEventMutation.isPending ? (

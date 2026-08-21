@@ -148,6 +148,16 @@ export class ContentIndex {
   private slowScanQueued = false;
   private refreshRunning = false;
   private refreshQueued = false;
+  /**
+   * When set, image/variable/menu/SEO extractors write into these maps instead of
+   * the live ones so scanSlow can swap atomically (same idea as redirectEntries).
+   */
+  private slowScratch: {
+    imageUsage: Map<string, Set<string>>;
+    variableUsage: Map<string, Set<string>>;
+    menuUsage: Map<string, { contentType: string; slug: string; source: string; position: "top" | "bottom" }[]>;
+    seoIndex: Map<string, SeoEntry>;
+  } | null = null;
   private static readonly SLOW_SCAN_DEBOUNCE_MS = 250;
 
   /** Absolute path to the content root folder (e.g. /home/user/project/content). */
@@ -260,15 +270,11 @@ export class ContentIndex {
     this.entries = [];
     this.bySlug = new Map();
     this.byPath = new Map();
-    this.imageUsage = new Map();
-    this.variableUsage = new Map();
-    // Keep previous redirectEntries + slowPhaseReady until scanSlow swaps in a
-    // fresh set — avoids empty/custom-only windows during partial reindexing.
+    // Keep previous slow-phase maps (image/variable/menu/SEO/redirects) +
+    // slowPhaseReady until scanSlow swaps in a fresh set — avoids empty
+    // admin/API windows during async reindexing after content edits.
     this.localeSlugMap = new Map();
     this.commonFieldsCache = new Map();
-    this.menuUsage = new Map();
-    this.seoIndex = new Map();
-    this.clusterIndex = new Map();
     this.byUrl = new Map();
     this.dbIndexedTypes = new Set();
 
@@ -386,13 +392,20 @@ export class ContentIndex {
 
   /**
    * Phase 2 — slow scan: indexes image refs, variable refs, redirects, SEO, and menus.
-   * Builds redirects into a temporary list and atomically swaps when complete so
+   * Builds into temporary structures and atomically swaps when complete so
    * live traffic keeps the previous snapshot until the new one is ready.
    */
   scanSlow(): void {
     const baseDir = this.contentRoot;
     const nextRedirects: RedirectEntry[] = [];
+    this.slowScratch = {
+      imageUsage: new Map(),
+      variableUsage: new Map(),
+      menuUsage: new Map(),
+      seoIndex: new Map(),
+    };
 
+    try {
     for (const entry of this.entries) {
       const folderPath = path.join(process.cwd(), entry.directory);
       const folderName = path.basename(entry.directory);
@@ -475,6 +488,13 @@ export class ContentIndex {
 
     const changed = !redirectEntriesEqual(this.redirectEntries, nextRedirects);
     this.redirectEntries = nextRedirects;
+    if (this.slowScratch) {
+      this.imageUsage = this.slowScratch.imageUsage;
+      this.variableUsage = this.slowScratch.variableUsage;
+      this.menuUsage = this.slowScratch.menuUsage;
+      this.seoIndex = this.slowScratch.seoIndex;
+      this.slowScratch = null;
+    }
     this.slowPhaseReady = true;
 
     if (changed) {
@@ -482,6 +502,10 @@ export class ContentIndex {
     }
 
     log.info(`[ContentIndex] Slow scan complete: ${this.imageUsage.size} image refs, ${this.variableUsage.size} variable refs, ${this.menuUsage.size} menu refs, ${this.redirectEntries.length} redirects, ${this.seoIndex.size} SEO entries${changed ? " (redirect cache cleared)" : " (redirects unchanged)"}`);
+    } catch (err) {
+      this.slowScratch = null;
+      throw err;
+    }
   }
 
   /**
@@ -582,21 +606,23 @@ export class ContentIndex {
 
   private addImageRef(ref: string, filePath: string): void {
     if (!ref || typeof ref !== "string") return;
-    const existing = this.imageUsage.get(ref);
+    const map = this.slowScratch?.imageUsage ?? this.imageUsage;
+    const existing = map.get(ref);
     if (existing) {
       existing.add(filePath);
     } else {
-      this.imageUsage.set(ref, new Set([filePath]));
+      map.set(ref, new Set([filePath]));
     }
   }
 
   private addVariableRef(varName: string, filePath: string): void {
     if (!varName || typeof varName !== "string") return;
-    const existing = this.variableUsage.get(varName);
+    const map = this.slowScratch?.variableUsage ?? this.variableUsage;
+    const existing = map.get(varName);
     if (existing) {
       existing.add(filePath);
     } else {
-      this.variableUsage.set(varName, new Set([filePath]));
+      map.set(varName, new Set([filePath]));
     }
   }
 
@@ -610,9 +636,10 @@ export class ContentIndex {
 
   private addMenuRef(menuId: string, contentType: string, slug: string, source: string, position: "top" | "bottom"): void {
     if (!menuId || typeof menuId !== "string") return;
-    const existing = this.menuUsage.get(menuId) || [];
+    const map = this.slowScratch?.menuUsage ?? this.menuUsage;
+    const existing = map.get(menuId) || [];
     existing.push({ contentType, slug, source, position });
-    this.menuUsage.set(menuId, existing);
+    map.set(menuId, existing);
   }
 
   private extractMenuReferences(parsed: Record<string, unknown> | null, contentType: string, slug: string, fileName: string): void {
@@ -652,7 +679,8 @@ export class ContentIndex {
       : undefined;
 
     const key = `${slug}:${contentType}`;
-    const existing = this.seoIndex.get(key);
+    const seoMap = this.slowScratch?.seoIndex ?? this.seoIndex;
+    const existing = seoMap.get(key);
     const entry: SeoEntry = {
       slug,
       contentType,
@@ -661,7 +689,7 @@ export class ContentIndex {
       focusFeatures: focusFeatures ?? existing?.focusFeatures,
       file: filePath,
     };
-    this.seoIndex.set(key, entry);
+    seoMap.set(key, entry);
   }
 
   getSeoEntry(slug: string, contentType: string): SeoEntry | undefined {
@@ -1533,7 +1561,22 @@ export class ContentIndex {
     return result;
   }
 
-  refresh(): void {
+  /**
+   * Reindex content. Default is non-blocking: scanFast + coalesced background
+   * scanSlow (same as the file-watcher path). Pass `{ syncSlow: true }` when
+   * redirects/index must be correct before the caller returns (GitHub pull,
+   * rename-with-redirect, raw YAML save, explicit refresh-cache).
+   */
+  refresh(opts?: { syncSlow?: boolean }): void {
+    const syncSlow = opts?.syncSlow === true;
+
+    if (!syncSlow) {
+      this.scanFast();
+      this.startSlowScanAsync();
+      invalidateStaticListingCache(undefined, this.contentRoot);
+      return;
+    }
+
     if (this.refreshRunning) {
       this.refreshQueued = true;
       return;

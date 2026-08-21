@@ -554,19 +554,24 @@ export async function downloadSyncArtifact(
       }
       case "validation-cache": {
         const ctx = requireSite(siteFolder);
-        await ctx.validationCache.loadFromBucket();
+        // In development, Cloud Sync download should pull the production sidecar.
         if (process.env.NODE_ENV !== "production") {
-          ctx.validationCache.reloadFromDisk();
+          const pulled = await ctx.validationCache.pullFromBucket();
+          return {
+            success: pulled.success,
+            source: pulled.pulled ? "gcs" : "local",
+            gcsKey: pulled.gcsKey || meta.gcsKey,
+            message: pulled.pulled
+              ? `Validation cache loaded from production (${pulled.issueCount} issues).`
+              : pulled.reason ?? "Validation cache could not be loaded from GCS.",
+          };
         }
-        const source = process.env.NODE_ENV === "production" ? "gcs" : "local";
+        await ctx.validationCache.loadFromBucket();
         return {
           success: true,
-          source,
+          source: "gcs",
           gcsKey: meta.gcsKey,
-          message:
-            source === "gcs"
-              ? "Validation cache refreshed from GCS."
-              : "Validation cache refreshed from local file.",
+          message: "Validation cache refreshed from GCS.",
         };
       }
       case "gsc-url-inspection": {

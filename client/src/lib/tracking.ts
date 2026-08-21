@@ -218,7 +218,12 @@ export interface SuccessDefaults {
 
 export interface ConversionEventEntry {
   name: string;
+  /** Short staff one-liner; agents primarily use when_to_use / when_not_to_use. */
   description?: string;
+  /** Visitor proposition — when this conversion_name fits (required on save). */
+  when_to_use?: string;
+  /** Confusable neighbors — when not to use this name (required on save). */
+  when_not_to_use?: string;
   automations?: string;
   tags?: string[];
   consent?: ConsentDefaults;

@@ -102,20 +102,26 @@ export function pathnameMatchesEntry(pathname: string, entry: string): boolean {
   return pathname === entry || pathname.startsWith(entry + "/");
 }
 
-function matchesPage(targeting: OverlayTargeting, pathname: string): boolean {
+/** Empty include + any excludes ⇒ all pages minus excludes (exceptions-only targeting). */
+export function matchesPage(targeting: OverlayTargeting, pathname: string): boolean {
+  const excludePages = targeting.exclude_pages;
+  const hasExcludes = Array.isArray(excludePages) && excludePages.length > 0;
+
   let included = false;
   if (targeting.pages === "all") {
     included = true;
   } else if (!Array.isArray(targeting.pages)) {
     included = true;
+  } else if (targeting.pages.length === 0) {
+    // Specific-pages mode with no includes: only fire if excludes alone define the set
+    included = hasExcludes;
   } else {
     included = targeting.pages.some((p) => pathnameMatchesEntry(pathname, p));
   }
   if (!included) return false;
 
-  const excludePages = targeting.exclude_pages;
-  if (Array.isArray(excludePages) && excludePages.length > 0) {
-    if (excludePages.some((p) => pathnameMatchesEntry(pathname, p))) {
+  if (hasExcludes) {
+    if (excludePages!.some((p) => pathnameMatchesEntry(pathname, p))) {
       return false;
     }
   }

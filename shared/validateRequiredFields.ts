@@ -5,6 +5,11 @@
 
 import { coerceJsonFieldInput, type JsonSchema } from "./json-field";
 import { validateCallToActionSemantics } from "./call-to-action-field";
+import {
+  formatFillIntentForSuggestion,
+  parseFillIntent,
+  type EditorFillIntent,
+} from "./fillIntent";
 
 /** `true` = always on live; `"attached"` = only when shared-layout and not detached. */
 export type EditorRequiredFlag = boolean | "attached";
@@ -12,6 +17,10 @@ export type EditorRequiredFlag = boolean | "attached";
 export type EditorRequiredHint = {
   required?: EditorRequiredFlag;
   type?: string;
+  /** Staff-authored Fields UI hint; lower precedence than fill_intent for suggestions. */
+  description?: string;
+  /** Declarative fill brief when required; preferred in Diagnostics suggestions. */
+  fill_intent?: EditorFillIntent;
   schema?: Record<string, unknown>;
 };
 
@@ -150,6 +159,114 @@ function schemaPathToDotted(field: string, schemaPath: string): string {
   const cleaned = schemaPath.replace(/^\//, "").replace(/\//g, ".");
   if (!cleaned) return field;
   return `${field}.${cleaned}`;
+}
+
+/**
+ * Walk JSON Schema along a dotted relative path (e.g. conversion_name, 0.question)
+ * and return the leaf `description` when present.
+ */
+export function resolveSchemaPropertyDescription(
+  schema: Record<string, unknown> | undefined,
+  relativePath: string,
+): string | undefined {
+  if (!schema || !relativePath.trim()) return undefined;
+  let current: unknown = schema;
+  for (const part of relativePath.split(".")) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+    const node = current as Record<string, unknown>;
+    if (/^\d+$/.test(part)) {
+      current = node.items;
+      continue;
+    }
+    const props = node.properties as Record<string, unknown> | undefined;
+    if (!props || !(part in props)) return undefined;
+    current = props[part];
+  }
+  if (
+    current &&
+    typeof current === "object" &&
+    !Array.isArray(current) &&
+    typeof (current as { description?: unknown }).description === "string"
+  ) {
+    const d = ((current as { description: string }).description || "").trim();
+    return d || undefined;
+  }
+  return undefined;
+}
+
+/**
+ * fill_intent (preferred) → nested schema property description → top-level description.
+ */
+export function resolveRequiredFieldGuidance(
+  fieldPath: string,
+  hint: EditorRequiredHint | null | undefined,
+): string | undefined {
+  const rootKey = fieldPath.split(".")[0] ?? fieldPath;
+  const relative =
+    fieldPath.includes(".") ? fieldPath.slice(rootKey.length + 1) : "";
+
+  // Nested schema description only for nested paths; fill_intent is always top-level field.
+  if (!relative) {
+    const intent = parseFillIntent(hint?.fill_intent);
+    if (intent) return formatFillIntentForSuggestion(intent);
+  }
+
+  if (relative && hint?.schema && typeof hint.schema === "object") {
+    const nested = resolveSchemaPropertyDescription(hint.schema, relative);
+    if (nested) return nested;
+  }
+
+  if (!relative) {
+    const top = hint?.description?.trim();
+    return top || undefined;
+  }
+
+  // Nested path without schema property description: fall back to fill_intent then description.
+  const intent = parseFillIntent(hint?.fill_intent);
+  if (intent) return formatFillIntentForSuggestion(intent);
+  const top = hint?.description?.trim();
+  return top || undefined;
+}
+
+/**
+ * Diagnostics / validator suggestion: structural fix line + staff guidance when set.
+ * When guidance exists, omit the detach escape hatch (edge 5→2).
+ */
+export function buildRequiredFieldSuggestion(opts: {
+  fieldPath: string;
+  mode: true | "attached";
+  hint: EditorRequiredHint | null | undefined;
+}): string {
+  const { fieldPath, mode, hint } = opts;
+  const rootKey = fieldPath.split(".")[0] ?? fieldPath;
+  const guidance = resolveRequiredFieldGuidance(fieldPath, hint);
+  const hasJsonSchema =
+    hint?.type === "json" && !!hint.schema && typeof hint.schema === "object";
+  const schemaBit = hasJsonSchema
+    ? ` Must satisfy editor.${rootKey}.schema.`
+    : "";
+
+  if (guidance) {
+    const structural =
+      mode === "attached"
+        ? `Set a valid value for "${fieldPath}" on the locale/_common fields (editor.required: attached).`
+        : `Set a valid value for "${fieldPath}" before publish / on live saves (editor.required: true).`;
+    return `${structural}${schemaBit} ${guidance}`.trim();
+  }
+
+  if (mode === "attached") {
+    return (
+      `Set a valid non-empty value for "${fieldPath}" on the locale/_common fields ` +
+      `(editor.required: attached), or detach the entry if it should own CTA/FAQ/body in sections ` +
+      `instead of shared-template bindings.${schemaBit}`
+    ).trim();
+  }
+  return (
+    `Set a non-empty value for "${fieldPath}" before publish / on live saves ` +
+    `(editor.required: true).${schemaBit}`
+  ).trim();
 }
 
 /**

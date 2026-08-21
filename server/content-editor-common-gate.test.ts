@@ -44,6 +44,8 @@ vi.mock("./site-config", async (importOriginal) => {
 import {
   getCommonEditGateLocales,
   evaluateCommonContentLiveGate,
+  liveSeoGateIntentFromOperations,
+  touchedPathsFromOperations,
 } from "./content-editor";
 import { ContentIndex } from "./content-index";
 
@@ -113,9 +115,24 @@ describe("common content live SEO gate", () => {
       commonData: { slug: "es-only-landing", locations: ["mexicocity-mexico"] },
       ci,
       contentRootName: contentRoot,
+      intent: "publish",
     });
 
     expect(failure).not.toBeNull();
     expect(failure?.message).toContain("meta.page_title");
+  });
+});
+
+describe("liveSeoGateIntentFromOperations", () => {
+  it("uses publish for replace_all_sections", () => {
+    expect(
+      liveSeoGateIntentFromOperations([{ action: "replace_all_sections" }]),
+    ).toBe("publish");
+  });
+
+  it("uses micro for add_item and leaves touchedPaths empty", () => {
+    const ops = [{ action: "add_item", path: "sections" }];
+    expect(liveSeoGateIntentFromOperations(ops)).toBe("micro");
+    expect(touchedPathsFromOperations(ops)).toEqual([]);
   });
 });

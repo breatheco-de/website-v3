@@ -193,4 +193,20 @@ describe("listClusterBucketEntries", () => {
     expect(page1.items).toHaveLength(1);
     expect(page1.pageSize).toBe(1);
   });
+
+  it("resolves public path for no-signal gap rows", () => {
+    const index = emptyIndex();
+    const ci = {
+      getAlternateUrls: (slug: string) =>
+        slug === "gap-page" ? { en: "/en/blog/topic/gap-page" } : {},
+    } as unknown as import("./content-index").ContentIndex;
+
+    const result = listClusterBucketEntries(index, {
+      bucket: "unclustered",
+      noSignalGaps: [{ contentType: "blog", slug: "gap-page", locale: "en" }],
+      ci,
+    });
+    expect(result.total).toBe(1);
+    expect(result.items[0]?.path).toBe("/en/blog/topic/gap-page");
+  });
 });

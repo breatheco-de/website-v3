@@ -509,6 +509,91 @@ export function registerValidationRoutes(app: Express): void {
     }
   });
 
+  /** Remove v4→v5 migration orphans (`validator: "legacy"`) without wiping the rest of the cache. */
+  app.post("/api/validation/purge-legacy-issues", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
+    try {
+      const site = res.locals.site as SiteContext | undefined;
+      const contentRoot = site?.contentRoot ?? getDefaultContentRoot();
+      if (isDiagnosticsRunning(contentRoot)) {
+        res.status(409).json({
+          success: false,
+          error: "diagnostics_busy",
+          message:
+            "A diagnostics job is running for this site. Wait for it to finish before removing legacy issues.",
+        });
+        return;
+      }
+      const cache = getValidationCache(res);
+      const { removed } = await cache.purgeLegacyIssues();
+      res.json({
+        success: true,
+        removed,
+        message:
+          removed === 0
+            ? "No legacy validator issues found."
+            : `Removed ${removed} legacy validator issue${removed === 1 ? "" : "s"}.`,
+      });
+    } catch (error) {
+      log.error({ err: error }, "purge-legacy-issues error:");
+      res.status(500).json({ error: "Failed to purge legacy validation issues" });
+    }
+  });
+
+  /** Dev-only: overwrite local validation-cache.json with the production GCS copy (never uploads). */
+  app.post("/api/validation/pull-from-gcs", async (req, res) => {
+    if (process.env.NODE_ENV === "production") {
+      res.status(403).json({
+        success: false,
+        error: "dev_only",
+        message: "Pulling the production validation cache is only available in development.",
+      });
+      return;
+    }
+
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
+
+    try {
+      const site = res.locals.site as SiteContext | undefined;
+      const contentRoot = site?.contentRoot ?? getDefaultContentRoot();
+      if (isDiagnosticsRunning(contentRoot)) {
+        res.status(409).json({
+          success: false,
+          error: "diagnostics_busy",
+          message:
+            "A diagnostics job is running for this site. Wait for it to finish before pulling production cache.",
+        });
+        return;
+      }
+
+      const cache = getValidationCache(res);
+      const result = await cache.pullFromBucket();
+      if (!result.success || !result.pulled) {
+        res.status(result.reason?.includes("unavailable") ? 503 : 404).json({
+          success: false,
+          error: "gcs_pull_failed",
+          message: result.reason ?? "Failed to pull production validation cache",
+          gcsKey: result.gcsKey,
+          issueCount: result.issueCount,
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        pulled: true,
+        gcsKey: result.gcsKey,
+        issueCount: result.issueCount,
+        message: `Loaded ${result.issueCount} issue(s) from ${result.gcsKey} into local validation-cache.json.`,
+      });
+    } catch (error) {
+      log.error({ err: error }, "pull-from-gcs error:");
+      res.status(500).json({ error: "Failed to pull production validation cache" });
+    }
+  });
+
   // Run a named fixer
   app.post("/api/validation/fix/:fixerName", async (req, res) => {
     const auth = await requireMutatingStaff(req, res);

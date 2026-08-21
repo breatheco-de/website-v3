@@ -11,8 +11,13 @@ describe("validationScope", () => {
     expect(isCommonOperationalOnly(["locations"])).toBe(true);
   });
 
-  it("does not skip gate for empty touched paths (backward compat full gate)", () => {
-    expect(shouldSkipLiveGate("micro", [])).toBe(false);
+  it("skips gate for empty touched paths on micro (structural / unspecified)", () => {
+    expect(shouldSkipLiveGate("micro", [])).toBe(true);
+    const flags = resolveMicroValidationFlags({ intent: "micro", touchedPaths: [] });
+    expect(flags.runFull).toBe(false);
+    expect(flags.runSchemaOrgCompanion).toBe(false);
+    expect(flags.metaKeys).toEqual([]);
+    expect(flags.bodyKeys).toEqual([]);
   });
 
   it("visibility-only micro write skips meta validation", () => {
@@ -25,9 +30,11 @@ describe("validationScope", () => {
     expect(flags.runSchemaOrgCompanion).toBe(false);
   });
 
-  it("publish runs full validation", () => {
+  it("publish runs full validation even with empty touched paths", () => {
+    expect(shouldSkipLiveGate("publish", [])).toBe(false);
     const flags = resolveMicroValidationFlags({ intent: "publish", touchedPaths: [] });
     expect(flags.runFull).toBe(true);
     expect(flags.metaKeys).toBeNull();
+    expect(flags.runSchemaOrgCompanion).toBe(true);
   });
 });

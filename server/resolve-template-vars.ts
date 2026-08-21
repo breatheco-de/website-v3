@@ -102,6 +102,7 @@ export function resolveBagVars(
 const INTERNAL_QUERY_KEYS = new Set([
   "force_variant",
   "raw",
+  "cache",
 ]);
 
 /**
