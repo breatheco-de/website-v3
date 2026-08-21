@@ -690,10 +690,12 @@ function TestimonialCard({ testimonial, index }: TestimonialCardProps) {
           )}
         </div>
 
-        {/* Review Text */}
-        <p className="text-muted-foreground leading-relaxed text-sm line-clamp-[8] md:line-clamp-5 flex-1">
-          {testimonial.comment}
-        </p>
+        {/* Review Text — flex-1 on wrapper only; line-clamp on inner p (flex grow breaks clamp) */}
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <p className="text-muted-foreground leading-relaxed text-sm line-clamp-[8] md:line-clamp-5">
+            {testimonial.comment}
+          </p>
+        </div>
 
         {/* Outcome Badge - always at bottom */}
         {testimonial.outcome && (
