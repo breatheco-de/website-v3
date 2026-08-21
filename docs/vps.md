@@ -101,7 +101,7 @@ If `persistent/site_…` already exists, adopt skips (does not overwrite). Empty
 Workflow: [`.github/workflows/deploy-vps.yml`](../.github/workflows/deploy-vps.yml)
 
 - Triggers: push to `main`, `workflow_dispatch`
-- Concurrency group `deploy-vps` with **`cancel-in-progress: true`** — a newer push cancels an in-flight deploy. Partial `releases/<sha>/` dirs from cancelled runs are fine; only `current` serves traffic.
+- Concurrency group `deploy-vps` with **`cancel-in-progress: true`** — a newer push cancels an in-flight deploy. Partial `releases/<sha>/` dirs from cancelled runs are fine; only `current` serves traffic. `deploy.sh` never deletes the release `current` points at (same-SHA redeploy uses a `.rebuild-<pid>` sibling).
 - Packs GitHub secrets/vars whose names start with `_WEBSITE_` → `WEBSITE_RUNTIME_B64`, then registers `::add-mask::` on that blob (base64 is not an exact match for individual secrets, so Actions would not mask it otherwise). Avoid `set -x` in the SSH step; do not add env-dumping steps after packing.
 - Skips if the workflow SHA is no longer tip of `main`
 - SSH as deploy user (not root): remote lock `/tmp/website-v3-deploy.lock` with **pid + stale recovery** (cancel can kill SSH before `trap` cleanup)
@@ -112,13 +112,16 @@ Actions secrets for SSH: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY
 ### 4.2 `scripts/deploy.sh`
 
 1. Adopt real `site_*` dirs into `persistent/` (symlink back on live tree)
-2. `git archive` → `releases/<sha>/`
+2. `git archive` → `releases/<sha>/` (if that path is already `current`, builds into `releases/<sha>.rebuild-<pid>` instead — **never** `rm -rf` the live tree)
 3. Symlinks for `data` / `.cache` / `sites.yml` / …
 4. Per site: content symlinks + **copy** `component-registry/`
 5. Writes `.env`
 6. `npm ci` + build
-7. Flips `current`, restarts, health-checks (**rollback `current`** on failure)
-8. Prunes old releases (keeps active + 5 others; never deletes `readlink current`)
+7. Clears `persistent/site_*/.bootstrap-complete` so the next boot re-bootstraps content from GitHub
+8. Flips `current`, restarts, health-checks (**rollback `current`** on failure; removes the failed sibling build if it was not live)
+9. Prunes old releases (keeps active + 5 others; never deletes `readlink current`)
+
+Cancel-in-progress is safe for a **new** SHA (partial dir never becomes `current`). Redeploying the **same** SHA that is live used to wipe traffic; the rebuild sibling path prevents that.
 
 ### 4.3 Manual rollback
 

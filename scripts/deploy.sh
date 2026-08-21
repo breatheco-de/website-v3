@@ -2,6 +2,8 @@
 # Atomic deploy: build into releases/<sha>, link persistent data, flip current.
 # Sites: content/YAML symlinked from persistent/; component-registry copied into the
 # release so relative imports from shared/schema.ts resolve correctly.
+# Never rm -rf the live release (current); same-SHA redeploy → releases/<sha>.rebuild-<pid>.
+# Before flip: clear persistent/site_*/.bootstrap-complete (re-bootstrap content on boot).
 # Required env: DEPLOY_SHA (full git commit).
 # Optional: WEBSITE_RUNTIME_B64 (packed _WEBSITE_ secrets; empty → reuse prior .env).
 set -euo pipefail
@@ -18,11 +20,37 @@ if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
   exit 1
 fi
 
-RELEASE="$APP_ROOT/releases/$DEPLOY_SHA"
+# Directory name under releases/ (usually $DEPLOY_SHA; may be $DEPLOY_SHA.rebuild-<pid>
+# when that SHA is already live — we never rm -rf the tree current points at).
+RELEASE_NAME="$DEPLOY_SHA"
+RELEASE="$APP_ROOT/releases/$RELEASE_NAME"
 PERSISTENT="$APP_ROOT/persistent"
 CURRENT_LINK="$APP_ROOT/current"
 
 mkdir -p "$APP_ROOT/releases" "$PERSISTENT"
+
+# Resolved path of the live release, or empty if current is missing/broken.
+live_release_path() {
+  if [[ -L "$CURRENT_LINK" ]]; then
+    readlink -f "$CURRENT_LINK" 2>/dev/null || true
+  elif [[ -d "$CURRENT_LINK" ]]; then
+    readlink -f "$CURRENT_LINK" 2>/dev/null || true
+  else
+    echo ""
+  fi
+}
+
+# Abort if path is the live tree. Call before any rm -rf of a release dir.
+assert_not_live_release() {
+  local path="$1"
+  local live
+  live="$(live_release_path)"
+  [[ -n "$live" && -e "$path" ]] || return 0
+  if [[ "$(readlink -f "$path")" == "$live" ]]; then
+    echo "ERROR: refusing to remove live release: $path (current → $live)" >&2
+    exit 1
+  fi
+}
 
 # content_folder values from sites.yml (site_* only).
 list_sites_yml_folders() {
@@ -114,9 +142,19 @@ git -C "$APP_ROOT" fetch --prune origin "$DEPLOY_SHA"
 
 adopt_into_persistent
 
+LIVE_RELEASE="$(live_release_path)"
+# Never wipe the tree that serves traffic. Same-SHA redeploy builds into a sibling.
+if [[ -n "$LIVE_RELEASE" && -e "$RELEASE" && "$(readlink -f "$RELEASE")" == "$LIVE_RELEASE" ]]; then
+  RELEASE_NAME="${DEPLOY_SHA}.rebuild-$$"
+  RELEASE="$APP_ROOT/releases/$RELEASE_NAME"
+  echo "[deploy] $DEPLOY_SHA is live at $LIVE_RELEASE — will not rm it"
+  echo "[deploy] building into $RELEASE instead"
+fi
+
 if [[ -e "$RELEASE" ]]; then
+  assert_not_live_release "$RELEASE"
   echo "[deploy] removing incomplete/previous tree at $RELEASE"
-  # Safe: release dirs are never the persistent target; only relative symlinks out.
+  # Safe only when not live: release dirs are never the persistent target.
   chmod -R u+w "$RELEASE" 2>/dev/null || true
   rm -rf "$RELEASE"
 fi
@@ -306,12 +344,21 @@ fi
 npm run build
 
 PREV_TARGET=""
-if [[ -L "$CURRENT_LINK" ]]; then
+if [[ -L "$CURRENT_LINK" || -d "$CURRENT_LINK" ]]; then
   PREV_TARGET="$(readlink -f "$CURRENT_LINK" || true)"
 fi
 
-echo "[deploy] pointing current -> releases/$DEPLOY_SHA"
-ln -sfn "releases/$DEPLOY_SHA" "$CURRENT_LINK"
+# Option B: force content bootstrap on next boot (clears stale empty "Local change" sync state).
+echo "[deploy] clearing site_*/.bootstrap-complete under persistent/"
+shopt -s nullglob
+for flag in "$PERSISTENT"/site_*/.bootstrap-complete; do
+  rm -f "$flag"
+  echo "[deploy] removed $flag"
+done
+shopt -u nullglob
+
+echo "[deploy] pointing current -> releases/$RELEASE_NAME"
+ln -sfn "releases/$RELEASE_NAME" "$CURRENT_LINK"
 
 restart_website() {
   if systemctl cat website.service >/dev/null 2>&1; then
@@ -330,6 +377,13 @@ rollback() {
     restart_website
   else
     echo "[deploy] no previous release to restore" >&2
+  fi
+  # Drop failed sibling build (never the rolled-back live tree).
+  if [[ -d "$RELEASE" && "$RELEASE" != "$PREV_TARGET" ]]; then
+    assert_not_live_release "$RELEASE"
+    echo "[deploy] removing failed build $RELEASE" >&2
+    chmod -R u+w "$RELEASE" 2>/dev/null || true
+    rm -rf "$RELEASE"
   fi
 }
 
@@ -352,7 +406,7 @@ if [[ "$ok" -ne 1 ]]; then
 fi
 
 echo "[deploy] pruning old releases (keep active + $KEEP_RELEASES others)"
-ACTIVE="$(readlink -f "$CURRENT_LINK" || true)"
+ACTIVE="$(live_release_path)"
 # shellcheck disable=SC2012
 mapfile -t ALL_RELEASES < <(ls -1dt "$APP_ROOT"/releases/*/ 2>/dev/null | sed 's:/*$::' || true)
 others=0
@@ -363,6 +417,7 @@ for dir in "${ALL_RELEASES[@]:-}"; do
   fi
   others=$((others + 1))
   if [[ "$others" -gt "$KEEP_RELEASES" ]]; then
+    assert_not_live_release "$dir"
     echo "[deploy] removing $dir"
     chmod -R u+w "$dir" 2>/dev/null || true
     rm -rf "$dir"
@@ -375,4 +430,4 @@ if [[ -n "$WD" && "$WD" != "$CURRENT_LINK" && "$WD" != "$CURRENT_LINK/" ]]; then
   echo "[deploy] WARNING: set it to $CURRENT_LINK (and EnvironmentFile=$CURRENT_LINK/.env) so restarts use this release." >&2
 fi
 
-echo "[deploy] done $DEPLOY_SHA"
+echo "[deploy] done $DEPLOY_SHA (current → releases/$RELEASE_NAME)"
