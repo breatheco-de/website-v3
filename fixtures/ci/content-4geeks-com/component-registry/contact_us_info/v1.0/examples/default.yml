@@ -1,0 +1,53 @@
+- type: contact_us_info
+  version: "1.0"
+  title: Tell us about you
+  background: hsl(var(--sidebar-background))
+  form:
+    variant: stacked
+    submit_label: Get Started
+    tags: contact-us
+    automations: soft
+    fields:
+      email:
+        visible: true
+        required: true
+        placeholder: Your email address
+      first_name:
+        visible: true
+        required: true
+        placeholder: First name
+      last_name:
+        visible: true
+        required: true
+        placeholder: Last name
+      client_comments:
+        rows: 7
+        visible: true
+        required: true
+        placeholder: Comments
+    success:
+      message: Thank you! We'll be in touch soon.
+    show_terms: true
+  locations:
+    - code: US
+      name: USA
+      address: 1801 SW 3rd Av, Miami, FL 33129.
+      phone: +1 (786) 416-6640
+      email: info@4GeeksAcademy.com
+    - code: ES
+      name: Madrid
+      address: Calle Edison, 3. 28006 Madrid, España.
+      phone: +34 (910) 86 69 83
+      email: es@4geeksacademy.com
+    - code: CL
+      name: Chile
+      address: Av. Manquehue Sur 350, oficina 110, Las Condes Región Metropolitana, Chile.
+      phone: +56 (9) 7284 8039
+      email: chile@4GeeksAcademy.com
+    - code: CR
+      name: Costa Rica
+      email: puravida@4GeeksAcademy.com
+    - code: VE
+      name: Venezuela
+      email: venezuela@4GeeksAcademy.com
+  

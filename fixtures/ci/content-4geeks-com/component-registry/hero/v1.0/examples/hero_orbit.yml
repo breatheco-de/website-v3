@@ -1,0 +1,42 @@
+type: hero
+version: v1.0
+variant: orbit
+eyebrow: NO MATTER WHAT YOU'RE SEEKING
+title: "<span style=\"font-size: 3.75rem;\">All roads lead to <em>AI.</em></span><em></em>"
+body: Cybersecurity, Full Stack, Data Science — the skills still matter. But every one now runs on AI, and that's where the jobs are. We rebuilt 4Geeks around it.
+stat: <strong>1.3M</strong> new AI roles opening — every field now hires for AI fluency
+cta_buttons:
+  - text: Start your application
+    url: /en/apply
+    variant: primary
+    icon: ChevronRight
+  - text: Explore our programs
+    url: "#course_selector"
+    variant: outline
+orbit_diagram:
+  center_label: AI
+  legend_start: Where you started
+  legend_highlight: Where 4Geeks is now
+  badges:
+    inner:
+      - label: Full Stack with AI
+        highlight: false
+      - label: AI Flex
+        highlight: true
+    middle:
+      - label: Data Science & ML
+        highlight: false
+      - label: AI Fluency
+        highlight: true
+    outer:
+      - label: AI Engineering
+        highlight: true
+      - label: Cybersecurity
+        highlight: false
+section_id: hero-1v86vv
+paddingY:
+  desktop: sm
+maxWidth:
+  mobile: xl
+  desktop: xl
+background: linear-gradient(to bottom left, hsl(var(--primary) / 0.14), transparent 60%)

@@ -1,0 +1,40 @@
+name: Simple horizontal steps
+yaml: |
+  - type: numbered_steps
+    version: "1.0"
+    title: Consigue empleo o te devolvemos el dinero.
+    description: Consigue empleo en un plazo de 9 meses o te reembolsamos la matrícula completa. Así de seguros estamos de lo que hemos construido.
+    description_link:
+      text: "*No disponible en todas las regiones. Aplican términos y condiciones."
+      url: https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/job-guarantee-en.pdf
+    background: bg-muted/30
+    steps:
+      - icon: School
+        text: Añade la Garantía de Empleo a tu plan de pago.
+      - icon: briefcase-business
+        text: Completa el programa y sigue el proceso de carrera GeekForce.
+      - icon: banknote
+        text: Consigue empleo en 9 meses o recibe el reembolso íntegro de la matrícula.
+    showOnLocations:
+      - atlanta-usa
+      - austin-usa
+      - chicago-usa
+      - dallas-usa
+      - miami-usa
+      - houston-usa
+      - losangeles-usa
+      - newyork-usa
+      - orlando-usa
+      - tampa-usa
+      - toronto-canada
+      - bogota-colombia
+      - buenosaires-argentina
+      - caracas-venezuela
+      - costa-rica
+      - mexicocity-mexico
+      - montevideo-uruguay
+      - panamacity-panama
+    paddingY:
+      desktop: none md
+    marginY:
+      desktop: none xl

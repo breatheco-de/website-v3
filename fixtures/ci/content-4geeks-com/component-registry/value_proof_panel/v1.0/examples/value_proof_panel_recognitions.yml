@@ -1,0 +1,25 @@
+name: value proof panel recognitions
+yaml: |
+  - type: value_proof_panel
+    title: Globally Recognized for Real Outcomes
+    subtitle: Independent organizations recognize 4Geeks for graduate results, the quality of our programs and career support.
+    evidence_items:
+      - icon: Trophy
+        title: Top 5 Coding Bootcamps worldwide
+        source: Newsweek, Forbes, SwitchUp, Course Report
+      - icon: Award
+        title: Best student support & best value
+        source: Course Report, SwitchUp
+      - icon: Users
+        title: 35,000+ graduates across 20+ countries
+        description: A global community of successful tech professionals
+      - icon: Certificate
+        title: Industry-recognized certificates
+        description: Credentials that employers trust and value
+    media:
+      type: image
+      src: https://storage.googleapis.com/4geeks-academy-website/media/caracas_graduates-1000x668-q74.webp
+      alt: Students collaborating in classroom
+      aspect_ratio: "4:3"
+      style: rounded
+    stacked_header: true

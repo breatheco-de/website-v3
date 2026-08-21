@@ -1,0 +1,12 @@
+name: Footer Section
+version: "1.0"
+component: FooterSection
+file: client/src/components/career-programs/FooterSection.tsx
+description: Simple footer with copyright notice
+when_to_use: |
+  Use at the very end of every career program page.
+props:
+  copyright_text:
+    type: string
+    required: true
+    example: 2024 4Geeks. All rights reserved.

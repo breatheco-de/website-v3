@@ -1,0 +1,424 @@
+name: Apply Form Section
+version: "1.0"
+component: ApplyFormSection
+file: client/src/components/ApplyFormSection.tsx
+description: >-
+  Application form with hero section, multi-field form, and next steps explanation. Designed for program applications
+  with country-based phone input and geo-located defaults.
+when_to_use: |
+  Use this component for program application pages. It includes:
+  - Hero section with title, subtitle, and optional note
+  - Program and location selection dropdowns (populated from _common.yml)
+  - Contact information fields with phone input featuring country flags
+  - Marketing and SMS consent checkboxes (SMS only shown for US users)
+  - Next steps section explaining what happens after submission
+behaviors:
+  conversion:
+    via: form-settings
+    notes: Lead/form conversion settings via Forms tab.
+props:
+  hero:
+    type: object
+    required: true
+    properties:
+      title:
+        type: string
+        required: true
+        description: Main headline for the apply page
+        example: Your Future in Tech Starts Here
+      subtitle:
+        type: string
+        required: true
+        description: Supporting text explaining the application process
+        example: You're one step closer to your new career in tech
+      note:
+        type: string
+        required: false
+        description: Additional note displayed below subtitle (often reassuring text)
+        example: (And don't worry — you won't be committing to anything yet)
+    description: Hero section displayed above the form
+  webhook:
+    type: object
+    required: false
+    properties:
+      url:
+        type: string
+        required: true
+        description: Destination URL to POST/GET the conversion payload
+        example: https://hooks.zapier.com/hooks/catch/xxxxx/yyyyy/
+      method:
+        type: string
+        required: true
+        description: HTTP method (default POST)
+        example: POST
+    description: >-
+      Form-level webhook — highest priority in the three-level chain (form > per-event > global). When set, this webhook
+      is always used for this apply form regardless of tracking settings.
+  form:
+    type: object
+    required: true
+    properties:
+      variant:
+        type: string
+        required: false
+        options:
+          - stacked
+          - inline
+      conversion_name:
+        type: string
+        required: false
+      title:
+        type: string
+        required: false
+      subtitle:
+        type: string
+        required: false
+      submit_label:
+        type: string
+        required: false
+      tags:
+        type: string
+        required: false
+      automations:
+        type: string
+        required: false
+      webhook:
+        type: object
+        required: false
+        properties:
+          url:
+            type: string
+            required: true
+          method:
+            type: string
+            required: true
+      fields:
+        type: object
+        required: false
+        properties:
+          email:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+          first_name:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+          last_name:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+          phone:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+          program:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+          region:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+          location:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+          coupon:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+          client_comments:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+      success:
+        type: object
+        required: false
+        properties:
+          url:
+            type: string
+            required: false
+          message:
+            type: string
+            required: false
+      terms_url:
+        type: string
+        required: false
+      privacy_url:
+        type: string
+        required: false
+      consent:
+        type: object
+        required: false
+        properties:
+          email:
+            type: boolean
+            required: false
+          sms:
+            type: boolean
+            required: false
+          whatsapp:
+            type: boolean
+            required: false
+          marketing:
+            type: boolean
+            required: false
+          marketing_text:
+            type: string
+            required: false
+          sms_text:
+            type: string
+            required: false
+          sms_usa_only:
+            type: boolean
+            required: false
+      show_terms:
+        type: boolean
+        required: false
+      className:
+        type: string
+        required: false
+      button_className:
+        type: string
+        required: false
+      terms_className:
+        type: string
+        required: false
+      turnstile:
+        type: object
+        required: false
+        properties:
+          enabled:
+            type: boolean
+            required: false
+          theme:
+            type: string
+            required: false
+            options:
+              - light
+              - dark
+              - auto
+          size:
+            type: string
+            required: false
+            options:
+              - normal
+              - compact
+    description: Form field labels and placeholders
+  next_steps:
+    type: object
+    required: true
+    properties:
+      title:
+        type: string
+        required: true
+        example: What Happens Next?
+      items:
+        type: array
+        required: true
+        items:
+          title:
+            type: string
+            required: true
+            example: Instant confirmation
+          description:
+            type: string
+            required: true
+            example: We'll send you the syllabus by email right away.
+        description: List of next step items
+      closing:
+        type: string
+        required: true
+        description: Final encouraging message
+        example: Now you're ready to make the best decision for your career!
+    description: Section explaining what happens after form submission

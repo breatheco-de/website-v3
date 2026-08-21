@@ -1,0 +1,31 @@
+name: "Bubble Text Layout"
+description: "Steps with large bubble numbers and text content - spotlight-style layout with icons"
+yaml: |
+  - type: numbered_steps
+    version: "1.0"
+    variant: bubbleText
+    title: "Get Hired with Our 3-Step Career Development Process"
+    description: "Once you've mastered the technical skills, our structured process helps you build a lasting career in tech."
+    description_link:
+      url: "/job-guarantee"
+      text: "Conditions apply."
+    background: "bg-background"
+    steps:
+      - icon: "Optimization"
+        title: "Profile Optimization"
+        bullets:
+          - "Polish LinkedIn, GitHub, and portfolio to attract recruiters and pass AI-based filters."
+          - "Build a resume that clears applicant tracking systems (ATS) and highlights your strengths."
+          - "Showcase your skills with a recruiter-ready portfolio."
+      - icon: "Interview"
+        title: "Interview Preparation"
+        bullets:
+          - "Gain confidence with mock technical and behavioral interviews."
+          - "Practice coding and problem-solving with auto-graded exercises."
+          - "Develop tailored strategies for upcoming interviews."
+      - icon: "JobSearch"
+        title: "Strategic Job Search"
+        bullets:
+          - "Create a personalized job search plan aligned with your goals."
+          - "Navigate AI-driven hiring platforms, from resume scanners to automated interviews."
+          - "Connect with our extensive network of global hiring partners."

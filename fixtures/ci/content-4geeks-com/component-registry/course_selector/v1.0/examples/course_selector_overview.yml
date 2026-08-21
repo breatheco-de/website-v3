@@ -1,0 +1,74 @@
+name: course selector overview
+yaml: |
+  - type: course_selector
+    version: "1.0"
+    variant: spotlight
+    heading: Find Your Path
+    subheading: Four programs. All built around getting you hired, not just trained.
+    courses:
+      - name: AI Engineering
+        icon: Bolt
+        duration: 24 weeks, or 15-week accelerated track
+        label: Updated in 2026
+        title: AI Engineering
+        badges:
+          - icon: Bolt
+            text: RAG & Vector Search
+          - icon: Bolt
+            text: AI Agents
+          - icon: Bolt
+            text: Python
+        description: Transform a real business case into a fully AI-native system, layer by layer. Master the agents, RAG systems, and automation pipelines that companies are hiring for right now.
+        cta_text: Get Program Details
+        cta_url: /en/career-programs/ai-engineering
+        course_background: accent
+      - name: Data Science and Machine Learning
+        icon: IconChartBar
+        duration: 18 weeks
+        label: Updated in 2026
+        title: Data Science and Machine Learning
+        badges:
+          - icon: ChartBar
+            text: Python & Pandas
+          - icon: ChartBar
+            text: TensorFlow
+          - icon: ChartBar
+            text: Data Visualization
+        description: Master the skills behind AI-driven decisions. Build models, analyze data at scale, and deploy solutions that companies in every industry are actively hiring for.
+        cta_text: Get Program Details
+        cta_url: /en/career-programs/data-science-ml
+        course_background: hsl(var(--muted-foreground))
+      - name: Cybersecurity
+        icon: IconShield
+        duration: 16 weeks
+        label: Updated in 2026
+        title: Cybersecurity
+        badges:
+          - icon: Shield
+            text: Ethical Hacking & Pentesting
+          - icon: Shield
+            text: NIST Framework
+        description: Detect threats, protect systems, and secure the data every organization depends on. One of the fastest-growing careers in tech, with a global shortage of skilled professionals that shows no signs of slowing.
+        cta_text: Get Program Details
+        cta_url: /en/career-programs/cybersecurity
+        course_background: destructive
+      - name: Full Stack Development with AI
+        icon: IconCode
+        duration: 20 weeks
+        label: Updated in 2026
+        title: Full Stack Development with AI
+        badges:
+          - icon: Code
+            text: React & Next.js
+          - icon: Code
+            text: Python & APIs
+          - icon: Code
+            text: AI Integration
+        description: Build modern, production-ready web applications from frontend to backend, with AI integrated into your development process from day one.
+        cta_text: Get Program Details
+        cta_url: /en/career-programs/full-stack
+        course_background: primary
+    maxWidth:
+      desktop: 6xl
+    marginY:
+      desktop: none md

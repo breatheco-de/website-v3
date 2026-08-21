@@ -1,0 +1,214 @@
+name: Syllabus Section
+version: "1.0"
+component: SyllabusSection
+file: client/src/components/SyllabusSection.tsx
+description: >-
+  Expandable curriculum modules or program module cards. Supports default accordion, landing focus areas, and
+  program-modules layout.
+when_to_use: >
+  Use to display the course curriculum in an organized, scannable format.
+
+  - default: Accordion with module title and description (best for program pages).
+
+  - landing-syllabus: Grid of focus areas (best for landing pages).
+
+  - program-modules: Left info card + horizontal scrollable module cards (best for detailed syllabi). Optional header
+  block with title, subheader, rich-text description, and CTA.
+variants:
+  default:
+    description: Accordion list of modules with title and expandable description
+    best_for: Program pages, course curriculum
+  landing-syllabus:
+    description: Grid of focus area cards with optional emphasis
+    best_for: Landing pages, high-level curriculum overview
+  program-modules:
+    description: >-
+      Left program info + scrollable module cards. Optional centered header (header, subheader, description, cta_button)
+      above the layout.
+    best_for: Full syllabus with tech stack and module details
+  timeline: {}
+variant_props:
+  default:
+    title:
+      type: string
+      required: true
+    subtitle:
+      type: string
+      required: false
+    modules:
+      type: array
+      required: true
+      items:
+        title:
+          type: string
+          required: true
+        description:
+          type: string
+          required: true
+    expand_label:
+      type: string
+      required: true
+    collapse_label:
+      type: string
+      required: true
+  landing-syllabus:
+    title:
+      type: string
+      required: true
+    description:
+      type: string
+      required: false
+    emphasis:
+      type: string
+      required: false
+    focus_areas:
+      type: array
+      required: true
+      items:
+        title:
+          type: string
+          required: true
+        icon:
+          type: string
+          required: false
+  program-modules:
+    program_title:
+      type: string
+      required: true
+      description: Title in the left program info card
+      example: What You'll Build
+    program_description:
+      type: string
+      required: false
+      description: Description in the left program info card
+    tech_logos:
+      type: array
+      required: false
+      items:
+        name:
+          type: string
+          required: true
+        icon:
+          type: string
+          required: true
+      description: Technology icons shown in the left card
+    module_cards:
+      type: array
+      required: true
+      items:
+        title:
+          type: string
+          required: true
+        duration:
+          type: string
+          required: true
+        objectives:
+          type: array
+          required: true
+          items:
+            type:
+              type: string
+              required: true
+        projects:
+          type: string
+          required: false
+        orientation:
+          type: string
+          required: false
+          options:
+            - vertical
+            - horizontal
+        icon:
+          type: string
+          required: false
+      description: Scrollable module cards
+    header:
+      type: string
+      required: false
+      description: Centered main title above the syllabus
+      example: Your Learning Path
+    subheader:
+      type: string
+      required: false
+      description: Centered subtitle below the header
+      example: Structured for real-world success
+    description:
+      type: string
+      required: false
+      description: Rich-text (HTML) description below subheader; use rich-text editor in props panel
+      example: <p>Our curriculum is designed in <strong>four phases</strong>.</p>
+    cta_button:
+      type: object
+      required: false
+      properties:
+        text:
+          type: string
+          required: true
+          description: Button label
+        url:
+          type: string
+          required: true
+          description: Link destination
+        variant:
+          type: string
+          required: true
+          options:
+            - primary
+            - secondary
+            - outline
+        tracking:
+          type: string
+          required: false
+          options:
+            - none
+            - add_to_cart
+            - begin_checkout
+        button_variant:
+          type: string
+          required: false
+        text_color:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+          description: Tabler icon name (without 'Icon' prefix)
+        us_only:
+          type: boolean
+          required: false
+      description: Centered call-to-action button below the description
+  timeline:
+    title:
+      type: string
+      required: true
+    subtitle:
+      type: string
+      required: false
+    modules:
+      type: array
+      required: true
+      items:
+        title:
+          type: string
+          required: true
+        description:
+          type: string
+          required: false
+        video:
+          type: string
+          required: false
+        items:
+          type: array
+          required: true
+          items:
+            type:
+              type: string
+              required: true
+              options:
+                - Lesson
+                - Project
+                - Quiz
+            label:
+              type: string
+              required: true
+props: {}

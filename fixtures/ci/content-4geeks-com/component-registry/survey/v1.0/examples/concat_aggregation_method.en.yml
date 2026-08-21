@@ -1,0 +1,82 @@
+type: survey
+variant: default
+aggregation_method: concat
+infinite_progress_bar: false
+
+badge_text: "Build your path"
+title: "Your AI curriculum,"
+title_highlight: "built around you."
+subtitle: "A few questions. No commitment. We map the exact courses you need."
+icon: "4GeeksAvatar"
+back_label: "Back"
+restart_label: "Start over"
+step_label: "Question"
+step_of_label: "of"
+alternate_link:
+  label: "Browse the catalog instead"
+  url: inline#ai-flex-path-career
+
+questions:
+  - text: "What's your main goal right now?"
+    options:
+      - label: "Use AI to be more productive at my current job"
+        action:
+          next_question: 2
+      - label: "Automate repetitive tasks without writing code"
+        action:
+          next_question: 2
+      - label: "Build apps or technical projects with AI"
+        action:
+          next_question: 2
+      - label: "Work with data, analytics, or machine learning"
+        action:
+          next_question: 2
+
+  - text: "How comfortable are you with coding?"
+    options:
+      - label: "No experience — and I'd like to keep it that way"
+        action:
+          next_question: 3
+      - label: "No experience — but I'm open to basics"
+        action:
+          next_question: 3
+      - label: "Some basics (scripts, spreadsheets, HTML)"
+        action:
+          next_question: 3
+      - label: "I code regularly"
+        action:
+          next_question: 3
+
+  - text: "What skill would make the biggest difference in your work right now?"
+    options:
+      - label: "Getting reliable, professional-quality results from AI tools"
+        action:
+          next_question: 4
+      - label: "Building automations that run without me"
+        action:
+          next_question: 4
+      - label: "Setting up AI assistants for my existing tools"
+        action:
+          next_question: 4
+      - label: "Writing code or building software with AI"
+        action:
+          next_question: 4
+      - label: "Analyzing data and making smarter decisions"
+        action:
+          next_question: 4
+
+  - text: "How do you plan to use what you learn?"
+    options:
+      - label: "Get better at what I already do"
+      - label: "Add a new capability to my current role"
+      - label: "Prepare for a career shift into tech"
+      - label: "Explore — not sure yet"
+routes:
+  # Early exits — fire as soon as the matching option is picked (1-part key)
+  # Full 2-step path for coders who reach question 2
+  q1o3-q2o3-q3o4-q4o1:
+    url: inline#ai-flex-path-career
+  q1o4-q2o3-q3o5-q4o2:
+    url: inline#ai-flex-path-career
+maxWidth:
+  desktop: xl

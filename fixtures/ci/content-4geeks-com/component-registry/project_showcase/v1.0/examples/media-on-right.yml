@@ -1,0 +1,18 @@
+type: project_showcase
+version: "1.0"
+project_title: "TechConnect"
+description: "A social networking platform designed specifically for tech professionals. Connect with developers, share your projects, find collaborators, and discover job opportunities in the tech industry."
+creators:
+  - name: "Maria Garcia"
+    github_url: "https://github.com/mariagarcia"
+    linkedin_url: "https://linkedin.com/in/mariagarcia"
+  - name: "James Wilson"
+    linkedin_url: "https://linkedin.com/in/jameswilson"
+media:
+  - type: video
+    src: "OZfv9kYl0_o"
+  - type: image
+    src: "/images/techconnect-demo.png"
+    alt: "TechConnect dashboard"
+media_position: right
+background: "bg-muted"

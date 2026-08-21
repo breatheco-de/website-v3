@@ -1,0 +1,127 @@
+name: Features Quad
+version: "1.0"
+component: FeaturesQuad
+file: client/src/components/FeaturesQuad.tsx
+description: >-
+  A 4-card feature grid with optional images or laptop mockup. Supports default (images on right)  and laptopEdge
+  (laptop image with content) variants. Use compact mode for icon+title only.
+when_to_use: >
+  Use this component when you need to display exactly 4 feature cards in a visually appealing grid layout. The default
+  variant shows feature cards with optional header images. The laptopEdge variant displays a laptop mockup with the
+  feature cards.
+image_sizes:
+  laptopEdge.laptop_image.image_id: 100vw
+props:
+  variant:
+    type: string
+    required: false
+    options:
+      - default
+      - laptopEdge
+  compact:
+    type: boolean
+    required: false
+    description: If true, cards show only icon + title (no description)
+  heading:
+    type: string
+    required: true
+    description: Section heading
+  description:
+    type: string
+    required: true
+    description: Section description text
+  images:
+    type: array
+    required: false
+    items:
+      image_id:
+        type: string
+        required: true
+      alt:
+        type: string
+        required: false
+    description: Array of images (up to 4) displayed in the header area
+  cards:
+    type: array
+    required: true
+    items:
+      icon:
+        type: string
+        required: true
+      title:
+        type: string
+        required: true
+      description:
+        type: string
+        required: true
+    description: Array of exactly 4 feature cards with icon, title, and description
+  footer_description:
+    type: string
+    required: false
+  background:
+    type: string
+    required: false
+    description: Background CSS class (e.g., "bg-muted/30")
+  text_align:
+    type: string
+    required: false
+    options:
+      - left
+      - center
+    description: >-
+      Alignment for the heading + description block. "left" (default when both heading and description are present) or
+      "center" to center them.
+    example: center
+  video:
+    type: object
+    required: false
+    properties:
+      url:
+        type: string
+        required: false
+      ratio:
+        type: string
+        required: false
+      mobile_ratio:
+        type: string
+        required: false
+      width:
+        type: string
+        required: false
+      muted:
+        type: boolean
+        required: false
+      autoplay:
+        type: boolean
+        required: false
+      loop:
+        type: boolean
+        required: false
+      preview_image_url:
+        type: string
+        required: false
+      with_shadow_border:
+        type: boolean
+        required: false
+    description: Video URL (YouTube, Vimeo, or local). When provided, replaces images with video.
+    example: https://www.youtube.com/watch?v=MBXqEnhodx0
+  description_with_background:
+    type: boolean
+    required: false
+    description: Whether to display the description with a background color
+  laptop_image:
+    type: object
+    required: false
+    properties:
+      image_id:
+        type: string
+        required: true
+        description: Image ID from the image registry
+      alt:
+        type: string
+        required: false
+        description: Alt text for the laptop image
+    description: Optional laptop image override for the laptopEdge variant. If not set, uses the default laptop image.
+variants:
+  default: {}
+  laptopEdge: {}

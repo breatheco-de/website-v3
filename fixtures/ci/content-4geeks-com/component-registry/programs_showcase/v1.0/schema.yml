@@ -1,0 +1,139 @@
+name: Programs Showcase
+version: "1.0"
+component: ProgramsShowcase
+file: client/src/components/programs_showcase/ProgramsShowcase.tsx
+description: Display all academy programs simultaneously with per-program color identities. Supports three layout variants.
+when_to_use: |
+  Use when you want to present all 4 academy programs side-by-side so visitors can compare them at a glance.
+  Unlike the tabbed course_selector, this component shows all programs at once without requiring interaction.
+  Best for landing pages, program overview sections, and career path comparison pages.
+props:
+  layout:
+    type: string
+    required: false
+    options:
+      - grid
+      - stacked_list
+      - spotlight_with_list
+    description: Layout variant
+  heading:
+    type: string
+    required: false
+    description: Section heading text
+    example: Choose Your Career Path
+  subheading:
+    type: string
+    required: false
+    description: Section subheading text
+    example: Four programs built around the skills companies are actively hiring for right now.
+  background:
+    type: string
+    required: false
+    description: Section background color token
+  show_salary:
+    type: boolean
+    required: false
+    description: When true, show avg salary instead of duration in card footers
+  salary_label:
+    type: string
+    required: false
+    description: Label displayed above the salary value when show_salary is true
+    example: Avg. salary
+  featured_label:
+    type: string
+    required: false
+    description: Label on the featured card in spotlight_with_list variant
+    example: Featured Program
+  programs:
+    type: array
+    required: true
+    items:
+      name:
+        type: string
+        required: true
+        description: Program name
+      icon:
+        type: string
+        required: false
+        description: Tabler icon name (e.g., IconCode, IconBrain)
+      description:
+        type: string
+        required: true
+        description: Short program tagline
+      duration:
+        type: string
+        required: false
+        description: Duration text (e.g., "16 weeks")
+      avg_salary:
+        type: string
+        required: false
+        description: Average salary range (e.g., "$85,000 – $120,000")
+      cta_text:
+        type: string
+        required: false
+        description: CTA link text (legacy flat field — prefer cta.text)
+      cta_url:
+        type: string
+        required: false
+        description: CTA link URL (legacy flat field — prefer cta.url)
+      cta:
+        type: object
+        required: false
+        properties:
+          text:
+            type: string
+            required: true
+            description: Button label
+          url:
+            type: string
+            required: true
+            description: Button URL
+          variant:
+            type: string
+            required: true
+            options:
+              - primary
+              - secondary
+              - outline
+            description: Button visual variant
+          tracking:
+            type: string
+            required: false
+            options:
+              - none
+              - add_to_cart
+              - begin_checkout
+          button_variant:
+            type: string
+            required: false
+          text_color:
+            type: string
+            required: false
+          icon:
+            type: string
+            required: false
+          us_only:
+            type: boolean
+            required: false
+        description: CTA button config (preferred nested form)
+      color:
+        type: string
+        required: false
+        description: Course color token for this program
+      role:
+        type: string
+        required: false
+        description: Job role title for grid variant
+      role_label:
+        type: string
+        required: false
+        description: Label above role (e.g., "Become a")
+      badge:
+        type: string
+        required: false
+        description: Badge text shown on the card (e.g., "High demand")
+      badge_icon:
+        type: string
+        required: false
+        description: Tabler icon name for the badge (e.g., "IconTrendingUp")
+    description: List of program items to display

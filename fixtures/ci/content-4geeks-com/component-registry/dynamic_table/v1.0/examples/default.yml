@@ -1,0 +1,25 @@
+name: "Default"
+description: "A table displaying data from an external API with sortable columns and row actions"
+yaml: |
+  - type: dynamic_table
+    version: "1.0"
+    variant: default
+    endpoint: "https://breathecode.herokuapp.com/v1/admissions/public/cohort/all"
+    title: Available Cohorts
+    subtitle: Browse our upcoming cohorts and programs
+    columns:
+      - key: name
+        label: Cohort Name
+        type: text
+      - key: slug
+        label: Slug
+        type: text
+      - key: stage
+        label: Stage
+        type: text
+      - key: language
+        label: Language
+        type: text
+    action:
+      label: View
+      href: "https://breathecode.herokuapp.com/v1/admissions/public/cohort/{slug}"

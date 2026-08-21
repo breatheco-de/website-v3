@@ -1,0 +1,76 @@
+name: syllabus cybersecurity
+yaml: |
+  - type: syllabus
+    variant: program-modules
+    program_title: Cybersecurity Program Overview
+    program_description: Master the complete cybersecurity stack from network security to penetration testing. Build real-world defensive and offensive skills using the industry-standard tools employers are looking for.
+    tech_logos:
+      - name: Linux
+        icon: linux
+      - name: Python
+        icon: python
+      - name: Networks
+        icon: server
+      - name: Security
+        icon: shield
+      - name: Terminal
+        icon: terminal
+      - name: Git
+        icon: git
+    module_cards:
+      - title: Fundamentals and Network Security
+        duration: Weeks 1-3
+        objectives:
+          - Understand computer security fundamentals and threat landscapes
+          - Learn network security essentials and packet analysis
+          - Use Packet Tracer for visual simulation and network tracing
+        projects: Build secure network architectures from scratch
+        orientation: vertical
+        icon: IconNetwork
+      - title: Linux and Server Administration
+        duration: Weeks 4-6
+        objectives:
+          - Master Linux command line and shell scripting
+          - Configure, secure, and manage Linux-based systems
+          - Implement server hardening and access controls
+        projects: Deploy and secure production-ready Linux servers
+        orientation: vertical
+        icon: IconTerminal2
+      - title: Cyber Intelligence
+        duration: Weeks 7-9
+        objectives:
+          - Develop threat intelligence gathering and analysis skills
+          - Learn OSINT techniques for reconnaissance
+          - Identify, track, and predict cyber threats
+        projects: Create comprehensive threat intelligence reports
+        orientation: vertical
+        icon: IconSearch
+      - title: Penetration Testing
+        duration: Weeks 10-12
+        objectives:
+          - Practice ethical hacking aligned with EJPT certification
+          - Uncover vulnerabilities and simulate attack scenarios
+          - Document findings using Metasploit and Nmap
+        projects: Conduct full penetration tests on simulated environments
+        orientation: vertical
+        icon: IconShieldLock
+      - title: Data Loss Prevention (DLP)
+        duration: Weeks 13-14
+        objectives:
+          - Safeguard sensitive information and prevent breaches
+          - Implement DLP strategies and policies
+          - Protect organizational assets from internal/external threats
+        projects: Design enterprise DLP implementation plans
+        orientation: vertical
+        icon: IconDatabase
+      - title: NIST Framework
+        duration: Weeks 15-16
+        objectives:
+          - Master the NIST Cybersecurity Framework
+          - Apply compliance and risk management practices
+          - Prepare for incident response and recovery
+        projects: Create organizational security assessment reports
+        orientation: vertical
+        icon: IconClipboardCheck
+    paddingY:
+      desktop: md

@@ -1,0 +1,16 @@
+name: "Minimal (4 logos)"
+description: "Simple configuration with just 4 logos - no navigation arrows shown"
+
+yaml: |
+  - type: whos_hiring
+    pretitle: "Customer Stories"
+    title: "Trusted by Industry Leaders"
+    logos:
+      - src: "https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995.png"
+        alt: "Microsoft"
+      - src: "https://storage.googleapis.com/4geeks-academy-website/media/google-developers_1764719904190.png"
+        alt: "Google Developers"
+      - src: "https://storage.googleapis.com/4geeks-academy-website/media/meta-logo_1764719959855.png"
+        alt: "Meta"
+      - src: "https://storage.googleapis.com/4geeks-academy-website/media/uber_1764719999685.png"
+        alt: "Uber"

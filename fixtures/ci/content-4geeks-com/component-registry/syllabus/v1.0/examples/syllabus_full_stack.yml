@@ -1,0 +1,76 @@
+name: syllabus full stack
+yaml: |
+  - type: syllabus
+    variant: program-modules
+    program_title: Full Stack with AI Program Overview
+    program_description: Learn to build modern, production-ready web applications by mastering frontend and backend development alongside AI. Work with APIs, databases, and intelligent tools to design, develop, and ship real-world software.
+    tech_logos:
+      - name: HTML5
+        icon: html
+      - name: CSS3
+        icon: css
+      - name: JavaScript
+        icon: javascript
+      - name: React
+        icon: react
+      - name: Python
+        icon: python
+      - name: Git
+        icon: git
+    module_cards:
+      - title: Introduction To HTML And CSS
+        duration: Weeks 1-2
+        objectives:
+          - Create web structures with semantic HTML
+          - Style pages with modern CSS techniques
+          - Build visually appealing and accessible websites
+        projects: Build responsive landing pages from scratch
+        orientation: vertical
+        icon: IconCode
+      - title: JavaScript
+        duration: Weeks 3-5
+        objectives:
+          - Master variables, functions, and loops
+          - DOM manipulation for interactive pages
+          - Modern ES6+ features and async programming
+        projects: Create dynamic, interactive web applications
+        orientation: vertical
+        icon: IconBrandJavascript
+      - title: React
+        duration: Weeks 6-9
+        objectives:
+          - Build component-based user interfaces
+          - State management with hooks
+          - Routing and best practices for scalable apps
+        projects: Build modern single-page applications
+        orientation: vertical
+        icon: IconBrandReact
+      - title: Python
+        duration: Weeks 10-12
+        objectives:
+          - Core programming concepts and data structures
+          - Object-oriented programming principles
+          - Web development and automation skills
+        projects: Create backend services and automation scripts
+        orientation: vertical
+        icon: IconBrandPython
+      - title: Creating APIs
+        duration: Weeks 13-15
+        objectives:
+          - Design and build RESTful APIs
+          - Authentication and database integration
+          - API documentation and best practices
+        projects: Build a full REST API with Flask/Express
+        orientation: vertical
+        icon: IconApi
+      - title: Agile Methodologies
+        duration: Week 16
+        objectives:
+          - Scrum, Kanban, and agile frameworks
+          - Sprint planning and daily standups
+          - Effective collaboration in dev teams
+        projects: Work in agile teams on group projects
+        orientation: vertical
+        icon: IconUsers
+    paddingY:
+      desktop: md

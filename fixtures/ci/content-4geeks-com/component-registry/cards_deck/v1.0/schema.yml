@@ -1,0 +1,73 @@
+name: Cards Deck
+version: "1.0"
+component: CardsDeck
+file: client/src/components/cards-deck/CardsDeck.tsx
+description: A row of 3 cards, each with optional video, brand image, author name, title, and description.
+when_to_use: |
+  Use when you want to feature exactly 3 items side-by-side — such as instructor profiles,
+  program highlights, or media features. Each card supports a video embed or brand image plus
+  author credit. Best for mid-page trust sections or course instructor showcases.
+props:
+  variant:
+    type: string
+    required: false
+    options:
+      - default
+  heading:
+    type: string
+    required: false
+  subtitle:
+    type: string
+    required: false
+  cards:
+    type: array
+    required: true
+    items:
+      video:
+        type: object
+        required: false
+        properties:
+          url:
+            type: string
+            required: false
+          ratio:
+            type: string
+            required: false
+          mobile_ratio:
+            type: string
+            required: false
+          width:
+            type: string
+            required: false
+          muted:
+            type: boolean
+            required: false
+          autoplay:
+            type: boolean
+            required: false
+          loop:
+            type: boolean
+            required: false
+          preview_image_url:
+            type: string
+            required: false
+          with_shadow_border:
+            type: boolean
+            required: false
+      image:
+        type: string
+        required: false
+      brand_image:
+        type: string
+        required: false
+      author_name:
+        type: string
+        required: false
+      title:
+        type: string
+        required: true
+      description:
+        type: string
+        required: true
+variants:
+  default: {}

@@ -1,0 +1,3 @@
+# CI fixture — not production. Installed by .github/workflows/ci.yml
+4geeks.com:
+  content_folder: site_4geeks-com

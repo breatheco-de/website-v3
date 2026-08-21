@@ -1,0 +1,33 @@
+name: "Consultation vs Apply (No Images)"
+description: "Two side-by-side CTAs comparing a free consultation booking with a direct application, no images"
+yaml: |
+  - type: double_cta
+    title: "Take the Next Step in Your Tech Career"
+    subtitle: "Join thousands of students who have transformed their careers with 4Geeks Academy."
+    left:
+      heading: "Book a Free 15-Minute Consultation"
+      description: "Get personalized guidance from our admissions team. Discover the tech program that fits your goals and explore flexible financing options."
+      bullets:
+        - icon: "IconMap"
+          text: "Personalized career roadmap"
+        - icon: "IconSchool"
+          text: "Program recommendations"
+        - icon: "IconChartBar"
+          text: "Industry insights & salary expectations"
+      cta_text: "Schedule now!"
+      cta_url: "/en/apply"
+      sub_text: "Free 15-minute session - No commitment required"
+    right:
+      heading: "Start Your Journey Today"
+      description: "Fill out the form to get full program details and connect with our admissions team."
+      bullets:
+        - icon: "IconTrendingUp"
+          text: "Industry trends & job market insights"
+        - icon: "IconStar"
+          text: "Student success stories"
+        - icon: "IconDiscount"
+          text: "Exclusive course discounts & early access"
+      cta_text: "Apply now"
+      cta_url: "/en/apply"
+      cta_variant: "secondary"
+      sub_text: "Weekly updates - Unsubscribe anytime - No spam, ever"

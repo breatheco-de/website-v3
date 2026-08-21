@@ -1,0 +1,68 @@
+name: course selector overview prices
+yaml: |
+  - type: course_selector
+    version: "1.0"
+    name: Course Selector - Spotlight With Original Copy
+    description: "Course selector with spotlight layout: first course as large featured card on the left, remaining courses stacked as smaller cards on the right. Each card has its own color via course_background."
+    variant: spotlight
+    maxWidth:
+      desktop: 6xl
+    heading: Find Your Path
+    subheading: Four programs. All built around getting you hired, not just trained.
+    courses:
+      - name: AI Engineering
+        icon: Bolt
+        duration: 24 weeks, or 15-week accelerated track
+        label: Most Popular
+        title: AI Engineering
+        badges:
+          - icon: Bolt
+            text: AI tools for business
+        description: Build the AI systems companies are hiring for right now. Master LLMs, AI agents, and automation while transforming a real business case into a fully AI-native system, layer by layer.
+        price: {{ global.price_ai_engineering | $349 }}
+        price_period: /mo
+        price_info: or less depending on your plan
+        cta_text: Get Program Details
+        cta_url: /en/career-programs/ai-engineering
+        course_background: accent
+      - name: Full Stack Development with AI
+        icon: IconCode
+        original_price: $442
+        duration: 20 weeks
+        label: Updated in 2026
+        title: Full Stack Development with AI
+        badges:
+          - icon: Brain
+            text: LLMs & Generative AI
+        description: Build modern, production-ready web applications from frontend to backend, with AI integrated at every layer, not added on top.
+        price: {{ global.price_fullstack | $299 }}
+        price_period: /mo
+        cta_text: Get Program Details
+        cta_url: /en/career-programs/full-stack
+        course_background: primary
+      - name: Data Science and Machine Learning
+        icon: IconChartBar
+        duration: 18 weeks
+        title: Data Science and Machine Learning
+        badges:
+          - icon: Code
+            text: React, Node.js & Python
+        description: Master the skills behind AI-driven decisions. Build models, analyze data at scale, and deploy solutions that companies in every industry are actively hiring for.
+        price: {{ global.price_datascience | 299$ }}
+        price_period: /mo
+        cta_text: Get Program Details
+        cta_url: /en/career-programs/data-science-ml
+        course_background: hsl(var(--muted-foreground))
+      - name: Cybersecurity
+        icon: IconShield
+        duration: 16 weeks
+        title: Cybersecurity
+        badges:
+          - icon: ChartBar
+            text: Python & SQL
+        description: Protect the systems AI depends on. Every company scaling AI infrastructure needs specialists who can secure it. That demand isn't slowing down.
+        price: {{ global.price_cybersecurity | 299$ }}
+        price_period: /mo
+        cta_text: Get Program Details
+        cta_url: /en/career-programs/cybersecurity
+        course_background: destructive

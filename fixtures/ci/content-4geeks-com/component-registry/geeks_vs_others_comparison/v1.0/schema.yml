@@ -1,0 +1,56 @@
+name: Geeks vs Others Comparison
+version: "1.0"
+component: GeeksVsOthersComparison
+file: client/src/components/GeeksVsOthersComparison.tsx
+description: >-
+  A specialized comparison table designed for 4Geeks Academy vs competitors. Features hardcoded  feature icons, VS
+  divider on mobile, and accordion layout for mobile devices.
+when_to_use: >
+  Use this component specifically for comparing 4Geeks Academy against other bootcamps or  educational providers. It
+  includes pre-defined feature icons and a mobile-optimized  accordion layout with a distinctive "vs" visual separator.
+props:
+  title:
+    type: string
+    required: true
+    description: Section heading
+  subtitle:
+    type: string
+    required: false
+    description: Supporting text below the title
+  columns:
+    type: array
+    required: true
+    items:
+      name:
+        type: string
+        required: true
+      highlight:
+        type: boolean
+        required: false
+    description: Column definitions with name and optional highlight flag
+  rows:
+    type: array
+    required: true
+    items:
+      feature:
+        type: string
+        required: true
+      values:
+        type: array
+        required: true
+        items:
+          type:
+            type: string
+            required: true
+      feature_description:
+        type: string
+        required: false
+    description: Row data with feature name, values array, and optional description
+  background:
+    type: string
+    required: false
+    description: Background CSS class (e.g., "bg-muted/30")
+  footer_note:
+    type: string
+    required: false
+    description: Optional footer text displayed below the table

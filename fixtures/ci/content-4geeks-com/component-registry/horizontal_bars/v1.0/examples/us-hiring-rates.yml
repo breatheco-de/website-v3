@@ -1,0 +1,11 @@
+type: horizontal_bars
+version: "1.0"
+title: "U.S. Graduates Hired Within 6 Months"
+subtitle: "Placement rates across recent years"
+items:
+  - label: "2023"
+    value: 86
+  - label: "2024"
+    value: 84
+  - label: "2025 (Mid-Year)"
+    value: 82

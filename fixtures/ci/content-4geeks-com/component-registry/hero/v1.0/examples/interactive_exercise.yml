@@ -1,0 +1,50 @@
+name: "Interactive Exercise Hero"
+description: "Hero for a standalone interactive exercise page with stats bar and enrollment form"
+yaml: |
+  - type: hero
+    version: "1.0"
+    variant: exercise
+    badge: Free
+    exercise_type: Interactive exercise
+    title: "Learn JavaScript: Fundamentals"
+    description: Write real code and see it run instantly. A taste of the LearnPack learning system used across every 4Geeks course.
+    includes_title: This exercise includes
+    category: Hard Skills for developers
+    technologies:
+      - JavaScript
+      - Node.js
+      - HTML/CSS
+    features:
+      - icon: Sparkles
+        text: AI assistance for guided help
+      - icon: Code
+        text: Real code, real-time output
+      - icon: CheckSquare
+        text: Instant test validation
+      - icon: Award
+        text: Progress saved to your path
+    stats:
+      - icon: ChartBar
+        label: Skill level
+        value: Beginner
+      - icon: Clock
+        label: Time to complete
+        value: 15
+        value_label: minutes
+      - icon: LayoutGrid
+        label: Exercises
+        value: 1 live
+      - icon: Check
+        label: Prerequisites
+        value: None
+    form_card_title: Keep your progress
+    form_card_disclaimer: No spam. Unsubscribe anytime.
+    form_card_image: https://storage.googleapis.com/4geeks-academy-website/media/Course-Report-Badge-2025_1764709632231.webp
+    form:
+      variant: stacked
+      conversion_name: request_more_info
+      submit_label: Save my progress
+      fields:
+        first_name: { visible: true, required: true }
+        email: { visible: true, required: true }
+        phone: { visible: true, required: true }

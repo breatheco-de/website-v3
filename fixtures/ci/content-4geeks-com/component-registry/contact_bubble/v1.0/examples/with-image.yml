@@ -1,0 +1,11 @@
+name: Bubble with image
+description: Floating bubble using a photo (image has priority over icon) and a custom pixel size.
+yaml: |
+  sections:
+    - type: contact_bubble
+      url: https://calendly.com/example/30min
+      size: 72
+      img:
+        url: https://example.com/photo.jpg
+        alt: Advisor photo
+      hover_text: Talk to an advisor

@@ -1,0 +1,137 @@
+name: list_cards
+description: A generic card grid for listing content entries with optional search, user-driven filtering, and pagination. Supports dynamic entries from content types or databases.
+when_to_use: |
+  Use on listing pages for blog posts, projects, events, or any content type that needs
+  a searchable, filterable, paginated card grid. Entries can come from static YAML or a
+  database-backed content type via dynamic_entries. Prefer this over hand-crafting card
+  loops when the content is managed by editors or pulled dynamically.
+behaviors:
+  listing:
+    source: dynamic_entries
+    notes: Mapping fields + queries render cards from a content type / DB.
+variants:
+  - name: default
+    description: Standard card grid with image, title, description, badge, metadata, and CTA link
+    best_for: Blog listings, project galleries, event listings, any paginated content type
+
+dynamic_item_fields:
+  - name: image
+    type: string
+    description: Image URL for the card header
+  - name: title
+    type: string
+    required: true
+    description: Card title text
+  - name: description
+    type: string
+    description: Card description text (line-clamped to 3 lines)
+  - name: badge
+    type: string
+    description: Category or tag badge displayed above the title
+  - name: url
+    type: string
+    required: true
+    description: Link URL for the card. Use {{ single._resolved_url }} for content types with a url_pattern.
+  - name: meta_left
+    type: string
+    description: Left-side metadata (e.g., author name)
+  - name: meta_right
+    type: string
+    description: Right-side metadata (e.g., date)
+  - name: cta_text
+    type: string
+    description: Call-to-action link text at the bottom of the card
+
+properties:
+  - name: title
+    type: string
+    description: Section heading
+  - name: sub_heading
+    type: string
+    description: Subtitle text below the heading
+  - name: layout
+    type: object
+    description: Visual grid settings
+    properties:
+      - name: columns
+        type: number
+        default: 3
+        description: Number of grid columns (1-4)
+  - name: search
+    type: object
+    description: Search input settings
+    properties:
+      - name: enabled
+        type: boolean
+        default: false
+        description: Show a text search input
+      - name: placeholder
+        type: string
+        description: Placeholder text for the search input
+  - name: pagination
+    type: object
+    description: Pagination settings and labels
+    properties:
+      - name: page_size
+        type: number
+        description: Items per page (omit for no pagination)
+      - name: page_label
+        type: string
+        default: "Page"
+        description: Label before the current page number
+      - name: of_label
+        type: string
+        default: "of"
+        description: Label between current page and total pages
+      - name: items_label
+        type: string
+        default: "items"
+        description: Label after the total count
+      - name: empty_text
+        type: string
+        description: Text shown when no items match
+  - name: dynamic_entries
+    type: object
+    description: Configuration for fetching entries from a content type or database
+    properties:
+      - name: content_type
+        type: string
+        description: CMS content type slug to pull entries from
+      - name: database
+        type: string
+        description: External database slug to pull entries from
+      - name: sort
+        type: string
+        description: Sort field (prefix with - for descending, e.g. "-published_at")
+      - name: limit
+        type: number
+        description: Maximum number of entries to fetch
+      - name: permanent_filters
+        type: array
+        description: Server-side equality filters applied before the items reach the client. Each entry matches items where item_property_slug equals value.
+        items:
+          - name: item_property_slug
+            type: string
+            description: The item property key to filter on
+          - name: value
+            type: any
+            description: The value to match against
+      - name: user_filters
+        type: array
+        description: Client-side interactive filter controls rendered above the grid
+        items:
+          - name: item_property_slug
+            type: string
+            description: The item property key to filter on
+          - name: component_renderer
+            type: string
+            description: "UI control type: 'tags' (badge toggles), 'dropdown' (select), 'text-input' (substring search)"
+          - name: all_label
+            type: string
+            description: Label for the 'show all' option
+          - name: default_value
+            type: any
+            description: Initial filter value
+      - name: item_template
+        type: object
+        description: "Mapping of item fields to Jinja2 template expressions. Available variable: single (the raw entry object)"

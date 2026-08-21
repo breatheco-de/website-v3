@@ -1,0 +1,71 @@
+name: Certificate Section
+version: "1.0"
+component: CertificateSection
+file: client/src/components/career-programs/CertificateSection.tsx
+description: Highlights the certificate and career network benefits
+when_to_use: |
+  Use to show the tangible outcome of completing the program.
+  Important for conversion as it addresses "what do I get?" question.
+props:
+  title:
+    type: string
+    required: true
+    example: Certificate & Career Network
+  description:
+    type: string
+    required: true
+  benefits:
+    type: array
+    required: true
+    items:
+      text:
+        type: string
+        required: true
+        example: Recognized by international institutions
+    description: "List of certificate/career benefits (recommended: 3)"
+  card:
+    type: object
+    required: false
+    properties:
+      title:
+        type: string
+        required: true
+      subtitle:
+        type: string
+        required: true
+      program_name:
+        type: string
+        required: false
+      certificate_label:
+        type: string
+        required: false
+    description: Certificate preview card
+  stats:
+    type: array
+    required: false
+    items:
+      value:
+        type: string
+        required: true
+      label:
+        type: string
+        required: true
+      description:
+        type: string
+        required: false
+      benefits:
+        type: array
+        required: false
+        items:
+          text:
+            type: string
+            required: true
+  certificate_position:
+    type: string
+    required: false
+    options:
+      - left
+      - right
+  useSolidCard:
+    type: boolean
+    required: false

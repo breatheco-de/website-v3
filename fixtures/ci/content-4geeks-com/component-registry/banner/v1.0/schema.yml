@@ -1,0 +1,81 @@
+name: Banner Section
+version: "1.0"
+component: Banner
+file: client/src/components/Banner.tsx
+description: >-
+  A centered banner layout with optional avatars on top border, title, description, and CTA button. Supports different
+  background styles including gradient.
+when_to_use: |
+  Use as a mid-page or end-of-page call-to-action that needs visual emphasis beyond a plain
+  cta_banner. The optional avatar cluster adds social proof ("join these people"). The gradient
+  background option makes it stand out between neutral content sections.
+image_sizes:
+  default.avatars: 36px
+variants:
+  marqueeBadges: {}
+variant_props:
+  marqueeBadges: {}
+props:
+  subtitle:
+    type: string
+    required: false
+  title:
+    type: string
+    required: false
+    description: Main heading text
+  body:
+    type: string
+    required: false
+  cta_buttons:
+    type: array
+    required: false
+    items:
+      text:
+        type: string
+        required: true
+      url:
+        type: string
+        required: true
+      variant:
+        type: string
+        required: true
+        options:
+          - primary
+          - secondary
+          - outline
+      tracking:
+        type: string
+        required: false
+        options:
+          - none
+          - add_to_cart
+          - begin_checkout
+      button_variant:
+        type: string
+        required: false
+      text_color:
+        type: string
+        required: false
+      icon:
+        type: string
+        required: false
+      us_only:
+        type: boolean
+        required: false
+  top_badges:
+    type: array
+    required: false
+    items:
+      type:
+        type: string
+        required: true
+  bottom_badges:
+    type: array
+    required: false
+    items:
+      type:
+        type: string
+        required: true
+  marquee_speed:
+    type: number
+    required: false

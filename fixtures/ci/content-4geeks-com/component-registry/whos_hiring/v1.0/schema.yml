@@ -1,0 +1,57 @@
+name: Who's Hiring Section
+version: "1.0"
+component: WhosHiring
+file: client/src/components/whos-hiring/WhosHiring.tsx
+description: Display company logos showing where graduates are hired. Supports grid and carousel variants.
+when_to_use: |
+  Use this section to build trust by showcasing real employers who have hired your graduates.
+  Place after why_learn_ai and before testimonials for maximum social proof impact.
+  Include 8-12 logos for optimal display.
+props:
+  variant:
+    type: string
+    required: true
+    options:
+      - grid
+      - carousel
+    description: Display variant - 'grid' for paginated layout, 'carousel' for auto-scrolling masonry
+  pretitle:
+    type: string
+    required: false
+  title:
+    type: string
+    required: true
+    description: Section heading
+    example: Who's Hiring Our Graduates?
+  subtitle:
+    type: string
+    required: false
+    description: Supporting text below the title
+    example: Our alumni work at top companies around the world
+  description:
+    type: string
+    required: false
+    description: Longer explanatory text about hiring partners and career outcomes
+    example: From startups to Fortune 500 companies, our graduates are making an impact across industries.
+  logos:
+    type: array
+    required: true
+    items:
+      src:
+        type: string
+        required: true
+        description: URL path to the logo image
+        example: https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995.png
+      alt:
+        type: string
+        required: true
+        description: Company name for accessibility
+        example: Microsoft
+    description: "List of company logos (recommended: 8-12 for smooth carousel)"
+variants:
+  grid:
+    description: Paginated grid layout of company logos
+    best_for: About pages and sections where users browse logos at their own pace
+  carousel:
+    description: Auto-scrolling masonry carousel of company logos
+    best_for: Homepages, landings, and program pages for dynamic social proof

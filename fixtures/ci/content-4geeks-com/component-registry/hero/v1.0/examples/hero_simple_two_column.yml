@@ -1,0 +1,17 @@
+name: hero simple two column
+yaml: |
+  - type: hero
+    version: "1.0"
+    variant: simpleTwoColumn
+    title: Building the Future of Tech, Together
+    subtitle: 4Geeks Academy partners with universities, nonprofits, workforce initiatives, and global organizations to expand access to tech education, place diverse talent, and bridge the digital skills gap, creating stronger career pathways and a workforce ready for the AI era.
+    image: https://storage.googleapis.com/4geeks-academy-website/media/Copia de Fav_DSC_1146.JPG
+    cta_buttons:
+      - text: Join our partnership network
+        url: "#apply-modal"
+        variant: primary
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    marginY:
+      desktop: none lg
+    paddingY:
+      desktop: md none

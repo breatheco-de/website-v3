@@ -1,0 +1,40 @@
+name: test
+yaml: |
+  - type: ai_learning
+    variant: feature-tabs
+    badge: Why 4Geeks?
+    title: The Most Personalized Path to an AI Career
+    description: From AI-powered feedback to unlimited 1:1 mentorship and lifelong career support, every part of the experience is built around you.
+    features:
+      - icon: bot
+        title: AI-powered feedback, available 24/7
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Instant feedback from Rigobot, our custom AI tutor
+          - text: Advice adjusted to your skill level and progress
+          - text: Instant help at any hour, day or night
+          - text: Hundreds of interactive coding exercises and tests
+        video_url: https://www.youtube.com/watch?v=NRuShbSLtg0
+      - icon: Headset
+        title: Unlimited 1:1 mentorship, for life
+        description: ""
+        bullets:
+          - text: Lifelong access to 1:1 technical mentorship
+          - text: "7:1 student-to-mentor ratio: so your mentor knows your name"
+          - text: Weekly check-ins and peer collaboration via Slack
+          - text: Dedicated channels for coding support, job boards, and career advice
+        video_url: https://www.youtube.com/watch?v=1BmVA2a4h6o
+      - icon: TrendingUp
+        title: Career support built for the AI job market
+        description: ""
+        bullets:
+          - text: Lifelong 1:1 career coaching
+          - text: Resume and portfolio built to pass AI-based screening
+          - text: Interview prep and salary negotiation
+          - text: Direct referrals to our 400+ employer network
+        video_url: https://youtu.be/-2ZvlgDnltc
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: md sm

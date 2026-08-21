@@ -1,0 +1,65 @@
+name: Credibility Strip
+version: "1.0"
+component: CredibilityStrip
+file: client/src/components/credibility-strip/CredibilityStrip.tsx
+description: >-
+  A compact, full-width horizontal band displaying rotating-logo pills that signal institutional credibility. The entire
+  section is optionally clickable as a single unit.
+when_to_use: >
+  Use directly below the hero section to quickly establish trust through university partnerships, government programs,
+  and ranking mentions. Keep items to 3 (single row) or 4+ (auto 2-column grid). Each item rotates through multiple
+  logos.
+props:
+  cta:
+    type: string
+    required: false
+    description: URL the entire section links to when clicked. Takes priority over link_url.
+    example: /partners
+  link_url:
+    type: string
+    required: false
+    description: Legacy alias for cta. Use cta instead.
+  item_badge_shape:
+    type: boolean
+    required: false
+    description: When true, items render as pills (fully rounded). When false, items render as boxes (slightly rounded).
+  item_background_color:
+    type: string
+    required: false
+    description: Tailwind background class applied to all item backgrounds (e.g. bg-secondary, bg-muted, bg-card).
+    example: bg-muted
+  logo_rotation_ms_time:
+    type: number
+    required: false
+    description: |
+      Legacy alias for logo_swap_speed_milisec. Still accepted for backward compatibility.
+      Prefer logo_swap_speed_milisec for new content.
+  logo_swap_speed_milisec:
+    type: number
+    required: false
+    description: |
+      Interval in milliseconds between logo swaps. All cards in the strip flip simultaneously at this rate.
+      Takes priority over the legacy logo_rotation_ms_time when both are present.
+    example: 3000
+  colored_logos:
+    type: boolean
+    required: false
+  items:
+    type: array
+    required: false
+    items:
+      label:
+        type: string
+        required: false
+        description: Short label displayed next to the rotating logo (e.g. "University Partners").
+        example: University Partners
+      logos:
+        type: array
+        required: false
+        items:
+          image_id:
+            type: string
+            required: true
+            description: Image registry ID of the logo.
+        description: Array of image registry IDs to rotate through every 2 seconds.
+    description: List of credibility items. 1–3 items render in a single row; 4+ wrap to 2 columns.

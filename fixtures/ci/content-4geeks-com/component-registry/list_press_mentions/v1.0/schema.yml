@@ -1,0 +1,243 @@
+name: List press mentions Section
+version: "1.0"
+component: ListPressMentions
+file: client/src/components/list_press_mentions/ListPressMentions.tsx
+description: >-
+  Displays press mentions in one of two layouts — a masonry card grid or a featured showcase with a hero card, carousel,
+  and footer stats.
+when_to_use: >
+  Use to show social proof from press coverage, institutional partnerships, or media recognition.
+
+  - Use variant "cards" (default) for a compact multi-column grid of quotes and logos.
+
+  - Use variant "featured_showcase" when you want to lead with one standout mention, follow with 3 supporting cards, and
+  close with aggregate stats.
+behaviors:
+  listing:
+    source: dynamic_entries
+    notes: Mapping fields + queries render cards from a content type / DB.
+image_sizes:
+  cards.items[].logo: "(min-width: 768px) 120px, 80px"
+  featured_showcase.items[].logo: "(min-width: 768px) 120px, 80px"
+props:
+  title:
+    type: string
+    required: false
+    description: Section heading (rich text / HTML)
+  subtitle:
+    type: string
+    required: false
+    description: Section subheading beneath the title
+  title_color:
+    type: string
+    required: false
+  subtitle_color:
+    type: string
+    required: false
+  default_box_color:
+    type: string
+    required: false
+    description: (cards only) Default background color for each card
+  default_title_color:
+    type: string
+    required: false
+  default_excerpt_color:
+    type: string
+    required: false
+  default_link_color:
+    type: string
+    required: false
+  default_logo_height:
+    type: number
+    required: false
+  badge_color:
+    type: string
+    required: false
+    description: Background color applied to all item badges
+  badge_text_color:
+    type: string
+    required: false
+    description: Text color applied to all item badges
+  clamp_excerpts:
+    type: boolean
+    required: false
+    description: When true, card excerpts are clamped to 5 lines with a Read more toggle
+  read_more_label:
+    type: string
+    required: false
+    description: Label for the Read more button when clamp_excerpts is enabled
+  columns:
+    type: number
+    required: false
+    description: (cards only) Number of masonry columns at desktop width
+  items:
+    type: array
+    required: false
+    items:
+      logo:
+        type: string
+        required: false
+      logo_height:
+        type: number
+        required: false
+      title:
+        type: string
+        required: false
+      excerpt:
+        type: string
+        required: false
+      link_text:
+        type: string
+        required: false
+      link_url:
+        type: string
+        required: false
+      box_color:
+        type: string
+        required: false
+      title_color:
+        type: string
+        required: false
+      excerpt_color:
+        type: string
+        required: false
+      link_color:
+        type: string
+        required: false
+      category:
+        type: string
+        required: false
+      organization:
+        type: string
+        required: false
+      subtitle:
+        type: string
+        required: false
+      stat_value:
+        type: string
+        required: false
+      stat_label:
+        type: string
+        required: false
+      tags:
+        type: array
+        required: false
+        items:
+          type:
+            type: string
+            required: true
+      badges:
+        type: array
+        required: false
+        items:
+          type:
+            type: string
+            required: true
+      year:
+        type: string
+        required: false
+  background:
+    type: string
+    required: false
+    description: CSS background color or gradient for the section wrapper
+  variant:
+    type: string
+    required: false
+    options:
+      - cards
+      - featured_showcase
+    description: Layout variant selector
+  show_links:
+    type: boolean
+    required: false
+    description: (featured_showcase only) Show link_text/link_url on featured card and cards. Hidden by default.
+  show_logos:
+    type: boolean
+    required: false
+    description: (featured_showcase only) Show logos on featured card and cards.
+  featured_background:
+    type: string
+    required: false
+    description: (featured_showcase only) CSS background color for the featured hero card. Defaults to primary color.
+  cards_background:
+    type: string
+    required: false
+    description: (featured_showcase only) CSS background color for the supporting cards. Defaults to card background.
+  footer_stats:
+    type: array
+    required: false
+    items:
+      value:
+        type: string
+        required: false
+        description: Stat figure e.g. "$20M+"
+      label:
+        type: string
+        required: false
+        description: Stat description e.g. "Institutional funding mobilized"
+    description: (featured_showcase only) Aggregate stats shown in the footer bar.
+  footer_text:
+    type: string
+    required: false
+    description: (featured_showcase only) Short paragraph shown on the right of the footer stats.
+  dynamic_entries:
+    type: object
+    required: false
+    properties:
+      database:
+        type: string
+        required: false
+        description: Database slug e.g. "press_mentions"
+      content_type:
+        type: string
+        required: false
+      limit:
+        type: number
+        required: false
+        description: Max number of items to load (use 4 for featured_showcase — 1 featured + 3 cards)
+      sort:
+        type: string
+        required: false
+        description: Sort field e.g. "priority"
+      item_template:
+        type: object
+        required: false
+      hardcoded_entries:
+        type: array
+        required: false
+        items:
+          type:
+            type: string
+            required: true
+      permanent_filters:
+        type: array
+        required: false
+        items:
+          item_property_slug:
+            type: string
+            required: true
+          value:
+            type: string
+            required: true
+        description: Server-side filters always applied regardless of user selection
+    description: Database source configuration — resolves items[] automatically at render time
+  _dynamic_meta:
+    type: object
+    required: false
+    properties:
+      content_type:
+        type: string
+        required: false
+      total:
+        type: number
+        required: false
+      locale:
+        type: string
+        required: false
+variants:
+  cards:
+    description: Compact multi-column masonry grid of quotes and logos
+    best_for: Press pages, awards, and compact social-proof sections
+  featured_showcase:
+    description: Hero mention plus supporting cards and footer aggregate stats
+    best_for: Homepage and institutional trust / social-proof sections

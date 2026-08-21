@@ -1,0 +1,65 @@
+name: Home Hero
+yaml: |
+  - type: hero
+    version: "1.0"
+    variant: credibility
+    description: "<span style=\"font-size: 0.75rem; color: hsl(var(--muted-foreground));\">Immersive programs built to launch AI careers.&nbsp;Backed by&nbsp;lifelong unlimited&nbsp;<div bis_skin_checked=\"1\"><span><span>mentorship,&nbsp;AI-powered learning,&nbsp;and career support that&nbsp;gets you hired.</span></span></div></span><div bis_skin_checked=\"1\"><span><span></span></span><span></span><div bis_skin_checked=\"1\"><div bis_skin_checked=\"1\"><div bis_skin_checked=\"1\"><div bis_skin_checked=\"1\"></div><div bis_skin_checked=\"1\"><div bis_skin_checked=\"1\"></div></div></div></div></div></div>"
+    title: "<span style=\"line-height: 1.1;\"><span style=\"font-size: 3.75rem;\"><span style=\"font-weight: 900;\"><span style=\"letter-spacing: -3px;\"><span style=\"line-height: 0.85;\"><span style=\"font-size: 4.375rem;\"><span><span style=\"letter-spacing: -2px;\"></span></span></span></span></span></span></span></span><span style=\"font-size: 4.5rem;\"><span style=\"line-height: 1.1;\"><span><span style=\"font-weight: 900;\"><span style=\"letter-spacing: -3px;\"><span style=\"line-height: 0.85;\"><span><span><span style=\"letter-spacing: -2px;\"></span></span></span></span></span></span></span></span><span style=\"line-height: 0.1;\"><span style=\"font-size: 4.9375rem;\"><span><span><span style=\"font-weight: 900;\"><span style=\"letter-spacing: -3px;\"><span><span><span><span style=\"letter-spacing: -2px;\"></span></span></span></span></span></span></span></span><span style=\"line-height: 0.4;\"><span><span><span><span style=\"font-weight: 900;\"><span style=\"letter-spacing: -3px;\"><span><span><span><span style=\"letter-spacing: -2px;\"></span></span></span></span></span></span></span></span><span style=\"line-height: 0.9;\"><span><span><span style=\"font-weight: 900;\"><span style=\"letter-spacing: -3px;\"><span><span><span><span style=\"letter-spacing: -2px;\"></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span style=\"line-height: 0.9;\"><span style=\"font-size: 4.5rem;\"><span><span style=\"font-size: 4.9375rem;\"><span><span><span><span><span><span style=\"font-weight: 900;\"><span style=\"letter-spacing: -3px;\"><span><span><span><span style=\"letter-spacing: -2px;\"></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span style=\"line-height: 1;\"><span style=\"font-size: 4.5rem;\"><span><span style=\"font-size: 4.9375rem;\"><span><span><span><span><span><span style=\"font-weight: 900;\"><span style=\"letter-spacing: -3px;\"><span><span><span><span style=\"letter-spacing: -2px;\"></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span style=\"line-height: 0.97;\"><span><span style=\"font-size: 4.5rem;\"><span><span style=\"font-size: 4.9375rem;\"><span><span><span><span><span><span style=\"font-weight: 900;\"><span style=\"letter-spacing: -3px;\"><span><span><span><span style=\"letter-spacing: -2px;\">1.3 million<br>new <span style=\"color:#0084FF;font-style:italic\">AI Roles.</span><br></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span><span style=\"font-size: 4.5rem;\"><span><span style=\"font-size: 4.9375rem;\"><span><span><span><span><span><span style=\"font-weight: 900;\"><span style=\"letter-spacing: -3px;\"><span><span><span><span style=\"letter-spacing: -2px;\">We're y</span></span></span></span></span></span></span></span><span style=\"letter-spacing: -2px; font-weight: 900; color: rgb(0, 7, 26);\">our&nbsp;</span></span></span></span></span></span></span><div bis_skin_checked=\"1\"><span style=\"color: rgb(0, 7, 26); font-size: 4.9375rem; font-weight: 900; letter-spacing: -2px;\">path in.</span></div></span></span></span><span><div bis_skin_checked=\"1\"><span style=\"color: rgb(0, 7, 26); font-size: 4.9375rem; font-weight: 900; letter-spacing: -2px;\"></span></div></span></span><span><div bis_skin_checked=\"1\"><span style=\"color: rgb(0, 7, 26); font-size: 4.9375rem; font-weight: 900; letter-spacing: -2px;\"></span></div></span></span><span style=\"line-height: 0.9;\"><div bis_skin_checked=\"1\"><span style=\"color: rgb(0, 7, 26); font-size: 4.9375rem; font-weight: 900; letter-spacing: -2px;\"></span></div></span><div bis_skin_checked=\"1\"><span style=\"color: rgb(0, 7, 26); font-size: 4.9375rem; font-weight: 900; letter-spacing: -2px;\"></span></div><div bis_skin_checked=\"1\"><div bis_skin_checked=\"1\"><span style=\"letter-spacing: -2px; font-size: 4.375rem; font-weight: 900; color: rgb(0, 7, 26);\"></span></div></div>"
+    cta_buttons:
+      - text: Start your application
+        url: /en/apply
+        variant: primary
+        icon: ChevronRight
+      - text: Explore our programs
+        url: "#course_selector-4m5sh4"
+        variant: outline
+    pills:
+      - category: Academic Partnership
+        logos:
+          - image_id: clark_university
+          - image_id: miami-dade-college-logo
+            alt: "Image: Miami_Dade_College_logo"
+            id: miami-dade-college-logo
+          - image_id: 06-isologotipo-para-fondo-blanco-1
+          - image_id: logo-ucab-3
+        label: Chosen Partners of 12+ Universities
+      - category: Institutional Partnerships
+        logos:
+          - image_id: bid_logo
+          - image_id: cinde-removebg-preview
+          - image_id: seal-of-the-united-states-economic-development-administration
+          - image_id: austin-texas-workforce-commission-labor-government-agency-texas-state-library-and-archives-commission-removebg-preview
+          - image_id: upskillbahamas
+            alt: "Image: UpskillBahamas"
+            id: upskillbahamas
+        label: Trusted with $20M+ in Government and NGO Grants
+      - category: Industry Recognition
+        logos:
+          - image_id: newsweek_badge
+            alt: Newsweek award badge
+            id: newsweek-badge
+          - image_id: forbes_logo_award
+          - image_id: fortune_logo
+            alt: Fortune logo
+            id: fortune-logo
+          - image_id: logo_course_report
+            alt: Course Report logo
+            id: logo-course-report
+        label: Best Bootcamp Awards by Forbes, Fortune, Course Report and more
+    logo_rotation_ms_time: 2000
+    colored_logos: true
+    show_marquee: true
+    marquee_items:
+      - bold_text: Course Report
+        light_text: 4.9 ★
+      - bold_text: SwitchUp
+        light_text: 4.9 ★
+      - bold_text: Career Karma
+        light_text: 4.9 ★
+      - bold_text: Google
+        light_text: 4.8 ★
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    paddingY:
+      desktop: none
+    pills_url: "#list_press_mentions-w7r1sh"
+    marquee_static: true

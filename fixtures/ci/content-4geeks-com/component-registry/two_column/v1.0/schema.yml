@@ -1,0 +1,523 @@
+name: Two Column Section
+version: "1.0"
+component: TwoColumn
+file: client/src/components/TwoColumn.tsx
+description: Flexible two-column layout with 12-column grid system, supporting images, videos, text, bullets, and CTAs
+when_to_use: |
+  Use for side-by-side content layouts like feature explanations, eligibility criteria,
+  or any content that benefits from image/text pairing. Great for breaking up
+  long-form content and creating visual interest.
+image_sizes:
+  left.image: 300px
+  right.image: 300px
+props:
+  variant:
+    type: string
+    required: false
+    options:
+      - default
+      - benefitCards
+  stacked_header:
+    type: boolean
+    required: false
+  proportions:
+    type: array
+    required: false
+    description: Grid column proportions as [left, right] numbers that sum to 12
+    example:
+      - 6
+      - 6
+  background:
+    type: string
+    required: false
+    description: Tailwind background class
+    example: bg-muted/30
+  alignment:
+    type: string
+    required: false
+    options:
+      - start
+      - center
+      - end
+    description: Vertical alignment of columns
+  container_style:
+    type: object
+    required: false
+    description: Additional CSS styles for the container
+    example:
+      padding: 20px
+  left:
+    type: object
+    required: false
+    properties:
+      video:
+        type: string
+        required: false
+      video_ratio:
+        type: string
+        required: false
+      video_preview_image:
+        type: string
+        required: false
+      video_width:
+        type: string
+        required: false
+      image:
+        type: string
+        required: false
+      image_alt:
+        type: string
+        required: false
+      image_object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+          - scale-down
+      image_object_position:
+        type: string
+        required: false
+      image_max_width:
+        type: string
+        required: false
+      image_max_height:
+        type: string
+        required: false
+      image_mobile_max_width:
+        type: string
+        required: false
+      image_mobile_max_height:
+        type: string
+        required: false
+      heading:
+        type: string
+        required: false
+      sub_heading:
+        type: string
+        required: false
+      description:
+        type: string
+        required: false
+      description_extended:
+        type: string
+        required: false
+      description_extended_md:
+        type: string
+        required: false
+      html_content:
+        type: string
+        required: false
+      html_content_extended:
+        type: string
+        required: false
+      button:
+        type: object
+        required: false
+        properties:
+          text:
+            type: string
+            required: true
+          url:
+            type: string
+            required: true
+          variant:
+            type: string
+            required: true
+            options:
+              - primary
+              - secondary
+              - outline
+          tracking:
+            type: string
+            required: false
+            options:
+              - none
+              - add_to_cart
+              - begin_checkout
+          button_variant:
+            type: string
+            required: false
+          text_color:
+            type: string
+            required: false
+          icon:
+            type: string
+            required: false
+          us_only:
+            type: boolean
+            required: false
+      bullets:
+        type: array
+        required: false
+        items:
+          text:
+            type: string
+            required: true
+          icon:
+            type: string
+            required: false
+          heading:
+            type: string
+            required: false
+      bullets_visible:
+        type: number
+        required: false
+      bullets_collapsible:
+        type: boolean
+        required: false
+      bullet_icon:
+        type: string
+        required: false
+      bullet_char:
+        type: string
+        required: false
+      bullet_icon_color:
+        type: string
+        required: false
+      bullet_groups:
+        type: array
+        required: false
+        items:
+          title:
+            type: string
+            required: true
+          description:
+            type: string
+            required: false
+          bullets:
+            type: array
+            required: false
+            items:
+              text:
+                type: string
+                required: true
+      bullet_groups_collapsible:
+        type: boolean
+        required: false
+      footer_description:
+        type: string
+        required: false
+      gap:
+        type: string
+        required: false
+      justify:
+        type: string
+        required: false
+        options:
+          - start
+          - center
+          - end
+      text_align:
+        type: string
+        required: false
+        options:
+          - left
+          - center
+          - right
+      font_size:
+        type: string
+        required: false
+        options:
+          - xs
+          - sm
+          - base
+          - lg
+          - xl
+          - 2xl
+          - 3xl
+          - 4xl
+          - 5xl
+    description: Left column content configuration
+    example:
+      image: https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=600&h=400&fit=crop
+      image_alt: Team collaborating
+      justify: center
+  right:
+    type: object
+    required: false
+    properties:
+      video:
+        type: string
+        required: false
+      video_ratio:
+        type: string
+        required: false
+      video_preview_image:
+        type: string
+        required: false
+      video_width:
+        type: string
+        required: false
+      image:
+        type: string
+        required: false
+      image_alt:
+        type: string
+        required: false
+      image_object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+          - scale-down
+      image_object_position:
+        type: string
+        required: false
+      image_max_width:
+        type: string
+        required: false
+      image_max_height:
+        type: string
+        required: false
+      image_mobile_max_width:
+        type: string
+        required: false
+      image_mobile_max_height:
+        type: string
+        required: false
+      heading:
+        type: string
+        required: false
+      sub_heading:
+        type: string
+        required: false
+      description:
+        type: string
+        required: false
+      description_extended:
+        type: string
+        required: false
+      description_extended_md:
+        type: string
+        required: false
+      html_content:
+        type: string
+        required: false
+      html_content_extended:
+        type: string
+        required: false
+      button:
+        type: object
+        required: false
+        properties:
+          text:
+            type: string
+            required: true
+          url:
+            type: string
+            required: true
+          variant:
+            type: string
+            required: true
+            options:
+              - primary
+              - secondary
+              - outline
+          tracking:
+            type: string
+            required: false
+            options:
+              - none
+              - add_to_cart
+              - begin_checkout
+          button_variant:
+            type: string
+            required: false
+          text_color:
+            type: string
+            required: false
+          icon:
+            type: string
+            required: false
+          us_only:
+            type: boolean
+            required: false
+      bullets:
+        type: array
+        required: false
+        items:
+          text:
+            type: string
+            required: true
+          icon:
+            type: string
+            required: false
+          heading:
+            type: string
+            required: false
+      bullets_visible:
+        type: number
+        required: false
+      bullets_collapsible:
+        type: boolean
+        required: false
+      bullet_icon:
+        type: string
+        required: false
+      bullet_char:
+        type: string
+        required: false
+      bullet_icon_color:
+        type: string
+        required: false
+      bullet_groups:
+        type: array
+        required: false
+        items:
+          title:
+            type: string
+            required: true
+          description:
+            type: string
+            required: false
+          bullets:
+            type: array
+            required: false
+            items:
+              text:
+                type: string
+                required: true
+      bullet_groups_collapsible:
+        type: boolean
+        required: false
+      footer_description:
+        type: string
+        required: false
+      gap:
+        type: string
+        required: false
+      justify:
+        type: string
+        required: false
+        options:
+          - start
+          - center
+          - end
+      text_align:
+        type: string
+        required: false
+        options:
+          - left
+          - center
+          - right
+      font_size:
+        type: string
+        required: false
+        options:
+          - xs
+          - sm
+          - base
+          - lg
+          - xl
+          - 2xl
+          - 3xl
+          - 4xl
+          - 5xl
+    description: Right column content configuration (same fields as left)
+    example:
+      heading: Why Choose Us
+      description: We provide comprehensive support for your learning journey.
+      bullets:
+        - text: Personalized mentorship from industry experts
+        - text: Flexible learning schedule that fits your life
+        - text: Real-world projects to build your portfolio
+      bullet_icon: Check
+      font_size: base
+  reverse_on_mobile:
+    type: boolean
+    required: false
+    description: Reverse column order on mobile devices
+  heading_above_on_md:
+    type: boolean
+    required: false
+    description: >-
+      Whether the heading appears above both columns on tablet (md) screens. When true, heading is centered above
+      columns on tablet. When false, heading stays within its column.
+  gap:
+    type: string
+    required: false
+    description: Gap between left and right columns (Tailwind gap value)
+    example: "8"
+  padding_left:
+    type: string
+    required: false
+    description: Left padding for the section (Tailwind pl-* value, 0-96)
+    example: "24"
+  padding_right:
+    type: string
+    required: false
+    description: Right padding for the section (Tailwind pr-* value, 0-96)
+    example: "24"
+  title:
+    type: string
+    required: false
+  subtitle:
+    type: string
+    required: false
+  benefit_items:
+    type: array
+    required: false
+    items:
+      icon:
+        type: string
+        required: true
+      title:
+        type: string
+        required: true
+      description:
+        type: string
+        required: true
+  cta_button:
+    type: object
+    required: false
+    properties:
+      text:
+        type: string
+        required: true
+        description: Button label text
+      url:
+        type: string
+        required: true
+        description: Button destination URL
+      variant:
+        type: string
+        required: true
+        options:
+          - primary
+          - secondary
+          - outline
+        description: Visual style of the button
+      tracking:
+        type: string
+        required: false
+        options:
+          - none
+          - add_to_cart
+          - begin_checkout
+      button_variant:
+        type: string
+        required: false
+      text_color:
+        type: string
+        required: false
+      icon:
+        type: string
+        required: false
+        description: Tabler icon name to display alongside the button text
+      us_only:
+        type: boolean
+        required: false
+    description: Optional call-to-action button rendered below the two-column content
+    example:
+      text: Explore Financing Options
+      url: /financing
+      variant: primary
+variants:
+  benefitCards: {}
+  default: {}

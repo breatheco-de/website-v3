@@ -1,0 +1,60 @@
+name: "Plan Cards Comparison"
+description: "Side-by-side pricing plan cards with a shared feature list and a feature comparison table on mobile. For independent per-plan features, use variant: plan_cards."
+variant: plan_cards_comparison
+yaml: |
+  - type: pricing
+    version: "1.0"
+    variant: plan_cards_comparison
+    title: "An investment that pays for itself."
+    subtitle: "No contracts. Cancel anytime. All plans include the full course catalog."
+
+    plans:
+      - name: "Basic Plan"
+        tag: "Monthly"
+        for_label: "For 1 student"
+        currency: "$"
+        amount: "65"
+        period: "/month"
+        billing_note: "Recurring monthly charge"
+        cta:
+          label: "Subscribe to Basic Plan"
+          url: "/en/signup"
+
+      - name: "Pro Plan"
+        tag: "Annual"
+        for_label: "For up to 2 students"
+        currency: "$"
+        amount: "449"
+        cents: ".99"
+        period: "/year"
+        billing_note: "Annual billing"
+        featured: true
+        top_badge: "Save 10 months"
+        bottom_label: "Financing with"
+        bottom_badges:
+          - "Klarna"
+          - "Affirm"
+        cta:
+          label: "Subscribe to Pro Plan"
+          url: "/en/signup-pro"
+
+    features:
+      - text: "Mentorship sessions / month"
+      - text: "Access to exclusive events"
+        exclude_from_plans:
+          - "Basic Plan"
+      - text: "AI compilations"
+      - text: "300 premium Copilot requests"
+      - text: "$5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)"
+      - text: "Codespaces ($10/mo included)"
+      - text: "School account with GitHub Developer Program"
+      - text: "VPS included"
+      - text: "Course certificates"
+
+    addon:
+      label: "Optional add-on"
+      title: "Extra mentorship sessions"
+      description: "Book as many as you need. Senior instructors, on demand."
+      currency: "$"
+      amount: "25"
+      period: "per session"

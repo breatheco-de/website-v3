@@ -1,0 +1,71 @@
+name: Profiles Carousel Section
+version: "1.0"
+component: ProfilesCarousel
+file: client/src/components/profiles_carousel/variants/ProfilesCarouselDefault.tsx
+description: >-
+  A paginated carousel displaying people profiles (staff, mentors, partners, etc.) with photos, names, roles, and
+  optional LinkedIn links.
+when_to_use: |
+  Use when you need to present a large set of people (mentors, staff, alumni, partners) in a
+  space-efficient paginated layout. Better than a flat grid when there are more than 6–8 profiles.
+  Each card shows a photo, name, role, and optional LinkedIn link.
+image_sizes:
+  default.profiles[].image_id: "(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
+props:
+  heading:
+    type: string
+    required: false
+    description: Section heading displayed above the carousel
+  description:
+    type: string
+    required: false
+    description: Section subtitle or supporting text
+  background:
+    type: string
+    required: false
+    description: CSS background value for the section (e.g. a gradient or color)
+  image_round:
+    type: boolean
+    required: false
+    description: >-
+      If true, renders profile images as small circles with a compact card layout. If false (default), renders
+      rectangular portrait-style images.
+  profiles:
+    type: array
+    required: true
+    items:
+      image_id:
+        type: string
+        required: false
+        description: Image registry ID for the profile photo
+      object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+          - scale-down
+        description: "CSS object-fit for the image: cover (default), contain, fill, none, scale-down"
+      object_position:
+        type: string
+        required: false
+        description: CSS object-position for the image (default 'center center')
+      name:
+        type: string
+        required: true
+        description: Full name of the person
+      role:
+        type: string
+        required: false
+        description: Job title or role
+      description:
+        type: string
+        required: false
+        description: Short bio or description shown below the role
+      linkedin_url:
+        type: string
+        required: false
+        description: LinkedIn profile URL (renders a LinkedIn icon link)
+    description: List of profile cards to display in the carousel

@@ -1,0 +1,163 @@
+name: Human and AI Duo
+version: "1.0"
+component: HumanAndAIDuo
+file: client/src/components/HumanAndAIDuo.tsx
+description: Displays human mentorship and AI assistant benefits side by side with collapsible bullet groups and customizable images with CSS styling
+when_to_use: |
+  Use for showcasing the combination of human mentors and AI-powered tools
+  (like Rigobot). Perfect for support pages, learning pages, or any section
+  that highlights both human expertise and AI assistance working together.
+props:
+  heading:
+    type: string
+    required: true
+    description: Main section heading
+    example: "Human + AI: The Perfect Support Duo"
+  description:
+    type: string
+    required: true
+    description: Section description text
+    example: Learning works best when human expertise and AI support come together.
+  bullet_groups:
+    type: array
+    required: false
+    description: >-
+      Array of groups containing title, optional icon/image, and bullets.
+      Optional — when omitted, the bullet groups card is not rendered and the
+      section shows only heading, description, optional CTA, and images.
+    items:
+      title:
+        type: string
+        required: true
+        description: Group title (e.g., "Our Team of Expert Mentors:")
+      description:
+        type: string
+        required: false
+        description: Optional description for the group
+      image:
+        type: string
+        required: false
+        description: Optional image URL for the group icon
+      icon:
+        type: string
+        required: false
+        description: Optional Tabler icon name for the group
+      bullets:
+        type: array
+        required: false
+        items:
+          text:
+            type: string
+            required: true
+          icon:
+            type: string
+            required: false
+  cta:
+    type: object
+    required: false
+    description: Optional CTA button displayed below the main description (standard CTA button object)
+    properties:
+      text:
+        type: string
+        required: true
+        description: Button label
+        example: Inscríbete ahora
+      url:
+        type: string
+        required: true
+        description: Button link URL
+        example: /es/apply
+      variant:
+        type: enum
+        required: true
+        values: [primary, secondary, outline]
+        description: Button style variant
+      icon:
+        type: string
+        required: false
+        description: Optional icon name
+  footer_description:
+    type: string
+    required: false
+    description: Optional italic footer text below the bullet groups
+    example: Together, human mentorship and AI-powered tools accelerate your learning.
+  images:
+    type: array
+    required: false
+    description: Array of images with CSS styling properties. If not provided, default student images are used.
+    items:
+      src:
+        type: string
+        required: true
+        description: Image URL or path
+      alt:
+        type: string
+        required: false
+        description: Alt text for accessibility
+      object_fit:
+        type: enum
+        required: false
+        values: [cover, contain, fill, none, scale-down]
+        default: cover
+        description: CSS object-fit property
+      object_position:
+        type: string
+        required: false
+        default: "center top"
+        description: CSS object-position (e.g., "center top", "50% 20%", "left center")
+        example: "center 20%"
+      width:
+        type: string
+        required: false
+        description: CSS width value
+        example: "100%"
+      height:
+        type: string
+        required: false
+        description: CSS height value
+        example: "100%"
+      max_width:
+        type: string
+        required: false
+        description: CSS max-width value
+      max_height:
+        type: string
+        required: false
+        description: CSS max-height value
+      border_radius:
+        type: string
+        required: false
+        default: "0.5rem"
+        description: CSS border-radius value
+        example: "8px"
+      opacity:
+        type: number
+        required: false
+        description: CSS opacity (0 to 1)
+        example: 0.9
+      filter:
+        type: string
+        required: false
+        description: CSS filter property
+        example: "grayscale(100%)"
+  background:
+    type: string
+    required: false
+    description: Tailwind background class
+    example: bg-primary/5
+  video:
+    type: string
+    required: false
+    description: Video URL (YouTube, Vimeo, or local). When provided, replaces images with video.
+    example: "https://www.youtube.com/watch?v=MBXqEnhodx0"
+  video_preview_image:
+    type: string
+    required: false
+    description: Custom preview/thumbnail image URL for the video
+    example: "https://storage.googleapis.com/4geeks-academy-website/media/video-preview.jpg"
+  video_ratio:
+    type: string
+    required: false
+    default: "2.39:1"
+    description: Aspect ratio for the video (e.g., "16:9", "2.39:1", "4:3")
+    example: "16:9"

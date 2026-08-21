@@ -1,0 +1,35 @@
+type: comparison_table
+version: "1.0"
+title: Framework Comparison
+subtitle: Understanding the differences between popular frameworks
+columns:
+  - name: Feature
+  - name: React
+  - name: Vue
+  - name: Angular
+rows:
+  - feature: Learning Curve
+    values:
+      - "Moderate"
+      - "Easy"
+      - "Steep"
+  - feature: Bundle Size
+    values:
+      - "Small"
+      - "Small"
+      - "Large"
+  - feature: TypeScript Support
+    values:
+      - "yes"
+      - "yes"
+      - "yes"
+  - feature: Built-in State Management
+    values:
+      - "no"
+      - "yes"
+      - "yes"
+  - feature: CLI Tool
+    values:
+      - "yes"
+      - "yes"
+      - "yes"

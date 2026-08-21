@@ -1,0 +1,24 @@
+name: "Stacked Minimal"
+description: "Simple form with just email and name, auto-detects location"
+yaml: |
+  - type: lead_form
+    version: "1.0"
+    variant: stacked
+    subtitle: "We'll send you program details right away"
+    submit_label: "Send Me Info"
+    fields:
+      email:
+        visible: true
+        required: true
+      first_name:
+        visible: true
+        required: false
+      program:
+        visible: true
+        required: true
+        default: "auto"
+      location:
+        visible: false
+        default: "auto"
+    success:
+      url: "/thank-you"

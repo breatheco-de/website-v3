@@ -1,0 +1,130 @@
+type: ai_flex_path
+variant: default
+section_id: ai-flex-path-analyst
+hidden_until_redirection: true
+
+ready_label: "Your path is ready"
+path_name: "The Data-Driven Analyst"
+tagline: "Python, data science and ML with AI tools"
+results_subtitle: "View your courses or build your own path"
+counter_label: "selected"
+max_selections: 4
+skills_breakdown_label: "Skills breakdown"
+tools_label: "Tools in this path"
+tools_marquee: true
+icon: "4GeeksAvatar"
+
+default_courses:
+  - "Deep Dive into Python"
+  - "Data Science & ML"
+  - "Applied AI"
+  - "Prompt Engineering"
+
+cta:
+  title: "Start with a 7-day free trial."
+  subtitle: "No commitment. Cancel anytime. Your path stays saved."
+  banner: true
+  buttons:
+    - text: "Start free trial"
+      url: "/en/apply"
+      variant: primary
+
+courses:
+  - name: "Prompt Engineering"
+    tagline: "Prompting patterns & reusable libraries"
+    hrs: "~8 hrs"
+    tools:
+      - ChatGPT
+      - Claude
+      - Gemini
+      - Perplexity
+    skills:
+      - name: "Prompting patterns"
+        skill_percentage: 55
+      - name: "Output control"
+        skill_percentage: 28
+      - name: "Context management"
+        skill_percentage: 17
+
+  - name: "Applied AI"
+    tagline: "AI for real professional work tasks"
+    hrs: "~12 hrs"
+    tools:
+      - ChatGPT
+      - Notion
+      - Otter.ai
+      - Grammarly
+      - Gamma
+    skills:
+      - name: "AI writing & editing"
+        skill_percentage: 40
+      - name: "Research tools"
+        skill_percentage: 35
+      - name: "Workflow documentation"
+        skill_percentage: 25
+
+  - name: "No-Code & Automations"
+    tagline: "Visual workflows with n8n, Zapier, Make"
+    hrs: "~10 hrs"
+    tools:
+      - n8n
+      - Make
+      - Zapier
+      - Airtable
+      - Webhooks
+    skills:
+      - name: "Visual workflows"
+        skill_percentage: 45
+      - name: "App integrations"
+        skill_percentage: 35
+      - name: "AI steps in pipelines"
+        skill_percentage: 20
+
+  - name: "Vibe Coding with AI"
+    tagline: "Build apps with AI coding assistants"
+    hrs: "~12 hrs"
+    tools:
+      - Cursor
+      - GitHub Copilot
+      - Replit
+      - Vercel
+    skills:
+      - name: "AI-assisted coding"
+        skill_percentage: 50
+      - name: "Shipping projects"
+        skill_percentage: 30
+      - name: "Debug & review"
+        skill_percentage: 20
+
+  - name: "Deep Dive into Python"
+    tagline: "Python fundamentals to advanced"
+    hrs: "~18 hrs"
+    tools:
+      - Python
+      - VS Code
+      - Git
+      - GitHub
+    skills:
+      - name: "Python foundations"
+        skill_percentage: 50
+      - name: "OOP & structures"
+        skill_percentage: 30
+      - name: "Project setup"
+        skill_percentage: 20
+
+  - name: "Data Science & ML"
+    tagline: "Data analysis, ML models, predictions"
+    hrs: "~22 hrs"
+    tools:
+      - Pandas
+      - NumPy
+      - scikit-learn
+      - Jupyter
+      - Streamlit
+    skills:
+      - name: "Data analysis & viz"
+        skill_percentage: 45
+      - name: "ML model building"
+        skill_percentage: 35
+      - name: "Model evaluation"
+        skill_percentage: 20

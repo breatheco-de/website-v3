@@ -1,0 +1,196 @@
+name: Career support explain Section
+version: "1.0"
+component: CareerSupportExplain
+file: client/src/components/career_support_explain/CareerSupportExplain.tsx
+description: ""
+when_to_use: ""
+props:
+  heading:
+    type: string
+    required: false
+  description:
+    type: string
+    required: false
+  background:
+    type: string
+    required: false
+  tabs:
+    type: array
+    required: true
+    items:
+      tab_label:
+        type: string
+        required: true
+      layout:
+        type: string
+        required: false
+      col1_subtitle:
+        type: string
+        required: false
+      col1_description:
+        type: string
+        required: false
+      col1_tagline:
+        type: string
+        required: false
+      col1_boxes:
+        type: array
+        required: false
+        items:
+          icon:
+            type: string
+            required: false
+          text:
+            type: string
+            required: true
+      col2_heading:
+        type: string
+        required: false
+      col2_description:
+        type: string
+        required: false
+      col2_bullets:
+        type: array
+        required: false
+        items:
+          icon:
+            type: string
+            required: false
+          text:
+            type: string
+            required: true
+      col3_image_id:
+        type: string
+        required: false
+      col3_object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+          - scale-down
+      col3_object_position:
+        type: string
+        required: false
+      title:
+        type: string
+        required: false
+      left_text:
+        type: string
+        required: false
+      left_image_id:
+        type: string
+        required: false
+      left_image_object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+          - scale-down
+      left_image_object_position:
+        type: string
+        required: false
+      left_stat:
+        type: object
+        required: false
+        properties:
+          value:
+            type: string
+            required: true
+          label:
+            type: string
+            required: true
+      right_bullets:
+        type: array
+        required: false
+        items:
+          icon:
+            type: string
+            required: false
+          text:
+            type: string
+            required: true
+      right_logos:
+        type: array
+        required: false
+        items:
+          image_id:
+            type: string
+            required: true
+          alt:
+            type: string
+            required: false
+          logoHeight:
+            type: string
+            required: false
+      left_description:
+        type: string
+        required: false
+      left_bullets:
+        type: array
+        required: false
+        items:
+          icon:
+            type: string
+            required: false
+          text:
+            type: string
+            required: true
+      right_image_id:
+        type: string
+        required: false
+      right_image_object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+          - scale-down
+      right_image_object_position:
+        type: string
+        required: false
+      right_panel_background:
+        type: string
+        required: false
+      testimonials:
+        type: array
+        required: false
+        items:
+          image_id:
+            type: string
+            required: true
+          image_object_fit:
+            type: string
+            required: false
+            options:
+              - cover
+              - contain
+              - fill
+              - none
+              - scale-down
+          image_object_position:
+            type: string
+            required: false
+          contributor_logos:
+            type: array
+            required: false
+            items:
+              image_id:
+                type: string
+                required: true
+              alt:
+                type: string
+                required: false
+          description:
+            type: string
+            required: true
+          achievement:
+            type: string
+            required: false

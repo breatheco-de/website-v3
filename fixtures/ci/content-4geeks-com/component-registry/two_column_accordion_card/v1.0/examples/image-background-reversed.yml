@@ -1,0 +1,19 @@
+name: Image Background Style (Reversed)
+description: Two column accordion card with decorated image on colored background, image on left
+yaml: |
+  type: two_column_accordion_card
+  variant: image_background
+  version: "1.0"
+  title: "Transform Your Career"
+  description: "Start your journey into tech with our proven approach:"
+  bullets:
+    - heading: "No Experience Required"
+      text: "Our curriculum is designed for complete beginners. We'll teach you everything from the fundamentals up."
+    - heading: "Real-World Projects"
+      text: "Build a professional portfolio with projects that showcase your skills to potential employers."
+    - heading: "Lifetime Access"
+      text: "Keep access to all course materials and community support even after you graduate."
+  footer: "Over 10,000 graduates have launched new careers with us."
+  image: "https://storage.googleapis.com/4geeks-academy-website/media/community-support-2_1765406601448.webp"
+  image_alt: "Student learning with mentor support"
+  reverse: true

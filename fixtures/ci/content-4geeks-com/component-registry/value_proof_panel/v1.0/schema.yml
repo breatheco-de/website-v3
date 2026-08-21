@@ -1,0 +1,106 @@
+name: Value Proof Panel
+version: "1.0"
+component: ValueProofPanel
+file: client/src/components/ValueProofPanel.tsx
+description: >-
+  A credibility-focused section displaying evidence items as editorial citations with optional supportive media.
+  Designed for showcasing awards, recognitions, certifications, and other trust signals with explicit source
+  attribution.
+when_to_use: |
+  Use when you need to present credibility signals, awards, or recognition.
+  Best for sections where external validation matters more than feature descriptions.
+  Avoid using generic two_column layouts for credibility content - use this instead.
+  The media is decorative and supportive, not explanatory.
+  Evidence items should read like cited claims, not marketing feature cards.
+image_sizes:
+  default.media.src: "(min-width: 768px) 500px, 300px"
+props:
+  title:
+    type: string
+    required: true
+    description: Main headline for the section (H2)
+    example: Recognized Globally for Excellence
+  subtitle:
+    type: string
+    required: false
+    description: Short supporting paragraph (1-2 lines max)
+    example: We don't just say we deliver — recognition from trusted sources proves our worth.
+  evidence_items:
+    type: array
+    required: true
+    items:
+      icon:
+        type: string
+        required: false
+        description: Tabler icon name (e.g., Trophy, Award, Certificate)
+      title:
+        type: string
+        required: true
+        description: The claim or recognition (bold headline)
+        example: Top 5 Coding Bootcamps Worldwide
+      description:
+        type: string
+        required: false
+        description: Optional supporting text for the claim
+      source:
+        type: string
+        required: false
+        description: The authority or publication that made the claim
+        example: Newsweek, Forbes, SwitchUp
+      source_url:
+        type: string
+        required: false
+        description: Optional link to the source
+    description: List of evidence/credibility items displayed as editorial citations
+  media:
+    type: object
+    required: false
+    properties:
+      type:
+        type: string
+        required: true
+      src:
+        type: string
+        required: true
+      alt:
+        type: string
+        required: false
+      aspect_ratio:
+        type: string
+        required: false
+        options:
+          - "1:1"
+          - "4:3"
+          - "16:9"
+          - "3:4"
+      style:
+        type: string
+        required: false
+        options:
+          - rounded
+          - organic
+          - circle
+      object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+          - scale-down
+      object_position:
+        type: string
+        required: false
+    description: Optional decorative media (image or video)
+  background:
+    type: string
+    required: false
+    description: Background color token (e.g., 'muted', 'background')
+  reverse_layout:
+    type: boolean
+    required: false
+    description: If true, places media on the left and content on the right
+  stacked_header:
+    type: boolean
+    required: false

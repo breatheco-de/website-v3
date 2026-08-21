@@ -1,0 +1,43 @@
+name: "Product Showcase with Marquee"
+description: "Two column layout with welcome text, brand mark, title, description, and an embedded scrolling logo marquee below the description. Includes optional video/image on the right."
+yaml: |
+  - type: hero
+    version: "1.0"
+    variant: productShowcase
+    welcome_text: "Welcome to"
+    brand_mark:
+      prefix: "Geek"
+      highlight: "FORCE"
+      suffix: ":"
+      color: "chart-5"
+    title: "Career Development"
+    subtitle: "for the AI Era"
+    description: "Get unlimited 1:1 career support designed for your unique profile and goals—for life. From resume and portfolio building to interviews and AI-driven hiring platforms."
+    marquee:
+      speed: 40
+      gradient: true
+      gradientWidth: 50
+      items:
+        - id: switchup-2025
+          alt: SwitchUp - Best Coding Bootcamps 2025
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+          logoHeight: 48px
+        - id: course-report-2024
+          alt: Course Report - Best Coding Bootcamp 2024
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/Course-Report-Badge-2025_1764709632231.webp
+          logoHeight: 48px
+        - id: newsweek
+          alt: Newsweek
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_1764709608255.webp
+          logoHeight: 48px
+        - id: forbes
+          alt: Forbes - Top Coding Bootcamp
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/forbes-logo-award_1764709625651.webp
+          logoHeight: 48px
+        - id: fortune
+          alt: Fortune - Best Education Company
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/fortune-logo_1764709618095.webp
+          logoHeight: 48px
+    video:
+      url: https://www.youtube.com/watch?v=-2ZvlgDnltc
+      ratio: "3:4"

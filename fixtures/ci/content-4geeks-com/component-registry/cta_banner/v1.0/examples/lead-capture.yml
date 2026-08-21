@@ -1,0 +1,31 @@
+name: "Lead Capture CTA"
+description: "CTA with embedded lead form for capturing visitor information"
+variant: form
+yaml: |
+  - type: cta_banner
+    version: "1.0"
+    variant: form
+    background: bg-primary
+    title: "Start Your AI Career Today"
+    subtitle: "Join thousands of graduates who have transformed their careers with 4Geeks Academy."
+    form:
+      variant: stacked
+      submit_label: "Get Started"
+      button_className: "bg-white text-primary hover:bg-white/90 border-white"
+      terms_className: "text-white/80"
+      show_terms: true
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: "Your email address"
+        first_name:
+          visible: true
+          required: true
+          placeholder: "First name"
+        last_name:
+          visible: true
+          required: true
+          placeholder: "Last name"
+      success:
+        message: "Thank you! We'll be in touch soon."

@@ -1,0 +1,31 @@
+name: Mentorship Section
+version: "1.0"
+component: MentorshipSection
+file: client/src/components/career-programs/MentorshipSection.tsx
+description: Grid of cards showing mentorship and support options
+when_to_use: |
+  Use to highlight human support alongside AI tools.
+  Builds trust by showing learners they're never alone.
+props:
+  title:
+    type: string
+    required: true
+    example: Mentorship & Support
+  subtitle:
+    type: string
+    required: false
+    example: You're never alone in your learning journey
+  cards:
+    type: array
+    required: true
+    items:
+      icon:
+        type: string
+        required: true
+      title:
+        type: string
+        required: true
+      description:
+        type: string
+        required: true
+    description: "Support options (recommended: 3 cards)"

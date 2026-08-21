@@ -1,0 +1,21 @@
+name: two column accordion right image
+yaml: |
+  - type: two_column_accordion_card
+    variant: image_background
+    version: "1.0"
+    title: Everything You Need to Succeed in an AI-Driven Industry
+    description: AI-ready training, expert guidance, and long-term support designed for the modern tech landscape.
+    bullets:
+      - heading: 1:1 Mentorship, Unlimited and for Life
+        text: Get personalized technical guidance whenever you need it. Work one-on-one with experienced mentors during the program and continue receiving support long after you graduate.
+      - heading: AI-Powered Learning Support
+        text: Get instant feedback from RigoBot, our built-in AI learning assistant. Practice, debug, and improve continuously with guidance tailored to your learning path.
+      - heading: Career Support, Unlimited and for Life
+        text: Receive expert, personalized career coaching focused on getting you hired. From job strategy and positioning to interviews and negotiation, support evolves with your goals and experience.
+      - heading: An Active Global Tech Community
+        text: Join a supportive Slack community of students, mentors, and alumni. Ask questions, share opportunities, and stay connected to a global network well beyond graduation.
+    image: https://storage.googleapis.com/4geeks-academy-website/media/caracas_graduates-470x315.webp
+    image_alt: Student working on AI project
+    image_object_fit: cover
+    paddingY:
+      desktop: md none

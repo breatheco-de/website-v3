@@ -1,0 +1,22 @@
+name: "Basic Comparison"
+description: "Simple three-column comparison table with feature descriptions and footer note"
+yaml: |
+  - type: comparison_table
+    version: "1.0"
+    title: "How We Compare"
+    subtitle: "See how our approach stacks up against typical alternatives"
+    columns:
+      - name: "Feature"
+        highlight: true
+      - name: "Our Brand"
+      - name: "Others"
+    rows:
+      - feature: "1:1 Support"
+        values: ["Unlimited", "Limited"]
+        feature_description: "Get personalized guidance whenever you need it"
+      - feature: "Guarantee"
+        values: ["Yes", "No"]
+        feature_description: "Money back if not satisfied"
+      - feature: "Pricing"
+        values: ["Flexible", "Fixed"]
+    footer_note: "* Based on industry research"

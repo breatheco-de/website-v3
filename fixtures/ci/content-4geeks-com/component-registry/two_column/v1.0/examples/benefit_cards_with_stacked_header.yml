@@ -1,0 +1,26 @@
+type: two_column
+variant: benefitCards
+stacked_header: true
+background: bg-muted/30
+title: Making Tech Careers Accessible
+subtitle: "Tech careers change lives, and we believe finances should never hold anyone back. That's why we've built some of the most flexible, student-friendly options in the industry:"
+benefit_items:
+  - icon: dollar-sign
+    title: Affordable Tuition
+    description: Among the most affordable tuition of any top-ranked bootcamp (recognized by Forbes).
+  - icon: CreditCard
+    title: Flexible Financing
+    description: Financing options start at $150/month with 0% interest available for qualified applicants.
+  - icon: briefcase-business
+    title: Pay After You Get Hired
+    description: Our Income Share Agreement lets you pay only after landing a job making $40k+/year.
+  - icon: Gift
+    title: Scholarships Available
+    description: Merit and need-based scholarships available for qualifying students.
+right:
+  image: /images/students-learning.jpg
+  image_alt: Students learning in classroom
+cta_button:
+  text: Explore Financing Options
+  url: /financing
+  variant: primary

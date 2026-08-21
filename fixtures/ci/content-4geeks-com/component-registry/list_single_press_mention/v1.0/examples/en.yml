@@ -1,0 +1,14 @@
+type: list_single_press_mention
+version: "1.0"
+organization: Forbes
+title: "5 Best Online Full-Stack Bootcamps Of 2024"
+subtitle: "Ranked #1 in the Forbes Advisor analysis"
+excerpt: >-
+  Full-stack developers create and troubleshoot both the back-end and front-end
+  of websites and software — an indispensable skill set. 4Geeks Academy ranked
+  among the top 5 full-stack bootcamps nationally, standing out for mentorship,
+  career support, and real-world project curriculum.
+link_text: Read Article
+link_url: "https://www.forbes.com/advisor/education/bootcamps/best-coding-bootcamps/"
+button_icon: IconExternalLink
+image: "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&q=80"

@@ -53,6 +53,7 @@ if [[ ! -f "${QDRANT_BIN}" ]]; then
 fi
 
 if [[ -f "${QDRANT_BIN}" ]]; then
+  QDRANT__SERVICE__HOST=127.0.0.1 \
   QDRANT__SERVICE__HTTP_PORT=6333 \
   QDRANT__STORAGE__STORAGE_PATH="${STORAGE_DIR}" \
   "${QDRANT_BIN}" &

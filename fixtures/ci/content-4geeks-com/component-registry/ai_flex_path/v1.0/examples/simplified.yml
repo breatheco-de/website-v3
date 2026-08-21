@@ -1,0 +1,93 @@
+name: "Simplified – 4 rutas paralelas"
+description: "Lista estática de rutas paralelas (sin drag-and-drop), inspirada en el mockup de selección de camino"
+variant: simplified
+yaml: |
+  - type: ai_flex_path
+    variant: simplified
+    version: v1.0
+    ready_label: Elige tu camino con IA
+    path_name: "4 rutas paralelas. Elige la que se alinea con tu objetivo."
+    tagline: "No son pasos a seguir en orden — cada camino te lleva a un destino distinto según lo que quieras lograr."
+    results_subtitle: Explora las 4 rutas disponibles
+    show_details: false
+    show_markers: true
+    image_id: rigobot-png
+    maxWidth:
+      desktop: xl
+    slot_colors:
+      - color: hsl(var(--primary))
+      - color: hsl(var(--destructive) / 0.5)
+      - color: hsl(var(--accent))
+      - color: hsl(var(--muted-foreground) / 0.7)
+    courses:
+      - name: El Profesional AI-First
+        tagline: Automatiza tu trabajo diario, escribe mejores prompts y multiplica tu productividad con inteligencia artificial en tu rol actual.
+        hrs: ~20 hrs
+        marker:
+          icon: check
+        tools:
+          - ChatGPT
+          - Claude
+          - n8n
+          - OpenClaw
+          - Notion
+        cta_buttons:
+          - text: Elegir esta ruta
+            url: /es/payment-component?program=ai-flex
+            variant: outline
+
+      - name: El Builder
+        tagline: Construye agentes de IA, automatiza procesos y lanza tus propias apps con asistentes de código.
+        hrs: ~30 hrs
+        marker:
+          icon: check
+        tools:
+          - OpenClaw
+          - n8n
+          - Cursor
+          - GitHub Copilot
+          - Replit
+        cta_buttons:
+          - text: Elegir esta ruta
+            url: /es/payment-component?program=ai-flex
+            variant: outline
+
+      - name: El Career Switcher
+        tagline: Aprende a programar desde cero y construye tu primer proyecto real con IA, sin experiencia previa.
+        hrs: ~40 hrs
+        marker:
+          icon: check
+        tools:
+          - Python
+          - VS Code
+          - Git
+          - FastAPI
+          - GitHub
+        cta_buttons:
+          - text: Elegir esta ruta
+            url: /es/payment-component?program=ai-flex
+            variant: outline
+
+      - name: El Analista Data-Driven
+        tagline: Analiza datos, construye modelos de Machine Learning y toma mejores decisiones apoyado en IA.
+        hrs: ~35 hrs
+        marker:
+          icon: check
+        tools:
+          - Python
+          - Pandas
+          - NumPy
+          - scikit-learn
+          - Jupyter
+        cta_buttons:
+          - text: Elegir esta ruta
+            url: /es/payment-component?program=ai-flex
+            variant: outline
+
+    cta:
+      banner: true
+      title: "¿Aún no sabes cuál se alinea con tus objetivos?"
+      subtitle: "Haz un test gratuito, 100% personalizado, y te decimos qué camino te conviene."
+      buttons:
+        - text: Hacer el test gratuito
+          url: /es/quiz

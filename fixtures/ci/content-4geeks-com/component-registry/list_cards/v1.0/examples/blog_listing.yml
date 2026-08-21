@@ -1,0 +1,33 @@
+- type: list_cards
+  title: "Blog"
+  sub_heading: "Articles, tutorials and news about coding and technology"
+  layout:
+    columns: 3
+  search:
+    enabled: true
+    placeholder: "Search articles..."
+  pagination:
+    page_size: 12
+    page_label: "Page"
+    of_label: "of"
+    items_label: "articles"
+    empty_text: "No articles found."
+  dynamic_entries:
+    content_type: blog
+    sort: "-published_at"
+    permanent_filters:
+      - item_property_slug: locale
+        value: en
+    user_filters:
+      - item_property_slug: category
+        component_renderer: tags
+        all_label: "All categories"
+    item_template:
+      image: "{{ single.image }}"
+      title: "{{ single.title }}"
+      description: "{{ single.description }}"
+      badge: "{{ single.category }}"
+      url: "{{ single._resolved_url }}"
+      meta_left: "{{ single.author }}"
+      meta_right: "{{ single.published_at | }}"
+      cta_text: "Read more"

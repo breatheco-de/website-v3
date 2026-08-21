@@ -1,0 +1,16 @@
+name: og_image_preview - blog post
+description: Sample OG card matching the blog screenshot mock (category, title, author, reading time from content).
+yaml: |
+  - type: og_image_preview
+    version: "1.0"
+    variant: default
+    logo: 4geeks-devs-logo-1763162063433
+    category: AI Engineering
+    title: Build Your First AI Agent in a Weekend
+    author: Marta Cordero
+    content: >
+      Agents combine tools, memory, and a planning loop. In this guide you will
+      scaffold a weekend project, wire a model API, and ship a small agent that
+      can search docs and answer questions with citations. We cover prompts,
+      tool schemas, evaluation, and a deploy checklist so you leave with a
+      working prototype rather than a slide deck.

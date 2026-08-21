@@ -1,0 +1,60 @@
+name: "Horizontal Bars Section"
+version: "1.0"
+component: "HorizontalBars"
+file: "client/src/components/HorizontalBars.tsx"
+description: "Animated horizontal bar chart that displays values as percentage bars. Bars animate from 0% to their target width when scrolled into view, with staggered delays for a cascading effect."
+
+when_to_use: |
+  Use for displaying comparative data, statistics, or rankings.
+  Great for showing outcomes, percentages, or year-over-year comparisons.
+  The animation triggers when the user scrolls to the section, making it engaging.
+
+props:
+  title:
+    type: string
+    required: false
+    example: "U.S. Graduates Hired Within 6 Months"
+    
+  subtitle:
+    type: string
+    required: false
+    example: "Placement rates across recent years"
+    
+  background:
+    type: string
+    required: false
+    description: "Tailwind CSS class for background color (only applies when use_card is false)"
+    example: "bg-muted"
+    
+  use_card:
+    type: boolean
+    required: false
+    default: false
+    description: "When true, wraps the chart in a Card component with compact styling. Ideal for displaying multiple bar charts side by side or vertically stacked."
+    example: true
+    
+  items:
+    type: array
+    required: true
+    description: "Array of bar items with label, value, and optional color"
+    items:
+      label:
+        type: string
+        required: true
+        description: "Text label shown on the left side of the bar"
+        example: "2024"
+      value:
+        type: number
+        required: true
+        description: "Numeric value used to calculate bar width relative to the maximum value in the dataset"
+        example: 84
+      displayValue:
+        type: string
+        required: false
+        description: "Custom display text shown on the bar. If omitted, defaults to 'value%'. Use for non-percentage values like '$12.5k' or '45 days'."
+        example: "$12.5k"
+      color:
+        type: string
+        required: false
+        description: "Custom color for the bar (CSS color value)"
+        example: "#10b981"

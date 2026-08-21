@@ -1,0 +1,95 @@
+name: Two Column Accordion Card
+version: "1.0"
+component: TwoColumnAccordionCard
+file: client/src/components/two_column_accordion_card/TwoColumnAccordionCard.tsx
+description: >-
+  A card-based section with two columns - one side has a title, description, and expandable accordion items, the other
+  side displays an image. Great for detailed feature explanations or FAQ-style content.
+when_to_use: |
+  Use when you need to pair visual media (image or video) with an expandable list of features,
+  FAQs, or step-by-step details. The accordion keeps the section compact while letting users
+  drill into specifics. Better than a plain two_column when the text content is long enough to
+  benefit from progressive disclosure. Use the image_background variant for a warmer, branded feel.
+image_sizes:
+  image_background.image: "(min-width: 768px) 500px, 100vw"
+props:
+  variant:
+    type: string
+    required: false
+    options:
+      - default
+      - image_background
+  title:
+    type: string
+    required: false
+  description:
+    type: string
+    required: false
+  bullets:
+    type: array
+    required: false
+    items:
+      heading:
+        type: string
+        required: true
+      text:
+        type: string
+        required: true
+  footer:
+    type: string
+    required: false
+  image:
+    type: string
+    required: false
+  image_alt:
+    type: string
+    required: false
+  image_object_fit:
+    type: string
+    required: false
+    options:
+      - cover
+      - contain
+      - fill
+      - none
+      - scale-down
+  image_object_position:
+    type: string
+    required: false
+  video:
+    type: object
+    required: false
+    properties:
+      url:
+        type: string
+        required: false
+      ratio:
+        type: string
+        required: false
+      mobile_ratio:
+        type: string
+        required: false
+      width:
+        type: string
+        required: false
+      muted:
+        type: boolean
+        required: false
+      autoplay:
+        type: boolean
+        required: false
+      loop:
+        type: boolean
+        required: false
+      preview_image_url:
+        type: string
+        required: false
+      with_shadow_border:
+        type: boolean
+        required: false
+  reverse:
+    type: boolean
+    required: false
+variants:
+  default: {}
+  image_background: {}

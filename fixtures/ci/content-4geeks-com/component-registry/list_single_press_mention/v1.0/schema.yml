@@ -1,0 +1,127 @@
+name: List single press mention Section
+version: "1.0"
+component: ListSinglePressMention
+file: client/src/components/list_single_press_mention/ListSinglePressMention.tsx
+description: Displays one highlighted press mention in a two-column layout — image on the left, content on the right.
+when_to_use: |
+  Use to spotlight one particularly impactful press mention or media feature — such as a
+  major publication quote or award. Better than the list_press_mentions cards variant when
+  you want to give a single mention strong editorial weight. Often used above or below the
+  multi-mention list_press_mentions component.
+behaviors:
+  listing:
+    source: dynamic_entries
+    notes: Mapping fields + queries render cards from a content type / DB.
+props:
+  background:
+    type: string
+    required: false
+    description: CSS background value (color or gradient) for the section
+  button_icon:
+    type: string
+    required: false
+    description: Tabler icon name shown beside the CTA button text
+  image:
+    type: string
+    required: false
+    description: Section-level image (used when not sourcing from dynamic_entries)
+  title:
+    type: string
+    required: false
+    description: Headline of the press mention
+  subtitle:
+    type: string
+    required: false
+    description: Secondary descriptor beneath the title
+  excerpt:
+    type: string
+    required: false
+    description: Short body text describing the mention
+  organization:
+    type: string
+    required: false
+    description: Name of the publication or organisation
+  link_text:
+    type: string
+    required: false
+    description: CTA button label
+  link_url:
+    type: string
+    required: false
+    description: URL the CTA button links to
+  items:
+    type: array
+    required: false
+    items:
+      image:
+        type: string
+        required: false
+      title:
+        type: string
+        required: false
+      subtitle:
+        type: string
+        required: false
+      excerpt:
+        type: string
+        required: false
+      organization:
+        type: string
+        required: false
+      link_text:
+        type: string
+        required: false
+      link_url:
+        type: string
+        required: false
+    description: Resolved items from dynamic_entries (auto-populated)
+  dynamic_entries:
+    type: object
+    required: false
+    properties:
+      database:
+        type: string
+        required: false
+      content_type:
+        type: string
+        required: false
+      limit:
+        type: number
+        required: false
+      sort:
+        type: string
+        required: false
+      item_template:
+        type: object
+        required: false
+      hardcoded_entries:
+        type: array
+        required: false
+        items:
+          type:
+            type: string
+            required: true
+      permanent_filters:
+        type: array
+        required: false
+        items:
+          item_property_slug:
+            type: string
+            required: true
+          value:
+            type: string
+            required: true
+    description: Database source configuration
+  _dynamic_meta:
+    type: object
+    required: false
+    properties:
+      content_type:
+        type: string
+        required: false
+      total:
+        type: number
+        required: false
+      locale:
+        type: string
+        required: false

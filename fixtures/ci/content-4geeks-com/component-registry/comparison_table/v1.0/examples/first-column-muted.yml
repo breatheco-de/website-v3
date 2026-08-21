@@ -1,0 +1,42 @@
+type: comparison_table
+version: "1.0"
+title: Feature Availability
+subtitle: Check which features are available in each tier
+first_column_muted: true
+columns:
+  - name: Feature
+  - name: Starter
+  - name: Growth
+    highlight: true
+  - name: Scale
+rows:
+  - feature: Monthly Active Users
+    values:
+      - "1,000"
+      - "10,000"
+      - "Unlimited"
+  - feature: Team Members
+    values:
+      - "2"
+      - "10"
+      - "Unlimited"
+  - feature: Analytics Dashboard
+    values:
+      - "yes"
+      - "yes"
+      - "yes"
+  - feature: Custom Reports
+    values:
+      - "no"
+      - "yes"
+      - "yes"
+  - feature: API Access
+    values:
+      - "no"
+      - "yes"
+      - "yes"
+  - feature: White Label
+    values:
+      - "no"
+      - "no"
+      - "yes"

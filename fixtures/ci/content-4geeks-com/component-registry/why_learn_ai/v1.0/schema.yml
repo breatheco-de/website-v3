@@ -1,0 +1,108 @@
+name: Why Learn AI Section
+version: "1.0"
+component: WhyLearnAISection
+file: client/src/components/why-learn-ai/WhyLearnAI.tsx
+description: Compelling section about the importance of learning AI-powered development
+when_to_use: |
+  Use to motivate students about the future of AI in software development.
+  Creates urgency and explains why this skill set matters.
+image_sizes:
+  laptop-edge.laptop_image.image_id: 100vw
+props:
+  variant:
+    type: string
+    required: false
+    options:
+      - default
+      - laptop-edge
+    description: Visual style variant
+    example: default
+  title:
+    type: string
+    required: true
+    description: Main headline
+    example: Why Should I Learn to Build and Code with AI?
+  subtitle:
+    type: string
+    required: true
+    description: Supporting headline
+    example: Software Development as You Know It Will Cease to Exist
+  description:
+    type: string
+    required: true
+    description: Detailed explanation of why AI coding matters
+    example: >-
+      Coding with AI will become a new standard, but it's a very different profession from traditional software
+      development.
+  cta:
+    type: object
+    required: false
+    properties:
+      text:
+        type: string
+        required: true
+        example: Join now!
+      url:
+        type: string
+        required: true
+        example: /signup
+      variant:
+        type: string
+        required: true
+        options:
+          - primary
+          - secondary
+          - outline
+      tracking:
+        type: string
+        required: false
+        options:
+          - none
+          - add_to_cart
+          - begin_checkout
+      button_variant:
+        type: string
+        required: false
+      text_color:
+        type: string
+        required: false
+      icon:
+        type: string
+        required: false
+      us_only:
+        type: boolean
+        required: false
+    description: Call-to-action button
+  mobile_see_more:
+    type: boolean
+    required: false
+    description: Opt-in for laptop-edge mobile description truncation with expand/collapse
+    example: true
+  mobile_see_more_label:
+    type: string
+    required: false
+    description: Label for expand control on mobile
+    example: See more
+  mobile_see_less_label:
+    type: string
+    required: false
+    description: Label for collapse control on mobile
+    example: See less
+  laptop_image:
+    type: object
+    required: false
+    properties:
+      image_id:
+        type: string
+        required: true
+        description: Image ID from the image registry
+        example: image_feature_5
+      alt:
+        type: string
+        required: false
+        description: Alt text for the laptop image
+        example: Code editor on laptop
+    description: Optional laptop/code-editor image for the laptop-edge variant. When omitted, a default image is used.
+variants:
+  default: {}
+  laptop-edge: {}

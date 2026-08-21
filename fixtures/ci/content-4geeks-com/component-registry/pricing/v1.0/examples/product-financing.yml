@@ -1,0 +1,45 @@
+name: "Product Financing"
+description: "One-time product pricing with financing options - no subscription toggle"
+variant: product
+yaml: |
+  - type: pricing
+    version: "1.0"
+    variant: product
+    title: "Finance Your Investment"
+    subtitle: "We offer multiple ways to fund your enrollment. Choose the option that works best for you."
+    discount_text: "Full Payment Discount: Save 10% with upfront payment."
+    financing_text: "Credit-Based Financing: starting below"
+    financing_amount: "$299"
+    tech_icons:
+      - "html"
+      - "css"
+      - "javascript"
+      - "react"
+      - "python"
+      - "nodejs"
+      - "git"
+      - "bootstrap"
+      - "api"
+      - "settings"
+    features_title: "Access hundreds of exercises, projects tutorials and courses"
+    features:
+      - icon: "certificate"
+        text: "Build your portfolio with hundreds of real-world projects."
+      - icon: "cloud"
+        text: "Thousands of cloud-based coding challenges (no setup needed)."
+      - text: "AI-powered feedback as you code."
+        icon: RigobotIconTiny
+      - icon: "certificate"
+        text: "Course certificates"
+      - icon: "certificate"
+        text: "Earn certificates from a USA certified school."
+    cta:
+      text: "Apply Now"
+      url: "/apply"
+      variant: "primary"
+    footer: "UPCOMING COHORT START DATES"
+    footer_badges:
+      - label: "Feb 3, 2025"
+        tag: "Filling fast"
+      - label: "Mar 10, 2025"
+      - label: "Apr 7, 2025"

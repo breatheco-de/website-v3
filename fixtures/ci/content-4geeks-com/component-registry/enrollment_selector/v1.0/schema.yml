@@ -1,0 +1,367 @@
+name: Enrollment Selector
+version: "1.0"
+component: EnrollmentSelectorDefault
+file: client/src/components/enrollment_selector/variants/EnrollmentSelectorDefault.tsx
+description: >-
+  An interactive enrollment/checkout section with a program selector, date or plan picker, a benefits list, and a sticky
+  summary card. Supports date-mode (cohort start dates) and plan-mode (subscription plans). Responds to ?program=<id>
+  querystring to pre-filter a specific program and hide the selector.
+when_to_use: >
+  Use on enrollment or pricing pages where users need to choose a program, pick a start date or subscription plan, and
+  review what is included before completing enrollment. The right column summary card is sticky and shows pricing,
+  summary rows, feature unlocks, a CTA button, and an optional trust note.
+behaviors:
+  ecommerce:
+    role: funnel
+    events:
+      - view_item_list
+      - select_item
+      - begin_checkout
+    notes: >-
+      Prices in this section are display-only; purchase completes on the external POS. CTA intent via cta.tracking on
+      summary CTAs.
+props:
+  eyebrow:
+    type: string
+    required: false
+    description: Small uppercase label shown above the main title
+  title:
+    type: string
+    required: true
+    description: Main section heading. Supports richtext HTML (italic, bold, span with text-primary, etc.)
+  choose_program_label:
+    type: string
+    required: false
+    description: Label above the program selector tiles (default "Choose your program")
+  choose_date_label:
+    type: string
+    required: false
+    description: Label above the date selector and the auto-inserted "Start date" summary row (default "Choose your start date")
+  choose_plan_label:
+    type: string
+    required: false
+    description: Label above the plan selector tiles (default "Choose your plan")
+  included_label:
+    type: string
+    required: false
+    description: Label above the benefits list (default "What's included")
+  programs:
+    type: array
+    required: true
+    items:
+      id:
+        type: string
+        required: true
+      description:
+        type: string
+        required: false
+      selection_card:
+        type: object
+        required: true
+        properties:
+          name:
+            type: string
+            required: true
+          duration:
+            type: string
+            required: true
+          badge:
+            type: string
+            required: false
+          icon:
+            type: string
+            required: false
+      summary:
+        type: object
+        required: true
+        properties:
+          price_label:
+            type: string
+            required: true
+          price_amount:
+            type: string
+            required: true
+          price_period:
+            type: string
+            required: false
+          price_sub:
+            type: string
+            required: false
+          rows:
+            type: string
+            required: true
+          cta:
+            type: object
+            required: true
+            properties:
+              text:
+                type: string
+                required: true
+              url:
+                type: string
+                required: true
+              variant:
+                type: string
+                required: true
+                options:
+                  - primary
+                  - secondary
+                  - outline
+              tracking:
+                type: string
+                required: false
+                options:
+                  - none
+                  - add_to_cart
+                  - begin_checkout
+              button_variant:
+                type: string
+                required: false
+              text_color:
+                type: string
+                required: false
+              icon:
+                type: string
+                required: false
+              us_only:
+                type: boolean
+                required: false
+          trust_note:
+            type: object
+            required: false
+            properties:
+              image_id:
+                type: string
+                required: false
+              initials:
+                type: string
+                required: true
+              message:
+                type: string
+                required: true
+      benefits:
+        type: string
+        required: true
+      unlocks:
+        type: string
+        required: true
+      dates:
+        type: string
+        required: false
+      plans:
+        type: array
+        required: false
+        items:
+          id:
+            type: string
+            required: true
+          name:
+            type: string
+            required: true
+          tagline:
+            type: string
+            required: false
+          currency:
+            type: string
+            required: true
+          amount:
+            type: string
+            required: true
+          period:
+            type: string
+            required: true
+          billing_note:
+            type: string
+            required: false
+          tag:
+            type: string
+            required: false
+          featured:
+            type: boolean
+            required: false
+          default:
+            type: boolean
+            required: false
+          callback_label_en:
+            type: string
+            required: false
+            description: English label appended on the CTA checkout URL when this plan is selected (overrides program)
+          callback_label_es:
+            type: string
+            required: false
+            description: Spanish label appended on the CTA checkout URL when this plan is selected (overrides program)
+          summary:
+            type: object
+            required: true
+            properties:
+              price_label:
+                type: string
+                required: true
+              price_amount:
+                type: string
+                required: true
+              price_period:
+                type: string
+                required: false
+              price_sub:
+                type: string
+                required: false
+              rows:
+                type: string
+                required: true
+              cta:
+                type: object
+                required: true
+                properties:
+                  text:
+                    type: string
+                    required: true
+                  url:
+                    type: string
+                    required: true
+                  variant:
+                    type: string
+                    required: true
+                    options:
+                      - primary
+                      - secondary
+                      - outline
+                  tracking:
+                    type: string
+                    required: false
+                    options:
+                      - none
+                      - add_to_cart
+                      - begin_checkout
+                  button_variant:
+                    type: string
+                    required: false
+                  text_color:
+                    type: string
+                    required: false
+                  icon:
+                    type: string
+                    required: false
+                  us_only:
+                    type: boolean
+                    required: false
+              trust_note:
+                type: object
+                required: false
+                properties:
+                  image_id:
+                    type: string
+                    required: false
+                  initials:
+                    type: string
+                    required: true
+                  message:
+                    type: string
+                    required: true
+          benefits:
+            type: array
+            required: false
+            items:
+              icon:
+                type: string
+                required: false
+              title:
+                type: string
+                required: true
+              desc:
+                type: string
+                required: true
+          unlocks:
+            type: array
+            required: false
+            items:
+              icon:
+                type: string
+                required: false
+              text:
+                type: string
+                required: true
+      addon:
+        type: object
+        required: false
+        properties:
+          id:
+            type: string
+            required: true
+            description: Add-on identifier. Used for default urls when on.url/off.url are not set (?addon=<id> / ?addon=)
+          label:
+            type: string
+            required: true
+            description: Add-on name shown in bold in the toggle row (e.g. "Job guarantee")
+          badge:
+            type: string
+            required: false
+            description: Pill badge text next to the label (e.g. "Optional add-on"). Always rendered in primary color
+          description:
+            type: string
+            required: false
+            description: Short description text shown below the label
+          "on":
+            type: object
+            required: false
+            properties:
+              url:
+                type: string
+                required: false
+                description: >-
+                  Querystring link navigated when the toggle turns ON, like any page link (e.g. "?addon=job-guarantee").
+                  Defaults to "?addon=<id>"
+              added_label:
+                type: string
+                required: false
+                description: Green badge text shown below the description while ON (e.g. "Job guarantee added")
+              summary_value:
+                type: string
+                required: false
+                description: Value shown in summary rows with show_dynamic_addon while ON (e.g. "Included")
+            description: State config when the toggle is ON
+          "off":
+            type: object
+            required: false
+            properties:
+              url:
+                type: string
+                required: false
+                description: Querystring link navigated when the toggle turns OFF (e.g. "?addon="). Defaults to "?addon="
+              added_label:
+                type: string
+                required: false
+              summary_value:
+                type: string
+                required: false
+                description: Value shown in summary rows with show_dynamic_addon while OFF (e.g. "Not included")
+            description: State config when the toggle is OFF
+        description: >-
+          Optional add-on toggle (e.g. Job Guarantee) rendered at the bottom of the "What's included" card after a
+          divider. Toggling ON navigates on.url (default ?addon=<id>) like any page link; toggling OFF navigates off.url
+          (default ?addon=). Summary rows with show_dynamic_addon show on/off summary_value; rows with value_with_addon
+          swap their value while ON. The toggle resets to OFF when the user switches programs, and initializes ON if the
+          on.url params are already present in the page URL.
+      callback_label_en:
+        type: string
+        required: false
+        description: >-
+          English label appended as ?callback_label_en= on the CTA checkout URL when this program is selected.
+          Plan-level labels override program-level ones. Not written to the page URL.
+      callback_label_es:
+        type: string
+        required: false
+        description: >-
+          Spanish label appended as ?callback_label_es= on the CTA checkout URL when this program is selected.
+          Plan-level labels override program-level ones. Not written to the page URL.
+    description: >-
+      Array of programs. A program with a "dates" key uses date-mode; one with a "plans" key uses plan-mode. Each
+      program has: id, selection_card (name, duration, badge?, icon?), summary (price_label, price_amount,
+      price_period?, price_sub?, rows[], cta, trust_note?), benefits[], unlocks[], either dates (static or interval) or
+      plans[], an optional addon toggle, and optional callback_label_en / callback_label_es (sent as top-level params on
+      the CTA checkout URL from the current selection; plan labels override program). Plans can override summary,
+      benefits, unlocks, and callback labels from the parent program. Summary rows support value_with_addon (alternative
+      value when the add-on is ON) and show_dynamic_addon (renders the addon's on/off summary value).
+  variant:
+    type: string
+    required: true

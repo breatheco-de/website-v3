@@ -1,0 +1,31 @@
+name: "Inline With Coupon"
+description: "Inline form with visible coupon field for promotions"
+yaml: |
+  - type: lead_form
+    version: "1.0"
+    variant: inline
+    subtitle: "Enter your coupon code to unlock special pricing"
+    submit_label: "Apply & Get Info"
+    tags: "website-lead,promo"
+    fields:
+      email:
+        visible: true
+        required: true
+      first_name:
+        visible: true
+        required: true
+      phone:
+        visible: true
+        required: true
+      program:
+        visible: true
+        required: true
+      coupon:
+        visible: true
+        required: false
+        default: "auto"
+      location:
+        visible: false
+        default: "auto"
+    success:
+      url: "/thank-you-promo"

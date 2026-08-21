@@ -1,0 +1,37 @@
+type: comparison_table
+version: "1.0"
+title: Compare Our Plans
+subtitle: Choose the plan that best fits your needs
+columns:
+  - name: Features
+  - name: Basic
+  - name: Pro
+    highlight: true
+  - name: Enterprise
+rows:
+  - feature: Users Included
+    values:
+      - "1 user"
+      - "5 users"
+      - "Unlimited"
+  - feature: Storage
+    values:
+      - "10 GB"
+      - "100 GB"
+      - "1 TB"
+  - feature: API Access
+    values:
+      - "no"
+      - "yes"
+      - "yes"
+  - feature: Priority Support
+    values:
+      - "no"
+      - "yes"
+      - "yes"
+  - feature: Custom Integrations
+    values:
+      - "no"
+      - "no"
+      - "yes"
+footer_note: "All prices are billed annually. Contact us for custom enterprise pricing."

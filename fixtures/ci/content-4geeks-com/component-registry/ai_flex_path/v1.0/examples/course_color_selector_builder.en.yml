@@ -1,0 +1,182 @@
+type: ai_flex_path
+variant: course_color_selector
+section_id: ai-flex-path-builder
+
+ready_label: "Your path is ready"
+path_name: The Builder
+tagline: Build real products with AI, code-optional
+results_subtitle: "View your courses or build your own path"
+max_selections: 4
+slot_colors:
+  - color: "hsl(0 84% 60%)"
+  - color: "hsl(45 96% 53%)"
+  - color: "hsl(142 71% 45%)"
+  - color: "hsl(330 80% 62%)"
+view_details_label: "View details"
+drag_instruction_label: "Also available — drag any card to swap it into your path"
+replace_label: "Replace with"
+swap_label: "Swap into path"
+swap_icon: "arrow-left-right"
+swap_prompt_label: "Tap a course in your path to replace it"
+swap_cancel_label: "Cancel"
+tools_label: "Tools in this path"
+tools_marquee: true
+icon: "4GeeksAvatar"
+
+default_courses:
+  - Vibe Coding with AI
+  - Backend Dev with Python
+  - "No-Code & Automations"
+  - OpenClaw
+
+cta:
+  title: "Start with a 7-day free trial."
+  subtitle: "No commitment. Cancel anytime. Your path stays saved."
+  banner: true
+  buttons:
+    - text: "Start free trial"
+      url: "/en/apply"
+      variant: primary
+
+courses:
+  - name: Prompt Engineering
+    tagline: "Prompting patterns & reusable libraries"
+    hrs: "~8 hrs"
+    color: "hsl(0 84% 60%)"
+    tools:
+      - ChatGPT
+      - Claude
+      - Gemini
+      - Perplexity
+    skills:
+      - name: Prompting patterns
+        skill_percentage: 55
+      - name: Output control
+        skill_percentage: 28
+      - name: Context management
+        skill_percentage: 17
+
+  - name: Applied AI
+    tagline: AI for real professional work tasks
+    hrs: "~12 hrs"
+    color: "hsl(45 96% 53%)"
+    tools:
+      - ChatGPT
+      - Notion
+      - Otter.ai
+      - Grammarly
+      - Gamma
+    skills:
+      - name: "AI writing & editing"
+        skill_percentage: 40
+      - name: Research tools
+        skill_percentage: 35
+      - name: Workflow documentation
+        skill_percentage: 25
+
+  - name: "No-Code & Automations"
+    tagline: Visual workflows with n8n, Zapier, Make
+    hrs: "~10 hrs"
+    color: "hsl(142 71% 45%)"
+    tools:
+      - n8n
+      - Make
+      - Zapier
+      - Airtable
+      - Webhooks
+    skills:
+      - name: Visual workflows
+        skill_percentage: 45
+      - name: App integrations
+        skill_percentage: 35
+      - name: AI steps in pipelines
+        skill_percentage: 20
+
+  - name: Vibe Coding with AI
+    tagline: Build apps with AI coding assistants
+    hrs: "~12 hrs"
+    color: "hsl(330 80% 62%)"
+    tools:
+      - Cursor
+      - GitHub Copilot
+      - Replit
+      - Vercel
+    skills:
+      - name: AI-assisted coding
+        skill_percentage: 50
+      - name: Shipping projects
+        skill_percentage: 30
+      - name: "Debug & review"
+        skill_percentage: 20
+
+  - name: OpenClaw
+    tagline: "Personal AI assistant setup & integration"
+    hrs: "~6 hrs"
+    color: "hsl(262 83% 58%)"
+    tools:
+      - OpenClaw
+      - Slack
+      - Notion
+      - Google Sheets
+    skills:
+      - name: Assistant setup
+        skill_percentage: 50
+      - name: Custom skill design
+        skill_percentage: 30
+      - name: Tool connection
+        skill_percentage: 20
+
+  - name: Backend Dev with Python
+    tagline: APIs with FastAPI, databases, deployment
+    hrs: "~20 hrs"
+    color: "hsl(217 91% 60%)"
+    tools:
+      - FastAPI
+      - PostgreSQL
+      - Docker
+      - Railway
+      - Supabase
+    skills:
+      - name: REST API design
+        skill_percentage: 45
+      - name: "Database & deploy"
+        skill_percentage: 35
+      - name: AI API integration
+        skill_percentage: 20
+
+  - name: Deep Dive into Python
+    tagline: Python fundamentals to advanced
+    hrs: "~18 hrs"
+    color: "hsl(0 84% 60%)"
+    tools:
+      - Python
+      - VS Code
+      - Git
+      - GitHub
+    skills:
+      - name: Python foundations
+        skill_percentage: 50
+      - name: "OOP & structures"
+        skill_percentage: 30
+      - name: Project setup
+        skill_percentage: 20
+
+  - name: "Data Science & ML"
+    tagline: Data analysis, ML models, predictions
+    hrs: "~22 hrs"
+    color: "hsl(45 96% 53%)"
+    tools:
+      - Pandas
+      - NumPy
+      - scikit-learn
+      - Jupyter
+      - Streamlit
+    skills:
+      - name: "Data analysis & viz"
+        skill_percentage: 45
+      - name: ML model building
+        skill_percentage: 35
+      - name: Model evaluation
+        skill_percentage: 20
+maxWidth:
+  desktop: xl

@@ -1,0 +1,43 @@
+name: Bento Cards Section
+version: "1.0"
+component: BentoCards
+file: client/src/components/bento-cards/BentoCards.tsx
+description: >-
+  A bento-box style card grid that bleeds to the right edge of the viewport. Displays feature cards with icons, titles,
+  and descriptions in an asymmetric grid layout.
+when_to_use: |
+  Use for feature sections that need a modern, editorial feel with asymmetric card sizes.
+  The right-edge bleed creates visual dynamism. Best for homepage feature highlights or
+  "what you'll learn" sections where you want to break away from a standard uniform grid.
+props:
+  title:
+    type: string
+    required: false
+  subtitle:
+    type: string
+    required: false
+  description:
+    type: string
+    required: false
+  items:
+    type: array
+    required: true
+    items:
+      id:
+        type: string
+        required: false
+      icon:
+        type: string
+        required: false
+      icon_color:
+        type: string
+        required: false
+      title:
+        type: string
+        required: true
+      description:
+        type: string
+        required: false
+  background:
+    type: string
+    required: false
