@@ -232,6 +232,12 @@ export function canonicalizePillarPath(
       }
       const next = toPublicUrlPath(result.resolvedTo);
       if (next === current) break;
+      // Never rewrite pillar_path to a non-existent URL. Soft-match can invent
+      // truncated paths (e.g. blog `/en/blog/:category/:slug` with :category
+      // unresolved) that must not overwrite a live submitted path.
+      if (result.destinationExists === false) {
+        break;
+      }
       current = next;
       continue;
     }

@@ -758,15 +758,59 @@ export class ContentIndex {
     const config = this.contentTypeConfigs[this.normalizeType(contentType)];
     const pattern = config?.url_pattern?.[locale] || config?.url_pattern?.["default"];
     if (!pattern || !/:(?!slug\b|locale\b)[a-zA-Z_]+/.test(pattern)) return undefined;
+    const fieldMapping = getFullFieldMapping(contentType, this.contentRoot);
+    const defaults = getFieldMappingDefaults(contentType, this.contentRoot);
     try {
       const { data } = this.loadMergedContent(contentType, slug, locale);
       if (data) {
-        const fieldMapping = getFullFieldMapping(contentType, this.contentRoot);
-        const defaults = getFieldMappingDefaults(contentType, this.contentRoot);
-        return extractUrlPatternParams(pattern, data, fieldMapping, defaults).params;
+        const extracted = extractUrlPatternParams(pattern, data, fieldMapping, defaults);
+        if (extracted.missing.length === 0) return extracted.params;
+        // Locale YAML may fail or omit URL params that live on _common.yml
+        // (e.g. blog category). Fill gaps from common without dropping known params.
+        const fromCommon = this.readUrlPatternParamsFromCommon(
+          contentType,
+          slug,
+          pattern,
+          fieldMapping,
+          defaults,
+        );
+        if (fromCommon) {
+          return { ...fromCommon, ...extracted.params };
+        }
+        if (Object.keys(extracted.params).length > 0) return extracted.params;
+      } else {
+        // Merged load failed (often unparseable locale YAML) — still try _common.yml.
+        return this.readUrlPatternParamsFromCommon(
+          contentType,
+          slug,
+          pattern,
+          fieldMapping,
+          defaults,
+        );
       }
     } catch {}
     return undefined;
+  }
+
+  /** URL-pattern extras (e.g. category) often live only on entry `_common.yml`. */
+  private readUrlPatternParamsFromCommon(
+    contentType: string,
+    slug: string,
+    pattern: string,
+    fieldMapping: ReturnType<typeof getFullFieldMapping>,
+    defaults: ReturnType<typeof getFieldMappingDefaults>,
+  ): Record<string, string> | undefined {
+    try {
+      const contentFolder = this.getContentFolderPath(contentType, slug);
+      const commonPath = path.join(contentFolder, "_common.yml");
+      if (!fs.existsSync(commonPath)) return undefined;
+      const commonData = this.safeYamlLoad(fs.readFileSync(commonPath, "utf-8"));
+      if (!commonData) return undefined;
+      const extracted = extractUrlPatternParams(pattern, commonData, fieldMapping, defaults);
+      return Object.keys(extracted.params).length > 0 ? extracted.params : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private buildLocaleUrlsInternal(slug: string, contentType: string): Record<string, string> {

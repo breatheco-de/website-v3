@@ -24,6 +24,7 @@ vi.mock("./content-types", async (importOriginal) => {
 });
 
 import { findCanonicalSoftMatch, inspectRedirect, isLivePublicUrl, resolveRedirectRequestLocale, testRedirect } from "./redirects";
+import { canonicalizePillarPath } from "./seo-fields";
 import { applyRedirectTraceCookie } from "./redirect-trace-cookie";
 import {
   REDIRECT_TRACE_COOKIE_NAME,
@@ -138,6 +139,40 @@ describe("findCanonicalSoftMatch", () => {
       canonicalUrl:
         "/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-colombia",
     });
+  });
+
+  it("does not soft-match onto an alternate URL that is not known", () => {
+    const ci = makeCi({
+      knownSlugs: {
+        // Truncated alternate (missing :category) — must not rewrite a live path.
+        "inside-4geeks-platform": {
+          en: "/en/blog/inside-4geeks-platform",
+        },
+      },
+    });
+    // Override isKnownUrl: only the full category URL is live (truncated is not).
+    (ci as { isKnownUrl: (url: string) => boolean }).isKnownUrl = (url: string) =>
+      url === "/en/blog/ai-powered-learning/inside-4geeks-platform";
+    expect(
+      findCanonicalSoftMatch(
+        "/en/blog/ai-powered-learning/inside-4geeks-platform",
+        ci,
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("canonicalizePillarPath with broken blog alternate", () => {
+  it("keeps a live /:category/:slug pillar path instead of truncating", () => {
+    const full = "/en/blog/ai-powered-learning/inside-4geeks-platform";
+    const ci = makeCi({
+      knownSlugs: {
+        "inside-4geeks-platform": { en: "/en/blog/inside-4geeks-platform" },
+      },
+    });
+    (ci as { isKnownUrl: (url: string) => boolean }).isKnownUrl = (url: string) =>
+      url === full;
+    expect(canonicalizePillarPath(full, "en", ci as never).path).toBe(full);
   });
 });
 

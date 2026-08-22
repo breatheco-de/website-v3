@@ -569,7 +569,15 @@ export function findCanonicalSoftMatch(
       canonicalUrl = urls[locale] || urls.en || Object.values(urls)[0] || null;
     }
 
-    if (matched && canonicalUrl && canonicalUrl !== cleanUrl) {
+    // Only soft-match onto a URL that actually resolves in the content index.
+    // Otherwise a broken alternate (e.g. blog :category dropped when locale YAML
+    // fails to parse) would 301 live `/en/blog/:category/:slug` → truncated path.
+    if (
+      matched &&
+      canonicalUrl &&
+      canonicalUrl !== cleanUrl &&
+      ci.isKnownUrl(canonicalUrl)
+    ) {
       return { typeName, canonicalUrl };
     }
     if (matched) return null;

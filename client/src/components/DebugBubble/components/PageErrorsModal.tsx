@@ -276,7 +276,7 @@ function IssueCard({
         }
         data-testid={`modal-${variant}-${index}${isCompleted ? "-completed" : ""}`}
       >
-        <div className="flex w-full items-start gap-2 p-3">
+        <div className="flex w-full items-stretch gap-2 p-3">
           <div className="min-w-0 flex-1">
             <CollapsibleTrigger asChild disabled={!hasDetails}>
               <button
@@ -327,83 +327,87 @@ function IssueCard({
               </p>
             )}
           </div>
-          {canAct && !isCompleted && (
-            <button
-              type="button"
-              className={cn(
-                "shrink-0 mt-0.5 rounded-md p-1 transition-colors",
-                isClaimed
-                  ? "text-status-away hover:bg-muted"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted",
-              )}
-              aria-label={isClaimed ? "Release claim" : "Claim issue"}
-              title={
-                isClaimed
-                  ? `Release claim (${issue.claimed?.by})`
-                  : "Claim — mark as in progress (30m)"
-              }
-              disabled={togglePending}
-              onClick={(e) => {
-                e.stopPropagation();
-                onUpdateIssue?.(issue, isClaimed ? "release" : "claim");
-              }}
-              data-testid={`modal-${variant}-${index}-claim`}
-            >
-              {togglePending ? (
-                <IconLoader2 className="h-4 w-4 animate-spin" />
-              ) : isClaimed ? (
-                <IconLockOpen className="h-4 w-4" />
-              ) : (
-                <IconLock className="h-4 w-4" />
-              )}
-            </button>
-          )}
-          {canAct && (
-            <button
-              type="button"
-              className={cn(
-                "shrink-0 mt-0.5 rounded-md p-1 transition-colors",
-                isCompleted
-                  ? "text-status-online hover:bg-muted"
-                  : "text-muted-foreground hover:text-status-online hover:bg-muted",
-              )}
-              aria-label={isCompleted ? "Mark as open" : "Mark as fixed"}
-              title={
-                isCompleted
-                  ? "Mark as open"
-                  : "Mark as fixed — hides until the next cache write"
-              }
-              disabled={togglePending}
-              onClick={(e) => {
-                e.stopPropagation();
-                onUpdateIssue?.(issue, isCompleted ? "uncomplete" : "complete");
-              }}
-              data-testid={`modal-${variant}-${index}-complete`}
-            >
-              {togglePending ? (
-                <IconLoader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <IconCheck className="h-4 w-4" stroke={isCompleted ? 2.5 : 1.5} />
-              )}
-            </button>
-          )}
-          {hasDetails && (
-            <CollapsibleTrigger asChild>
-              <button
-                type="button"
-                className="shrink-0 mt-0.5 text-muted-foreground"
-                aria-label={open ? "Hide details" : "Show details"}
-                data-testid={`modal-${variant}-${index}-chevron`}
-              >
-                <IconChevronDown
+          <div className="flex shrink-0 flex-col items-end self-stretch">
+            {hasDetails && (
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="mt-0.5 text-muted-foreground"
+                  aria-label={open ? "Hide details" : "Show details"}
+                  data-testid={`modal-${variant}-${index}-chevron`}
+                >
+                  <IconChevronDown
+                    className={cn(
+                      "h-4 w-4 transition-transform",
+                      open && "rotate-180",
+                    )}
+                  />
+                </button>
+              </CollapsibleTrigger>
+            )}
+            {canAct && (
+              <div className="mt-auto flex items-center gap-0.5">
+                {!isCompleted && (
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded-md p-1 transition-colors",
+                      isClaimed
+                        ? "text-status-away hover:bg-muted"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                    )}
+                    aria-label={isClaimed ? "Release claim" : "Claim issue"}
+                    title={
+                      isClaimed
+                        ? `Release claim (${issue.claimed?.by})`
+                        : "Claim — mark as in progress (30m)"
+                    }
+                    disabled={togglePending}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdateIssue?.(issue, isClaimed ? "release" : "claim");
+                    }}
+                    data-testid={`modal-${variant}-${index}-claim`}
+                  >
+                    {togglePending ? (
+                      <IconLoader2 className="h-4 w-4 animate-spin" />
+                    ) : isClaimed ? (
+                      <IconLockOpen className="h-4 w-4" />
+                    ) : (
+                      <IconLock className="h-4 w-4" />
+                    )}
+                  </button>
+                )}
+                <button
+                  type="button"
                   className={cn(
-                    "h-4 w-4 transition-transform",
-                    open && "rotate-180",
+                    "rounded-md p-1 transition-colors",
+                    isCompleted
+                      ? "text-status-online hover:bg-muted"
+                      : "text-muted-foreground hover:text-status-online hover:bg-muted",
                   )}
-                />
-              </button>
-            </CollapsibleTrigger>
-          )}
+                  aria-label={isCompleted ? "Mark as open" : "Mark as fixed"}
+                  title={
+                    isCompleted
+                      ? "Mark as open"
+                      : "Mark as fixed — hides until the next cache write"
+                  }
+                  disabled={togglePending}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUpdateIssue?.(issue, isCompleted ? "uncomplete" : "complete");
+                  }}
+                  data-testid={`modal-${variant}-${index}-complete`}
+                >
+                  {togglePending ? (
+                    <IconLoader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <IconCheck className="h-4 w-4" stroke={isCompleted ? 2.5 : 1.5} />
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
         {hasDetails && (
           <CollapsibleContent>
