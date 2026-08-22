@@ -32,7 +32,7 @@ import {
 } from "@/hooks/useGcsSyncStatus";
 import SyncArtifactMenu from "@/components/cloud-sync/SyncArtifactMenu";
 
-interface SiteRegistryEntry { // test
+interface SiteRegistryEntry { 
   domain: string;
   contentFolder: string;
   githubRepoUrl?: string;
