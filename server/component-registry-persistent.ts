@@ -1,5 +1,5 @@
 /**
- * Optional mirror of component-registry → persistent/site_*/ (legacy hybrid).
+ * Optional mirror of component-registry → persistent/site_* (legacy hybrid).
  *
  * Current VPS deploy keeps site_* as real dirs inside the release and fills
  * them via GitHub bootstrap; the next deploy does not copy registry from
