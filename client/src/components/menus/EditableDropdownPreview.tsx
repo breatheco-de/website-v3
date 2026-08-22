@@ -23,7 +23,6 @@ import {
   resolveCardsLayout,
   type CardsLayoutConfig,
   type CardsLayoutMode,
-  CARDS_COLUMN_WIDTH_PX,
 } from "./cardsLayout";
 import {
   DndContext,
@@ -571,12 +570,11 @@ function EditableCardsPreview({
         onDragEnd={handleDragEnd}
       >
         <SortableContext items={itemIds} strategy={rectSortingStrategy}>
-          <div className={`grid gap-4 ${colsClass}`}>
+          <div className={`grid w-full min-w-0 gap-4 ${colsClass}`}>
             {items.map((item, index) => (
               <div
                 key={`card-${index}`}
-                style={mode === "max" ? { width: CARDS_COLUMN_WIDTH_PX, minWidth: CARDS_COLUMN_WIDTH_PX } : undefined}
-                className="min-w-0"
+                className="min-w-0 max-w-full overflow-hidden"
               >
                 <SortableCardItem
                   id={`card-${index}`}
@@ -592,8 +590,7 @@ function EditableCardsPreview({
             
             {!isReadOnlyStructure && (
               <div
-                className="flex flex-col rounded-lg border-2 border-dashed border-muted-foreground/30 min-h-[200px] overflow-hidden min-w-0"
-                style={mode === "max" ? { width: CARDS_COLUMN_WIDTH_PX, minWidth: CARDS_COLUMN_WIDTH_PX } : undefined}
+                className="flex flex-col rounded-lg border-2 border-dashed border-muted-foreground/30 min-h-[200px] overflow-hidden min-w-0 max-w-full"
                 data-testid="editable-cards-actions"
               >
                 <Popover>
