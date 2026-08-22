@@ -65,8 +65,18 @@ export type ContentTypeEditorHint = {
    * When `"attached"`: same rules only for shared-layout entries that are not detached
    * (`detached: true` skips). On non–shared-layout types, `"attached"` behaves like true.
    * JSON fields must also satisfy editor.schema (and call_to_action semantics when applicable).
+   * Required true|attached also requires a valid fill_intent (goal + purpose).
    */
   required?: boolean | "attached";
+  /**
+   * Declarative why/how to fill this field when required. Open `goal` string;
+   * see FILL_INTENT_GOAL_PRESETS for UI/MCP suggestions.
+   */
+  fill_intent?: {
+    goal: string;
+    purpose: string;
+    constraints?: string[];
+  };
   /**
    * Required when type is `json`. JSON Schema for structured values; exact
    * `{{ single.field }}` binds can return arrays/objects at delivery.
@@ -105,7 +115,8 @@ export interface ContentTypeEntry {
   preview?: ContentTypePreviewConfig;
   /**
    * Required companion schema_org sections (by schema_type) on every entry of this type.
-   * Validated by schema-org-companions + live SEO gate; attach via ensure API/MCP.
+   * Validated by schema-org-companions; hard-gated on publish/promote / full replace
+   * (not on live micro structural saves). Attach via ensure API/MCP.
    */
   schema_org_requirements?: Array<{ schema_type: string }>;
   /**
@@ -221,13 +232,16 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   Per-field editor hints for the SEO Fields tab / item editors (same shape as db/*/config editor).
 #   Keys match field_mapping target names. Types: text, textarea, markdown, number, boolean,
 #   date, datetime, image, pdf, select, tags, json, relation. Optional: options, populate_options,
-#   allow_custom_values, split_comma_values, description, required, schema.
+#   allow_custom_values, split_comma_values, description, required, fill_intent, schema.
 #   required: when true, drafts may be empty; publish/live saves require a non-empty value
 #     (cannot clear on a live entry). When "attached", same rules only for shared-layout
 #     entries that are not detached (detached: true skips). On non–shared-layout types,
 #     "attached" behaves like true. JSON editor fields must also satisfy editor.schema
 #     (call_to_action also checks conversion_name / CRM tags). Distinct from field_mapping
-#     ? prefix (key may be missing).
+#     ? prefix (key may be missing). Every required true|attached field MUST also set
+#     fill_intent: { goal (open string), purpose, constraints? string[] }.
+#     Goal presets (suggestions only): geo_llm, conversion, seo, editorial, structural,
+#     compliance, other — custom goals allowed.
 #   split_comma_values: when true, string cells like "a, b" become tokens a and b (arrays always
 #     expand). WARNING: values that legitimately contain commas (e.g. "San Francisco, CA") will
 #     also be split. Saving a tags field may normalize CSV strings into string arrays.
@@ -251,7 +265,8 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   List of companion schema_org sections required on every entry, e.g.
 #     schema_org_requirements:
 #       - schema_type: LocalBusiness
-#   Validated by schema-org-companions + live SEO gate. Attach via ensure API / MCP
+#   Validated by schema-org-companions; hard-gated on publish/promote / full replace.
+#   Attach via ensure API / MCP
 #   ensure_content_type_schema_org.
 `;
 

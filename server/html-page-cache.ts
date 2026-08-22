@@ -93,7 +93,14 @@ export function shouldBypassHtmlCache(req: {
   if (method !== "GET" && method !== "HEAD") return true;
 
   const url = req.originalUrl || req.url || "";
-  if (url.includes("edit_mode=") || url.includes("edit=1") || url.includes("__site=")) {
+  // Prefer ?cache=false for anonymous fresh HTML (no edit-mode side effects).
+  // edit=1 / edit_mode= / __site= also bypass (legacy / editor / multi-site).
+  if (
+    /[?&]cache=false(?:&|#|$)/i.test(url) ||
+    url.includes("edit_mode=") ||
+    url.includes("edit=1") ||
+    url.includes("__site=")
+  ) {
     return true;
   }
 

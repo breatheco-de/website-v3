@@ -27,11 +27,15 @@ describe("resolveDynamicTags", () => {
         "tracking:",
         "  conversion_events:",
         "    - name: student_application",
-        "      description: Form submission",
+        "      description: Apply / enroll lead",
+        "      when_to_use: Visitor is applying or enrolling in a program via Apply or Enroll.",
+        "      when_not_to_use: Soft info, downloads, newsletter — use dedicated events instead.",
         "      tags:",
         "        - website-lead",
         "    - name: newsletter_signup",
-        "      description: Form submission",
+        "      description: Email list signup",
+        "      when_to_use: Visitor is joining an email newsletter or updates list only.",
+        "      when_not_to_use: Apply/enroll, downloads, contact, jobs, or partner forms.",
         "  leads_expected_tags:",
         "    - website-lead",
         "    - contact-us",
@@ -54,6 +58,12 @@ describe("resolveDynamicTags", () => {
     ].join("\n");
 
     const resolved = resolveDynamicTags(md, contentPath);
+    expect(resolved).toContain("| Name | Default tags |");
+    expect(resolved).not.toContain("| Name | Description | Default tags |");
+    expect(resolved).toContain("### Intent");
+    expect(resolved).toContain("#### `student_application`");
+    expect(resolved).toContain("**when_to_use:** Visitor is applying or enrolling");
+    expect(resolved).toContain("**when_not_to_use:** Soft info, downloads");
     expect(resolved).toContain("`student_application`");
     expect(resolved).toContain("`newsletter_signup`");
     expect(resolved).toContain("`website-lead`");

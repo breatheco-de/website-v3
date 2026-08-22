@@ -5,6 +5,8 @@ import {
   isEmptyRequiredValue,
   satisfyRequiredEditorField,
   effectiveRequiredMode,
+  buildRequiredFieldSuggestion,
+  resolveRequiredFieldGuidance,
 } from "@shared/validateRequiredFields";
 
 const ctaSchema = {
@@ -137,5 +139,117 @@ describe("validateRequiredFields", () => {
         { isSharedLayout: true, isDetached: true },
       ),
     ).toBeNull();
+  });
+});
+
+describe("buildRequiredFieldSuggestion", () => {
+  const ctaHint = {
+    type: "json" as const,
+    required: "attached" as const,
+    description:
+      "Per-post CTA banner copy and lead settings for the shared blog cta_banner.",
+    schema: {
+      type: "object",
+      properties: {
+        conversion_name: {
+          type: "string",
+          description: "Must match a tracking.conversion_events name.",
+        },
+        tags: { type: "string" },
+      },
+    },
+  };
+
+  const faqHint = {
+    type: "json" as const,
+    required: "attached" as const,
+    description:
+      "At least 5 items, this is really important for SEO/GEO purposes because it creates schema org for FAQ.",
+    schema: {
+      type: "array",
+      minItems: 5,
+      items: {
+        type: "object",
+        properties: {
+          question: { type: "string" },
+          answer: { type: "string" },
+        },
+      },
+    },
+  };
+
+  it("surfaces FAQ description (SEO/GEO) and omits detach when description set", () => {
+    const s = buildRequiredFieldSuggestion({
+      fieldPath: "faq_entries",
+      mode: "attached",
+      hint: faqHint,
+    });
+    expect(s).toContain("SEO/GEO");
+    expect(s).toContain("editor.faq_entries.schema");
+    expect(s).not.toContain("detach");
+  });
+
+  it("prefers fill_intent over description when both set", () => {
+    const s = buildRequiredFieldSuggestion({
+      fieldPath: "faq_entries",
+      mode: "attached",
+      hint: {
+        ...faqHint,
+        fill_intent: {
+          goal: "geo_llm",
+          purpose: "Intent-driven FAQ brief for LLMs",
+        },
+      },
+    });
+    expect(s).toContain("Intent-driven FAQ brief");
+    expect(s).not.toContain("SEO/GEO purposes");
+  });
+
+  it("surfaces CTA description (lead/conversion) on top-level empty", () => {
+    const s = buildRequiredFieldSuggestion({
+      fieldPath: "call_to_action",
+      mode: "attached",
+      hint: ctaHint,
+    });
+    expect(s).toContain("CTA banner");
+    expect(s).not.toContain("detach");
+  });
+
+  it("prefers nested JSON Schema property description over top-level", () => {
+    expect(
+      resolveRequiredFieldGuidance("call_to_action.conversion_name", ctaHint),
+    ).toBe("Must match a tracking.conversion_events name.");
+    const s = buildRequiredFieldSuggestion({
+      fieldPath: "call_to_action.conversion_name",
+      mode: "attached",
+      hint: ctaHint,
+    });
+    expect(s).toContain("tracking.conversion_events");
+    expect(s).not.toContain("CTA banner");
+  });
+
+  it("falls back to structural + detach when description missing", () => {
+    const s = buildRequiredFieldSuggestion({
+      fieldPath: "title",
+      mode: "attached",
+      hint: { required: "attached" },
+    });
+    expect(s).toContain("non-empty");
+    expect(s).toContain("detach");
+    expect(s).not.toContain("Must satisfy editor.");
+  });
+
+  it("fails faq_entries with fewer than minItems via schema", () => {
+    const errors = satisfyRequiredEditorField(
+      "faq_entries",
+      [
+        { question: "Q1?", answer: "A1" },
+        { question: "Q2?", answer: "A2" },
+      ],
+      faqHint,
+      "attached",
+    );
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some((e) => /fewer than 5/i.test(e.message))).toBe(true);
   });
 });

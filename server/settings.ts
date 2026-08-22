@@ -4,6 +4,7 @@ import path from "path";
 import yaml from "js-yaml";
 import { child } from "./logger";
 import { normalizeConsentFallbackKey } from "@shared/consent-settings";
+import { validateConversionEventIntent } from "@shared/conversionEventIntent";
 const log = child({ module: "settings" });
 
 
@@ -81,7 +82,12 @@ export interface SuccessDefaults {
 
 export interface ConversionEventEntry {
   name: string;
+  /** Short staff one-liner; agents primarily use when_to_use / when_not_to_use. */
   description?: string;
+  /** Visitor proposition — when this conversion_name fits (required on save). */
+  when_to_use?: string;
+  /** Confusable neighbors — when not to use this name (required on save). */
+  when_not_to_use?: string;
   automations?: string;
   tags?: string[];
   consent?: ConsentDefaults;
@@ -626,6 +632,12 @@ function loadSettings(contentRoot?: string): SiteSettings {
               const entry: ConversionEventEntry = {
                 name: e.name as string,
                 ...(typeof e.description === "string" ? { description: e.description } : {}),
+                ...(typeof e.when_to_use === "string" && e.when_to_use.trim()
+                  ? { when_to_use: e.when_to_use.trim() }
+                  : {}),
+                ...(typeof e.when_not_to_use === "string" && e.when_not_to_use.trim()
+                  ? { when_not_to_use: e.when_not_to_use.trim() }
+                  : {}),
                 ...(typeof e.automations === "string" && e.automations ? { automations: e.automations } : {}),
                 ...(Array.isArray(e.tags) && e.tags.length > 0
                   ? { tags: e.tags.filter((t) => typeof t === "string") as string[] }
@@ -1328,6 +1340,8 @@ export function updateTrackingSettings(input: {
       if (!/^[a-z][a-z0-9_]*$/.test(entry.name.trim())) {
         throw new Error(`Invalid conversion event name: "${entry.name}" — use lowercase letters, digits, and underscores only`);
       }
+      const intentErr = validateConversionEventIntent(entry);
+      if (intentErr) throw new Error(intentErr);
     }
   }
 
@@ -1356,7 +1370,9 @@ export function updateTrackingSettings(input: {
   if (input.conversion_events !== undefined) {
     nextTracking.conversion_events = input.conversion_events.map((e) => {
       const serialized: Record<string, unknown> = { name: e.name.trim() };
-      if (e.description) serialized.description = e.description;
+      if (e.description?.trim()) serialized.description = e.description.trim();
+      serialized.when_to_use = e.when_to_use!.trim();
+      serialized.when_not_to_use = e.when_not_to_use!.trim();
       if (e.automations?.trim()) serialized.automations = e.automations.trim();
       if (e.tags && e.tags.length > 0) serialized.tags = e.tags;
       if (e.consent && Object.keys(e.consent).length > 0) serialized.consent = e.consent;

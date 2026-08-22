@@ -1299,14 +1299,15 @@ export async function editContent(request: ContentEditRequest): Promise<{
         unknown
       >;
       const gateTouchedPaths = touchedPathsFromOperations(resolvedOperations);
+      const gateIntent = liveSeoGateIntentFromOperations(resolvedOperations);
       const seoGateErr = evaluateLiveEntrySeoAndRequiredFields({
         contentType,
         slug,
         locale,
         pageData: mergedForGate,
         contentRoot,
-        mode: "live_update",
-        intent: "micro",
+        mode: gateIntent === "publish" ? "publish" : "live_update",
+        intent: gateIntent,
         touchedPaths: gateTouchedPaths,
         isDraftWrite: false,
       });
@@ -2184,6 +2185,18 @@ export function touchedPathsFromOperations(
   return paths;
 }
 
+/**
+ * Full section replace is treated like publish for the live SEO gate.
+ * Structural micro ops (add_item, etc.) keep intent "micro" (empty paths → skip).
+ */
+export function liveSeoGateIntentFromOperations(
+  operations: Array<{ action: string }>,
+): "publish" | "micro" {
+  return operations.some((op) => op.action === "replace_all_sections")
+    ? "publish"
+    : "micro";
+}
+
 /** Locales whose merged YAML (common + locale) must pass the live SEO gate after _common edits. */
 export function getCommonEditGateLocales(
   contentType: string,
@@ -2204,8 +2217,18 @@ export function evaluateCommonContentLiveGate(opts: {
   ci: ContentIndex;
   contentRootName?: string;
   touchedPaths?: string[];
+  /** Default micro (scoped). Pass publish for full locale checks. */
+  intent?: "publish" | "micro";
 }): LiveSeoGateFailure | null {
-  const { contentType, slug, commonData, ci, contentRootName, touchedPaths = [] } = opts;
+  const {
+    contentType,
+    slug,
+    commonData,
+    ci,
+    contentRootName,
+    touchedPaths = [],
+    intent = "micro",
+  } = opts;
   for (const gateLocale of getCommonEditGateLocales(contentType, slug, contentRootName)) {
     const localeLoaded = ci.loadLocaleData(contentType, slug, gateLocale);
     const localeDataForGate =
@@ -2220,8 +2243,8 @@ export function evaluateCommonContentLiveGate(opts: {
       locale: gateLocale,
       pageData: mergedForGate,
       contentRoot: contentRootName,
-      mode: "live_update",
-      intent: "micro",
+      mode: intent === "publish" ? "publish" : "live_update",
+      intent,
       touchedPaths,
     });
     if (seoGateErr) return seoGateErr;
@@ -2537,7 +2560,7 @@ export async function renameContentSlug(
   const updated = safeYamlDump(parsed, { lineWidth: -1, noRefs: true });
   fs.writeFileSync(localeFilePath, updated, "utf-8");
   markFileAsModified(`${rootName}/${contentFolder}/${resolvedFolderSlug}/${localeFile}`, author);
-  contentIndex.refresh();
+  contentIndex.refresh({ syncSlow: !!createRedirect });
   const routed = contentIndex.resolveUrl(newUrl)?.slug === resolvedFolderSlug;
   refreshSitemapEntry(contentType, resolvedFolderSlug, effectiveLocale);
   clearRedirectCache();

@@ -575,7 +575,7 @@ function EditableCardsPreview({
             {items.map((item, index) => (
               <div
                 key={`card-${index}`}
-                style={mode === "max" ? { width: CARDS_COLUMN_WIDTH_PX } : undefined}
+                style={mode === "max" ? { width: CARDS_COLUMN_WIDTH_PX, minWidth: CARDS_COLUMN_WIDTH_PX } : undefined}
                 className="min-w-0"
               >
                 <SortableCardItem
@@ -593,7 +593,7 @@ function EditableCardsPreview({
             {!isReadOnlyStructure && (
               <div
                 className="flex flex-col rounded-lg border-2 border-dashed border-muted-foreground/30 min-h-[200px] overflow-hidden min-w-0"
-                style={mode === "max" ? { width: CARDS_COLUMN_WIDTH_PX } : undefined}
+                style={mode === "max" ? { width: CARDS_COLUMN_WIDTH_PX, minWidth: CARDS_COLUMN_WIDTH_PX } : undefined}
                 data-testid="editable-cards-actions"
               >
                 <Popover>

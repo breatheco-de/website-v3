@@ -1961,6 +1961,20 @@ export function registerContentRoutes(app: Express): void {
             res.status(400).json({ error: relationCheck.error, field: relationCheck.field });
             return;
           }
+          const { assertRequiredFieldsHaveFillIntent } = await import(
+            "../../shared/fillIntent.js"
+          );
+          const fillIntentCheck = assertRequiredFieldsHaveFillIntent(
+            body.editor as Record<string, { required?: unknown; fill_intent?: unknown }>,
+          );
+          if (!fillIntentCheck.ok) {
+            res.status(400).json({
+              error: fillIntentCheck.error,
+              code: "missing_fill_intent",
+              fields: fillIntentCheck.fields,
+            });
+            return;
+          }
           update.editor = body.editor as import("../content-types").ContentTypeEntry["editor"];
         } else {
           res.status(400).json({ error: "editor must be an object or null" });

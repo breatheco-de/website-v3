@@ -18,8 +18,8 @@ const GRID_COLS_CLASS: Record<number, string> = {
   4: "grid-cols-4",
 };
 
-/** Approximate card column width used for max-mode panel sizing. */
-export const CARDS_COLUMN_WIDTH_PX = 200;
+/** Desktop min card column width used for max-mode panel sizing. */
+export const CARDS_COLUMN_WIDTH_PX = 600;
 export const CARDS_GAP_PX = 24; // gap-6
 export const CARDS_PANEL_PADDING_PX = 48; // p-6 * 2
 export const CARDS_FIXED_WIDTH_PX = 900;

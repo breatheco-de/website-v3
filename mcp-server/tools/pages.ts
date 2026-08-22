@@ -27,6 +27,7 @@ import {
 } from "../lib/tool-catalog.js";
 import { getTokenUsername } from "../lib/oauth.js";
 import { buildEditorSystemHints } from "../../shared/editorSystemHints.js";
+import { FILL_INTENT_GOAL_PRESETS } from "../../shared/fillIntent.js";
 import { promoteWarnings, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
 import {
   ok,
@@ -51,6 +52,7 @@ import {
   pathForLayoutTarget,
   versioningApiSlug,
   sharedTemplateBlastSideEffect,
+  SHARED_TEMPLATE_HTML_CACHE_WARNING,
   ADD_SECTION_NO_BINDING_FANOUT,
   REMOVE_SECTION_NO_BINDING_FANOUT,
   REPLACE_NO_BINDING_FANOUT,
@@ -346,6 +348,21 @@ async function callEditSectionsApi(
     return { data };
   } catch (e) {
     return { error: fail(`Failed to call edit-sections API: ${(e as Error).message}`) };
+  }
+}
+
+function appendSharedTemplateHtmlCacheWarning(
+  warnings: McpWarning[],
+  data: Record<string, unknown>,
+  layoutTarget?: "entry" | "type_single",
+): void {
+  if (
+    typeof data.shared_template_html_cache === "string" ||
+    layoutTarget === "type_single"
+  ) {
+    if (!warnings.some((w) => w.code === SHARED_TEMPLATE_HTML_CACHE_WARNING.code)) {
+      warnings.push(SHARED_TEMPLATE_HTML_CACHE_WARNING);
+    }
   }
 }
 
@@ -1904,6 +1921,7 @@ export function registerPageTools(
         );
         if ("error" in apiResult) return apiResult.error;
         boundUpdates = apiResult.data.boundUpdates;
+        appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         results.push(`${localeEntries.length} field(s) → ${pathInfo.relativeHint}`);
       }
 
@@ -2498,8 +2516,16 @@ export function registerPageTools(
               }
               const hint = ed?.[name];
               const system_hints = buildEditorSystemHints(name, hint as Parameters<typeof buildEditorSystemHints>[1]);
-              if (!system_hints) return f;
-              return { ...f, system_hints };
+              const fill_intent =
+                hint && typeof hint === "object" && "fill_intent" in hint
+                  ? (hint as { fill_intent?: unknown }).fill_intent ?? null
+                  : null;
+              if (!system_hints && fill_intent == null) return f;
+              return {
+                ...f,
+                ...(system_hints ? { system_hints } : {}),
+                ...(fill_intent != null ? { fill_intent } : {}),
+              };
             });
 
             const localeSeo = (() => {
@@ -3592,7 +3618,9 @@ export function registerPageTools(
           code: "index_refresh_failed",
           message:
             `Entry files were written, but URL routing refresh failed: ${refreshResult.error || "unknown error"}. ` +
-            "Run refresh_content_index before validating the public URL.",
+            "Run refresh_content_index before validating the public URL. " +
+            "After the index is fresh, append ?cache=false for an anonymous SSR HTML cache bypass " +
+            "(production ~5 min LRU only — does not refresh ContentIndex/DBs). See explain_site topic routing.",
         });
         next_actions.push({
           tool: "refresh_content_index",
@@ -3787,6 +3815,7 @@ export function registerPageTools(
         ...variantWarningsIfNeeded(variant),
         ...schemaOrgPageOverrideWarnings(sectionToAdd),
       ];
+      appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
       if (pathInfo.layer === "type_single") {
@@ -3990,6 +4019,7 @@ export function registerPageTools(
       if ("error" in apiResult) return apiResult.error;
 
       const warnings: McpWarning[] = [REMOVE_SECTION_NO_BINDING_FANOUT, ...variantWarningsIfNeeded(variant)];
+      appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
       if (pathInfo.layer === "type_single") {
@@ -4151,6 +4181,7 @@ export function registerPageTools(
       if ("error" in apiResult) return apiResult.error;
 
       const warnings: McpWarning[] = [REORDER_NO_BINDING_FANOUT, ...variantWarningsIfNeeded(variant)];
+      appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
       if (pathInfo.layer === "type_single") {
@@ -4322,6 +4353,7 @@ export function registerPageTools(
         UPDATED_AT_STAMP_WARNING,
         ...variantWarningsIfNeeded(variant),
       ];
+      appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
       if (pathInfo.layer === "type_single") {
@@ -4613,7 +4645,8 @@ export function registerPageTools(
           locale: target_locale,
           pageData: localeData,
           contentRoot: contentPath,
-          mode: "live_update",
+          mode: "publish",
+          intent: "publish",
           isDraftWrite: false,
         });
         if (gateErr) {
@@ -5407,6 +5440,7 @@ export function registerPageTools(
             multiple: !!h.multiple,
             required: h.required === true || h.required === "attached" ? h.required : false,
             description: h.description || null,
+            fill_intent: (hint as { fill_intent?: unknown }).fill_intent ?? null,
             system_hints: system_hints ?? [],
             storage_note:
               "Static types: relation values write to _common.yml. Pointers only (string|string[]); never Person JSON.",
@@ -5494,6 +5528,11 @@ export function registerPageTools(
             field_mapping: config.field_mapping ?? null,
             editor,
             editor_required_modes: editorRequiredModes(config),
+            fill_intent_goal_presets: [...FILL_INTENT_GOAL_PRESETS],
+            fill_intent_note:
+              "Every editor.required true|attached field must have fill_intent { goal (open string), purpose, constraints? }. " +
+              "Presets are suggestions only; custom goals allowed. Read purpose before update_fields on required fields. " +
+              "Diagnostics suggestions prefer fill_intent over description.",
             relation_fields,
             immutable_slug: !!(config as { immutable_slug?: boolean }).immutable_slug,
             protected_slugs: (config as { protected_slugs?: string[] }).protected_slugs ?? [],

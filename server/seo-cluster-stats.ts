@@ -6,6 +6,7 @@
 import type { ContentIndex } from "./content-index";
 import { contentIndex } from "./content-index";
 import { createPublicUrlResolver } from "./redirects";
+import { entryCanonicalPath } from "./seo-fields";
 import type { MonitoredSeoGap } from "./seo-monitored-scan";
 import type { SeoIndex, SeoIndexEntry } from "./seo-index";
 
@@ -223,8 +224,9 @@ function entryToRow(
   id: string,
   row: SeoIndexEntry,
   extras?: Partial<ClusterBucketEntryRow>,
+  ci: ContentIndex = contentIndex,
 ): ClusterBucketEntryRow {
-  return {
+  const base: ClusterBucketEntryRow = {
     id,
     slug: row.slug,
     contentType: row.content_type || "unknown",
@@ -240,16 +242,22 @@ function entryToRow(
           : undefined,
     ...extras,
   };
+  if (!base.path) {
+    base.path =
+      entryCanonicalPath(base.contentType, base.slug, base.locale, ci) || "";
+  }
+  return base;
 }
 
-function gapToRow(gap: MonitoredSeoGap): ClusterBucketEntryRow {
+function gapToRow(gap: MonitoredSeoGap, ci: ContentIndex = contentIndex): ClusterBucketEntryRow {
   const id = `${gap.contentType}/${gap.slug}/${gap.locale}`;
+  const locale = gap.locale || "en";
   return {
     id,
     slug: gap.slug,
     contentType: gap.contentType || "unknown",
-    locale: gap.locale || "en",
-    path: "",
+    locale,
+    path: entryCanonicalPath(gap.contentType, gap.slug, locale, ci) || "",
     main_keyword: null,
     file: "",
   };
@@ -316,15 +324,21 @@ export function listClusterBucketEntries(
       if (cluster.members.length > 0) continue;
       const hub = index.entries[hubId];
       if (hub) {
-        rows.push(entryToRow(hubId, hub, { path: hub.path || cluster.path || "" }));
+        rows.push(entryToRow(hubId, hub, { path: hub.path || cluster.path || "" }, ci));
       } else {
         const parts = hubId.split("/");
+        const contentType = parts[0] || "unknown";
+        const slug = parts[1] || hubId;
+        const locale = parts[2] || "en";
         rows.push({
           id: hubId,
-          slug: parts[1] || hubId,
-          contentType: parts[0] || "unknown",
-          locale: parts[2] || "en",
-          path: cluster.path || "",
+          slug,
+          contentType,
+          locale,
+          path:
+            cluster.path ||
+            entryCanonicalPath(contentType, slug, locale, ci) ||
+            "",
           main_keyword: null,
           file: "",
         });
@@ -337,13 +351,18 @@ export function listClusterBucketEntries(
       if (filterBucket !== opts.bucket) continue;
       if (opts.bucket === "brokenRefs") {
         rows.push(
-          entryToRow(id, row, {
-            reason: resolveBrokenClusterRefReason(index, row, ci),
-            pillar_path: typeof row.pillar_path === "string" ? row.pillar_path : "",
-          }),
+          entryToRow(
+            id,
+            row,
+            {
+              reason: resolveBrokenClusterRefReason(index, row, ci),
+              pillar_path: typeof row.pillar_path === "string" ? row.pillar_path : "",
+            },
+            ci,
+          ),
         );
       } else {
-        rows.push(entryToRow(id, row));
+        rows.push(entryToRow(id, row, undefined, ci));
       }
     }
 
@@ -351,7 +370,7 @@ export function listClusterBucketEntries(
       for (const gap of noSignalGaps) {
         const id = `${gap.contentType}/${gap.slug}/${gap.locale}`;
         if (index.entries[id]) continue;
-        rows.push(gapToRow(gap));
+        rows.push(gapToRow(gap, ci));
       }
     }
   }

@@ -296,4 +296,72 @@ describe("validation issue store v5", () => {
 
     expect(cache.getAllIssues().filter((i) => i.validator === "section-variants")).toHaveLength(0);
   });
+
+  it("purgeLegacyIssues removes only validator:legacy rows", async () => {
+    const fileA = makeFile({
+      type: "program",
+      slug: "alpha",
+      locale: "en",
+      filePath: "/tmp/programs/alpha/en.yml",
+      url: "/en/alpha",
+    });
+
+    cache.applyValidatorResults([metaResult(fileA, true)], {
+      contentFiles: [fileA],
+      entryKeys: [buildEntryKey("program", "alpha", "en")],
+    });
+    await cache.flush();
+
+    const now = new Date().toISOString();
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(tmp, "validation-cache.json"), "utf-8"),
+    ) as {
+      issues: Record<string, unknown>;
+      runMeta?: { byEntry?: Record<string, { byValidator?: Record<string, string> }> };
+    };
+    raw.issues["legacy:UNKNOWN_SECTION_VARIANT:orphan"] = {
+      id: "legacy:UNKNOWN_SECTION_VARIANT:orphan",
+      code: "UNKNOWN_SECTION_VARIANT",
+      severity: "error",
+      message: 'Section [3] type "cta_banner" sets variant "form" but schema declares no variants',
+      validator: "legacy",
+      scopes: ["entry"],
+      targets: [
+        {
+          type: "entry",
+          entryKey: "legacy__en__blog__orphan",
+          url: "/en/blog/orphan",
+          file: "/tmp/blog/orphan/en.yml",
+        },
+      ],
+      file: "/tmp/blog/orphan/en.yml",
+      category: "components",
+      lastSeenAt: now,
+      lastRunAt: now,
+    };
+    const ek = buildEntryKey("program", "alpha", "en");
+    raw.runMeta = raw.runMeta ?? { byEntry: {} };
+    raw.runMeta.byEntry = raw.runMeta.byEntry ?? {};
+    raw.runMeta.byEntry[ek] = {
+      ...(raw.runMeta.byEntry[ek] as object),
+      byValidator: {
+        ...((raw.runMeta.byEntry[ek] as { byValidator?: Record<string, string> })?.byValidator ?? {}),
+        legacy: now,
+        meta: now,
+      },
+    };
+    fs.writeFileSync(path.join(tmp, "validation-cache.json"), JSON.stringify(raw, null, 2));
+    cache.reloadFromDisk();
+
+    expect(cache.getAllIssues().some((i) => i.validator === "legacy")).toBe(true);
+    expect(cache.getAllIssues().some((i) => i.validator === "meta")).toBe(true);
+
+    const { removed } = await cache.purgeLegacyIssues();
+    expect(removed).toBe(1);
+    expect(cache.getAllIssues().filter((i) => i.validator === "legacy")).toHaveLength(0);
+    expect(cache.getAllIssues().some((i) => i.validator === "meta")).toBe(true);
+
+    const again = await cache.purgeLegacyIssues();
+    expect(again.removed).toBe(0);
+  });
 });

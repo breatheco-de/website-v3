@@ -114,7 +114,10 @@ function pageTargetingLabel(overlay: Overlay): string {
 
   if (pages === "all") return `All pages${exclSuffix}`;
   if (Array.isArray(pages)) {
-    if (pages.length === 0) return `No pages${exclSuffix}`;
+    // Empty include + excludes ⇒ all pages minus exceptions (matches runtime)
+    if (pages.length === 0) {
+      return exclude.length > 0 ? `All pages${exclSuffix}` : "No pages";
+    }
     if (pages.length === 1) return `${pages[0]}${exclSuffix}`;
     return `${pages.length} pages${exclSuffix}`;
   }

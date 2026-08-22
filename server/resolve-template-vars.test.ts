@@ -41,6 +41,12 @@ describe("buildParamBag", () => {
   it("flattens array query values to the first entry", () => {
     expect(buildParamBag(null, { tag: ["a", "b"] })).toEqual({ tag: "a" });
   });
+
+  it("excludes internal query keys including cache", () => {
+    expect(
+      buildParamBag(null, { cache: "false", force_variant: "draft", utm: "x" }),
+    ).toEqual({ utm: "x" });
+  });
 });
 
 describe("resolveAllTemplateVars", () => {

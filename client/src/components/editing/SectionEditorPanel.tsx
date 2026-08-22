@@ -2138,6 +2138,7 @@ export function SectionEditorPanel({
   const saveToServer = async (clearedTemplatePaths?: string[]): Promise<{
     success: boolean;
     warning?: string;
+    shared_template_html_cache?: string;
   }> => {
     if (!contentType || !slug || !locale) {
       return { success: false };
@@ -2228,7 +2229,11 @@ export function SectionEditorPanel({
         emitContentUpdated({ contentType, slug, locale });
 
         // Return warning if present (for GitHub sync failures)
-        return { success: true, warning: result.warning };
+        return {
+          success: true,
+          warning: result.warning,
+          shared_template_html_cache: result.shared_template_html_cache,
+        };
       } else {
         setSaveError(result.error || "Failed to save changes");
         return { success: false };
@@ -2277,6 +2282,13 @@ export function SectionEditorPanel({
           title: "Changes saved with warning",
           description: result.warning,
           variant: "destructive",
+        });
+      } else if (isSharedTemplate || result.shared_template_html_cache) {
+        toast({
+          title: "Changes saved",
+          description:
+            result.shared_template_html_cache ||
+            "Shared template updated. This page (and any bound pages) are fresh; other public URLs that share this template may show previous HTML for up to a few minutes. Advanced: server/content-write-flush.ts, server/html-page-cache.ts, server/content-index.ts.",
         });
       } else {
         toast({

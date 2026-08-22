@@ -78,7 +78,7 @@ import {
   deleteContentEntry,
   renameContentSlug,
 } from "../content-editor";
-import { flushAfterContentWrites } from "../content-write-flush";
+import { flushAfterContentWrites, collectEntryHtmlPaths, fileMentionsRedirects } from "../content-write-flush";
 import {
   bulkUpdateMeta,
   validateBulkMetaUpdates,
@@ -1098,13 +1098,6 @@ export function registerSectionsRoutes(app: Express): void {
       });
 
       if (result.success) {
-        flushAfterContentWrites({
-          ci: getCI(res),
-          contentTypes: [contentType],
-          sitemapEntries: [{ contentType, slug, locale }],
-          commonMetaTouched: false,
-        });
-
         // Propagate to bound sections on live single-section updates (update_section
         // or update_field targeting sections.N.*). Skip variants and multi-section batches.
         let bindingWarnings: string[] = [];
@@ -1152,7 +1145,6 @@ export function registerSectionsRoutes(app: Express): void {
               }
               if (propagation.updatedFiles.length > 0) {
                 boundUpdates = propagation.updatedFiles;
-                getCI(res).refresh();
               }
 
               try {
@@ -1170,6 +1162,59 @@ export function registerSectionsRoutes(app: Express): void {
           }
         }
 
+        const ci = getCI(res);
+        const siteId = getContentRootName(res);
+        const htmlPaths = collectEntryHtmlPaths(ci, contentType, slug, normalizeLocale(locale));
+        const normalizedLocale = normalizeLocale(locale);
+        for (const bound of boundUpdates) {
+          const [boundType, boundSlug] = bound.split("/");
+          if (boundType && boundSlug) {
+            htmlPaths.push(
+              ...collectEntryHtmlPaths(ci, boundType, boundSlug, normalizedLocale),
+            );
+          }
+        }
+
+        let syncSlow = false;
+        let wroteSharedTemplate = resolvedLayoutTarget === "type_single";
+        try {
+          const writtenPath = ci.getContentFilePath(
+            contentType,
+            slug,
+            normalizedLocale,
+            effectiveVariant,
+            effectiveVersion,
+          );
+          if (fileMentionsRedirects(writtenPath)) syncSlow = true;
+          if (path.basename(writtenPath).startsWith("single.")) {
+            wroteSharedTemplate = true;
+          }
+        } catch { /* ignore */ }
+        if (resolvedLayoutTarget === "type_single") {
+          try {
+            const folder = ci.getFolderName(contentType);
+            const singlePath = path.join(
+              getContentRoot(res),
+              folder,
+              effectiveVariant
+                ? `single.${effectiveVariant}.${normalizedLocale}.yml`
+                : `single.${normalizedLocale}.yml`,
+            );
+            if (fileMentionsRedirects(singlePath)) syncSlow = true;
+            wroteSharedTemplate = true;
+          } catch { /* ignore */ }
+        }
+
+        flushAfterContentWrites({
+          ci,
+          contentTypes: [contentType],
+          sitemapEntries: [{ contentType, slug, locale }],
+          commonMetaTouched: false,
+          siteId,
+          htmlPaths,
+          syncSlow,
+        });
+
         // Return success with updated sections for immediate UI update
         const response: {
           success: boolean;
@@ -1177,12 +1222,17 @@ export function registerSectionsRoutes(app: Express): void {
           warning?: string;
           boundUpdates?: string[];
           clearedFields?: unknown;
+          shared_template_html_cache?: string;
         } = {
           success: true,
           updatedSections: result.updatedSections,
         };
         if (boundUpdates.length > 0) {
           response.boundUpdates = boundUpdates;
+        }
+        if (wroteSharedTemplate) {
+          response.shared_template_html_cache =
+            "Shared-template save: this page (and bound pages) had path-scoped HTML cache bust. Other URLs that share single.*.yml may keep previous anonymous HTML until TTL (~5 min). Slow content-index scan is async/coalesced. See server/content-write-flush.ts, server/html-page-cache.ts, server/content-index.ts.";
         }
         if (result.warning) {
           response.warning = result.warning;
@@ -1233,7 +1283,7 @@ export function registerSectionsRoutes(app: Express): void {
 
       const { contentType } = req.body as { contentType?: string };
       const ci = getCI(res);
-      ci.refresh();
+      ci.refresh({ syncSlow: true });
       clearSitemapCache();
       if (contentType && typeof contentType === "string") {
         invalidateContentCaches(contentType);
@@ -1382,11 +1432,15 @@ export function registerSectionsRoutes(app: Express): void {
       });
 
       if (result.success) {
+        const ci = getCI(res);
         flushAfterContentWrites({
-          ci: getCI(res),
+          ci,
           contentTypes: [contentType],
           sitemapEntries: [{ contentType, slug, locale: getDefaultLocale() }],
           commonMetaTouched: true,
+          siteId: getContentRootName(res),
+          htmlPaths: collectEntryHtmlPaths(ci, contentType, slug),
+          syncSlow: false,
         });
         res.json({ success: true });
       } else {

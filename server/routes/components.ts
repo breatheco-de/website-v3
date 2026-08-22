@@ -752,7 +752,7 @@ export function registerComponentsRoutes(app: Express): void {
 
   app.post("/api/content/index/refresh", (_req, res) => {
     try {
-      getCI(res).refresh();
+      getCI(res).refresh({ syncSlow: true });
       const stats = getCI(res).getStats();
       res.json({ refreshed: true, stats });
     } catch (error) {
@@ -1077,7 +1077,7 @@ export function registerComponentsRoutes(app: Express): void {
       fs.writeFileSync(fullPath, content, "utf-8");
       markFileAsModified(normalizedPath, authorName);
       clearRedirectCache();
-      getCI(res).refresh();
+      getCI(res).refresh({ syncSlow: true });
 
       // Derive content type from path (contentRoot/<folder>/...) for targeted invalidation
       const pathParts = normalizedPath.replace(/\\/g, "/").split("/");

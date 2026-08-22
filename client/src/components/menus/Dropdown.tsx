@@ -173,9 +173,11 @@ export function CardsDropdown({
               "flex flex-row items-start gap-3 w-full max-w-full min-w-0 hover-elevate rounded-lg border border-border bg-background p-3 text-left md:flex-col md:h-full md:p-4"
             : "block min-w-0 hover-elevate rounded-lg p-2 -m-2 text-left w-full";
           const testId = `dropdown-card-${(item.title || "card").toLowerCase().replace(/\s+/g, "-")}`;
-          // Navbar max-mode hugs 200px columns; form picker fills responsive grid cells.
+          // Navbar max-mode: desktop min column width; form picker fills responsive grid cells.
           const style =
-            !onSelect && mode === "max" ? { width: CARDS_COLUMN_WIDTH_PX } : undefined;
+            !onSelect && mode === "max"
+              ? { width: CARDS_COLUMN_WIDTH_PX, minWidth: CARDS_COLUMN_WIDTH_PX }
+              : undefined;
           const body = onSelect ? (
             <>
               {IconComponent && (

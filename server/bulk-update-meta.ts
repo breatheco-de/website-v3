@@ -5,7 +5,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { editContent, editCommonContent } from "./content-editor";
-import { flushAfterContentWrites, type SitemapFlushEntry } from "./content-write-flush";
+import { flushAfterContentWrites, collectEntryHtmlPaths, type SitemapFlushEntry } from "./content-write-flush";
 import type { ContentIndex } from "./content-index";
 import { getContentTypeConfig, getDirectory, getAllConfigs } from "./content-types";
 import { normalizeLocale } from "./settings";
@@ -290,11 +290,39 @@ export async function bulkUpdateMeta(request: BulkMetaRequest): Promise<{
 
   let flushed = false;
   if (successCount > 0) {
+    const siteId =
+      request.contentRootName ||
+      (request.contentRoot
+        ? path.isAbsolute(request.contentRoot)
+          ? path.relative(process.cwd(), request.contentRoot)
+          : request.contentRoot
+        : request.ci.contentRootName);
+    const htmlPaths: string[] = [];
+    const seenPath = new Set<string>();
+    for (const entry of sitemapEntries) {
+      for (const p of collectEntryHtmlPaths(
+        request.ci,
+        entry.contentType,
+        entry.slug,
+        entry.locale,
+      )) {
+        if (seenPath.has(p)) continue;
+        seenPath.add(p);
+        htmlPaths.push(p);
+      }
+    }
+    const syncSlow = request.updates.some((u) => {
+      const key = metaKeyFromPath(u.field_path);
+      return key === "redirects" || u.field_path.includes("redirects");
+    });
     flushAfterContentWrites({
       ci: request.ci,
       contentTypes,
       sitemapEntries,
       commonMetaTouched,
+      siteId,
+      htmlPaths,
+      syncSlow,
     });
     flushed = true;
   }

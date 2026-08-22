@@ -111,15 +111,19 @@ export function validateRequiredConversionName(
     if (form.conversion_name === null) return null;
     if (form.conversion_name === "") {
       return (
-        `${label} is empty — set a conversion name, or use null to turn conversion off. ` +
-        `Missing after duplicate wipe is invalid.`
+        `${label} is empty — set a conversion name from tracking.conversion_events Intent ` +
+        `(when_to_use / when_not_to_use via explain_site topic component-behaviors), ` +
+        `matching this section’s visitor CTA copy — or use null to turn conversion off. ` +
+        `Do not restore a pre-duplicate conversion_name.`
       );
     }
   }
 
   return (
-    `${label} is required (set a name, a route conversion_name, or null to turn off). ` +
-    `Duplicating clears conversion names — choose again before saving.`
+    `${label} is required (set a name from conversion_events Intent matching this section’s CTA, ` +
+    `a route conversion_name, or null to turn off). ` +
+    `Duplicating clears conversion names on purpose — choose again from visitor intent; ` +
+    `never copy the source page’s conversion_name.`
   );
 }
 

@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import {AlertTriangle, ArrowLeft, Brain, Check, CircleCheck, ChevronDown, Crosshair, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, Brain, Check, CircleCheck, ChevronDown, Crosshair, DownloadCloud, Eraser, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
-import { Link, useLocation } from "wouter";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { Link, useLocation, useSearch } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -43,6 +43,13 @@ import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import { formatSitePathsInText } from "@shared/formatSitePath";
+import {
+  parseGlobalHealthSearch,
+  serializeGlobalHealthSearch,
+  type GlobalHealthKpi,
+  type GlobalHealthScopeKey,
+  type GlobalHealthViewState,
+} from "@/components/diagnostics/global-health-url";
 
 function issueLayerLabel(entryKey?: string, file?: string): string | null {
   if (entryKey?.includes("@")) {
@@ -176,7 +183,6 @@ function normalizeIssuePath(urlOrPath: string): string {
   if (raw.length > 1 && raw.endsWith("/")) raw = raw.slice(0, -1);
   return raw;
 }
-type CategoryFilter = "all" | "seo" | "integrity" | "content" | "components" | "forms" | "performance" | "bindings";
 
 /** Tiny count pill pinned to the top-right of a filter trigger. */
 function FilterCornerBadge({ count }: { count: number }) {
@@ -208,6 +214,39 @@ function InfoPopover({ children, testId }: { children: React.ReactNode; testId?:
         {children}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** Full suggestion stays on the issue payload; Global Health truncates long copy in the list. */
+const SUGGESTION_PREVIEW_CHARS = 240;
+
+function TruncatableSuggestion({
+  text,
+  formatSitePath,
+}: {
+  text: string;
+  formatSitePath: (path: string) => string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const needsTruncate = text.length > SUGGESTION_PREVIEW_CHARS;
+  const display =
+    needsTruncate && !expanded
+      ? `${text.slice(0, SUGGESTION_PREVIEW_CHARS).trimEnd()}…`
+      : text;
+  return (
+    <div className="text-muted-foreground italic mt-0.5" title={text} data-testid="issue-suggestion">
+      <span>{formatSitePathsInText(display, formatSitePath)}</span>
+      {needsTruncate ? (
+        <button
+          type="button"
+          className="ml-1 not-italic text-foreground/70 underline-offset-2 hover:underline"
+          onClick={() => setExpanded((v) => !v)}
+          data-testid="button-suggestion-expand"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -666,20 +705,76 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const { toast } = useToast();
   const { canMutateMetrics } = useDebugAuth();
   const formatSitePath = useFormatSitePath();
+  const [pathname, setLocation] = useLocation();
+  const searchString = useSearch();
+  const view = useMemo(() => parseGlobalHealthSearch(searchString), [searchString]);
+  const { kpi: activeKpiTab, path: pagePathFilter, scope: categoryFilters, validators: validatorFilters } =
+    view;
+
+  const writeView = useCallback(
+    (next: GlobalHealthViewState) => {
+      const qs = serializeGlobalHealthSearch(next, searchString);
+      const pathOnly = pathname.split("?")[0];
+      setLocation(qs ? `${pathOnly}?${qs}` : pathOnly, { replace: true });
+    },
+    [pathname, searchString, setLocation],
+  );
+
+  const patchView = useCallback(
+    (patch: Partial<GlobalHealthViewState>) => {
+      writeView({ ...view, ...patch });
+    },
+    [view, writeView],
+  );
+
+  const setActiveKpiTab = useCallback(
+    (kpi: GlobalHealthKpi) => {
+      patchView({ kpi });
+    },
+    [patchView],
+  );
+
+  const setPagePathFilter = useCallback(
+    (path: string) => {
+      patchView({ path });
+    },
+    [patchView],
+  );
+
+  const setCategoryFilters = useCallback(
+    (
+      next:
+        | GlobalHealthScopeKey[]
+        | ((prev: GlobalHealthScopeKey[]) => GlobalHealthScopeKey[]),
+    ) => {
+      const scope = typeof next === "function" ? next(view.scope) : next;
+      patchView({ scope });
+    },
+    [patchView, view.scope],
+  );
+
+  const setValidatorFilters = useCallback(
+    (next: string[] | ((prev: string[]) => string[])) => {
+      const validators = typeof next === "function" ? next(view.validators) : next;
+      patchView({ validators });
+    },
+    [patchView, view.validators],
+  );
+
   const [search, setSearch] = useState("");
-  const [pagePathFilter, setPagePathFilter] = useState("");
   const [pageFilterOpen, setPageFilterOpen] = useState(false);
-  const [categoryFilters, setCategoryFilters] = useState<Exclude<CategoryFilter, "all">[]>([]);
-  const [validatorFilters, setValidatorFilters] = useState<string[]>([]);
   const [rerunValidator, setRerunValidator] = useState<string>("");
-  const [freshKpiView, setFreshKpiView] = useState<"issues" | "fresh_urls">("issues");
   const [freshUrlSearch, setFreshUrlSearch] = useState("");
   const [freshUrlFilter, setFreshUrlFilter] = useState<"all" | "fresh" | "not_fresh">("all");
   const [freshUrlPage, setFreshUrlPage] = useState(1);
-  const [activeKpiTab, setActiveKpiTab] = useState<"errors" | "warnings" | "coverage" | "unique" | null>(null);
+  const freshKpiView: "issues" | "fresh_urls" =
+    activeKpiTab === "coverage" || activeKpiTab === "unique" ? "fresh_urls" : "issues";
   const [jobPanel, setJobPanel] = useState<JobPanelState | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [clearCacheOpen, setClearCacheOpen] = useState(false);
+  const [purgeLegacyOpen, setPurgeLegacyOpen] = useState(false);
+  const [pullProductionOpen, setPullProductionOpen] = useState(false);
+  const isDev = import.meta.env.DEV;
   const [confirmGate, setConfirmGate] = useState<{
     info: DiagnosticsConfirmInfo;
     resolve: (ok: boolean) => void;
@@ -1047,7 +1142,95 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     },
   });
 
-  const scopeCategories: { key: Exclude<CategoryFilter, "all">; label: string }[] = [
+  const pullProductionMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch("/api/validation/pull-from-gcs", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = (await res.json()) as {
+        success?: boolean;
+        message?: string;
+        error?: string;
+        issueCount?: number;
+        gcsKey?: string;
+      };
+      if (res.status === 409) {
+        throw new Error(data.message || "Diagnostics job is running — wait before pulling.");
+      }
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || data.error || "Failed to pull production validation cache");
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      setPullProductionOpen(false);
+      void refetchCacheIssues();
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness-urls"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-issues"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/diagnostics-jobs"] });
+      toast({
+        title: "Production cache loaded",
+        description:
+          data.message ??
+          `Loaded ${data.issueCount ?? 0} issue(s) from GCS into local validation-cache.json.`,
+      });
+    },
+    onError: (err) => {
+      toast({
+        title: "Could not load production cache",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const purgeLegacyMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch("/api/validation/purge-legacy-issues", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = (await res.json()) as {
+        success?: boolean;
+        message?: string;
+        error?: string;
+        removed?: number;
+      };
+      if (res.status === 409) {
+        throw new Error(data.message || "Diagnostics job is running — wait before purging.");
+      }
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || data.error || "Failed to remove legacy issues");
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      setPurgeLegacyOpen(false);
+      void refetchCacheIssues();
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness-urls"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-issues"] });
+      toast({
+        title: "Legacy issues removed",
+        description:
+          data.message ??
+          `Removed ${data.removed ?? 0} legacy validator issue(s).`,
+      });
+    },
+    onError: (err) => {
+      toast({
+        title: "Failed to remove legacy issues",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const scopeCategories: { key: GlobalHealthScopeKey; label: string }[] = [
     { key: "seo", label: "SEO" },
     { key: "integrity", label: "Integrity" },
     { key: "content", label: "Content" },
@@ -1062,9 +1245,15 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   ).sort();
 
   const filteredIssues = cacheIssues.filter((issue) => {
+    if (activeKpiTab === "errors" && issue.severity !== "error") {
+      return false;
+    }
+    if (activeKpiTab === "warnings" && issue.severity !== "warning") {
+      return false;
+    }
     if (
       categoryFilters.length > 0 &&
-      !categoryFilters.includes((issue.category || "unknown") as Exclude<CategoryFilter, "all">)
+      !categoryFilters.includes((issue.category || "unknown") as GlobalHealthScopeKey)
     ) {
       return false;
     }
@@ -1110,7 +1299,14 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     urls: new Set(cacheIssues.map((i) => i.url).filter(Boolean)).size,
   };
 
-  const jobPending = startJobMutation.isPending || runSingleMutation.isPending || clearCacheMutation.isPending;
+  const legacyIssueCount = cacheIssues.filter((i) => i.validator === "legacy").length;
+
+  const jobPending =
+    startJobMutation.isPending ||
+    runSingleMutation.isPending ||
+    clearCacheMutation.isPending ||
+    purgeLegacyMutation.isPending ||
+    pullProductionMutation.isPending;
   const displayedIssues = filteredIssues.slice(0, ISSUE_DISPLAY_CAP);
   const coverageSummary = coverageSummaryData?.coverage;
   const freshUrlItems = freshUrlsData?.items ?? [];
@@ -1155,6 +1351,8 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             <code className="text-xs">validation-cache.json</code>. Use{" "}
             <strong className="text-foreground font-medium">Page or URL</strong> to filter by sitemap page;
             open the live page + DebugBubble for in-context fixes (Page Analysis tab removed).
+            KPI (Errors/Warnings), Page or URL, Error scope, and Validators filters persist in the URL query
+            string so a refresh keeps your view.
             <strong className="text-foreground font-medium"> Validation Coverage</strong> shows average entry-local
             validator coverage and fully-covered URLs. Under Refresh, an in-flight
             job shows while queued/running; otherwise the last <em>site-wide</em> run (Refresh / Hard refresh,
@@ -1162,6 +1360,10 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             <strong className="text-foreground font-medium">background worker</strong>; starting a new job asks for
             confirm and shows the last full site-wide duration. The job panel shows milestones (fixed height, scrolls).
             Cached issues refresh when the job finishes. Delete cache wipes the store until the next refresh.
+            Remove Legacy Issues drops v4→v5 migration orphans (`validator: legacy`) that normal re-checks never clear.
+            {isDev
+              ? " In development, Download from production copies the GCS sidecar into local validation-cache.json (never uploads)."
+              : ""}{" "}
             One job runs at a time per site.
           </p>
           <button
@@ -1179,7 +1381,8 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               <li><code>{"{contentRoot}/validation-cache.json"}</code> — issue cache (GCS <code>{"{site}/sync/validation-cache.json"}</code> in prod). <code>lastFullRunAt</code> (per URL / any full stamp) vs <code>lastSiteWideRunAt</code> (Refresh / Hard refresh / site-wide validators)</li>
               <li><code>scripts/validation/shared/runClass.ts</code> — <code>ENTRY_LOCAL_VALIDATOR_NAMES</code> drives coverage denominator</li>
               <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes + results files (duration stats for confirm dialog)</li>
-              <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code> (<code>confirm: true</code> when starting), <code>GET /api/validation/cache-issues</code>, <code>GET /api/validation/cache-freshness</code>, <code>GET /api/validation/cache-freshness-urls</code></li>
+              <li><code>client/src/components/diagnostics/global-health-url.ts</code> — Global Health query params (<code>kpi</code>, <code>path</code>, <code>scope</code>, <code>validators</code>)</li>
+              <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code> (<code>confirm: true</code> when starting), <code>GET /api/validation/cache-issues</code>, <code>GET /api/validation/cache-freshness</code>, <code>GET /api/validation/cache-freshness-urls</code>, <code>POST /api/validation/purge-legacy-issues</code>{isDev ? <>, <code>POST /api/validation/pull-from-gcs</code> (dev only)</> : null}</li>
               <li>MCP <code>run_entry_diagnostics</code> — same confirm gate (<code>confirm_run_diagnostics</code>); mid-run poll returns URLs flushed since job start only</li>
             </ul>
           )}
@@ -1311,6 +1514,22 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                   Save JSON report
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                {isDev ? (
+                  <DropdownMenuItem
+                    onClick={() => setPullProductionOpen(true)}
+                    data-testid="menu-item-pull-production-cache"
+                  >
+                    <DownloadCloud className="h-4 w-4" />
+                    Download from production
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem
+                  onClick={() => setPurgeLegacyOpen(true)}
+                  data-testid="menu-item-purge-legacy-issues"
+                >
+                  <Eraser className="h-4 w-4" />
+                  Remove Legacy Issues
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
                   onClick={() => setClearCacheOpen(true)}
@@ -1366,6 +1585,84 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={purgeLegacyOpen} onOpenChange={setPurgeLegacyOpen}>
+        <DialogContent data-testid="dialog-purge-legacy-issues">
+          <DialogHeader>
+            <DialogTitle>Remove legacy issues?</DialogTitle>
+            <DialogDescription>
+              Removes only issues tagged <code className="text-xs">validator: legacy</code>{" "}
+              (orphans from the v4→v5 cache migration). Other issues and run metadata stay.
+              {legacyIssueCount > 0
+                ? ` Currently ${legacyIssueCount} legacy issue${legacyIssueCount === 1 ? "" : "s"} in this cache.`
+                : " No legacy issues are currently loaded."}
+              {isDev
+                ? " In development this updates local validation-cache.json only; run the same action on production (or upload via Cloud Sync) to update GCS."
+                : " On production the updated cache is uploaded to GCS."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPurgeLegacyOpen(false)}
+              disabled={purgeLegacyMutation.isPending}
+              data-testid="button-cancel-purge-legacy"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => purgeLegacyMutation.mutate()}
+              disabled={purgeLegacyMutation.isPending || legacyIssueCount === 0}
+              data-testid="button-confirm-purge-legacy"
+            >
+              {purgeLegacyMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Eraser className="h-4 w-4" />
+              )}
+              Remove Legacy Issues
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {isDev ? (
+        <Dialog open={pullProductionOpen} onOpenChange={setPullProductionOpen}>
+          <DialogContent data-testid="dialog-pull-production-validation-cache">
+            <DialogHeader>
+              <DialogTitle>Load production validation cache?</DialogTitle>
+              <DialogDescription>
+                This overwrites local{" "}
+                <code className="text-xs">validation-cache.json</code> with the production GCS
+                copy. It does not upload anything back. Not undoable — local issues and run
+                metadata will be replaced.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setPullProductionOpen(false)}
+                disabled={pullProductionMutation.isPending}
+                data-testid="button-cancel-pull-production-cache"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => pullProductionMutation.mutate()}
+                disabled={pullProductionMutation.isPending}
+                data-testid="button-confirm-pull-production-cache"
+              >
+                {pullProductionMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <DownloadCloud className="h-4 w-4" />
+                )}
+                Download from production
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
 
       <Dialog
         open={!!confirmGate}
@@ -1452,13 +1749,11 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             className={`rounded-none cursor-pointer ${kpiActiveClass(errorsKpiActive)}`}
             onClick={() => {
               setActiveKpiTab("errors");
-              setFreshKpiView("issues");
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 setActiveKpiTab("errors");
-                setFreshKpiView("issues");
               }
             }}
           >
@@ -1474,13 +1769,11 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             className={`rounded-none cursor-pointer ${kpiActiveClass(warningsKpiActive)}`}
             onClick={() => {
               setActiveKpiTab("warnings");
-              setFreshKpiView("issues");
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 setActiveKpiTab("warnings");
-                setFreshKpiView("issues");
               }
             }}
           >
@@ -1496,7 +1789,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             className={`rounded-none cursor-pointer ${kpiActiveClass(uniqueKpiActive)}`}
             onClick={() => {
               setActiveKpiTab("unique");
-              setFreshKpiView("fresh_urls");
               setFreshUrlFilter("all");
               setFreshUrlSearch("");
               setFreshUrlPage(1);
@@ -1505,7 +1797,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 setActiveKpiTab("unique");
-                setFreshKpiView("fresh_urls");
                 setFreshUrlFilter("all");
                 setFreshUrlSearch("");
                 setFreshUrlPage(1);
@@ -1524,7 +1815,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             className={`rounded-none cursor-pointer ${kpiActiveClass(coverageKpiActive)}`}
             onClick={() => {
               setActiveKpiTab("coverage");
-              setFreshKpiView("fresh_urls");
               setFreshUrlFilter("fresh");
               setFreshUrlSearch("");
               setFreshUrlPage(1);
@@ -1533,7 +1823,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 setActiveKpiTab("coverage");
-                setFreshKpiView("fresh_urls");
                 setFreshUrlFilter("fresh");
                 setFreshUrlSearch("");
                 setFreshUrlPage(1);
@@ -1875,9 +2164,10 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                       {formatSitePathsInText(issue.message, formatSitePath)}
                     </div>
                     {issue.suggestion && (
-                      <div className="text-muted-foreground italic mt-0.5">
-                        {formatSitePathsInText(issue.suggestion, formatSitePath)}
-                      </div>
+                      <TruncatableSuggestion
+                        text={issue.suggestion}
+                        formatSitePath={formatSitePath}
+                      />
                     )}
                     {issue.url && <div className="text-muted-foreground">{issue.url}</div>}
                     {issue.file && (

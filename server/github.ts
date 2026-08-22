@@ -1236,7 +1236,7 @@ export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; con
           (ctx) => ctx.contentRootName === contentFolder || ctx.contentRoot.endsWith(contentFolder),
         );
         if (siteCtx?.contentIndex) {
-          siteCtx.contentIndex.refresh();
+          siteCtx.contentIndex.refresh({ syncSlow: true });
         }
         clearRedirectCache();
       } catch (e) {
@@ -1474,7 +1474,7 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
           (ctx) => ctx.contentRootName === folder || ctx.contentRoot.endsWith(folder),
         );
         if (siteCtx?.contentIndex) {
-          siteCtx.contentIndex.refresh();
+          siteCtx.contentIndex.refresh({ syncSlow: true });
           clearRedirectCache();
           log.info(
             `[GitHub] Refreshed ContentIndex + redirect cache for ${siteCtx.contentRootName} after pulling ${pulled.length} file(s)`,
@@ -2938,7 +2938,7 @@ async function refreshContentAfterBootstrapPull(
       (ctx) => ctx.contentRootName === contentFolder || ctx.contentRoot.endsWith(contentFolder),
     );
     if (siteCtx?.contentIndex) {
-      siteCtx.contentIndex.refresh();
+      siteCtx.contentIndex.refresh({ syncSlow: true });
       clearRedirectCache();
       log.info(
         `[GitHub] Refreshed ContentIndex + redirect cache for ${siteCtx.contentRootName} after bootstrap pull of ${pulledCount} file(s)`,
