@@ -65,7 +65,7 @@ function MobileNavItem({ item, onNavigate, isOpen, onToggle }: MobileNavItemProp
               ))}
             </div>
           )}
-          
+
           {dropdown.type === "columns" && dropdown.columns && (
             <div className="space-y-1">
               {dropdown.columns.map((column, colIndex) => (
