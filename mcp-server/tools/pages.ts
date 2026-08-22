@@ -571,29 +571,43 @@ const VALIDATION_CACHE_PATH = path.join(
 
 
 interface MappedValidationIssue {
+  id?: string;
   code: string;
   message: string;
   severity: "error" | "warning";
   category: string;
   file?: string;
   suggestion?: string;
+  completedBy?: string;
+  completedAt?: string;
+  claimedBy?: string;
+  claimedAt?: string;
+  expiresAt?: string;
 }
+
+type CachedValidationIssuesSplit = {
+  open: MappedValidationIssue[];
+  claimed: MappedValidationIssue[];
+  completed: MappedValidationIssue[];
+};
 
 /**
  * Read cached validation issues for a page URL from validation-cache.json.
- * Optionally filter to specific categories (e.g. ["seo"]).
- * Returns an empty array if the cache is missing or the URL has no entry.
+ * Soft-completed → completed; active claims by others → claimed;
+ * open work queue → open (includes own claims when viewerAuthor matches).
  */
 function getCachedValidationIssues(
   url: string,
   categoryFilter?: string[],
-  contentPath?: string
-): MappedValidationIssue[] {
+  contentPath?: string,
+  viewerAuthor?: string,
+): CachedValidationIssuesSplit {
+  const empty: CachedValidationIssuesSplit = { open: [], claimed: [], completed: [] };
   const cachePath = contentPath
     ? path.join(contentPath, "validation-cache.json")
     : VALIDATION_CACHE_PATH;
   try {
-    if (!fs.existsSync(cachePath)) return [];
+    if (!fs.existsSync(cachePath)) return empty;
     const raw = fs.readFileSync(cachePath, "utf-8");
     const cache = JSON.parse(raw) as {
       pages?: Record<string, {
@@ -610,8 +624,13 @@ function getCachedValidationIssues(
         validator?: string;
       }>;
       indexes?: { byUrl?: Record<string, string>; byEntry?: Record<string, string[]> };
+      completions?: Record<string, { completedBy: string; completedAt: string }>;
+      claims?: Record<string, { claimedBy: string; claimedAt: string; expiresAt: string }>;
     };
 
+    const completions = cache.completions ?? {};
+    const claims = cache.claims ?? {};
+    const now = Date.now();
     let all: MappedValidationIssue[] = [];
     if (cache.issues && cache.indexes) {
       const entryKey = cache.indexes.byUrl?.[url];
@@ -619,18 +638,33 @@ function getCachedValidationIssues(
       for (const id of ids) {
         const issue = cache.issues[id];
         if (!issue || issue.severity === "info") continue;
+        const completion = completions[id];
+        const claim = claims[id];
+        const claimActive =
+          claim && new Date(claim.expiresAt).getTime() > now ? claim : undefined;
         all.push({
+          id,
           code: issue.code,
           message: issue.message,
           severity: issue.severity === "error" ? "error" : "warning",
           category: issue.category ?? "other",
           ...(issue.file ? { file: issue.file } : {}),
           ...(issue.suggestion ? { suggestion: issue.suggestion } : {}),
+          ...(completion
+            ? { completedBy: completion.completedBy, completedAt: completion.completedAt }
+            : {}),
+          ...(claimActive
+            ? {
+                claimedBy: claimActive.claimedBy,
+                claimedAt: claimActive.claimedAt,
+                expiresAt: claimActive.expiresAt,
+              }
+            : {}),
         });
       }
     } else {
       const entry = cache.pages?.[url];
-      if (!entry) return [];
+      if (!entry) return empty;
       all = [
         ...(entry.errors ?? []).map(e => ({
           code: e.code,
@@ -653,13 +687,32 @@ function getCachedValidationIssues(
 
     if (categoryFilter && categoryFilter.length > 0) {
       const catSet = new Set(categoryFilter);
-      return all.filter(i => catSet.has(i.category));
+      all = all.filter(i => catSet.has(i.category));
     }
 
-    return all;
+    const open: MappedValidationIssue[] = [];
+    const claimed: MappedValidationIssue[] = [];
+    const completed: MappedValidationIssue[] = [];
+    for (const issue of all) {
+      if (issue.completedBy) {
+        completed.push(issue);
+        continue;
+      }
+      if (issue.claimedBy && issue.claimedBy !== viewerAuthor) {
+        claimed.push(issue);
+        continue;
+      }
+      open.push(issue);
+    }
+    return { open, claimed, completed };
   } catch {
-    return [];
+    return empty;
   }
+}
+
+function mcpViewerAuthor(mcpToken?: string): string | undefined {
+  if (!mcpToken) return undefined;
+  return getTokenUsername(mcpToken) || undefined;
 }
 
 export function registerPageTools(
@@ -849,8 +902,10 @@ export function registerPageTools(
     "get_entry_content",
     "Get the merged content of a page (sections, title, and all other top-level YAML keys) without the meta/SEO block. " +
     "Also returns locales (all available locale codes for this page), urls (per-locale resolved paths), and " +
-    "validation_issues (all cached validation issues for this page across all categories — each with code, message, severity, and category). " +
-    "validation_issues is always present (empty array if no issues are cached). " +
+    "validation_issues (open cached validation issues — incomplete and unclaimed, or claimed by you; each with id, code, message, severity, category). " +
+    "claimed_issues (active claims by other authors). " +
+    "completed_issues (soft-completed for audit; use update_issue). " +
+    "validation_issues, claimed_issues, and completed_issues are always present (empty arrays if none). " +
     "Merges _common.yml with the locale file. contentType is optional — omit it and the server will auto-detect it from the slug. " +
     "Use get_entry_seo to fetch only the SEO/meta fields. Requires content_view. " +
     "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
@@ -888,7 +943,7 @@ export function registerPageTools(
         const { meta: _meta, ...dataWithoutMeta } = result.data;
         const merged = { ...dataWithoutMeta } as Record<string, unknown>;
         applyPurchasableToRecord(merged, resolved.contentType, slug);
-        return { content: [{ type: "text", text: JSON.stringify({ contentType: resolved.contentType, slug, locale, variant, ...merged, validation_issues: [] }, null, 2) }] };
+        return { content: [{ type: "text", text: JSON.stringify({ contentType: resolved.contentType, slug, locale, variant, ...merged, validation_issues: [], claimed_issues: [], completed_issues: [] }, null, 2) }] };
       }
 
       const payload = resolvePagePayload(slug, locale, contentType, contentPath);
@@ -901,11 +956,18 @@ export function registerPageTools(
       applyPurchasableToRecord(merged, payload.contentType, payload.slug);
       const envelope = { contentType: payload.contentType, slug: payload.slug, locale: payload.locale, locales: payload.locales, ...(payload.urls ? { urls: payload.urls } : {}) };
 
-      // Inject cached validation issues (all categories) for this page's URL
+      // Inject cached validation issues (open / claimed-by-others / completed)
       const pageUrl = payload.urls?.[locale];
-      const validation_issues = pageUrl ? getCachedValidationIssues(pageUrl, undefined, contentPath) : [];
+      const split = pageUrl
+        ? getCachedValidationIssues(
+            pageUrl,
+            undefined,
+            contentPath,
+            _mcpAuthor || mcpViewerAuthor(mcpToken),
+          )
+        : { open: [], claimed: [], completed: [] };
 
-      return { content: [{ type: "text", text: JSON.stringify({ ...envelope, ...merged, validation_issues }, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ ...envelope, ...merged, validation_issues: split.open, claimed_issues: split.claimed, completed_issues: split.completed }, null, 2) }] };
     }
   );
 
@@ -915,7 +977,9 @@ export function registerPageTools(
     "Get the SEO/meta block plus structured-data preview for a page, with the identifying envelope (contentType, slug, locale, locales, urls). " +
     "Returns meta, seo (locale seo.main_keyword / pillar_path / is_pillar), include_in_clustering (derived: false only when seo.pillar_path is explicit null), " +
     "index (live seo-index.json row; omitted for variants), " +
-    "validation_issues (cached SEO-category issues from meta / seo-depth / seo-intent / seo-cluster / seo-cluster-links), and a rich schema_org block: " +
+    "validation_issues (open cached SEO-category issues), " +
+    "claimed_issues (SEO issues claimed by others), " +
+    "completed_issues (soft-completed SEO issues), and a rich schema_org block: " +
     "resolved JSON-LD documents + sources (same pipeline as SSR section contributors + Organization dual-emit), " +
     "content-type requirements / hero companion gaps. " +
     "Use this to inspect what Google gets — not for editing schema_org YAML (use get_entry_content / section tools). " +
@@ -1025,6 +1089,8 @@ export function registerPageTools(
                   index: null,
                   schema_org,
                   validation_issues: [],
+                  claimed_issues: [],
+                  completed_issues: [],
                   ...resolvedUpdatedAtFields(
                     resolved.contentType,
                     slug,
@@ -1058,7 +1124,14 @@ export function registerPageTools(
 
       // Inject cached SEO-only validation issues for this page's URL
       const pageUrl = payload.urls?.[locale];
-      const validation_issues = pageUrl ? getCachedValidationIssues(pageUrl, ["seo"], contentPath) : [];
+      const split = pageUrl
+        ? getCachedValidationIssues(
+            pageUrl,
+            ["seo"],
+            contentPath,
+            _mcpAuthor || mcpViewerAuthor(mcpToken),
+          )
+        : { open: [], claimed: [], completed: [] };
 
       const schema_org = await buildSchemaOrgBlock(
         payload.contentType,
@@ -1078,7 +1151,9 @@ export function registerPageTools(
         include_in_clustering: deriveIncludeInClustering(payload.data.seo),
         index: getSeoIndexEntry(payload.contentType, payload.slug, payload.locale, contentPath) || null,
         schema_org,
-        validation_issues,
+        validation_issues: split.open,
+        claimed_issues: split.claimed,
+        completed_issues: split.completed,
         ...resolvedUpdatedAtFields(
           payload.contentType,
           payload.slug,
@@ -1090,6 +1165,93 @@ export function registerPageTools(
 
       return { content: [{ type: "text", text: JSON.stringify(seoPayload, null, 2) }] };
     }
+  );
+
+  // update_issue
+  mcp.tool(
+    "update_issue",
+    "Claim, release, soft-complete, or reopen a validation issue by stable issue_id from get_entry_content / get_entry_seo. " +
+    "Actions: claim (30m TTL, refresh if you already own it; fails if another author holds an active claim), " +
+    "release (drop your claim or staff release), complete (hide from open lists; also clears claim), uncomplete (reopen). " +
+    "Does NOT delete the issue row, push YAML/GitHub, or run diagnostics. " +
+    "A later validator cache write that rewrites the same id clears complete but keeps an active claim. " +
+    "Requires content_edit_text or seo_edit. Pass issue_id only (no update-by-code).",
+    {
+      issue_id: z.string().describe("Stable issue id from validation_issues[].id"),
+      action: z
+        .enum(["claim", "release", "complete", "uncomplete"])
+        .describe("claim | release | complete | uncomplete"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ issue_id, action, site }) => {
+      const canMutate =
+        !mcpToken ||
+        !grants ||
+        hasCapAnyScope(grants, "content_edit_text") ||
+        hasCapAnyScope(grants, "seo_edit");
+      if (mcpToken && grants && !canMutate) {
+        return denyResponse("content_edit_text|seo_edit");
+      }
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
+      const { domain } = siteResult;
+      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      try {
+        const res = await fetch(
+          `http://localhost:${MAIN_SERVER_PORT}/api/validation/cache-issues/update${q}`,
+          {
+            method: "POST",
+            headers: internalHeaders(mcpToken),
+            body: JSON.stringify({ issueId: issue_id, action }),
+          },
+        );
+        const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        if (!res.ok) {
+          return fail(String(data.error ?? `update_issue failed (${res.status})`), {
+            code: typeof data.code === "string" ? data.code : "update_issue_failed",
+            status: res.status,
+            claimedBy: data.claimedBy,
+          });
+        }
+        const warnings = [
+          {
+            code: "overlay_env_local",
+            message:
+              "Updates this environment's validation-cache claims/completions only — does not push YAML, sync GitHub, or update other environments.",
+          },
+          {
+            code: "no_diagnostics_run",
+            message:
+              "Does not run diagnostics. complete is cleared if a later cache write rewrites this issue_id; claims survive rewrite until TTL/release/complete.",
+          },
+          {
+            code: "claim_ttl_30m",
+            message: "Claims expire after 30 minutes. Same author can re-claim to refresh.",
+          },
+        ];
+        return ok(
+          {
+            issue_id,
+            action,
+            completed: data.completed ?? null,
+            claimed: data.claimed ?? null,
+            message: `Issue ${action} applied.`,
+          },
+          {
+            warnings,
+            side_effects: [
+              {
+                kind: "validation_cache_overlay",
+                summary: `update_issue ${action} for ${issue_id} in validation-cache.json`,
+              },
+            ],
+            next_actions: [],
+          },
+        );
+      } catch (e) {
+        return fail(`Failed to update issue: ${(e as Error).message}`);
+      }
+    },
   );
 
   // regenerate_entry_previews

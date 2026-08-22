@@ -41,6 +41,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -68,10 +75,16 @@ import { isLocaleIndexField, stripLocaleIndexFields } from "@shared/locale";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 
+const MANAGE_LIST_PAGE_SIZE = 50;
+
 interface ItemsResponse {
   count: number;
   results: Record<string, any>[];
   facets?: Record<string, string[]>;
+  total?: number;
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
 }
 
 interface CacheStatus {
@@ -111,6 +124,20 @@ interface SeoEntriesResponse {
   count: number;
   entries: SeoEntry[];
   cache_missing?: boolean;
+  total?: number;
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
+}
+
+interface StaticEntriesResponse {
+  count: number;
+  results: StaticEntry[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
+  withErrors?: number;
 }
 
 interface FieldMapping {
@@ -5049,6 +5076,7 @@ export default function ContentTypeManagePage() {
   const [errorsOnly, setErrorsOnly] = useState(false);
   const [updatedSortDir, setUpdatedSortDir] = useState<UpdatedSortDir>(null);
   const [tagFilters, setTagFilters] = useState<Record<string, string[]>>({});
+  const [listPage, setListPage] = useState(1);
   const [clearing, setClearing] = useState(false);
   const [dsDialogOpen, setDsDialogOpen] = useState(false);
   const [connectDbConfirmOpen, setConnectDbConfirmOpen] = useState(false);
@@ -5145,20 +5173,85 @@ export default function ContentTypeManagePage() {
   const [openingDbEdit, setOpeningDbEdit] = useState(false);
 
   const { data: allItemsData, isLoading: allLoading } = useQuery<ItemsResponse>({
-    queryKey: ["/api/content-types", contentType, "items"],
-    queryFn: () => fetch(`/api/content-types/${contentType}/items`).then(r => r.json()),
+    queryKey: [
+      "/api/content-types",
+      contentType,
+      "items",
+      listPage,
+      search,
+      updatedSortDir,
+      tagFilters,
+    ],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        page: String(listPage),
+        pageSize: String(MANAGE_LIST_PAGE_SIZE),
+      });
+      if (search.trim()) params.set("q", search.trim());
+      if (updatedSortDir) {
+        params.set("sort", "updated_at");
+        params.set("sortDir", updatedSortDir);
+      }
+      for (const [field, values] of Object.entries(tagFilters)) {
+        for (const value of values) {
+          params.append(field, value);
+        }
+      }
+      return fetch(
+        `/api/content-types/${contentType}/items?${params.toString()}`,
+      ).then((r) => r.json());
+    },
+    enabled: listPerspective === "default" && viewMode === "db",
     staleTime: 60000,
   });
 
-  const { data: staticEntriesData, isLoading: staticLoading } = useQuery<{ count: number; results: StaticEntry[] }>({
-    queryKey: ["/api/content-types", contentType, "static-entries"],
-    queryFn: () => fetch(`/api/content-types/${contentType}/static-entries`).then(r => r.json()),
+  const { data: staticEntriesData, isLoading: staticLoading } = useQuery<StaticEntriesResponse>({
+    queryKey: [
+      "/api/content-types",
+      contentType,
+      "static-entries",
+      listPage,
+      search,
+      errorsOnly,
+      updatedSortDir,
+    ],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        page: String(listPage),
+        pageSize: String(MANAGE_LIST_PAGE_SIZE),
+      });
+      if (search.trim()) params.set("q", search.trim());
+      if (errorsOnly) params.set("errorsOnly", "1");
+      if (updatedSortDir) {
+        params.set("sort", "updated_at");
+        params.set("sortDir", updatedSortDir);
+      }
+      return fetch(
+        `/api/content-types/${contentType}/static-entries?${params.toString()}`,
+      ).then((r) => r.json());
+    },
+    enabled: listPerspective === "default" && viewMode === "static",
     staleTime: 60000,
   });
 
   const { data: seoEntriesData, isLoading: seoEntriesLoading, isFetching: seoEntriesFetching } = useQuery<SeoEntriesResponse>({
-    queryKey: ["/api/content-types", contentType, "seo-entries"],
-    queryFn: () => fetch(`/api/content-types/${contentType}/seo-entries`).then(r => r.json()),
+    queryKey: [
+      "/api/content-types",
+      contentType,
+      "seo-entries",
+      listPage,
+      search,
+    ],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        page: String(listPage),
+        pageSize: String(MANAGE_LIST_PAGE_SIZE),
+      });
+      if (search.trim()) params.set("q", search.trim());
+      return fetch(
+        `/api/content-types/${contentType}/seo-entries?${params.toString()}`,
+      ).then((r) => r.json());
+    },
     enabled: listPerspective === "seo",
     staleTime: 0,
     refetchOnMount: "always",
@@ -5173,6 +5266,15 @@ export default function ContentTypeManagePage() {
   const { data: typeConfig } = useQuery<ContentTypeConfig>({
     queryKey: ["/api/content-types", contentType, "config"],
     queryFn: () => fetch(`/api/content-types/${contentType}/config`).then(r => r.json()),
+    staleTime: 60000,
+  });
+
+  /** Full DB item set for KPI cards + partial-override slug membership (not the table). */
+  const { data: dbItemsMeta, isLoading: dbItemsMetaLoading } = useQuery<ItemsResponse>({
+    queryKey: ["/api/content-types", contentType, "items", "meta-full"],
+    queryFn: () =>
+      fetch(`/api/content-types/${contentType}/items`).then((r) => r.json()),
+    enabled: !!typeConfig?.database?.slug,
     staleTime: 60000,
   });
 
@@ -5401,10 +5503,11 @@ export default function ContentTypeManagePage() {
   })();
 
   const items = allItemsData?.results || [];
+  const metaItems = dbItemsMeta?.results || [];
 
   const itemsBySlug = (() => {
     const map = new Map<string, Record<string, any>>();
-    for (const item of items) {
+    for (const item of metaItems) {
       const slug = String(item.slug ?? "").trim();
       if (slug) map.set(slug, item);
     }
@@ -5414,7 +5517,7 @@ export default function ContentTypeManagePage() {
   const hasDbConnection = !!dbSlug;
 
   const dbSlugSet = new Set(
-    hasDbConnection ? items.map((item) => String(item.slug ?? "")).filter(Boolean) : [],
+    hasDbConnection ? metaItems.map((item) => String(item.slug ?? "")).filter(Boolean) : [],
   );
   const isPartialOverride = (entrySlug: string) => hasDbConnection && dbSlugSet.has(entrySlug);
 
@@ -5490,6 +5593,10 @@ export default function ContentTypeManagePage() {
     };
   }, [search, viewMode, dbSlug, tagFilters, localeKey]);
 
+  useEffect(() => {
+    setListPage(1);
+  }, [search, errorsOnly, updatedSortDir, tagFilters, viewMode, listPerspective, contentType]);
+
   const matchesFilter = (item: Record<string, unknown>, field: string, value: string) => {
     const needle = value.toLowerCase();
     const tokens = fieldValueTokens(item[field]).map((t) => t.toLowerCase());
@@ -5499,70 +5606,53 @@ export default function ContentTypeManagePage() {
     return (tokens[0] || "") === needle;
   };
 
-  const filtered = (() => {
-    if (viewMode === "db" && search.trim() && semanticResults !== null) {
-      let result = semanticResults;
-      for (const [field, values] of Object.entries(tagFilters)) {
-        for (const value of values) {
-          result = result.filter((p) => matchesFilter(p, field, value));
-        }
-      }
-      return sortByUpdatedAt(result, updatedSortDir, (p) => p.updated_at);
-    }
+  const useSemanticList =
+    viewMode === "db" && search.trim() && semanticResults !== null;
 
-    let result = items;
-
+  const semanticFiltered = (() => {
+    if (!useSemanticList || !semanticResults) return [];
+    let result = semanticResults;
     for (const [field, values] of Object.entries(tagFilters)) {
       for (const value of values) {
         result = result.filter((p) => matchesFilter(p, field, value));
       }
     }
-
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.title?.toLowerCase().includes(q) ||
-          p.slug?.toLowerCase().includes(q) ||
-          p.description?.toLowerCase().includes(q) ||
-          (p.author_name ? `${p.author_name} ${p.author_last_name || ""}` : "").toLowerCase().includes(q)
-      );
-    }
-
     return sortByUpdatedAt(result, updatedSortDir, (p) => p.updated_at);
   })();
 
-  const staticEntries = staticEntriesData?.results || [];
+  const semanticTotal = semanticFiltered.length;
+  const semanticTotalPages = Math.max(1, Math.ceil(semanticTotal / MANAGE_LIST_PAGE_SIZE) || 1);
+  const semanticSafePage = Math.min(Math.max(1, listPage), semanticTotalPages);
+  const filtered = useSemanticList
+    ? semanticFiltered.slice(
+        (semanticSafePage - 1) * MANAGE_LIST_PAGE_SIZE,
+        semanticSafePage * MANAGE_LIST_PAGE_SIZE,
+      )
+    : items;
+
+  const filteredStatic = staticEntriesData?.results || [];
   const staticEntryErrorCount = (e: StaticEntry) =>
     (e.mappingErrors?.length ?? 0) + (e.emptyLocales?.length ?? 0);
-  const staticEntriesWithErrors = staticEntries.filter(
-    (e) => staticEntryErrorCount(e) > 0,
-  ).length;
-  const filteredStatic = (() => {
-    let list = staticEntries;
-    if (errorsOnly) {
-      list = list.filter((e) => staticEntryErrorCount(e) > 0);
-    }
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (e) => e.title.toLowerCase().includes(q) || e.slug.toLowerCase().includes(q)
-      );
-    }
-    return sortByUpdatedAt(list, updatedSortDir, (e) => e.updated_at);
-  })();
+  const staticEntriesWithErrors = staticEntriesData?.withErrors ?? 0;
+  const filteredSeoEntries = seoEntriesData?.entries || [];
 
-  const seoEntries = seoEntriesData?.entries || [];
-  const filteredSeoEntries = (() => {
-    if (!search.trim()) return seoEntries;
-    const q = search.toLowerCase();
-    return seoEntries.filter((e) => {
-      const title = (e.title || "").toLowerCase();
-      const slug = (e.slug || "").toLowerCase();
-      const pageTitle = String(e.meta?.page_title || "").toLowerCase();
-      return title.includes(q) || slug.includes(q) || pageTitle.includes(q);
-    });
-  })();
+  const staticTotal = staticEntriesData?.total ?? filteredStatic.length;
+  const staticTotalPages = staticEntriesData?.totalPages ?? 1;
+  const staticPage = staticEntriesData?.page ?? listPage;
+
+  const itemsTotal = useSemanticList
+    ? semanticTotal
+    : (allItemsData?.total ?? items.length);
+  const itemsTotalPages = useSemanticList
+    ? semanticTotalPages
+    : (allItemsData?.totalPages ?? 1);
+  const itemsPage = useSemanticList
+    ? semanticSafePage
+    : (allItemsData?.page ?? listPage);
+
+  const seoTotal = seoEntriesData?.total ?? filteredSeoEntries.length;
+  const seoTotalPages = seoEntriesData?.totalPages ?? 1;
+  const seoPage = seoEntriesData?.page ?? listPage;
 
   const hasDb = !!typeConfig?.database?.slug;
   const singleTemplateEnabled = !!typeConfig?.single_template;
@@ -5677,8 +5767,11 @@ export default function ContentTypeManagePage() {
       ? typeConfig.static_entry_count
       : staticLoading
         ? null
-        : staticEntriesData?.count ?? 0;
-  const dbEntryCount = hasDb ? (allLoading ? null : allItemsData?.count ?? items.length) : null;
+        : staticEntriesData?.total ?? staticEntriesData?.count ?? 0;
+  const dbEntryCount = hasDb
+    ? (dbItemsMetaLoading ? null : dbItemsMeta?.count ?? metaItems.length)
+    : null;
+
   const defaultViewMode = hasDb ? "db" : "static";
   const prevDefaultRef = useRef(defaultViewMode);
   useEffect(() => {
@@ -6207,8 +6300,8 @@ export default function ContentTypeManagePage() {
     }
   };
 
-  const hasAuthorField = items.some(p => p.author_name || p.author);
-  const hasPublishedAt = items.some(p => p.published_at);
+  const hasAuthorField = metaItems.some(p => p.author_name || p.author);
+  const hasPublishedAt = metaItems.some(p => p.published_at);
 
   const toggleUpdatedSort = () => {
     setUpdatedSortDir((prev) => (prev === null ? "desc" : prev === "desc" ? "asc" : null));
@@ -6269,12 +6362,12 @@ export default function ContentTypeManagePage() {
           </div>
         </div>
 
-        {allIndexFields.length > 0 && items.length > 0 && (
+        {allIndexFields.length > 0 && metaItems.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {allIndexFields.map((idx) => {
               const isLocale = idx === localeKey;
               const counts: Record<string, number> = {};
-              for (const item of items) {
+              for (const item of metaItems) {
                 const raw = item[idx];
                 const tokens =
                   typeof raw === "string" && raw.includes(",")
@@ -6307,7 +6400,7 @@ export default function ContentTypeManagePage() {
                         <div className="flex flex-wrap gap-1.5">
                           {visible.map(([val, count]) => (
                             <Badge key={val} variant="secondary" className="text-xs" data-testid={`text-kpi-${idx}-${val}`}>
-                              {allLoading ? "..." : count}
+                              {dbItemsMetaLoading ? "..." : count}
                               <span className="ml-1 text-muted-foreground font-normal">
                                 {isLocale ? val.toUpperCase() : val.charAt(0).toUpperCase() + val.slice(1)}
                               </span>
@@ -6324,7 +6417,7 @@ export default function ContentTypeManagePage() {
                                 <div className="flex flex-wrap gap-1.5">
                                   {sortedEntries.slice(VISIBLE_COUNT).map(([val, count]) => (
                                     <Badge key={val} variant="secondary" className="text-xs" data-testid={`text-kpi-${idx}-${val}`}>
-                                      {allLoading ? "..." : count}
+                                      {dbItemsMetaLoading ? "..." : count}
                                       <span className="ml-1 text-muted-foreground font-normal">
                                         {isLocale ? val.toUpperCase() : val.charAt(0).toUpperCase() + val.slice(1)}
                                       </span>
@@ -6740,7 +6833,7 @@ export default function ContentTypeManagePage() {
                 </Button>
               )}
               {(() => {
-                const facets = allItemsData?.facets;
+                const facets = allItemsData?.facets ?? dbItemsMeta?.facets;
                 if (viewMode !== "db" || !facets || Object.keys(facets).length === 0) return null;
                 const activeFilterCount = Object.values(tagFilters).flat().length;
                 return (
@@ -7476,7 +7569,7 @@ export default function ContentTypeManagePage() {
                 </div>
               )
             ) : (
-              allLoading ? (
+              (search.trim() ? semanticLoading : allLoading) ? (
                 <div className="flex items-center justify-center py-12" data-testid="loading-items">
                   <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-current border-r-transparent" />
                   <span className="ml-2 text-sm text-muted-foreground">Loading entries...</span>
@@ -7746,21 +7839,126 @@ export default function ContentTypeManagePage() {
               )
             )}
             {listPerspective === "seo" && !seoEntriesLoading && filteredSeoEntries.length > 0 && (
-              <div className="px-4 py-3 border-t text-xs text-muted-foreground" data-testid="text-showing-count">
-                Showing {filteredSeoEntries.length} of {seoEntries.length} SEO entries
-              </div>
-            )}
-            {listPerspective === "default" && viewMode === "static" && !staticLoading && filteredStatic.length > 0 && (
-              <div className="px-4 py-3 border-t text-xs text-muted-foreground" data-testid="text-showing-count">
-                Showing {filteredStatic.length} of {staticEntries.length} entries
-                {staticEntriesWithErrors > 0 && (
-                  <span data-testid="text-error-count"> · {staticEntriesWithErrors} with errors (mapping or empty locales)</span>
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t"
+                data-testid="text-showing-count"
+              >
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {seoTotalPages > 1
+                    ? `Page ${seoPage} of ${seoTotalPages} · ${seoTotal} SEO entries`
+                    : `Showing ${filteredSeoEntries.length} of ${seoTotal} SEO entries`}
+                </span>
+                {seoTotalPages > 1 && (
+                  <Pagination className="mx-0 w-auto justify-end" data-testid="pagination-seo-entries">
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          href="#"
+                          aria-disabled={seoPage <= 1}
+                          className={seoPage <= 1 ? "pointer-events-none opacity-50" : undefined}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (seoPage > 1) setListPage(seoPage - 1);
+                          }}
+                        />
+                      </PaginationItem>
+                      <PaginationItem>
+                        <PaginationNext
+                          href="#"
+                          aria-disabled={seoPage >= seoTotalPages}
+                          className={seoPage >= seoTotalPages ? "pointer-events-none opacity-50" : undefined}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (seoPage < seoTotalPages) setListPage(seoPage + 1);
+                          }}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
                 )}
               </div>
             )}
-            {listPerspective === "default" && viewMode === "db" && !allLoading && filtered.length > 0 && (
-              <div className="px-4 py-3 border-t text-xs text-muted-foreground" data-testid="text-showing-count">
-                Showing {filtered.length} of {items.length} entries
+            {listPerspective === "default" && viewMode === "static" && !staticLoading && filteredStatic.length > 0 && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t"
+                data-testid="text-showing-count"
+              >
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {staticTotalPages > 1
+                    ? `Page ${staticPage} of ${staticTotalPages} · ${staticTotal} entries`
+                    : `Showing ${filteredStatic.length} of ${staticTotal} entries`}
+                  {staticEntriesWithErrors > 0 && (
+                    <span data-testid="text-error-count"> · {staticEntriesWithErrors} with errors (mapping or empty locales)</span>
+                  )}
+                </span>
+                {staticTotalPages > 1 && (
+                  <Pagination className="mx-0 w-auto justify-end" data-testid="pagination-static-entries">
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          href="#"
+                          aria-disabled={staticPage <= 1}
+                          className={staticPage <= 1 ? "pointer-events-none opacity-50" : undefined}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (staticPage > 1) setListPage(staticPage - 1);
+                          }}
+                        />
+                      </PaginationItem>
+                      <PaginationItem>
+                        <PaginationNext
+                          href="#"
+                          aria-disabled={staticPage >= staticTotalPages}
+                          className={staticPage >= staticTotalPages ? "pointer-events-none opacity-50" : undefined}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (staticPage < staticTotalPages) setListPage(staticPage + 1);
+                          }}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                )}
+              </div>
+            )}
+            {listPerspective === "default" && viewMode === "db" && !(useSemanticList ? semanticLoading : allLoading) && filtered.length > 0 && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t"
+                data-testid="text-showing-count"
+              >
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {itemsTotalPages > 1
+                    ? `Page ${itemsPage} of ${itemsTotalPages} · ${itemsTotal} entries`
+                    : `Showing ${filtered.length} of ${itemsTotal} entries`}
+                </span>
+                {itemsTotalPages > 1 && (
+                  <Pagination className="mx-0 w-auto justify-end" data-testid="pagination-db-entries">
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          href="#"
+                          aria-disabled={itemsPage <= 1}
+                          className={itemsPage <= 1 ? "pointer-events-none opacity-50" : undefined}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (itemsPage > 1) setListPage(itemsPage - 1);
+                          }}
+                        />
+                      </PaginationItem>
+                      <PaginationItem>
+                        <PaginationNext
+                          href="#"
+                          aria-disabled={itemsPage >= itemsTotalPages}
+                          className={itemsPage >= itemsTotalPages ? "pointer-events-none opacity-50" : undefined}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (itemsPage < itemsTotalPages) setListPage(itemsPage + 1);
+                          }}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                )}
               </div>
             )}
           </CardContent>
@@ -8056,7 +8254,7 @@ export default function ContentTypeManagePage() {
         onOpenChange={setConnectDbConfirmOpen}
         onConfirm={() => setDsDialogOpen(true)}
         contentTypeLabel={label}
-        staticCount={typeof staticEntryCount === "number" ? staticEntryCount : staticEntriesData?.count ?? 0}
+        staticCount={typeof staticEntryCount === "number" ? staticEntryCount : staticEntriesData?.total ?? staticEntriesData?.count ?? 0}
         alreadyConnected={hasDb}
       />
       <DataSourceDialog open={dsDialogOpen} onOpenChange={setDsDialogOpen} contentType={contentType} />
@@ -8065,8 +8263,8 @@ export default function ContentTypeManagePage() {
         open={seoDialogOpen}
         onOpenChange={setSeoDialogOpen}
         contentType={contentType}
-        staticCount={staticEntriesData?.count ?? 0}
-        dbCount={allItemsData?.count ?? 0}
+        staticCount={typeConfig?.static_entry_count ?? staticEntriesData?.total ?? staticEntriesData?.count ?? 0}
+        dbCount={dbItemsMeta?.count ?? cacheStatus?.post_count ?? allItemsData?.total ?? 0}
       />
       <SharedLayoutExplainDialog
         open={explainSharedLayoutOpen}

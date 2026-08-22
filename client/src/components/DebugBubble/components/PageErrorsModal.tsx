@@ -29,14 +29,26 @@ import {
   IconAlertTriangle,
   IconArrowRight,
   IconBrandGoogle,
+  IconCheck,
   IconChevronDown,
   IconClock,
   IconCopy,
   IconExternalLink,
   IconLoader2,
+  IconLock,
+  IconLockOpen,
   IconRefresh,
+  IconSparkles,
+  IconUser,
 } from "@tabler/icons-react";
 import * as Flags from "country-flag-icons/react/3x2";
+import {
+  SOLVE_WITH_AI_MENU,
+  buildSolveWithAiPrompt,
+  type SolveWithAiAgentId,
+} from "../solveWithAiPrompt";
+import { SolveWithAiAgentIcon } from "../SolveWithAiAgentIcon";
+import type { McpSetupTabId } from "@/components/mcp/mcpUrlHelpers";
 
 /** Validators that make sense for a single page (entry-local only). */
 export const PER_PAGE_VALIDATORS = [
@@ -60,6 +72,14 @@ interface PageErrorsModalProps {
   loading?: boolean;
   error?: string | null;
   onRefreshDiagnostics?: () => Promise<void>;
+  /** Called after Solve with AI copies the prompt. Parent should close this modal and open MCP confirmation (do not open the LLM yet). */
+  onSolveWithAi?: (payload: {
+    agentId: SolveWithAiAgentId;
+    setupTab: McpSetupTabId;
+    prompt: string;
+    label: string;
+    prefillUrlPrefix?: string;
+  }) => void;
 }
 
 type PageIssue = NonNullable<PageDiagnostics["issues"]>[number];
@@ -216,28 +236,45 @@ function IssueCard({
   index,
   variant,
   formatSitePath,
+  onUpdateIssue,
+  togglePending,
 }: {
   issue: PageIssue;
   index: number;
   variant: "error" | "warning";
   formatSitePath: (path: string) => string;
+  onUpdateIssue?: (
+    issue: PageIssue,
+    action: "claim" | "release" | "complete" | "uncomplete",
+  ) => void;
+  togglePending?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const isError = variant === "error";
-  const cacheBuiltAt = (issue as { validationCacheBuiltAt?: string }).validationCacheBuiltAt;
+  const cacheBuiltAt = issue.validationCacheBuiltAt;
+  const isCompleted = Boolean(issue.completed);
+  const isClaimed = Boolean(issue.claimed);
+  const canAct = Boolean(issue.id && onUpdateIssue);
   const hasDetails = Boolean(
-    issue.details?.expected || issue.suggestion || issue.file || cacheBuiltAt,
+    issue.details?.expected ||
+      issue.suggestion ||
+      issue.file ||
+      cacheBuiltAt ||
+      issue.completed ||
+      issue.claimed,
   );
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <div
         className={
-          isError
-            ? "rounded-md bg-destructive/10 border border-destructive/30 text-sm"
-            : "rounded-md bg-amber-500/10 border border-amber-500/30 text-sm"
+          isCompleted
+            ? "rounded-md bg-muted/40 border border-border text-sm opacity-80"
+            : isError
+              ? "rounded-md bg-destructive/10 border border-destructive/30 text-sm"
+              : "rounded-md bg-amber-500/10 border border-amber-500/30 text-sm"
         }
-        data-testid={`modal-${variant}-${index}`}
+        data-testid={`modal-${variant}-${index}${isCompleted ? "-completed" : ""}`}
       >
         <div className="flex w-full items-start gap-2 p-3">
           <div className="min-w-0 flex-1">
@@ -253,19 +290,103 @@ function IssueCard({
               >
                 <div
                   className={
-                    isError
-                      ? "font-mono font-medium text-destructive text-xs"
-                      : "font-mono font-medium text-amber-700 dark:text-amber-300 text-xs"
+                    isCompleted
+                      ? "font-mono font-medium text-muted-foreground text-xs"
+                      : isError
+                        ? "font-mono font-medium text-destructive text-xs"
+                        : "font-mono font-medium text-amber-700 dark:text-amber-300 text-xs"
                   }
                 >
                   {issue.code}
                 </div>
               </button>
             </CollapsibleTrigger>
-            <div className="mt-1 text-foreground">
+            <div className={cn("mt-1", isCompleted ? "text-muted-foreground" : "text-foreground")}>
               <IssueMessageWithLinks text={issue.message} formatSitePath={formatSitePath} />
             </div>
+            {issue.claimed && !isCompleted && (
+              <p
+                className="mt-1 text-[11px] text-muted-foreground flex items-center gap-1"
+                data-testid={`modal-${variant}-${index}-claimed-by`}
+              >
+                <IconUser className="h-3 w-3 shrink-0" />
+                Claimed by {issue.claimed.by}
+                {issue.claimed.expiresAt && (
+                  <span className="opacity-80">
+                    · until {new Date(issue.claimed.expiresAt).toLocaleTimeString()}
+                  </span>
+                )}
+              </p>
+            )}
+            {issue.completed && (
+              <p
+                className="mt-1 text-[11px] text-muted-foreground"
+                data-testid={`modal-${variant}-${index}-completed-by`}
+              >
+                Completed by {issue.completed.by}
+              </p>
+            )}
           </div>
+          {canAct && !isCompleted && (
+            <button
+              type="button"
+              className={cn(
+                "shrink-0 mt-0.5 rounded-md p-1 transition-colors",
+                isClaimed
+                  ? "text-status-away hover:bg-muted"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted",
+              )}
+              aria-label={isClaimed ? "Release claim" : "Claim issue"}
+              title={
+                isClaimed
+                  ? `Release claim (${issue.claimed?.by})`
+                  : "Claim — mark as in progress (30m)"
+              }
+              disabled={togglePending}
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdateIssue?.(issue, isClaimed ? "release" : "claim");
+              }}
+              data-testid={`modal-${variant}-${index}-claim`}
+            >
+              {togglePending ? (
+                <IconLoader2 className="h-4 w-4 animate-spin" />
+              ) : isClaimed ? (
+                <IconLockOpen className="h-4 w-4" />
+              ) : (
+                <IconLock className="h-4 w-4" />
+              )}
+            </button>
+          )}
+          {canAct && (
+            <button
+              type="button"
+              className={cn(
+                "shrink-0 mt-0.5 rounded-md p-1 transition-colors",
+                isCompleted
+                  ? "text-status-online hover:bg-muted"
+                  : "text-muted-foreground hover:text-status-online hover:bg-muted",
+              )}
+              aria-label={isCompleted ? "Mark as open" : "Mark as fixed"}
+              title={
+                isCompleted
+                  ? "Mark as open"
+                  : "Mark as fixed — hides until the next cache write"
+              }
+              disabled={togglePending}
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdateIssue?.(issue, isCompleted ? "uncomplete" : "complete");
+              }}
+              data-testid={`modal-${variant}-${index}-complete`}
+            >
+              {togglePending ? (
+                <IconLoader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <IconCheck className="h-4 w-4" stroke={isCompleted ? 2.5 : 1.5} />
+              )}
+            </button>
+          )}
           {hasDetails && (
             <CollapsibleTrigger asChild>
               <button
@@ -331,21 +452,81 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
     loading = false,
     error = null,
     onRefreshDiagnostics,
+    onSolveWithAi,
   } = props;
 
   const [isRunningValidation, setIsRunningValidation] = useState(false);
   const [activeTab, setActiveTab] = useState<"errors" | "warnings" | "crawlers">("errors");
   const [openPageMenuOpen, setOpenPageMenuOpen] = useState(false);
+  const [solveMenuOpen, setSolveMenuOpen] = useState(false);
+  const [completedErrorsOpen, setCompletedErrorsOpen] = useState(false);
+  const [completedWarningsOpen, setCompletedWarningsOpen] = useState(false);
+  const [togglingIssueId, setTogglingIssueId] = useState<string | null>(null);
   const openPageMenuRef = useRef<HTMLDivElement>(null);
+  const solveMenuRef = useRef<HTMLDivElement>(null);
   const formatSitePath = useFormatSitePath();
   const queryClient = useQueryClient();
   const { hasCapability } = useDebugAuth();
   const canInspect = hasCapability("seo_edit");
+  const { toast } = useToast();
 
-  const errors = pageDiagnostics?.issues?.filter((i) => i.type === "error") ?? [];
-  const warnings = pageDiagnostics?.issues?.filter((i) => i.type === "warning") ?? [];
+  const allErrors = pageDiagnostics?.issues?.filter((i) => i.type === "error") ?? [];
+  const allWarnings = pageDiagnostics?.issues?.filter((i) => i.type === "warning") ?? [];
+  const errors = allErrors.filter((i) => !i.completed);
+  const warnings = allWarnings.filter((i) => !i.completed);
+  const completedErrors = allErrors.filter((i) => i.completed);
+  const completedWarnings = allWarnings.filter((i) => i.completed);
+  const canSolveWithAi = Boolean(pageDiagnostics && (errors.length > 0 || warnings.length > 0));
   const openPageUrl = pageUrl ?? pageDiagnostics?.url;
   const inspectLookupUrl = openPageUrl || "";
+
+  const handleUpdateIssue = async (
+    issue: PageIssue,
+    action: "claim" | "release" | "complete" | "uncomplete",
+  ) => {
+    if (!issue.id) {
+      toast({
+        title: "Cannot update issue",
+        description: "This issue has no id — refresh diagnostics and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setTogglingIssueId(issue.id);
+    try {
+      const token = getDebugToken();
+      const res = await fetch("/api/validation/cache-issues/update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getSessionHeaders(),
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+        body: JSON.stringify({ issueId: issue.id, action }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof body.error === "string" ? body.error : "Update failed");
+      }
+      await onRefreshDiagnostics?.();
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-issues"] });
+    } catch (err) {
+      const titles: Record<typeof action, string> = {
+        claim: "Could not claim issue",
+        release: "Could not release claim",
+        complete: "Could not mark fixed",
+        uncomplete: "Could not reopen issue",
+      };
+      toast({
+        title: titles[action],
+        description: err instanceof Error ? err.message : "Request failed",
+        variant: "destructive",
+      });
+    } finally {
+      setTogglingIssueId(null);
+    }
+  };
 
   const gscQuery = useQuery<GscInspectionGetResponse>({
     queryKey: ["/api/debug/gsc-inspection", inspectLookupUrl],
@@ -397,7 +578,10 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   });
 
   useEffect(() => {
-    if (!open) setOpenPageMenuOpen(false);
+    if (!open) {
+      setOpenPageMenuOpen(false);
+      setSolveMenuOpen(false);
+    }
   }, [open]);
 
   useEffect(() => {
@@ -410,6 +594,24 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [openPageMenuOpen]);
+
+  useEffect(() => {
+    if (!solveMenuOpen) return;
+    function onDown(e: MouseEvent) {
+      if (solveMenuRef.current && !solveMenuRef.current.contains(e.target as Node)) {
+        setSolveMenuOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setSolveMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [solveMenuOpen]);
 
   useEffect(() => {
     if (!open || !pageDiagnostics) return;
@@ -444,6 +646,34 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
       }
     } catch {}
     setIsRunningValidation(false);
+  }
+
+  async function handleSolveMenuSelect(agentId: SolveWithAiAgentId) {
+    if (!pageDiagnostics) return;
+    const item = SOLVE_WITH_AI_MENU.find((m) => m.id === agentId);
+    if (!item) return;
+    setSolveMenuOpen(false);
+    const prompt = buildSolveWithAiPrompt(pageDiagnostics);
+    try {
+      await navigator.clipboard.writeText(prompt);
+      toast({
+        title: "Prompt copied",
+        description: "Connect MCP in the next dialog, then confirm to open your AI agent.",
+      });
+    } catch {
+      toast({
+        title: "Could not copy prompt",
+        description: "Allow clipboard access, or copy again from the confirmation dialog.",
+        variant: "destructive",
+      });
+    }
+    onSolveWithAi?.({
+      agentId: item.id,
+      setupTab: item.setupTab,
+      prompt,
+      label: item.label,
+      prefillUrlPrefix: item.prefillUrlPrefix,
+    });
   }
 
   const unpublishedVariant =
@@ -675,18 +905,57 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                     className="p-3 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground"
                     data-testid="modal-errors-empty"
                   >
-                    No errors for this entry.
+                    {completedErrors.length > 0
+                      ? "No open errors for this entry."
+                      : "No errors for this entry."}
                   </div>
                 ) : (
                   errors.map((issue, i) => (
                     <IssueCard
-                      key={`${issue.code}-${i}`}
+                      key={issue.id ?? `${issue.code}-${i}`}
                       issue={issue}
                       index={i}
                       variant="error"
                       formatSitePath={formatSitePath}
+                      onUpdateIssue={handleUpdateIssue}
+                      togglePending={togglingIssueId === issue.id}
                     />
                   ))
+                )}
+                {completedErrors.length > 0 && (
+                  <Collapsible
+                    open={completedErrorsOpen}
+                    onOpenChange={setCompletedErrorsOpen}
+                  >
+                    <CollapsibleTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-1.5 pt-2 text-xs text-muted-foreground hover:text-foreground"
+                        data-testid="toggle-completed-errors"
+                      >
+                        <IconChevronDown
+                          className={cn(
+                            "h-3.5 w-3.5 transition-transform",
+                            completedErrorsOpen && "rotate-180",
+                          )}
+                        />
+                        Completed ({completedErrors.length})
+                      </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="space-y-2 pt-2">
+                      {completedErrors.map((issue, i) => (
+                        <IssueCard
+                          key={issue.id ?? `completed-error-${issue.code}-${i}`}
+                          issue={issue}
+                          index={errors.length + i}
+                          variant="error"
+                          formatSitePath={formatSitePath}
+                          onUpdateIssue={handleUpdateIssue}
+                          togglePending={togglingIssueId === issue.id}
+                        />
+                      ))}
+                    </CollapsibleContent>
+                  </Collapsible>
                 )}
               </TabsContent>
               )}
@@ -698,18 +967,57 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                     className="p-3 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground"
                     data-testid="modal-warnings-empty"
                   >
-                    No warnings for this entry.
+                    {completedWarnings.length > 0
+                      ? "No open warnings for this entry."
+                      : "No warnings for this entry."}
                   </div>
                 ) : (
                   warnings.map((issue, i) => (
                     <IssueCard
-                      key={`${issue.code}-${i}`}
+                      key={issue.id ?? `${issue.code}-${i}`}
                       issue={issue}
                       index={i}
                       variant="warning"
                       formatSitePath={formatSitePath}
+                      onUpdateIssue={handleUpdateIssue}
+                      togglePending={togglingIssueId === issue.id}
                     />
                   ))
+                )}
+                {completedWarnings.length > 0 && (
+                  <Collapsible
+                    open={completedWarningsOpen}
+                    onOpenChange={setCompletedWarningsOpen}
+                  >
+                    <CollapsibleTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-1.5 pt-2 text-xs text-muted-foreground hover:text-foreground"
+                        data-testid="toggle-completed-warnings"
+                      >
+                        <IconChevronDown
+                          className={cn(
+                            "h-3.5 w-3.5 transition-transform",
+                            completedWarningsOpen && "rotate-180",
+                          )}
+                        />
+                        Completed ({completedWarnings.length})
+                      </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="space-y-2 pt-2">
+                      {completedWarnings.map((issue, i) => (
+                        <IssueCard
+                          key={issue.id ?? `completed-warning-${issue.code}-${i}`}
+                          issue={issue}
+                          index={warnings.length + i}
+                          variant="warning"
+                          formatSitePath={formatSitePath}
+                          onUpdateIssue={handleUpdateIssue}
+                          togglePending={togglingIssueId === issue.id}
+                        />
+                      ))}
+                    </CollapsibleContent>
+                  </Collapsible>
                 )}
               </TabsContent>
               )}
@@ -784,12 +1092,13 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
               <p className="text-muted-foreground text-xs">
                 {activeTab === "crawlers"
                   ? "Crawlers read a disk cache of Search Console URL Inspection results. Restarts do not call Google. Configure the service account under SEO/GEO → Search Console."
-                  : "Validation uses one shared store. This list shows issues that target this entry (including redirects/media that touch it). Saving re-checks local rules; redirect conflicts refresh when redirect config changes or via Redirects / Global Health."}
+                  : pageDiagnostics.education?.summary ||
+                    "Check mark = mark fixed for tracking; hides from open counts. Saving or Run validation can bring an issue back if still detected."}
               </p>
             </div>
           </div>
         )}
-        <DialogFooter>
+        <DialogFooter className="sm:justify-end gap-2 flex-wrap">
           {!pageDiagnostics && error && onRefreshDiagnostics && (
             <Button
               variant="default"
@@ -807,6 +1116,41 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
               )}
             </Button>
           )}
+          <div ref={solveMenuRef} className="relative">
+            <Button
+              type="button"
+              variant="default"
+              disabled={!canSolveWithAi}
+              aria-haspopup="menu"
+              aria-expanded={solveMenuOpen}
+              onClick={() => setSolveMenuOpen((prev) => !prev)}
+              data-testid="button-solve-with-ai-agent"
+            >
+              <IconSparkles className="h-4 w-4" />
+              Solve with AI Agent
+              <IconChevronDown className="h-4 w-4 opacity-70" />
+            </Button>
+            {solveMenuOpen && (
+              <div
+                role="menu"
+                className="absolute bottom-full right-0 z-50 mb-1 w-48 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+              >
+                {SOLVE_WITH_AI_MENU.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] hover-elevate"
+                    onClick={() => void handleSolveMenuSelect(item.id)}
+                    data-testid={`menu-solve-ai-${item.id}`}
+                  >
+                    <SolveWithAiAgentIcon agentId={item.id} />
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-close-page-errors">
             Close
           </Button>

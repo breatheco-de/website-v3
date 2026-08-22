@@ -18,6 +18,8 @@ import type {
   ValidationCacheFileV5,
   ValidationCacheIndexes,
   ValidationIssue,
+  ValidationIssueClaim,
+  ValidationIssueCompletion,
   ValidatorResult,
 } from "../../scripts/validation/shared/types";
 import type { ValidationScope } from "../../scripts/validation/shared/runClass";
@@ -43,6 +45,10 @@ const log = child({ module: "validationCacheService" });
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const CACHE_VERSION = 5;
+/** Soft claim TTL — same author can refresh; others wait for expiry or release. */
+export const CLAIM_TTL_MS = 30 * 60 * 1000;
+
+export type CacheIssueUpdateAction = "claim" | "release" | "complete" | "uncomplete";
 
 function emptyIndexes(): ValidationCacheIndexes {
   return {
@@ -61,6 +67,8 @@ function emptyCache(): ValidationCacheFileV5 {
     issues: {},
     indexes: emptyIndexes(),
     runMeta: { byEntry: {}, byScope: {} },
+    completions: {},
+    claims: {},
     databases: {},
   };
 }
@@ -174,6 +182,8 @@ function migrateV4ToV5(v4: {
     issues,
     indexes: rebuildIndexes(issues, byUrl),
     runMeta: { byEntry: runMetaByEntry, byScope: {} },
+    completions: {},
+    claims: {},
     databases: v4.databases ?? {},
   };
 }
@@ -191,6 +201,8 @@ function migrateCache(parsed: ValidationCacheFile): ValidationCacheFileV5 {
       },
       indexes: v5.indexes ?? rebuildIndexes(v5.issues, v5.indexes?.byUrl ?? {}),
       runMeta: v5.runMeta ?? { byEntry: {}, byScope: {} },
+      completions: v5.completions ?? {},
+      claims: v5.claims ?? {},
       databases: v5.databases ?? {},
     };
   }
@@ -249,6 +261,8 @@ export class ValidationCacheService {
   private runMetaByScope: Partial<
     Record<ValidationScope, { lastRunAt: string; byValidator: Record<string, string>; dirty?: boolean }>
   > = {};
+  private completions: Record<string, ValidationIssueCompletion> = {};
+  private claims: Record<string, ValidationIssueClaim> = {};
   private dbMap: Map<string, DatabaseCacheEntry> = new Map();
   private lastFullRunAt: string | null = null;
   private lastSiteWideRunAt: string | null = null;
@@ -284,7 +298,247 @@ export class ValidationCacheService {
     this.indexes = data.indexes ?? rebuildIndexes(this.issues);
     this.runMetaByEntry = { ...(data.runMeta?.byEntry ?? {}) };
     this.runMetaByScope = { ...(data.runMeta?.byScope ?? {}) };
+    this.completions = { ...(data.completions ?? {}) };
+    this.claims = { ...(data.claims ?? {}) };
     this.dbMap = new Map(Object.entries(data.databases ?? {}));
+    this.gcOrphanOverlays();
+  }
+
+  private dropCompletions(ids: Iterable<string>): void {
+    for (const id of ids) {
+      delete this.completions[id];
+    }
+  }
+
+  private dropClaims(ids: Iterable<string>): void {
+    for (const id of ids) {
+      delete this.claims[id];
+    }
+  }
+
+  /** Drop overlay records whose issue id is gone, and expired claims. */
+  private gcOrphanOverlays(): void {
+    for (const id of Object.keys(this.completions)) {
+      if (!this.issues[id]) delete this.completions[id];
+    }
+    const now = Date.now();
+    for (const [id, claim] of Object.entries(this.claims)) {
+      if (!this.issues[id] || new Date(claim.expiresAt).getTime() <= now) {
+        delete this.claims[id];
+      }
+    }
+  }
+
+  isIssueCompleted(issueId: string): boolean {
+    return Boolean(this.completions[issueId]);
+  }
+
+  getCompletion(issueId: string): ValidationIssueCompletion | undefined {
+    return this.completions[issueId];
+  }
+
+  getCompletions(): Record<string, ValidationIssueCompletion> {
+    return { ...this.completions };
+  }
+
+  getIssueById(issueId: string): StoredValidationIssue | undefined {
+    return this.issues[issueId];
+  }
+
+  /** Active (non-expired) claim, or undefined. Expired rows are GC'd. */
+  getActiveClaim(issueId: string, nowMs: number = Date.now()): ValidationIssueClaim | undefined {
+    const claim = this.claims[issueId];
+    if (!claim) return undefined;
+    if (new Date(claim.expiresAt).getTime() <= nowMs) {
+      delete this.claims[issueId];
+      return undefined;
+    }
+    return claim;
+  }
+
+  isClaimActive(issueId: string, nowMs: number = Date.now()): boolean {
+    return Boolean(this.getActiveClaim(issueId, nowMs));
+  }
+
+  private buildClaim(claimedBy: string, nowMs: number = Date.now()): ValidationIssueClaim {
+    return {
+      claimedBy,
+      claimedAt: new Date(nowMs).toISOString(),
+      expiresAt: new Date(nowMs + CLAIM_TTL_MS).toISOString(),
+    };
+  }
+
+  /**
+   * Soft-complete: hide from open lists/counts until the next cache write resurfaces the id.
+   * Also clears any active claim on the issue.
+   */
+  async completeIssue(
+    issueId: string,
+    completedBy: string,
+  ): Promise<{ ok: true; completion: ValidationIssueCompletion } | { ok: false; error: string }> {
+    if (!this.issues[issueId]) {
+      return { ok: false, error: `Unknown issue id: ${issueId}` };
+    }
+    const completion: ValidationIssueCompletion = {
+      completedBy,
+      completedAt: new Date().toISOString(),
+    };
+    this.completions[issueId] = completion;
+    delete this.claims[issueId];
+    await this.flush();
+    return { ok: true, completion };
+  }
+
+  async uncompleteIssue(
+    issueId: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!this.completions[issueId]) {
+      if (!this.issues[issueId]) {
+        return { ok: false, error: `Unknown issue id: ${issueId}` };
+      }
+      return { ok: true };
+    }
+    delete this.completions[issueId];
+    await this.flush();
+    return { ok: true };
+  }
+
+  async claimIssue(
+    issueId: string,
+    claimedBy: string,
+  ): Promise<
+    | { ok: true; claim: ValidationIssueClaim }
+    | { ok: false; error: string; code?: string; claimedBy?: string }
+  > {
+    if (!this.issues[issueId]) {
+      return { ok: false, error: `Unknown issue id: ${issueId}` };
+    }
+    const existing = this.getActiveClaim(issueId);
+    if (existing && existing.claimedBy !== claimedBy) {
+      return {
+        ok: false,
+        error: `Issue already claimed by ${existing.claimedBy} until ${existing.expiresAt}`,
+        code: "issue_already_claimed",
+        claimedBy: existing.claimedBy,
+      };
+    }
+    const claim = this.buildClaim(claimedBy);
+    this.claims[issueId] = claim;
+    await this.flush();
+    return { ok: true, claim };
+  }
+
+  /**
+   * Release a claim. `force` allows staff to clear another author's claim.
+   */
+  async releaseIssue(
+    issueId: string,
+    author: string,
+    options?: { force?: boolean },
+  ): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
+    if (!this.issues[issueId] && !this.claims[issueId]) {
+      return { ok: false, error: `Unknown issue id: ${issueId}` };
+    }
+    const existing = this.getActiveClaim(issueId);
+    if (!existing) {
+      delete this.claims[issueId];
+      await this.flush();
+      return { ok: true };
+    }
+    if (existing.claimedBy !== author && !options?.force) {
+      return {
+        ok: false,
+        error: `Claimed by ${existing.claimedBy}; only that author or staff can release`,
+        code: "claim_not_owned",
+      };
+    }
+    delete this.claims[issueId];
+    await this.flush();
+    return { ok: true };
+  }
+
+  async updateIssue(
+    issueId: string,
+    action: CacheIssueUpdateAction,
+    author: string,
+    options?: { staffForceRelease?: boolean },
+  ): Promise<
+    | {
+        ok: true;
+        action: CacheIssueUpdateAction;
+        completed?: { by: string; at: string } | null;
+        claimed?: { by: string; at: string; expiresAt: string } | null;
+      }
+    | { ok: false; error: string; code?: string; status?: number; claimedBy?: string }
+  > {
+    switch (action) {
+      case "claim": {
+        const r = await this.claimIssue(issueId, author);
+        if (!r.ok) {
+          return {
+            ok: false,
+            error: r.error,
+            code: r.code,
+            status: r.code === "issue_already_claimed" ? 409 : 404,
+            claimedBy: r.claimedBy,
+          };
+        }
+        return {
+          ok: true,
+          action,
+          claimed: {
+            by: r.claim.claimedBy,
+            at: r.claim.claimedAt,
+            expiresAt: r.claim.expiresAt,
+          },
+          completed: null,
+        };
+      }
+      case "release": {
+        const r = await this.releaseIssue(issueId, author, {
+          force: options?.staffForceRelease === true,
+        });
+        if (!r.ok) {
+          return {
+            ok: false,
+            error: r.error,
+            code: r.code,
+            status: r.code === "claim_not_owned" ? 403 : 404,
+          };
+        }
+        return { ok: true, action, claimed: null };
+      }
+      case "complete": {
+        const r = await this.completeIssue(issueId, author);
+        if (!r.ok) return { ok: false, error: r.error, status: 404 };
+        return {
+          ok: true,
+          action,
+          completed: { by: r.completion.completedBy, at: r.completion.completedAt },
+          claimed: null,
+        };
+      }
+      case "uncomplete": {
+        const r = await this.uncompleteIssue(issueId);
+        if (!r.ok) return { ok: false, error: r.error, status: 404 };
+        const claim = this.getActiveClaim(issueId);
+        return {
+          ok: true,
+          action,
+          completed: null,
+          claimed: claim
+            ? { by: claim.claimedBy, at: claim.claimedAt, expiresAt: claim.expiresAt }
+            : null,
+        };
+      }
+      default:
+        return { ok: false, error: `Unknown action: ${action}`, status: 400 };
+    }
+  }
+
+  /** Issues for an entry that are not soft-completed (open work queue / counts). */
+  getOpenIssuesByEntryKey(entryKey: string): StoredValidationIssue[] {
+    return this.getIssuesByEntryKey(entryKey).filter((i) => !this.completions[i.id]);
   }
 
   private loadFromDisk(): void {
@@ -442,6 +696,8 @@ export class ValidationCacheService {
   /** Remove all issues and run-meta for an entry key (e.g. unpublish / delete variant). */
   clearEntryKey(entryKey: string): void {
     const ids = [...(this.indexes.byEntry[entryKey] ?? [])];
+    this.dropCompletions(ids);
+    this.dropClaims(ids);
     for (const id of ids) {
       delete this.issues[id];
     }
@@ -494,6 +750,8 @@ export class ValidationCacheService {
 
       for (const raw of [...stampedErrors, ...stampedWarnings]) {
         const stored = issueToStored(raw, v.name, nowIso, contentFiles);
+        // Fresh write resurfaces: clear soft-complete for this id.
+        delete this.completions[stored.id];
         this.issues[stored.id] = stored;
       }
 
@@ -559,6 +817,7 @@ export class ValidationCacheService {
     }
 
     this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
+    this.gcOrphanOverlays();
     this.lastFullRunAt = nowIso;
     if (options.markSiteWide) {
       this.lastSiteWideRunAt = nowIso;
@@ -598,6 +857,9 @@ export class ValidationCacheService {
         toDelete.push(id);
       }
     }
+    this.dropCompletions(toDelete);
+    // Do not dropClaims here — rewrite of the same id must keep claims (3C).
+    // Orphans are GC'd at end of applyValidatorResults when the id is absent.
     for (const id of toDelete) delete this.issues[id];
   }
 
@@ -605,11 +867,11 @@ export class ValidationCacheService {
     const entryKey = this.indexes.byUrl[url];
     if (!entryKey) {
       const legacyKey = `legacy${url.replace(/\//g, "__")}`;
-      const legacyIssues = this.getIssuesByEntryKey(legacyKey);
+      const legacyIssues = this.getOpenIssuesByEntryKey(legacyKey);
       if (legacyIssues.length === 0 && !this.runMetaByEntry[legacyKey]) return undefined;
       return pageEntryFromStored(legacyIssues, this.runMetaByEntry[legacyKey]);
     }
-    const issues = this.getIssuesByEntryKey(entryKey);
+    const issues = this.getOpenIssuesByEntryKey(entryKey);
     const meta = this.runMetaByEntry[entryKey];
     if (issues.length === 0 && !meta) return undefined;
     return pageEntryFromStored(issues, {
@@ -619,7 +881,7 @@ export class ValidationCacheService {
   }
 
   getByEntryKey(entryKey: string): PageCacheEntry | undefined {
-    const issues = this.getIssuesByEntryKey(entryKey);
+    const issues = this.getOpenIssuesByEntryKey(entryKey);
     const meta = this.runMetaByEntry[entryKey];
     if (issues.length === 0 && !meta) return undefined;
     return pageEntryFromStored(issues, {
@@ -636,6 +898,8 @@ export class ValidationCacheService {
     }
 
     const existingIds = [...(this.indexes.byEntry[entryKey] ?? [])];
+    this.dropCompletions(existingIds);
+    this.dropClaims(existingIds);
     for (const id of existingIds) delete this.issues[id];
 
     const nowIso = entry.lastRunAt || new Date().toISOString();
@@ -715,6 +979,8 @@ export class ValidationCacheService {
     const toDelete = Object.values(this.issues).filter(
       (issue) => issue.code === code && issue.targets?.some((t) => t.type === "entry" && t.url === url),
     );
+    this.dropCompletions(toDelete.map((i) => i.id));
+    this.dropClaims(toDelete.map((i) => i.id));
     for (const issue of toDelete) delete this.issues[issue.id];
     if (toDelete.length > 0) {
       this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
@@ -728,6 +994,8 @@ export class ValidationCacheService {
     const toDelete = Object.values(this.issues).filter(
       (issue) => issue.code === code && issue.file === file,
     );
+    this.dropCompletions(toDelete.map((i) => i.id));
+    this.dropClaims(toDelete.map((i) => i.id));
     for (const issue of toDelete) delete this.issues[issue.id];
     if (toDelete.length > 0) {
       this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
@@ -743,6 +1011,8 @@ export class ValidationCacheService {
     this.indexes = emptyIndexes();
     this.runMetaByEntry = {};
     this.runMetaByScope = {};
+    this.completions = {};
+    this.claims = {};
     this.dbMap = new Map();
     this.lastFullRunAt = null;
     this.lastSiteWideRunAt = null;
@@ -759,6 +1029,8 @@ export class ValidationCacheService {
     const toDelete = Object.values(this.issues).filter(
       (issue) => issue.validator === "legacy",
     );
+    this.dropCompletions(toDelete.map((i) => i.id));
+    this.dropClaims(toDelete.map((i) => i.id));
     for (const issue of toDelete) delete this.issues[issue.id];
 
     for (const meta of Object.values(this.runMetaByEntry)) {
@@ -808,6 +1080,8 @@ export class ValidationCacheService {
         byEntry: this.runMetaByEntry,
         byScope: this.runMetaByScope,
       },
+      completions: this.completions,
+      claims: this.claims,
       pages,
       databases: Object.fromEntries(this.dbMap.entries()),
     };
@@ -908,6 +1182,7 @@ export class ValidationCacheService {
 }
 
 export type CacheIssueListRow = {
+  id: string;
   url: string;
   entryKey?: string;
   severity: "error" | "warning";
@@ -918,6 +1193,8 @@ export type CacheIssueListRow = {
   lastFullRunAt?: string;
   suggestion?: string;
   file?: string;
+  completed?: { by: string; at: string };
+  claimed?: { by: string; at: string; expiresAt: string };
 };
 
 export type CacheIssueFacets = {
@@ -939,6 +1216,8 @@ export type ListCacheIssuesFilters = {
   category?: string;
   code?: string;
   severity?: "error" | "warning";
+  /** When true, include soft-completed issues (default: open only). */
+  includeCompleted?: boolean;
 };
 
 function uniqueSorted(values: Iterable<string>): string[] {
@@ -1006,10 +1285,22 @@ export function listCacheIssuesFromStore(
     issues = issues.filter((i) => i.severity === filters.severity);
   }
 
+  if (!filters?.includeCompleted) {
+    issues = issues.filter((i) => !cache.isIssueCompleted(i.id));
+  }
+
   const out: CacheIssueListRow[] = [];
 
   for (const issue of issues) {
     if (issue.severity === "info") continue;
+    const completion = cache.getCompletion(issue.id);
+    const completed = completion
+      ? { by: completion.completedBy, at: completion.completedAt }
+      : undefined;
+    const claim = cache.getActiveClaim(issue.id);
+    const claimed = claim
+      ? { by: claim.claimedBy, at: claim.claimedAt, expiresAt: claim.expiresAt }
+      : undefined;
     const entryTargets = issue.targets.filter((t) => t.type === "entry") as Array<{
       type: "entry";
       entryKey: string;
@@ -1017,6 +1308,7 @@ export function listCacheIssuesFromStore(
     }>;
     if (entryTargets.length === 0) {
       out.push({
+        id: issue.id,
         url: "",
         severity: issue.severity,
         code: issue.code,
@@ -1026,11 +1318,14 @@ export function listCacheIssuesFromStore(
         lastFullRunAt: issue.lastRunAt,
         suggestion: issue.suggestion,
         file: issue.file,
+        completed,
+        claimed,
       });
       continue;
     }
     for (const t of entryTargets) {
       out.push({
+        id: issue.id,
         url: t.url ?? "",
         entryKey: t.entryKey,
         severity: issue.severity,
@@ -1041,6 +1336,8 @@ export function listCacheIssuesFromStore(
         lastFullRunAt: issue.lastRunAt,
         suggestion: issue.suggestion,
         file: issue.file,
+        completed,
+        claimed,
       });
     }
   }

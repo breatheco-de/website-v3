@@ -306,6 +306,15 @@ import {
   type QueryFilter,
 } from "../query-entries";
 import { invalidateStaticListingCache } from "../static-listing-cache";
+import {
+  collectQueryFieldFilters,
+  matchesManageItemsSearch,
+  matchesManageTagFilter,
+  paginateList,
+  parseListPagination,
+  parseSortDir,
+  sortByUpdatedAtField,
+} from "./list-pagination";
 import { loadDatabaseSinglePage, mergeSingleTemplate, attachVariableFieldsToSections, hasStaticSharedLayoutEntryLocale } from "../database-single-loader";
 import {
   DEFAULT_PREVIEW_MAX_HEIGHT,
@@ -2579,22 +2588,36 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
 
+      const pagination = parseListPagination(req.query as Record<string, unknown>);
       const locale = req.query.locale as string | undefined;
       const sort = typeof req.query.sort === "string" ? req.query.sort : undefined;
+      const sortDir = parseSortDir(req.query.sortDir);
+      const q =
+        typeof req.query.q === "string" && req.query.q.trim()
+          ? req.query.q.trim()
+          : "";
       const limitRaw = req.query.limit
         ? parseInt(String(req.query.limit), 10)
         : undefined;
-      const limit =
-        limitRaw !== undefined && !Number.isNaN(limitRaw) && limitRaw > 0
+      // When paginating, load the full candidate set then filter/sort/slice here.
+      const limit = pagination.paginate
+        ? undefined
+        : limitRaw !== undefined && !Number.isNaN(limitRaw) && limitRaw > 0
           ? limitRaw
           : undefined;
 
       const filters: QueryFilter[] = [];
       const indexes = getIndexes(type, ctRoot(res));
-      for (const idx of indexes) {
-        const filterVal = req.query[idx] as string | undefined;
-        if (filterVal !== undefined && filterVal !== "") {
-          filters.push({ field: idx, value: filterVal });
+      if (pagination.paginate) {
+        for (const f of collectQueryFieldFilters(req.query as Record<string, unknown>)) {
+          filters.push({ field: f.field, value: f.value });
+        }
+      } else {
+        for (const idx of indexes) {
+          const filterVal = req.query[idx] as string | undefined;
+          if (filterVal !== undefined && filterVal !== "") {
+            filters.push({ field: idx, value: filterVal });
+          }
         }
       }
 
@@ -2602,8 +2625,15 @@ export function registerContentRoutes(app: Express): void {
         {
           from: { contentType: type },
           locale: locale ? normalizeLocale(locale) : undefined,
-          filters: filters.length ? filters : undefined,
-          sort,
+          // When paginating with multi-value tag filters, apply them after fetch
+          // so AND-of-values matches the manage UI (queryEntries OR-in-array semantics differ).
+          filters:
+            pagination.paginate && filters.length
+              ? undefined
+              : filters.length
+                ? filters
+                : undefined,
+          sort: pagination.paginate && sortDir ? undefined : sort,
           limit,
         },
         {
@@ -2619,13 +2649,31 @@ export function registerContentRoutes(app: Express): void {
 
       // Static listing projections omit `content`. When the caller asks for bodies
       // (OG entry-preview live samples), restore them so reading_time can be derived.
-      const workingItems =
+      let workingItems =
         includeContent && meta.source === "content_type"
           ? hydrateStaticListingContent(items as Array<Record<string, unknown>>, type, {
               ci: getCI(res),
               contentRoot: getContentRoot(res),
             })
           : (items as Array<Record<string, unknown>>);
+
+      if (pagination.paginate) {
+        for (const f of filters) {
+          workingItems = workingItems.filter((item) =>
+            matchesManageTagFilter(item, f.field, String(f.value)),
+          );
+        }
+        if (q) {
+          workingItems = workingItems.filter((item) =>
+            matchesManageItemsSearch(item, q),
+          );
+        }
+        workingItems = sortByUpdatedAtField(
+          workingItems,
+          sortDir,
+          (item) => item.updated_at,
+        );
+      }
 
       const stripped = workingItems.map((item) => {
         const body = item.content;
@@ -2674,6 +2722,21 @@ export function registerContentRoutes(app: Express): void {
         }
       }
 
+      if (pagination.paginate) {
+        const paged = paginateList(stripped, pagination.page, pagination.pageSize);
+        res.json({
+          count: paged.pageItems.length,
+          results: paged.pageItems,
+          source: meta.source,
+          total: paged.total,
+          page: paged.page,
+          pageSize: paged.pageSize,
+          totalPages: paged.totalPages,
+          ...(facets ? { facets } : {}),
+        });
+        return;
+      }
+
       res.json({
         count: stripped.length,
         results: stripped,
@@ -2692,6 +2755,15 @@ export function registerContentRoutes(app: Express): void {
   app.get("/api/content-types/:type/static-entries", (req, res) => {
     try {
       const { type } = req.params;
+      const pagination = parseListPagination(req.query as Record<string, unknown>);
+      const sortDir = parseSortDir(req.query.sortDir);
+      const q =
+        typeof req.query.q === "string" && req.query.q.trim()
+          ? req.query.q.trim().toLowerCase()
+          : "";
+      const errorsOnly =
+        req.query.errorsOnly === "1" ||
+        req.query.errorsOnly === "true";
       const entries = getCI(res).findByType(type);
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       const root = ctRoot(res);
@@ -2781,6 +2853,7 @@ export function registerContentRoutes(app: Express): void {
             urls: {},
             versionCounts: versioningManager.getVersionCounts(type, slug),
             mappingErrors: missingBySlug.get(slug) ?? [],
+            emptyLocales: [],
             updated_at: resolveStaticEntryUpdatedAt(type, slug, draftLocales, root),
             status: "draft" as const,
             draftVariant: primaryVariant,
@@ -2789,7 +2862,47 @@ export function registerContentRoutes(app: Express): void {
         }
       }
 
-      res.json({ count: results.length, results });
+      const entryErrorCount = (e: {
+        mappingErrors?: string[];
+        emptyLocales?: string[];
+      }) => (e.mappingErrors?.length ?? 0) + (e.emptyLocales?.length ?? 0);
+      const withErrors = results.filter((e) => entryErrorCount(e) > 0).length;
+
+      if (!pagination.paginate) {
+        res.json({ count: results.length, results });
+        return;
+      }
+
+      let filtered = results as Array<{
+        slug: string;
+        title: string;
+        mappingErrors?: string[];
+        emptyLocales?: string[];
+        updated_at?: string | null;
+        [key: string]: unknown;
+      }>;
+      if (errorsOnly) {
+        filtered = filtered.filter((e) => entryErrorCount(e) > 0);
+      }
+      if (q) {
+        filtered = filtered.filter(
+          (e) =>
+            e.title.toLowerCase().includes(q) ||
+            e.slug.toLowerCase().includes(q),
+        );
+      }
+      filtered = sortByUpdatedAtField(filtered, sortDir, (e) => e.updated_at);
+
+      const paged = paginateList(filtered, pagination.page, pagination.pageSize);
+      res.json({
+        count: paged.pageItems.length,
+        results: paged.pageItems,
+        total: paged.total,
+        page: paged.page,
+        pageSize: paged.pageSize,
+        totalPages: paged.totalPages,
+        withErrors,
+      });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
@@ -2825,12 +2938,50 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { type } = req.params;
       const localeFilter = req.query.locale as string | undefined;
+      const pagination = parseListPagination(req.query as Record<string, unknown>);
+      const q =
+        typeof req.query.q === "string" && req.query.q.trim()
+          ? req.query.q.trim().toLowerCase()
+          : "";
       const config = getContentTypeConfig(type, ctRoot(res));
       if (!config) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
       }
       const urlPattern = config.url_pattern as Record<string, string> | undefined;
+
+      const finishSeoEntries = (
+        base: Record<string, unknown>,
+        entries: Array<Record<string, unknown>>,
+      ) => {
+        if (!pagination.paginate) {
+          res.json({ ...base, count: entries.length, entries });
+          return;
+        }
+        let filtered = entries;
+        if (q) {
+          filtered = filtered.filter((e) => {
+            const title = String(e.title || "").toLowerCase();
+            const slug = String(e.slug || "").toLowerCase();
+            const pageTitle = String(
+              (e.meta as Record<string, unknown> | undefined)?.page_title || "",
+            ).toLowerCase();
+            return (
+              title.includes(q) || slug.includes(q) || pageTitle.includes(q)
+            );
+          });
+        }
+        const paged = paginateList(filtered, pagination.page, pagination.pageSize);
+        res.json({
+          ...base,
+          count: paged.pageItems.length,
+          entries: paged.pageItems,
+          total: paged.total,
+          page: paged.page,
+          pageSize: paged.pageSize,
+          totalPages: paged.totalPages,
+        });
+      };
 
       // ── DB-backed ────────────────────────────────────────────────────────────
       if (config.database?.slug) {
@@ -2844,7 +2995,10 @@ export function registerContentRoutes(app: Express): void {
         const items = await getDB(res).fetchMappedItems(type);
         const cacheInfo = getDB(res).getCacheInfo(dbName);
         if (items.length === 0 && !cacheInfo) {
-          res.json({ contentType: type, source: "db", cache_missing: true, count: 0, entries: [] });
+          finishSeoEntries(
+            { contentType: type, source: "db", cache_missing: true, cache_age_hours: null },
+            [],
+          );
           return;
         }
         const localeKey = getLocaleKey(type, ctRoot(res)) || "lang";
@@ -2866,7 +3020,7 @@ export function registerContentRoutes(app: Express): void {
           epm = null;
         }
 
-        const entries: unknown[] = [];
+        const entries: Array<Record<string, unknown>> = [];
         for (const item of items) {
           if (localeFilter && String(item[localeKey] || "en") !== localeFilter) continue;
           const locale = String(item[localeKey] || "en");
@@ -2916,7 +3070,10 @@ export function registerContentRoutes(app: Express): void {
           });
         }
 
-        res.json({ contentType: type, source: "db", cache_age_hours: cacheAgeHours, count: entries.length, entries });
+        finishSeoEntries(
+          { contentType: type, source: "db", cache_age_hours: cacheAgeHours },
+          entries,
+        );
         return;
       }
 
@@ -2928,7 +3085,7 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
 
-      const entries: unknown[] = [];
+      const entries: Array<Record<string, unknown>> = [];
       const slugDirs = fs.readdirSync(contentDir, { withFileTypes: true }).filter(d => d.isDirectory());
 
       for (const slugDir of slugDirs) {
@@ -2991,7 +3148,10 @@ export function registerContentRoutes(app: Express): void {
         }
       }
 
-      res.json({ contentType: type, source: "yaml", cache_age_hours: null, count: entries.length, entries });
+      finishSeoEntries(
+        { contentType: type, source: "yaml", cache_age_hours: null },
+        entries,
+      );
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

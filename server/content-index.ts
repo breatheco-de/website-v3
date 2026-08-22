@@ -173,6 +173,11 @@ export class ContentIndex {
     this.database = database ?? databaseManager;
   }
 
+  /** Site DatabaseManager bound to this index (for ActiveSiteCtx / diagnostics worker). */
+  getDatabase(): DatabaseManager {
+    return this.database;
+  }
+
   /** @deprecated Use `new ContentIndex(contentFolder?)` directly. */
   static getInstance(): ContentIndex {
     return new ContentIndex();
@@ -1893,6 +1898,7 @@ export class ContentIndex {
   }
 
   listContentSlugs(contentType: ContentType): string[] {
+    this.ensureInitialized();
     const contentDir = path.join(this.contentRoot, this.getFolderName(contentType));
 
     if (!fs.existsSync(contentDir)) {
@@ -1911,6 +1917,7 @@ export class ContentIndex {
   }
 
   getAvailableLocalesOrVariants(contentType: ContentType, slug: string): string[] {
+    this.ensureInitialized();
     const contentDir = path.join(this.contentRoot, this.getFolderName(contentType), slug);
 
     if (!fs.existsSync(contentDir)) {

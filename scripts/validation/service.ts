@@ -1,6 +1,6 @@
 /**
  * Validation Service
- * 
+ *
  * Core service that runs validators. Used by both CLI and API.
  * Handles context building, validator execution, and result aggregation.
  */
@@ -13,12 +13,18 @@ import type {
   SitemapEntry,
 } from "./shared/types";
 import { loadAllContent } from "./shared/contentLoader";
-import { contentIndex as defaultContentIndex } from "../../server/content-index";
+import { contentIndex as defaultContentIndex, type ContentIndex } from "../../server/content-index";
 import { buildValidUrlSet } from "./shared/canonicalUrls";
 import { getAvailableSchemaKeys } from "./shared/schemaRegistry";
 import { validators, allValidators, getValidator, listValidators, ensureValidatorRegistered } from "./validators";
 import { databaseHealthValidator } from "./validators/database-health";
-import { getSitemap, getSitemapUrls } from "../../server/sitemap";
+import {
+  getSitemap,
+  getSitemapUrls,
+  toActiveSiteCtx,
+  type ActiveSiteCtx,
+} from "../../server/sitemap";
+import { getSiteContextMap } from "../../server/site-manager";
 
 /** Strip origin so sitemap locs compare to path-only getCanonicalUrl values. */
 export function sitemapLocToPath(loc: string): string {
@@ -51,8 +57,48 @@ export function mapSitemapUrlsToEntries(
   }));
 }
 
+/**
+ * Prefer a live SiteContext match; otherwise build ActiveSiteCtx from the
+ * diagnostics/worker ContentIndex so template pages (pages/home) are included.
+ */
+export function resolveValidationSitemapCtx(options: {
+  contentRoot?: string;
+  ci?: ContentIndex;
+}): ActiveSiteCtx | undefined {
+  const ci = options.ci;
+  const rootHint = options.contentRoot ?? ci?.contentRootName ?? ci?.contentRoot;
+
+  if (rootHint) {
+    try {
+      for (const site of getSiteContextMap().values()) {
+        if (
+          site.contentRootName === rootHint ||
+          site.contentRoot === rootHint ||
+          site.contentRootName === ci?.contentRootName ||
+          site.contentRoot === ci?.contentRoot
+        ) {
+          return toActiveSiteCtx(site);
+        }
+      }
+    } catch {
+      /* site map unavailable in some CLI/test boots */
+    }
+  }
+
+  if (ci) {
+    return {
+      contentIndex: ci,
+      contentRootName: ci.contentRootName,
+      database: ci.getDatabase(),
+    };
+  }
+
+  return undefined;
+}
+
 export class ValidationService {
   private context: ValidationContext | null = null;
+  private sitemapCtx: ActiveSiteCtx | undefined;
 
   async buildContext(options: {
     contentRoot?: string;
@@ -63,6 +109,11 @@ export class ValidationService {
     const validUrls = buildValidUrlSet(contentFiles);
     const availableSchemas = getAvailableSchemaKeys();
 
+    this.sitemapCtx = resolveValidationSitemapCtx({
+      contentRoot: options.contentRoot,
+      ci: options.ci,
+    });
+
     let sitemapEntries: SitemapEntry[] = [];
     try {
       sitemapEntries = await this.loadSitemapEntries();
@@ -72,7 +123,7 @@ export class ValidationService {
 
     let sitemapXml: string | undefined;
     try {
-      sitemapXml = getSitemap();
+      sitemapXml = getSitemap(this.sitemapCtx);
     } catch {
       sitemapXml = undefined;
     }
@@ -92,14 +143,14 @@ export class ValidationService {
   }
 
   async loadSitemapEntries(): Promise<SitemapEntry[]> {
-    return mapSitemapUrlsToEntries(getSitemapUrls());
+    return mapSitemapUrlsToEntries(getSitemapUrls(this.sitemapCtx));
   }
 
   async runValidators(options: ValidationRunOptions = {}): Promise<ValidationRunResult> {
     const startTime = Date.now();
 
     ensureValidatorRegistered(databaseHealthValidator);
-    
+
     if (!this.context) {
       await this.buildContext({ scope: options.scope });
     } else if (options.scope) {
@@ -130,7 +181,7 @@ export class ValidationService {
 
       try {
         const result = await validator.run(this.context!);
-        
+
         if (!options.includeArtifacts) {
           delete result.artifacts;
         }
@@ -190,6 +241,7 @@ export class ValidationService {
 
   clearContext(): void {
     this.context = null;
+    this.sitemapCtx = undefined;
   }
 }
 

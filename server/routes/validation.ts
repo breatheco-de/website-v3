@@ -785,6 +785,82 @@ export function registerValidationRoutes(app: Express): void {
     res.json({ issues, facets });
   });
 
+  app.post("/api/validation/cache-issues/update", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
+    const issueId = typeof req.body?.issueId === "string" ? req.body.issueId.trim() : "";
+    const action = req.body?.action as string | undefined;
+    if (!issueId) {
+      return res.status(400).json({ error: "Missing required field: issueId" });
+    }
+    if (
+      action !== "claim" &&
+      action !== "release" &&
+      action !== "complete" &&
+      action !== "uncomplete"
+    ) {
+      return res.status(400).json({
+        error: "Missing or invalid action (claim | release | complete | uncomplete)",
+      });
+    }
+    const cache = getValidationCache(res);
+    const author = auth.author || auth.username || "staff";
+    // Mutating staff may release any claim; MCP authors without staff session still use force via same path when authorized as mutating staff.
+    const result = await cache.updateIssue(issueId, action, author, {
+      staffForceRelease: true,
+    });
+    if (!result.ok) {
+      return res.status(result.status ?? 400).json({
+        error: result.error,
+        code: result.code,
+        claimedBy: result.claimedBy,
+      });
+    }
+    return res.json({
+      success: true,
+      issueId,
+      action: result.action,
+      completed: result.completed ?? null,
+      claimed: result.claimed ?? null,
+    });
+  });
+
+  app.post("/api/validation/cache-issues/complete", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
+    const issueId = typeof req.body?.issueId === "string" ? req.body.issueId.trim() : "";
+    if (!issueId) {
+      return res.status(400).json({ error: "Missing required field: issueId" });
+    }
+    const cache = getValidationCache(res);
+    const completedBy = auth.author || auth.username || "staff";
+    const result = await cache.updateIssue(issueId, "complete", completedBy);
+    if (!result.ok) {
+      return res.status(result.status ?? 404).json({ error: result.error });
+    }
+    return res.json({
+      success: true,
+      issueId,
+      completed: result.completed,
+    });
+  });
+
+  app.post("/api/validation/cache-issues/uncomplete", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
+    const issueId = typeof req.body?.issueId === "string" ? req.body.issueId.trim() : "";
+    if (!issueId) {
+      return res.status(400).json({ error: "Missing required field: issueId" });
+    }
+    const cache = getValidationCache(res);
+    const author = auth.author || auth.username || "staff";
+    const result = await cache.updateIssue(issueId, "uncomplete", author);
+    if (!result.ok) {
+      return res.status(result.status ?? 404).json({ error: result.error });
+    }
+    return res.json({ success: true, issueId });
+  });
+
   app.post("/api/validation/cache-issues/dismiss", async (req, res) => {
     const auth = await requireMutatingStaff(req, res);
     if (!auth.authorized) return;
@@ -1336,16 +1412,27 @@ export function registerValidationRoutes(app: Express): void {
 
       const storedIssues = cache.getIssuesByEntryKey(entryKey);
       const runMeta = cache.getRunMetaForEntry(entryKey);
-      const issues = storedIssues.map((s) => ({
-        type: s.severity === "error" ? "error" : s.severity === "info" ? "info" : "warning",
-        code: s.code,
-        message: s.message,
-        category: s.category,
-        suggestion: s.suggestion,
-        validator: s.validator,
-        file: s.file,
-        validationCacheBuiltAt: s.lastRunAt,
-      }));
+      const issues = storedIssues.map((s) => {
+        const completion = cache.getCompletion(s.id);
+        const claim = cache.getActiveClaim(s.id);
+        return {
+          id: s.id,
+          type: s.severity === "error" ? "error" : s.severity === "info" ? "info" : "warning",
+          code: s.code,
+          message: s.message,
+          category: s.category,
+          suggestion: s.suggestion,
+          validator: s.validator,
+          file: s.file,
+          validationCacheBuiltAt: s.lastRunAt,
+          completed: completion
+            ? { by: completion.completedBy, at: completion.completedAt }
+            : null,
+          claimed: claim
+            ? { by: claim.claimedBy, at: claim.claimedAt, expiresAt: claim.expiresAt }
+            : null,
+        };
+      });
 
       const cachedEntry = file.variant
         ? cache.getByEntryKey(entryKey) ?? null
@@ -1432,8 +1519,8 @@ export function registerValidationRoutes(app: Express): void {
 
         education: {
           summary: file.variant
-            ? `Validation for published variant “${file.variant}” (own issue bucket). Redirects stay on the live locale file only.`
-            : "Validation uses one shared store. This page shows issues that target this entry (including redirects/media that touch it). Saving re-checks local rules; redirect conflicts refresh when redirect config changes or you run Redirects/Global Health.",
+            ? `Validation for published variant “${file.variant}” (own issue bucket). Redirects stay on the live locale file only. Check = mark fixed; claim = someone is working (30m TTL). Saving or Run validation can resurface a wrongly marked complete.`
+            : "Validation uses one shared store. Check = mark fixed (hides from open counts). Claim = in progress (30m TTL; staff can release). Saving or Run validation clears complete if the issue returns, but keeps an active claim. Redirect conflicts refresh when redirect config changes or you run Redirects/Global Health.",
         },
       });
     } catch (error) {

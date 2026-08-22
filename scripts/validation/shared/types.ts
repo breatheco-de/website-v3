@@ -88,6 +88,19 @@ export interface StoredValidationIssue {
   lastRunAt: string;
 }
 
+/** Soft-complete overlay — keyed by StoredValidationIssue.id; not part of the issue row. */
+export interface ValidationIssueCompletion {
+  completedBy: string;
+  completedAt: string;
+}
+
+/** In-progress claim overlay — keyed by StoredValidationIssue.id; TTL-based. */
+export interface ValidationIssueClaim {
+  claimedBy: string;
+  claimedAt: string;
+  expiresAt: string;
+}
+
 export interface EntryRunMeta {
   lastRunAt: string;
   byValidator: Record<string, string>;
@@ -122,6 +135,16 @@ export interface ValidationCacheFileV5 {
     byEntry: Record<string, EntryRunMeta>;
     byScope: Partial<Record<ValidationScope, ScopeRunMeta>>;
   };
+  /**
+   * Soft-complete map: issue id → who/when. Cleared when the same id is rewritten
+   * or removed by a validator cache write. Does not delete the issue row.
+   */
+  completions?: Record<string, ValidationIssueCompletion>;
+  /**
+   * In-progress claims: issue id → who/when/expiry. Survives issue-id rewrite;
+   * cleared on release, TTL expiry, complete, or when the issue id is removed.
+   */
+  claims?: Record<string, ValidationIssueClaim>;
   /** @deprecated Compat projection rebuilt from issues; prefer issues + indexes. */
   pages?: Record<string, PageCacheEntry>;
   databases?: Record<string, DatabaseCacheEntry>;

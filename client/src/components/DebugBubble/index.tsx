@@ -69,6 +69,9 @@ import { PageErrorsModal, PER_PAGE_VALIDATORS } from "./components/PageErrorsMod
 import { SeoModal } from "./components/SeoModal";
 import { SiteManagerModal } from "./components/SiteManagerModal";
 import { SwitchSiteModal } from "./components/SwitchSiteModal";
+import { McpRequiredForAiModal } from "@/components/mcp/McpRequiredForAiModal";
+import type { McpSetupTabId } from "@/components/mcp/mcpUrlHelpers";
+import type { SolveWithAiAgentId } from "@/components/DebugBubble/solveWithAiPrompt";
 
 async function fetchPageDiagnostics(url: string, variant?: string | null): Promise<PageDiagnostics> {
   const token = getDebugToken();
@@ -381,6 +384,12 @@ export function DebugBubble() {
   const [pageDiagnosticsLoading, setPageDiagnosticsLoading] = useState(false);
   const [pageDiagnosticsError, setPageDiagnosticsError] = useState<string | null>(null);
   const lastDiagnosticsUrlRef = useRef<string | null>(null);
+  const [mcpRequiredForAiOpen, setMcpRequiredForAiOpen] = useState(false);
+  const [mcpRequiredSetupTab, setMcpRequiredSetupTab] = useState<McpSetupTabId>("cursor");
+  const [mcpRequiredAgentId, setMcpRequiredAgentId] = useState<SolveWithAiAgentId>("copy-prompt");
+  const [mcpRequiredAgentLabel, setMcpRequiredAgentLabel] = useState("AI Agent");
+  const [mcpRequiredPrompt, setMcpRequiredPrompt] = useState("");
+  const [mcpRequiredPrefillPrefix, setMcpRequiredPrefillPrefix] = useState<string | undefined>();
 
   const getUrlVariant = (): string | undefined => {
     if (typeof window === "undefined") return undefined;
@@ -576,9 +585,13 @@ export function DebugBubble() {
       .finally(() => setPageDiagnosticsLoading(false));
   }, [pathname, isDebugMode, isValidated, contentInfo.type, contentInfo.slug, isPreviewPath]);
 
-  const pageErrorCount = !pageDiagnostics ? 0 : (pageDiagnostics.issues?.filter(i => i.type === "error").length || 0);
+  const pageErrorCount = !pageDiagnostics
+    ? 0
+    : (pageDiagnostics.issues?.filter((i) => i.type === "error" && !i.completed).length || 0);
 
-  const pageWarningCount = !pageDiagnostics ? 0 : (pageDiagnostics.issues?.filter(i => i.type === "warning").length || 0);
+  const pageWarningCount = !pageDiagnostics
+    ? 0
+    : (pageDiagnostics.issues?.filter((i) => i.type === "warning" && !i.completed).length || 0);
 
   // Auto-enable edit mode after successful token validation
   useEffect(() => {
@@ -2520,6 +2533,24 @@ export function DebugBubble() {
         loading={pageDiagnosticsLoading}
         error={pageDiagnosticsError}
         onRefreshDiagnostics={refreshPageDiagnostics}
+        onSolveWithAi={({ agentId, setupTab, label, prompt, prefillUrlPrefix }) => {
+          setPageErrorsModalOpen(false);
+          setMcpRequiredAgentId(agentId);
+          setMcpRequiredSetupTab(setupTab);
+          setMcpRequiredAgentLabel(label);
+          setMcpRequiredPrompt(prompt);
+          setMcpRequiredPrefillPrefix(prefillUrlPrefix);
+          setMcpRequiredForAiOpen(true);
+        }}
+      />
+      <McpRequiredForAiModal
+        open={mcpRequiredForAiOpen}
+        onOpenChange={setMcpRequiredForAiOpen}
+        defaultTab={mcpRequiredSetupTab}
+        agentId={mcpRequiredAgentId}
+        agentLabel={mcpRequiredAgentLabel}
+        prompt={mcpRequiredPrompt}
+        prefillUrlPrefix={mcpRequiredPrefillPrefix}
       />
       <SeoModal
         open={seoModalOpen}

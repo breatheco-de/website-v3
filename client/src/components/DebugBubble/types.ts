@@ -215,6 +215,7 @@ export interface PageDiagnostics {
     errors: Array<{ path: string; code: string; message: string; expected?: string; received?: string }>;
   };
   issues: Array<{
+    id?: string;
     type: "error" | "warning" | "info";
     code: string;
     message: string;
@@ -223,6 +224,9 @@ export interface PageDiagnostics {
     validator?: string;
     file?: string;
     details?: { path?: string; expected?: string; received?: string };
+    validationCacheBuiltAt?: string;
+    completed?: { by: string; at: string } | null;
+    claimed?: { by: string; at: string; expiresAt: string } | null;
   }>;
   /** @deprecated Removed — use issue counts from the shared store. */
   score?: { total: number; seo: number; schema: number; content: number };
