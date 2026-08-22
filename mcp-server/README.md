@@ -44,7 +44,8 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `add_section` / `remove_section` / `reorder_sections` / `replace_entry_sections` | Section topology |
 | `translate_entry` | Translate locale fields (attached) or sections (detached/classic); draft-first for new locales |
 | `set_entry_attachment` | Detach/reattach shared-layout shell ownership (`confirm` required to execute) |
-| `run_entry_diagnostics` | Async diagnostics job |
+| `run_entry_diagnostics` | Async diagnostics job; cached/completed returns paginated `issues[]` work queue (default 50), not full site dump |
+| `get_diagnostics_job` | Poll diagnostics job; `issues_offset` / `issues_limit` page the issue list only |
 | `get_section_bindings` | Binding-group membership |
 | `list_components` / `get_component_schema` / `get_component_variant` | Component registry |
 | `list_databases` / `list_database_items` / `get_database_item` | Local private DB discovery + read (global `index`) |

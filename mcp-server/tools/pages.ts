@@ -26,6 +26,15 @@ import {
   type CatalogGrant,
 } from "../lib/tool-catalog.js";
 import { mcpValidatorsFromCategories } from "../lib/diagnostics-categories.js";
+import {
+  buildDiagnosticsIssueQueue,
+  cacheIssueRowsToQueueInput,
+  diagnosticsIssuePageNextAction,
+  diagnosticsIssueQueueFields,
+  flattenIssuesBySlug,
+  type DiagnosticsIssueQueueOptions,
+  type DiagnosticsIssueQueueResult,
+} from "../lib/diagnostics-issue-queue.js";
 import { getTokenUsername } from "../lib/oauth.js";
 import { buildEditorSystemHints } from "../../shared/editorSystemHints.js";
 import { FILL_INTENT_GOAL_PRESETS } from "../../shared/fillIntent.js";
@@ -715,6 +724,136 @@ function mcpViewerAuthor(mcpToken?: string): string | undefined {
   return getTokenUsername(mcpToken) || undefined;
 }
 
+const diagnosticsIssueListParams = {
+  issues_limit: z
+    .number()
+    .optional()
+    .describe(
+      "Max issues to return in the issues work queue (default 50, max 50). Paginates the issue list only — not job history.",
+    ),
+  issues_offset: z
+    .number()
+    .optional()
+    .describe(
+      "Offset into the ranked issues list (default 0). Use issues_next_offset from a prior response to fetch the next page of issues.",
+    ),
+  severity: z
+    .enum(["error", "warning"])
+    .optional()
+    .describe("Filter the issues work queue by severity."),
+  category: z.string().optional().describe("Filter the issues work queue by a single category (e.g. seo)."),
+  codes: z
+    .array(z.string())
+    .optional()
+    .describe("Filter the issues work queue to these issue codes."),
+};
+
+type DiagnosticsIssueListArgs = {
+  issues_limit?: number;
+  issues_offset?: number;
+  severity?: "error" | "warning";
+  category?: string;
+  codes?: string[];
+};
+
+async function fetchCacheIssueRowsForQueue(
+  domain: string | undefined,
+  filters: { severity?: string; category?: string; code?: string },
+): Promise<{ rows: ReturnType<typeof cacheIssueRowsToQueueInput>; ok: boolean }> {
+  const params = new URLSearchParams();
+  if (domain) params.set("__site", domain);
+  if (filters.severity) params.set("severity", filters.severity);
+  if (filters.category) params.set("category", filters.category);
+  if (filters.code) params.set("code", filters.code);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  try {
+    const res = await fetch(
+      `http://localhost:${MAIN_SERVER_PORT}/api/validation/cache-issues${qs}`,
+      { headers: internalHeaders() },
+    );
+    if (!res.ok) return { rows: [], ok: false };
+    const data = (await res.json()) as { issues?: unknown[] };
+    if (!Array.isArray(data.issues)) return { rows: [], ok: false };
+    return {
+      rows: cacheIssueRowsToQueueInput(
+        data.issues as Parameters<typeof cacheIssueRowsToQueueInput>[0],
+      ),
+      ok: true,
+    };
+  } catch {
+    return { rows: [], ok: false };
+  }
+}
+
+function urlsFromIssuesBySlug(issuesBySlug: unknown): string[] {
+  if (!issuesBySlug || typeof issuesBySlug !== "object") return [];
+  const urls: string[] = [];
+  for (const list of Object.values(issuesBySlug as Record<string, unknown>)) {
+    if (!Array.isArray(list)) continue;
+    for (const issue of list) {
+      const u = (issue as { url?: string })?.url;
+      if (typeof u === "string" && u) urls.push(u);
+    }
+  }
+  return urls;
+}
+
+async function resolveDiagnosticsIssueQueue(opts: {
+  domain?: string;
+  issueList: DiagnosticsIssueListArgs;
+  slugs?: string[];
+  categories?: string[];
+  /** Prefer these URLs when mid-run partial (intersect with cache rows). */
+  partialUrls?: string[];
+  /** Fallback when cache-issues fetch fails. */
+  issuesBySlugFallback?: unknown;
+}): Promise<{
+  queue: DiagnosticsIssueQueueResult;
+  warnings: McpWarning[];
+}> {
+  const codeFilter =
+    opts.issueList.codes && opts.issueList.codes.length === 1
+      ? opts.issueList.codes[0]
+      : undefined;
+  const categoryFilter =
+    opts.issueList.category ??
+    (opts.categories?.length === 1 ? opts.categories[0] : undefined);
+  const fetched = await fetchCacheIssueRowsForQueue(opts.domain, {
+    severity: opts.issueList.severity,
+    category: categoryFilter,
+    code: codeFilter,
+  });
+
+  let rows = fetched.rows;
+  const warnings: McpWarning[] = [];
+
+  if (!fetched.ok) {
+    rows = flattenIssuesBySlug(
+      (opts.issuesBySlugFallback && typeof opts.issuesBySlugFallback === "object"
+        ? opts.issuesBySlugFallback
+        : {}) as Parameters<typeof flattenIssuesBySlug>[0],
+    );
+    warnings.push({
+      code: "issues_missing_ids",
+      message:
+        "Could not load validation-cache issue ids (cache-issues). issues[] have no id — use get_entry_seo for claimable ids on a chosen slug.",
+    });
+  }
+
+  const queueOpts: DiagnosticsIssueQueueOptions = {
+    issues_limit: opts.issueList.issues_limit,
+    issues_offset: opts.issueList.issues_offset,
+    severity: opts.issueList.severity,
+    category: opts.issueList.category,
+    categories: opts.categories,
+    codes: opts.issueList.codes,
+    slugs: opts.slugs,
+    urls: opts.partialUrls,
+  };
+  const queue = buildDiagnosticsIssueQueue(rows, queueOpts);
+  return { queue, warnings };
+}
+
 export function registerPageTools(
   mcp: McpServer,
   _mcpAuthor?: string,
@@ -1398,7 +1537,8 @@ export function registerPageTools(
   mcp.tool(
     "run_entry_diagnostics",
     "Start or read page diagnostics against the unified validation-cache issue store. Does NOT wait for validators to finish. " +
-    "Returns status 'cached' (issues from validation-cache when fresh), 'needs_confirm' (re-call with confirm:true), or 'queued'/'running' with job_id. " +
+    "Returns status 'cached' (issues work queue from validation-cache when fresh), 'needs_confirm' (re-call with confirm:true), or 'queued'/'running' with job_id. " +
+    "On cached: returns issues[] (default 50, errors first, diversified by code) with issues_offset/issues_limit pagination for the issue list only — not a full site dump. " +
     "MCP: categories (e.g. ['seo']) narrow which validators RUN when validators are omitted (staff Diagnostics scope chips are view-only and unchanged). " +
     "content_view/seo_edit may READ cached or needs_confirm responses; only a metrics-mutating staff cap may start a job (confirm:true that queues). " +
     "When a NEW job would start (freshness hard, or stale under max_age), confirm:true is required — metrics-capable agents may set the flag after reading the gate. " +
@@ -1410,7 +1550,7 @@ export function registerPageTools(
     "(parent reloads cache when the job completes; clears obsolete codes for ran validators in scope). " +
     "Concurrent start while another job holds the site returns busy (no queue). On-save entry-local writes are deferred while the lock is held. " +
     "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap; fixing meta does not clear REDIRECT_CONFLICT; " +
-    "Mid-run get_diagnostics_job may return partial issuesBySlug (URLs flushed since job started only). Authoritative after completed. " +
+    "does not change staff Diagnostics HTTP payloads. Mid-run get_diagnostics_job may return a partial issues work queue. Authoritative after completed. " +
     "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs + confirm:true (metrics mutate). " +
     "In-app content saves also debounce entry-local validation; redirect-config changes queue redirects separately.",
     {
@@ -1425,8 +1565,28 @@ export function registerPageTools(
       max_age_seconds: z.number().optional().describe("TTL for max_age freshness (default 86400). Ignored when freshness is hard."),
       confirm: z.boolean().optional().describe("Set true to start a new diagnostics job after needs_confirm. Requires metrics-mutating cap. Not required for cached or same-scope reuse."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
+      ...diagnosticsIssueListParams,
     },
-    async ({ slugs, categories, freshness, max_age_seconds, confirm, site }) => {
+    async ({
+      slugs,
+      categories,
+      freshness,
+      max_age_seconds,
+      confirm,
+      site,
+      issues_limit,
+      issues_offset,
+      severity,
+      category,
+      codes,
+    }) => {
+      const issueList: DiagnosticsIssueListArgs = {
+        issues_limit,
+        issues_offset,
+        severity,
+        category,
+        codes,
+      };
       const canReadDiag =
         !mcpToken ||
         !grants ||
@@ -1467,6 +1627,11 @@ export function registerPageTools(
         ...(max_age_seconds != null ? { max_age_seconds } : {}),
         confirm: true,
         ...(site ? { site } : {}),
+        ...(issues_limit != null ? { issues_limit } : {}),
+        ...(issues_offset != null ? { issues_offset } : {}),
+        ...(severity ? { severity } : {}),
+        ...(category ? { category } : {}),
+        ...(codes?.length ? { codes } : {}),
       };
       try {
         const res = await fetch(
@@ -1562,17 +1727,55 @@ export function registerPageTools(
 
         if (data.status === "cached") {
           const cacheMisses = Array.isArray(data.cacheMisses) ? data.cacheMisses as string[] : [];
+          const { queue, warnings: queueWarnings } = await resolveDiagnosticsIssueQueue({
+            domain,
+            issueList,
+            slugs: slugs && slugs.length ? slugs : undefined,
+            categories,
+            issuesBySlugFallback: data.issuesBySlug,
+          });
+          const pageNext = diagnosticsIssuePageNextAction({
+            tool: "run_entry_diagnostics",
+            args_hint: {
+              ...(slugs && slugs.length ? { slugs } : {}),
+              ...(categories ? { categories } : {}),
+              freshness: freshness ?? "max_age",
+              ...(max_age_seconds != null ? { max_age_seconds } : {}),
+              ...(site ? { site } : {}),
+              ...(issues_limit != null ? { issues_limit } : {}),
+              ...(severity ? { severity } : {}),
+              ...(category ? { category } : {}),
+              ...(codes?.length ? { codes } : {}),
+            },
+            issues_next_offset: queue.issues_next_offset,
+          });
+          const next_actions: NextAction[] = pageNext ? [pageNext] : [];
+          if (queueWarnings.some((w) => w.code === "issues_missing_ids") && queue.issues[0]?.slug) {
+            next_actions.push({
+              tool: "get_entry_seo",
+              reason: "Load claimable validation_issues[].id for a chosen slug",
+              args_hint: { slug: queue.issues[0].slug, ...(site ? { site } : {}) },
+              priority: "recommended",
+            });
+          }
+          if (queue.issues_truncated) {
+            queueWarnings.push({
+              code: "issues_truncated",
+              message:
+                "issues[] is a ranked page of the work queue (default 50). Use issues_offset/issues_next_offset to page the issue list; full set remains in validation-cache / staff Diagnostics.",
+            });
+          }
           return ok(
             {
               status: "cached",
-              issuesBySlug: data.issuesBySlug ?? {},
+              ...diagnosticsIssueQueueFields(queue),
               lastFullRunAtBySlug: data.lastFullRunAtBySlug ?? {},
               cache_misses: cacheMisses,
               message: cacheMisses.length
-                ? "Returned cache; some slugs have no lastFullRunAt (cache_miss — not necessarily clean)."
-                : "Returned fresh-enough cached diagnostics (lastFullRunAt within max_age).",
+                ? "Returned cache work queue; some slugs have no lastFullRunAt (cache_miss — not necessarily clean)."
+                : "Returned fresh-enough cached diagnostics work queue (lastFullRunAt within max_age).",
             },
-            { warnings: [], next_actions: [] },
+            { warnings: queueWarnings, next_actions },
           );
         }
 
@@ -1607,7 +1810,14 @@ export function registerPageTools(
             next_actions: [{
               tool: "get_diagnostics_job",
               reason: "Poll until status is completed or failed",
-              args_hint: { job_id: jobId, ...(site ? { site } : {}) },
+              args_hint: {
+                job_id: jobId,
+                ...(site ? { site } : {}),
+                ...(issues_limit != null ? { issues_limit } : {}),
+                ...(severity ? { severity } : {}),
+                ...(category ? { category } : {}),
+                ...(codes?.length ? { codes } : {}),
+              },
               priority: "required",
             }],
           },
@@ -1622,14 +1832,24 @@ export function registerPageTools(
     "get_diagnostics_job",
     "Poll an async diagnostics job started by run_entry_diagnostics. " +
     "If status is queued/running: wait retry_after_seconds then call this tool again with the same job_id. " +
-    "While running, issuesBySlug may include partial results (only URLs whose lastFullRunAt is >= job startedAt). " +
-    "Do not call run_entry_diagnostics to poll. Terminal: completed (issuesBySlug + cache_updated after worker finishes), failed, or not_found " +
+    "While running, may return a partial issues work queue (only URLs flushed since job started). " +
+    "Do not call run_entry_diagnostics to poll. Terminal: completed (issues[] work queue + cache_updated after worker finishes), failed, or not_found. " +
+    "issues[] defaults to 50 (errors first, diversified by code); use issues_offset/issues_limit to page the issue list only. " +
+    "Does not return a full site issuesBySlug dump — staff Diagnostics / validation-cache still have the full set. " +
     "Disk validation-cache is authoritative after completed. Requires a mutating staff cap (not metrics_view/content_view only).",
     {
       job_id: z.string().describe("Job id from run_entry_diagnostics"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
+      ...diagnosticsIssueListParams,
     },
-    async ({ job_id, site }) => {
+    async ({ job_id, site, issues_limit, issues_offset, severity, category, codes }) => {
+      const issueList: DiagnosticsIssueListArgs = {
+        issues_limit,
+        issues_offset,
+        severity,
+        category,
+        codes,
+      };
       if (mcpToken && grants && !grantsCanMutateMetrics(grants)) {
         return denyResponse("metrics_mutate");
       }
@@ -1637,6 +1857,14 @@ export function registerPageTools(
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      const issueArgsHint = {
+        job_id,
+        ...(site ? { site } : {}),
+        ...(issues_limit != null ? { issues_limit } : {}),
+        ...(severity ? { severity } : {}),
+        ...(category ? { category } : {}),
+        ...(codes?.length ? { codes } : {}),
+      };
       try {
         const res = await fetch(
           `http://localhost:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs/${encodeURIComponent(job_id)}${q}`,
@@ -1672,12 +1900,37 @@ export function registerPageTools(
         }
 
         const status = String(data.status ?? "");
+        const scope = data.scope as { slugs?: string[] } | undefined;
+        const scopeSlugs = Array.isArray(scope?.slugs) && scope!.slugs!.length > 0
+          ? scope!.slugs
+          : undefined;
+
         if (status === "queued" || status === "running") {
           const retry = Number(data.retry_after_seconds ?? 5);
           const issuesBySlug = data.issuesBySlug ?? {};
           const hasPartial =
             data.partial === true ||
             (issuesBySlug && typeof issuesBySlug === "object" && Object.keys(issuesBySlug as object).length > 0);
+          const partialUrls = hasPartial ? urlsFromIssuesBySlug(issuesBySlug) : [];
+          const { queue, warnings: queueWarnings } = await resolveDiagnosticsIssueQueue({
+            domain,
+            issueList,
+            slugs: scopeSlugs,
+            partialUrls: partialUrls.length > 0 ? partialUrls : undefined,
+            issuesBySlugFallback: issuesBySlug,
+          });
+          const next_actions: NextAction[] = [{
+            tool: "get_diagnostics_job",
+            reason: "Continue polling",
+            args_hint: { ...issueArgsHint, ...(issues_offset != null ? { issues_offset } : {}) },
+            priority: "required",
+          }];
+          const pageNext = diagnosticsIssuePageNextAction({
+            tool: "get_diagnostics_job",
+            args_hint: issueArgsHint,
+            issues_next_offset: queue.issues_next_offset,
+          });
+          if (pageNext) next_actions.push(pageNext);
           return ok(
             {
               status,
@@ -1686,7 +1939,7 @@ export function registerPageTools(
               total: data.total,
               retry_after_seconds: retry,
               scope: data.scope,
-              issuesBySlug,
+              ...diagnosticsIssueQueueFields(queue),
               partial: data.partial === true,
               message: data.message,
             },
@@ -1700,16 +1953,12 @@ export function registerPageTools(
                   ? [{
                       code: "partial_results_job_still_running",
                       message:
-                        "issuesBySlug only includes URLs flushed since this job started. Unvisited URLs are omitted until completed.",
+                        "issues work queue only includes URLs flushed since this job started. Unvisited URLs are omitted until completed.",
                     }]
                   : []),
+                ...queueWarnings,
               ],
-              next_actions: [{
-                tool: "get_diagnostics_job",
-                reason: "Continue polling",
-                args_hint: { job_id, ...(site ? { site } : {}) },
-                priority: "required",
-              }],
+              next_actions,
             },
           );
         }
@@ -1734,16 +1983,44 @@ export function registerPageTools(
           );
         }
 
+        const { queue, warnings: queueWarnings } = await resolveDiagnosticsIssueQueue({
+          domain,
+          issueList,
+          slugs: scopeSlugs,
+          issuesBySlugFallback: data.issuesBySlug,
+        });
+        const next_actions: NextAction[] = [];
+        const pageNext = diagnosticsIssuePageNextAction({
+          tool: "get_diagnostics_job",
+          args_hint: issueArgsHint,
+          issues_next_offset: queue.issues_next_offset,
+        });
+        if (pageNext) next_actions.push(pageNext);
+        if (queueWarnings.some((w) => w.code === "issues_missing_ids") && queue.issues[0]?.slug) {
+          next_actions.push({
+            tool: "get_entry_seo",
+            reason: "Load claimable validation_issues[].id for a chosen slug",
+            args_hint: { slug: queue.issues[0].slug, ...(site ? { site } : {}) },
+            priority: "recommended",
+          });
+        }
+        if (queue.issues_truncated) {
+          queueWarnings.push({
+            code: "issues_truncated",
+            message:
+              "issues[] is a ranked page of the work queue (default 50). Use issues_offset/issues_next_offset to page the issue list; full set remains in validation-cache / staff Diagnostics.",
+          });
+        }
         return ok(
           {
             status: "completed",
             job_id,
             cache_updated: data.cache_updated === true,
-            issuesBySlug: data.issuesBySlug ?? {},
+            ...diagnosticsIssueQueueFields(queue),
             summary: data.summary,
             scope: data.scope,
           },
-          { warnings: [], next_actions: [] },
+          { warnings: queueWarnings, next_actions },
         );
       } catch (e) {
         return fail(`Failed to get diagnostics job: ${(e as Error).message}`);
