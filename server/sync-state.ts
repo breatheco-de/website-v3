@@ -19,6 +19,25 @@ function defaultContentFolder(): string {
   return getDefaultContentFolder();
 }
 
+/** Canonicalize paths so /var and /private/var compare consistently on macOS. */
+function resolvePathForComparison(targetPath: string): string {
+  try {
+    return fs.realpathSync.native(targetPath);
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === "ENOENT") {
+      const parent = path.dirname(targetPath);
+      const base = path.basename(targetPath);
+      try {
+        return path.join(fs.realpathSync.native(parent), base);
+      } catch {
+        return path.resolve(targetPath);
+      }
+    }
+    return path.resolve(targetPath);
+  }
+}
+
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 /**
@@ -27,9 +46,12 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
  */
 export function getContentFolder(contentRoot?: string): string {
   if (!contentRoot) return defaultContentFolder();
-  return path.isAbsolute(contentRoot)
-    ? path.relative(process.cwd(), contentRoot)
-    : contentRoot;
+  if (path.isAbsolute(contentRoot)) {
+    const cwd = resolvePathForComparison(process.cwd());
+    const root = resolvePathForComparison(contentRoot);
+    return path.relative(cwd, root);
+  }
+  return contentRoot;
 }
 
 /**
@@ -38,7 +60,9 @@ export function getContentFolder(contentRoot?: string): string {
  */
 function normalizePath(filePath: string, contentRoot?: string): string {
   if (path.isAbsolute(filePath)) {
-    return path.relative(process.cwd(), filePath);
+    const cwd = resolvePathForComparison(process.cwd());
+    const abs = resolvePathForComparison(filePath);
+    return path.relative(cwd, abs);
   }
   const folder = getContentFolder(contentRoot);
   return filePath.startsWith(`${folder}/`) || filePath.startsWith('client/')
@@ -62,8 +86,7 @@ function getSyncStatePath(contentRoot?: string): string {
  * Keyed by contentRoot so that multi-site setups don't share a single key.
  */
 function getSiteFolder(contentRoot?: string): string {
-  if (!contentRoot) return defaultContentFolder();
-  return (path.isAbsolute(contentRoot) ? path.relative(process.cwd(), contentRoot) : contentRoot)
+  return getContentFolder(contentRoot)
     .replace(/\\/g, '/')
     .replace(/^\/|\/$/g, '');
 }

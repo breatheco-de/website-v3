@@ -94,6 +94,25 @@ export interface GcsSyncInventoryResponse {
   rows: SyncInventoryRow[];
 }
 
+export type ConnectionCheckStatus = "ok" | "warn" | "error" | "skipped";
+
+export interface GcsConnectionCheck {
+  id: string;
+  label: string;
+  status: ConnectionCheckStatus;
+  summary: string;
+  detail?: string;
+  durationMs: number;
+}
+
+export type GcsConnectionTestOverall = "ok" | "warn" | "error";
+
+export interface GcsConnectionTestResponse {
+  testedAt: string;
+  overall: GcsConnectionTestOverall;
+  checks: GcsConnectionCheck[];
+}
+
 export function useGcsSyncStatus(options?: { enabled?: boolean; detail?: boolean; refetchInterval?: number }) {
   const enabled = options?.enabled !== false;
   const detail = options?.detail ?? false;

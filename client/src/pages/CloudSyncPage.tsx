@@ -1,11 +1,19 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, Info, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, Info, Loader2, RefreshCw, Stethoscope, XCircle } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Table,
@@ -26,7 +34,10 @@ import {
   inventoryCategoryDescription,
   useGcsSyncInventory,
   useGcsSyncStatus,
+  type GcsConnectionCheck,
+  type GcsConnectionTestResponse,
   type GcsKeyProbe,
+  type GcsSyncStatusDetail,
   type GcsSyncStatusValue,
   type SyncInventoryStatus,
 } from "@/hooks/useGcsSyncStatus";
@@ -240,6 +251,120 @@ function ClickableStatusBadge({
         <div className="text-muted-foreground text-xs leading-relaxed space-y-2">{children}</div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function CloudStatusBadge({ status }: { status: GcsSyncStatusDetail }) {
+  const value = status.status;
+  const badge = (
+    <Badge variant={statusBadgeVariant(value)}>
+      {gcsStatusLabel(value)}
+    </Badge>
+  );
+
+  return (
+    <ClickableStatusBadge badge={badge} testId="badge-cloud-status" title={gcsStatusLabel(value)}>
+      <p>{gcsStatusDescription(value)}</p>
+
+      {value === "error" && status.diagnostics?.checkError && (
+        <p className="text-destructive font-mono text-[11px] break-all">{status.diagnostics.checkError}</p>
+      )}
+
+      {value === "migration_required" && status.diagnostics && (
+        <>
+          <p>
+            Old layout: {status.diagnostics.hasOldLayout ? "detected" : "not detected"}. New layout:{" "}
+            {status.diagnostics.hasNewLayout ? "detected" : "not detected"}.
+          </p>
+          <p>
+            Run{" "}
+            <span className="font-mono">
+              npx tsx scripts/admin/migrate-gcs-multisite.ts --to-bucket=&lt;bucket&gt; --execute
+            </span>
+          </p>
+        </>
+      )}
+
+      {value === "syncing" && (
+        <p>
+          Pending uploads: {status.pendingUploads}.
+          {status.imageQueuePending > 0 && ` Image queue: ${status.imageQueuePending} pending.`}
+          {status.imageQueueBusy && " Processing images now."}
+        </p>
+      )}
+
+      {value === "local_dev" && (
+        <>
+          <p>
+            Running in a non-production environment. GCS may be configured, but bucket sync is not
+            enforced in development.
+          </p>
+          {status.bucketName && (
+            <p>
+              Bucket configured: <span className="font-mono">{status.bucketName}</span>
+            </p>
+          )}
+        </>
+      )}
+
+      {value === "unavailable" && (
+        <p>
+          Set <span className="font-mono">GCS_BUCKET_NAME</span> or{" "}
+          <span className="font-mono">bucket_name</span> in sites.yml, plus GCS credentials (
+          <span className="font-mono">GCS_KEY_FILENAME</span> or{" "}
+          <span className="font-mono">GCS_CREDENTIALS_JSON</span>).
+        </p>
+      )}
+
+      {value === "active" && status.bucketName && (
+        <p>
+          Bucket: <span className="font-mono">{status.bucketName}</span>
+        </p>
+      )}
+    </ClickableStatusBadge>
+  );
+}
+
+function ConnectionCheckRow({ check }: { check: GcsConnectionCheck }) {
+  const Icon =
+    check.status === "ok"
+      ? Check
+      : check.status === "warn"
+        ? AlertTriangle
+        : check.status === "error"
+          ? XCircle
+          : Info;
+
+  const iconClass =
+    check.status === "ok"
+      ? "text-status-online"
+      : check.status === "warn"
+        ? "text-amber-600 dark:text-amber-400"
+        : check.status === "error"
+          ? "text-destructive"
+          : "text-muted-foreground";
+
+  return (
+    <div
+      className="flex gap-2.5 py-2 border-b border-border last:border-0"
+      data-testid={`connection-check-${check.id}`}
+    >
+      <Icon className={cn("h-4 w-4 shrink-0 mt-0.5", iconClass)} />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{check.label}</p>
+        <p className="text-xs text-muted-foreground">{check.summary}</p>
+        {check.detail && (
+          <p
+            className={cn(
+              "text-xs mt-1 break-all",
+              check.status === "error" ? "text-destructive font-mono" : "text-muted-foreground",
+            )}
+          >
+            {check.detail}
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -462,6 +587,11 @@ export default function CloudSyncPage() {
   const formatSitePath = useFormatSitePath();
   const [siteFilter, setSiteFilter] = useState<string>("all");
   const [showInventoryAdvanced, setShowInventoryAdvanced] = useState(false);
+  const [connectionTestOpen, setConnectionTestOpen] = useState(false);
+  const [connectionTestResult, setConnectionTestResult] = useState<GcsConnectionTestResponse | null>(null);
+  const [connectionTestError, setConnectionTestError] = useState<string | null>(null);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [showConnectionTestAdvanced, setShowConnectionTestAdvanced] = useState(false);
 
   const inventorySiteFolders = useMemo(() => {
     const folders = new Set<string>();
@@ -496,6 +626,44 @@ export default function CloudSyncPage() {
     void queryClient.invalidateQueries({ queryKey: ["/api/admin/gcs-sync-inventory"] });
   };
 
+  const handleTestConnection = async () => {
+    setTestingConnection(true);
+    setConnectionTestError(null);
+    try {
+      const res = await fetch("/api/admin/gcs-connection-test", {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        throw new Error(typeof body.error === "string" ? body.error : `Test failed (${res.status})`);
+      }
+      setConnectionTestResult(body as GcsConnectionTestResponse);
+      setConnectionTestOpen(true);
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/gcs-sync-status", "detail"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/gcs-sync-inventory"] });
+    } catch (err) {
+      setConnectionTestResult(null);
+      setConnectionTestError(err instanceof Error ? err.message : "Connection test failed");
+      setConnectionTestOpen(true);
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  const statusForBadge: GcsSyncStatusDetail =
+    status ?? {
+      available: false,
+      bucketName: null,
+      status: "unavailable",
+      pendingUploads: 0,
+      pendingUploadKeys: [],
+      imageQueuePending: 0,
+      imageQueueBusy: false,
+      migrationRequired: false,
+      isProduction: false,
+    };
+
   return (
     <div className="min-h-screen bg-background p-6 space-y-6 max-w-6xl mx-auto">
       <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-4 items-start">
@@ -521,11 +689,24 @@ export default function CloudSyncPage() {
             <Button
               variant="outline"
               onClick={handleRefresh}
-              disabled={isRefreshing}
+              disabled={isRefreshing || testingConnection}
               data-testid="button-refresh-cloud-sync"
             >
               <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
               Refresh
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void handleTestConnection()}
+              disabled={isRefreshing || testingConnection}
+              data-testid="button-test-gcs-connection"
+            >
+              {testingConnection ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Stethoscope className="h-4 w-4 mr-2" />
+              )}
+              {testingConnection ? "Testing…" : "Test connection"}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground" data-testid="text-last-refresh">
@@ -547,14 +728,7 @@ export default function CloudSyncPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="space-y-2">
-                <Badge variant={statusBadgeVariant(status?.status ?? "unavailable")} data-testid="badge-cloud-status">
-                  {gcsStatusLabel(status?.status ?? "unavailable")}
-                </Badge>
-                <MetricCardHelp testId="text-cloud-status-description">
-                  {gcsStatusDescription(status?.status ?? "unavailable")}
-                </MetricCardHelp>
-              </div>
+              <CloudStatusBadge status={statusForBadge} />
             )}
           </CardContent>
         </Card>
@@ -1031,6 +1205,83 @@ export default function CloudSyncPage() {
           </Link>
         </CardContent>
       </Card>
+
+      <Dialog open={connectionTestOpen} onOpenChange={setConnectionTestOpen}>
+        <DialogContent className="max-w-md" data-testid="dialog-gcs-connection-test">
+          <DialogHeader>
+            <DialogTitle>GCS connection test</DialogTitle>
+            <DialogDescription className="text-xs leading-relaxed pt-1">
+              <span className="font-medium text-foreground">Refresh</span> reloads cached status and
+              inventory tables.{" "}
+              <span className="font-medium text-foreground">Test connection</span> actively probes GCS
+              credentials, bucket API, architecture, and platform objects.
+            </DialogDescription>
+          </DialogHeader>
+
+          {connectionTestError ? (
+            <p className="text-sm text-destructive">{connectionTestError}</p>
+          ) : connectionTestResult ? (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                Tested {formatDate(connectionTestResult.testedAt)} — overall{" "}
+                <span
+                  className={cn(
+                    "font-medium",
+                    connectionTestResult.overall === "ok" && "text-status-online",
+                    connectionTestResult.overall === "warn" && "text-amber-600 dark:text-amber-400",
+                    connectionTestResult.overall === "error" && "text-destructive",
+                  )}
+                >
+                  {connectionTestResult.overall}
+                </span>
+              </p>
+              <div className="rounded-md border border-border px-3">
+                {connectionTestResult.checks.map((check) => (
+                  <ConnectionCheckRow key={check.id} check={check} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-0 text-xs"
+            onClick={() => setShowConnectionTestAdvanced((v) => !v)}
+            data-testid="button-connection-test-read-more"
+          >
+            {showConnectionTestAdvanced ? "Hide advanced" : "Read more (advanced)"}
+          </Button>
+          {showConnectionTestAdvanced && (
+            <ul className="list-disc pl-5 space-y-1 text-xs text-muted-foreground">
+              <li>
+                <code>server/gcs-connection-test.ts</code> — probe runner
+              </li>
+              <li>
+                <code>server/gcs.ts</code> — <code>checkArchitecture()</code>
+              </li>
+              <li>
+                <code>client/src/pages/CloudSyncPage.tsx</code> — status badge + test UI
+              </li>
+            </ul>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setConnectionTestOpen(false)}>
+              Close
+            </Button>
+            <Button
+              onClick={() => {
+                handleRefresh();
+                setConnectionTestOpen(false);
+              }}
+              data-testid="button-connection-test-refresh"
+            >
+              Refresh page data
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

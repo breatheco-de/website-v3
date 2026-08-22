@@ -175,6 +175,7 @@ import { gcs } from "../gcs";
 import {
 } from "@shared/gcsKeys";
 import { aggregateImageQueuePending, collectGcsSyncInventory } from "../gcs-sync-inventory";
+import { runGcsConnectionTest } from "../gcs-connection-test";
 import { isImageQueueBusy } from "../image-queue-worker";
 import { z } from "zod";
 import {
@@ -359,6 +360,20 @@ export function registerAdminRoutes(app: Express): void {
         ? "Migration still required — new per-site layout not detected in bucket."
         : "Migration check passed — GCS writes are allowed.",
     });
+  });
+
+  app.post("/api/admin/gcs-connection-test", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    try {
+      const result = await runGcsConnectionTest();
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "GCS connection test failed",
+      });
+    }
   });
 
   app.get("/api/admin/sites-yml", async (req, res) => {
