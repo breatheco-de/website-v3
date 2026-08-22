@@ -4,7 +4,7 @@ import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   flattenFieldOverridesInFile,
-  normalizeCategoryForRoot,
+  normalizeStringSelectForRoot,
   resetStaticMappedField,
   resolveMappedFieldsLayerPath,
   writeMappedFields,
@@ -34,6 +34,10 @@ function writeCtYml(extra = "") {
       required: true
     description:
       required: true
+    category:
+      type: select
+      populate_options: true
+      allow_custom_values: true
   url_pattern:
     en: /en/blog/:slug
 course:
@@ -91,14 +95,30 @@ afterEach(() => {
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
-describe("normalizeCategoryForRoot", () => {
-  it("normalizes string and object category", () => {
-    expect(normalizeCategoryForRoot("trends")).toEqual({ slug: "trends" });
-    expect(normalizeCategoryForRoot({ slug: "x", title: "Y" })).toEqual({ slug: "x" });
+describe("normalizeStringSelectForRoot", () => {
+  it("stores string scalars (unwraps { slug })", () => {
+    expect(normalizeStringSelectForRoot("trends")).toBe("trends");
+    expect(normalizeStringSelectForRoot({ slug: "x", title: "Y" })).toBe("x");
+    expect(normalizeStringSelectForRoot("  ")).toBe("  ");
   });
 });
 
 describe("writeMappedFields static", () => {
+  it("coerces select { slug } objects to string scalars on write", () => {
+    const enPath = path.join(contentRoot, "blog", "post-a", "en.yml");
+    const result = writeMappedFields(
+      "blog",
+      "post-a",
+      "en",
+      { category: { slug: "ai-tools", title: "AI" } },
+      { contentRoot, author: "test" },
+    );
+    expect(result.success).toBe(true);
+    const raw = fs.readFileSync(enPath, "utf-8");
+    expect(raw).toMatch(/^category: ai-tools$/m);
+    expect(raw).not.toMatch(/slug: ai-tools/);
+  });
+
   it("writes root keys and clears leftover FO bag keys", () => {
     const enPath = path.join(contentRoot, "blog", "post-a", "en.yml");
     fs.writeFileSync(
@@ -287,7 +307,7 @@ sections: []
 });
 
 describe("flattenFieldOverridesInFile", () => {
-  it("promotes FO to root and normalizes category", () => {
+  it("promotes FO to root and stores category as a string scalar", () => {
     const enPath = path.join(contentRoot, "blog", "post-a", "en.yml");
     fs.writeFileSync(
       enPath,
@@ -300,12 +320,12 @@ field_overrides:
 `,
       "utf-8",
     );
-    const r = flattenFieldOverridesInFile(enPath, "test", contentRoot);
+    const r = flattenFieldOverridesInFile(enPath, "test", contentRoot, "blog");
     expect(r.success).toBe(true);
     expect(r.changed).toBe(true);
     const raw = fs.readFileSync(enPath, "utf-8");
     expect(raw).not.toContain("field_overrides:");
-    expect(raw).toContain("slug: trends");
+    expect(raw).toMatch(/^category: trends$/m);
     expect(raw).toContain("faq_entries:");
   });
 });

@@ -31,11 +31,17 @@ vi.mock("./utils/deepMerge", () => ({
 }));
 vi.mock("./site-config", () => ({
   getDefaultContentRoot: () => "/tmp",
+  getDefaultContentFolder: () => "site_test",
 }));
 vi.mock("./content-index", () => ({
   contentIndex: {
     loadMergedContent: () => ({ data: null }),
+    getRedirects: () => [],
+    refreshCustomRedirects: () => [],
   },
+}));
+vi.mock("./seo-cluster-link-check", () => ({
+  evaluateClusterLinksForEntry: () => null,
 }));
 vi.mock("./schema-org-requirements", () => ({
   formatSchemaOrgCompanionGateError: (opts: { sections: unknown }) => {

@@ -3,7 +3,6 @@ import path from "path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
-  MARKETING_CONTENT_PATH,
   getDirectory,
   loadContentTypes,
   isDbBacked,
@@ -22,9 +21,11 @@ import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sa
 import { checkCap, denyResponse, denyUnlessContentView, denyUnlessContentViewOrSeo } from "../lib/auth.js";
 import {
   grantsCanMutateMetrics,
+  hasCapAnyScope,
   visibleContentTypes,
   type CatalogGrant,
 } from "../lib/tool-catalog.js";
+import { mcpValidatorsFromCategories } from "../lib/diagnostics-categories.js";
 import { getTokenUsername } from "../lib/oauth.js";
 import { buildEditorSystemHints } from "../../shared/editorSystemHints.js";
 import { FILL_INTENT_GOAL_PRESETS } from "../../shared/fillIntent.js";
@@ -781,7 +782,7 @@ export function registerPageTools(
 
   type PagePayloadError = { content: [{ type: "text"; text: string }]; isError: true };
 
-  function resolvePagePayload(slug: string, locale: string, contentType: string | undefined, contentPath?: string): PagePayload | PagePayloadError {
+  function resolvePagePayload(slug: string, locale: string, contentType: string | undefined, contentPath: string): PagePayload | PagePayloadError {
     try {
       assertSafeSegment(slug, "slug");
       assertSafeLocale(locale);
@@ -798,8 +799,7 @@ export function registerPageTools(
       return { content: [{ type: "text", text: `Locale '${locale}' not found for page '${slug}' (contentType: ${resolved.contentType})` }], isError: true };
     }
 
-    const basePath = contentPath || MARKETING_CONTENT_PATH;
-    const pageDir = path.join(basePath, getDirectory(resolved.contentType, resolved.config), slug);
+    const pageDir = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug);
     const dirFiles = fs.existsSync(pageDir) ? fs.readdirSync(pageDir) : [];
     const locales = dirFiles
       .map((f: string) => f.replace(/\.(yml|yaml)$/, ""))
@@ -915,10 +915,11 @@ export function registerPageTools(
     "Get the SEO/meta block plus structured-data preview for a page, with the identifying envelope (contentType, slug, locale, locales, urls). " +
     "Returns meta, seo (locale seo.main_keyword / pillar_path / is_pillar), include_in_clustering (derived: false only when seo.pillar_path is explicit null), " +
     "index (live seo-index.json row; omitted for variants), " +
-    "validation_issues (cached SEO-category issues from meta / seo-depth / seo-intent / seo-cluster), and a rich schema_org block: " +
+    "validation_issues (cached SEO-category issues from meta / seo-depth / seo-intent / seo-cluster / seo-cluster-links), and a rich schema_org block: " +
     "resolved JSON-LD documents + sources (same pipeline as SSR section contributors + Organization dual-emit), " +
     "content-type requirements / hero companion gaps. " +
     "Use this to inspect what Google gets — not for editing schema_org YAML (use get_entry_content / section tools). " +
+    "Hub inventory: list_seo_clusters / list_seo_cluster_entries / get_seo_cluster. " +
     "Toggle clustering via update_fields seo.include_in_clustering (MCP-only; requires type seo_monitoring.enabled). " +
     "Do not expect a derived JSON-LD dump on get_entry_content. Requires content_view or seo_edit. " +
     "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
@@ -1236,7 +1237,9 @@ export function registerPageTools(
     "run_entry_diagnostics",
     "Start or read page diagnostics against the unified validation-cache issue store. Does NOT wait for validators to finish. " +
     "Returns status 'cached' (issues from validation-cache when fresh), 'needs_confirm' (re-call with confirm:true), or 'queued'/'running' with job_id. " +
-    "When a NEW job would start (freshness hard, or stale under max_age), confirm:true is required — agents may set the flag after reading the gate (last full site-wide duration). " +
+    "MCP: categories (e.g. ['seo']) narrow which validators RUN when validators are omitted (staff Diagnostics scope chips are view-only and unchanged). " +
+    "content_view/seo_edit may READ cached or needs_confirm responses; only a metrics-mutating staff cap may start a job (confirm:true that queues). " +
+    "When a NEW job would start (freshness hard, or stale under max_age), confirm:true is required — metrics-capable agents may set the flag after reading the gate. " +
     "Same-scope reuse of an in-flight job and pure 'cached' responses skip confirm. " +
     "When queued/running: wait retry_after_seconds then call get_diagnostics_job — do NOT re-call this tool to poll. " +
     "freshness 'max_age' (default) recomputes only URLs whose lastFullRunAt is older than max_age_seconds (default 86400); " +
@@ -1246,28 +1249,51 @@ export function registerPageTools(
     "Concurrent start while another job holds the site returns busy (no queue). On-save entry-local writes are deferred while the lock is held. " +
     "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap; fixing meta does not clear REDIRECT_CONFLICT; " +
     "Mid-run get_diagnostics_job may return partial issuesBySlug (URLs flushed since job started only). Authoritative after completed. " +
-    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs + confirm:true. " +
-    "In-app content saves also debounce entry-local validation; redirect-config changes queue redirects separately. " +
-    "Requires a mutating staff cap (not metrics_view/content_view only).",
+    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs + confirm:true (metrics mutate). " +
+    "In-app content saves also debounce entry-local validation; redirect-config changes queue redirects separately.",
     {
       slugs: z.array(z.string()).optional().describe("Optional page slugs to scope. Omit for all YAML-backed pages."),
-      categories: z.array(z.string()).optional().describe("Filter returned issues to categories (e.g. ['seo']). Does not narrow the job."),
+      categories: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "MCP: narrows which validators run (e.g. ['seo']) and filters returned issues. Staff UI scope chips do not use this meaning.",
+        ),
       freshness: z.enum(["hard", "max_age"]).optional().describe("max_age (default) uses lastFullRunAt; hard always recomputes."),
       max_age_seconds: z.number().optional().describe("TTL for max_age freshness (default 86400). Ignored when freshness is hard."),
-      confirm: z.boolean().optional().describe("Set true to start a new diagnostics job after needs_confirm. Not required for cached or same-scope reuse."),
+      confirm: z.boolean().optional().describe("Set true to start a new diagnostics job after needs_confirm. Requires metrics-mutating cap. Not required for cached or same-scope reuse."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ slugs, categories, freshness, max_age_seconds, confirm, site }) => {
-      if (mcpToken && grants && !grantsCanMutateMetrics(grants)) {
-        return denyResponse("metrics_mutate");
+      const canReadDiag =
+        !mcpToken ||
+        !grants ||
+        hasCapAnyScope(grants, "content_view") ||
+        hasCapAnyScope(grants, "seo_edit") ||
+        grantsCanMutateMetrics(grants);
+      if (mcpToken && grants && !canReadDiag) {
+        return denyResponse("content_view|seo_edit");
+      }
+      const canStartJob = !mcpToken || !grants || grantsCanMutateMetrics(grants);
+      if (confirm === true && !canStartJob) {
+        return fail(
+          "confirm: true starts a diagnostics job and requires a metrics-mutating staff capability. " +
+            "You may call without confirm to read cached issues or receive needs_confirm.",
+          {
+            code: "diagnostics_trigger_forbidden",
+            action_required: "metrics_mutate_to_run_diagnostics",
+          },
+        );
       }
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      const validators = mcpValidatorsFromCategories(categories);
       const requestBody = {
         slugs: slugs && slugs.length > 0 ? slugs : undefined,
         categories,
+        ...(validators ? { validators } : {}),
         freshness: freshness ?? "max_age",
         max_age_seconds: max_age_seconds ?? 86400,
         ...(confirm === true ? { confirm: true } : {}),
@@ -1324,25 +1350,51 @@ export function registerPageTools(
         }
 
         if (data.status === "needs_confirm") {
+          const confirmNext = canStartJob
+            ? [{
+                tool: "run_entry_diagnostics" as const,
+                reason: "Retry with confirm: true after reviewing last full site-wide duration",
+                args_hint: retryArgsHint,
+                priority: "required" as const,
+              }]
+            : [{
+                tool: "get_entry_seo" as const,
+                reason: "Read cached SEO validation_issues without starting a job (metrics mutate required to confirm)",
+                args_hint: {
+                  ...(slugs?.[0] ? { slug: slugs[0] } : {}),
+                  ...(site ? { site } : {}),
+                },
+                priority: "recommended" as const,
+              }];
           return actionRequired(
             {
               success: false,
               action_required: "confirm_run_diagnostics",
               code: "confirm_run_diagnostics",
-              message: String(data.message ?? "Set confirm: true to start diagnostics."),
+              message: canStartJob
+                ? String(data.message ?? "Set confirm: true to start diagnostics.")
+                : String(
+                    data.message ??
+                      "Diagnostics cache is stale or missing. A metrics-mutating role must re-call with confirm: true to start a job.",
+                  ),
               scoped: data.scoped === true,
               last_site_wide_run_at: data.last_site_wide_run_at ?? null,
               last_site_wide_run_ago: data.last_site_wide_run_ago ?? "never",
               last_site_wide_duration_ms: data.last_site_wide_duration_ms ?? null,
               last_site_wide_duration_human: data.last_site_wide_duration_human ?? null,
               last_site_wide_url_count: data.last_site_wide_url_count ?? null,
+              can_start_job: canStartJob,
+              ...(canStartJob
+                ? {}
+                : {
+                    warnings: [{
+                      code: "diagnostics_trigger_forbidden",
+                      message:
+                        "You can read diagnostics cache but cannot start a job. Ask a metrics-capable user/agent to run with confirm: true.",
+                    }],
+                  }),
             },
-            [{
-              tool: "run_entry_diagnostics",
-              reason: "Retry with confirm: true after reviewing last full site-wide duration",
-              args_hint: retryArgsHint,
-              priority: "required",
-            }],
+            confirmNext,
           );
         }
 
@@ -2033,6 +2085,11 @@ export function registerPageTools(
           message:
             "Does not change meta.redirects, in-body links, sitemap priority, GCS sync/, or auto-commit internals. Duplicate is_pillar flags are not stripped.",
         });
+        warnings.push({
+          code: "seo_diagnostics_cache_may_lag",
+          message:
+            "seo-index / list_seo_cluster_* inventory updates immediately. validation_issues / diagnostics cache may lag until a metrics-capable agent runs run_entry_diagnostics with confirm:true.",
+        });
         if (variant) {
           warnings.push({
             code: "variant_seo_not_indexed",
@@ -2044,6 +2101,24 @@ export function registerPageTools(
           priority: "recommended",
           reason: "Confirm locale seo: plus the live index row.",
           args_hint: { slug, locale, contentType: resolved.contentType, ...(variant ? { variant } : {}) },
+        });
+        next_actions.push({
+          tool: "list_seo_cluster_entries",
+          priority: "optional",
+          reason: "Re-check cluster bucket membership after this write",
+          args_hint: { bucket: "clustered", q: slug, ...(site ? { site } : {}) },
+        });
+        next_actions.push({
+          tool: "run_entry_diagnostics",
+          priority: "optional",
+          reason: "Refresh SEO diagnostics (categories seo) when you can confirm a job",
+          args_hint: {
+            slugs: [slug],
+            categories: ["seo"],
+            freshness: "hard",
+            confirm: true,
+            ...(site ? { site } : {}),
+          },
         });
       }
       if (slugRenameValue !== undefined) {

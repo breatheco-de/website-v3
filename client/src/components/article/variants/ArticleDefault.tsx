@@ -2,12 +2,14 @@ import { useRef, useMemo } from "react";
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { useState, useEffect } from "react";
 import type { ComponentProps } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, User, Clock, Calendar } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import { useLocation } from "wouter";
 import type { ArticleSection } from "@shared/schema";
+import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
 import { cn } from "@/lib/utils";
 import { useOrderedPageSections } from "@/contexts/PageSectionsContext";
 import { useSectionContext } from "@/contexts/SectionContext";
@@ -427,54 +429,104 @@ function TocSide({ items }: { items: TocItem[] }) {
   return <CollapsibleTocNav items={items} variant="side" />;
 }
 
+function formatUpdatedAtLabel(iso: string, locale: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(locale === "es" ? "es-ES" : "en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
 function ArticleMeta({
   tags,
   category,
   categoryUrl,
   readingMinutes,
   authors,
+  updatedAt,
+  locale,
 }: {
   tags: string[];
   category?: string;
   categoryUrl?: string;
   readingMinutes?: number;
   authors: Array<{ name: string; url?: string }>;
+  updatedAt?: string | null;
+  locale: string;
 }) {
   const hasTags = tags.length > 0;
   const hasCategory = Boolean(category && category.trim() && !category.includes("{{"));
   const hasReading = typeof readingMinutes === "number" && readingMinutes > 0;
   const hasAuthors = authors.length > 0;
-  if (!hasTags && !hasCategory && !hasReading && !hasAuthors) return null;
+  const updatedIso =
+    updatedAt && !String(updatedAt).includes("{{")
+      ? normalizeFlexibleDate(updatedAt)
+      : null;
+  const hasUpdated = Boolean(updatedIso);
+  if (!hasTags && !hasCategory && !hasReading && !hasAuthors && !hasUpdated) return null;
+
+  const textItems: ReactNode[] = [];
+  if (hasAuthors) {
+    textItems.push(
+      <span key="authors" data-testid="article-authors" className="inline-flex flex-wrap items-center gap-1.5">
+        <User className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <span className="sr-only">Authors:</span>
+        {authors.map((a, i) => (
+          <span key={`${a.name}-${i}`}>
+            {i > 0 && <span aria-hidden>, </span>}
+            {a.url ? (
+              <a
+                href={a.url}
+                className="text-foreground underline-offset-4 hover:underline"
+                data-testid={`article-author-${i}`}
+              >
+                {a.name}
+              </a>
+            ) : (
+              <span data-testid={`article-author-${i}`}>{a.name}</span>
+            )}
+          </span>
+        ))}
+      </span>,
+    );
+  }
+  if (hasReading) {
+    textItems.push(
+      <span key="reading" data-testid="article-reading-time" className="inline-flex items-center gap-1.5">
+        <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        {readingMinutes} min read
+      </span>,
+    );
+  }
+  if (hasUpdated && updatedIso) {
+    textItems.push(
+      <span key="updated" data-testid="article-updated-at" className="inline-flex items-center gap-1.5">
+        <Calendar className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        Last updated{" "}
+        <time dateTime={updatedIso}>{formatUpdatedAtLabel(updatedIso, locale)}</time>
+      </span>,
+    );
+  }
 
   return (
     <div
       className="mb-6 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
       data-testid="article-meta"
     >
-      {hasAuthors && (
-        <span data-testid="article-authors" className="flex flex-wrap items-center gap-1">
-          <span className="sr-only">Authors:</span>
-          {authors.map((a, i) => (
-            <span key={`${a.name}-${i}`}>
-              {i > 0 && <span aria-hidden>, </span>}
-              {a.url ? (
-                <a
-                  href={a.url}
-                  className="text-foreground underline-offset-4 hover:underline"
-                  data-testid={`article-author-${i}`}
-                >
-                  {a.name}
-                </a>
-              ) : (
-                <span data-testid={`article-author-${i}`}>{a.name}</span>
-              )}
+      {textItems.map((item, i) => (
+        <span key={i} className="inline-flex items-center gap-2">
+          {i > 0 && (
+            <span aria-hidden className="text-muted-foreground/60">
+              ·
             </span>
-          ))}
+          )}
+          {item}
         </span>
-      )}
-      {hasReading && (
-        <span data-testid="article-reading-time">{readingMinutes} min read</span>
-      )}
+      ))}
       {hasCategory && (
         categoryUrl ? (
           <a
@@ -561,8 +613,12 @@ export function Article({ data }: ArticleProps) {
     category,
     category_url,
     authors: rawAuthors,
+    updated_at: rawUpdatedAt,
     show_reading_time = true,
   } = data;
+
+  const [location] = useLocation();
+  const locale = location.startsWith("/es") ? "es" : "en";
 
   const orderedSections = useOrderedPageSections();
   const { sectionIndex } = useSectionContext();
@@ -657,6 +713,8 @@ export function Article({ data }: ArticleProps) {
         categoryUrl={category_url}
         readingMinutes={readingMinutes}
         authors={authors}
+        updatedAt={typeof rawUpdatedAt === "string" ? rawUpdatedAt : undefined}
+        locale={locale}
       />
     );
 

@@ -248,7 +248,7 @@ function SortableMenuItemEditor({
   );
 
   return (
-    <Card ref={setNodeRef} style={style} className="mb-2">
+    <Card ref={setNodeRef} style={style} className="mb-2 min-w-0">
       <CardHeader className="py-3 px-4">
         <div className="flex items-center gap-2">
           {!isReadOnlyStructure ? (
@@ -388,7 +388,7 @@ function SortableMenuItemEditor({
             </div>
           </div>
           {item.component === "Dropdown" && item.dropdown && (
-            <div className="border-t pt-4 mt-4">
+            <div className="border-t pt-4 mt-4 min-w-0">
               <div className="flex items-center gap-2 mb-4">
                 <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 <span className="font-medium text-sm">Dropdown Preview</span>

@@ -20,10 +20,10 @@ import {
 } from "../../shared/validateRequiredFields.js";
 
 export const MULTI_SITE_TOOL_BLURB =
-  "Multi-site: always pass site (domain from sites.yml, e.g. \"4geeks.com\"). If unsure, call list_sites first.";
+  "Multi-site: always pass site (domain from sites.yml / list_sites; matching is case-insensitive). Never assume the first site or default to any domain — use the domain the user named. If unsure, call list_sites first.";
 
 export const SITE_PARAM_DESC =
-  'Domain of the target site from sites.yml, e.g. "4geeks.com" (required when multiple sites are configured; optional when only one site exists). ' +
+  'Domain of the target site from sites.yml, e.g. "example.com" (required when multiple sites are configured; optional when only one site exists). ' +
   MULTI_SITE_TOOL_BLURB;
 
 /** editor.type values allowed as top-level batch/update paths (plus title/slug/settings). */
@@ -215,6 +215,7 @@ export function siteFailResult(
     error?: string;
     message?: string;
     available_sites?: string[];
+    requested_site?: string;
   };
   try {
     parsed = JSON.parse(errorJson) as typeof parsed;
@@ -225,7 +226,10 @@ export function siteFailResult(
     );
   }
   const sites = parsed.available_sites ?? [];
-  const hintSite = sites[0];
+  const requestedSite =
+    typeof parsed.requested_site === "string" && parsed.requested_site.trim()
+      ? parsed.requested_site.trim()
+      : undefined;
   const next: NextAction[] = [
     {
       tool: "list_sites",
@@ -233,12 +237,18 @@ export function siteFailResult(
       priority: "required",
     },
   ];
-  if (tool && hintSite) {
+  // Unknown site: retry preserves other args but omits site (avoids typo loops / sites[0] nudge).
+  // Missing site: list_sites only — never invent a default domain.
+  const isUnknown =
+    parsed.error === "unknown_site" || requestedSite !== undefined;
+  if (tool && isUnknown) {
+    const hint = { ...(retryArgs || {}) };
+    delete hint.site;
     next.push({
       tool,
-      reason: `Retry with site: "${hintSite}"`,
+      reason: "Retry after choosing a domain from available_sites / list_sites",
       priority: "required",
-      args_hint: { ...(retryArgs || {}), site: hintSite },
+      args_hint: hint,
     });
   }
   return actionRequired(
@@ -250,6 +260,7 @@ export function siteFailResult(
         " " +
         MULTI_SITE_TOOL_BLURB,
       available_sites: sites,
+      ...(requestedSite ? { requested_site: requestedSite } : {}),
     },
     next,
   );

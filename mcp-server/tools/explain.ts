@@ -31,7 +31,7 @@ type Topic = (typeof VALID_TOPICS)[number];
 
 const TOPIC_DESC: Record<string, string> = {
   overview: "Start here — architectural summary and guide to all topics",
-  content_system: "YAML content files, _common.yml merge, safeYamlLoad requirement",
+  content_system: "YAML content files, _common.yml merge, SEO clustering inventory + links, safeYamlLoad",
   routing:
     "URL patterns, locale prefixes (/en/, /es/), dynamic routes, ?cache=false HTML cache bypass",
   images: "Image registry, UniversalImage component, image_id referencing",

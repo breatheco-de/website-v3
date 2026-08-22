@@ -8,19 +8,47 @@ import {
 } from "../../shared/registry-resolve.js";
 import { resolveComponentBehaviors } from "../../shared/component-behaviors.js";
 
-export const MARKETING_CONTENT_PATH = path.join(process.cwd(), "4geeks-com");
-export const COMPONENT_REGISTRY_PATH = path.join(MARKETING_CONTENT_PATH, "component-registry");
-export const CONTENT_TYPES_PATH = path.join(MARKETING_CONTENT_PATH, "content-types.yml");
-
 // ─── Multi-site helpers ───────────────────────────────────────────────────────
 
-interface SiteConfigMcp {
+export interface SiteConfigMcp {
   domain: string;
   contentFolder: string;
   inheritComponentsFrom?: string;
 }
 
 let _mcpSiteConfigsCache: SiteConfigMcp[] | null = null;
+
+/** Clear cached sites.yml parse (tests / hot reload). */
+export function resetMcpSiteConfigsCache(): void {
+  _mcpSiteConfigsCache = null;
+}
+
+/** @internal Test helper — pass null to clear and reload from disk on next read. */
+export function setMcpSiteConfigsForTest(configs: SiteConfigMcp[] | null): void {
+  _mcpSiteConfigsCache = configs;
+}
+
+/**
+ * Absolute content folder when callers omit contentPath.
+ * Sole site → that folder; multi-site → throw (must pass path from resolveSiteContext).
+ */
+export function getDefaultContentPath(): string {
+  const configs = getMcpSiteConfigs();
+  if (configs.length === 1) {
+    return path.join(process.cwd(), configs[0].contentFolder);
+  }
+  throw new Error(
+    "Multi-site: content path required. Pass contentPath from resolveSiteContext (supply the site domain parameter).",
+  );
+}
+
+export function getContentTypesPath(): string {
+  return path.join(getDefaultContentPath(), "content-types.yml");
+}
+
+export function getComponentRegistryPath(): string {
+  return path.join(getDefaultContentPath(), "component-registry");
+}
 
 const SITES_YML_EXAMPLE = `# sites.yml — required at repo root
 example.com:
@@ -123,14 +151,27 @@ export type SiteContextResult =
 
 /**
  * Resolve a site domain to its absolute content path.
- * When one site is configured, domain is optional.
+ * When one site is configured, domain is optional (but if provided must match).
  * When multiple sites are configured, domain is required.
+ * Domain matching is case-insensitive.
  */
 export function resolveSiteContext(domain?: string): SiteContextResult {
   const configs = getMcpSiteConfigs();
+  const normalized = typeof domain === "string" ? domain.trim() : "";
 
   if (configs.length === 1) {
     const cfg = configs[0];
+    if (normalized && cfg.domain.toLowerCase() !== normalized.toLowerCase()) {
+      return {
+        ok: false,
+        error: JSON.stringify({
+          error: "unknown_site",
+          message: `Unknown site '${normalized}'. See available_sites for valid options.`,
+          available_sites: configs.map((c) => c.domain),
+          requested_site: normalized,
+        }),
+      };
+    }
     return {
       ok: true,
       contentPath: path.join(process.cwd(), cfg.contentFolder),
@@ -139,26 +180,27 @@ export function resolveSiteContext(domain?: string): SiteContextResult {
     };
   }
 
-  if (!domain) {
+  if (!normalized) {
     return {
       ok: false,
       error: JSON.stringify({
         error: "multi_site_domain_required",
         message:
           "This server manages multiple sites. You must supply the 'site' parameter (domain) to target the correct content folder.",
-        available_sites: configs.map(c => c.domain),
+        available_sites: configs.map((c) => c.domain),
       }),
     };
   }
 
-  const cfg = configs.find(c => c.domain === domain);
+  const cfg = configs.find((c) => c.domain.toLowerCase() === normalized.toLowerCase());
   if (!cfg) {
     return {
       ok: false,
       error: JSON.stringify({
         error: "unknown_site",
-        message: `Unknown site '${domain}'. See available_sites for valid options.`,
-        available_sites: configs.map(c => c.domain),
+        message: `Unknown site '${normalized}'. See available_sites for valid options.`,
+        available_sites: configs.map((c) => c.domain),
+        requested_site: normalized,
       }),
     };
   }
@@ -255,7 +297,7 @@ export interface ContentTypeConfig {
 export function loadContentTypes(contentPath?: string): Record<string, ContentTypeConfig> {
   const ctPath = contentPath
     ? path.join(contentPath, "content-types.yml")
-    : CONTENT_TYPES_PATH;
+    : getContentTypesPath();
   if (!fs.existsSync(ctPath)) return {};
   const raw = fs.readFileSync(ctPath, "utf-8");
   return (safeLoad(raw) as Record<string, ContentTypeConfig>) || {};
@@ -279,7 +321,7 @@ export function resolveContentType(
   contentPath?: string,
   opts?: { allowSharedLayout?: boolean },
 ): { contentType: string; config: ContentTypeConfig } | null {
-  const basePath = contentPath || MARKETING_CONTENT_PATH;
+  const basePath = contentPath || getDefaultContentPath();
   const configs = loadContentTypes(contentPath);
   const allowShared = opts?.allowSharedLayout === true;
 
@@ -331,7 +373,7 @@ export interface VersioningLocale {
 export type VersioningData = Record<string, VersioningLocale>;
 
 export function loadVersioning(contentType: string, slug: string, contentPath?: string): VersioningData | null {
-  const basePath = contentPath || MARKETING_CONTENT_PATH;
+  const basePath = contentPath || getDefaultContentPath();
   const configs = loadContentTypes(contentPath);
   const config = configs[contentType];
   if (!config || isDbBacked(config)) return null;
@@ -350,7 +392,7 @@ export function loadVariantPage(
   variantSlug: string,
   contentPath?: string,
 ): { data: Record<string, unknown>; filePath: string } | null {
-  const basePath = contentPath || MARKETING_CONTENT_PATH;
+  const basePath = contentPath || getDefaultContentPath();
   const configs = loadContentTypes(contentPath);
   const config = configs[contentType];
   if (!config || isDbBacked(config)) return null;
@@ -386,7 +428,7 @@ export interface PageEntry {
 }
 
 export function scanPages(contentPath?: string): PageEntry[] {
-  const basePath = contentPath || MARKETING_CONTENT_PATH;
+  const basePath = contentPath || getDefaultContentPath();
   const contentFolder = path.basename(basePath);
   const configs = loadContentTypes(contentPath);
   const pages: PageEntry[] = [];
@@ -487,7 +529,7 @@ export function loadPage(
   locale: string,
   contentPath?: string,
 ): { data: Record<string, unknown>; filePath: string } | null {
-  const basePath = contentPath || MARKETING_CONTENT_PATH;
+  const basePath = contentPath || getDefaultContentPath();
   const configs = loadContentTypes(contentPath);
   const config = configs[contentType];
   if (!config || isDbBacked(config)) return null;
@@ -556,7 +598,7 @@ export interface ComponentInfo {
 function contentFolderFromPath(contentPath?: string): string {
   if (!contentPath) {
     // resolveSiteContext always passes contentPath in normal flow
-    return path.basename(MARKETING_CONTENT_PATH);
+    return path.basename(getDefaultContentPath());
   }
   return path.isAbsolute(contentPath)
     ? path.basename(contentPath)

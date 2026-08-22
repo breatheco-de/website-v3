@@ -41,6 +41,9 @@ export const TOOL_GATES: Record<string, ToolGate> = {
 
   get_entry_seo: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
   list_entry_seo: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
+  list_seo_clusters: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
+  list_seo_cluster_entries: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
+  get_seo_cluster: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
 
   update_fields: { kind: "anyCap", caps: ["content_edit_text", "seo_edit"] },
   update_entry_field: { kind: "anyCap", caps: ["seo_edit"] },
@@ -76,7 +79,7 @@ export const TOOL_GATES: Record<string, ToolGate> = {
   delete_database_item: { kind: "anyCap", caps: ["databases_manage", "content_edit_text"] },
   reindex_database: { kind: "anyCap", caps: ["databases_manage"] },
 
-  run_entry_diagnostics: { kind: "canMutateMetrics" },
+  run_entry_diagnostics: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
   get_diagnostics_job: { kind: "canMutateMetrics" },
 };
 

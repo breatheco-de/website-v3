@@ -12,6 +12,7 @@ import { getTokenUsername } from "../lib/oauth.js";
 import { resolveComponentPath } from "../../shared/registry-resolve.js";
 import { denyUnlessContentView } from "../lib/auth.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
+import { SITE_PARAM_DESC } from "../lib/entry-helpers.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
@@ -27,9 +28,6 @@ function internalHeaders(mcpToken?: string): Record<string, string> {
   }
   return headers;
 }
-
-const SITE_PARAM_DESC =
-  'Domain of the target site from sites.yml, e.g. "4geeks.com" (required when multiple sites are configured; optional when only one site exists). Multi-site: always pass site. If unsure, call list_sites first.';
 
 function inheritForMcpFolder(contentFolder: string): string | undefined {
   const want = contentFolder.replace(/\\/g, "/").replace(/\/+$/, "");

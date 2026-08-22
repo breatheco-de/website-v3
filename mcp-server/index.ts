@@ -6,6 +6,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { registerPageTools } from "./tools/pages.js";
+import { registerSeoClusterTools } from "./tools/seo-clusters.js";
 import { registerComponentTools } from "./tools/components.js";
 import { registerUserTools } from "./tools/user.js";
 import { registerExplainTools } from "./tools/explain.js";
@@ -188,6 +189,7 @@ async function createMcpServer(
 
   applyToolCatalogFilter(mcp, allowed);
   registerPageTools(mcp, mcpAuthor, mcpToken, grants);
+  registerSeoClusterTools(mcp, mcpToken, grants);
   registerComponentTools(mcp, mcpToken, grants);
   registerUserTools(mcp, mcpToken, grants);
   registerExplainTools(mcp, mcpToken, grants);

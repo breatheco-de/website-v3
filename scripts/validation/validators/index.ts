@@ -22,6 +22,7 @@ import { databaseHealthValidator } from "./database-health";
 import { slugConflictsValidator } from "./slug-conflicts";
 import { seoIntentValidator } from "./seo-intent";
 import { seoClusterValidator } from "./seo-cluster";
+import { seoClusterLinksValidator } from "./seo-cluster-links";
 import { imageOptimizationValidator } from "./image-optimization";
 import { heroImageTagsValidator } from "./hero-image-tags";
 import { imageTagsValidator } from "./image-tags";
@@ -41,6 +42,7 @@ import { sourceNameCollisionsValidator } from "./source-name-collisions";
 import { editorFieldTypesValidator } from "./editor-field-types";
 import { unknownKeysValidator } from "./unknown-keys";
 import { relationTargetsValidator } from "./relation-targets";
+import { updatedAtValidator } from "./updated-at";
 
 export const validators: Validator[] = [
   redirectValidator,
@@ -63,6 +65,7 @@ export const validators: Validator[] = [
   sourceNameCollisionsValidator,
   seoIntentValidator,
   seoClusterValidator,
+  seoClusterLinksValidator,
   imageOptimizationValidator,
   heroImageTagsValidator,
   imageTagsValidator,
@@ -78,6 +81,7 @@ export const validators: Validator[] = [
   brokenAnchorsValidator,
   componentBehaviorsValidator,
   ctaTrackingValidator,
+  updatedAtValidator,
 ];
 
 /** @deprecated Lighthouse removed from platform diagnostics — use external tools. */
@@ -135,6 +139,7 @@ export {
   slugConflictsValidator,
   seoIntentValidator,
   seoClusterValidator,
+  seoClusterLinksValidator,
   imageOptimizationValidator,
   heroImageTagsValidator,
   imageTagsValidator,
@@ -150,4 +155,5 @@ export {
   editorFieldTypesValidator,
   unknownKeysValidator,
   relationTargetsValidator,
+  updatedAtValidator,
 };

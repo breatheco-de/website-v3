@@ -150,6 +150,17 @@ describe("validateEditorFieldValue", () => {
     expect(issues[0]?.code).toBe("FIELD_RELATION_INVALID");
   });
 
+  it("warns when select is stored as { slug } object", () => {
+    const issues = validateEditorFieldValue(
+      "category",
+      { slug: "ai-tools" },
+      { type: "select", populate_options: true, allow_custom_values: true },
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.code).toBe("FIELD_TYPE_MISMATCH");
+    expect(issues[0]?.message).toMatch(/should be a string \(select\)/);
+  });
+
   it("accepts relation slug strings", () => {
     expect(
       validateEditorFieldValue("author", "ada", { type: "relation", source: "authors" }),

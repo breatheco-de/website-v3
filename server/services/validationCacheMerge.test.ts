@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import type { PageCacheEntry } from "../../scripts/validation/shared/types";
+import type { ContentFile, PageCacheEntry } from "../../scripts/validation/shared/types";
 import {
   CACHE_FRESHNESS_MAX_AGE_SECONDS,
+  matchLiveRedirectClaimant,
   summarizeCacheFreshness,
 } from "./validationCacheMerge";
 
@@ -48,5 +49,51 @@ describe("summarizeCacheFreshness", () => {
       total: 0,
       max_age_seconds: maxAge,
     });
+  });
+});
+
+function liveFile(filePath: string, slug: string): ContentFile {
+  return {
+    slug,
+    title: slug,
+    type: "program",
+    locale: "en",
+    filePath,
+    url: `/en/${slug}`,
+  };
+}
+
+describe("matchLiveRedirectClaimant", () => {
+  const fileA = liveFile("/tmp/programs/ai-engineering/en.yml", "ai-engineering");
+  const fileB = liveFile("/tmp/programs/ai-engineering-devs/en.yml", "ai-engineering-devs");
+  const files = [fileA, fileB];
+
+  it("matches each /tmp path exactly when basenames collide", () => {
+    expect(matchLiveRedirectClaimant(fileA.filePath, files)?.slug).toBe("ai-engineering");
+    expect(matchLiveRedirectClaimant(fileB.filePath, files)?.slug).toBe(
+      "ai-engineering-devs",
+    );
+  });
+
+  it("does not attach a bare basename to the first of several live files", () => {
+    expect(matchLiveRedirectClaimant("en.yml", files)).toBeUndefined();
+  });
+
+  it("matches production site-relative live labels", () => {
+    const siteA = liveFile(
+      "site_4geeks-com/programs/ai-engineering/en.yml",
+      "ai-engineering",
+    );
+    const siteB = liveFile(
+      "site_4geeks-com/programs/ai-engineering-devs/en.yml",
+      "ai-engineering-devs",
+    );
+    const siteFiles = [siteA, siteB];
+    expect(
+      matchLiveRedirectClaimant("programs/ai-engineering/en.yml", siteFiles)?.slug,
+    ).toBe("ai-engineering");
+    expect(
+      matchLiveRedirectClaimant("programs/ai-engineering-devs/en.yml", siteFiles)?.slug,
+    ).toBe("ai-engineering-devs");
   });
 });

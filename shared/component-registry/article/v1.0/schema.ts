@@ -65,6 +65,12 @@ export const articleSectionSchema = z.object({
     .describe(
       "Author byline entries. Map explicitly: authors: '{{ single.authors }}'. Pointers hydrate on page/SSR.",
     ),
+  updated_at: z
+    .string()
+    .optional()
+    .describe(
+      "Editorial last-modified (same clock as manage Updated / sitemap lastmod / dateModified). Map: updated_at: '{{ single.updated_at }}'. Hidden when empty or unparseable.",
+    ),
   section_id: z.string().optional().describe("Stable section id (also used as heading-id prefix on split pages)"),
 });
 

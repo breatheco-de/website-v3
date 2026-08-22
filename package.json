@@ -21,7 +21,9 @@
     "start": "bash scripts/start-production.sh",
     "check": "tsc",
     "db:push": "drizzle-kit push",
-    "ssr:check": "bash scripts/ssr-check.sh"
+    "ssr:check": "bash scripts/ssr-check.sh",
+    "test": "vitest run --maxWorkers=1",
+    "prepare": "husky"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",
@@ -168,6 +170,7 @@
     "autoprefixer": "^10.4.20",
     "drizzle-kit": "^0.31.4",
     "esbuild": "^0.28.0",
+    "husky": "^9.1.7",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.20.5",

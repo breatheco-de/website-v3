@@ -10,6 +10,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
+import { coerceEditorSelectScalar } from "@shared/editor-field-values";
 import {
   getFolder,
   getContentTypeConfig,
@@ -27,6 +28,7 @@ import {
   isKnownSeoFieldPath,
   isSeoDbMappingKey,
   seoFieldFromPath,
+  type ContentTypeEditorHint,
 } from "./content-types";
 import { getDefaultContentRoot } from "./site-config";
 import { contentIndex } from "./content-index";
@@ -47,6 +49,47 @@ import {
 } from "./draft-entry";
 
 export const FIELD_OVERRIDES_KEY = "field_overrides";
+
+/** Editor types that must persist as plain string scalars on disk. */
+const STRING_EDITOR_TYPES = new Set([
+  "select",
+  "text",
+  "textarea",
+  "markdown",
+  "image",
+  "pdf",
+]);
+
+function isStringEditorType(type: unknown): boolean {
+  return typeof type === "string" && STRING_EDITOR_TYPES.has(type);
+}
+
+/**
+ * Coerce a mapped-field value for string-shaped editor types to a scalar string.
+ * Unwraps `{ slug }` (legacy URL category shape). Empty → empty string.
+ */
+export function normalizeStringSelectForRoot(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  const scalar = coerceEditorSelectScalar(value);
+  if (typeof value === "string" && !value.trim()) return value;
+  return scalar;
+}
+
+/** @deprecated Use {@link normalizeStringSelectForRoot} — kept for older imports. */
+export const normalizeCategoryForRoot = normalizeStringSelectForRoot;
+
+function coerceUpdatesForStringEditorFields(
+  updates: Record<string, unknown | null>,
+  editor: Record<string, ContentTypeEditorHint> | undefined,
+): void {
+  if (!editor) return;
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === null || value === undefined) continue;
+    const hint = editor[key];
+    if (!isStringEditorType(hint?.type)) continue;
+    updates[key] = normalizeStringSelectForRoot(value) as string;
+  }
+}
 
 export type MappedFieldStorage = "root_key" | "field_overrides";
 
@@ -417,6 +460,12 @@ export function writeMappedFields(
   }
   const isStatic = !config.database?.slug;
 
+  const pendingUpdates: Record<string, unknown | null> = { ...updates };
+  coerceUpdatesForStringEditorFields(
+    pendingUpdates,
+    config.editor as Record<string, ContentTypeEditorHint> | undefined,
+  );
+
   const layer = resolveMappedFieldsLayerPath({
     contentType,
     slug,
@@ -435,7 +484,6 @@ export function writeMappedFields(
   }
 
   const filePath = layer.filePath;
-  const pendingUpdates: Record<string, unknown | null> = { ...updates };
 
   const seoUpdates: Record<string, unknown> = {};
   for (const key of Object.keys(pendingUpdates)) {
@@ -727,27 +775,15 @@ export function resetStaticMappedField(opts: {
   return writeMappedFields(contentType, slug, locale, { [field]: null }, { author, contentRoot, variant });
 }
 
-/** Normalize category FO values to `{ slug }` when promoting to root. */
-export function normalizeCategoryForRoot(value: unknown): unknown {
-  if (value === null || value === undefined) return value;
-  if (typeof value === "string") {
-    const slug = value.trim();
-    return slug ? { slug } : value;
-  }
-  if (typeof value === "object" && !Array.isArray(value) && value !== null) {
-    const obj = value as Record<string, unknown>;
-    if (typeof obj.slug === "string") return { slug: obj.slug };
-  }
-  return value;
-}
-
 /**
  * Flatten field_overrides bag into root keys on a locale/variant YAML file.
+ * String-shaped editor fields (select/text/…) are stored as scalar strings.
  */
 export function flattenFieldOverridesInFile(
   absPath: string,
   author?: string,
   contentRoot?: string,
+  contentType?: string,
 ): { success: boolean; error?: string; changed: boolean } {
   if (!fs.existsSync(absPath)) {
     return { success: false, error: "File not found", changed: false };
@@ -759,9 +795,32 @@ export function flattenFieldOverridesInFile(
     if (Object.keys(fo).length === 0) {
       return { success: true, changed: false };
     }
+
+    let editor: Record<string, ContentTypeEditorHint> | undefined;
+    const resolvedType =
+      contentType ||
+      (() => {
+        if (!contentRoot) return undefined;
+        const rootAbs = path.isAbsolute(contentRoot)
+          ? contentRoot
+          : path.join(process.cwd(), contentRoot);
+        const rel = path.relative(rootAbs, absPath);
+        const folder = rel.split(/[/\\]/)[0];
+        if (!folder) return undefined;
+        if (getContentTypeConfig(folder, contentRoot)) return folder;
+        return undefined;
+      })();
+    if (resolvedType) {
+      editor = getContentTypeConfig(resolvedType, contentRoot)?.editor as
+        | Record<string, ContentTypeEditorHint>
+        | undefined;
+    }
+
     for (const [key, value] of Object.entries(fo)) {
-      const next = key === "category" ? normalizeCategoryForRoot(value) : value;
-      entryData[key] = next;
+      const hint = editor?.[key];
+      entryData[key] = isStringEditorType(hint?.type)
+        ? normalizeStringSelectForRoot(value)
+        : value;
     }
     delete entryData[FIELD_OVERRIDES_KEY];
     fs.writeFileSync(absPath, safeYamlDump(entryData, { lineWidth: -1, noRefs: true }), "utf-8");

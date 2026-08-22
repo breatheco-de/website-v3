@@ -40,7 +40,7 @@ export const staticFieldOverridesValidator: Validator = {
           message: `Static entry still has field_overrides (${keys}); promote keys to the YAML root on this layer file`,
           file: file.filePath,
           suggestion:
-            "Flatten field_overrides into top-level keys (category → { slug }), then remove the bag. Writer: server/field-overrides.ts flattenFieldOverridesInFile / writeMappedFields.",
+            "Flatten field_overrides into top-level keys (string editor fields as plain scalars), then remove the bag. Writer: server/field-overrides.ts flattenFieldOverridesInFile / writeMappedFields.",
         });
       }
     }

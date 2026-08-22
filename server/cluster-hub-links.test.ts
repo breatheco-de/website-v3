@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { extractHrefPaths, findMissingMemberLinks } from "./cluster-hub-links";
+import {
+  extractHrefPaths,
+  findMissingMemberLinks,
+  pageLinksToHub,
+  collectInternalPathsFromData,
+} from "./cluster-hub-links";
+
+const stubCi = {
+  getRedirects: () => [],
+  refreshCustomRedirects: () => [],
+  isKnownUrl: () => true,
+  findBySlug: () => [],
+} as unknown as import("./content-index").ContentIndex;
 
 describe("cluster-hub-links", () => {
   it("extractHrefPaths collects anchor hrefs", () => {
@@ -25,14 +37,31 @@ describe("cluster-hub-links", () => {
           locale: "en",
         },
       ],
-      ci: {
-        getRedirects: () => [],
-        refreshCustomRedirects: () => [],
-        isKnownUrl: () => true,
-        findBySlug: () => [],
-      } as unknown as import("./content-index").ContentIndex,
+      ci: stubCi,
     });
     expect(missing).toHaveLength(1);
     expect(missing[0]?.memberSlug).toBe("missing");
+  });
+
+  it("pageLinksToHub detects markdown and url fields", () => {
+    expect(
+      pageLinksToHub({
+        sourcePaths: collectInternalPathsFromData({
+          content: "See [hub](/en/guides/coding)",
+          cta: { url: "/other" },
+        }),
+        hubPath: "/en/guides/coding",
+        locale: "en",
+        ci: stubCi,
+      }),
+    ).toBe(true);
+    expect(
+      pageLinksToHub({
+        sourcePaths: collectInternalPathsFromData({ content: "no link" }),
+        hubPath: "/en/guides/coding",
+        locale: "en",
+        ci: stubCi,
+      }),
+    ).toBe(false);
   });
 });

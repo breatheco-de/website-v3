@@ -29,6 +29,8 @@ export type MicroValidationFlags = {
   runEmptyDetached: boolean;
   runSchemaOrgCompanion: boolean;
   runFormSources: boolean;
+  /** Publish/promote: bidirectional SEO cluster in-body links. */
+  runClusterLinks: boolean;
 };
 
 function normalizePaths(paths: readonly string[]): string[] {
@@ -66,6 +68,7 @@ export function resolveMicroValidationFlags(opts: {
       runEmptyDetached: true,
       runSchemaOrgCompanion: true,
       runFormSources: true,
+      runClusterLinks: true,
     };
   }
 
@@ -81,6 +84,7 @@ export function resolveMicroValidationFlags(opts: {
       runEmptyDetached: false,
       runSchemaOrgCompanion: false,
       runFormSources: false,
+      runClusterLinks: false,
     };
   }
 
@@ -92,6 +96,7 @@ export function resolveMicroValidationFlags(opts: {
       runEmptyDetached: false,
       runSchemaOrgCompanion: false,
       runFormSources: false,
+      runClusterLinks: false,
     };
   }
 
@@ -115,6 +120,7 @@ export function resolveMicroValidationFlags(opts: {
       runEmptyDetached: false,
       runSchemaOrgCompanion: false,
       runFormSources: false,
+      runClusterLinks: false,
     };
   }
 
@@ -125,6 +131,7 @@ export function resolveMicroValidationFlags(opts: {
     runEmptyDetached: false,
     runSchemaOrgCompanion: false,
     runFormSources: false,
+    runClusterLinks: false,
   };
 }
 
@@ -141,6 +148,7 @@ export function shouldSkipLiveGate(
     (flags.bodyKeys?.length ?? 0) === 0 &&
     !flags.runEmptyDetached &&
     !flags.runSchemaOrgCompanion &&
-    !flags.runFormSources
+    !flags.runFormSources &&
+    !flags.runClusterLinks
   );
 }
