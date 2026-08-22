@@ -61,11 +61,11 @@ function MobileNavItem({ item, onNavigate, isOpen, onToggle }: MobileNavItemProp
                     <div className="text-xs text-muted-foreground line-clamp-1">{card.description}</div>
                   </div>
                   <ChevronRight className="h-3 w-3 shrink-0 ml-2" />
-                </InternalLink> // test
+                </InternalLink>
               ))}
             </div>
           )}
-          
+
           {dropdown.type === "columns" && dropdown.columns && (
             <div className="space-y-1">
               {dropdown.columns.map((column, colIndex) => (
