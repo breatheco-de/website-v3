@@ -41,7 +41,9 @@ describe("sites-yml-store", () => {
     const content = "example.com:\n  content_folder: site_example\n";
     writeSitesYmlLocal(content);
     expect(readSitesYmlLocal()).toBe(content);
-    expect(getSitesYmlLocalPath()).toBe(path.join(tempDir, "sites.yml"));
+    expect(fs.realpathSync(getSitesYmlLocalPath())).toBe(
+      fs.realpathSync(path.join(tempDir, "sites.yml")),
+    );
   });
 
   it("saveSitesYml writes local file in development", () => {

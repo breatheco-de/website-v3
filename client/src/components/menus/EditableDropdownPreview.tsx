@@ -540,9 +540,12 @@ function EditableCardsPreview({
     });
   };
 
+  // w-0 min-w-full keeps this from expanding ScrollArea/table parents; overflow-x
+  // shows a scrollbar when max-mode nominal width exceeds the editor container.
   return (
+    <div className="w-0 min-w-full max-w-full overflow-x-auto overscroll-x-contain">
     <div
-      className="p-6 bg-popover border border-border rounded-lg min-w-0 max-w-full"
+      className="p-6 bg-popover border border-border rounded-lg min-w-0"
       style={panelWidth != null ? { width: panelWidth } : undefined}
     >
       <div className="mb-6">
@@ -738,6 +741,7 @@ function EditableCardsPreview({
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }

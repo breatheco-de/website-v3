@@ -49,7 +49,8 @@ describe("allowedToolNames", () => {
     expect(names.has("create_entry")).toBe(false);
     expect(names.has("test_redirect")).toBe(false);
     expect(names.has("list_databases")).toBe(false);
-    expect(names.has("run_entry_diagnostics")).toBe(false);
+    expect(names.has("run_entry_diagnostics")).toBe(true);
+    expect(names.has("get_diagnostics_job")).toBe(false);
   });
 
   it("blog-only editor sees reads and text writes, not structure/create", () => {
@@ -75,6 +76,11 @@ describe("allowedToolNames", () => {
     const names = new Set(allowedToolNames(seoOnly));
     expect(names.has("get_entry_seo")).toBe(true);
     expect(names.has("list_entry_seo")).toBe(true);
+    expect(names.has("list_seo_clusters")).toBe(true);
+    expect(names.has("list_seo_cluster_entries")).toBe(true);
+    expect(names.has("get_seo_cluster")).toBe(true);
+    expect(names.has("run_entry_diagnostics")).toBe(true);
+    expect(names.has("get_diagnostics_job")).toBe(true);
     expect(names.has("update_meta_fields")).toBe(true);
     expect(names.has("test_redirect")).toBe(true);
     expect(names.has("update_fields")).toBe(true);

@@ -186,6 +186,41 @@ describe("validation issue store v5", () => {
     ).toBe(true);
   });
 
+
+  it("redirects fan-out with production-style live labels", () => {
+    const fileA = makeFile({
+      type: "program",
+      slug: "ai-engineering",
+      locale: "en",
+      filePath: "site_4geeks-com/programs/ai-engineering/en.yml",
+      url: "/en/ai-engineering",
+    });
+    const fileB = makeFile({
+      type: "program",
+      slug: "ai-engineering-devs",
+      locale: "en",
+      filePath: "site_4geeks-com/programs/ai-engineering-devs/en.yml",
+      url: "/en/ai-engineering-devs",
+    });
+
+    const result = redirectsConflict(fileA, fileB);
+    result.errors[0]!.message =
+      'Redirect conflict: "/bootcamp/ai" is claimed by both "programs/ai-engineering/en.yml (live)" and "programs/ai-engineering-devs/en.yml (live)"';
+
+    cache.applyValidatorResults([result], {
+      contentFiles: [fileA, fileB],
+      markSiteWide: true,
+    });
+
+    expect(
+      cache.getIssuesByEntryKey("program/ai-engineering/en").some((i) => i.code === "REDIRECT_CONFLICT"),
+    ).toBe(true);
+    expect(
+      cache.getIssuesByEntryKey("program/ai-engineering-devs/en").some((i) => i.code === "REDIRECT_CONFLICT"),
+    ).toBe(true);
+  });
+
+
   it("cross-entry redirects clear site-wide when re-run clean", () => {
     const fileA = makeFile({
       type: "program",

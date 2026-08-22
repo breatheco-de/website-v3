@@ -5,9 +5,10 @@ alwaysApply: true
 
 # Git and Validation
 
-## Pre-commit Hooks
+## Pre-commit / pre-push hooks
 
-Optional FAQ freshness check via [scripts/pre-commit-faq-check.sh](scripts/pre-commit-faq-check.sh). Install as per comments in the script.
+- **Pre-push (Husky):** `.husky/pre-push` runs `npm test` (`vitest run --maxWorkers=1`, same as CI). Wired by `prepare` on `npm install`. Bypass with `git push --no-verify` when needed. This does **not** replace GitHub Deploy gating.
+- **FAQ (optional pre-commit):** [scripts/pre-commit-faq-check.sh](scripts/pre-commit-faq-check.sh). Install as per comments in the script; separate from Husky.
 
 ## Commit Messages
 

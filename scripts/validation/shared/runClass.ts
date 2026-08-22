@@ -78,6 +78,7 @@ export const ENTRY_LOCAL_VALIDATOR_NAMES = [
   "seo-depth",
   "seo-intent",
   "seo-cluster",
+  "seo-cluster-links",
   "schema-completeness",
   "schema-org-companions",
   "content-quality",
@@ -91,4 +92,5 @@ export const ENTRY_LOCAL_VALIDATOR_NAMES = [
   "component-behaviors",
   "cta-tracking",
   "static-field-overrides",
+  "updated-at",
 ] as const;

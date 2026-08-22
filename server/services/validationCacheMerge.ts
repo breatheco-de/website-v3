@@ -127,6 +127,33 @@ function filePathToEntryKey(
   return `${contentType}/${slug}/${localePart}`;
 }
 
+
+/**
+ * Resolve a redirect-conflict claimant path to a live ContentFile.
+ * Prefer exact, then unambiguous suffix; use formatSitePath only when the
+ * formatted path uniquely identifies one live file (never guess on shared basenames).
+ */
+export function matchLiveRedirectClaimant(
+  rawPath: string,
+  contentFiles: ContentFile[],
+): ContentFile | undefined {
+  const live = contentFiles.filter(isLiveRedirectSource);
+
+  const exact = live.find((f) => f.filePath === rawPath);
+  if (exact) return exact;
+
+  const suffixHits = live.filter(
+    (f) => f.filePath.endsWith(rawPath) || rawPath.endsWith(f.filePath),
+  );
+  // Ambiguous suffixes (e.g. bare "en.yml" matching many locale files) must not guess.
+  if (suffixHits.length === 1) return suffixHits[0];
+
+  const formatted = formatSitePath(rawPath);
+  const formatHits = live.filter((f) => formatSitePath(f.filePath) === formatted);
+  if (formatHits.length === 1) return formatHits[0];
+  return undefined;
+}
+
 /** Build targets + scopes for a raw ValidationIssue from a validator run. */
 export function issueToStored(
   issue: ValidationIssue,
@@ -180,14 +207,7 @@ export function issueToStored(
     for (const p of paths) {
       // Strip optional " (live)" suffix from labeled messages
       const rawPath = p.replace(/\s*\(live\)\s*$/i, "").trim();
-      const match = contentFiles.find(
-        (f) =>
-          isLiveRedirectSource(f) &&
-          (f.filePath === rawPath ||
-            f.filePath.endsWith(rawPath) ||
-            rawPath.endsWith(f.filePath) ||
-            formatSitePath(f.filePath) === formatSitePath(rawPath)),
-      );
+      const match = matchLiveRedirectClaimant(rawPath, contentFiles);
       if (!match) continue;
       const ek = entryKeyFromContentFile(match);
       if (ek.includes("@")) continue;

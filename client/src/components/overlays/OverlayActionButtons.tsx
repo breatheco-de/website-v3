@@ -1,5 +1,6 @@
+import React from "react";
 import { Button } from "@/components/ui/button";
-import { Link } from "wouter";
+import { InternalLink } from "@/components/InternalLink";
 import type { OverlayButton } from "@/hooks/useOverlays";
 import { cn } from "@/lib/utils";
 
@@ -34,9 +35,16 @@ export function OverlayActionButtons({
             size={size}
             asChild
             className={buttonClassName}
-            onClick={onDismiss}
           >
-            <Link href={btn.href}>{btn.label}</Link>
+            <InternalLink
+              href={btn.href}
+              onNavigate={onDismiss}
+              onClick={onDismiss}
+              target="_self"
+              data-testid={`overlay-button-link-${i}`}
+            >
+              {btn.label}
+            </InternalLink>
           </Button>
         ) : (
           <Button

@@ -131,7 +131,7 @@ describe("extractParamSlug", () => {
 });
 
 describe("siteFailResult", () => {
-  it("returns action_required with list_sites", () => {
+  it("missing site: list_sites only — does not invent sites[0] or same-tool retry", () => {
     const result = siteFailResult(
       JSON.stringify({
         error: "multi_site_domain_required",
@@ -143,9 +143,31 @@ describe("siteFailResult", () => {
     );
     const payload = JSON.parse(result.content[0].text) as Record<string, unknown>;
     expect(payload.action_required).toBe("multi_site_domain_required");
-    expect(Array.isArray(payload.next_actions)).toBe(true);
-    const tools = (payload.next_actions as Array<{ tool: string }>).map((a) => a.tool);
-    expect(tools).toContain("list_sites");
-    expect(tools).toContain("list_entry_seo");
+    expect(payload.requested_site).toBeUndefined();
+    const next = payload.next_actions as Array<{ tool: string; args_hint?: Record<string, unknown> }>;
+    expect(next.map((a) => a.tool)).toEqual(["list_sites"]);
+    expect(next.every((a) => !a.args_hint?.site)).toBe(true);
+  });
+
+  it("unknown site: surfaces requested_site; retry omits site from args_hint", () => {
+    const result = siteFailResult(
+      JSON.stringify({
+        error: "unknown_site",
+        message: "Unknown site",
+        available_sites: ["4geeks.com", "business.4geeks.com"],
+        requested_site: "bussiness.4geeks.com",
+      }),
+      "list_entry_seo",
+      { contentType: "blog", site: "bussiness.4geeks.com" },
+    );
+    const payload = JSON.parse(result.content[0].text) as Record<string, unknown>;
+    expect(payload.action_required).toBe("unknown_site");
+    expect(payload.requested_site).toBe("bussiness.4geeks.com");
+    const next = payload.next_actions as Array<{ tool: string; args_hint?: Record<string, unknown> }>;
+    expect(next.map((a) => a.tool)).toEqual(["list_sites", "list_entry_seo"]);
+    const retry = next.find((a) => a.tool === "list_entry_seo");
+    expect(retry?.args_hint).toEqual({ contentType: "blog" });
+    expect(retry?.args_hint?.site).toBeUndefined();
+    expect(JSON.stringify(next)).not.toContain('"site":"4geeks.com"');
   });
 });

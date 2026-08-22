@@ -89,6 +89,9 @@ props:
     description: >-
       Author byline (hydrated objects or strings). Map explicitly as authors: "{{ single.authors }}". First entry is
       primary.
+  updated_at:
+    type: string
+    required: false
   section_id:
     type: string
     required: false
