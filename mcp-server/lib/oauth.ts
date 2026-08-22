@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { encryptedWrite, encryptedRead } from "./gcs-store.js";
+import { encryptedWrite, encryptedRead, isGcsAvailable } from "./gcs-store.js";
 
 const CODE_TTL_MS = 5 * 60 * 1000;
 const PENDING_TTL_MS = 10 * 60 * 1000;
@@ -48,15 +48,46 @@ function loadClients(): void {
 
 // Debounce handles for GCS writes
 const _gcsDebounceHandles: Record<string, ReturnType<typeof setTimeout>> = {};
+const _latestGcsPayloads: Record<string, () => string> = {};
 
 function scheduleGcsWrite(filename: string, getPayload: () => string): void {
+  _latestGcsPayloads[filename] = getPayload;
   if (_gcsDebounceHandles[filename]) clearTimeout(_gcsDebounceHandles[filename]);
   _gcsDebounceHandles[filename] = setTimeout(() => {
     delete _gcsDebounceHandles[filename];
+    delete _latestGcsPayloads[filename];
     encryptedWrite(filename, getPayload()).catch((err) => {
       console.error(`[MCP] OAuth: GCS debounced write failed for "${filename}" —`, (err as Error).message);
     });
   }, GCS_DEBOUNCE_MS);
+}
+
+/** Flush pending debounced GCS writes (call on SIGTERM before exit). */
+export async function flushGcsWrites(): Promise<void> {
+  const filenames = new Set([
+    ...Object.keys(_gcsDebounceHandles),
+    ...Object.keys(_latestGcsPayloads),
+  ]);
+  const writes: Promise<void>[] = [];
+  for (const filename of filenames) {
+    if (_gcsDebounceHandles[filename]) {
+      clearTimeout(_gcsDebounceHandles[filename]);
+      delete _gcsDebounceHandles[filename];
+    }
+    const getPayload = _latestGcsPayloads[filename];
+    delete _latestGcsPayloads[filename];
+    if (getPayload) {
+      writes.push(
+        encryptedWrite(filename, getPayload()).catch((err) => {
+          console.error(
+            `[MCP] OAuth: flush GCS write failed for "${filename}" —`,
+            (err as Error).message,
+          );
+        }),
+      );
+    }
+  }
+  await Promise.all(writes);
 }
 
 function persistClients(): void {
@@ -471,6 +502,11 @@ export function getTokenUsername(token: string): string | null {
 
 // ─── GCS bootstrap (called once at startup) ───────────────────────────────────
 
+export type GcsAuthPersistenceHealth = "ok" | "warn" | "error" | "disabled";
+
+let gcsInitCompleted = false;
+let gcsInitError: string | null = null;
+
 /**
  * Download and merge GCS-backed token data into the in-memory maps.
  * Called once after the local files have already been loaded so GCS data
@@ -478,60 +514,81 @@ export function getTokenUsername(token: string): string | null {
  * Safe to call even if GCS is unavailable — logs a warning and returns.
  */
 export async function initGcsStore(): Promise<void> {
-  const [clientsJson, tokensJson, bcJson] = await Promise.all([
-    encryptedRead(GCS_CLIENTS_FILE),
-    encryptedRead(GCS_TOKENS_FILE),
-    encryptedRead(GCS_BC_CACHE_FILE),
-  ]);
+  gcsInitError = null;
+  try {
+    const [clientsJson, tokensJson, bcJson] = await Promise.all([
+      encryptedRead(GCS_CLIENTS_FILE),
+      encryptedRead(GCS_TOKENS_FILE),
+      encryptedRead(GCS_BC_CACHE_FILE),
+    ]);
 
-  // --- clients ---
-  if (clientsJson) {
-    try {
-      const obj = JSON.parse(clientsJson) as Record<string, RegisteredClient>;
-      let merged = 0;
-      for (const [id, client] of Object.entries(obj)) {
-        clients.set(id, client);
-        merged++;
+    // --- clients ---
+    if (clientsJson) {
+      try {
+        const obj = JSON.parse(clientsJson) as Record<string, RegisteredClient>;
+        let merged = 0;
+        for (const [id, client] of Object.entries(obj)) {
+          clients.set(id, client);
+          merged++;
+        }
+        console.log(`[MCP] OAuth: merged ${merged} registered client(s) from GCS`);
+      } catch (err) {
+        console.warn("[MCP] OAuth: could not parse GCS clients blob —", (err as Error).message);
       }
-      console.log(`[MCP] OAuth: merged ${merged} registered client(s) from GCS`);
-    } catch (err) {
-      console.warn("[MCP] OAuth: could not parse GCS clients blob —", (err as Error).message);
     }
-  }
 
-  // --- access tokens ---
-  if (tokensJson) {
-    try {
-      const obj = JSON.parse(tokensJson) as Record<string, StoredAccessToken>;
-      const now = Date.now();
-      let loaded = 0;
-      let expired = 0;
-      for (const [token, data] of Object.entries(obj)) {
-        if (data.expiresAt && data.expiresAt < now) { expired++; continue; }
-        accessTokens.set(token, data);
-        loaded++;
+    // --- access tokens ---
+    if (tokensJson) {
+      try {
+        const obj = JSON.parse(tokensJson) as Record<string, StoredAccessToken>;
+        const now = Date.now();
+        let loaded = 0;
+        let expired = 0;
+        for (const [token, data] of Object.entries(obj)) {
+          if (data.expiresAt && data.expiresAt < now) {
+            expired++;
+            continue;
+          }
+          accessTokens.set(token, data);
+          loaded++;
+        }
+        console.log(`[MCP] OAuth: merged ${loaded} access token(s) from GCS (${expired} expired, skipped)`);
+      } catch (err) {
+        console.warn("[MCP] OAuth: could not parse GCS tokens blob —", (err as Error).message);
       }
-      console.log(`[MCP] OAuth: merged ${loaded} access token(s) from GCS (${expired} expired, skipped)`);
-    } catch (err) {
-      console.warn("[MCP] OAuth: could not parse GCS tokens blob —", (err as Error).message);
     }
-  }
 
-  // --- breathecode cache ---
-  if (bcJson) {
-    try {
-      const obj = JSON.parse(bcJson) as Record<string, BreathecodeTokenEntry>;
-      const now = Date.now();
-      let loaded = 0;
-      let expired = 0;
-      for (const [token, entry] of Object.entries(obj)) {
-        if (entry.expiresAt < now) { expired++; continue; }
-        breathecodeTokenUsernames.set(token, entry);
-        loaded++;
+    // --- breathecode cache ---
+    if (bcJson) {
+      try {
+        const obj = JSON.parse(bcJson) as Record<string, BreathecodeTokenEntry>;
+        const now = Date.now();
+        let loaded = 0;
+        let expired = 0;
+        for (const [token, entry] of Object.entries(obj)) {
+          if (entry.expiresAt < now) {
+            expired++;
+            continue;
+          }
+          breathecodeTokenUsernames.set(token, entry);
+          loaded++;
+        }
+        console.log(`[MCP] OAuth: merged ${loaded} Breathecode token(s) from GCS (${expired} expired, skipped)`);
+      } catch (err) {
+        console.warn("[MCP] OAuth: could not parse GCS Breathecode cache blob —", (err as Error).message);
       }
-      console.log(`[MCP] OAuth: merged ${loaded} Breathecode token(s) from GCS (${expired} expired, skipped)`);
-    } catch (err) {
-      console.warn("[MCP] OAuth: could not parse GCS Breathecode cache blob —", (err as Error).message);
     }
+    gcsInitCompleted = true;
+  } catch (err) {
+    gcsInitError = (err as Error).message;
+    throw err;
   }
+}
+
+export function getGcsAuthPersistenceHealth(): GcsAuthPersistenceHealth {
+  const envBucket = process.env.GCS_BUCKET_NAME?.trim();
+  if (!envBucket) return "disabled";
+  if (!isGcsAvailable()) return "error";
+  if (gcsInitError) return "warn";
+  return gcsInitCompleted ? "ok" : "warn";
 }

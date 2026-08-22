@@ -241,15 +241,23 @@ Actions deploy key must not live in root `authorized_keys`.
 
 ### 7.4 Env / secrets plan
 
-Operational source of runtime secrets: **GitHub Actions** (`_WEBSITE_*` → pack → materialize into release `.env`). Day-to-day env changes should not require hand-editing on the box.
+Runtime secrets can come from **GitHub Actions** (`_WEBSITE_*` → pack → merge into release `.env`), **manual edits on the VPS**, or both. The project is not locked to Actions-only env.
+
+**Deploy merge behavior** ([`scripts/deploy.sh`](../scripts/deploy.sh)):
+
+- Empty pack → copy prior release `.env` unchanged.
+- Non-empty pack → load prior `.env` from `current/` (or legacy app root), **overlay** packed keys, write merged file. Keys not in the pack are preserved (manual VPS vars survive partial GHA packs).
+- First deploy with no prior `.env` → packed keys only.
 
 1. Never commit `.env`.
-2. Deploy materializes env with restrictive umask; rotate by changing the GitHub secret and redeploying.
+2. Deploy materializes env with restrictive umask (`640`); rotate by changing the secret and redeploying.
 3. Workflow must not print secret values.
 4. Code/runtime secrets vs content-repo token stay out of git; Replit secrets stay on Replit if a parallel env still exists.
 5. `sites.yml` is not an app secret but is gitignored in the code repo.
 
-Typical names (not values): `DATABASE_URL`, `SESSION_SECRET`, `SITE_URL`, `PORT`, `LISTEN_HOST`, `TURNSTILE_*`, `MCP_*`, `GITHUB_*` (content), `GCS_*`, `OPENROUTER_API_KEY`, `VITE_BREATHECODE_HOST`, `QDRANT_URL`, `IPN_SECRET`, …
+Typical names (not values): `DATABASE_URL`, `SESSION_SECRET`, `SITE_URL`, `PORT`, `LISTEN_HOST`, `TURNSTILE_*`, `MCP_*`, `MCP_TOKEN_ENCRYPTION_KEY`, `GITHUB_*` (content), `GCS_*`, `OPENROUTER_API_KEY`, `VITE_BREATHECODE_HOST`, `QDRANT_URL`, `IPN_SECRET`, …
+
+MCP OAuth persistence across redeploys: see [`docs/runbooks/mcp-oauth-persistence.md`](runbooks/mcp-oauth-persistence.md).
 
 ### 7.5 Headers, rate limit, fail2ban nginx
 

@@ -1125,7 +1125,8 @@ export default function CloudSyncPage() {
                         </ul>
                         <p className="text-xs leading-relaxed">
                           Contents are AES-256-GCM encrypted. This list is a diagnostic sample of keys found in
-                          the bucket — not the decrypted data.
+                          the bucket — not the decrypted data. Enablement and offboarding: see{" "}
+                          <span className="font-mono">docs/runbooks/mcp-oauth-persistence.md</span> in the app repo.
                         </p>
                       </InlineInfoPopover>
                     </div>

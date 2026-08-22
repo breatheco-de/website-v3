@@ -211,7 +211,10 @@ Check health:
 
 ```bash
 curl -fsS http://127.0.0.1:5000/health
+curl -s http://127.0.0.1:3001/health   # MCP loopback; includes gcsAuthPersistence
 ```
+
+MCP OAuth persistence across redeploys: [`docs/runbooks/mcp-oauth-persistence.md`](runbooks/mcp-oauth-persistence.md).
 
 View recent service logs:
 

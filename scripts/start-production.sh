@@ -22,7 +22,13 @@ QDRANT_PID=""
 
 cleanup() {
   if [[ -n "${MCP_PID}" ]] && kill -0 "${MCP_PID}" 2>/dev/null; then
-    kill "${MCP_PID}" 2>/dev/null || true
+    kill -TERM "${MCP_PID}" 2>/dev/null || true
+    # Allow MCP SIGTERM handler to flush debounced GCS auth writes (~5s max)
+    for _ in $(seq 1 25); do
+      kill -0 "${MCP_PID}" 2>/dev/null || break
+      sleep 0.2
+    done
+    kill -KILL "${MCP_PID}" 2>/dev/null || true
     wait "${MCP_PID}" 2>/dev/null || true
   fi
   if [[ -n "${QDRANT_PID}" ]] && kill -0 "${QDRANT_PID}" 2>/dev/null; then

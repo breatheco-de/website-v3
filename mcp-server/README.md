@@ -301,7 +301,7 @@ Anthropic's cloud must be able to reach your server from the internet. Deploy th
 
 The connector is now available in conversations via the **+** button.
 
-> **Restart behaviour**: Registered clients are persisted to `mcp-server/data/oauth-clients.json` and survive server restarts. However, access tokens are in-memory only — after a restart, Claude.ai will automatically re-exchange its token on the next request. If that fails, disconnect and re-add the connector to repeat the OAuth flow.
+> **Restart behaviour**: Registered clients and access tokens are persisted to `mcp-server/data/*.json` and, when `GCS_BUCKET_NAME` and `MCP_TOKEN_ENCRYPTION_KEY` are set, to encrypted GCS blobs under `mcp-auth/` (survives atomic deploys). See [`docs/runbooks/mcp-oauth-persistence.md`](../docs/runbooks/mcp-oauth-persistence.md). If persistence is disabled, reconnect via OAuth after each deploy.
 
 ## Connect via claude.com (Breathecode token header — legacy)
 

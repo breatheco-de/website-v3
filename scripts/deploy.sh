@@ -290,11 +290,12 @@ write_env() {
     return
   fi
   # Non-empty b64 may still decode to {} (no _WEBSITE_ keys packed).
-  if ! WEBSITE_RUNTIME_B64="$b64" DEST_ENV="$dest" python3 <<'PY'
+  if ! WEBSITE_RUNTIME_B64="$b64" DEST_ENV="$dest" CURRENT_LINK="$CURRENT_LINK" APP_ROOT="$APP_ROOT" python3 <<'PY'
 import base64
 import grp
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -304,10 +305,47 @@ data = json.loads(base64.b64decode(raw)) if raw else {}
 if not data:
     sys.exit(2)
 
+current_link = Path(os.environ.get("CURRENT_LINK") or "")
+app_root = Path(os.environ.get("APP_ROOT") or "")
+
+def parse_env_line(line: str) -> tuple[str, str] | None:
+    line = line.strip()
+    if not line or line.startswith("#"):
+        return None
+    m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", line)
+    if not m:
+        return None
+    key, val = m.group(1), m.group(2)
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+        val = val[1:-1]
+    return key, val
+
+def load_prior_env() -> dict[str, str]:
+    merged: dict[str, str] = {}
+    for candidate in (current_link / ".env", app_root / ".env"):
+        if not candidate.is_file():
+            continue
+        try:
+            text = candidate.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            parsed = parse_env_line(line)
+            if parsed:
+                merged[parsed[0]] = parsed[1]
+        if merged:
+            break
+    return merged
+
 def bash_assign(name, value):
     return name + "=" + "'" + value.replace("'", "'\"'\"'") + "'"
 
-text = "\n".join(bash_assign(k, data[k]) for k in sorted(data)) + "\n"
+prior = load_prior_env()
+packed_count = len(data)
+merged = dict(prior)
+merged.update(data)
+
+text = "\n".join(bash_assign(k, merged[k]) for k in sorted(merged)) + "\n"
 tmp = dest.with_name(".env.tmp")
 tmp.write_text(text, encoding="utf-8")
 try:
@@ -317,7 +355,10 @@ except KeyError:
     print("[deploy] website-runtime group not found; keeping current group")
 os.chmod(tmp, 0o640)
 os.replace(tmp, dest)
-print("[deploy] wrote", dest, "keys:", ", ".join(sorted(data)))
+print(
+    f"[deploy] merged {packed_count} packed key(s) over prior .env "
+    f"({len(merged)} total keys): {', '.join(sorted(data))}"
+)
 PY
   then
     local rc=$?

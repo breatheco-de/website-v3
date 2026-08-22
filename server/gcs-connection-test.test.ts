@@ -26,9 +26,21 @@ vi.mock("./image-queue-worker", () => ({
 import { runGcsConnectionTest } from "./gcs-connection-test";
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+const ORIGINAL_GCS_BUCKET = process.env.GCS_BUCKET_NAME;
+const ORIGINAL_MCP_KEY = process.env.MCP_TOKEN_ENCRYPTION_KEY;
 
 afterEach(() => {
   process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+  if (ORIGINAL_GCS_BUCKET === undefined) {
+    delete process.env.GCS_BUCKET_NAME;
+  } else {
+    process.env.GCS_BUCKET_NAME = ORIGINAL_GCS_BUCKET;
+  }
+  if (ORIGINAL_MCP_KEY === undefined) {
+    delete process.env.MCP_TOKEN_ENCRYPTION_KEY;
+  } else {
+    process.env.MCP_TOKEN_ENCRYPTION_KEY = ORIGINAL_MCP_KEY;
+  }
   vi.clearAllMocks();
   mockGcs.available = true;
   mockGcs.getBucketName.mockReturnValue("test-bucket");
@@ -160,6 +172,59 @@ describe("runGcsConnectionTest", () => {
     const result = await runGcsConnectionTest();
 
     expect(result.overall).toBe("ok");
-    expect(result.checks.every((c) => c.status === "ok" || c.id === "image_queue")).toBe(true);
+    expect(
+      result.checks.every(
+        (c) => c.status === "ok" || c.status === "skipped" || c.id === "image_queue",
+      ),
+    ).toBe(true);
+  });
+
+  it("reports error when MCP bucket parity mismatches in production", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.GCS_BUCKET_NAME = "env-bucket";
+    mockGcs.getStorage.mockReturnValue({
+      bucket: () => ({
+        getMetadata: vi.fn().mockResolvedValue([{}]),
+        file: () => ({
+          exists: vi.fn().mockResolvedValue([false]),
+        }),
+      }),
+    });
+    mockGcs.checkArchitecture.mockResolvedValue({
+      migrationRequired: false,
+      bucketName: "test-bucket",
+      mediaSegment: "media",
+      knownSitePrefixes: [],
+      hasOldLayout: false,
+      hasNewLayout: true,
+      newLayoutSamples: {},
+      platform: {
+        sitesYml: {
+          label: "Site registry",
+          expectedKey: "sites.yml",
+          legacyKeys: [],
+          foundKey: "sites.yml",
+          exists: true,
+          status: "found",
+          updated: null,
+        },
+        userStore: {
+          label: "User store",
+          expectedKey: "user-store.json",
+          legacyKeys: [],
+          foundKey: "user-store.json",
+          exists: true,
+          status: "found",
+          updated: null,
+        },
+        mcpAuthSamples: [],
+      },
+    });
+
+    const result = await runGcsConnectionTest();
+    const parity = result.checks.find((c) => c.id === "mcp_bucket_parity");
+    expect(parity?.status).toBe("error");
+
+    delete process.env.GCS_BUCKET_NAME;
   });
 });

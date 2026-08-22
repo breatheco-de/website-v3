@@ -1,4 +1,5 @@
 import { gcs } from "./gcs";
+import { getBucketName } from "./site-config";
 import { getAllJobStates } from "./db-job-state";
 import { getSiteContextMap } from "./site-manager";
 import { hasMultipleSites } from "./site-config";
@@ -11,6 +12,9 @@ export type SystemAlertSeverity = "critical" | "warning";
 
 export type SystemAlertCode =
   | "gcs_migration_required"
+  | "mcp_auth_key_missing"
+  | "mcp_bucket_mismatch"
+  | "mcp_auth_blobs_missing"
   | "database_auth_env_missing"
   | "database_auth_failed"
   | "database_fetch_failed"
@@ -132,6 +136,78 @@ async function collectTurnstileAlerts(): Promise<SystemAlert[]> {
   return [];
 }
 
+function collectMcpAuthAlerts(isProduction: boolean): SystemAlert[] {
+  if (!isProduction) return [];
+
+  const actionHref = "/private/cloud-sync";
+  const actionLabel = "Open Cloud Sync";
+  const envBucket = process.env.GCS_BUCKET_NAME?.trim() ?? "";
+  const alerts: SystemAlert[] = [];
+
+  if (envBucket && !process.env.MCP_TOKEN_ENCRYPTION_KEY?.trim()) {
+    alerts.push({
+      id: "mcp_auth_key_missing",
+      severity: "critical",
+      code: "mcp_auth_key_missing",
+      title: "MCP OAuth will not survive redeploys",
+      message:
+        "GCS_BUCKET_NAME is set but MCP_TOKEN_ENCRYPTION_KEY is missing. MCP auth blobs are not written to GCS. See docs/runbooks/mcp-oauth-persistence.md.",
+      actionHref,
+      actionLabel,
+    });
+  }
+
+  const sitesBucket = getBucketName();
+  if (envBucket && sitesBucket && envBucket !== sitesBucket) {
+    alerts.push({
+      id: "mcp_bucket_mismatch",
+      severity: "critical",
+      code: "mcp_bucket_mismatch",
+      title: "MCP GCS bucket mismatch",
+      message: `GCS_BUCKET_NAME (${envBucket}) does not match sites.yml bucket_name (${sitesBucket}). MCP persistence uses env only.`,
+      actionHref,
+      actionLabel,
+    });
+  }
+
+  return alerts;
+}
+
+async function collectMcpAuthBlobAlerts(isProduction: boolean): Promise<SystemAlert[]> {
+  if (!isProduction || !gcs.available) return [];
+  if (!process.env.MCP_TOKEN_ENCRYPTION_KEY?.trim()) return [];
+
+  const storage = gcs.getStorage();
+  const bucketName = gcs.getBucketName();
+  if (!storage || !bucketName) return [];
+
+  try {
+    const keys = ["mcp-auth/clients.enc", "mcp-auth/tokens.enc"];
+    const exists = await Promise.all(
+      keys.map(async (objectKey) => {
+        const [found] = await storage.bucket(bucketName).file(objectKey).exists();
+        return found;
+      }),
+    );
+    if (exists.every(Boolean)) return [];
+
+    return [
+      {
+        id: "mcp_auth_blobs_missing",
+        severity: "warning",
+        code: "mcp_auth_blobs_missing",
+        title: "MCP auth blobs missing in GCS",
+        message:
+          "mcp-auth/clients.enc or tokens.enc not found. Connect Cursor via OAuth once after enabling persistence, or see docs/runbooks/mcp-oauth-persistence.md.",
+        actionHref: "/private/cloud-sync",
+        actionLabel: "Open Cloud Sync",
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
+
 function issuesFromCacheOrEvaluate(
   ctx: import("./site-manager").SiteContext,
   dbName: string,
@@ -157,8 +233,11 @@ function issuesFromCacheOrEvaluate(
 export async function collectSystemAlerts(): Promise<SystemAlert[]> {
   const alerts: SystemAlert[] = [];
   const multiSite = hasMultipleSites();
+  const isProduction = process.env.NODE_ENV === "production";
 
   alerts.push(...(await collectTurnstileAlerts()));
+  alerts.push(...collectMcpAuthAlerts(isProduction));
+  alerts.push(...(await collectMcpAuthBlobAlerts(isProduction)));
 
   if (gcs.migrationRequired) {
     alerts.push({

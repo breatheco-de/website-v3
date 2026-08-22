@@ -27,8 +27,11 @@ import {
   registerBreathecodeToken,
   getCachedBreathecodeUsername,
   initGcsStore,
+  flushGcsWrites,
+  getGcsAuthPersistenceHealth,
   TOKEN_EXPIRES_IN,
 } from "./lib/oauth.js";
+import { warnMcpBucketParity } from "./lib/bucket-parity.js";
 import { fetchCallerGrants } from "./lib/auth.js";
 import {
   IDENTITY_TOOLS,
@@ -262,7 +265,12 @@ async function authMiddleware(
 // ─── Health ───────────────────────────────────────────────────────────────────
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", server: "content-pages-mcp", version: "1.0.0" });
+  res.json({
+    status: "ok",
+    server: "content-pages-mcp",
+    version: "1.0.0",
+    gcsAuthPersistence: getGcsAuthPersistenceHealth(),
+  });
 });
 
 // ─── Tool catalog (no auth — metadata only) ───────────────────────────────────
@@ -561,20 +569,44 @@ app.all("/mcp", authMiddleware, async (req, res) => {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, "127.0.0.1", () => {
-  console.log(`[MCP] Content-pages MCP server running on port ${PORT}`);
-  console.log(`[MCP] Endpoint: http://127.0.0.1:${PORT}/mcp`);
-  console.log(`[MCP] Auth: OAuth 2.0 (primary); legacy Breathecode token header still accepted`);
-  console.log(`[MCP] OAuth: http://127.0.0.1:${PORT}/oauth/authorize`);
-  console.log(
-    `[MCP] OAuth registration: http://127.0.0.1:${PORT}/oauth/register`,
-  );
-  console.log(`[MCP] Health: http://0.0.0.0:${PORT}/health`);
+let shuttingDown = false;
 
-  // Bootstrap GCS-backed token persistence: download encrypted blobs from GCS
-  // and merge them into the in-memory maps so previously-issued tokens survive
-  // container restarts. Runs asynchronously so it doesn't delay server startup.
-  initGcsStore().catch((err) => {
-    console.error("[MCP] GCS store init failed —", (err as Error).message);
-  });
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[MCP] ${signal} received — flushing GCS auth writes…`);
+  await flushGcsWrites();
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM");
 });
+process.on("SIGINT", () => {
+  void shutdown("SIGINT");
+});
+
+async function startServer(): Promise<void> {
+  try {
+    await initGcsStore();
+  } catch (err) {
+    console.error("[MCP] GCS store init failed —", (err as Error).message);
+  }
+  warnMcpBucketParity();
+
+  app.listen(PORT, "127.0.0.1", () => {
+    console.log(`[MCP] Content-pages MCP server running on port ${PORT}`);
+    console.log(`[MCP] Endpoint: http://127.0.0.1:${PORT}/mcp`);
+    console.log(`[MCP] Auth: OAuth 2.0 (primary); legacy Breathecode token header still accepted`);
+    console.log(`[MCP] OAuth: http://127.0.0.1:${PORT}/oauth/authorize`);
+    console.log(
+      `[MCP] OAuth registration: http://127.0.0.1:${PORT}/oauth/register`,
+    );
+    console.log(`[MCP] Health: http://0.0.0.0:${PORT}/health`);
+    console.log(
+      `[MCP] GCS auth persistence: ${getGcsAuthPersistenceHealth()}`,
+    );
+  });
+}
+
+void startServer();

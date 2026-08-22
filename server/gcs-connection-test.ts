@@ -2,6 +2,9 @@ import type { GcsArchitectureDiagnostics, GcsPlatformArchitecture } from "./gcs"
 import { gcs } from "./gcs";
 import { aggregateImageQueuePending } from "./gcs-sync-inventory";
 import { isImageQueueBusy } from "./image-queue-worker";
+import { getBucketName } from "./site-config";
+
+const MCP_AUTH_PREFIX = "mcp-auth/";
 
 export type ConnectionCheckStatus = "ok" | "warn" | "error" | "skipped";
 
@@ -230,6 +233,242 @@ function checkImageQueue(): ConnectionCheck {
   };
 }
 
+function parseGitHubRepoUrl(url: string): { owner: string; repo: string } | null {
+  const trimmed = url.trim();
+  const ssh = trimmed.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/);
+  if (ssh) return { owner: ssh[1], repo: ssh[2] };
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.hostname !== "github.com") return null;
+    const parts = parsed.pathname.replace(/^\//, "").replace(/\.git$/, "").split("/");
+    if (parts.length >= 2 && parts[0] && parts[1]) {
+      return { owner: parts[0], repo: parts[1] };
+    }
+  } catch {
+    /* invalid URL */
+  }
+  return null;
+}
+
+function checkMcpAuthConfig(isProduction: boolean): ConnectionCheck {
+  const start = Date.now();
+  const envBucket = process.env.GCS_BUCKET_NAME?.trim() ?? "";
+  if (!envBucket) {
+    return skippedCheck(
+      "mcp_auth_config",
+      "MCP auth encryption",
+      "Skipped — GCS_BUCKET_NAME not set (MCP GCS persistence disabled).",
+    );
+  }
+
+  const key = process.env.MCP_TOKEN_ENCRYPTION_KEY?.trim() ?? "";
+  if (!key) {
+    return {
+      id: "mcp_auth_config",
+      label: "MCP auth encryption",
+      status: isProduction ? "error" : "warn",
+      summary: "MCP_TOKEN_ENCRYPTION_KEY is not set.",
+      detail:
+        "Generate with openssl rand -hex 32 and set in release .env. Without it, MCP OAuth state is not persisted to GCS across redeploys.",
+      durationMs: Date.now() - start,
+    };
+  }
+
+  if (key.length !== 64 || !/^[0-9a-fA-F]+$/.test(key)) {
+    return {
+      id: "mcp_auth_config",
+      label: "MCP auth encryption",
+      status: "error",
+      summary: "MCP_TOKEN_ENCRYPTION_KEY must be a 64-character hex string.",
+      durationMs: Date.now() - start,
+    };
+  }
+
+  return {
+    id: "mcp_auth_config",
+    label: "MCP auth encryption",
+    status: "ok",
+    summary: "Encryption key configured for mcp-auth/ blobs.",
+    durationMs: Date.now() - start,
+  };
+}
+
+function checkMcpBucketParity(): ConnectionCheck {
+  const start = Date.now();
+  const envBucket = process.env.GCS_BUCKET_NAME?.trim() ?? "";
+  const sitesBucket = getBucketName();
+
+  if (!envBucket) {
+    return skippedCheck(
+      "mcp_bucket_parity",
+      "MCP bucket parity",
+      "Skipped — GCS_BUCKET_NAME not set.",
+    );
+  }
+
+  if (!sitesBucket) {
+    return {
+      id: "mcp_bucket_parity",
+      label: "MCP bucket parity",
+      status: "ok",
+      summary: "sites.yml has no bucket_name; using GCS_BUCKET_NAME only.",
+      durationMs: Date.now() - start,
+    };
+  }
+
+  if (envBucket !== sitesBucket) {
+    return {
+      id: "mcp_bucket_parity",
+      label: "MCP bucket parity",
+      status: "error",
+      summary: `GCS_BUCKET_NAME (${envBucket}) != sites.yml bucket_name (${sitesBucket}).`,
+      detail: "MCP reads GCS_BUCKET_NAME from env only. Align both values.",
+      durationMs: Date.now() - start,
+    };
+  }
+
+  return {
+    id: "mcp_bucket_parity",
+    label: "MCP bucket parity",
+    status: "ok",
+    summary: "GCS_BUCKET_NAME matches sites.yml bucket_name.",
+    durationMs: Date.now() - start,
+  };
+}
+
+async function checkMcpAuthBlobs(
+  configOk: boolean,
+  isProduction: boolean,
+): Promise<ConnectionCheck> {
+  if (!configOk) {
+    return skippedCheck(
+      "mcp_auth_blobs",
+      "MCP auth blobs",
+      "Skipped — GCS configuration check failed.",
+    );
+  }
+
+  const key = process.env.MCP_TOKEN_ENCRYPTION_KEY?.trim() ?? "";
+  if (!key) {
+    return skippedCheck(
+      "mcp_auth_blobs",
+      "MCP auth blobs",
+      "Skipped — MCP_TOKEN_ENCRYPTION_KEY not set.",
+    );
+  }
+
+  const start = Date.now();
+  const storage = gcs.getStorage();
+  const bucketName = gcs.getBucketName();
+  if (!storage || !bucketName) {
+    return skippedCheck("mcp_auth_blobs", "MCP auth blobs", "Skipped — GCS not ready.");
+  }
+
+  const required = [`${MCP_AUTH_PREFIX}clients.enc`, `${MCP_AUTH_PREFIX}tokens.enc`];
+  try {
+    const exists = await Promise.all(
+      required.map(async (objectKey) => {
+        const [found] = await storage.bucket(bucketName).file(objectKey).exists();
+        return found;
+      }),
+    );
+    const missing = required.filter((_, i) => !exists[i]);
+    if (missing.length === 0) {
+      return {
+        id: "mcp_auth_blobs",
+        label: "MCP auth blobs",
+        status: "ok",
+        summary: "clients.enc and tokens.enc found in bucket.",
+        durationMs: Date.now() - start,
+      };
+    }
+
+    return {
+      id: "mcp_auth_blobs",
+      label: "MCP auth blobs",
+      status: isProduction ? "warn" : "ok",
+      summary: "MCP auth blobs not in bucket yet.",
+      detail: `Missing: ${missing.join(", ")}. Complete OAuth once after enabling persistence.`,
+      durationMs: Date.now() - start,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      id: "mcp_auth_blobs",
+      label: "MCP auth blobs",
+      status: "error",
+      summary: "Could not probe mcp-auth/ objects.",
+      detail: message,
+      durationMs: Date.now() - start,
+    };
+  }
+}
+
+async function checkGitHubContentApi(): Promise<ConnectionCheck> {
+  const start = Date.now();
+  const token = process.env.GITHUB_TOKEN?.trim() ?? "";
+  const repoUrl = process.env.GITHUB_REPO_URL?.trim() ?? "";
+
+  if (!token || !repoUrl) {
+    return skippedCheck(
+      "github_content_api",
+      "GitHub content API",
+      "Skipped — GITHUB_TOKEN or GITHUB_REPO_URL not set.",
+    );
+  }
+
+  const parsed = parseGitHubRepoUrl(repoUrl);
+  if (!parsed) {
+    return {
+      id: "github_content_api",
+      label: "GitHub content API",
+      status: "error",
+      summary: "Invalid GITHUB_REPO_URL.",
+      detail: repoUrl,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  try {
+    const res = await fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+
+    if (res.ok) {
+      return {
+        id: "github_content_api",
+        label: "GitHub content API",
+        status: "ok",
+        summary: `Can reach ${parsed.owner}/${parsed.repo}.`,
+        durationMs: Date.now() - start,
+      };
+    }
+
+    return {
+      id: "github_content_api",
+      label: "GitHub content API",
+      status: "error",
+      summary: `GitHub API returned HTTP ${res.status}.`,
+      detail: "Check GITHUB_TOKEN permissions and repo URL.",
+      durationMs: Date.now() - start,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      id: "github_content_api",
+      label: "GitHub content API",
+      status: "error",
+      summary: "GitHub API request failed.",
+      detail: message,
+      durationMs: Date.now() - start,
+    };
+  }
+}
+
 export async function runGcsConnectionTest(): Promise<GcsConnectionTestResponse> {
   const configCheck = await checkGcsConfig();
   const configOk = configCheck.status === "ok";
@@ -264,7 +503,17 @@ export async function runGcsConnectionTest(): Promise<GcsConnectionTestResponse>
     );
   }
 
-  const checks = [configCheck, bucketAccessCheck, architectureCheck, platformCheck, imageQueueCheck];
+  const checks = [
+    configCheck,
+    bucketAccessCheck,
+    architectureCheck,
+    platformCheck,
+    imageQueueCheck,
+    checkMcpAuthConfig(isProduction),
+    checkMcpBucketParity(),
+    await checkMcpAuthBlobs(configOk, isProduction),
+    await checkGitHubContentApi(),
+  ];
 
   return {
     testedAt: new Date().toISOString(),
