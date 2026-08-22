@@ -6,7 +6,6 @@ import {
   cardsPanelNominalWidthPx,
   resolveCardsLayout,
   type CardsLayoutConfig,
-  CARDS_COLUMN_WIDTH_PX,
   CARDS_FIXED_WIDTH_PX,
 } from "./cardsLayout";
 
@@ -118,7 +117,7 @@ export function CardsDropdown({
   onSelect,
 }: { dropdown: CardsDropdownData } & DropdownLayoutSelectProps) {
   const itemCount = dropdown.items?.length ?? 0;
-  const { mode, cols } = resolveCardsLayout(itemCount, dropdown.layout);
+  const { cols } = resolveCardsLayout(itemCount, dropdown.layout);
   const colsClass = cardsGridColsClass(cols);
   // Form picker: 1 compact row until md; then multi-col vertical cards (skip awkward 2+1 for 3).
   const formGridClass =
@@ -165,19 +164,14 @@ export function CardsDropdown({
         </div>
       )}
       
-      <div className={onSelect ? formGridClass : `grid gap-6 ${colsClass}`}>
+      <div className={onSelect ? formGridClass : `grid w-full min-w-0 gap-4 md:gap-6 ${colsClass}`}>
         {dropdown.items.map((item, index) => {
           const IconComponent = item.icon ? iconMap[item.icon] : null;
           const className = onSelect
             ? // Mobile: compact horizontal row; md+: vertical card
               "flex flex-row items-start gap-3 w-full max-w-full min-w-0 hover-elevate rounded-lg border border-border bg-background p-3 text-left md:flex-col md:h-full md:p-4"
-            : "block min-w-0 hover-elevate rounded-lg p-2 -m-2 text-left w-full";
+            : "block min-w-0 max-w-full overflow-hidden hover-elevate rounded-lg p-2 -m-2 text-left w-full";
           const testId = `dropdown-card-${(item.title || "card").toLowerCase().replace(/\s+/g, "-")}`;
-          // Navbar max-mode: desktop min column width; form picker fills responsive grid cells.
-          const style =
-            !onSelect && mode === "max"
-              ? { width: CARDS_COLUMN_WIDTH_PX, minWidth: CARDS_COLUMN_WIDTH_PX }
-              : undefined;
           const body = onSelect ? (
             <>
               {IconComponent && (
@@ -204,10 +198,10 @@ export function CardsDropdown({
                   <IconComponent className="w-6 h-6" />
                 </div>
               )}
-              <h4 className="text-base font-semibold text-foreground mb-2">
+              <h4 className="text-base font-semibold text-foreground mb-2 break-words">
                 {item.title}
               </h4>
-              <p className="text-sm text-muted-foreground mb-3 line-clamp-4">
+              <p className="text-sm text-muted-foreground mb-3 line-clamp-4 break-words">
                 {item.description}
               </p>
               <span className="inline-flex items-center text-sm font-medium border border-border rounded-md px-4 py-2 hover-elevate">
@@ -222,7 +216,6 @@ export function CardsDropdown({
                 type="button"
                 className={className}
                 data-testid={testId}
-                style={style}
                 onClick={() => {
                   onSelect(itemSelectValue(item));
                   onNavigate?.();
@@ -239,7 +232,6 @@ export function CardsDropdown({
               onNavigate={onNavigate}
               className={className}
               data-testid={testId}
-              style={style}
             >
               {body}
             </InternalLink>

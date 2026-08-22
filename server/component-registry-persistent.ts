@@ -1,17 +1,14 @@
 /**
- * Atomic-deploy hybrid helper.
+ * Optional mirror of component-registry → persistent/site_* (legacy hybrid).
  *
- * On the VPS, each site's component-registry is copied into the release (not
- * symlinked). GitHub pull/delete therefore only updates process.cwd() (the
- * release tree). Without mirroring, the next deploy copies persistent into
- * the new release and deleted or stale registry files come back.
- *
- * YAML/blog/etc. remain symlinked, so cwd writes already hit persistent;
- * those paths do not need a mirror.
+ * Current VPS deploy keeps site_* as real dirs inside the release and fills
+ * them via GitHub bootstrap; the next deploy does not copy registry from
+ * persistent. This mirror is a no-op when persistent/site_* is unused, and
+ * remains harmless if an old hybrid tree still exists under persistent/.
  *
  * VPS layout:
- *   /opt/website-v3/current -> releases/SHA
- *   /opt/website-v3/persistent/site_NAME/component-registry
+ *   /opt/website-v3/current -> releases/SHA  (site_* live here)
+ *   /opt/website-v3/persistent/              (sites.yml, caches, …)
  */
 
 import fs from "fs";
@@ -81,7 +78,7 @@ export function mirrorComponentRegistryToPersistent(
 
   const persistentRoot = resolvePersistentRoot(cwd);
   if (!persistentRoot) {
-    // Dev / non-VPS: no hybrid layout
+    // Dev / non-VPS, or ephemeral site_* (no persistent site tree)
     return { mirrored: false, reason: "no persistent/ sibling of cwd" };
   }
 

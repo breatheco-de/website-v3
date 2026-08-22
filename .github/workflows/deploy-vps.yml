@@ -8,13 +8,14 @@ on:
 
 concurrency:
   group: deploy-vps
-  # New push to main cancels an in-flight deploy; atomic releases make that safe.
+  # Cancels the Actions observer only. deploy.sh runs detached on the VPS and keeps
+  # going (abort soft pre-flip via .deploy-state/<sha>.abort if cancelled()).
   cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Pack _WEBSITE_ runtime env
@@ -77,15 +78,11 @@ jobs:
             echo "Deploying latest SHA $EXPECTED_SHA"
           fi
 
-      - name: Deploy via SSH
+      - name: Setup SSH key
         if: steps.latest.outputs.skip != 'true'
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
-          WEBSITE_RUNTIME_B64: ${{ env.WEBSITE_RUNTIME_B64 }}
-          DEPLOY_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           umask 077
@@ -97,63 +94,68 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
+      - name: Deploy via SSH
+        id: deploy
+        if: steps.latest.outputs.skip != 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          WEBSITE_RUNTIME_B64: ${{ env.WEBSITE_RUNTIME_B64 }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/gha_deploy"
+
           {
             printf 'export WEBSITE_RUNTIME_B64=%q\n' "$WEBSITE_RUNTIME_B64"
             printf 'export DEPLOY_SHA=%q\n' "$DEPLOY_SHA"
             cat <<'REMOTE'
           set -euo pipefail
-          # cancel-in-progress can kill SSH before trap runs; recover stale locks.
-          LOCK_DIR="/tmp/website-v3-deploy.lock"
-          LOCK_WAIT_SECONDS=10
-          LOCK_TIMEOUT_SECONDS=900
-          LOCK_STALE_SECONDS=1800
-          waited=0
-
-          lock_is_stale() {
-            local pid_file="$LOCK_DIR/pid"
-            if [ -f "$pid_file" ]; then
-              local pid
-              pid="$(cat "$pid_file" 2>/dev/null || true)"
-              if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
-                return 1
-              fi
-              return 0
-            fi
-            # No pid (legacy lock) — treat as stale if older than LOCK_STALE_SECONDS.
-            local age
-            age="$(( $(date +%s) - $(stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0) ))"
-            [ "$age" -ge "$LOCK_STALE_SECONDS" ]
-          }
-
-          while ! mkdir "$LOCK_DIR" 2>/dev/null; do
-            if lock_is_stale; then
-              echo "[deploy-lock] removing stale lock (cancelled deploy or dead pid)"
-              rm -rf "$LOCK_DIR"
-              continue
-            fi
-            if [ "$waited" -ge "$LOCK_TIMEOUT_SECONDS" ]; then
-              echo "[deploy-lock] another deploy is still running after ${LOCK_TIMEOUT_SECONDS}s" >&2
-              exit 1
-            fi
-            echo "[deploy-lock] another deploy is running; waiting ${LOCK_WAIT_SECONDS}s"
-            sleep "$LOCK_WAIT_SECONDS"
-            waited=$((waited + LOCK_WAIT_SECONDS))
-          done
-          echo $$ > "$LOCK_DIR/pid"
-          cleanup() {
-            rm -rf "$LOCK_DIR"
-          }
-          trap cleanup EXIT INT TERM
-
           APP_ROOT=/opt/website-v3
+          STATE_DIR="$APP_ROOT/.deploy-state"
           : "${DEPLOY_SHA:?DEPLOY_SHA is required}"
+
+          mkdir -p "$STATE_DIR"
+          LOG="$STATE_DIR/${DEPLOY_SHA}.log"
+          DONE_MARK="$STATE_DIR/${DEPLOY_SHA}.done"
+          rm -f "$DONE_MARK"
 
           # Always run deploy.sh from the commit being deployed (root tree may be stale).
           git -C "$APP_ROOT" fetch --prune origin "$DEPLOY_SHA"
           SCRIPT="/tmp/website-deploy-${DEPLOY_SHA}.sh"
           git -C "$APP_ROOT" show "${DEPLOY_SHA}:scripts/deploy.sh" > "$SCRIPT"
           chmod +x "$SCRIPT"
-          bash "$SCRIPT"
+
+          # Detached from this SSH session: cancel-in-progress only kills the observer.
+          # Lock + abort live inside deploy.sh.
+          setsid nohup bash -c '
+            set +e
+            "'"$SCRIPT"'"
+            ec=$?
+            echo "$ec" > "'"$DONE_MARK"'"
+            exit "$ec"
+          ' > "$LOG" 2>&1 < /dev/null &
+          disown || true
+          echo "[deploy] launched detached, log $LOG done $DONE_MARK"
+
+          offset=0
+          for _ in $(seq 1 900); do
+            if [[ -f "$DONE_MARK" ]]; then
+              size=$(stat -c %s "$LOG" 2>/dev/null || echo 0)
+              if [[ "$size" -gt "$offset" ]]; then
+                tail -c +"$((offset + 1))" "$LOG" || true
+              fi
+              exit "$(cat "$DONE_MARK")"
+            fi
+            size=$(stat -c %s "$LOG" 2>/dev/null || echo 0)
+            if [[ "$size" -gt "$offset" ]]; then
+              tail -c +"$((offset + 1))" "$LOG" || true
+              offset=$size
+            fi
+            sleep 2
+          done
+          echo "[deploy] timeout observing (deploy may still be running on the VPS — see $LOG)" >&2
+          exit 1
           REMOTE
           } | ssh -i "$KEY" \
             -o IdentitiesOnly=yes \
@@ -164,3 +166,87 @@ jobs:
             -o ServerAliveCountMax=50 \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
             'bash -s'
+
+      - name: Signal abort on cancel
+        if: cancelled() && steps.latest.outputs.skip != 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set +e
+          umask 077
+          KEY="$RUNNER_TEMP/gha_deploy"
+          if [[ ! -f "$KEY" ]]; then
+            printf '%s\n' "$DEPLOY_SSH_KEY" > "$KEY"
+            chmod 600 "$KEY"
+          fi
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh -i "$KEY" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "mkdir -p /opt/website-v3/.deploy-state && touch /opt/website-v3/.deploy-state/${DEPLOY_SHA}.abort && echo abort-signaled"
+
+      - name: Report actual deploy outcome
+        if: always() && steps.latest.outputs.skip != 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set +e
+          umask 077
+          KEY="$RUNNER_TEMP/gha_deploy"
+          if [[ ! -f "$KEY" ]]; then
+            printf '%s\n' "$DEPLOY_SSH_KEY" > "$KEY"
+            chmod 600 "$KEY"
+          fi
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          # Wait up to ~10m so abort mid-npm-ci/build can still land in .done.
+          RESULT="NOT_FOUND"
+          ABORT="no"
+          for _ in $(seq 1 300); do
+            OUT="$(ssh -i "$KEY" \
+              -o IdentitiesOnly=yes \
+              -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+              -o ConnectTimeout=15 \
+              "${DEPLOY_USER}@${DEPLOY_HOST}" \
+              "set -e; D=/opt/website-v3/.deploy-state/${DEPLOY_SHA}; if [[ -f \"\$D.abort\" ]]; then echo ABORT=yes; else echo ABORT=no; fi; if [[ -f \"\$D.done\" ]]; then echo DONE=\$(cat \"\$D.done\"); else echo DONE=NOT_FOUND; fi" 2>/dev/null)"
+            ABORT="$(echo "$OUT" | sed -n 's/^ABORT=//p' | tail -1)"
+            RESULT="$(echo "$OUT" | sed -n 's/^DONE=//p' | tail -1)"
+            if [[ -n "$RESULT" && "$RESULT" != "NOT_FOUND" ]]; then
+              break
+            fi
+            sleep 2
+          done
+
+          {
+            echo "## Estado real del deploy en el VPS"
+            echo ""
+            echo "- SHA: \`${DEPLOY_SHA}\`"
+            if [[ "$RESULT" == "0" ]]; then
+              echo "- ✅ **Deploy completado** (\`current\` apunta a este SHA). Si el job de Actions figura Cancelled, solo se cortó la observación — el proceso en el servidor terminó bien."
+            elif [[ "$RESULT" == "NOT_FOUND" && "$ABORT" == "yes" ]]; then
+              echo "- ⏹ Abort solicitado y aún sin \`.done\` tras ~10m. Puede seguir en \`npm ci\`/build (opción 2) o en \`handle_abort\`. Revisá el log o el próximo job para el estado final."
+            elif [[ "$RESULT" == "NOT_FOUND" ]]; then
+              echo "- ⏳ Sin \`.done\` aún tras ~10m — el deploy puede seguir en el VPS. Revisá \`/opt/website-v3/.deploy-state/${DEPLOY_SHA}.log\` o el próximo job."
+            else
+              echo "- ❌ Deploy terminó con código \`$RESULT\` (falló; rollback de \`current\` si correspondía)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "summary: done=$RESULT abort=$ABORT"

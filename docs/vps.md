@@ -1,6 +1,6 @@
 # VPS (website-v3)
 
-Canonical doc for the DigitalOcean origin: layout, atomic deploy, hybrid content, network trust boundaries, security, and cutover status.
+Canonical doc for the DigitalOcean origin: layout, atomic deploy, ephemeral site content (blocking pull pre-flip + boot hash-diff), detached Actions observer, network trust boundaries, security, and cutover status.
 
 Related runbooks (kept separate on purpose):
 
@@ -53,44 +53,30 @@ Marketing site + YAML CMS (programs, blog, landings, checkout, staff).
 
 ```text
 /opt/website-v3/
-  persistent/          # mutable: sites.yml, site_*, data, .cache, .local, sync state…
-  releases/<sha>/      # immutable tree for that commit + .env for that deploy
+  persistent/          # mutable runtime: sites.yml, data, .cache, .local, …
+  releases/<sha>/      # app tree + .env + real site_* (pulled before flip)
   current → releases/<sha>
+  .deploy-state/       # per-SHA logs, .done, .abort (Actions observer)
   .git/                # fetch/archive object store (not the live cwd)
 
 /opt/sgtm/             # Docker tagging (:8080) + preview (:8081)
 ```
 
-Live process must use `current` (systemd). Mutable content stays in `persistent/`.
+Live process must use `current` (systemd). Runtime sidecars (`sites.yml`, caches, DB files) stay in `persistent/`.
 
 `.env` is **per release** under `releases/<sha>/.env` (written by `deploy.sh` from packed `_WEBSITE_*` secrets, or copied from the previous release if the pack is empty). systemd `EnvironmentFile` should be `/opt/website-v3/current/.env`.
 
-### 3.1 Per-site hybrid (symlinks vs copy)
+### 3.1 Site content (ephemeral per release)
 
-`shared/schema.ts` imports Zod schemas from `site_*/component-registry/**/*.ts` via relative paths. If the whole `site_*` directory were a symlink into `persistent/`, Node resolves those `../` against the **realpath** and looks for `persistent/shared/…`, which breaks the build.
+`site_*` folders are **not** linked from `persistent/`. Each release gets real `site_*` directories (from `content_folder` in `persistent/sites.yml`). `deploy.sh` runs a **blocking** `npm run content:pull -- --required` after `npm ci` and before `npm run build` / flip, so cutover never points at an empty tree.
 
-So each release gets:
+After that pull, deploy **clears** `.bootstrap-complete` on purpose. On the post-flip restart, when the flag is absent, the app **hash-diff pulls** again (GitHub wins) so content commits that landed during `npm ci`/build are picked up. Media/canonical assets live in **GCS**; YAML/registry come from those pulls.
 
-| Path under `site_*` | Treatment |
-|---------------------|-----------|
-| Everything except `component-registry/` | Symlink → `persistent/site_*/…` (YAML, blog, images, sync state, …) |
-| `component-registry/` (if present in persistent) | **Copied** into the release (real files next to `shared/`) |
-| No `component-registry/` in persistent | Left absent (do not mkdir empty — required for `inherit_components_from`) |
+Why not per-child symlinks into `persistent/`? Node `fs.Dirent.isDirectory()` is **false** for symlink entries, so walkers such as the commit queue treated whole trees (e.g. `blog/`) as missing and showed false `deleted` local changes.
 
-YAML/content via symlink is live immediately.
+`component-registry/` is pulled into the release as real files (same as other content), so `shared/schema.ts` relative imports resolve next to `shared/` without a whole-`site_*` symlink.
 
-**Registry sync:** GitHub pull/delete still writes under `cwd` (the release copy). After a change under `component-registry/`, the server mirrors **release → `persistent/`** (`server/component-registry-persistent.ts`) so the next deploy’s `cp -a` does not resurrect deleted or stale registry files. Without a `persistent/` sibling of cwd (local dev), the mirror is a no-op.
-
-### 3.2 Site adopt (new `site_*` at runtime)
-
-The app writes to `cwd/site_…` and does not know about `persistent/`. On each deploy, before building the new release, `deploy.sh`:
-
-1. Finds real (non-symlink) `site_*` dirs under `current/` (and legacy app root)
-2. `mv` them into `persistent/`
-3. Puts an absolute symlink back at the old path so the live process keeps working
-4. Materializes each site into the new release (hybrid link/copy above)
-
-If `persistent/site_…` already exists, adopt skips (does not overwrite). Empty `persistent` folders are still created for new `content_folder` entries in `sites.yml` when nothing exists yet.
+Leftover `persistent/site_*` trees from the old hybrid layout are unused by new deploys; safe to leave or delete manually after a successful bootstrap.
 
 ---
 
@@ -101,27 +87,29 @@ If `persistent/site_…` already exists, adopt skips (does not overwrite). Empty
 Workflow: [`.github/workflows/deploy-vps.yml`](../.github/workflows/deploy-vps.yml)
 
 - Triggers: push to `main`, `workflow_dispatch`
-- Concurrency group `deploy-vps` with **`cancel-in-progress: true`** — a newer push cancels an in-flight deploy. Partial `releases/<sha>/` dirs from cancelled runs are fine; only `current` serves traffic. `deploy.sh` never deletes the release `current` points at (same-SHA redeploy uses a `.rebuild-<pid>` sibling).
-- Packs GitHub secrets/vars whose names start with `_WEBSITE_` → `WEBSITE_RUNTIME_B64`, then registers `::add-mask::` on that blob (base64 is not an exact match for individual secrets, so Actions would not mask it otherwise). Avoid `set -x` in the SSH step; do not add env-dumping steps after packing.
+- Concurrency group `deploy-vps` with **`cancel-in-progress: true`** — cancels the **Actions observer** (SSH poll), not necessarily the VPS work. `deploy.sh` is started with `setsid`/`nohup`; stdout goes to `.deploy-state/<sha>.log`, exit code to `.deploy-state/<sha>.done`. The job streams that log until `.done` appears.
+- On cancel: a `cancelled()` step touches `.deploy-state/<sha>.abort` (soft abort **before flip** only).
+- `always()` step writes a **Job Summary** from `.done` / abort (polls briefly) so a red “Cancelled” badge is not mistaken for “prod did not change”.
+- Packs GitHub secrets/vars whose names start with `_WEBSITE_` → `WEBSITE_RUNTIME_B64`, then registers `::add-mask::` on that blob. Avoid `set -x` in the SSH step; do not add env-dumping steps after packing.
 - Skips if the workflow SHA is no longer tip of `main`
-- SSH as deploy user (not root): remote lock `/tmp/website-v3-deploy.lock` with **pid + stale recovery** (cancel can kill SSH before `trap` cleanup)
-- Fetches `DEPLOY_SHA`, extracts `scripts/deploy.sh` **from that commit**, runs it
+- Fetches `DEPLOY_SHA`, extracts `scripts/deploy.sh` **from that commit**, launches it detached
 
 Actions secrets for SSH: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_SSH_KNOWN_HOSTS`.
 
 ### 4.2 `scripts/deploy.sh`
 
-1. Adopt real `site_*` dirs into `persistent/` (symlink back on live tree)
-2. `git archive` → `releases/<sha>/` (if that path is already `current`, builds into `releases/<sha>.rebuild-<pid>` instead — **never** `rm -rf` the live tree)
-3. Symlinks for `data` / `.cache` / `sites.yml` / …
-4. Per site: content symlinks + **copy** `component-registry/`
-5. Writes `.env`
-6. `npm ci` + build
-7. Clears `persistent/site_*/.bootstrap-complete` so the next boot re-bootstraps content from GitHub
-8. Flips `current`, restarts, health-checks (**rollback `current`** on failure; removes the failed sibling build if it was not live)
-9. Prunes old releases (keeps active + 5 others; never deletes `readlink current`)
+1. Acquire deploy lock (`/tmp/website-v3-deploy.lock` with **pid + sha**; stale recovery). Order: `mkdir` → write `pid` → clear this SHA’s `.abort` → write `sha` (avoids same-SHA re-entry wiping another run’s abort, and avoids clearing an abort waiters already set after seeing `sha`). Waiters with a newer SHA `touch` abort for the running SHA. Lock is held by this process (not the Actions SSH poll). After a successful deploy, prune `.deploy-state/*.{log,done,abort}` older than 7 days.
+2. `git archive` → `releases/<sha>/` (if that path is already `current`, builds into `releases/<sha>.rebuild-<pid>` — **never** `rm -rf` the live tree)
+3. Symlinks for `data` / `.cache` / `sites.yml` / … (not `site_*`); create real empty `site_*` dirs
+4. Write `.env`
+5. Abort checkpoint (if `.deploy-state/<sha>.abort` → discard release, exit 0)
+6. `npm ci` → **`content:pull --required`** → `npm run build`
+7. Abort checkpoint again (last chance before cutover)
+8. Clear `.bootstrap-complete` on `site_*` (boot will hash-diff again)
+9. Flip `current`, restart, health-check (**rollback `current`** on failure)
+10. Prune old releases (keeps active + 5 others; never deletes `readlink current`)
 
-Cancel-in-progress is safe for a **new** SHA (partial dir never becomes `current`). Redeploying the **same** SHA that is live used to wipe traffic; the rebuild sibling path prevents that.
+Post-flip, abort flags are ignored (cutover already committed). Partial dirs from aborted/cancelled pre-flip runs never become `current`.
 
 ### 4.3 Manual rollback
 

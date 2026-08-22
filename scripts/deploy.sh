@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
-# Atomic deploy: build into releases/<sha>, link persistent data, flip current.
-# Sites: content/YAML symlinked from persistent/; component-registry copied into the
-# release so relative imports from shared/schema.ts resolve correctly.
+# Atomic deploy: build into releases/<sha>, link persistent runtime data, flip current.
+#
+# Sites (site_*): real dirs in the release (not symlinked from persistent/ — avoids
+# Dirent.isDirectory() false on per-child symlinks that broke the commit queue).
+# Blocking content:pull runs before flip so the tree is not empty at cutover.
+# .bootstrap-complete is cleared so boot hash-diff realigns (catches content pushes
+# that landed during npm ci/build).
+#
+# Deploy lock lives in this script (not the Actions SSH observer) so cancel-in-progress
+# cannot drop the lock while work continues. Abort flag (.deploy-state/<sha>.abort) is
+# checked before npm ci and before flip; post-flip abort is ignored.
+#
 # Never rm -rf the live release (current); same-SHA redeploy → releases/<sha>.rebuild-<pid>.
-# Before flip: clear persistent/site_*/.bootstrap-complete (re-bootstrap content on boot).
 # Required env: DEPLOY_SHA (full git commit).
 # Optional: WEBSITE_RUNTIME_B64 (packed _WEBSITE_ secrets; empty → reuse prior .env).
 set -euo pipefail
@@ -12,6 +20,11 @@ APP_ROOT=/opt/website-v3
 KEEP_RELEASES=5
 HEALTH_TRIES=60
 HEALTH_SLEEP=2
+STATE_DIR="$APP_ROOT/.deploy-state"
+LOCK_DIR="/tmp/website-v3-deploy.lock"
+LOCK_WAIT_SECONDS=10
+LOCK_TIMEOUT_SECONDS=900
+LOCK_STALE_SECONDS=1800
 
 : "${DEPLOY_SHA:?DEPLOY_SHA is required}"
 
@@ -26,8 +39,9 @@ RELEASE_NAME="$DEPLOY_SHA"
 RELEASE="$APP_ROOT/releases/$RELEASE_NAME"
 PERSISTENT="$APP_ROOT/persistent"
 CURRENT_LINK="$APP_ROOT/current"
+ABORT_FLAG="$STATE_DIR/${DEPLOY_SHA}.abort"
 
-mkdir -p "$APP_ROOT/releases" "$PERSISTENT"
+mkdir -p "$APP_ROOT/releases" "$PERSISTENT" "$STATE_DIR"
 
 # Resolved path of the live release, or empty if current is missing/broken.
 live_release_path() {
@@ -85,62 +99,80 @@ for cf in sorted(folders):
 PY
 }
 
-# Move real site_* dirs into persistent/ and put a symlink back (no app downtime hole).
-adopt_site_path() {
-  local src="$1"
-  local name
-  name="$(basename "$src")"
-  local dest="$PERSISTENT/$name"
-
-  [[ "$name" == site_* ]] || return 0
-  if [[ -L "$src" ]]; then
-    return 0
-  fi
-  if [[ ! -d "$src" ]]; then
-    return 0
-  fi
-
-  if [[ -e "$dest" || -L "$dest" ]]; then
-    echo "[deploy] adopt skip $name: $dest already exists (leaving $src as real dir)" >&2
-    return 0
-  fi
-
-  echo "[deploy] adopting $src -> $dest"
-  mv "$src" "$dest"
-  ln -sfn "$dest" "$src"
+abort_requested() {
+  [[ -f "$ABORT_FLAG" ]]
 }
 
-adopt_into_persistent() {
-  echo "[deploy] adopting real site_* dirs into persistent/"
-  local -A seen=()
-  local p name
+# Pre-flip only: discard this release and exit 0 (current untouched).
+handle_abort() {
+  echo "[deploy] abort requested for $DEPLOY_SHA — discarding release, current intact" >&2
+  if [[ -n "${RELEASE:-}" && -d "$RELEASE" ]]; then
+    assert_not_live_release "$RELEASE"
+    chmod -R u+w "$RELEASE" 2>/dev/null || true
+    rm -rf "$RELEASE"
+  fi
+  rm -f "$ABORT_FLAG"
+  exit 0
+}
 
-  shopt -s nullglob
-  for p in "$CURRENT_LINK"/site_* "$APP_ROOT"/site_*; do
-    [[ -e "$p" || -L "$p" ]] || continue
-    name="$(basename "$p")"
-    [[ -n "${seen[$name]:-}" ]] && continue
-    seen[$name]=1
-    adopt_site_path "$p"
-  done
-  shopt -u nullglob
-
-  while IFS= read -r name; do
-    [[ -n "$name" ]] || continue
-    [[ -n "${seen[$name]:-}" ]] && continue
-    seen[$name]=1
-    if [[ -e "$CURRENT_LINK/$name" || -L "$CURRENT_LINK/$name" ]]; then
-      adopt_site_path "$CURRENT_LINK/$name"
-    elif [[ -e "$APP_ROOT/$name" || -L "$APP_ROOT/$name" ]]; then
-      adopt_site_path "$APP_ROOT/$name"
+lock_is_stale() {
+  local pid_file="$LOCK_DIR/pid"
+  if [[ -f "$pid_file" ]]; then
+    local pid
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
+      return 1
     fi
-  done < <(list_sites_yml_folders "$PERSISTENT/sites.yml")
+    return 0
+  fi
+  local age
+  age="$(( $(date +%s) - $(stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0) ))"
+  [[ "$age" -ge "$LOCK_STALE_SECONDS" ]]
 }
+
+release_lock() {
+  rm -rf "$LOCK_DIR"
+}
+
+acquire_lock() {
+  local waited=0
+  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    if [[ -f "$LOCK_DIR/sha" ]]; then
+      local running_sha
+      running_sha="$(cat "$LOCK_DIR/sha" 2>/dev/null || true)"
+      if [[ -n "$running_sha" && "$running_sha" != "$DEPLOY_SHA" ]]; then
+        mkdir -p "$STATE_DIR"
+        touch "$STATE_DIR/${running_sha}.abort"
+        echo "[deploy-lock] marked abort for $running_sha (superseded by $DEPLOY_SHA)"
+      fi
+    fi
+    if lock_is_stale; then
+      echo "[deploy-lock] removing stale lock (dead pid or aged lock)"
+      rm -rf "$LOCK_DIR"
+      continue
+    fi
+    if [[ "$waited" -ge "$LOCK_TIMEOUT_SECONDS" ]]; then
+      echo "[deploy-lock] another deploy is still running after ${LOCK_TIMEOUT_SECONDS}s" >&2
+      exit 1
+    fi
+    echo "[deploy-lock] another deploy is running; waiting ${LOCK_WAIT_SECONDS}s"
+    sleep "$LOCK_WAIT_SECONDS"
+    waited=$((waited + LOCK_WAIT_SECONDS))
+  done
+  # Own the lock dir first, clear stale abort for this SHA, then publish pid+sha.
+  # Clearing before writing sha avoids wiping an abort another waiter just set for us;
+  # not clearing before acquire avoids a same-SHA re-entry deleting another run's abort.
+  echo $$ > "$LOCK_DIR/pid"
+  rm -f "$ABORT_FLAG"
+  echo "$DEPLOY_SHA" > "$LOCK_DIR/sha"
+  trap release_lock EXIT
+  echo "[deploy-lock] acquired for $DEPLOY_SHA (pid $$)"
+}
+
+acquire_lock
 
 echo "[deploy] fetching $DEPLOY_SHA"
 git -C "$APP_ROOT" fetch --prune origin "$DEPLOY_SHA"
-
-adopt_into_persistent
 
 LIVE_RELEASE="$(live_release_path)"
 # Never wipe the tree that serves traffic. Same-SHA redeploy builds into a sibling.
@@ -154,7 +186,6 @@ fi
 if [[ -e "$RELEASE" ]]; then
   assert_not_live_release "$RELEASE"
   echo "[deploy] removing incomplete/previous tree at $RELEASE"
-  # Safe only when not live: release dirs are never the persistent target.
   chmod -R u+w "$RELEASE" 2>/dev/null || true
   rm -rf "$RELEASE"
 fi
@@ -193,54 +224,42 @@ link_persistent() {
   ln -sfn "../../persistent/$name" "$link"
 }
 
-# site_*: YAML/content → symlink into persistent; component-registry → real copy in the
-# release so shared/schema.ts relative imports resolve next to shared/ (not persistent/shared).
-link_site_hybrid() {
-  local name="$1"
-  local src="$PERSISTENT/$name"
-  local dest="$RELEASE/$name"
-  local child base
+# Real empty site_* dirs; content:pull fills them before flip.
+ensure_release_site_dirs() {
+  local folder
+  local -A seen=()
 
-  [[ "$name" == site_* ]] || {
-    echo "ERROR: link_site_hybrid expected site_* name, got $name" >&2
-    exit 1
-  }
+  echo "[deploy] ensuring real site_* dirs in release"
+  while IFS= read -r folder; do
+    [[ -n "$folder" ]] || continue
+    [[ -n "${seen[$folder]:-}" ]] && continue
+    seen[$folder]=1
+    mkdir -p "$RELEASE/$folder"
+    echo "[deploy] site dir ready: $RELEASE/$folder"
+  done < <(list_sites_yml_folders "$PERSISTENT/sites.yml")
 
-  if [[ ! -e "$src" && ! -L "$src" ]]; then
-    mkdir -p "$src"
-    echo "[deploy] created empty $src (new site folder)"
-  fi
-  if [[ -L "$src" ]]; then
-    src="$(readlink -f "$src")"
-  fi
-  if [[ ! -d "$src" ]]; then
-    echo "ERROR: persistent site path is not a directory: $src" >&2
+  if [[ ${#seen[@]} -eq 0 ]]; then
+    echo "ERROR: no site_* content_folder entries in $PERSISTENT/sites.yml" >&2
     exit 1
   fi
+}
 
-  rm -rf "$dest"
-  mkdir -p "$dest"
+# Drop bootstrap flags so the next boot hash-diff realigns (content pushes during build).
+clear_bootstrap_complete_flags() {
+  local folder
+  echo "[deploy] clearing .bootstrap-complete so boot re-aligns content"
+  while IFS= read -r folder; do
+    [[ -n "$folder" ]] || continue
+    rm -f "$RELEASE/$folder/.bootstrap-complete"
+  done < <(list_sites_yml_folders "$PERSISTENT/sites.yml")
 
+  # Leftover hybrid layout under persistent/
   shopt -s nullglob
-  for child in "$src"/* "$src"/.[!.]* "$src"/..?*; do
-    [[ -e "$child" || -L "$child" ]] || continue
-    base="$(basename "$child")"
-    [[ "$base" == "." || "$base" == ".." ]] && continue
-    if [[ "$base" == "component-registry" ]]; then
-      continue
-    fi
-    ln -sfn "$child" "$dest/$base"
+  for flag in "$PERSISTENT"/site_*/.bootstrap-complete; do
+    rm -f "$flag"
+    echo "[deploy] removed $flag"
   done
   shopt -u nullglob
-
-  if [[ -d "$src/component-registry" ]]; then
-    cp -a "$src/component-registry" "$dest/component-registry"
-    echo "[deploy] copied $name/component-registry into release (not symlinked)"
-  else
-    # Do not mkdir an empty registry: sites with inherit_components_from must omit
-    # the directory entirely (schema:sync / registry-resolve enforce parent-only).
-    echo "[deploy] no component-registry in $src — leaving absent in release"
-  fi
 }
 
 echo "[deploy] linking persistent paths"
@@ -248,23 +267,7 @@ for name in sites.yml data .cache .local .multisite-user-store.json .qdrant-init
   link_persistent "$name"
 done
 
-echo "[deploy] linking sites (hybrid: content symlink, registry copy)"
-declare -A linked_sites=()
-shopt -s nullglob
-for dir in "$PERSISTENT"/site_*; do
-  [[ -d "$dir" || -L "$dir" ]] || continue
-  name="$(basename "$dir")"
-  linked_sites[$name]=1
-  link_site_hybrid "$name"
-done
-shopt -u nullglob
-
-while IFS= read -r folder; do
-  [[ -n "$folder" ]] || continue
-  [[ -n "${linked_sites[$folder]:-}" ]] && continue
-  linked_sites[$folder]=1
-  link_site_hybrid "$folder"
-done < <(list_sites_yml_folders "$PERSISTENT/sites.yml")
+ensure_release_site_dirs
 
 copy_prior_env() {
   local dest="$1"
@@ -328,6 +331,8 @@ PY
 
 write_env
 
+abort_requested && handle_abort
+
 echo "[deploy] building in $RELEASE"
 cd "$RELEASE"
 unset NODE_ENV
@@ -341,27 +346,28 @@ if [[ -z "${TURNSTILE_SITE_KEY:-}" || -z "${TURNSTILE_SECRET_KEY:-}" ]]; then
   echo "ERROR: TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY are required." >&2
   exit 1
 fi
+
+echo "[deploy] pulling content (blocking, pre-flip)"
+npm run content:pull -- --required
+
+echo "[deploy] compiling"
 npm run build
+
+abort_requested && handle_abort
+
+# Intentionally clear flags after pull wrote them — boot hash-diff catches newer content.
+clear_bootstrap_complete_flags
 
 PREV_TARGET=""
 if [[ -L "$CURRENT_LINK" || -d "$CURRENT_LINK" ]]; then
   PREV_TARGET="$(readlink -f "$CURRENT_LINK" || true)"
 fi
 
-# Option B: force content bootstrap on next boot (clears stale empty "Local change" sync state).
-echo "[deploy] clearing site_*/.bootstrap-complete under persistent/"
-shopt -s nullglob
-for flag in "$PERSISTENT"/site_*/.bootstrap-complete; do
-  rm -f "$flag"
-  echo "[deploy] removed $flag"
-done
-shopt -u nullglob
-
 echo "[deploy] pointing current -> releases/$RELEASE_NAME"
 ln -sfn "releases/$RELEASE_NAME" "$CURRENT_LINK"
 
 restart_website() {
-  if systemctl cat website.service >/dev/null 2>&1; then
+  if systemctl cat website.service >/dev/null 2>/dev/null; then
     sudo systemctl restart website
   else
     echo "[deploy] website.service not installed — skip restart"
@@ -424,10 +430,15 @@ for dir in "${ALL_RELEASES[@]:-}"; do
   fi
 done
 
+echo "[deploy] pruning .deploy-state older than 7 days"
+find "$STATE_DIR" -maxdepth 1 \( -name '*.log' -o -name '*.done' -o -name '*.abort' \) \
+  -mtime +7 -type f -delete 2>/dev/null || true
+
 WD="$(systemctl show -p WorkingDirectory --value website.service 2>/dev/null || true)"
 if [[ -n "$WD" && "$WD" != "$CURRENT_LINK" && "$WD" != "$CURRENT_LINK/" ]]; then
   echo "[deploy] WARNING: website.service WorkingDirectory is '$WD'" >&2
   echo "[deploy] WARNING: set it to $CURRENT_LINK (and EnvironmentFile=$CURRENT_LINK/.env) so restarts use this release." >&2
 fi
 
+rm -f "$ABORT_FLAG"
 echo "[deploy] done $DEPLOY_SHA (current → releases/$RELEASE_NAME)"

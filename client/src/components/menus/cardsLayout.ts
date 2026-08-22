@@ -18,11 +18,25 @@ const GRID_COLS_CLASS: Record<number, string> = {
   4: "grid-cols-4",
 };
 
-/** Desktop min card column width used for max-mode panel sizing. */
-export const CARDS_COLUMN_WIDTH_PX = 600;
+/**
+ * Preferred card column width by column count (max mode).
+ * More columns → narrower cards so the panel stays readable without overflowing.
+ */
+const CARDS_PREFERRED_COLUMN_PX: Record<number, number> = {
+  1: 520,
+  2: 300,
+  3: 280,
+  4: 220,
+};
+
+/** @deprecated Prefer cardsColumnWidthPx(cols) — kept for callers that need a single constant. */
+export const CARDS_COLUMN_WIDTH_PX = CARDS_PREFERRED_COLUMN_PX[3];
+
 export const CARDS_GAP_PX = 24; // gap-6
 export const CARDS_PANEL_PADDING_PX = 48; // p-6 * 2
 export const CARDS_FIXED_WIDTH_PX = 900;
+/** Hard cap so max-mode panels do not try to span the full viewport. */
+export const CARDS_MAX_PANEL_PX = 1100;
 
 export function resolveCardsLayout(
   itemCount: number,
@@ -38,6 +52,12 @@ export function cardsGridColsClass(cols: number): string {
   return GRID_COLS_CLASS[Math.min(Math.max(cols, 1), 4)] ?? "grid-cols-4";
 }
 
+/** Preferred column width for max-mode sizing (shrinks as cols grow). */
+export function cardsColumnWidthPx(cols: number): number {
+  const c = Math.min(Math.max(cols, 1), 4);
+  return CARDS_PREFERRED_COLUMN_PX[c] ?? CARDS_PREFERRED_COLUMN_PX[4];
+}
+
 /** Nominal panel width for positioning / maxWidth capping. */
 export function cardsPanelNominalWidthPx(
   itemCount: number,
@@ -47,6 +67,8 @@ export function cardsPanelNominalWidthPx(
   if (mode === "fixed") {
     return CARDS_FIXED_WIDTH_PX;
   }
+  const colW = cardsColumnWidthPx(cols);
   const gaps = Math.max(cols - 1, 0) * CARDS_GAP_PX;
-  return cols * CARDS_COLUMN_WIDTH_PX + gaps + CARDS_PANEL_PADDING_PX;
+  const raw = cols * colW + gaps + CARDS_PANEL_PADDING_PX;
+  return Math.min(raw, CARDS_MAX_PANEL_PX);
 }
