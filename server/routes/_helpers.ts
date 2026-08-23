@@ -367,6 +367,92 @@ export async function requireMutatingStaff(
   return { authorized: true, token, username: profile.username, author };
 }
 
+/** True when the request is a trusted MCP server loopback call. */
+export function isMcpLoopbackRequest(req: Request): boolean {
+  const secret = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
+  if (!secret) return false;
+  const authHeader = req.headers.authorization || "";
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  return bearerToken === secret;
+}
+
+function sanitizeIssueActorModel(model: unknown): string | undefined {
+  if (typeof model !== "string") return undefined;
+  const trimmed = model.trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > 64 ? trimmed.slice(0, 64) : trimmed;
+}
+
+/**
+ * Resolve actor provenance for validation issue claim/complete overlays.
+ * MCP path: client from x-mcp-client (set by MCP server); model from body on MCP only.
+ * Staff UI: type ui only — never trust client/model from browser POST.
+ */
+export function resolveIssueActor(
+  req: Request,
+  opts?: { model?: unknown },
+): import("../../scripts/validation/shared/types").ValidationIssueActor {
+  if (isMcpLoopbackRequest(req)) {
+    const clientHeader = req.headers["x-mcp-client"];
+    const client =
+      typeof clientHeader === "string" && clientHeader.trim() ? clientHeader.trim() : undefined;
+    const model = sanitizeIssueActorModel(opts?.model);
+    return {
+      type: "mcp",
+      ...(client ? { client } : {}),
+      ...(model ? { model } : {}),
+    };
+  }
+  return { type: "ui" };
+}
+
+import type { EventActor } from "./events/types";
+import { markFileAsModified } from "../sync-state";
+
+/**
+ * Resolve actor provenance for content writes and background events.
+ * MCP path: client from x-mcp-client; model optional. Staff UI: type ui only (EC6).
+ */
+export function resolveEventActor(
+  req: Request,
+  opts?: { model?: unknown },
+): EventActor {
+  const issueActor = resolveIssueActor(req, opts);
+  if (issueActor.type === "mcp") {
+    return {
+      type: "mcp",
+      ...(issueActor.client ? { client: issueActor.client } : {}),
+      ...(issueActor.model ? { model: issueActor.model } : {}),
+    };
+  }
+  return { type: "ui" };
+}
+
+export function resolveSystemEventActor(source: string): EventActor {
+  return { type: "system", source };
+}
+
+/** Mark a content file modified with optional request-derived actor provenance. */
+export function markContentFileModified(
+  filePath: string,
+  opts: {
+    author?: string;
+    actor?: EventActor;
+    req?: Request;
+    contentRoot?: string;
+    allowedExceptions?: Set<string>;
+  },
+): void {
+  const actor = opts.actor ?? (opts.req ? resolveEventActor(opts.req) : undefined);
+  markFileAsModified(
+    filePath,
+    opts.author,
+    opts.allowedExceptions,
+    opts.contentRoot,
+    actor,
+  );
+}
+
 export function safeYamlLoad(yamlStr: string): unknown {
   const { escaped, map } = escapeTemplateVars(yamlStr);
   const parsed = yaml.load(escaped);

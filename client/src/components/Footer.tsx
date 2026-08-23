@@ -45,6 +45,16 @@ interface FooterProps {
   menuId?: string;
 }
 
+function isFooterSpacer(item: { label: string; href: string }): boolean {
+  return !item.label.trim() && (!item.href.trim() || item.href === "#");
+}
+
+function isFooterSubtitle(item: { label: string; href: string }): boolean {
+  return (
+    !!item.label.trim() && (!item.href.trim() || item.href === "#")
+  );
+}
+
 export default function Footer({ menuId = "main-footer" }: FooterProps) {
   const handleLinkClick = useInternalNav();
   const editMode = useEditModeOptional();
@@ -155,6 +165,31 @@ export default function Footer({ menuId = "main-footer" }: FooterProps) {
                   }}
                 >
                   {column.items?.map((item, itemIdx) => {
+                    if (isFooterSpacer(item)) {
+                      return (
+                        <li
+                          key={`spacer-${itemIdx}`}
+                          className="mb-4 h-3 break-inside-avoid"
+                          aria-hidden="true"
+                          data-testid="footer-item-spacer"
+                        />
+                      );
+                    }
+
+                    if (isFooterSubtitle(item)) {
+                      return (
+                        <li
+                          key={`subtitle-${item.label}-${itemIdx}`}
+                          className="mb-2 mt-3 break-inside-avoid"
+                          data-testid={`footer-subtitle-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                        >
+                          <span className="text-xs font-semibold uppercase tracking-wider text-foreground/50">
+                            {item.label}
+                          </span>
+                        </li>
+                      );
+                    }
+
                     const isExternal = item.href.startsWith("http");
                     return (
                       <li

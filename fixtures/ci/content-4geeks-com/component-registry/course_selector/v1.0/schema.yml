@@ -95,3 +95,7 @@ props:
     type: string
     required: false
     description: Section background CSS class
+variants:
+  default: {}
+  solid: {}
+  spotlight: {}

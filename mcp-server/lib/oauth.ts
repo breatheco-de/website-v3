@@ -500,6 +500,19 @@ export function getTokenUsername(token: string): string | null {
   return getCachedBreathecodeUsername(token);
 }
 
+/**
+ * OAuth client display name for the token (e.g. "Cursor").
+ * Returns null when the token is unknown or not from a registered OAuth client.
+ */
+export function getTokenClientName(token: string): string | null {
+  const entry = accessTokens.get(token);
+  if (!entry) return null;
+  const client = clients.get(entry.clientId);
+  if (!client?.clientName) return null;
+  const name = client.clientName.trim();
+  return name || null;
+}
+
 // ─── GCS bootstrap (called once at startup) ───────────────────────────────────
 
 export type GcsAuthPersistenceHealth = "ok" | "warn" | "error" | "disabled";

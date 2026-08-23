@@ -42,6 +42,7 @@ import {
 import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
+import { formatIssueActorLine } from "@/lib/formatIssueActor";
 import { formatSitePathsInText } from "@shared/formatSitePath";
 import {
   parseGlobalHealthSearch,
@@ -262,6 +263,17 @@ type CachedIssueRow = {
   suggestion?: string;
   file?: string;
   entryKey?: string;
+  claimed?: {
+    by: string;
+    at: string;
+    expiresAt: string;
+    actor?: { type: "ui" | "mcp"; client?: string; model?: string };
+  };
+  completed?: {
+    by: string;
+    at: string;
+    actor?: { type: "ui" | "mcp"; client?: string; model?: string };
+  };
 };
 
 type JobStartResponse = {
@@ -2118,6 +2130,22 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                       {issue.lastFullRunAt && (
                         <span className="text-muted-foreground text-[10px] ml-auto">
                           detected {formatDistanceToNow(new Date(issue.lastFullRunAt), { addSuffix: true })}
+                        </span>
+                      )}
+                      {issue.claimed && (
+                        <span
+                          className="text-muted-foreground text-[10px]"
+                          data-testid="badge-issue-claimed"
+                        >
+                          claimed {formatIssueActorLine(issue.claimed.by, issue.claimed.actor)}
+                        </span>
+                      )}
+                      {!issue.claimed && issue.completed && (
+                        <span
+                          className="text-muted-foreground text-[10px]"
+                          data-testid="badge-issue-completed"
+                        >
+                          completed {formatIssueActorLine(issue.completed.by, issue.completed.actor)}
                         </span>
                       )}
                       {issue.url ? (

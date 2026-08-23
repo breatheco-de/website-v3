@@ -1455,6 +1455,15 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
       conflicted.push(...conflictChanges.map(c => c.file));
     }
 
+    if (pulled.length > 0) {
+      try {
+        const { emitContentBulkSynced } = await import("./content-events");
+        emitContentBulkSynced(contentFolder, pulled);
+      } catch {
+        /* non-fatal */
+      }
+    }
+
     if (pulled.length > 0 && conflicted.length === 0 && errors.length === 0) {
       const { rebuildSyncStateFromLocal } = await import("./sync-state");
       const commitSha = remoteCommitSha || await getBranchHeadSha(config);

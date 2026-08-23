@@ -135,7 +135,6 @@ function identityValidateOptsForWrite(opts: {
 } from "./shared-layout-entry";
 import {
   applyEditorialUpdatedAtToData,
-  stampAttachedEntryLocaleFiles,
   type EditorialOp,
 } from "./editorial-updated-at";
 import {
@@ -180,7 +179,7 @@ function stampLocaleYamlBeforeWrite(opts: {
   author?: string;
   ci?: ContentIndex;
 }): void {
-  const result = applyEditorialUpdatedAtToData({
+  applyEditorialUpdatedAtToData({
     data: opts.data,
     previous: opts.previous,
     operations: opts.operations as EditorialOp[],
@@ -188,27 +187,6 @@ function stampLocaleYamlBeforeWrite(opts: {
     slug: opts.slug,
     contentRoot: opts.contentRoot,
   });
-  if (
-    result.kind === "now" &&
-    result.iso &&
-    opts.locale &&
-    path.basename(opts.filePath).startsWith("single.")
-  ) {
-    const slugs = (opts.ci ?? contentIndex).listContentSlugs(
-      opts.contentType as import("./content-index").ContentType,
-    );
-    stampAttachedEntryLocaleFiles({
-      contentType: opts.contentType,
-      locale: opts.locale,
-      iso: result.iso,
-      slugs,
-      contentRoot: opts.contentRoot,
-      author: opts.author,
-      skipIfDetached: (entrySlug) =>
-        isTemplateVersioningSlug(entrySlug) ||
-        isEntryDetached(opts.contentType, entrySlug, opts.contentRoot),
-    });
-  }
 }
 
 /** After duplicate copy: never keep source published_at; stamp if the copy is immediately live. */

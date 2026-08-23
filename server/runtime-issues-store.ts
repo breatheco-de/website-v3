@@ -111,7 +111,9 @@ function loadLocalInto(site: string, contentRoot?: string): RuntimeIssuesState {
   try {
     const file = localPathForSite(site, contentRoot);
     if (fs.existsSync(file)) {
-      const raw = JSON.parse(fs.readFileSync(file, "utf-8"));
+      const text = fs.readFileSync(file, "utf-8").trim();
+      if (!text) return emptyRuntimeIssuesState();
+      const raw = JSON.parse(text);
       if (raw && raw.version === 1 && raw.issues) {
         return pruneRuntimeIssuesState(raw as RuntimeIssuesState);
       }

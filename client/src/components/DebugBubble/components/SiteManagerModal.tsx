@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { IconServer } from "@tabler/icons-react";
+import { IconServer, IconSwitchHorizontal } from "@tabler/icons-react";
 import { AlertCircle, Check, FileText, Loader2, Pencil, Plus, Power, RefreshCw, X } from "lucide-react";
 import {
   Dialog,
@@ -43,6 +43,7 @@ interface SiteManagerModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   siteInfo: SiteInfo | null | undefined;
+  onSwitchSite?: () => void;
 }
 
 interface GitHubSeedResult {
@@ -212,7 +213,7 @@ function EditableDomainRow({
   );
 }
 
-export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerModalProps) {
+export function SiteManagerModal({ open, onOpenChange, siteInfo, onSwitchSite }: SiteManagerModalProps) {
   const [view, setView] = useState<"config" | "create">("config");
   const [folderName, setFolderName] = useState("");
   const [domain, setDomain] = useState("");
@@ -232,6 +233,10 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
   const { toast } = useToast();
   const { phase: restartPhase, message: restartMessage, start: startRestart, reset: resetRestart } = useHardRestart();
   const currentSiteInfo = displaySiteInfo ?? siteInfo ?? null;
+  const handleSwitchSite = () => {
+    onOpenChange(false);
+    window.setTimeout(() => onSwitchSite?.(), 200);
+  };
   // Hide dialog while sites.yml side panel is open (dialog overlay is z-[10000], panel is z-[9999]).
   const siteManagerDialogOpen =
     open && !domainConfirmOpen && !restartConfirmOpen && !domainReloadActive && !showSitesYml;
@@ -610,27 +615,40 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
             <div className="flex items-center justify-end gap-2">
               <Button
                 variant="outline"
-                size="sm"
+                size="icon"
+                className="h-8 w-8"
                 onClick={() => setShowSitesYml(true)}
+                title="View YAML"
                 data-testid="button-view-sites-yml"
               >
-                <FileText className="h-3.5 w-3.5 mr-1.5" />
-                View YAML
+                <FileText className="h-3.5 w-3.5" />
               </Button>
               <Button
                 variant="outline"
-                size="sm"
+                size="icon"
+                className="h-8 w-8"
                 onClick={() => refreshMutation.mutate()}
                 disabled={refreshMutation.isPending}
+                title="Refresh"
                 data-testid="button-refresh-site-config"
               >
                 {refreshMutation.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                  <RefreshCw className="h-3.5 w-3.5" />
                 )}
-                Refresh
               </Button>
+              {currentSiteInfo?.isMultiSite && onSwitchSite && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSwitchSite}
+                  data-testid="button-switch-site"
+                >
+                  <IconSwitchHorizontal className="h-3.5 w-3.5 mr-1.5" />
+                  Switch to another site
+                </Button>
+              )}
               <Button
                 size="sm"
                 onClick={openCreateView}

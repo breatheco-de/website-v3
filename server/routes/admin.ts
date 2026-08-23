@@ -42,6 +42,15 @@ import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager, DatabaseManager } from "../database";
 import { collectSystemAlerts, recheckDatabaseHealth } from "../system-alerts";
+import { listEvents, clearAllEvents, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, type EventType } from "../events/event-store";
+import { listActiveLeases } from "../leases";
+import { getLastAppliedSnapshot } from "../jobs/applier";
+import { getEngineStatus } from "../jobs/queue";
+import {
+  deriveInFlight,
+  derivePipelineOverallStatus,
+  parseBindingLeaseResource,
+} from "../pipeline-status";
 
 function getDB(res: import("express").Response): DatabaseManager {
   return (res.locals.site as import("../site-manager").SiteContext)?.database ?? databaseManager;
@@ -578,6 +587,109 @@ export function registerAdminRoutes(app: Express): void {
     if (!auth.authorized) return;
     await gcs.checkArchitecture();
     res.json({ alerts: await collectSystemAlerts() });
+  });
+
+  app.get("/api/admin/events", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    const site = (req.query.site as string) || res.locals.site?.contentRootName;
+    if (!site) {
+      res.status(400).json({ error: "Missing site" });
+      return;
+    }
+    const type = req.query.type as EventType | undefined;
+    const since = req.query.since ? Number(req.query.since) : undefined;
+    const cause = req.query.cause as string | undefined;
+    const before = req.query.before ? Number(req.query.before) : undefined;
+    const triggeredBy = req.query.triggeredBy ? Number(req.query.triggeredBy) : undefined;
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+
+    const events = listEvents({ site, type, since, cause, before, triggeredBy, limit });
+    res.json({
+      events,
+      unpublishedTotal: getUnpublishedCount(site),
+      education:
+        "Saves return immediately; indexing, validation, bound-section sync and GitHub sync run in the background and report here.",
+    });
+  });
+
+  app.delete("/api/admin/events", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    const site = (req.query.site as string) || res.locals.site?.contentRootName;
+    if (!site) {
+      res.status(400).json({ error: "Missing site" });
+      return;
+    }
+
+    const deleted = clearAllEvents(site);
+    res.json({ success: true, deleted });
+  });
+
+  app.get("/api/admin/pipeline/status", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    const site = (req.query.site as string) || res.locals.site?.contentRootName;
+    if (!site) {
+      res.status(400).json({ error: "Missing site" });
+      return;
+    }
+
+    const engine = getEngineStatus();
+    const currentGeneration = getLatestWriteGeneration(site);
+    const lastApplied = getLastAppliedSnapshot(site);
+    const lastAppliedGeneration = lastApplied?.generation ?? 0;
+    const behindBy = Math.max(0, currentGeneration - lastAppliedGeneration);
+    const oldestAgeMs = getOldestUnpublishedAgeMs(site);
+    const unpublishedCount = getUnpublishedCount(site);
+
+    const recentEvents = listEvents({ site, limit: 200 });
+    const inFlight = deriveInFlight(recentEvents, lastAppliedGeneration);
+
+    const activeLeases = listActiveLeases(site).map((lease) => {
+      const parsed = parseBindingLeaseResource(lease.resource);
+      const groupId = parsed?.groupId;
+      const locale = parsed?.locale ?? "en";
+      const group = groupId ? bindingManager.getGroupById(groupId) : undefined;
+      return {
+        resource: lease.resource,
+        groupId,
+        locale,
+        holder: lease.holder,
+        expiresAt: lease.expiresAt,
+        members: group?.members ?? [],
+        groupName: group?.name,
+      };
+    });
+
+    const recentFailures = listEvents({ site, type: "job_failed", limit: 10 });
+
+    const status = derivePipelineOverallStatus({
+      oldestUnpublishedAgeMs: oldestAgeMs,
+      engineStatus: engine.status,
+      behindBy,
+    });
+
+    res.json({
+      engine,
+      outbox: {
+        unpublishedCount,
+        oldestAgeMs,
+        currentGeneration,
+      },
+      index: {
+        lastAppliedGeneration,
+        lastAppliedAt: lastApplied?.appliedAt ?? null,
+        behindBy,
+      },
+      inFlight,
+      leases: activeLeases,
+      recentFailures,
+      status,
+    });
   });
 
   app.post("/api/admin/database-recheck", async (req, res) => {

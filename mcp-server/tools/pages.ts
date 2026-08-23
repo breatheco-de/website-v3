@@ -17,7 +17,7 @@ import {
   resolveSiteContext,
   listMcpSites,
 } from "../lib/content.js";
-import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
+import { notifyMcpContentWrite } from "../lib/content-write-notify.js";
 import { checkCap, denyResponse, denyUnlessContentView, denyUnlessContentViewOrSeo } from "../lib/auth.js";
 import {
   grantsCanMutateMetrics,
@@ -35,7 +35,7 @@ import {
   type DiagnosticsIssueQueueOptions,
   type DiagnosticsIssueQueueResult,
 } from "../lib/diagnostics-issue-queue.js";
-import { getTokenUsername } from "../lib/oauth.js";
+import { getTokenUsername, getTokenClientName } from "../lib/oauth.js";
 import { buildEditorSystemHints } from "../../shared/editorSystemHints.js";
 import { FILL_INTENT_GOAL_PRESETS } from "../../shared/fillIntent.js";
 import { promoteWarnings, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
@@ -214,9 +214,13 @@ function internalHeaders(mcpToken?: string): Record<string, string> {
     headers["Authorization"] = `Bearer ${MCP_SERVER_SECRET}`;
     const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
     headers["x-mcp-author"] = username || "mcp";
+    const clientName = mcpToken ? getTokenClientName(mcpToken) : undefined;
+    if (clientName) headers["x-mcp-client"] = clientName;
   } else if (mcpToken) {
     const username = getTokenUsername(mcpToken);
     if (username) headers["x-mcp-author"] = username;
+    const clientName = getTokenClientName(mcpToken);
+    if (clientName) headers["x-mcp-client"] = clientName;
   }
   return headers;
 }
@@ -579,6 +583,12 @@ const VALIDATION_CACHE_PATH = path.join(
 );
 
 
+interface ValidationIssueActorRef {
+  type: "ui" | "mcp";
+  client?: string;
+  model?: string;
+}
+
 interface MappedValidationIssue {
   id?: string;
   code: string;
@@ -589,9 +599,11 @@ interface MappedValidationIssue {
   suggestion?: string;
   completedBy?: string;
   completedAt?: string;
+  completedActor?: ValidationIssueActorRef;
   claimedBy?: string;
   claimedAt?: string;
   expiresAt?: string;
+  claimedActor?: ValidationIssueActorRef;
 }
 
 type CachedValidationIssuesSplit = {
@@ -633,8 +645,8 @@ function getCachedValidationIssues(
         validator?: string;
       }>;
       indexes?: { byUrl?: Record<string, string>; byEntry?: Record<string, string[]> };
-      completions?: Record<string, { completedBy: string; completedAt: string }>;
-      claims?: Record<string, { claimedBy: string; claimedAt: string; expiresAt: string }>;
+      completions?: Record<string, { completedBy: string; completedAt: string; actor?: ValidationIssueActorRef }>;
+      claims?: Record<string, { claimedBy: string; claimedAt: string; expiresAt: string; actor?: ValidationIssueActorRef }>;
     };
 
     const completions = cache.completions ?? {};
@@ -660,13 +672,18 @@ function getCachedValidationIssues(
           ...(issue.file ? { file: issue.file } : {}),
           ...(issue.suggestion ? { suggestion: issue.suggestion } : {}),
           ...(completion
-            ? { completedBy: completion.completedBy, completedAt: completion.completedAt }
+            ? {
+                completedBy: completion.completedBy,
+                completedAt: completion.completedAt,
+                ...(completion.actor ? { completedActor: completion.actor } : {}),
+              }
             : {}),
           ...(claimActive
             ? {
                 claimedBy: claimActive.claimedBy,
                 claimedAt: claimActive.claimedAt,
                 expiresAt: claimActive.expiresAt,
+                ...(claimActive.actor ? { claimedActor: claimActive.actor } : {}),
               }
             : {}),
         });
@@ -1313,16 +1330,20 @@ export function registerPageTools(
     "Actions: claim (30m TTL, refresh if you already own it; fails if another author holds an active claim), " +
     "release (drop your claim or staff release), complete (hide from open lists; also clears claim), uncomplete (reopen). " +
     "Does NOT delete the issue row, push YAML/GitHub, or run diagnostics. " +
-    "A later validator cache write that rewrites the same id clears complete but keeps an active claim. " +
-    "Requires content_edit_text or seo_edit. Pass issue_id only (no update-by-code).",
+    "A later validator cache write that rewrites the same id clears complete but keeps an active claim; may emit validation_issue_reopened in admin events. " +
+    "Requires content_edit_text or seo_edit. Pass issue_id only (no update-by-code). Optional model (best-effort, self-reported).",
     {
       issue_id: z.string().describe("Stable issue id from validation_issues[].id"),
       action: z
         .enum(["claim", "release", "complete", "uncomplete"])
         .describe("claim | release | complete | uncomplete"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
+      model: z
+        .string()
+        .optional()
+        .describe("Optional LLM model name (best-effort; stored in actor.model on claim/complete)"),
     },
-    async ({ issue_id, action, site }) => {
+    async ({ issue_id, action, site, model }) => {
       const canMutate =
         !mcpToken ||
         !grants ||
@@ -1341,7 +1362,11 @@ export function registerPageTools(
           {
             method: "POST",
             headers: internalHeaders(mcpToken),
-            body: JSON.stringify({ issueId: issue_id, action }),
+            body: JSON.stringify({
+              issueId: issue_id,
+              action,
+              ...(model ? { model } : {}),
+            }),
           },
         );
         const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -1366,6 +1391,16 @@ export function registerPageTools(
           {
             code: "claim_ttl_30m",
             message: "Claims expire after 30 minutes. Same author can re-claim to refresh.",
+          },
+          {
+            code: "actor_client_from_oauth",
+            message:
+              "actor.client comes from the MCP OAuth client registry (not overridable). actor.model is best-effort when you pass model.",
+          },
+          {
+            code: "validation_issue_events",
+            message:
+              "claim/complete emit validation_issue_* admin events. Diagnostics may emit validation_issue_reopened when a completed id resurfaces.",
           },
         ];
         return ok(
@@ -4015,6 +4050,7 @@ export function registerPageTools(
 
       const commonData: Record<string, unknown> = { slug, ...common };
       fs.writeFileSync(path.join(pageDir, "_common.yml"), safeDump(commonData), "utf-8");
+      notifyMcpContentWrite(path.join(pageDir, "_common.yml"), "mcp");
 
       const createdLocales: string[] = [];
       const createdFiles: string[] = ["_common.yml"];
@@ -4035,6 +4071,7 @@ export function registerPageTools(
         });
         const fileName = draftFirst ? `${draftVariant}.${loc}.yml` : `${loc}.yml`;
         fs.writeFileSync(path.join(pageDir, fileName), safeDump(localeData), "utf-8");
+        notifyMcpContentWrite(path.join(pageDir, fileName), "mcp");
         createdLocales.push(loc);
         createdFiles.push(fileName);
       }
@@ -5182,6 +5219,7 @@ export function registerPageTools(
 
       const isNew = !fs.existsSync(targetFilePath);
       fs.writeFileSync(targetFilePath, intendedContent, "utf-8");
+      const writeEventId = notifyMcpContentWrite(targetFilePath, "mcp");
 
       if (writeAsDraft) {
         ensureDraftVariantInVersioning({

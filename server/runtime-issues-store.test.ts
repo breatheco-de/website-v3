@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +12,7 @@ import {
   resetRuntimeIssuesForSite,
   saveIssueProbe,
   setDropScrapers,
+  getRuntimeIssuesLocalPath,
 } from "./runtime-issues-store";
 
 const CHROME =
@@ -322,5 +323,13 @@ describe("runtime-issues-store", () => {
       }),
     ).toBe(false);
     expect(listRuntimeIssues("site_test", { contentRoot }).dropScrapers).toBe(true);
+  });
+
+  it("treats empty local runtime-issues file as missing state", () => {
+    const contentRoot = root();
+    writeFileSync(getRuntimeIssuesLocalPath("site_test", contentRoot), "");
+    const listed = listRuntimeIssues("site_test", { contentRoot });
+    expect(listed.issues).toHaveLength(0);
+    expect(listed.totalCount).toBe(0);
   });
 });

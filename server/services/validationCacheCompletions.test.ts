@@ -7,6 +7,7 @@ import {
   ValidationCacheService,
 } from "./validationCacheService";
 import type { ContentFile, ValidatorResult } from "../../scripts/validation/shared/types";
+import { listEvents } from "../events/event-store";
 
 function tempRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "val-cache-complete-"));
@@ -247,5 +248,62 @@ describe("validation cache claims", () => {
     });
     expect(forced.ok).toBe(true);
     expect(cache.isClaimActive(issueId)).toBe(false);
+  });
+
+  it("stores actor on claim and complete; re-claim overwrites actor", async () => {
+    const root = tempRoot();
+    roots.push(root);
+    const cache = new ValidationCacheService(root);
+    const { issueId } = seedIssue(cache, root);
+
+    const mcpActor = { type: "mcp" as const, client: "Cursor", model: "gpt-4" };
+    await cache.claimIssue(issueId, "jane", mcpActor);
+    expect(cache.getActiveClaim(issueId)?.actor).toEqual(mcpActor);
+
+    const uiActor = { type: "ui" as const };
+    await cache.claimIssue(issueId, "jane", uiActor);
+    expect(cache.getActiveClaim(issueId)?.actor).toEqual(uiActor);
+
+    await cache.completeIssue(issueId, "jane", mcpActor);
+    const completion = cache.getCompletion(issueId);
+    expect(completion?.actor).toEqual(mcpActor);
+
+    const listed = listCacheIssuesFromStore(cache, { entryKey: "page/home/en", includeCompleted: true });
+    expect(listed.issues[0]?.claimed).toBeUndefined();
+    expect(listed.issues[0]?.completed?.actor).toEqual(mcpActor);
+  });
+
+  it("emits validation_issue_reopened when rewrite clears completion", async () => {
+    const root = tempRoot();
+    roots.push(root);
+    const cache = new ValidationCacheService(root);
+    const { file, issueId } = seedIssue(cache, root);
+
+    await cache.completeIssue(issueId, "agent-a", { type: "mcp", client: "Cursor" });
+
+    cache.applyValidatorResults(
+      [
+        metaValidator([
+          {
+            code: "CONTENT_NOT_IN_SITEMAP",
+            message: "missing",
+            file: file.filePath,
+          },
+        ]),
+      ],
+      { contentFiles: [file], entryKeys: ["page/home/en"] },
+    );
+
+    const listed = listEvents({
+      site: cache.getSiteFolder(),
+      type: "validation_issue_reopened",
+      limit: 5,
+    });
+    expect(listed.length).toBe(1);
+    expect(listed[0]?.attribution[0]?.author).toBe("agent-a");
+    expect(listed[0]?.payload).toMatchObject({
+      priorCompletedBy: "agent-a",
+      priorActor: { type: "mcp", client: "Cursor" },
+    });
   });
 });

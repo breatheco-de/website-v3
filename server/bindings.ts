@@ -4,6 +4,13 @@ import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
 import { markFileAsModified } from "./sync-state";
+import {
+  acquireLease,
+  getActiveLease,
+  releaseLease,
+  bindingLeaseResource,
+  type LeaseRecord,
+} from "./leases";
 import { generateSectionId } from "./utils/generateSectionId";
 import { contentIndex } from "./content-index";
 import { isSharedLayoutType } from "./shared-layout-entry";
@@ -517,9 +524,10 @@ class BindingManager {
     sourceContentType: string,
     sourceSlug: string,
     sectionIndex: number,
-    updatedSection: Record<string, unknown>,
+    updatedSection: Record<string, unknown> | undefined,
     author?: string,
-    locale?: string
+    locale?: string,
+    opts?: { reReadSource?: boolean },
   ): { success: boolean; updatedFiles: string[]; errors: string[] } {
     this.ensureLoaded();
 
@@ -529,6 +537,19 @@ class BindingManager {
 
     const group = this.findGroupForSection(sourceContentType, sourceSlug, sectionId, resolvedLocale);
     if (!group) return { success: true, updatedFiles: [], errors: [] };
+
+    let sectionToPropagate = updatedSection;
+    if (opts?.reReadSource || !sectionToPropagate) {
+      const { data: sourceData } = this.loadPageContent(sourceContentType, sourceSlug, resolvedLocale);
+      const sections = sourceData?.sections as Record<string, unknown>[] | undefined;
+      if (!sections || sectionIndex >= sections.length) {
+        return { success: false, updatedFiles: [], errors: ["Source section not found for propagation"] };
+      }
+      sectionToPropagate = sections[sectionIndex] as Record<string, unknown>;
+    }
+    if (!sectionToPropagate) {
+      return { success: false, updatedFiles: [], errors: ["No section content to propagate"] };
+    }
 
     const siblings = group.members.filter(
       m => !(m.contentType === sourceContentType && m.slug === sourceSlug && m.sectionId === sectionId)
@@ -566,15 +587,15 @@ class BindingManager {
         }
 
         const existingSectionObj = existingSection as Record<string, unknown>;
-        if (existingSectionObj.type !== updatedSection.type) {
+        if (existingSectionObj.type !== sectionToPropagate.type) {
           errors.push(
             `Component mismatch at ${sibling.contentType}/${sibling.slug}[${siblingIdx}]: ` +
-            `expected ${updatedSection.type}, found ${existingSectionObj.type}`
+            `expected ${sectionToPropagate.type}, found ${existingSectionObj.type}`
           );
           continue;
         }
 
-        sections[siblingIdx] = this.mergeContentIntoSection(existingSectionObj, updatedSection);
+        sections[siblingIdx] = this.mergeContentIntoSection(existingSectionObj, sectionToPropagate);
 
         const updatedYaml = safeYamlDump(siblingData, {
           lineWidth: -1,
@@ -640,6 +661,29 @@ class BindingManager {
     }
 
     return removed;
+  }
+
+  acquirePropagationLease(
+    site: string,
+    groupId: string,
+    locale: string,
+    holder: string,
+  ): { ok: true; lease: LeaseRecord } | { ok: false; lease: LeaseRecord } {
+    return acquireLease(site, bindingLeaseResource(groupId, locale), holder);
+  }
+
+  getActivePropagationLease(site: string, groupId: string, locale: string): LeaseRecord | null {
+    return getActiveLease(site, bindingLeaseResource(groupId, locale));
+  }
+
+  releasePropagationLease(
+    site: string,
+    groupId: string,
+    locale: string,
+    holder: string,
+    token: number,
+  ): void {
+    releaseLease(site, bindingLeaseResource(groupId, locale), holder, token);
   }
 }
 

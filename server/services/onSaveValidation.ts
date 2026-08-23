@@ -9,6 +9,7 @@ import {
   buildEntryKey,
   entryKeyFromContentFile,
 } from "../../scripts/validation/shared/entryKey";
+import { filterContentFilesForEntry } from "../jobs/definitions/on-save-validation";
 import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
 import { isVariantLayerFile } from "../../scripts/validation/shared/draftFiles";
 import type { ContentIndex } from "../content-index";
@@ -160,14 +161,7 @@ async function runEntryLocalNow(args: OnSaveValidationArgs): Promise<void> {
   if (!context) return;
 
   const allFiles = context.contentFiles;
-  const filtered = allFiles.filter((f) => {
-    if (f.type !== resolved.contentType || f.slug !== resolved.slug) return false;
-    if (f.locale !== resolved.locale) {
-      if (!(resolved.locale === "en" && f.locale === "_common")) return false;
-    }
-    if (variant) return f.variant === variant;
-    return !f.variant;
-  });
+  const filtered = filterContentFilesForEntry(allFiles, resolved);
   if (filtered.length === 0) {
     log.warn(
       { resolved, variant, targetKey },

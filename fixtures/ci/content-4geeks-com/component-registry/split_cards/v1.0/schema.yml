@@ -75,3 +75,6 @@ props:
   background:
     type: string
     required: false
+variants:
+  primary-left: {}
+  primary-right: {}

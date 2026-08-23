@@ -13,6 +13,7 @@ import { siteSyncGcsKey, SYNC_FILENAMES, syncStateReadKeys } from '@shared/gcsKe
 import { gcs } from './gcs';
 import { child } from "./logger";
 import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
+import type { EventActor } from "./events/types";
 const log = child({ module: "sync-state" });
 
 function defaultContentFolder(): string {
@@ -402,14 +403,75 @@ export function setAutoCommitCallback(cb: (filePath: string, author?: string, al
   autoCommitCallback = cb;
 }
 
-const fileModifiedListeners: Set<(filePath: string) => void> = new Set();
+export type FileModifiedEvent = {
+  filePath: string;
+  author?: string;
+  actor?: EventActor;
+};
+
+const fileModifiedListeners: Set<(evt: FileModifiedEvent) => void> = new Set();
 
 /**
  * Register a listener that fires whenever any content file is marked modified.
- * Listeners receive the relative file path (e.g. "4geeks-com/landings/my-page/test.en.yml").
  */
-export function addFileModifiedListener(cb: (filePath: string) => void): void {
+export function addFileModifiedListener(cb: (evt: FileModifiedEvent) => void): void {
   fileModifiedListeners.add(cb);
+}
+
+function notifyFileModifiedListeners(
+  relativePath: string,
+  author?: string,
+  actor?: EventActor,
+): void {
+  const evt: FileModifiedEvent = { filePath: relativePath, author, actor };
+  fileModifiedListeners.forEach((cb) => cb(evt));
+}
+
+const syncStateDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const pendingSyncStates = new Map<string, SyncStateWithConfig>();
+
+function syncStateKey(contentRoot?: string): string {
+  return contentRoot || getDefaultContentRoot();
+}
+
+function scheduleDebouncedSaveSyncState(state: SyncState, contentRoot?: string): void {
+  const key = syncStateKey(contentRoot);
+  pendingSyncStates.set(key, state as SyncStateWithConfig);
+  const existing = syncStateDebounceTimers.get(key);
+  if (existing) clearTimeout(existing);
+  syncStateDebounceTimers.set(
+    key,
+    setTimeout(() => {
+      syncStateDebounceTimers.delete(key);
+      const pending = pendingSyncStates.get(key);
+      if (pending) {
+        pendingSyncStates.delete(key);
+        saveSyncState(pending, contentRoot);
+      }
+    }, 500),
+  );
+}
+
+/** Flush debounced sync-state writes (shutdown + background job). */
+export function flushPendingSyncStateWrites(contentRoot?: string): void {
+  const key = syncStateKey(contentRoot);
+  const timer = syncStateDebounceTimers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    syncStateDebounceTimers.delete(key);
+  }
+  const pending = pendingSyncStates.get(key);
+  if (pending) {
+    pendingSyncStates.delete(key);
+    saveSyncState(pending, contentRoot);
+  }
+}
+
+/** Flush all pending sync-state writes across sites. */
+export function flushAllPendingSyncStateWrites(): void {
+  for (const key of [...pendingSyncStates.keys()]) {
+    flushPendingSyncStateWrites(key === getDefaultContentRoot() ? undefined : key);
+  }
 }
 
 
@@ -420,7 +482,13 @@ export function addFileModifiedListener(cb: (filePath: string) => void): void {
  * @param filePath - The file path to mark as modified
  * @param author - Optional author name who made the modification
  */
-export function markFileAsModified(filePath: string, author?: string, allowedExceptions?: Set<string>, contentRoot?: string): void {
+export function markFileAsModified(
+  filePath: string,
+  author?: string,
+  allowedExceptions?: Set<string>,
+  contentRoot?: string,
+  actor?: EventActor,
+): void {
   const relativePath = normalizePath(filePath, contentRoot);
   
   if (!shouldTrackFile(relativePath, allowedExceptions, contentRoot)) {
@@ -449,12 +517,12 @@ export function markFileAsModified(filePath: string, author?: string, allowedExc
       ...(prev?.pulledFromCommit ? { pulledFromCommit: prev.pulledFromCommit } : {}),
     };
     
-    saveSyncState(state, contentRoot);
+    scheduleDebouncedSaveSyncState(state, contentRoot);
 
     if (autoCommitCallback) {
       autoCommitCallback(relativePath, author, allowedExceptions);
     }
-    fileModifiedListeners.forEach(cb => cb(relativePath));
+    notifyFileModifiedListeners(relativePath, author || prev?.author, actor);
   } else if (state.files[relativePath]) {
     // File deleted / missing — do not invent a content-change timestamp from a touch.
     state.files[relativePath] = {
@@ -462,17 +530,17 @@ export function markFileAsModified(filePath: string, author?: string, allowedExc
       author: author || state.files[relativePath].author,
     };
     
-    saveSyncState(state, contentRoot);
+    scheduleDebouncedSaveSyncState(state, contentRoot);
 
     if (autoCommitCallback) {
       autoCommitCallback(relativePath, author, allowedExceptions);
     }
-    fileModifiedListeners.forEach(cb => cb(relativePath));
+    notifyFileModifiedListeners(relativePath, author || state.files[relativePath].author, actor);
   } else if (allowedExceptions instanceof Set && allowedExceptions.has(relativePath)) {
     if (autoCommitCallback) {
       autoCommitCallback(relativePath, author, allowedExceptions);
     }
-    fileModifiedListeners.forEach(cb => cb(relativePath));
+    notifyFileModifiedListeners(relativePath, author, actor);
   }
 }
 

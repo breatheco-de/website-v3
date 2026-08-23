@@ -9,6 +9,7 @@ import {
   ssrCachePathCandidates,
   htmlContainsFaqPage,
   schemaExpectsNameDescription,
+  isSchemaPlaceholderValue,
   __resetGenerateSsrSchemaHtmlForTests,
 } from "./schema-completeness";
 import type { ContentFile, ValidationContext } from "../shared/types";
@@ -44,6 +45,20 @@ function baseFile(overrides: Partial<ContentFile> & Pick<ContentFile, "filePath"
     ...overrides,
   };
 }
+
+describe("isSchemaPlaceholderValue", () => {
+  it("does not flag Spanish copy containing todo as substring", () => {
+    expect(isSchemaPlaceholderValue("Todos los estudiantes reciben mentoría")).toBe(false);
+    expect(isSchemaPlaceholderValue("metodología profesional de pentesting")).toBe(false);
+    expect(isSchemaPlaceholderValue("Cada plan incluye acceso al catálogo completo")).toBe(false);
+  });
+
+  it("flags intentional TODO placeholders", () => {
+    expect(isSchemaPlaceholderValue("TODO: replace before publish")).toBe(true);
+    expect(isSchemaPlaceholderValue("[TODO]")).toBe(true);
+    expect(isSchemaPlaceholderValue("lorem ipsum dolor sit amet")).toBe(true);
+  });
+});
 
 describe("resolvePageSections", () => {
   const cleanups: Array<() => void> = [];

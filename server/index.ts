@@ -10,7 +10,7 @@ import compression from "compression";
 import cookieParser from "cookie-parser";
 import path from "path";
 import fs from "fs";
-import { setAutoCommitCallback } from "./sync-state";
+import { setAutoCommitCallback, addFileModifiedListener } from "./sync-state";
 import { queueFileChange } from "./auto-commit";
 import { contentIndex } from "./content-index";
 import { siteResolutionMiddleware, buildSiteContextMap, getSiteContextMap } from "./site-manager";
@@ -24,7 +24,15 @@ import {
 import { loadFormStateFromBucket, updateFormStateForFile } from "./form-state";
 import { loadValidationCachesFromBucket, shutdownValidationCaches } from "./services/validationCacheService";
 import { loadGscInspectionStoresFromBucket } from "./gsc-url-inspection";
-import { addFileModifiedListener } from "./sync-state";
+import { emitContentFileWritten, emitRedirectsChanged } from "./content-events";
+import { startEventPruneTimer } from "./events/event-store";
+import { startEventDispatcher } from "./events/dispatcher";
+import { registerAllJobs } from "./jobs/register";
+import { startJobQueue, stopJobQueue } from "./jobs/queue";
+import { startJobApplier, stopJobApplier } from "./jobs/applier";
+import { startEngineWatchdog } from "./jobs/engine-watchdog";
+import { scheduleSectionVariantsRefreshForFile } from "./registrySchemaValidationRefresh";
+import { flushAllPendingSyncStateWrites } from "./sync-state";
 import { gcs } from "./gcs";
 import { getVersioningManager } from "./versioning/VersioningManager";
 import { clearSitemapCache } from "./sitemap";
@@ -196,6 +204,30 @@ app.use(express.urlencoded({
   },
 }));
 
+/** Cap JSON bodies in API request logs — full payloads (events feed, variables, redirects) flood dev stdout. */
+const API_LOG_BODY_MAX_CHARS = 280;
+
+function formatApiResponseForLog(path: string, body: Record<string, unknown>): string {
+  if (path === "/api/admin/events" && Array.isArray(body.events)) {
+    return JSON.stringify({
+      events: body.events.length,
+      unpublishedTotal: body.unpublishedTotal,
+    });
+  }
+  if (path === "/api/admin/pipeline/status") {
+    const outbox = body.outbox as Record<string, unknown> | undefined;
+    const index = body.index as Record<string, unknown> | undefined;
+    return JSON.stringify({
+      status: body.status,
+      unpublishedCount: outbox?.unpublishedCount,
+      behindBy: index?.behindBy,
+    });
+  }
+  const raw = JSON.stringify(body);
+  if (raw.length <= API_LOG_BODY_MAX_CHARS) return raw;
+  return `${raw.slice(0, API_LOG_BODY_MAX_CHARS)}… (${raw.length} chars)`;
+}
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -211,8 +243,9 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      // 304 + polling endpoints: status line only (body unchanged / not useful in logs).
+      if (capturedJsonResponse && res.statusCode !== 304) {
+        logLine += ` :: ${formatApiResponseForLog(path, capturedJsonResponse)}`;
       }
 
       log(logLine);
@@ -536,29 +569,25 @@ app.use((req, res, next) => {
     loadFormStateFromBucket().catch((err) => {
       logger.error({ err, worker: "FormState" }, "failed to load form state");
     });
-    addFileModifiedListener((filePath) => {
-      if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
-        for (const ctx of getSiteContextMap().values()) {
-          if (filePath.startsWith(ctx.contentRootName + "/")) {
-            ctx.contentIndex.scanFast();
-            ctx.contentIndex.startSlowScanAsync();
-            break;
-          }
-        }
-      }
-      if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
-        updateFormStateForFile(filePath);
-      }
-      // Debounced component-insights rebuild when sections YAML / overlays change
-      if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
-        import("./component-insights")
-          .then(({ markInsightsDirty }) => markInsightsDirty(filePath))
-          .catch(() => {});
-      }
-      // Scoped on-save validation → unified issue store
+    registerAllJobs();
+    void startJobQueue().catch((err) => {
+      logger.error({ err, worker: "JobQueue" }, "failed to start job queue");
+    });
+    startEventDispatcher();
+    startJobApplier();
+    startEngineWatchdog();
+    startEventPruneTimer([...getSiteContextMap().values()].map((c) => c.contentRootName));
+    addFileModifiedListener((evt) => {
+      const { filePath, author, actor } = evt;
+      scheduleSectionVariantsRefreshForFile(filePath);
       if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
         for (const ctx of getSiteContextMap().values()) {
           if (!filePath.startsWith(ctx.contentRootName + "/")) continue;
+          try {
+            ctx.contentIndex.upsertEntry(filePath);
+          } catch {
+            /* non-fatal */
+          }
           const abs = path.isAbsolute(filePath)
             ? filePath
             : path.join(process.cwd(), filePath);
@@ -572,31 +601,22 @@ app.use((req, res, next) => {
               /* ignore */
             }
           }
-          import("./services/onSaveValidation")
-            .then(({ scheduleOnSaveValidation, scheduleRedirectsValidation }) => {
-              if (isCustomRedirects) {
-                scheduleRedirectsValidation({
-                  contentRoot: ctx.contentRoot,
-                  contentRootName: ctx.contentRootName,
-                  ci: ctx.contentIndex,
-                  cache: ctx.validationCache,
-                  filePath: abs,
-                  redirectsChanged: true,
-                });
-                return;
-              }
-              scheduleOnSaveValidation({
-                contentRoot: ctx.contentRoot,
-                contentRootName: ctx.contentRootName,
-                ci: ctx.contentIndex,
-                cache: ctx.validationCache,
-                filePath: abs,
-                redirectsChanged,
-              });
-            })
-            .catch(() => {});
+          const resolvedActor =
+            actor ?? (author ? { type: "ui" as const } : { type: "system" as const, source: "content-pipeline" });
+          emitContentFileWritten(filePath, { author, actor: resolvedActor });
+          if (redirectsChanged) {
+            emitRedirectsChanged(filePath, { author, actor: resolvedActor });
+          }
           break;
         }
+      }
+      if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
+        updateFormStateForFile(filePath);
+      }
+      if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
+        import("./component-insights")
+          .then(({ markInsightsDirty }) => markInsightsDirty(filePath))
+          .catch(() => {});
       }
     });
   });
@@ -609,6 +629,9 @@ app.use((req, res, next) => {
 
     logger.info({ signal }, "[Shutdown] flushing pending GCS uploads…");
     try {
+      flushAllPendingSyncStateWrites();
+      stopJobApplier();
+      await stopJobQueue();
       await getVersioningManager().shutdown();
       await shutdownValidationCaches();
       await shutdownRuntimeIssues();

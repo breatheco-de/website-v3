@@ -44,6 +44,8 @@ export type FlushAfterContentWritesOpts = {
   htmlPaths?: string[];
   /** When true, run sync slow scan (redirect-critical writes). */
   syncSlow?: boolean;
+  /** Relative or absolute paths written — triggers single-entry upsert (no full scan). */
+  savedFilePaths?: string[];
 };
 
 /**
@@ -54,7 +56,18 @@ export type FlushAfterContentWritesOpts = {
 export function flushAfterContentWrites(opts: FlushAfterContentWritesOpts): void {
   const types = [...new Set([...opts.contentTypes].filter(Boolean))];
   clearRedirectCache();
-  opts.ci.refresh({ syncSlow: opts.syncSlow === true });
+
+  if (opts.syncSlow === true) {
+    opts.ci.refresh({ syncSlow: true });
+  } else if (opts.savedFilePaths?.length) {
+    for (const fp of opts.savedFilePaths) {
+      try {
+        opts.ci.upsertEntry(fp);
+      } catch {
+        /* non-fatal */
+      }
+    }
+  }
 
   if (types.length === 0) {
     invalidateContentCachesWithoutHtml(undefined, opts.ci);

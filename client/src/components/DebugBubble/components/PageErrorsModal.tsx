@@ -20,6 +20,7 @@ import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { useToast } from "@/hooks/use-toast";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { cn } from "@/lib/utils";
+import { formatIssueActorLine } from "@/lib/formatIssueActor";
 import {
   gscHeadline,
   gscCrawlerErrorCount,
@@ -310,7 +311,7 @@ function IssueCard({
                 data-testid={`modal-${variant}-${index}-claimed-by`}
               >
                 <IconUser className="h-3 w-3 shrink-0" />
-                Claimed by {issue.claimed.by}
+                Claimed by {formatIssueActorLine(issue.claimed.by, issue.claimed.actor)}
                 {issue.claimed.expiresAt && (
                   <span className="opacity-80">
                     · until {new Date(issue.claimed.expiresAt).toLocaleTimeString()}
@@ -323,7 +324,7 @@ function IssueCard({
                 className="mt-1 text-[11px] text-muted-foreground"
                 data-testid={`modal-${variant}-${index}-completed-by`}
               >
-                Completed by {issue.completed.by}
+                Completed by {formatIssueActorLine(issue.completed.by, issue.completed.actor)}
               </p>
             )}
           </div>

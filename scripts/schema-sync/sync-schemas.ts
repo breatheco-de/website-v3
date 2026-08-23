@@ -19,6 +19,7 @@ import {
   ZodObject,
   ZodType,
   ZodOptional,
+  ZodDefault,
   ZodArray,
   ZodEnum,
   ZodLiteral,
@@ -111,7 +112,7 @@ function unwrapEffects(schema: ZodType): ZodType {
 
 function unwrapOptional(schema: ZodType): ZodType {
   let current = unwrapEffects(schema);
-  while (current instanceof ZodOptional) {
+  while (current instanceof ZodOptional || current instanceof ZodDefault) {
     current = unwrapEffects(current._def.innerType);
   }
   return current;

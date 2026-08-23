@@ -2204,7 +2204,6 @@ export function DebugBubble() {
     handleCheckSession,
     setSessionModalOpen,
     onOpenSiteManager: () => setSiteManagerModalOpen(true),
-    onOpenSwitchSite: () => setSwitchSiteModalOpen(true),
     publicPageUrl: resolvedPublicPageUrl,
   };
 
@@ -2391,6 +2390,7 @@ export function DebugBubble() {
         open={siteManagerModalOpen}
         onOpenChange={setSiteManagerModalOpen}
         siteInfo={siteInfo}
+        onSwitchSite={() => setSwitchSiteModalOpen(true)}
       />
       <SwitchSiteModal
         open={switchSiteModalOpen}

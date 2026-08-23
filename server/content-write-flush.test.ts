@@ -41,6 +41,7 @@ import {
 describe("flushAfterContentWrites", () => {
   const ci = {
     refresh: vi.fn(),
+    upsertEntry: vi.fn(),
     getAlternateUrls: vi.fn(() => ({ en: "/en/home", es: "/es/inicio" })),
     buildUrl: vi.fn(() => "/en/home"),
     contentRootName: "site_test",
@@ -50,7 +51,7 @@ describe("flushAfterContentWrites", () => {
     vi.clearAllMocks();
   });
 
-  it("clears redirects, refreshes CI async by default, invalidates without full HTML clear, refreshes locale sitemap", async () => {
+  it("clears redirects, upserts saved entries by default (no full CI refresh), invalidates without full HTML clear, refreshes locale sitemap", async () => {
     flushAfterContentWrites({
       ci: ci as any,
       contentTypes: ["page", "page", "blog"],
@@ -61,10 +62,12 @@ describe("flushAfterContentWrites", () => {
       commonMetaTouched: false,
       siteId: "site_test",
       htmlPaths: ["/en/home", "/en/blog/post"],
+      savedFilePaths: ["site_test/pages/home/en.yml"],
     });
 
     expect(clearRedirectCache).toHaveBeenCalledTimes(1);
-    expect(ci.refresh).toHaveBeenCalledWith({ syncSlow: false });
+    expect(ci.refresh).not.toHaveBeenCalled();
+    expect(ci.upsertEntry).toHaveBeenCalledWith("site_test/pages/home/en.yml");
     expect(invalidateContentCachesWithoutHtml).toHaveBeenCalledTimes(2);
     expect(refreshSitemapEntry).toHaveBeenCalledTimes(2);
     expect(refreshSitemapEntriesForContentKey).not.toHaveBeenCalled();

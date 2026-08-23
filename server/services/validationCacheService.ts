@@ -18,6 +18,7 @@ import type {
   ValidationCacheFileV5,
   ValidationCacheIndexes,
   ValidationIssue,
+  ValidationIssueActor,
   ValidationIssueClaim,
   ValidationIssueCompletion,
   ValidatorResult,
@@ -40,6 +41,7 @@ import {
   issueToStored,
   pageEntryFromStored,
 } from "./validationCacheMerge";
+import { emitValidationIssueWorkflowEvent } from "../validation-events";
 
 const log = child({ module: "validationCacheService" });
 
@@ -47,6 +49,32 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const CACHE_VERSION = 5;
 /** Soft claim TTL — same author can refresh; others wait for expiry or release. */
 export const CLAIM_TTL_MS = 30 * 60 * 1000;
+
+export function claimToApiRow(claim: ValidationIssueClaim): {
+  by: string;
+  at: string;
+  expiresAt: string;
+  actor?: ValidationIssueActor;
+} {
+  return {
+    by: claim.claimedBy,
+    at: claim.claimedAt,
+    expiresAt: claim.expiresAt,
+    ...(claim.actor ? { actor: claim.actor } : {}),
+  };
+}
+
+export function completionToApiRow(completion: ValidationIssueCompletion): {
+  by: string;
+  at: string;
+  actor?: ValidationIssueActor;
+} {
+  return {
+    by: completion.completedBy,
+    at: completion.completedAt,
+    ...(completion.actor ? { actor: completion.actor } : {}),
+  };
+}
 
 export type CacheIssueUpdateAction = "claim" | "release" | "complete" | "uncomplete";
 
@@ -278,6 +306,11 @@ export class ValidationCacheService {
     this.loadFromDisk();
   }
 
+  /** Site folder name (e.g. site_4geeks-com) for admin events. */
+  getSiteFolder(): string {
+    return this.contentFolder;
+  }
+
   setSkipGcsUpload(skip: boolean): void {
     this.skipGcsUpload = skip;
   }
@@ -360,11 +393,16 @@ export class ValidationCacheService {
     return Boolean(this.getActiveClaim(issueId, nowMs));
   }
 
-  private buildClaim(claimedBy: string, nowMs: number = Date.now()): ValidationIssueClaim {
+  private buildClaim(
+    claimedBy: string,
+    actor?: ValidationIssueActor,
+    nowMs: number = Date.now(),
+  ): ValidationIssueClaim {
     return {
       claimedBy,
       claimedAt: new Date(nowMs).toISOString(),
       expiresAt: new Date(nowMs + CLAIM_TTL_MS).toISOString(),
+      ...(actor ? { actor } : {}),
     };
   }
 
@@ -375,6 +413,7 @@ export class ValidationCacheService {
   async completeIssue(
     issueId: string,
     completedBy: string,
+    actor?: ValidationIssueActor,
   ): Promise<{ ok: true; completion: ValidationIssueCompletion } | { ok: false; error: string }> {
     if (!this.issues[issueId]) {
       return { ok: false, error: `Unknown issue id: ${issueId}` };
@@ -382,6 +421,7 @@ export class ValidationCacheService {
     const completion: ValidationIssueCompletion = {
       completedBy,
       completedAt: new Date().toISOString(),
+      ...(actor ? { actor } : {}),
     };
     this.completions[issueId] = completion;
     delete this.claims[issueId];
@@ -406,6 +446,7 @@ export class ValidationCacheService {
   async claimIssue(
     issueId: string,
     claimedBy: string,
+    actor?: ValidationIssueActor,
   ): Promise<
     | { ok: true; claim: ValidationIssueClaim }
     | { ok: false; error: string; code?: string; claimedBy?: string }
@@ -422,7 +463,7 @@ export class ValidationCacheService {
         claimedBy: existing.claimedBy,
       };
     }
-    const claim = this.buildClaim(claimedBy);
+    const claim = this.buildClaim(claimedBy, actor);
     this.claims[issueId] = claim;
     await this.flush();
     return { ok: true, claim };
@@ -461,19 +502,20 @@ export class ValidationCacheService {
     issueId: string,
     action: CacheIssueUpdateAction,
     author: string,
-    options?: { staffForceRelease?: boolean },
+    options?: { staffForceRelease?: boolean; actor?: ValidationIssueActor },
   ): Promise<
     | {
         ok: true;
         action: CacheIssueUpdateAction;
-        completed?: { by: string; at: string } | null;
-        claimed?: { by: string; at: string; expiresAt: string } | null;
+        completed?: { by: string; at: string; actor?: ValidationIssueActor } | null;
+        claimed?: { by: string; at: string; expiresAt: string; actor?: ValidationIssueActor } | null;
       }
     | { ok: false; error: string; code?: string; status?: number; claimedBy?: string }
   > {
+    const actor = options?.actor;
     switch (action) {
       case "claim": {
-        const r = await this.claimIssue(issueId, author);
+        const r = await this.claimIssue(issueId, author, actor);
         if (!r.ok) {
           return {
             ok: false,
@@ -486,11 +528,7 @@ export class ValidationCacheService {
         return {
           ok: true,
           action,
-          claimed: {
-            by: r.claim.claimedBy,
-            at: r.claim.claimedAt,
-            expiresAt: r.claim.expiresAt,
-          },
+          claimed: claimToApiRow(r.claim),
           completed: null,
         };
       }
@@ -509,12 +547,12 @@ export class ValidationCacheService {
         return { ok: true, action, claimed: null };
       }
       case "complete": {
-        const r = await this.completeIssue(issueId, author);
+        const r = await this.completeIssue(issueId, author, actor);
         if (!r.ok) return { ok: false, error: r.error, status: 404 };
         return {
           ok: true,
           action,
-          completed: { by: r.completion.completedBy, at: r.completion.completedAt },
+          completed: completionToApiRow(r.completion),
           claimed: null,
         };
       }
@@ -526,9 +564,7 @@ export class ValidationCacheService {
           ok: true,
           action,
           completed: null,
-          claimed: claim
-            ? { by: claim.claimedBy, at: claim.claimedAt, expiresAt: claim.expiresAt }
-            : null,
+          claimed: claim ? claimToApiRow(claim) : null,
         };
       }
       default:
@@ -750,6 +786,17 @@ export class ValidationCacheService {
 
       for (const raw of [...stampedErrors, ...stampedWarnings]) {
         const stored = issueToStored(raw, v.name, nowIso, contentFiles);
+        const priorCompletion = this.completions[stored.id];
+        if (priorCompletion) {
+          const priorIssue = this.issues[stored.id];
+          emitValidationIssueWorkflowEvent({
+            type: "validation_issue_reopened",
+            site: this.contentFolder,
+            issue: priorIssue ?? stored,
+            author: priorCompletion.completedBy,
+            priorCompletion,
+          });
+        }
         // Fresh write resurfaces: clear soft-complete for this id.
         delete this.completions[stored.id];
         this.issues[stored.id] = stored;
@@ -857,9 +904,7 @@ export class ValidationCacheService {
         toDelete.push(id);
       }
     }
-    this.dropCompletions(toDelete);
-    // Do not dropClaims here — rewrite of the same id must keep claims (3C).
-    // Orphans are GC'd at end of applyValidatorResults when the id is absent.
+    // Completions for deleted ids are cleared in the rewrite loop (reopen event) or gcOrphanOverlays.
     for (const id of toDelete) delete this.issues[id];
   }
 
@@ -1193,8 +1238,8 @@ export type CacheIssueListRow = {
   lastFullRunAt?: string;
   suggestion?: string;
   file?: string;
-  completed?: { by: string; at: string };
-  claimed?: { by: string; at: string; expiresAt: string };
+  completed?: { by: string; at: string; actor?: ValidationIssueActor };
+  claimed?: { by: string; at: string; expiresAt: string; actor?: ValidationIssueActor };
 };
 
 export type CacheIssueFacets = {
@@ -1294,13 +1339,9 @@ export function listCacheIssuesFromStore(
   for (const issue of issues) {
     if (issue.severity === "info") continue;
     const completion = cache.getCompletion(issue.id);
-    const completed = completion
-      ? { by: completion.completedBy, at: completion.completedAt }
-      : undefined;
+    const completed = completion ? completionToApiRow(completion) : undefined;
     const claim = cache.getActiveClaim(issue.id);
-    const claimed = claim
-      ? { by: claim.claimedBy, at: claim.claimedAt, expiresAt: claim.expiresAt }
-      : undefined;
+    const claimed = claim ? claimToApiRow(claim) : undefined;
     const entryTargets = issue.targets.filter((t) => t.type === "entry") as Array<{
       type: "entry";
       entryKey: string;

@@ -225,8 +225,13 @@ export interface PageDiagnostics {
     file?: string;
     details?: { path?: string; expected?: string; received?: string };
     validationCacheBuiltAt?: string;
-    completed?: { by: string; at: string } | null;
-    claimed?: { by: string; at: string; expiresAt: string } | null;
+    completed?: { by: string; at: string; actor?: { type: "ui" | "mcp"; client?: string; model?: string } } | null;
+    claimed?: {
+      by: string;
+      at: string;
+      expiresAt: string;
+      actor?: { type: "ui" | "mcp"; client?: string; model?: string };
+    } | null;
   }>;
   /** @deprecated Removed — use issue counts from the shared store. */
   score?: { total: number; seo: number; schema: number; content: number };

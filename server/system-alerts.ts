@@ -19,7 +19,8 @@ export type SystemAlertCode =
   | "database_auth_failed"
   | "database_fetch_failed"
   | "turnstile_env_missing"
-  | "turnstile_secret_invalid";
+  | "turnstile_secret_invalid"
+  | "background_jobs_stalled";
 
 export interface SystemAlert {
   id: string;
@@ -238,6 +239,26 @@ export async function collectSystemAlerts(): Promise<SystemAlert[]> {
   alerts.push(...(await collectTurnstileAlerts()));
   alerts.push(...collectMcpAuthAlerts(isProduction));
   alerts.push(...(await collectMcpAuthBlobAlerts(isProduction)));
+
+  try {
+    const { getOldestUnpublishedAgeMs } = await import("./events/event-store");
+    const threshold = Number(process.env.EVENT_STALE_THRESHOLD_MS || 5 * 60 * 1000);
+    for (const ctx of getSiteContextMap().values()) {
+      const age = getOldestUnpublishedAgeMs(ctx.contentRootName);
+      if (age !== null && age > threshold) {
+        alerts.push({
+          id: `${ctx.contentRootName}:background_jobs_stalled`,
+          severity: "warning",
+          code: "background_jobs_stalled",
+          title: "Background jobs stalled",
+          message: `Unpublished events are ${Math.round(age / 1000)}s old — index/validation may be behind.`,
+          site: ctx.contentRootName,
+        });
+      }
+    }
+  } catch {
+    /* non-fatal */
+  }
 
   if (gcs.migrationRequired) {
     alerts.push({

@@ -4,7 +4,11 @@ import * as fs from "fs";
 import * as path from "path";
 import { ValidationService } from "../../scripts/validation/service";
 import { getCanonicalUrl, matchContentFilesForUrl } from "../../scripts/validation/shared/canonicalUrls";
-import { getValidationCacheService } from "../services/validationCacheService";
+import {
+  getValidationCacheService,
+  claimToApiRow,
+  completionToApiRow,
+} from "../services/validationCacheService";
 import {
   CACHE_FRESHNESS_MAX_AGE_SECONDS,
   summarizeCacheFreshness,
@@ -51,6 +55,7 @@ import {
   safeYamlLoad,
   requireCapability,
   requireMutatingStaff,
+  resolveIssueActor,
   createValidationFixRun,
   appendValidationRunLog,
   applyFixerProgress,
@@ -63,6 +68,10 @@ import {
   ValidationFixRunLogEntry,
   FixerItemStatus,
 } from "./_helpers";
+import {
+  emitValidationIssueWorkflowEvent,
+  resolveSiteForIssue,
+} from "../validation-events";
 import { child } from "../logger";
 const log = child({ module: "routes/validation" });
 
@@ -805,9 +814,13 @@ export function registerValidationRoutes(app: Express): void {
     }
     const cache = getValidationCache(res);
     const author = auth.author || auth.username || "staff";
-    // Mutating staff may release any claim; MCP authors without staff session still use force via same path when authorized as mutating staff.
+    const actor =
+      action === "claim" || action === "complete"
+        ? resolveIssueActor(req, { model: req.body?.model })
+        : undefined;
     const result = await cache.updateIssue(issueId, action, author, {
       staffForceRelease: true,
+      actor,
     });
     if (!result.ok) {
       return res.status(result.status ?? 400).json({
@@ -815,6 +828,21 @@ export function registerValidationRoutes(app: Express): void {
         code: result.code,
         claimedBy: result.claimedBy,
       });
+    }
+    if (action === "claim" || action === "complete") {
+      const issue = cache.getIssueById(issueId);
+      const site =
+        (res.locals.site as { contentRootName?: string } | undefined)?.contentRootName ??
+        cache.getSiteFolder();
+      if (issue && resolveSiteForIssue(issue, site)) {
+        emitValidationIssueWorkflowEvent({
+          type: action === "claim" ? "validation_issue_claimed" : "validation_issue_completed",
+          site: resolveSiteForIssue(issue, site)!,
+          issue,
+          author,
+          actor,
+        });
+      }
     }
     return res.json({
       success: true,
@@ -834,9 +862,23 @@ export function registerValidationRoutes(app: Express): void {
     }
     const cache = getValidationCache(res);
     const completedBy = auth.author || auth.username || "staff";
-    const result = await cache.updateIssue(issueId, "complete", completedBy);
+    const actor = resolveIssueActor(req, { model: req.body?.model });
+    const result = await cache.updateIssue(issueId, "complete", completedBy, { actor });
     if (!result.ok) {
       return res.status(result.status ?? 404).json({ error: result.error });
+    }
+    const issue = cache.getIssueById(issueId);
+    const site =
+      (res.locals.site as { contentRootName?: string } | undefined)?.contentRootName ??
+      cache.getSiteFolder();
+    if (issue && resolveSiteForIssue(issue, site)) {
+      emitValidationIssueWorkflowEvent({
+        type: "validation_issue_completed",
+        site: resolveSiteForIssue(issue, site)!,
+        issue,
+        author: completedBy,
+        actor,
+      });
     }
     return res.json({
       success: true,
@@ -1405,6 +1447,7 @@ export function registerValidationRoutes(app: Express): void {
 
       const meta = file.meta || {};
       const cache = getValidationCache(res);
+      maybeReloadValidationCache(getContentRoot(res), cache);
       const entryKey = entryKeyFromContentFile(file);
       if (!file.variant) {
         cache.registerUrl(url, entryKey);
@@ -1425,12 +1468,8 @@ export function registerValidationRoutes(app: Express): void {
           validator: s.validator,
           file: s.file,
           validationCacheBuiltAt: s.lastRunAt,
-          completed: completion
-            ? { by: completion.completedBy, at: completion.completedAt }
-            : null,
-          claimed: claim
-            ? { by: claim.claimedBy, at: claim.claimedAt, expiresAt: claim.expiresAt }
-            : null,
+          completed: completion ? completionToApiRow(completion) : null,
+          claimed: claim ? claimToApiRow(claim) : null,
         };
       });
 

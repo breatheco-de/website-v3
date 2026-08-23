@@ -147,10 +147,22 @@ export function cachedSsrHtmlHasFaqPage(
   return false;
 }
 
+const PLACEHOLDER_PATTERNS = [
+  /\bTODO\b/,
+  /\[TODO\]/i,
+  /^TODO:/i,
+  /\blorem ipsum\b/i,
+];
+
+/** True when a JSON-LD string value is an intentional placeholder (not Spanish "Todos"/"metodología"). */
+export function isSchemaPlaceholderValue(value: string): boolean {
+  return PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(value));
+}
+
 function checkForPlaceholders(obj: unknown): string[] {
   const found: string[] = [];
   if (typeof obj === "string") {
-    if (obj.match(/todo/i)) {
+    if (isSchemaPlaceholderValue(obj)) {
       found.push(obj);
     }
   } else if (Array.isArray(obj)) {

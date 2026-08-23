@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Home, Image, Languages, Map, Menu, MessageCircle, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
-import { IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Bot, Brain, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Globe, Home, Image, Languages, Map, Menu, MessageCircle, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
+import { IconServer, IconShoppingBag, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle, IconSwitchHorizontal } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
 import { Badge, badgeVariants } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ import type { PreviewBreakpoint } from "@/contexts/EditModeContext";
 import { isVisualEditPath } from "@/lib/visual-edit-path";
 import { useEnterVisualEditMode } from "@/hooks/useEnterVisualEditMode";
 import { GitHubSyncChip } from "./GitHubSyncChip";
+import { PipelineCounts, getPipelineVisualState, type PipelineCountsData } from "./PipelineCounts";
 import { LocationOverrideBadge } from "./LocationOverrideBadge";
 import { GcsBucketSyncChip } from "./GcsBucketSyncChip";
 import { SystemAlertsPanel } from "@/components/StaffSystemAlertBanner";
@@ -107,7 +108,6 @@ export interface DebugPanelContentProps {
   componentIconMap: Record<string, unknown>;
   siteInfo?: { domain: string; contentFolder: string; isMultiSite: boolean; isDevOverride: boolean; githubRepoUrl?: string } | null;
   onOpenSiteManager: () => void;
-  onOpenSwitchSite: () => void;
 
   versioningLoading: boolean;
   versioningData: unknown;
@@ -268,6 +268,21 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
   const [settingsExpanded, setSettingsExpanded] = useState(false);
   const [storeExpanded, setStoreExpanded] = useState(false);
   const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
+
+  const pipelineSite = props.siteInfo?.contentFolder;
+  const { data: pipelineStatus, isLoading: pipelineLoading } = useQuery<PipelineCountsData>({
+    queryKey: ["/api/admin/pipeline/status", pipelineSite],
+    queryFn: async () => {
+      const res = await apiFetch(
+        `/api/admin/pipeline/status?site=${encodeURIComponent(pipelineSite!)}`,
+      );
+      if (!res.ok) throw new Error("Failed to fetch pipeline status");
+      return res.json();
+    },
+    enabled: !!pipelineSite,
+    refetchInterval: () => (document.hidden ? false : 5000),
+  });
+  const pipelineVisualState = getPipelineVisualState(pipelineStatus, pipelineLoading);
 
   const openReattachConfirm = useCallback(() => {
     setReattachConfirmOpen(true);
@@ -1080,36 +1095,52 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               </div>
           </div>
 
-          <div className="border-t p-2 space-y-1">
-            <div className="flex items-center justify-between px-3 py-1.5">
-              <div className="flex items-center gap-2 min-w-0">
-                <IconServer className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide shrink-0">Site:</span>
-                <span className="text-xs font-mono text-foreground truncate">{props.siteInfo?.domain ?? "—"}</span>
-                {props.siteInfo?.isDevOverride && (
-                  <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[10px] font-medium shrink-0">dev override</span>
-                )}
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                {props.siteInfo?.isMultiSite && (
-                  <button
-                    className="p-1 rounded hover-elevate"
-                    onClick={props.onOpenSwitchSite}
-                    data-testid="button-switch-site"
-                    title="Switch Site"
-                  >
-                    <IconSwitchHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                )}
+          <div className="border-t" data-testid="section-site-workers">
+            <div className="flex divide-x divide-border">
+              <div className="flex flex-[2] min-w-0 items-center justify-between gap-2 px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-xs font-mono text-foreground truncate">{props.siteInfo?.domain ?? "—"}</span>
+                  {props.siteInfo?.isDevOverride && (
+                    <Badge
+                      className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[10px] px-1.5 py-0 font-semibold shrink-0"
+                      title="Dev site override active"
+                    >
+                      forced
+                    </Badge>
+                  )}
+                </div>
                 <button
-                  className="p-1 rounded hover-elevate"
+                  className="p-1 rounded hover-elevate shrink-0"
                   onClick={props.onOpenSiteManager}
                   data-testid="button-site-manager"
                   title="Open Site Manager"
                 >
-                  <Settings className="h-3.5 w-3.5 text-muted-foreground" />
+                  <IconSwitchHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
               </div>
+              <button
+                type="button"
+                className="flex flex-1 min-w-0 items-center justify-center gap-1.5 px-3 py-2 hover-elevate"
+                onClick={() => props.navigate("/private/background-pipeline")}
+                data-testid="button-background-pipeline"
+                title="Background pipeline"
+              >
+                <Bot
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0",
+                    pipelineVisualState === "idle" && "text-chart-3",
+                    pipelineVisualState === "degraded" && "text-amber-600 dark:text-amber-400",
+                    pipelineVisualState === "stalled" && "text-destructive",
+                    pipelineVisualState === "active" && "text-muted-foreground animate-pulse",
+                    pipelineVisualState === "loading" && "text-muted-foreground",
+                  )}
+                />
+                <PipelineCounts data={pipelineStatus} loading={pipelineLoading} />
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide shrink-0">
+                  Workers
+                </span>
+              </button>
             </div>
           </div>
         </>

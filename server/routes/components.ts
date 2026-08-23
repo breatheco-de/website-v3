@@ -219,6 +219,7 @@ import {
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
+  markContentFileModified,
 } from "./_helpers";
 import { child } from "../logger";
 const log = child({ module: "routes/components" });
@@ -1075,7 +1076,11 @@ export function registerComponentsRoutes(app: Express): void {
       }
 
       fs.writeFileSync(fullPath, content, "utf-8");
-      markFileAsModified(normalizedPath, authorName);
+      markContentFileModified(normalizedPath, {
+        author: authorName,
+        req,
+        contentRoot: getContentRoot(res),
+      });
       clearRedirectCache();
       getCI(res).refresh({ syncSlow: true });
 
@@ -1109,9 +1114,19 @@ export function registerComponentsRoutes(app: Express): void {
   app.get("/api/bindings", (_req, res) => {
     try {
       const groups = bindingManager.getAll();
-      const enrichedGroups = groups.map((g) => ({
-        ...g,
-        members: g.members.map((m) => ({
+      const siteId = getContentRootName(res);
+      const enrichedGroups = groups.map((g) => {
+        const lease = bindingManager.getActivePropagationLease(siteId, g.id, g.locale);
+        return {
+          ...g,
+          lease: lease
+            ? {
+                status: "propagating" as const,
+                holder: lease.holder,
+                expiresAt: lease.expiresAt,
+              }
+            : undefined,
+          members: g.members.map((m) => ({
           ...m,
           localeSlug: getCI(res).getLocaleSlug(
             m.slug,
@@ -1125,7 +1140,8 @@ export function registerComponentsRoutes(app: Express): void {
             g.locale,
           ),
         })),
-      }));
+        };
+      });
       res.json({ groups: enrichedGroups });
     } catch (error) {
       log.error({ err: error }, "Error fetching bindings:");

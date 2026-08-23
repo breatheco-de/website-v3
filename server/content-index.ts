@@ -2376,6 +2376,173 @@ export class ContentIndex {
       }
     }
   }
+
+  /** Export entries array for snapshot serialization. */
+  exportSnapshotEntries(): ContentEntry[] {
+    return structuredClone(this.entries);
+  }
+
+  exportSnapshot(generation: number): import("./content-index-snapshot").IndexSnapshot {
+    const bySlug: Record<string, ContentEntry[]> = {};
+    for (const [k, v] of this.bySlug) bySlug[k] = structuredClone(v);
+    const byPath: Record<string, ContentEntry> = {};
+    for (const [k, v] of this.byPath) byPath[k] = structuredClone(v);
+    const byUrl: Record<string, unknown> = {};
+    for (const [k, v] of this.byUrl) byUrl[k] = structuredClone(v);
+    const localeSlugMap: Record<string, string> = {};
+    for (const [k, v] of this.localeSlugMap) localeSlugMap[k] = v;
+    const imageUsage: Record<string, string[]> = {};
+    for (const [k, v] of this.imageUsage) imageUsage[k] = [...v];
+    const variableUsage: Record<string, string[]> = {};
+    for (const [k, v] of this.variableUsage) variableUsage[k] = [...v];
+    const menuUsage: Record<string, unknown[]> = {};
+    for (const [k, v] of this.menuUsage) menuUsage[k] = structuredClone(v);
+    const seoIndex: Record<string, unknown> = {};
+    for (const [k, v] of this.seoIndex) seoIndex[k] = structuredClone(v);
+    return {
+      generation,
+      site: this.contentRootName,
+      entries: this.exportSnapshotEntries(),
+      bySlug,
+      byPath,
+      byUrl,
+      localeSlugMap,
+      imageUsage,
+      variableUsage,
+      menuUsage,
+      seoIndex,
+      redirectEntries: structuredClone(this.redirectEntries),
+      slowPhaseReady: this.slowPhaseReady,
+    };
+  }
+
+  /**
+   * Atomically swap index maps from a worker-built snapshot.
+   * Rejects stale snapshots when latestWriteGeneration > snapshot.generation.
+   */
+  applySnapshot(
+    snapshot: import("./content-index-snapshot").IndexSnapshot,
+    latestWriteGeneration: number,
+  ): boolean {
+    if (latestWriteGeneration > snapshot.generation) return false;
+    this.entries = structuredClone(snapshot.entries);
+    this.bySlug = new Map(Object.entries(snapshot.bySlug));
+    this.byPath = new Map(Object.entries(snapshot.byPath));
+    this.byUrl = new Map(
+      Object.entries(snapshot.byUrl) as [
+        string,
+        { contentType: string; slug: string; entry: ContentEntry; params: Record<string, string>; patternLocale: string },
+      ][],
+    );
+    this.localeSlugMap = new Map(Object.entries(snapshot.localeSlugMap));
+    this.imageUsage = new Map(
+      Object.entries(snapshot.imageUsage).map(([k, v]) => [k, new Set(v)]),
+    );
+    this.variableUsage = new Map(
+      Object.entries(snapshot.variableUsage).map(([k, v]) => [k, new Set(v)]),
+    );
+    this.menuUsage = new Map(
+      Object.entries(snapshot.menuUsage) as [
+        string,
+        { contentType: string; slug: string; source: string; position: "top" | "bottom" }[],
+      ][],
+    );
+    this.seoIndex = new Map(
+      Object.entries(snapshot.seoIndex) as [string, SeoEntry][],
+    );
+    this.redirectEntries = structuredClone(snapshot.redirectEntries);
+    this.slowPhaseReady = snapshot.slowPhaseReady;
+    this.initialized = true;
+    this.clearLiveRedirectCache();
+    return true;
+  }
+
+  /**
+   * Re-index a single entry folder after a save (one-folder fast scan, no site scan).
+   */
+  upsertEntry(filePath: string): void {
+    this.ensureInitialized();
+    const abs = path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), filePath);
+    const rel = path.relative(process.cwd(), abs).replace(/\\/g, "/");
+    const dirRel = path.dirname(rel).replace(/\\/g, "/");
+    const folderName = path.basename(dirRel);
+
+    // Remove prior entry for this directory
+    this.entries = this.entries.filter((e) => e.directory !== dirRel);
+    for (const [slug, list] of [...this.bySlug]) {
+      const filtered = list.filter((e) => e.directory !== dirRel);
+      if (filtered.length === 0) this.bySlug.delete(slug);
+      else this.bySlug.set(slug, filtered);
+    }
+    this.byPath.delete(dirRel);
+    for (const [url, val] of [...this.byUrl]) {
+      if (val.entry?.directory === dirRel) this.byUrl.delete(url);
+    }
+
+    const parts = dirRel.split("/");
+    if (parts.length < 3) return;
+    const contentType = this.normalizeType(parts[parts.length - 2]!);
+    const folderPath = path.join(process.cwd(), dirRel);
+    if (!fs.existsSync(folderPath)) return;
+
+    const files = fs.readdirSync(folderPath).filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"));
+    if (files.length === 0) return;
+
+    const slug = this.extractSlug(folderPath, folderName, files);
+    const locales = this.extractLocales(files, contentType);
+    if (locales.length === 0) return;
+
+    let title: string | undefined;
+    for (const candidate of ["_common.yml", "_common.yaml", "en.yml", "en.yaml"]) {
+      if (files.includes(candidate)) {
+        try {
+          const raw = fs.readFileSync(path.join(folderPath, candidate), "utf-8");
+          const m = raw.match(/^(?:title|name):\s+["']?([^"'\n#]+)["']?/m);
+          if (m) title = m[1].trim();
+        } catch {}
+        break;
+      }
+    }
+
+    for (const file of files) {
+      const locale = file.replace(/\.(yml|yaml)$/, "");
+      if (locale.startsWith("_") || !/^[a-z]{2}(-[a-z]{2})?$/.test(locale)) continue;
+      try {
+        const raw = fs.readFileSync(path.join(folderPath, file), "utf-8");
+        const m = raw.match(/^slug:\s+["']?([^\s"'\n#]+)["']?/m);
+        if (m) {
+          const localeSlug = m[1].trim();
+          if (localeSlug !== slug) {
+            this.localeSlugMap.set(`${localeSlug}:${contentType}`, slug);
+          }
+        }
+      } catch {}
+    }
+
+    const entry: ContentEntry = { slug, contentType, directory: dirRel, files, locales, title };
+    this.entries.push(entry);
+    const existing = this.bySlug.get(slug) || [];
+    existing.push(entry);
+    this.bySlug.set(slug, existing);
+    this.byPath.set(dirRel, entry);
+
+    // Rebuild URL index for this entry
+    const config = this.contentTypeConfigs[contentType];
+    if (config?.url_pattern) {
+      for (const locale of locales) {
+        try {
+          const url = this.buildUrl(contentType, locale, slug);
+          this.byUrl.set(url, {
+            contentType,
+            slug,
+            entry,
+            params: {},
+            patternLocale: locale,
+          });
+        } catch {}
+      }
+    }
+  }
 }
 
 export { stripNullValues };

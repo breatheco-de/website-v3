@@ -173,7 +173,8 @@ export class VersioningManager {
   }
 
   private registerFileModifiedListener(): void {
-    addFileModifiedListener((filePath: string) => {
+    addFileModifiedListener((evt) => {
+      const filePath = evt.filePath;
       const parsed = this.parseVariantFilePath(filePath);
       if (parsed) {
         const { contentType, slug, variantSlug, locale } = parsed;

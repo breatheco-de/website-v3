@@ -54,22 +54,43 @@ export async function editContent(request: ContentEditRequest): Promise<ContentE
   const token = getDebugToken();
   const author = await resolveAuthorName();
 
-  const response = await fetch("/api/content/edit-sections", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Token ${token}` } : {}),
-    },
-    body: JSON.stringify(encodeHtmlValues({
-      ...request,
-      author,
-    })),
-  });
+  const doRequest = async (): Promise<Response> =>
+    fetch("/api/content/edit-sections", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Token ${token}` } : {}),
+      },
+      body: JSON.stringify(encodeHtmlValues({
+        ...request,
+        author,
+      })),
+    });
+
+  let response = await doRequest();
+
+  if (response.status === 409) {
+    const conflict = await response.clone().json().catch(() => null) as {
+      code?: string;
+      retryAfterMs?: number;
+    } | null;
+    if (conflict?.code === "binding_lease_active") {
+      const waitMs = Math.min(3000, Math.max(500, conflict.retryAfterMs ?? 1500));
+      await new Promise((r) => setTimeout(r, waitMs));
+      response = await doRequest();
+    }
+  }
 
   if (response.ok) {
     return await response.json();
   } else {
     const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+    if (errorData.code === "binding_lease_active") {
+      return {
+        success: false,
+        error: "This bound section is syncing to other pages. Please try again in a moment.",
+      };
+    }
     return {
       success: false,
       error: errorData.error || `Request failed with status ${response.status}`,

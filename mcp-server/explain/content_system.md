@@ -164,3 +164,20 @@ Blocked (circular): `_image`, `image`, `og_image`, `meta.og_image`. Prefixes `br
 **Capture runtime:** Cloudflare Browser Run on the server (`regenerate_entry_previews` MCP / admin enqueue). Requires `locales[]` (mandatory). Variants/drafts are skipped. On success: WebP under `images/entry-previews/` (gitignored) and live `{locale}.yml` `meta.og_image` with `?t=` cache-bust — **unless** a distinct gallery/editorial `meta.og_image` / `_image` is already set. Credentials: host env only (`CLOUDFLARE_*`, optional `ENTRY_PREVIEW_CAPTURE_SECRET`, else `SESSION_SECRET` for signing). Staff SEO/GEO → OG Image is display/test only. Non-effects: no MCP tool writes those secrets; does not touch `settings.yml` for Cloudflare.
 
 **Non-effects:** changing brand does **not** dirty / auto-recapture — brand is omitted from `propsHash`. Missing or unusable mapped sources fail **that** entry’s capture only; the queue continues. Capture does not `commitAndPush` by itself (AutoCommitQueue when enabled). Component gallery thumbs stay on client `modern-screenshot`.
+
+## Background event pipeline (saves + MCP writes)
+
+Content saves and MCP YAML writes emit rows into per-site SQLite (`data/<site>/app.db` → `events` table). The event `id` (rowid) is the **generation** counter. A Sidequest.js worker (`data/sidequest.sqlite`) processes:
+
+- `index_refresh` — full ContentIndex snapshot, applied to the web process within seconds
+- `on_save_validation` — entry-local validators, merged into the validation cache
+- `sync_state_flush` — batched `.sync-state.json` write
+- `binding_propagation` — async bound-section sibling YAML writes behind a lease
+
+**Staff:** Background pipeline dashboard at `/private/background-pipeline` (`GET /api/admin/pipeline/status`, event log via `GET /api/admin/events`). Debug Bubble queue icon links there. Saves return immediately; site-wide usage maps lag briefly until index snapshot apply.
+
+**Agents (MCP):** MCP writes call the same `emitContentFileWritten` helper. `side_effects` may include `event_id`. Entry YAML on disk is fresh immediately; usage maps / SEO index update after `index_snapshot_ready` (typically &lt;5s). Template saves do **not** fan out `updated_at` to attached entries. Bound-section saves queue sibling propagation — do not expect inline `bound_updates`. Dashboard at `/private/background-pipeline` is read-only for staff; agents keep using events APIs — no behavior change.
+
+**Event log fields (agents):** Each row has `resource`, `payload`, `attribution[]` (`{ author?, actor? }` — usually one entry; coalesced snapshots union all parent writes), `triggered_by_event_id` (single-parent chains), and `triggered_by_event_ids[]` on `index_snapshot_ready` (all write ids covered; computed at emit, always agrees with `payload.generation`). Downstream events inherit attribution from their parent write(s). Issue workflow events (`validation_issue_*`) have attribution only — no parent link. Parent ids may reference pruned/cleared rows; treat as historical references, not joins. Safe UI fields: `payload.entryKey`, `payload.summary`, `payload.files[]`, `payload.updatedFiles[]`, `payload.errors[]`, issue `code`/`severity`/`validator`. **Non-effects:** `index_snapshot_ready` only means a snapshot file was written — live ContentIndex updates when the applier runs. `validation_results_ready` with `skipped: true` does not change the Diagnostics cache. Validation job dedupe is unchanged — provenance is stamped at emit from the latest matching write. MCP writes must send `x-mcp-author` + `x-mcp-client`. `binding_propagation_started` does not imply siblings are updated until `binding_propagation_done`. `job_failed` is reserved; not emitted yet.
+
+**Binding lease 409:** `{ code: "binding_lease_active", groupId, holder, retryAfterMs }` — only the bound **section** is locked; wait `retryAfterMs` and retry once. Other sections on the same page remain editable.

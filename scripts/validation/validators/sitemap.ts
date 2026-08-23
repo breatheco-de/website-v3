@@ -9,9 +9,24 @@
  *   are present in the generated XML for multi-locale page pairs
  */
 
-import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
+import type { Validator, ValidatorResult, ValidationContext, ValidationIssue, ContentFile } from "../shared/types";
 import { getCanonicalUrl } from "../shared/canonicalUrls";
 import { skipCrossEntryVariantRow } from "../shared/draftFiles";
+import { isIndexingBlocked } from "../../../server/settings";
+
+const TEMPLATE_EXPR_RE = /\{\{[\s\S]*?\}\}/;
+
+/** Mirrors server/sitemap.ts inclusion rules for indexable public URLs. */
+function shouldExpectSitemapEntry(file: ContentFile, contentRoot?: string): boolean {
+  if (file.isDraft) return false;
+  if (skipCrossEntryVariantRow(file)) return false;
+  if (isIndexingBlocked(contentRoot)) return false;
+  const robots = file.meta?.robots;
+  if (typeof robots === "string" && robots.toLowerCase().includes("noindex")) return false;
+  const url = getCanonicalUrl(file);
+  if (!url || TEMPLATE_EXPR_RE.test(url)) return false;
+  return true;
+}
 
 function deriveNormalizedPath(loc: string): string {
   return loc
@@ -44,6 +59,7 @@ export const sitemapValidator: Validator = {
 
     for (const file of context.contentFiles) {
       if (skipCrossEntryVariantRow(file)) continue;
+      if (!shouldExpectSitemapEntry(file, context.contentRoot)) continue;
       const url = getCanonicalUrl(file);
       if (!sitemapUrls.has(url) && context.sitemapEntries.length > 0) {
         warnings.push({

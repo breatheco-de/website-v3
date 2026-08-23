@@ -89,9 +89,18 @@ export interface StoredValidationIssue {
 }
 
 /** Soft-complete overlay — keyed by StoredValidationIssue.id; not part of the issue row. */
+export interface ValidationIssueActor {
+  type: "ui" | "mcp";
+  /** MCP OAuth client name (e.g. Cursor) — server-derived only. */
+  client?: string;
+  /** Best-effort model name when reported by MCP agent. */
+  model?: string;
+}
+
 export interface ValidationIssueCompletion {
   completedBy: string;
   completedAt: string;
+  actor?: ValidationIssueActor;
 }
 
 /** In-progress claim overlay — keyed by StoredValidationIssue.id; TTL-based. */
@@ -99,6 +108,7 @@ export interface ValidationIssueClaim {
   claimedBy: string;
   claimedAt: string;
   expiresAt: string;
+  actor?: ValidationIssueActor;
 }
 
 export interface EntryRunMeta {

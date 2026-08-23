@@ -387,24 +387,3 @@ export function persistUpdatedAtOnYamlFile(
   }
 }
 
-export function stampAttachedEntryLocaleFiles(opts: {
-  contentType: string;
-  locale: string;
-  iso: string;
-  slugs: string[];
-  contentRoot?: string;
-  author?: string;
-  skipIfDetached?: (slug: string) => boolean;
-}): void {
-  const root = opts.contentRoot
-    ? path.isAbsolute(opts.contentRoot)
-      ? opts.contentRoot
-      : path.join(process.cwd(), opts.contentRoot)
-    : getDefaultContentRoot();
-  const folder = getFolder(opts.contentType, opts.contentRoot);
-  for (const slug of opts.slugs) {
-    if (opts.skipIfDetached?.(slug)) continue;
-    const filePath = path.join(root, folder, slug, `${opts.locale}.yml`);
-    persistUpdatedAtOnYamlFile(filePath, opts.iso, opts.author, opts.contentRoot);
-  }
-}

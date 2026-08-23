@@ -85,6 +85,8 @@ import {
   BULK_META_MAX_SLUGS,
 } from "../bulk-update-meta";
 import { bindingManager } from "../bindings";
+import { bindingHolderId, checkBindingLeaseConflicts } from "../binding-lease-guard";
+import { emitBindingPropagationStarted } from "../content-events";
 import {
   escapeTemplateVars,
   escapeObjectVars,
@@ -1082,6 +1084,35 @@ export function registerSectionsRoutes(app: Express): void {
       const resolvedLayoutTarget =
         layoutTarget === "entry" || layoutTarget === "type_single" ? layoutTarget : undefined;
 
+      const touchedSectionIndexes = new Set<number>();
+      for (const op of finalOperations as Array<{ action: string; index?: number; path?: string }>) {
+        if (op.action === "update_section" && typeof op.index === "number") {
+          touchedSectionIndexes.add(op.index);
+        } else if (op.action === "update_field" && typeof op.path === "string") {
+          const m = op.path.match(/^sections\.(\d+)(?:\.|$)/);
+          if (m) touchedSectionIndexes.add(parseInt(m[1], 10));
+        }
+      }
+
+      const siteId = getContentRootName(res);
+      const normalizedLocaleForBinding = normalizeLocale(locale);
+      const baseSlugForBinding = getCI(res).resolveBaseSlug(slug, contentType);
+      const bindingHolder = bindingHolderId(authorName, contentType, baseSlugForBinding);
+      if (touchedSectionIndexes.size > 0) {
+        const leaseConflict = checkBindingLeaseConflicts(
+          siteId,
+          bindingHolder,
+          contentType,
+          baseSlugForBinding,
+          normalizedLocaleForBinding,
+          [...touchedSectionIndexes],
+        );
+        if (leaseConflict) {
+          res.status(409).json(leaseConflict);
+          return;
+        }
+      }
+
       const result = await editContent({
         contentType,
         slug,
@@ -1130,32 +1161,43 @@ export function registerSectionsRoutes(app: Express): void {
             const resolvedIdx = [...sectionIndexesToPropagate][0];
             const updatedSection = updatedSections[resolvedIdx];
             if (updatedSection) {
-              const normalizedLocaleForBinding = normalizeLocale(locale);
-              const baseSlugForBinding = getCI(res).resolveBaseSlug(slug, contentType);
-              const propagation = bindingManager.propagateUpdate(
+              const group = bindingManager.findGroupForSectionByIndex(
                 contentType,
                 baseSlugForBinding,
                 resolvedIdx,
-                updatedSection,
-                authorName,
                 normalizedLocaleForBinding,
               );
-              if (propagation.errors.length > 0) {
-                bindingWarnings = propagation.errors;
-              }
-              if (propagation.updatedFiles.length > 0) {
-                boundUpdates = propagation.updatedFiles;
+              if (group) {
+                const acquired = bindingManager.acquirePropagationLease(
+                  siteId,
+                  group.id,
+                  group.locale,
+                  bindingHolder,
+                );
+                if (acquired.ok) {
+                  emitBindingPropagationStarted({
+                    site: siteId,
+                    groupId: group.id,
+                    locale: group.locale,
+                    sourceContentType: contentType,
+                    sourceSlug: baseSlugForBinding,
+                    sectionIndex: resolvedIdx,
+                    holder: bindingHolder,
+                    token: acquired.lease.token,
+                    author: authorName,
+                  });
+                } else {
+                  bindingWarnings = [
+                    `Bound section propagation blocked: ${acquired.lease.holder} is syncing this group`,
+                  ];
+                }
               }
 
               try {
                 const { getSyncLogForResponse } = await import("../sync-log");
                 const sectionType = (updatedSection as Record<string, unknown>).type as string || `section-${resolvedIdx}`;
-                const affectedCount = propagation.updatedFiles.length;
-                const editMsg = `${sectionType} section updated on ${slug}/${locale}${affectedCount > 0 ? ` → propagated to ${affectedCount} bound page(s)` : ""}`;
+                const editMsg = `${sectionType} section updated on ${slug}/${locale} → bound pages syncing in background`;
                 const editMeta: Record<string, unknown> = { contentType, slug, locale, sectionIndex: resolvedIdx, sectionType };
-                if (affectedCount > 0) {
-                  editMeta.affectedPages = propagation.updatedFiles.map(f => f.replace(getContentRootName(res) + "/", ""));
-                }
                 getSyncLogForResponse(res).log("EDIT", editMsg, authorName, editMeta);
               } catch { /* non-fatal */ }
             }
@@ -1163,17 +1205,8 @@ export function registerSectionsRoutes(app: Express): void {
         }
 
         const ci = getCI(res);
-        const siteId = getContentRootName(res);
         const htmlPaths = collectEntryHtmlPaths(ci, contentType, slug, normalizeLocale(locale));
         const normalizedLocale = normalizeLocale(locale);
-        for (const bound of boundUpdates) {
-          const [boundType, boundSlug] = bound.split("/");
-          if (boundType && boundSlug) {
-            htmlPaths.push(
-              ...collectEntryHtmlPaths(ci, boundType, boundSlug, normalizedLocale),
-            );
-          }
-        }
 
         let syncSlow = false;
         let wroteSharedTemplate = resolvedLayoutTarget === "type_single";

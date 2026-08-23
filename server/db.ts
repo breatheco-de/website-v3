@@ -139,6 +139,25 @@ export const db = drizzle(sqlite);
 export type SiteDb = ReturnType<typeof drizzle>;
 
 const _siteDbCache = new Map<string, SiteDb>();
+const _siteSqliteCache = new Map<string, Database.Database>();
+
+/** Raw better-sqlite3 handle for a site DB (events, leases, etc.). */
+export function getSiteSqlite(contentFolderName: string, copyLegacyIfMissing = false): Database.Database {
+  const safeName = contentFolderName.replace(/[/\\]/g, "-");
+  if (_siteSqliteCache.has(safeName)) {
+    return _siteSqliteCache.get(safeName)!;
+  }
+  // Ensure drizzle cache is warm (runs migrations / legacy copy)
+  createSiteDb(contentFolderName, copyLegacyIfMissing);
+  const siteDataDir = path.join(dataDir, safeName);
+  const siteDbPath = path.join(siteDataDir, "app.db");
+  const siteSqlite = new Database(siteDbPath);
+  siteSqlite.pragma("journal_mode = WAL");
+  siteSqlite.pragma("foreign_keys = ON");
+  siteSqlite.pragma("busy_timeout = 5000");
+  _siteSqliteCache.set(safeName, siteSqlite);
+  return siteSqlite;
+}
 
 // createSiteDb — returns (and caches) a drizzle instance for a site-specific
 // SQLite database at data/<contentFolderName>/app.db.
