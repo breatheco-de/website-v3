@@ -6,6 +6,7 @@
  */
 
 import type { ValidationScope, ValidatorRunClass } from "./runClass";
+import type { ContentIndex } from "../../../server/content-index";
 
 export type { ValidationScope, ValidatorRunClass } from "./runClass";
 
@@ -220,6 +221,8 @@ export interface SitemapEntry {
 }
 
 export interface ValidationContext {
+  /** Site-scoped content index (diagnostics worker / multi-site). */
+  contentIndex?: ContentIndex;
   contentFiles: ContentFile[];
   redirectMap: Map<string, RedirectEntry>;
   validUrls: Set<string>;

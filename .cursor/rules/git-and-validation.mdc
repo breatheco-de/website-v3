@@ -21,3 +21,5 @@ Edits under `site_*/` must be pushed to the **content** GitHub repo in the **sam
 ## Validation
 
 Run `scripts/validation` (CLI or service) when changing content or schemas. Fix validation errors before committing.
+
+Pipeline SQLite (events / leases / `pipeline_state`): see [`pipeline-sqlite-migrations.mdc`](pipeline-sqlite-migrations.mdc) — add numbered migrations + `npm run ensure:pipeline-db -- --dry-run` before merge.

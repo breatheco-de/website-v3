@@ -14,14 +14,48 @@ export const EVENT_TYPES = [
 
 export type EventType = (typeof EVENT_TYPES)[number];
 
-/** Events that change on-disk content and may require a background index refresh. */
-export const INDEX_WRITE_EVENT_TYPES = [
-  "content_file_written",
-  "content_bulk_synced",
-  "redirects_changed",
-] as const satisfies readonly EventType[];
+export type EventOutboxRole = "dispatch" | "audit";
 
-export type IndexWriteEventType = (typeof INDEX_WRITE_EVENT_TYPES)[number];
+export type EventTypeMeta = {
+  /** Outbox: dispatcher must enqueue Sidequest work before marking published. */
+  outbox: EventOutboxRole;
+  /** Bumps latest write generation (index lag). */
+  affectsWriteGeneration: boolean;
+};
+
+/** Single source of truth for event roles (outbox stall, write generation, dispatcher). */
+export const EVENT_TYPE_META: Record<EventType, EventTypeMeta> = {
+  content_file_written: { outbox: "dispatch", affectsWriteGeneration: true },
+  content_bulk_synced: { outbox: "dispatch", affectsWriteGeneration: true },
+  binding_propagation_started: { outbox: "dispatch", affectsWriteGeneration: false },
+  redirects_changed: { outbox: "audit", affectsWriteGeneration: true },
+  index_snapshot_ready: { outbox: "audit", affectsWriteGeneration: false },
+  validation_results_ready: { outbox: "audit", affectsWriteGeneration: false },
+  validation_issue_claimed: { outbox: "audit", affectsWriteGeneration: false },
+  validation_issue_completed: { outbox: "audit", affectsWriteGeneration: false },
+  validation_issue_reopened: { outbox: "audit", affectsWriteGeneration: false },
+  binding_propagation_done: { outbox: "audit", affectsWriteGeneration: false },
+  job_failed: { outbox: "audit", affectsWriteGeneration: false },
+};
+
+export function isOutboxDispatchable(type: EventType): boolean {
+  return EVENT_TYPE_META[type].outbox === "dispatch";
+}
+
+/** Events the outbox dispatcher enqueues to Sidequest. */
+export const OUTBOX_DISPATCHABLE_EVENT_TYPES = EVENT_TYPES.filter(
+  (t) => EVENT_TYPE_META[t].outbox === "dispatch",
+) as readonly EventType[];
+
+/** Events that change on-disk content and may require a background index refresh. */
+export const INDEX_WRITE_EVENT_TYPES = EVENT_TYPES.filter(
+  (t) => EVENT_TYPE_META[t].affectsWriteGeneration,
+) as readonly EventType[];
+
+export type IndexWriteEventType = Extract<
+  EventType,
+  "content_file_written" | "content_bulk_synced" | "redirects_changed"
+>;
 
 export type EventResource = {
   path?: string;

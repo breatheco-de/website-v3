@@ -1,0 +1,32 @@
+---
+description: Versioned migrations for pipeline SQLite (events, leases, pipeline_state)
+globs:
+  - server/pipeline-db/**
+  - server/events/event-store.ts
+  - server/pipeline-state.ts
+  - server/leases.ts
+  - scripts/ensure-pipeline-db.ts
+---
+
+# Pipeline SQLite migrations
+
+Pipeline tables live in per-site `data/<site>/app.db` (events, `pipeline_state`, `leases`). Schema is **not** in Drizzle migrations or GCS sync.
+
+## Changing schema
+
+1. Add a **new numbered migration** in [`server/pipeline-db/migrations.ts`](server/pipeline-db/migrations.ts) — **never edit** shipped migration bodies.
+2. Bump `PIPELINE_SCHEMA_VERSION` to match the highest migration version.
+3. **Forward-only / backward-compatible:** `ADD COLUMN`, new tables, new indexes only. No renames/drops that break rollback to the previous release for one deploy.
+4. **Indexes after columns** — never create an index on a column in the same migration step that adds it unless the column already exists on legacy DBs.
+5. Add a fixture test in [`server/pipeline-db/runner.test.ts`](server/pipeline-db/runner.test.ts) for the **previous** schema shape.
+6. Run `npm run ensure:pipeline-db -- --dry-run` locally before merge.
+
+## Deploy / boot
+
+- **Preflight (deploy):** `npm run ensure:pipeline-db -- --dry-run` in [`scripts/deploy.sh`](scripts/deploy.sh) — migrates **copies** only; aborts before flip on failure.
+- **Apply (boot):** [`ensurePipelineDbForSites`](server/pipeline-db/runner.ts) in [`server/index.ts`](server/index.ts) before job queue / watchdog.
+- Staff monitor deploy via **GitHub Actions → Deploy to VPS** log (not admin UI).
+
+## Sidequest
+
+`data/sidequest.sqlite` is library-managed via [`configureJobQueue()`](server/jobs/queue.ts). Pin package version; smoke-test on upgrades.

@@ -162,6 +162,10 @@ export function ServerTab() {
                 label="Last soft reload"
                 value={status.lastSoftReloadAt ? new Date(status.lastSoftReloadAt).toLocaleString() : "—"}
               />
+              <p className="text-xs text-muted-foreground pt-3 border-t">
+                Deploy status: GitHub → Actions → <strong>Deploy to VPS</strong> (job log for the
+                commit). A new Boot ID and low uptime here confirm a successful restart after deploy.
+              </p>
             </div>
           )}
         </CardContent>

@@ -9,6 +9,7 @@ import {
   setDispatcherWake,
   type ContentEvent,
 } from "./event-store";
+import { isOutboxDispatchable } from "./types";
 import { enqueueJob } from "../jobs/queue";
 import { getSiteContextMap } from "../site-manager";
 import { buildEntryKey } from "../../scripts/validation/shared/entryKey";
@@ -115,6 +116,7 @@ async function runDispatchCycle(): Promise<void> {
         const events = getUnpublishedEvents(ctx.contentRootName, 50);
         const published: number[] = [];
         for (const event of events) {
+          if (!isOutboxDispatchable(event.type)) continue;
           try {
             await dispatchEvent(event);
             published.push(event.id);

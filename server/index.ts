@@ -25,10 +25,11 @@ import { loadFormStateFromBucket, updateFormStateForFile } from "./form-state";
 import { loadValidationCachesFromBucket, shutdownValidationCaches } from "./services/validationCacheService";
 import { loadGscInspectionStoresFromBucket } from "./gsc-url-inspection";
 import { emitContentFileWritten, emitRedirectsChanged } from "./content-events";
-import { startEventPruneTimer } from "./events/event-store";
+import { startEventPruneTimer, wipeAllSiteEventStores } from "./events/event-store";
 import { startEventDispatcher } from "./events/dispatcher";
 import { registerAllJobs } from "./jobs/register";
 import { startJobQueue, stopJobQueue } from "./jobs/queue";
+import { ensurePipelineDbForSites } from "./pipeline-db/runner";
 import { startJobApplier, stopJobApplier } from "./jobs/applier";
 import { startEngineWatchdog } from "./jobs/engine-watchdog";
 import { scheduleSectionVariantsRefreshForFile } from "./registrySchemaValidationRefresh";
@@ -570,13 +571,26 @@ app.use((req, res, next) => {
       logger.error({ err, worker: "FormState" }, "failed to load form state");
     });
     registerAllJobs();
+    const siteNames = [...getSiteContextMap().values()].map((c) => c.contentRootName);
+    try {
+      ensurePipelineDbForSites(siteNames);
+    } catch (err) {
+      logger.error({ err, worker: "PipelineDb" }, "failed to apply pipeline SQLite migrations");
+      process.exit(1);
+    }
+    if (process.env.NODE_ENV !== "production") {
+      const wiped = wipeAllSiteEventStores(siteNames);
+      if (wiped > 0) {
+        logger.info({ wiped, sites: siteNames.length }, "[Events] Dev boot wiped site event logs");
+      }
+    }
     void startJobQueue().catch((err) => {
       logger.error({ err, worker: "JobQueue" }, "failed to start job queue");
     });
     startEventDispatcher();
     startJobApplier();
     startEngineWatchdog();
-    startEventPruneTimer([...getSiteContextMap().values()].map((c) => c.contentRootName));
+    startEventPruneTimer(siteNames);
     addFileModifiedListener((evt) => {
       const { filePath, author, actor } = evt;
       scheduleSectionVariantsRefreshForFile(filePath);

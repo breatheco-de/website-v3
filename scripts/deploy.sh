@@ -396,6 +396,10 @@ npm run build
 
 abort_requested && handle_abort
 
+echo "[deploy] validating pipeline SQLite migrations (dry-run)"
+npm run ensure:pipeline-db -- --dry-run
+abort_requested && handle_abort
+
 # Intentionally clear flags after pull wrote them — boot hash-diff catches newer content.
 clear_bootstrap_complete_flags
 

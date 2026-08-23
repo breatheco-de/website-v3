@@ -129,6 +129,7 @@ export class ValidationService {
     }
 
     this.context = {
+      contentIndex: options.ci,
       contentFiles,
       redirectMap: new Map(),
       validUrls,

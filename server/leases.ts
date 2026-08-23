@@ -3,22 +3,10 @@
  */
 
 import { getSiteSqlite } from "./db";
-
-const SCHEMA = `
-  CREATE TABLE IF NOT EXISTS leases (
-    resource TEXT PRIMARY KEY,
-    holder TEXT NOT NULL,
-    token INTEGER NOT NULL DEFAULT 1,
-    expires_at INTEGER NOT NULL
-  );
-`;
-
-const _schemaReady = new Set<string>();
+import { ensurePipelineDb } from "./pipeline-db/runner";
 
 function ensureSchema(site: string): void {
-  if (_schemaReady.has(site)) return;
-  getSiteSqlite(site).exec(SCHEMA);
-  _schemaReady.add(site);
+  ensurePipelineDb(site);
 }
 
 export type LeaseRecord = {

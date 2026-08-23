@@ -4,29 +4,47 @@ import * as yaml from "js-yaml";
 import type { ContentFile, Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { hasSchemaOrgContributors } from "@shared/schema-org-sections";
 import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
+import {
+  collectMissingJsonLdFields,
+  jsonLdPrimaryType,
+  messageForMissingField,
+  suggestionForMissingField,
+  warningCodeForJsonLdField,
+  type JsonLdSchemaSource,
+} from "@shared/schema-org-jsonld-rules";
 import { getCanonicalUrl } from "../shared/canonicalUrls";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
+import { contentIndex as defaultContentIndex } from "../../../server/content-index";
 import {
   buildHtmlCacheKey,
   getCachedHtml,
 } from "../../../server/html-page-cache";
+import type { PageSchemaCollectResult } from "../../../server/page-schema-collect";
 
-let _generateSsrSchemaHtml: ((url: string) => string | Promise<string>) | null = null;
-async function getGenerateSsrSchemaHtml(): Promise<(url: string) => string | Promise<string>> {
-  if (!_generateSsrSchemaHtml) {
+let _resolvePageSchemaDocuments:
+  | ((url: string, ci: typeof defaultContentIndex, contentRoot?: string) => Promise<PageSchemaCollectResult>)
+  | null = null;
+
+async function getResolvePageSchemaDocuments() {
+  if (!_resolvePageSchemaDocuments) {
     try {
-      const mod = await import("../../../server/ssr-schema");
-      _generateSsrSchemaHtml = mod.generateSsrSchemaHtml;
+      const mod = await import("../../../server/page-schema-collect");
+      _resolvePageSchemaDocuments = mod.resolvePageSchemaDocuments;
     } catch {
-      _generateSsrSchemaHtml = () => "";
+      _resolvePageSchemaDocuments = async () => ({ documents: [], preview: [] });
     }
   }
-  return _generateSsrSchemaHtml!;
+  return _resolvePageSchemaDocuments!;
 }
 
-/** Test-only: clear lazy SSR schema renderer so spies apply on next run. */
+/** Test-only: clear lazy page schema collector so spies apply on next run. */
+export function __resetResolvePageSchemaDocumentsForTests(): void {
+  _resolvePageSchemaDocuments = null;
+}
+
+/** @deprecated Use __resetResolvePageSchemaDocumentsForTests */
 export function __resetGenerateSsrSchemaHtmlForTests(): void {
-  _generateSsrSchemaHtml = null;
+  __resetResolvePageSchemaDocumentsForTests();
 }
 
 /** Site id used by html-page-cache (matches vite/index: contentRootName). */
@@ -83,37 +101,6 @@ export function jsonLdHasType(
     return graph.some((child) => jsonLdHasType(child, type));
   }
   return false;
-}
-
-/**
- * Schema.org types that are structural / list containers — Google does not
- * expect top-level `name` / `description` on these documents.
- */
-export const SCHEMA_TYPES_WITHOUT_NAME_DESCRIPTION = new Set([
-  "FAQPage",
-  "BreadcrumbList",
-  "ItemList",
-  "ListItem",
-  "Question",
-  "Answer",
-  "HowToStep",
-  "HowToSection",
-]);
-
-export function jsonLdPrimaryTypes(node: Record<string, unknown>): string[] {
-  const t = node["@type"];
-  if (typeof t === "string" && t.trim()) return [t];
-  if (Array.isArray(t)) {
-    return t.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
-  }
-  return [];
-}
-
-/** True when this JSON-LD document should be checked for name + description. */
-export function schemaExpectsNameDescription(node: Record<string, unknown>): boolean {
-  const types = jsonLdPrimaryTypes(node);
-  if (types.length === 0) return true;
-  return types.some((type) => !SCHEMA_TYPES_WITHOUT_NAME_DESCRIPTION.has(type));
 }
 
 export function htmlContainsFaqPage(html: string): boolean {
@@ -233,23 +220,11 @@ export const schemaCompletenessValidator: Validator = {
     let totalJsonLdBlocks = 0;
     let placeholderValues = 0;
 
+    const ci = context.contentIndex ?? defaultContentIndex;
+    const resolveDocuments = await getResolvePageSchemaDocuments();
+
     for (const file of liveFilesForSeo(context)) {
       const url = getCanonicalUrl(file);
-      let html = "";
-
-      try {
-        const renderFn = await getGenerateSsrSchemaHtml();
-        html = await Promise.resolve(renderFn(url));
-      } catch (err) {
-        errors.push({
-          type: "error",
-          code: "SCHEMA_RENDER_ERROR",
-          message: `Failed to render schema for ${url}: ${err instanceof Error ? err.message : String(err)}`,
-          file: file.filePath,
-          suggestion: "Check the schema configuration and ssr-schema rendering logic",
-        });
-        continue;
-      }
 
       const sections = resolvePageSections(file);
       const hasContributors = hasSchemaOrgContributors(sections);
@@ -257,7 +232,7 @@ export const schemaCompletenessValidator: Validator = {
       const schemaInclude: unknown[] = Array.isArray(file.schema?.include) ? file.schema.include : [];
       if (schemaInclude.length > 0) {
         const invalidEntries = schemaInclude.filter(
-          (v) => typeof v !== "string" || v.trim().length === 0
+          (v) => typeof v !== "string" || v.trim().length === 0,
         );
         if (invalidEntries.length > 0) {
           errors.push({
@@ -265,7 +240,8 @@ export const schemaCompletenessValidator: Validator = {
             code: "SCHEMA_INVALID_INCLUDE",
             message: `schema.include contains empty or non-string entries for ${url}`,
             file: file.filePath,
-            suggestion: "Remove legacy schema.include; use leading schema_org / FAQ / Article / Breadcrumb sections instead",
+            suggestion:
+              "Remove legacy schema.include; use leading schema_org / FAQ / Article / Breadcrumb sections instead",
           });
         }
       }
@@ -285,62 +261,83 @@ export const schemaCompletenessValidator: Validator = {
 
       pagesWithSchema++;
 
-      const scriptRegex = /<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g;
-      let match: RegExpExecArray | null;
-      const parsedSchemas: Record<string, unknown>[] = [];
+      let collected: PageSchemaCollectResult;
+      try {
+        collected = await resolveDocuments(url, ci, context.contentRoot);
+      } catch (err) {
+        errors.push({
+          type: "error",
+          code: "SCHEMA_RENDER_ERROR",
+          message: `Failed to collect schema for ${url}: ${err instanceof Error ? err.message : String(err)}`,
+          file: file.filePath,
+          suggestion: "Check the schema configuration and page-schema-collect logic",
+        });
+        continue;
+      }
 
-      while ((match = scriptRegex.exec(html)) !== null) {
-        totalJsonLdBlocks++;
+      if (collected.renderError) {
+        errors.push({
+          type: "error",
+          code: "SCHEMA_RENDER_ERROR",
+          message: `Failed to collect schema for ${url}: ${collected.renderError}`,
+          file: file.filePath,
+          suggestion: "Check the schema configuration and page-schema-collect logic",
+        });
+        continue;
+      }
+
+      totalJsonLdBlocks += collected.documents.length;
+
+      for (const { schema, source } of collected.preview) {
         try {
-          const jsonLd = JSON.parse(match[1]);
-          parsedSchemas.push(jsonLd);
-
-          if (schemaExpectsNameDescription(jsonLd)) {
-            if (!jsonLd.name) {
-              warnings.push({
-                type: "warning",
-                code: "SCHEMA_MISSING_NAME",
-                message: `JSON-LD block missing "name" field for ${url}`,
-                file: file.filePath,
-                suggestion: "Add a name field to the schema for better search engine understanding",
-              });
-            }
-
-            if (!jsonLd.description) {
-              warnings.push({
-                type: "warning",
-                code: "SCHEMA_MISSING_DESCRIPTION",
-                message: `JSON-LD block missing "description" field for ${url}`,
-                file: file.filePath,
-                suggestion: "Add a description field to the schema",
-              });
-            }
-          }
-
-          const placeholders = checkForPlaceholders(jsonLd);
-          if (placeholders.length > 0) {
-            placeholderValues += placeholders.length;
-            for (const p of placeholders) {
-              errors.push({
-                type: "error",
-                code: "SCHEMA_PLACEHOLDER_VALUE",
-                message: `Schema contains placeholder value: "${p.substring(0, 80)}"`,
-                file: file.filePath,
-                suggestion: "Replace TODO placeholder with actual content",
-              });
-            }
-          }
+          JSON.stringify(schema);
+          JSON.parse(JSON.stringify(schema));
         } catch {
+          errors.push({
+            type: "error",
+            code: "SCHEMA_INVALID_JSON",
+            message: `JSON-LD document failed serialization for ${url}`,
+            file: file.filePath,
+            suggestion: "Check schema_org properties and section template variables for invalid values",
+          });
+        }
+
+        const schemaType = jsonLdPrimaryType(schema) ?? "Thing";
+        const missingFields = collectMissingJsonLdFields(schema);
+        for (const field of missingFields) {
+          warnings.push({
+            type: "warning",
+            code: warningCodeForJsonLdField(field),
+            message: messageForMissingField({ type: schemaType, field, url }),
+            file: file.filePath,
+            suggestion: suggestionForMissingField({
+              type: schemaType,
+              field,
+              source: source as JsonLdSchemaSource,
+            }),
+          });
+        }
+
+        const placeholders = checkForPlaceholders(schema);
+        if (placeholders.length > 0) {
+          placeholderValues += placeholders.length;
+          for (const p of placeholders) {
+            errors.push({
+              type: "error",
+              code: "SCHEMA_PLACEHOLDER_VALUE",
+              message: `Schema contains placeholder value: "${p.substring(0, 80)}"`,
+              file: file.filePath,
+              suggestion: "Replace TODO placeholder with actual content",
+            });
+          }
         }
       }
 
       const hasFaqSection = sections.some((s) => s.type === "faq");
       if (hasFaqSection) {
-        // Prefer evidence from the live SSR HTML page cache (what was actually
-        // served) so a cold/failed regenerate does not false-positive when the
-        // cached page already includes FAQPage. Fall back to regenerate output.
         const hasFaqSchema =
-          parsedSchemas.some((s) => jsonLdHasType(s, "FAQPage")) ||
+          collected.preview.some((p) => p.source === "faq") ||
+          collected.documents.some((s) => jsonLdHasType(s, "FAQPage")) ||
           cachedSsrHtmlHasFaqPage(file, url, context.contentRoot);
         if (!hasFaqSchema) {
           warnings.push({

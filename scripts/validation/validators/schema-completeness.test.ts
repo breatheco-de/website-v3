@@ -8,9 +8,8 @@ import {
   cachedSsrHtmlHasFaqPage,
   ssrCachePathCandidates,
   htmlContainsFaqPage,
-  schemaExpectsNameDescription,
   isSchemaPlaceholderValue,
-  __resetGenerateSsrSchemaHtmlForTests,
+  __resetResolvePageSchemaDocumentsForTests,
 } from "./schema-completeness";
 import type { ContentFile, ValidationContext } from "../shared/types";
 import {
@@ -156,7 +155,7 @@ describe("schemaCompletenessValidator PAGE_NO_SCHEMA", () => {
   afterEach(() => {
     while (cleanups.length) cleanups.pop()?.();
     invalidateHtmlPageCache();
-    __resetGenerateSsrSchemaHtmlForTests();
+    __resetResolvePageSchemaDocumentsForTests();
     vi.restoreAllMocks();
   });
 
@@ -177,6 +176,18 @@ describe("schemaCompletenessValidator PAGE_NO_SCHEMA", () => {
       ].join("\n"),
     );
 
+    const collector = await import("../../../server/page-schema-collect");
+    vi.spyOn(collector, "resolvePageSchemaDocuments").mockResolvedValue({
+      documents: [{ "@type": "Course", name: "AI", description: "Desc" }],
+      preview: [
+        {
+          schema: { "@type": "Course", name: "AI Engineering", description: "Desc" },
+          source: "schema_org",
+        },
+      ],
+    });
+    __resetResolvePageSchemaDocumentsForTests();
+
     const result = await schemaCompletenessValidator.run(
       context(baseFile({ slug: "ai-engineering", type: "program", filePath, url: "/en/career-programs/ai-engineering" })),
     );
@@ -189,6 +200,13 @@ describe("schemaCompletenessValidator PAGE_NO_SCHEMA", () => {
     cleanups.push(cleanup);
     const filePath = join(dir, "en.yml");
     writeFileSync(filePath, "sections: [this is: : not: valid\n");
+
+    const collector = await import("../../../server/page-schema-collect");
+    vi.spyOn(collector, "resolvePageSchemaDocuments").mockResolvedValue({
+      documents: [{ "@type": "WebSite", name: "4Geeks" }],
+      preview: [{ schema: { "@type": "WebSite", name: "4Geeks" }, source: "schema_org" }],
+    });
+    __resetResolvePageSchemaDocumentsForTests();
 
     const result = await schemaCompletenessValidator.run(
       context(
@@ -221,38 +239,30 @@ describe("schemaCompletenessValidator PAGE_NO_SCHEMA", () => {
     expect(result.artifacts?.pagesWithoutSchema).toBe(1);
   });
 
-  it("does not emit FAQ_SECTION_NO_SCHEMA when SSR HTML cache has FAQPage even if regenerate lacks it", async () => {
+  it("does not emit FAQ_SECTION_NO_SCHEMA when preview has FAQ source even if cache is cold", async () => {
     const { dir, cleanup } = tempDir();
     cleanups.push(cleanup);
     const filePath = join(dir, "en.yml");
     writeFileSync(filePath, "sections:\n  - type: schema_org\n  - type: faq\n");
 
-    const siteId = "site_4geeks-com";
-    setCachedHtml(
-      buildHtmlCacheKey(siteId, "/en", "live"),
-      `<script type="application/ld+json">${JSON.stringify({
-        "@type": "FAQPage",
-        mainEntity: [],
-      })}</script>`,
-      200,
-    );
-
-    const ssr = await import("../../../server/ssr-schema");
-    const spy = vi.spyOn(ssr, "generateSsrSchemaHtml").mockResolvedValue(
-      `<script type="application/ld+json">${JSON.stringify({
-        "@type": "WebSite",
-        name: "4Geeks",
-        description: "desc",
-      })}</script>`,
-    );
-    __resetGenerateSsrSchemaHtmlForTests();
+    const collector = await import("../../../server/page-schema-collect");
+    vi.spyOn(collector, "resolvePageSchemaDocuments").mockResolvedValue({
+      documents: [
+        { "@type": "WebSite", name: "4Geeks", description: "desc" },
+        { "@type": "FAQPage", mainEntity: [] },
+      ],
+      preview: [
+        { schema: { "@type": "WebSite", name: "4Geeks", description: "desc" }, source: "schema_org" },
+        { schema: { "@type": "FAQPage", mainEntity: [] }, source: "faq" },
+      ],
+    });
+    __resetResolvePageSchemaDocumentsForTests();
 
     const result = await schemaCompletenessValidator.run(
       context(
         baseFile({
           filePath,
           url: "/en/home",
-          meta: { redirects: ["/en"] },
           entryFields: {
             sections: [
               { type: "schema_org", schema_type: "WebSite" },
@@ -260,43 +270,35 @@ describe("schemaCompletenessValidator PAGE_NO_SCHEMA", () => {
             ],
           },
         }),
-        `/Users/test/${siteId}`,
       ),
     );
-    spy.mockRestore();
 
     expect(result.warnings.filter((w) => w.code === "FAQ_SECTION_NO_SCHEMA")).toEqual([]);
   });
 
-  it("does not require name/description on FAQPage or BreadcrumbList JSON-LD", async () => {
+  it("does not require fields on undeclared FAQPage or BreadcrumbList JSON-LD", async () => {
     const { dir, cleanup } = tempDir();
     cleanups.push(cleanup);
     const filePath = join(dir, "en.yml");
     writeFileSync(filePath, "sections:\n  - type: schema_org\n  - type: faq\n");
 
-    expect(schemaExpectsNameDescription({ "@type": "FAQPage" })).toBe(false);
-    expect(schemaExpectsNameDescription({ "@type": "BreadcrumbList" })).toBe(false);
-    expect(schemaExpectsNameDescription({ "@type": "Course" })).toBe(true);
-
-    const ssr = await import("../../../server/ssr-schema");
-    const spy = vi.spyOn(ssr, "generateSsrSchemaHtml").mockResolvedValue(
-      [
-        `<script type="application/ld+json">${JSON.stringify({
-          "@type": "Course",
-          name: "AI Fluency",
-          description: "A short program",
-        })}</script>`,
-        `<script type="application/ld+json">${JSON.stringify({
-          "@type": "FAQPage",
-          mainEntity: [{ "@type": "Question", name: "Q?", acceptedAnswer: { "@type": "Answer", text: "A" } }],
-        })}</script>`,
-        `<script type="application/ld+json">${JSON.stringify({
-          "@type": "BreadcrumbList",
-          itemListElement: [],
-        })}</script>`,
-      ].join(""),
-    );
-    __resetGenerateSsrSchemaHtmlForTests();
+    const collector = await import("../../../server/page-schema-collect");
+    vi.spyOn(collector, "resolvePageSchemaDocuments").mockResolvedValue({
+      documents: [
+        { "@type": "Course", name: "AI Fluency", description: "A short program" },
+        { "@type": "FAQPage", mainEntity: [] },
+        { "@type": "BreadcrumbList", itemListElement: [] },
+      ],
+      preview: [
+        {
+          schema: { "@type": "Course", name: "AI Fluency", description: "A short program" },
+          source: "schema_org",
+        },
+        { schema: { "@type": "FAQPage", mainEntity: [] }, source: "faq" },
+        { schema: { "@type": "BreadcrumbList", itemListElement: [] }, source: "breadcrumb" },
+      ],
+    });
+    __resetResolvePageSchemaDocumentsForTests();
 
     const result = await schemaCompletenessValidator.run(
       context(
@@ -312,26 +314,23 @@ describe("schemaCompletenessValidator PAGE_NO_SCHEMA", () => {
         }),
       ),
     );
-    spy.mockRestore();
 
-    expect(result.warnings.filter((w) => w.code === "SCHEMA_MISSING_NAME")).toEqual([]);
-    expect(result.warnings.filter((w) => w.code === "SCHEMA_MISSING_DESCRIPTION")).toEqual([]);
+    expect(result.warnings.filter((w) => w.code.startsWith("SCHEMA_MISSING_"))).toEqual([]);
     expect(result.warnings.filter((w) => w.code === "FAQ_SECTION_NO_SCHEMA")).toEqual([]);
   });
 
-  it("still warns when Course JSON-LD lacks name or description", async () => {
+  it("warns when Course JSON-LD lacks name or description", async () => {
     const { dir, cleanup } = tempDir();
     cleanups.push(cleanup);
     const filePath = join(dir, "en.yml");
     writeFileSync(filePath, "sections:\n  - type: schema_org\n");
 
-    const ssr = await import("../../../server/ssr-schema");
-    const spy = vi.spyOn(ssr, "generateSsrSchemaHtml").mockResolvedValue(
-      `<script type="application/ld+json">${JSON.stringify({
-        "@type": "Course",
-      })}</script>`,
-    );
-    __resetGenerateSsrSchemaHtmlForTests();
+    const collector = await import("../../../server/page-schema-collect");
+    vi.spyOn(collector, "resolvePageSchemaDocuments").mockResolvedValue({
+      documents: [{ "@type": "Course" }],
+      preview: [{ schema: { "@type": "Course" }, source: "schema_org" }],
+    });
+    __resetResolvePageSchemaDocumentsForTests();
 
     const result = await schemaCompletenessValidator.run(
       context(
@@ -344,9 +343,54 @@ describe("schemaCompletenessValidator PAGE_NO_SCHEMA", () => {
         }),
       ),
     );
-    spy.mockRestore();
 
     expect(result.warnings.some((w) => w.code === "SCHEMA_MISSING_NAME")).toBe(true);
     expect(result.warnings.some((w) => w.code === "SCHEMA_MISSING_DESCRIPTION")).toBe(true);
+  });
+
+  it("warns when BlogPosting JSON-LD lacks author", async () => {
+    const { dir, cleanup } = tempDir();
+    cleanups.push(cleanup);
+    const filePath = join(dir, "en.yml");
+    writeFileSync(filePath, "sections:\n  - type: article\n");
+
+    const collector = await import("../../../server/page-schema-collect");
+    vi.spyOn(collector, "resolvePageSchemaDocuments").mockResolvedValue({
+      documents: [
+        {
+          "@type": "BlogPosting",
+          headline: "My Post",
+          description: "Summary",
+          datePublished: "2024-01-01",
+        },
+      ],
+      preview: [
+        {
+          schema: {
+            "@type": "BlogPosting",
+            headline: "My Post",
+            description: "Summary",
+            datePublished: "2024-01-01",
+          },
+          source: "article",
+        },
+      ],
+    });
+    __resetResolvePageSchemaDocumentsForTests();
+
+    const result = await schemaCompletenessValidator.run(
+      context(
+        baseFile({
+          filePath,
+          type: "blog",
+          slug: "my-post",
+          url: "/en/blog/learn/my-post",
+          entryFields: { sections: [{ type: "article" }] },
+        }),
+      ),
+    );
+
+    expect(result.warnings.some((w) => w.code === "SCHEMA_MISSING_AUTHOR")).toBe(true);
+    expect(result.warnings.some((w) => w.code === "SCHEMA_MISSING_HEADLINE")).toBe(false);
   });
 });

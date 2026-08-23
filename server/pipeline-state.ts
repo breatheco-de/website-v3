@@ -3,22 +3,12 @@
  */
 
 import { getSiteSqlite } from "./db";
-
-const SCHEMA = `
-  CREATE TABLE IF NOT EXISTS pipeline_state (
-    key TEXT PRIMARY KEY,
-    value_json TEXT NOT NULL
-  );
-`;
+import { ensurePipelineDb } from "./pipeline-db/runner";
 
 const KEY_LAST_APPLIED_INDEX = "last_applied_index";
 
-const _schemaReady = new Set<string>();
-
 function ensureSchema(site: string): void {
-  if (_schemaReady.has(site)) return;
-  getSiteSqlite(site).exec(SCHEMA);
-  _schemaReady.add(site);
+  ensurePipelineDb(site);
 }
 
 export type LastAppliedIndexState = {

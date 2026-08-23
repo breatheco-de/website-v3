@@ -357,9 +357,9 @@ function HealthStrip({ data }: { data: PipelineStatus }) {
         testId="kpi-pipeline-overall"
         education={{
           simple:
-            "One-look summary. OK: everything is flowing. Degraded: the worker is recovering, small delays possible. Stalled: background work has stopped — saves still work, but tell a developer if this lasts more than a few minutes.",
+            "One-look summary. OK: everything is flowing. Degraded: the worker is recovering, small delays possible. Stalled: a save, bulk sync, or binding job has waited more than 5 minutes to start — not diary rows like validation complete. Saves still work; tell a developer if this lasts.",
           advanced:
-            "Derived in server/pipeline-status.ts: stalled when oldest unpublished event exceeds threshold; degraded when engine is restarting/starting or write lag (behindBy) > 10. behindBy = latest write generation − last applied snapshot generation.",
+            "Derived in server/pipeline-status.ts from oldest unpublished dispatch event (OUTBOX_DISPATCHABLE_EVENT_TYPES in server/events/types.ts). Degraded when engine is restarting/starting or write lag (behindBy) > 10. Audit events (validation_results_ready, index_snapshot_ready, redirects_changed diary) do not affect stall.",
         }}
       />
       <HealthKpiCard
@@ -405,9 +405,9 @@ function HealthStrip({ data }: { data: PipelineStatus }) {
         testId="kpi-pipeline-waiting"
         education={{
           simple:
-            "Every save creates a small note here first. Normally notes are picked up in under a second. If this number grows or the oldest note is minutes old, the worker is behind — check the engine status.",
+            "Work waiting for the background worker: saves, bulk sync, and binding propagation. Normally picked up in under a second. Completion diary rows (validation ready, snapshot ready) are logged but not counted here. Custom-redirects.yml saves still queue index refresh via the normal save event.",
           advanced:
-            "Unpublished rows in the events table (data/<site>/app.db). GET /api/admin/pipeline/status → outbox. Stalled threshold: EVENT_STALE_THRESHOLD_MS (default 5 min), same as server/system-alerts.ts.",
+            "Unpublished dispatch rows in data/<site>/app.db (OUTBOX_DISPATCHABLE_EVENT_TYPES). GET /api/admin/pipeline/status → outbox. Stalled threshold: EVENT_STALE_THRESHOLD_MS (default 5 min). redirects_changed is audit-only; content_file_written handles custom-redirects refresh.",
         }}
       />
       <HealthKpiCard
@@ -943,6 +943,8 @@ export default function BackgroundPipelinePage() {
     queryKey: ["/api/site/info"],
   });
   const site = siteInfo?.contentFolder;
+  const siteDomainLabel =
+    siteInfo?.domain === "4geeks.com" ? "4Geeks.com" : siteInfo?.domain;
 
   const { data, isLoading, refetch, isFetching } = useQuery<PipelineStatus>({
     queryKey: ["/api/admin/pipeline/status", site],
@@ -956,18 +958,25 @@ export default function BackgroundPipelinePage() {
   });
 
   return (
-    <div className="min-h-screen bg-background text-foreground p-6 space-y-6 max-w-6xl mx-auto">
+    <div className="min-h-screen bg-background text-foreground p-6 pb-[100px] space-y-6 max-w-6xl mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Background pipeline</h1>
+          <h1 className="text-2xl font-bold">
+            Background Pipeline
+            {siteDomainLabel ? (
+              <>
+                {" for "}
+                <span className="text-primary">{siteDomainLabel}</span>
+              </>
+            ) : null}
+          </h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Saves return immediately. Indexing, validation, bound-section sync and GitHub sync run
-            in the background. Entry content is fresh right away; site-wide lists catch up when the
-            index snapshot applies — usually within seconds.
+            Workers are the reason this website feels so fast. When you save, you&apos;re done —
+            your page updates right away while background workers handle the rest: keeping search and
+            lists fresh, checking content quality, syncing shared sections across pages, and pushing
+            updates to GitHub. That&apos;s what keeps the site accurate and polished for visitors —
+            usually within seconds.
           </p>
-          {site ? (
-            <p className="text-xs text-muted-foreground mt-1 font-mono">{site}</p>
-          ) : null}
         </div>
         <Button
           variant="outline"
@@ -983,10 +992,25 @@ export default function BackgroundPipelinePage() {
 
       <div className="flex items-start gap-3 rounded-md border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
         <IconInfoCircle className="h-4 w-4 mt-0.5 shrink-0 text-foreground/60" />
-        <span>
-          This page is read-only. It does not retry jobs or release locks — those happen
-          automatically.
-        </span>
+        <div className="space-y-2">
+          <span>
+            This page is read-only. It does not retry jobs or release locks — those happen
+            automatically.
+          </span>
+          <details className="text-xs">
+            <summary className="cursor-pointer text-foreground/80 hover:text-foreground">
+              Read more (advanced)
+            </summary>
+            <p className="mt-1 leading-relaxed pl-1 border-l-2 border-border">
+              Pipeline DB (`events`, `pipeline_state`, `leases` in data/&lt;site&gt;/app.db) migrates
+              on server restart after deploy — not while you browse. Deploy progress: GitHub Actions →
+              Deploy to VPS job log (not this page). If the worker is stopped right after deploy,
+              check that log for <code className="font-mono">ensure:pipeline-db --dry-run</code> or
+              Settings → Server for a failed restart (Boot ID unchanged). Paths: server/pipeline-db/,
+              scripts/ensure-pipeline-db.ts.
+            </p>
+          </details>
+        </div>
       </div>
 
       {isLoading || !data ? (

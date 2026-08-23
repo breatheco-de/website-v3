@@ -12,6 +12,7 @@
     "schema:sync": "tsx scripts/schema-sync/sync-schemas.ts",
     "schema:sync:check": "tsx scripts/schema-sync/sync-schemas.ts --check",
     "ensure:schema-yml": "tsx scripts/ensure-schema-yml.ts",
+    "ensure:pipeline-db": "tsx scripts/ensure-pipeline-db.ts",
     "generate:icon-map": "tsx scripts/generate-icon-map.ts",
     "predev": "npm run check:sites && npm run ensure:registry && npm run ensure:schema-yml && npm run generate:icon-map",
     "prebuild": "npm run check:sites-yml && npm run ensure:registry && npm run ensure:schema-yml && npm run generate:icon-map",

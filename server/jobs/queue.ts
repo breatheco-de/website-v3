@@ -46,12 +46,18 @@ export type JobEnqueueOpts = {
   queue?: string;
 };
 
-export async function configureJobQueue(): Promise<void> {
-  if (configured) return;
+export type ConfigureJobQueueOpts = {
+  /** Override Sidequest SQLite path (dry-run preflight on a copy). */
+  sqlitePath?: string;
+};
+
+export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<void> {
+  const dbPath = opts?.sqlitePath ?? SIDEQUEST_DB;
+  if (configured && !opts?.sqlitePath) return;
   await Sidequest.configure({
     backend: {
       driver: "@sidequest/sqlite-backend",
-      config: SIDEQUEST_DB,
+      config: dbPath,
     },
     // Run in the host process (tsx) so job scripts can resolve extensionless TS imports.
     // Worker threads / forked engine use plain Node ESM and fail on ../../content-index, etc.

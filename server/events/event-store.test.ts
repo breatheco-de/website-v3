@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
+import { clearSiteSqliteCacheForTests } from "../db";
+import { resetPipelineDbCache } from "../pipeline-db/runner";
 import {
   emitEvent,
   getCurrentGeneration,
@@ -10,6 +12,8 @@ import {
   getWriteEventsBetween,
   getLatestWriteForEntry,
   getUnpublishedEvents,
+  getUnpublishedCount,
+  getOldestUnpublishedAgeMs,
   markEventsPublished,
   listEvents,
   clearAllEvents,
@@ -20,6 +24,8 @@ const TEST_SITE = "site_test-events";
 
 describe("event-store", () => {
   beforeEach(() => {
+    resetPipelineDbCache();
+    clearSiteSqliteCacheForTests();
     const dbPath = path.join("data", TEST_SITE.replace(/\//g, "-"), "app.db");
     if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
     const dir = path.dirname(dbPath);
@@ -27,6 +33,8 @@ describe("event-store", () => {
   });
 
   afterEach(() => {
+    resetPipelineDbCache();
+    clearSiteSqliteCacheForTests();
     const dbPath = path.join("data", TEST_SITE.replace(/\//g, "-"), "app.db");
     if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
   });
@@ -47,13 +55,58 @@ describe("event-store", () => {
     expect(getCurrentGeneration(site)).toBeGreaterThan(write.id);
   });
 
-  it("tracks unpublished events", () => {
+  it("tracks unpublished dispatch events only", () => {
     const site = `${TEST_SITE}-unpub-${Date.now()}`;
     emitEvent({ site, type: "content_file_written" });
     const pending = getUnpublishedEvents(site);
     expect(pending.length).toBe(1);
     markEventsPublished(site, [pending[0]!.id]);
     expect(getUnpublishedEvents(site).length).toBe(0);
+  });
+
+  it("auto-publishes audit events and excludes them from backlog metrics", () => {
+    const site = `${TEST_SITE}-audit-${Date.now()}`;
+    const audit = emitEvent({
+      site,
+      type: "validation_results_ready",
+      payload: { entryKey: "page/foo/en", skipped: true },
+    });
+    expect(audit.published).toBe(true);
+    expect(getUnpublishedEvents(site)).toHaveLength(0);
+    expect(getUnpublishedCount(site)).toBe(0);
+    expect(getOldestUnpublishedAgeMs(site)).toBeNull();
+
+    emitEvent({ site, type: "content_file_written" });
+    expect(getUnpublishedCount(site)).toBe(1);
+  });
+
+  it("ignores legacy unpublished audit rows in backlog queries", () => {
+    const site = `${TEST_SITE}-legacy-audit-${Date.now()}`;
+    const dbPath = path.join("data", site, "app.db");
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const raw = new Database(dbPath);
+    raw.exec(`
+      CREATE TABLE events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        site TEXT NOT NULL,
+        resource_json TEXT NOT NULL DEFAULT '{}',
+        cause TEXT,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        triggered_by_event_id INTEGER,
+        triggered_by_event_ids_json TEXT,
+        attribution_json TEXT NOT NULL DEFAULT '[]',
+        published INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO events (type, site, published, created_at)
+      VALUES ('validation_results_ready', '${site}', 0, ${Date.now() - 10 * 60 * 1000});
+    `);
+    raw.close();
+
+    expect(getUnpublishedCount(site)).toBe(0);
+    expect(getOldestUnpublishedAgeMs(site)).toBeNull();
+    fs.rmSync(path.dirname(dbPath), { recursive: true, force: true });
   });
 
   it("lists events with filters", () => {
@@ -124,34 +177,6 @@ describe("event-store", () => {
       locale: "en",
     });
     expect(latest?.resource.slug).toBe("foo");
-  });
-
-  it("migrates a pre-existing table without trigger/attribution columns", () => {
-    const site = `${TEST_SITE}-migrate-${Date.now()}`;
-    const dbPath = path.join("data", site, "app.db");
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    const raw = new Database(dbPath);
-    raw.exec(`
-      CREATE TABLE events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        type TEXT NOT NULL,
-        site TEXT NOT NULL,
-        resource_json TEXT NOT NULL DEFAULT '{}',
-        cause TEXT,
-        payload_json TEXT NOT NULL DEFAULT '{}',
-        published INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL
-      );
-      INSERT INTO events (type, site, created_at) VALUES ('content_file_written', '${site}', ${Date.now()});
-    `);
-    raw.close();
-
-    const e = emitEvent({ site, type: "validation_results_ready", triggeredByEventId: 1 });
-    expect(e.triggeredByEventId).toBe(1);
-    expect(listEvents({ site, limit: 10 }).length).toBe(2);
-    expect(listEvents({ site, triggeredBy: 1, limit: 10 }).length).toBe(1);
-
-    fs.rmSync(path.dirname(dbPath), { recursive: true, force: true });
   });
 
   it("clears all events for a site", () => {

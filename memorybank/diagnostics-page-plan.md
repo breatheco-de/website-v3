@@ -133,25 +133,40 @@ Goes beyond the existing `meta` validator with quantitative analysis.
 
 ### 2.2 Schema.org Completeness Validator (`schema-completeness`)
 
-Actually renders the JSON-LD per page and validates output quality.
+Collects JSON-LD via `server/page-schema-collect.ts` (`resolvePageSchemaDocuments`) and validates against the opt-in catalog in `shared/schema-org-jsonld-rules.ts`. Undeclared `@type` values are not field-checked.
+
+**Per-type required fields (warnings):**
+
+| `@type` | Required fields |
+|---------|-----------------|
+| `BlogPosting` | `headline`, `description`, `datePublished`, `author` |
+| `Article` | `headline`, `description` |
+| `Course` | `name`, `description` |
+| `LocalBusiness` | `name`, `url` |
+| `Person` | `name` and (`url` or `@id`) |
+
+`image` on Article/BlogPosting is intentionally omitted (high volume).
 
 **Checks:**
 | Code | Severity | Rule |
 |------|----------|------|
-| `PAGE_NO_SCHEMA` | warning | Page has no schema.include configured |
-| `SCHEMA_RENDER_ERROR` | error | generateSsrSchemaHtml() throws for this page |
-| `SCHEMA_EMPTY_OUTPUT` | warning | Schema configured but renders to empty string |
-| `SCHEMA_MISSING_NAME` | warning | JSON-LD object missing `name` field |
-| `SCHEMA_MISSING_DESCRIPTION` | warning | JSON-LD object missing `description` field |
-| `SCHEMA_MISSING_URL` | warning | JSON-LD object missing `url` field |
+| `PAGE_NO_SCHEMA` | warning | Page has no schema.org section contributors |
+| `SCHEMA_RENDER_ERROR` | error | `resolvePageSchemaDocuments()` failed for this page |
+| `SCHEMA_INVALID_JSON` | error | JSON-LD document failed serialization |
+| `SCHEMA_MISSING_HEADLINE` | warning | Declared type missing `headline` |
+| `SCHEMA_MISSING_DESCRIPTION` | warning | Declared type missing `description` |
+| `SCHEMA_MISSING_DATE_PUBLISHED` | warning | Declared type missing `datePublished` |
+| `SCHEMA_MISSING_AUTHOR` | warning | Declared type missing `author` |
+| `SCHEMA_MISSING_NAME` | warning | Declared type missing `name` |
+| `SCHEMA_MISSING_URL` | warning | Declared type missing `url` (or Person `url`/`@id` group) |
 | `SCHEMA_PLACEHOLDER_VALUE` | error | JSON-LD contains "TODO" or placeholder text |
 | `FAQ_SECTION_NO_SCHEMA` | warning | Page has FAQ section but no FAQPage schema generated |
-| `INVALID_SCHEMA_TYPE` | error | `@type` value is not a recognized Schema.org type |
 
 **Implementation notes:**
-- Uses dynamic `await import()` for `generateSsrSchemaHtml()` from `server/ssr-schema.ts` (ESM compatible)
-- Constructs URLs using `getCanonicalUrl()` from shared utilities
-- Parses rendered JSON-LD to validate field presence
+- Uses `ValidationContext.contentIndex` (site-scoped in diagnostics worker)
+- Static + database-backed URLs share one collector (mirrors admin SSR)
+- Source-aware suggestions (`article` vs `schema_org`) in warning text
+- `INVALID_SCHEMA_TYPE` intentionally not implemented
 - Category: `seo`
 
 ### 2.3 Image Integrity Validator (`images`)

@@ -103,11 +103,13 @@ Actions secrets for SSH: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY
 3. Symlinks for `data` / `.cache` / `sites.yml` / … (not `site_*`); create real empty `site_*` dirs
 4. Write `.env`
 5. Abort checkpoint (if `.deploy-state/<sha>.abort` → discard release, exit 0)
-6. `npm ci` → **`content:pull --required`** → `npm run build`
+6. `npm ci` → **`content:pull --required`** → `npm run build` → **`ensure:pipeline-db --dry-run`** (validates pipeline SQLite migrations on DB copies; aborts before flip on failure)
 7. Abort checkpoint again (last chance before cutover)
 8. Clear `.bootstrap-complete` on `site_*` (boot will hash-diff again)
 9. Flip `current`, restart, health-check (**rollback `current`** on failure)
 10. Prune old releases (keeps active + 5 others; never deletes `readlink current`)
+
+**Deploy observability:** Staff use GitHub Actions → **Deploy to VPS** (streams `.deploy-state/<sha>.log`). Look for `[deploy] validating pipeline SQLite migrations (dry-run)` and `[pipeline-db] dry-run ok`. There is no in-app deploy-progress UI. After restart, Settings → Server tab shows a new Boot ID. Live apply of pipeline migrations runs once at boot ([`server/pipeline-db/runner.ts`](../server/pipeline-db/runner.ts)).
 
 Post-flip, abort flags are ignored (cutover already committed). Partial dirs from aborted/cancelled pre-flip runs never become `current`.
 

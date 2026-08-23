@@ -1,18 +1,13 @@
 import * as fs from "fs";
 import { getDefaultContentRoot } from "./site-config";
 import * as path from "path";
-import * as yaml from "js-yaml";
 import { getOrganizationTwitterHandle, getWebsiteDefaultSocialImage } from "./schema-org";
 import { contentIndex } from "./content-index";
-import { deepMerge } from "./utils/deepMerge";
-import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
-import { getFolder, getContentTypeConfig, resolveUrlPatternWithMapping, resolveEntryUpdatedAt } from "./content-types";
+import { getContentTypeConfig, resolveUrlPatternWithMapping, resolveEntryUpdatedAt } from "./content-types";
 import { getBaseUrl, generateHreflangTags, generateListingHreflangTags, generateHomepageHreflangTags } from "./hreflang";
-import { getHomePage, getSupportedLocales, getDefaultLocale, resolveEffectiveRobots, isIndexingBlocked } from "./settings";
-import { resolveDynamicEntries } from "./dynamic-entries";
+import { getHomePage, resolveEffectiveRobots, isIndexingBlocked } from "./settings";
 import { mergeSingleTemplate } from "./database-single-loader";
 import { resolveAllTemplateVars } from "./resolve-template-vars";
-import { collectSectionSchemas, type SchemaComponentContext } from "./schema-components";
 import { combinedArticleContentFromSections } from "@shared/reading-time";
 import { resolveRelationsOnEntry } from "./resolve-relations";
 import {
@@ -21,6 +16,14 @@ import {
   type FaqItemOverride,
 } from "@shared/faq-listing";
 import { child } from "./logger";
+import { loadRawYaml, parseRoute } from "./ssr-route";
+import {
+  collectDatabaseRecordSchemas,
+  collectStaticPageSchemas,
+} from "./page-schema-collect";
+
+export { loadRawYaml, parseRoute } from "./ssr-route";
+export type { ParsedRoute } from "./ssr-route";
 const log = child({ module: "ssr-schema" });
 
 function escapeRegExp(value: string): string {
@@ -132,12 +135,6 @@ function getImageDimensions(imageUrl: string, contentRoot: string): { width: num
   return DEFAULT_IMAGE_DIMENSIONS;
 }
 
-function safeYamlLoad(yamlStr: string): unknown {
-  const { escaped, map } = escapeTemplateVars(yamlStr);
-  const parsed = yaml.load(escaped);
-  return unescapeObjectVars(parsed, map);
-}
-
 interface FaqItem {
   question: string;
   answer: string;
@@ -174,72 +171,8 @@ export interface BreadcrumbSection {
   items: BreadcrumbSectionItem[];
 }
 
-interface ParsedRoute {
-  contentType: string;
-  slug: string;
-  locale: string;
-}
-
 export function clearSsrSchemaCache(): void {
   imageRegistryByRoot.clear();
-}
-
-function parseRoute(url: string, ci: typeof contentIndex = contentIndex): ParsedRoute | null {
-  const cleanUrl = url.split("?")[0].split("#")[0];
-
-  const supportedLocales = getSupportedLocales();
-  const defaultLocale = getDefaultLocale();
-  const localeSegmentMatch = cleanUrl.match(/^\/([a-z]{2,3})\/?$/);
-  const isHomepage =
-    cleanUrl === "/" ||
-    (localeSegmentMatch !== null && supportedLocales.includes(localeSegmentMatch[1]));
-  if (isHomepage) {
-    const homePage = getHomePage();
-    if (!homePage?.type || !homePage?.slug) return null;
-    const locale = localeSegmentMatch && supportedLocales.includes(localeSegmentMatch[1])
-      ? localeSegmentMatch[1]
-      : defaultLocale;
-    return { contentType: homePage.type, slug: homePage.slug, locale };
-  }
-
-  const resolved = ci.resolveUrl(cleanUrl);
-  if (resolved && !resolved.fromDatabase) {
-    let locale = cleanUrl.match(/^\/(es)\b/) ? "es" : "en";
-    if (resolved.params?.locale) {
-      locale = resolved.params.locale;
-    } else if (!cleanUrl.match(/^\/(en|es)\b/)) {
-      const commonData = ci.loadCommonData(resolved.contentType, resolved.slug);
-      if (commonData?.locale && typeof commonData.locale === "string") {
-        locale = commonData.locale;
-      }
-    }
-    return { contentType: resolved.contentType, slug: resolved.slug, locale };
-  }
-
-  return null;
-}
-
-export function loadRawYaml(contentType: string, slug: string, locale: string, ci: typeof contentIndex = contentIndex, contentRoot: string = DEFAULT_CONTENT_ROOT): Record<string, unknown> | null {
-  const resolvedSlug = ci.resolveBaseSlug(slug, contentType);
-  const folder = getFolder(contentType);
-  const contentDir = path.join(contentRoot, folder, resolvedSlug);
-  const commonPath = path.join(contentDir, "_common.yml");
-
-  const contentPath = path.join(contentDir, `${locale}.yml`);
-
-  if (!fs.existsSync(contentPath)) return null;
-
-  try {
-    let commonData: Record<string, unknown> = {};
-    if (fs.existsSync(commonPath)) {
-      commonData = safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown>;
-    }
-
-    const contentData = safeYamlLoad(fs.readFileSync(contentPath, "utf-8")) as Record<string, unknown>;
-    return deepMerge(commonData, contentData);
-  } catch {
-    return null;
-  }
 }
 
 export function buildFaqPageSchema(faqItems: Array<{ question: string; answer: string }>): Record<string, unknown> {
@@ -370,51 +303,11 @@ export async function generateDatabaseSsrHtml(
     authorName = record.author || "4Geeks Academy";
   }
 
-  let authorsForLd: Array<Record<string, unknown> | string> | undefined;
-  if (Array.isArray(record.authors) && record.authors.length > 0) {
-    authorsForLd = record.authors as Array<Record<string, unknown> | string>;
-  }
-
-  // Section-driven schema contributions only (no hardcoded BlogPosting / synthetic breadcrumb).
-  try {
-    const template = mergeSingleTemplate(contentType, locale, (record.slug as string) || undefined, undefined, contentRoot);
-    const templateSections = template?.sections;
-    if (Array.isArray(templateSections)) {
-      const resolvedSections = resolveAllTemplateVars(templateSections, {
-        singleEntry: record,
-        meta: (template?.meta as Record<string, unknown> | undefined),
-        contentRoot,
-        context: { locale },
-        skipSiteVars: false,
-      }) as Array<Record<string, unknown>>;
-      const withDynamic = (await resolveDynamicEntries(resolvedSections, locale, {
-        contentRoot,
-        contentIndex: ci,
-        singleEntry: record,
-      })) as Array<Record<string, unknown>>;
-      const context: SchemaComponentContext = {
-        locale,
-        contentRoot,
-        baseUrl,
-        contentType,
-        pageUrl: recordUrl,
-        title: (record.title as string) || undefined,
-        description: ((record.description as string) || (record.preview as string) || undefined),
-        image: image || undefined,
-        publishedAt: publishedAt || undefined,
-        updatedAt: updatedAt || undefined,
-        authorName,
-        authors: authorsForLd,
-        singleEntry: record,
-      };
-      for (const sectionSchema of collectSectionSchemas(withDynamic, context)) {
-        scripts.push(
-          `<script type="application/ld+json" data-ssr="true">${JSON.stringify(sectionSchema)}</script>`
-        );
-      }
-    }
-  } catch (err) {
-    log.error({ err }, `[SSR-Schema] Error collecting section schemas for ${contentType}`);
+  const collected = await collectDatabaseRecordSchemas(contentType, record, locale, ci, contentRoot);
+  for (const sectionSchema of collected.documents) {
+    scripts.push(
+      `<script type="application/ld+json" data-ssr="true">${JSON.stringify(sectionSchema)}</script>`,
+    );
   }
 
   // Title / description / robots / og|twitter title+description are owned by
@@ -507,14 +400,18 @@ export async function generateSsrSchemaHtml(url: string, ci: typeof contentIndex
     const route = parseRoute(url, ci);
     if (!route) return "";
 
-    // Use fully merged content (shared single_template + per-entry layers) so
-    // schema contributors see the same sections the page actually renders.
+    const scripts: string[] = [];
+    const collected = await collectStaticPageSchemas(route, url, ci, contentRoot);
+    for (const sectionSchema of collected.documents) {
+      scripts.push(
+        `<script type="application/ld+json" data-ssr="true">${JSON.stringify(sectionSchema)}</script>`,
+      );
+    }
+
     const merged = ci.loadMergedContent(route.contentType, route.slug, route.locale);
     let pageData = merged.data ?? loadRawYaml(route.contentType, route.slug, route.locale, ci, contentRoot);
     if (!pageData) return "";
     if (merged.data && merged.isSharedTemplate) {
-      // Shared-template pages may reference {{ single.* }} vars; the merged
-      // entry data itself is the "single" record for static entries.
       pageData = resolveAllTemplateVars(pageData, {
         singleEntry: pageData,
         contentRoot,
@@ -523,7 +420,6 @@ export async function generateSsrSchemaHtml(url: string, ci: typeof contentIndex
       }) as Record<string, unknown>;
     }
 
-    const scripts: string[] = [];
     const yamlUpdatedAt = resolveEntryUpdatedAt({
       contentType: route.contentType,
       slug: route.slug,
@@ -531,43 +427,6 @@ export async function generateSsrSchemaHtml(url: string, ci: typeof contentIndex
       record: pageData,
       contentRoot,
     });
-
-    // Production emitters: SSR section pipeline only (no schema.include).
-    const sections = pageData.sections as Array<Record<string, unknown>> | undefined;
-    if (Array.isArray(sections)) {
-      const singleEntry: Record<string, unknown> = {
-        ...pageData,
-        slug: route.slug,
-        _slug: route.slug,
-      };
-      const withDynamic = (await resolveDynamicEntries(sections, route.locale, {
-        contentRoot,
-        contentIndex: ci,
-        singleEntry,
-      })) as Array<Record<string, unknown>>;
-      const metaForSchema = pageData.meta as Record<string, unknown> | undefined;
-      const context: SchemaComponentContext = {
-        locale: route.locale,
-        contentRoot,
-        baseUrl: getBaseUrl(),
-        locationSlug: route.contentType === "location" ? route.slug : undefined,
-        programSlug: route.contentType === "program" ? route.slug : undefined,
-        contentType: route.contentType,
-        pageUrl: `${getBaseUrl()}${url.split("?")[0]}`,
-        title:
-          (typeof metaForSchema?.page_title === "string" ? metaForSchema.page_title : undefined) ||
-          (typeof pageData.title === "string" ? pageData.title : undefined),
-        description:
-          typeof metaForSchema?.description === "string" ? metaForSchema.description : undefined,
-        image: typeof metaForSchema?.og_image === "string" ? metaForSchema.og_image : undefined,
-        updatedAt: yamlUpdatedAt || undefined,
-      };
-      for (const sectionSchema of collectSectionSchemas(withDynamic, context)) {
-        scripts.push(
-          `<script type="application/ld+json" data-ssr="true">${JSON.stringify(sectionSchema)}</script>`
-        );
-      }
-    }
 
     const meta = pageData.meta as Record<string, unknown> | undefined;
     const robots = resolveEffectiveRobots(

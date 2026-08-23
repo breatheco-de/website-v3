@@ -141,6 +141,19 @@ export type SiteDb = ReturnType<typeof drizzle>;
 const _siteDbCache = new Map<string, SiteDb>();
 const _siteSqliteCache = new Map<string, Database.Database>();
 
+/** Test helper — close cached site DB handles after deleting files on disk. */
+export function clearSiteSqliteCacheForTests(): void {
+  for (const db of _siteSqliteCache.values()) {
+    try {
+      db.close();
+    } catch {
+      /* ignore */
+    }
+  }
+  _siteSqliteCache.clear();
+  _siteDbCache.clear();
+}
+
 /** Raw better-sqlite3 handle for a site DB (events, leases, etc.). */
 export function getSiteSqlite(contentFolderName: string, copyLegacyIfMissing = false): Database.Database {
   const safeName = contentFolderName.replace(/[/\\]/g, "-");

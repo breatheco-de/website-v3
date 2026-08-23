@@ -4,6 +4,7 @@
  */
 
 import { getSiteSqlite } from "../db";
+import { ensurePipelineDb } from "../pipeline-db/runner";
 import type {
   ContentEvent,
   EmitEventOpts,
@@ -11,82 +12,20 @@ import type {
   EventResource,
   EventType,
 } from "./types";
-import { INDEX_WRITE_EVENT_TYPES, singleAttribution, unionAttribution } from "./types";
+import {
+  EVENT_TYPE_META,
+  INDEX_WRITE_EVENT_TYPES,
+  OUTBOX_DISPATCHABLE_EVENT_TYPES,
+  singleAttribution,
+  unionAttribution,
+} from "./types";
 
-const TABLE_SCHEMA = `
-  CREATE TABLE IF NOT EXISTS events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type TEXT NOT NULL,
-    site TEXT NOT NULL,
-    resource_json TEXT NOT NULL DEFAULT '{}',
-    cause TEXT,
-    payload_json TEXT NOT NULL DEFAULT '{}',
-    triggered_by_event_id INTEGER,
-    triggered_by_event_ids_json TEXT,
-    attribution_json TEXT NOT NULL DEFAULT '[]',
-    published INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL
-  );
-`;
-
-// Indexes reference columns that migrateSchema may need to add first,
-// so they must run after migration (see ensureSchema ordering).
-const INDEX_SCHEMA = `
-  CREATE INDEX IF NOT EXISTS idx_events_unpublished ON events(published, created_at);
-  CREATE INDEX IF NOT EXISTS idx_events_site_type ON events(site, type, created_at);
-  CREATE INDEX IF NOT EXISTS idx_events_triggered_by ON events(triggered_by_event_id);
-`;
-
-const _schemaReady = new Set<string>();
-
-function tableHasColumn(db: ReturnType<typeof getSiteSqlite>, name: string): boolean {
-  const cols = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
-  return cols.some((c) => c.name === name);
-}
-
-function migrateSchema(db: ReturnType<typeof getSiteSqlite>): void {
-  if (!tableHasColumn(db, "attribution_json") && tableHasColumn(db, "author")) {
-    db.exec(`
-      CREATE TABLE events_new (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        type TEXT NOT NULL,
-        site TEXT NOT NULL,
-        resource_json TEXT NOT NULL DEFAULT '{}',
-        cause TEXT,
-        payload_json TEXT NOT NULL DEFAULT '{}',
-        triggered_by_event_id INTEGER,
-        triggered_by_event_ids_json TEXT,
-        attribution_json TEXT NOT NULL DEFAULT '[]',
-        published INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL
-      );
-      INSERT INTO events_new (id, type, site, resource_json, cause, payload_json, attribution_json, published, created_at)
-      SELECT id, type, site, resource_json, cause, payload_json,
-        CASE WHEN author IS NOT NULL AND author != '' THEN json_array(json_object('author', author)) ELSE '[]' END,
-        published, created_at
-      FROM events;
-      DROP TABLE events;
-      ALTER TABLE events_new RENAME TO events;
-    `);
-    return;
-  }
-  const addColumns: Record<string, string> = {
-    triggered_by_event_id: "ALTER TABLE events ADD COLUMN triggered_by_event_id INTEGER",
-    triggered_by_event_ids_json: "ALTER TABLE events ADD COLUMN triggered_by_event_ids_json TEXT",
-    attribution_json: "ALTER TABLE events ADD COLUMN attribution_json TEXT NOT NULL DEFAULT '[]'",
-  };
-  for (const [column, sql] of Object.entries(addColumns)) {
-    if (!tableHasColumn(db, column)) db.exec(sql);
-  }
+function dispatchTypePlaceholders(): string {
+  return OUTBOX_DISPATCHABLE_EVENT_TYPES.map(() => "?").join(", ");
 }
 
 function ensureSchema(site: string): void {
-  if (_schemaReady.has(site)) return;
-  const db = getSiteSqlite(site);
-  db.exec(TABLE_SCHEMA);
-  migrateSchema(db);
-  db.exec(INDEX_SCHEMA);
-  _schemaReady.add(site);
+  ensurePipelineDb(site);
 }
 
 function parseResource(json: string): EventResource {
@@ -158,13 +97,14 @@ export function emitEvent(opts: EmitEventOpts): EmitResult {
     opts.triggeredByEventIds && opts.triggeredByEventIds.length > 0
       ? JSON.stringify(opts.triggeredByEventIds)
       : null;
+  const published = EVENT_TYPE_META[opts.type].outbox === "audit" ? 1 : 0;
   const stmt = db.prepare(`
     INSERT INTO events (
       type, site, resource_json, cause, payload_json,
       triggered_by_event_id, triggered_by_event_ids_json, attribution_json,
       published, created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const info = stmt.run(
     opts.type,
@@ -175,6 +115,7 @@ export function emitEvent(opts: EmitEventOpts): EmitResult {
     opts.triggeredByEventId ?? null,
     triggeredByEventIdsJson,
     JSON.stringify(attribution),
+    published,
     now,
   );
   const event: ContentEvent = {
@@ -187,10 +128,12 @@ export function emitEvent(opts: EmitEventOpts): EmitResult {
     payload: opts.payload ?? {},
     triggeredByEventId: opts.triggeredByEventId,
     triggeredByEventIds: opts.triggeredByEventIds,
-    published: false,
+    published: published === 1,
     created_at: now,
   };
-  _wakeDispatcher();
+  if (published === 0) {
+    _wakeDispatcher();
+  }
   return event;
 }
 
@@ -291,8 +234,10 @@ export function getUnpublishedEvents(site: string, limit = 100): ContentEvent[] 
   ensureSchema(site);
   const db = getSiteSqlite(site);
   const rows = db
-    .prepare("SELECT * FROM events WHERE published = 0 ORDER BY id ASC LIMIT ?")
-    .all(limit) as Record<string, unknown>[];
+    .prepare(
+      `SELECT * FROM events WHERE published = 0 AND type IN (${dispatchTypePlaceholders()}) ORDER BY id ASC LIMIT ?`,
+    )
+    .all(...OUTBOX_DISPATCHABLE_EVENT_TYPES, limit) as Record<string, unknown>[];
   return rows.map(rowToEvent);
 }
 
@@ -346,7 +291,11 @@ export function listEvents(opts: ListEventsOpts): ContentEvent[] {
 export function getUnpublishedCount(site: string): number {
   ensureSchema(site);
   const db = getSiteSqlite(site);
-  const row = db.prepare("SELECT COUNT(*) AS cnt FROM events WHERE published = 0").get() as { cnt: number };
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS cnt FROM events WHERE published = 0 AND type IN (${dispatchTypePlaceholders()})`,
+    )
+    .get(...OUTBOX_DISPATCHABLE_EVENT_TYPES) as { cnt: number };
   return row.cnt;
 }
 
@@ -354,8 +303,10 @@ export function getOldestUnpublishedAgeMs(site: string): number | null {
   ensureSchema(site);
   const db = getSiteSqlite(site);
   const row = db
-    .prepare("SELECT MIN(created_at) AS oldest FROM events WHERE published = 0")
-    .get() as { oldest: number | null };
+    .prepare(
+      `SELECT MIN(created_at) AS oldest FROM events WHERE published = 0 AND type IN (${dispatchTypePlaceholders()})`,
+    )
+    .get(...OUTBOX_DISPATCHABLE_EVENT_TYPES) as { oldest: number | null };
   if (!row.oldest) return null;
   return Date.now() - row.oldest;
 }
@@ -374,6 +325,19 @@ export function clearAllEvents(site: string): number {
   const db = getSiteSqlite(site);
   const info = db.prepare("DELETE FROM events").run();
   return info.changes;
+}
+
+/** Dev-only: wipe event logs for all configured sites (orphan audit rows, stale queues). */
+export function wipeAllSiteEventStores(sites: string[]): number {
+  let total = 0;
+  for (const site of sites) {
+    try {
+      total += clearAllEvents(site);
+    } catch {
+      /* non-fatal */
+    }
+  }
+  return total;
 }
 
 type DispatcherWakeFn = () => void;
