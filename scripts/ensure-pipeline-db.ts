@@ -25,7 +25,7 @@ if (args.includes("--dry-run") && args.includes("--apply")) {
 
 const { requireSiteConfigs } = await import("../server/site-config");
 const { ensurePipelineDbForSites } = await import("../server/pipeline-db/runner");
-const { configureJobQueue } = await import("../server/jobs/queue");
+const { configureJobQueue, stopJobQueue } = await import("../server/jobs/queue");
 
 const dataDir = path.resolve("data");
 const sites = requireSiteConfigs().map((c) => c.contentFolder);
@@ -56,7 +56,12 @@ async function probeSidequestCopy(workDir: string): Promise<void> {
   if (fs.existsSync(src)) {
     fs.copyFileSync(src, dest);
   }
-  await configureJobQueue({ sqlitePath: dest });
+  try {
+    await configureJobQueue({ sqlitePath: dest });
+  } finally {
+    // Sidequest.configure() keeps SQLite handles open; release before deploy continues.
+    await stopJobQueue();
+  }
 }
 
 try {
@@ -74,10 +79,17 @@ try {
     }
   } else {
     ensurePipelineDbForSites(sites, { skipBackup: false });
-    await configureJobQueue();
+    try {
+      await configureJobQueue();
+    } finally {
+      await stopJobQueue();
+    }
     console.log("[pipeline-db] apply complete for all sites");
   }
 } catch (err) {
   console.error("[pipeline-db] failed:", err instanceof Error ? err.message : err);
   process.exit(1);
 }
+
+// CLI one-shot: Sidequest / better-sqlite3 may leave the event loop alive.
+process.exit(0);
