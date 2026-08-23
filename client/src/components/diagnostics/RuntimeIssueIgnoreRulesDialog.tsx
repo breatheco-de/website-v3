@@ -60,32 +60,32 @@ export function RuntimeIssueIgnoreRulesDialog({
               ignore is the exact path only.
             </p>
           ) : (
-            <ul className="space-y-2">
+            <ul className="divide-y">
               {ignored.map((rule) => {
+                const preview = formatIgnoreRulePreview(rule);
                 const matchCount = issuePaths.filter((p) => pathMatchesIgnoreRule(p, rule)).length;
                 return (
                   <li
                     key={rule.id}
-                    className="rounded-md border p-3 space-y-1"
+                    className="flex items-center gap-2 py-1.5 min-w-0"
                     data-testid={`ignore-rule-${rule.id}`}
                   >
-                    <p className="text-sm">{rule.label || rule.kind}</p>
-                    <p className="font-mono text-xs break-all text-muted-foreground">
-                      {formatIgnoreRulePreview(rule)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{matchCount} current 404s</p>
+                    <code className="font-mono text-xs truncate min-w-0 flex-1">{preview}</code>
+                    <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+                      {matchCount}
+                    </span>
                     {canRemove ? (
                       <Button
                         type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-7"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0"
                         disabled={unignorePending}
                         onClick={() => setRemoveId(rule.id)}
+                        aria-label={`Remove ignore ${preview}`}
                         data-testid={`button-unignore-${rule.id}`}
                       >
-                        <IconTrash className="h-3.5 w-3.5 mr-1" />
-                        Remove
+                        <IconTrash className="h-3.5 w-3.5" />
                       </Button>
                     ) : null}
                   </li>

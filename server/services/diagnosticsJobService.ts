@@ -24,8 +24,7 @@ import type {
   DiagnosticsWorkerOutboundMessage,
   DiagnosticsWorkerStartMessage,
 } from "../../scripts/validation/diagnosticsIpc";
-import { isCrossEntryValidator } from "../../scripts/validation/shared/runClass";
-import { validators as defaultValidators } from "../../scripts/validation/validators";
+import { CROSS_ENTRY_VALIDATOR_NAMES } from "../../scripts/validation/shared/runClass";
 import type { ContentIndex } from "../content-index";
 import type { ValidationCacheService } from "./validationCacheService";
 import { listCacheIssuesFromStore } from "./validationCacheService";
@@ -1019,6 +1018,4 @@ export function listCacheIssues(
 }
 
 /** Validators that must not run in per-page / slug-filtered mode (cross-entry). */
-export const DIAGNOSTICS_SKIP_FOR_PER_PAGE = new Set(
-  defaultValidators.filter((v) => isCrossEntryValidator(v.name)).map((v) => v.name),
-);
+export const DIAGNOSTICS_SKIP_FOR_PER_PAGE = new Set(CROSS_ENTRY_VALIDATOR_NAMES);

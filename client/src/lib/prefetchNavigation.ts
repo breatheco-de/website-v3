@@ -5,6 +5,7 @@ import {
   type SectionRef,
 } from "@/components/sectionRegistry";
 import { queryClient } from "@/lib/queryClient";
+import { isNonNavigableHref } from "@shared/safe-href";
 
 /** Hydrated from SSR initial data (see server/initial-data-middleware.ts). */
 export const NAVIGATION_EAGER_MANIFEST_QUERY_KEY = [
@@ -63,7 +64,7 @@ export function extractPath(href: string): string {
 }
 
 export function isPrefetchableHref(href: string, currentPath?: string): boolean {
-  if (!href || href.startsWith("#") || !isInternalHref(href) || isExternalHref(href)) {
+  if (!href || href.startsWith("#") || isNonNavigableHref(href) || !isInternalHref(href) || isExternalHref(href)) {
     return false;
   }
   const path = extractPath(href);

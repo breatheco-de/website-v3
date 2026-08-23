@@ -81,10 +81,17 @@ describe("isAssetPath", () => {
 describe("shouldHardDropNotFound", () => {
   it("drops probe paths", () => {
     expect(shouldHardDropNotFound("/.env", CHROME)).toBe(true);
+    expect(shouldHardDropNotFound("/.env.production", CHROME)).toBe(true);
+    expect(shouldHardDropNotFound("/.env.local", CHROME)).toBe(true);
+    expect(shouldHardDropNotFound("/.env.backup", CHROME)).toBe(true);
     expect(shouldHardDropNotFound("/wp-admin/foo", CHROME)).toBe(true);
     expect(shouldHardDropNotFound("/graphql", CHROME, "https://4geeks.com/")).toBe(true);
     expect(shouldHardDropNotFound("/.vite/manifest.json", CHROME)).toBe(true);
     expect(shouldHardDropNotFound("/apple-touch-icon.png", CHROME)).toBe(true);
+  });
+
+  it("does not treat .gitignore as a /.git probe prefix", () => {
+    expect(shouldHardDropNotFound("/.gitignore", CHROME)).toBe(false);
   });
 
   it("keeps search and LLM crawlers on page URLs", () => {
@@ -131,6 +138,17 @@ describe("shouldHardDropNotFound", () => {
       shouldHardDropNotFound("/FooterDefault-BzTB3rd2.js", CHROME, "https://4geeks.com/"),
     ).toBe(true);
     expect(isRootViteHashAsset("/assets/FooterDefault-BzTB3rd2.js")).toBe(false);
+  });
+
+  it("drops junk CSS and layout-variant paths", () => {
+    expect(
+      shouldHardDropNotFound(
+        "/en/location/linear-gradient(rgba(0, 128, 255, 0.05), rgba(0, 0, 0, 0))",
+        CHROME,
+      ),
+    ).toBe(true);
+    expect(shouldHardDropNotFound("/en/career-programs/null", CHROME)).toBe(true);
+    expect(shouldHardDropNotFound("/en/career-programs/inline", CHROME)).toBe(true);
   });
 
   it("keeps a missing page for a normal browser", () => {

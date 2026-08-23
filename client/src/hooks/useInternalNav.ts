@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { usePageSections } from "@/contexts/PageSectionsContext";
 import { isDeviceEmbedPreview, notifyDeviceEmbedNavBlocked, shouldAllowDeviceEmbedHref } from "@/lib/preview-devices";
+import { isNonNavigableHref } from "@shared/safe-href";
 
 function isInternalHref(href: string): boolean {
   return href.startsWith("/") && !href.startsWith("//");
@@ -187,6 +188,10 @@ export function useInternalNav(
     const anchor = e.currentTarget;
     const rawHref = anchor.getAttribute("href");
     if (!rawHref) return;
+    if (isNonNavigableHref(rawHref)) {
+      e.preventDefault();
+      return;
+    }
 
     const href = withUtmParams(
       withCallbackParam(
@@ -274,7 +279,7 @@ export function useInternalNav(
    * For all other URL types, handles navigation as a side effect and returns null.
    */
   const navigate = (url: string): Record<string, unknown> | null => {
-    if (!url) return null;
+    if (!url || isNonNavigableHref(url)) return null;
 
     const resolved = withUtmParams(resolveQsTokens(resolveGlobalTemplate(url)));
 

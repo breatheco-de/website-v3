@@ -8,6 +8,9 @@ import {
   listIgnoreRules,
   removeIgnoreRules,
 } from "./runtime-issues-ignore-store";
+import { BUILTIN_IGNORE_RULE_INPUTS } from "@shared/runtime-issues-ignore";
+
+const BUILTIN_RULE_COUNT = BUILTIN_IGNORE_RULE_INPUTS.length;
 
 describe("runtime-issues-ignore-store", () => {
   let tmp: string;
@@ -32,19 +35,20 @@ describe("runtime-issues-ignore-store", () => {
     expect(isPathIgnored("site_test", "/us/gone", contentRoot)).toBe(true);
     expect(isPathIgnored("site_test", "/es/gone", contentRoot)).toBe(true);
     expect(isPathIgnored("site_test", "/us/keep", contentRoot)).toBe(false);
-    expect(listIgnoreRules("site_test", contentRoot)).toHaveLength(1);
+    expect(listIgnoreRules("site_test", contentRoot)).toHaveLength(BUILTIN_RULE_COUNT + 1);
   });
 
   it("removes by id", () => {
     const contentRoot = root();
-    const { ignored } = addIgnoreRules(
+    const { added } = addIgnoreRules(
       "site_test",
       [{ kind: "exact", path: "/us/old" }],
       { contentRoot },
     );
-    expect(ignored).toHaveLength(1);
-    removeIgnoreRules("site_test", [ignored[0]!.id], contentRoot);
-    expect(listIgnoreRules("site_test", contentRoot)).toHaveLength(0);
+    expect(added).toHaveLength(1);
+    const userRule = added[0]!;
+    removeIgnoreRules("site_test", [userRule.id], contentRoot);
+    expect(listIgnoreRules("site_test", contentRoot)).toHaveLength(BUILTIN_RULE_COUNT);
     expect(isPathIgnored("site_test", "/us/old", contentRoot)).toBe(false);
   });
 });

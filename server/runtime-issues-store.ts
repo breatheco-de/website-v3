@@ -287,6 +287,13 @@ export function listRuntimeIssues(
   dropScrapers: boolean;
 } {
   const b = ensureLoadedSync(site, opts?.contentRoot);
+  const before = Object.keys(b.state.issues).length;
+  b.state = pruneRuntimeIssuesState(b.state);
+  // Persist when hard-drop rules newly remove rows (e.g. /.env.production).
+  if (Object.keys(b.state.issues).length < before) {
+    saveLocal(site);
+    saveToBucket(site);
+  }
   const issues = Object.values(b.state.issues);
   issues.sort((a, b2) => {
     if (b2.count !== a.count) return b2.count - a.count;

@@ -17,6 +17,7 @@ import * as path from "path";
 import * as yaml from "js-yaml";
 import { child } from "./logger";
 import { getDefaultContentFolder } from "./site-config";
+import { isCssLikeHref, isNonNavigableHref } from "../shared/safe-href";
 
 const log = child({ module: "navigation-eager-manifest" });
 
@@ -28,6 +29,8 @@ const OUT_FILE = path.join(
 
 const DEFAULT_EAGER_COUNT = 3;
 const HREF_KEYS = new Set(["href", "cta_url", "link", "url"]);
+/** Layout/CSS fields that must never be collected as internal paths. */
+const SKIP_PATH_WALK_KEYS = new Set(["background", "maskimage", "webkitmaskimage"]);
 const EMBEDDED_PATH_RE = /(?:^|\s)(\/[^\s"'<>#?]*)/g;
 
 type EagerTuple = [string, string];
@@ -60,7 +63,7 @@ function isCollectibleInternalPath(value: string): boolean {
 }
 
 function addPath(paths: Set<string>, candidate: string | undefined): void {
-  if (!candidate || !isCollectibleInternalPath(candidate)) return;
+  if (!candidate || !isCollectibleInternalPath(candidate) || isNonNavigableHref(candidate)) return;
   paths.add(normalizePath(candidate));
 }
 
@@ -68,6 +71,7 @@ function walkForPaths(obj: unknown, paths: Set<string>): void {
   if (obj == null) return;
 
   if (typeof obj === "string") {
+    if (isCssLikeHref(obj)) return;
     if (isCollectibleInternalPath(obj)) addPath(paths, obj);
     let match: RegExpExecArray | null;
     EMBEDDED_PATH_RE.lastIndex = 0;
@@ -85,6 +89,7 @@ function walkForPaths(obj: unknown, paths: Set<string>): void {
   if (typeof obj === "object") {
     const record = obj as Record<string, unknown>;
     for (const [key, value] of Object.entries(record)) {
+      if (SKIP_PATH_WALK_KEYS.has(key.toLowerCase())) continue;
       if (typeof value === "string" && HREF_KEYS.has(key)) addPath(paths, value);
       walkForPaths(value, paths);
     }

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
+import { clearSiteSqliteCacheForTests } from "./db";
+import { resetPipelineDbCache } from "./pipeline-db/runner";
 import {
   acquireLease,
   getActiveLease,
@@ -14,11 +16,15 @@ const TEST_SITE = "site_test-leases";
 
 describe("leases", () => {
   beforeEach(() => {
+    resetPipelineDbCache();
+    clearSiteSqliteCacheForTests();
     const dbPath = path.join("data", TEST_SITE.replace(/\//g, "-"), "app.db");
     if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
   });
 
   afterEach(() => {
+    resetPipelineDbCache();
+    clearSiteSqliteCacheForTests();
     const dbPath = path.join("data", TEST_SITE.replace(/\//g, "-"), "app.db");
     if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
   });

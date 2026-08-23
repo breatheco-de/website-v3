@@ -17,6 +17,7 @@ import {
   ignoreStateSchema,
   pathMatchesAnyIgnoreRule,
   validateIgnoreRuleInput,
+  BUILTIN_IGNORE_RULE_INPUTS,
   type IgnoreRule,
   type IgnoreRuleInput,
   type IgnoreState,
@@ -45,6 +46,25 @@ function localPathForSite(site: string, contentRoot?: string): string {
 
 function gcsKey(site: string): string {
   return siteSyncGcsKey(site, SYNC_FILENAMES.runtimeIssuesIgnore);
+}
+
+function ensureBuiltinIgnoreRules(state: IgnoreState): IgnoreState {
+  const existing = new Set(state.rules.map(ignoreRuleIdentity));
+  const added: IgnoreRule[] = [];
+  for (const input of BUILTIN_IGNORE_RULE_INPUTS) {
+    const identity = ignoreRuleIdentity(input);
+    if (existing.has(identity)) continue;
+    const rule = validateIgnoreRuleInput(input);
+    if (!rule) continue;
+    existing.add(identity);
+    added.push(rule);
+  }
+  if (!added.length) return state;
+  return {
+    ...state,
+    updatedAt: Date.now(),
+    rules: [...state.rules, ...added],
+  };
 }
 
 function ensureBucket(site: string, contentRoot?: string): SiteBucket {
@@ -108,8 +128,9 @@ function loadLocalInto(site: string, contentRoot?: string): IgnoreState {
 function ensureLoadedSync(site: string, contentRoot?: string): SiteBucket {
   const b = ensureBucket(site, contentRoot);
   if (!b.loaded) {
-    b.state = loadLocalInto(site, contentRoot);
+    b.state = ensureBuiltinIgnoreRules(loadLocalInto(site, contentRoot));
     b.loaded = true;
+    saveLocal(site);
   }
   return b;
 }
@@ -121,8 +142,9 @@ export async function loadRuntimeIssuesIgnoreForSite(
   const b = ensureBucket(site, contentRoot);
 
   if (!IS_PRODUCTION || !gcs.available) {
-    b.state = loadLocalInto(site, contentRoot);
+    b.state = ensureBuiltinIgnoreRules(loadLocalInto(site, contentRoot));
     b.loaded = true;
+    saveLocal(site);
     return;
   }
 
@@ -130,18 +152,19 @@ export async function loadRuntimeIssuesIgnoreForSite(
     const result = await gcs.downloadFirstExisting(runtimeIssuesIgnoreReadKeys(site));
     if (result) {
       const parsed = ignoreStateSchema.safeParse(JSON.parse(result.data.toString("utf-8")));
-      b.state = parsed.success ? parsed.data : emptyIgnoreState();
+      b.state = ensureBuiltinIgnoreRules(parsed.success ? parsed.data : emptyIgnoreState());
       saveLocal(site);
       log.info({ site }, "loaded runtime-issues-ignore from GCS");
     } else {
-      b.state = loadLocalInto(site, contentRoot);
+      b.state = ensureBuiltinIgnoreRules(loadLocalInto(site, contentRoot));
       log.info({ site }, "no runtime-issues-ignore in GCS — using local");
     }
   } catch (err) {
     log.error({ err, site }, "GCS load failed for runtime-issues-ignore");
-    b.state = loadLocalInto(site, contentRoot);
+    b.state = ensureBuiltinIgnoreRules(loadLocalInto(site, contentRoot));
   }
   b.loaded = true;
+  saveLocal(site);
 }
 
 export async function loadAllRuntimeIssuesIgnoreFromBucket(

@@ -6,6 +6,7 @@ import { getIcon } from "@/lib/icons";
 import { useInternalNav } from "@/hooks/useInternalNav";
 import { UniversalImage } from "@/components/UniversalImage";
 import { resolveTemplateFallback, coerceToText } from "@/lib/variable-manager";
+import { resolveSectionBackground } from "@/lib/section-background";
 
 interface HeroSimpleStackedProps {
   data: HeroSimpleStackedType;
@@ -16,9 +17,13 @@ export default function HeroSimpleStacked({ data }: HeroSimpleStackedProps) {
   const badgeText = coerceToText(data.badge);
   const titleText = coerceToText(data.title);
   const subtitleText = coerceToText(data.subtitle);
+  const sectionBg = resolveSectionBackground(
+    data.background || "bg-gradient-to-b from-primary/5 to-background",
+  );
   return (
     <section 
-      className={`${data.background || "bg-gradient-to-b from-primary/5 to-background"}`}
+      className={sectionBg.className}
+      style={sectionBg.style}
       data-testid="section-hero"
     >
       <div className="max-w-4xl mx-auto px-4">

@@ -1,6 +1,8 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
+import { clearSiteSqliteCacheForTests } from "./db";
+import { resetPipelineDbCache } from "./pipeline-db/runner";
 import { listEvents } from "./events/event-store";
 import {
   emitValidationIssueWorkflowEvent,
@@ -27,11 +29,15 @@ function sampleIssue(overrides?: Partial<StoredValidationIssue>): StoredValidati
 
 describe("validation-events", () => {
   beforeEach(() => {
+    resetPipelineDbCache();
+    clearSiteSqliteCacheForTests();
     const dbPath = path.join("data", TEST_SITE.replace(/\//g, "-"), "app.db");
     if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
   });
 
   afterEach(() => {
+    resetPipelineDbCache();
+    clearSiteSqliteCacheForTests();
     const dbPath = path.join("data", TEST_SITE.replace(/\//g, "-"), "app.db");
     if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
   });

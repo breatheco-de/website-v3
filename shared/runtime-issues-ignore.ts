@@ -65,6 +65,42 @@ export function emptyIgnoreState(): IgnoreState {
   return { version: 1, updatedAt: Date.now(), rules: [] };
 }
 
+/** Seeded once per site when no matching rule exists (junk paths from client bugs). */
+export const BUILTIN_IGNORE_RULE_INPUTS: IgnoreRuleInput[] = [
+  {
+    kind: "slug_list",
+    parent: "/en/career-programs",
+    slugs: ["null", "inline", "undefined"],
+    label: "Junk program slugs (null/inline)",
+  },
+  {
+    kind: "slug_list",
+    parent: "/es/programas-de-carrera",
+    slugs: ["null", "inline", "undefined"],
+    label: "Junk program slugs (null/inline)",
+  },
+  {
+    kind: "exact",
+    path: "/en/null",
+    label: "Junk locale path (null)",
+  },
+  {
+    kind: "exact",
+    path: "/es/null",
+    label: "Junk locale path (null)",
+  },
+  {
+    kind: "exact",
+    path: "/es/inline",
+    label: "Junk locale path (inline)",
+  },
+  {
+    kind: "exact",
+    path: "/landing/inline",
+    label: "Junk landing path (inline layout variant)",
+  },
+];
+
 export function newIgnoreRuleId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();

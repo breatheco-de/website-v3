@@ -164,7 +164,7 @@ import {
 } from "../markdown";
 import { resolveDynamicEntries } from "../dynamic-entries";
 import { loadDatabaseSinglePage, mergeSingleTemplate } from "../database-single-loader";
-import { enrichWithEcommerceData } from "../ecommerce/ecommerce-resolver";
+import { coerceProgramSlug } from "@shared/safe-href";
 import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
@@ -886,8 +886,10 @@ export function listCareerPrograms(
     if (program) {
       const commonData = ci.loadCommonData("program", slug);
       const bcSlug = (commonData?.bc_slug as string) || slug;
+      const resolvedSlug = coerceProgramSlug(program.slug, slug);
+      if (!resolvedSlug) continue;
       programs.push({
-        slug: program.slug,
+        slug: resolvedSlug,
         title: program.title,
         bc_slug: bcSlug,
       });

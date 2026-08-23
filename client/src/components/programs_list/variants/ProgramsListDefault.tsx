@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
 import { useInternalNav } from "@/hooks/useInternalNav";
+import { buildCareerProgramPath } from "@shared/safe-href";
 
 type ProgramsListSectionData = z.infer<typeof programsListSectionSchema>;
 
@@ -16,6 +17,7 @@ interface ProgramsListSectionProps {
 interface Program {
   slug: string;
   title: string;
+  content_slug?: string;
 }
 
 export function ProgramsListSection({ data }: ProgramsListSectionProps) {
@@ -36,12 +38,9 @@ export function ProgramsListSection({ data }: ProgramsListSectionProps) {
     },
   });
 
-  const programs = allPrograms;
-
-  const programUrl = (slug: string) => 
-    locale === "es" 
-      ? `/es/programas-de-carrera/${slug}` 
-      : `/en/career-programs/${slug}`;
+  const programs = allPrograms?.filter(
+    (program) => buildCareerProgramPath(locale, program.slug, program.content_slug) != null,
+  );
 
   return (
     <section 
@@ -72,9 +71,12 @@ export function ProgramsListSection({ data }: ProgramsListSectionProps) {
           </div>
         ) : programs && programs.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {programs.map((program, index) => (
+            {programs.map((program, index) => {
+              const programHref = buildCareerProgramPath(locale, program.slug, program.content_slug);
+              if (!programHref) return null;
+              return (
               <Card 
-                key={program.slug}
+                key={programHref}
                 className="border hover-elevate"
                 data-testid={`card-program-${index}`}
               >
@@ -88,7 +90,7 @@ export function ProgramsListSection({ data }: ProgramsListSectionProps) {
                   >
                     {program.title}
                   </h3>
-                  <a href={programUrl(program.slug)} onClick={handleLinkClick}>
+                  <a href={programHref} onClick={handleLinkClick}>
                     <Button 
                       variant="outline" 
                       className="w-full"
@@ -100,7 +102,8 @@ export function ProgramsListSection({ data }: ProgramsListSectionProps) {
                   </a>
                 </CardContent>
               </Card>
-            ))}
+            );
+            })}
           </div>
         ) : (
           <p className="text-center text-muted-foreground">

@@ -1,16 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("./content-types", () => ({
-  getContentTypeConfig: vi.fn((type: string) => {
-    if (type === "how-to" || type === "blog") {
-      return { database: { slug: "how_to" }, single_template: false };
-    }
-    if (type === "shared-static") {
-      return { single_template: true };
-    }
-    return { directory: type };
-  }),
-}));
+vi.mock("./content-types", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./content-types")>();
+  return {
+    ...actual,
+    getContentTypeConfig: vi.fn((type: string) => {
+      if (type === "how-to" || type === "blog") {
+        return { database: { slug: "how_to" }, single_template: false };
+      }
+      if (type === "shared-static") {
+        return { single_template: true };
+      }
+      return { directory: type };
+    }),
+  };
+});
 
 vi.mock("./content-index", () => ({
   contentIndex: {
@@ -24,6 +28,7 @@ vi.mock("./sync-state", () => ({
 
 vi.mock("./site-config", () => ({
   getDefaultContentFolder: () => "site_4geeks-com",
+  getDefaultContentRoot: () => "site_4geeks-com",
 }));
 
 import { isSharedLayoutContentType } from "./bindings";

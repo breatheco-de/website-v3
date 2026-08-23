@@ -44,6 +44,11 @@ export function isCrossEntryValidator(name: string): boolean {
   return getValidatorRunClass(name) === "cross-entry";
 }
 
+/** Cross-entry validators that must not run in per-page / slug-filtered diagnostics. */
+export const CROSS_ENTRY_VALIDATOR_NAMES = Object.keys(RUN_CLASS_BY_NAME).filter(
+  (name) => RUN_CLASS_BY_NAME[name] === "cross-entry",
+);
+
 export function isMediaValidator(name: string): boolean {
   return getValidatorRunClass(name) === "media";
 }

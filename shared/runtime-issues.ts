@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isJunkRuntimeNotFoundPath } from "./safe-href";
 
 export const RUNTIME_ISSUE_KINDS = ["http.not_found"] as const;
 export type RuntimeIssueKind = (typeof RUNTIME_ISSUE_KINDS)[number];
@@ -53,7 +54,7 @@ const SEO_SAMPLE_TAGS = new Set<string>([
   "llm_referrer",
 ]);
 
-/** Hard-drop probe paths (prefix or exact). */
+/** Hard-drop probe paths (exact, `prefix/…`, or `prefix.…` e.g. `/.env.production`). */
 const HARD_DROP_PATH_PREFIXES = [
   "/.env",
   "/.git",
@@ -294,8 +295,10 @@ export function shouldHardDropNotFound(
 ): boolean {
   const p = normalizeRuntimePath(path).toLowerCase();
   if (HARD_DROP_PATH_EXACT.has(p)) return true;
+  if (isJunkRuntimeNotFoundPath(p)) return true;
   for (const prefix of HARD_DROP_PATH_PREFIXES) {
-    if (p === prefix || p.startsWith(prefix + "/")) return true;
+    // `/.env` must also match `/.env.production` (dot suffix), not only `/.env/…`
+    if (p === prefix || p.startsWith(prefix + "/") || p.startsWith(prefix + ".")) return true;
   }
   if (isRootViteHashAsset(p)) return true;
 
