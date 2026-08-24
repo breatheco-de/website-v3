@@ -1455,6 +1455,29 @@ export function sanitizeClearedTemplatePaths(
 }
 
 /**
+ * Keep only unboundTemplatePaths that were real bindings and are now static strings
+ * (present, no `{{ … }}` in the value).
+ */
+export function sanitizeUnboundTemplatePaths(
+  requested: string[] | undefined,
+  newSection: Record<string, unknown>,
+  originalTemplateSection: Record<string, unknown>,
+): string[] {
+  if (!requested?.length) return [];
+  const varFields = extractVariableFields(originalTemplateSection);
+  const allowed: string[] = [];
+  for (const path of requested) {
+    if (!path || !(path in varFields)) continue;
+    const incoming = getValueAtPath(newSection, path);
+    if (incoming === undefined) continue;
+    if (typeof incoming !== "string") continue;
+    if (TEMPLATE_EXPR_RE.test(incoming)) continue;
+    allowed.push(path);
+  }
+  return allowed;
+}
+
+/**
  * Re-bind one field value to its template expression without dropping surrounding
  * literal text (e.g. `"{{ single.title }} test"` stays intact).
  *
@@ -1491,14 +1514,17 @@ export function restoreTemplatePlaceholders(
   originalTemplateSection: Record<string, unknown>,
   skipPaths?: Iterable<string>,
   resolvedByPath?: Record<string, string>,
+  unboundPaths?: Iterable<string>,
 ): Record<string, unknown> {
   const varFields = extractVariableFields(originalTemplateSection);
   if (Object.keys(varFields).length === 0) return newSection;
 
   const skip = skipPaths ? new Set(skipPaths) : null;
+  const unbound = unboundPaths ? new Set(unboundPaths) : null;
   const result = JSON.parse(JSON.stringify(newSection)) as Record<string, unknown>;
   for (const [dotPath, templateExpr] of Object.entries(varFields)) {
     if (skip?.has(dotPath)) continue;
+    if (unbound?.has(dotPath)) continue;
     const incoming = getValueAtPath(result, dotPath);
     if (incoming === undefined) {
       setValueAtPath(result, dotPath, templateExpr);
@@ -1577,10 +1603,17 @@ function writeStructuralChangesToTemplate(opts: {
             newSectionData,
             originalTemplateSection,
           );
+          const unboundPaths = sanitizeUnboundTemplatePaths(
+            op.unboundTemplatePaths,
+            newSectionData,
+            originalTemplateSection,
+          );
           newSectionData = restoreTemplatePlaceholders(
             newSectionData,
             originalTemplateSection,
             skipPaths,
+            undefined,
+            unboundPaths,
           );
         }
         const opResult = applyOperation(templateData, { ...op, section: newSectionData } as EditOperation, {
@@ -2054,10 +2087,17 @@ function handleSharedTemplateEdit(opts: {
             newSectionData,
             originalTemplateSection,
           );
+          const unboundPaths = sanitizeUnboundTemplatePaths(
+            operation.unboundTemplatePaths,
+            newSectionData,
+            originalTemplateSection,
+          );
           newSectionData = restoreTemplatePlaceholders(
             newSectionData,
             originalTemplateSection,
             skipPaths,
+            undefined,
+            unboundPaths,
           );
         }
         applyOperation(templateData, { ...operation, section: newSectionData } as EditOperation);

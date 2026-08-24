@@ -28,12 +28,17 @@ function setValueAtDotPath(obj: Record<string, unknown>, pathStr: string, value:
 
 /**
  * Strip runtime keys (`_*`, resolved `items`) then put template expressions back.
+ * Paths in `skipPaths` are left as-is (staff unbound them in this session).
  */
-export function restoreVariableFieldsForEditor(section: unknown): unknown {
+export function restoreVariableFieldsForEditor(
+  section: unknown,
+  skipPaths?: Iterable<string>,
+): unknown {
   if (!section || typeof section !== "object") return section;
 
   const sec = section as Record<string, unknown>;
   const variableFields = sec._variableFields as Record<string, string> | undefined;
+  const skip = skipPaths ? new Set(skipPaths) : null;
 
   const withoutPrivate = Object.fromEntries(
     Object.entries(sec).filter(([k]) => !k.startsWith("_")),
@@ -52,12 +57,50 @@ export function restoreVariableFieldsForEditor(section: unknown): unknown {
   const result = JSON.parse(JSON.stringify(authored)) as Record<string, unknown>;
   for (const [dotPath, templateExpr] of Object.entries(variableFields)) {
     if (!dotPath || typeof templateExpr !== "string") continue;
+    if (skip?.has(dotPath)) continue;
     setValueAtDotPath(result, dotPath, templateExpr);
   }
   return result;
 }
 
 const TEMPLATE_VAR_RE = /\{\{[\s\S]*?\}\}/;
+
+export function getValueAtDotPath(obj: unknown, fieldPath: string): unknown {
+  const parts = fieldPath.replace(/\[(\d+)\]/g, ".$1").split(".").filter(Boolean);
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current === null || current === undefined) return undefined;
+    if (typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+/** Paths that were template-bound at load but are now static strings (no `{{ }}`). */
+export function detectUnboundTemplatePaths(
+  originalPaths: Record<string, string>,
+  current: Record<string, unknown>,
+): string[] {
+  return Object.keys(originalPaths).filter((path) => {
+    const val = getValueAtDotPath(current, path);
+    if (val === undefined) return false;
+    if (typeof val !== "string") return false;
+    return !TEMPLATE_VAR_RE.test(val);
+  });
+}
+
+export function findFieldPathForExpression(
+  variableFields: Record<string, string>,
+  expr: string,
+): string | undefined {
+  const trimmed = expr.trim();
+  for (const [path, templateExpr] of Object.entries(variableFields)) {
+    if (templateExpr.trim() === trimmed) return path;
+    const fieldVal = templateExpr;
+    if (fieldVal.includes(trimmed)) return path;
+  }
+  return undefined;
+}
 
 /** Collect dot-paths whose string leaves contain `{{ ... }}`. */
 export function collectTemplateExprPaths(
@@ -91,14 +134,11 @@ export function mergeSavedSectionForLivePreview(
   saved: Record<string, unknown>,
 ): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...saved };
-  const fromSaved = collectTemplateExprPaths(saved);
-  const prevVf =
-    previous?._variableFields && typeof previous._variableFields === "object"
-      ? (previous._variableFields as Record<string, string>)
-      : {};
-  const nextVf = { ...prevVf, ...fromSaved };
+  const nextVf = collectTemplateExprPaths(saved);
   if (Object.keys(nextVf).length > 0) {
     merged._variableFields = nextVf;
+  } else if ("_variableFields" in merged) {
+    delete merged._variableFields;
   }
 
   const hasDynamic =
