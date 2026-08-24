@@ -5,7 +5,7 @@ import { storage } from "../storage";
 import { geoGet, geoSet } from "../geo-cache";
 import { getQueueStats, enqueueOptimization, getPendingOptimizations, getFailedEntries, retryFailedImages, resetOptimizeSession, getOptimizeSession, enqueueExternalImage } from "../image-registry";
 import { getAllQueueState } from "../image-queue-state";
-
+import { enrichWithEcommerceData } from "../ecommerce/ecommerce-resolver";
 
 
 import * as fs from "fs";
