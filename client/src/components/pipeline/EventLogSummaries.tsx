@@ -379,15 +379,22 @@ function validationSkipLabel(reason: string | undefined): string {
       return "no content files matched this entry";
     case "no_validation_context":
       return "validation context could not be built";
+    case "deduped_within_hour":
+      return "same page already queued or validated in the last hour";
     default:
       return reason ?? "validation did not run";
   }
 }
 
+/** Exported for unit tests. */
+export function formatValidationSkipReason(reason: string | undefined): string {
+  return validationSkipLabel(reason);
+}
+
 function validationOutcomeLine(payload: ValidationEventPayload): ReactNode {
   if (payload.skipped) {
     return (
-      <p className="text-xs text-amber-400/90">
+      <p className="text-xs text-muted-foreground">
         Skipped — {validationSkipLabel(payload.reason)}
       </p>
     );

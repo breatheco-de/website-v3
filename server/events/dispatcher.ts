@@ -2,8 +2,8 @@
  * Outbox dispatcher: maps unpublished events to Sidequest jobs.
  */
 
-import path from "path";
 import {
+  emitEvent,
   getUnpublishedEvents,
   markEventsPublished,
   setDispatcherWake,
@@ -56,7 +56,7 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
         const entryKey = entryKeyFromEvent(event);
         if (entryKey) {
           const { contentType, slug, locale } = event.resource;
-          await enqueueJob(
+          const validationEnqueue = await enqueueJob(
             "on_save_validation",
             {
               site: event.site,
@@ -68,6 +68,26 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
             },
             { uniqueKey: `validation:${entryKey}`, delayMs: 1500 },
           );
+          // Close the pipeline "validation in flight" row when Sidequest dedupes
+          // (same entryKey within the uniqueness window) — otherwise the UI spins forever.
+          if (validationEnqueue.deduped && contentType && slug && locale) {
+            emitEvent({
+              site: event.site,
+              type: "validation_results_ready",
+              triggeredByEventId: event.id,
+              attribution: event.attribution,
+              resource: { contentType, slug, locale, path: event.resource.path },
+              payload: {
+                entryKey,
+                skipped: true,
+                reason: "deduped_within_hour",
+              },
+            });
+            log.info(
+              { site: event.site, entryKey, writeEventId: event.id },
+              "[Dispatcher] on_save_validation deduped — emitted skipped validation_results_ready",
+            );
+          }
         }
         await enqueueJob(
           "sync_state_flush",

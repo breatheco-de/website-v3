@@ -4,6 +4,7 @@ import {
   eventValidationEntryRef,
   formatBindingDoneOutcome,
   formatBulkSyncPreview,
+  formatValidationSkipReason,
   type PipelineContentEvent,
 } from "@/components/pipeline/EventLogSummaries";
 
@@ -108,5 +109,13 @@ describe("eventValidationEntryRef", () => {
 
   it("returns null for unrelated event types", () => {
     expect(eventValidationEntryRef(baseEvent({ type: "content_bulk_synced" }))).toBeNull();
+  });
+});
+
+describe("formatValidationSkipReason", () => {
+  it("explains hour dedupe in plain language", () => {
+    expect(formatValidationSkipReason("deduped_within_hour")).toBe(
+      "same page already queued or validated in the last hour",
+    );
   });
 });

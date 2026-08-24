@@ -835,7 +835,13 @@ function EventLogPanel({
             <ol className="space-y-0">
               {filteredEvents.map((e) => {
                 const isFailure = e.type === "job_failed" || failureIds.has(e.id);
+                const validationSkipped =
+                  e.type === "validation_results_ready" && e.payload?.skipped === true;
                 const meta = eventMeta(e.type);
+                const label = validationSkipped ? "Validation Skipped" : meta.label;
+                const iconClass = validationSkipped
+                  ? "text-muted-foreground border-border"
+                  : meta.iconClass;
                 const Icon = isFailure ? IconAlertTriangle : meta.icon;
                 const isExpanded = expanded === e.id;
                 const hasTypedDetails = eventHasTypedDetails(e);
@@ -852,7 +858,7 @@ function EventLogPanel({
                     <span
                       className={cn(
                         "relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-card",
-                        isFailure ? "text-red-400 border-red-400/40" : meta.iconClass,
+                        isFailure ? "text-red-400 border-red-400/40" : iconClass,
                       )}
                     >
                       <Icon className="h-4 w-4" />
@@ -866,18 +872,21 @@ function EventLogPanel({
                               className={cn(
                                 "text-sm font-semibold text-left hover:underline decoration-dotted underline-offset-2 cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                 isFailure && "text-red-400",
+                                validationSkipped && "text-muted-foreground",
                               )}
-                              aria-label={`What is ${meta.label}?`}
+                              aria-label={`What is ${label}?`}
                             >
-                              {meta.label}
+                              {label}
                             </button>
                           </PopoverTrigger>
                           <PopoverContent side="bottom" align="start" className="w-80 p-3">
                             <p className="text-xs font-medium text-foreground mb-1">
-                              {meta.label}
+                              {label}
                             </p>
                             <p className="text-xs text-muted-foreground leading-relaxed">
-                              {meta.description}
+                              {validationSkipped
+                                ? "Validation was not re-run because the same page was already queued or validated recently (1-hour dedupe). The save still succeeded."
+                                : meta.description}
                             </p>
                           </PopoverContent>
                         </Popover>

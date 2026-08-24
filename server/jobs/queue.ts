@@ -143,16 +143,22 @@ export function registerJobClass(name: string, JobClass: new () => Job): void {
   jobClassRegistry.set(name, JobClass);
 }
 
+export type EnqueueJobResult = {
+  queued: boolean;
+  /** True when Sidequest uniqueness rejected a duplicate within the uniqueness window. */
+  deduped?: boolean;
+};
+
 export async function enqueueJob(
   jobType: string,
   payload: Record<string, unknown>,
   opts?: JobEnqueueOpts,
-): Promise<void> {
+): Promise<EnqueueJobResult> {
   await configureJobQueue();
   const JobClass = jobClassRegistry.get(jobType);
   if (!JobClass) {
     log.error({ jobType }, "[JobQueue] Unknown job type");
-    return;
+    return { queued: false };
   }
   let builder = Sidequest.build(JobClass as never).queue(opts?.queue ?? "default");
   if (opts?.uniqueKey) {
@@ -169,10 +175,11 @@ export async function enqueueJob(
   }
   try {
     await builder.enqueue(payload);
+    return { queued: true };
   } catch (err) {
     if (opts?.uniqueKey && err instanceof DuplicatedJobError) {
       log.debug({ jobType, uniqueKey: opts.uniqueKey }, "[JobQueue] Job already queued (deduped)");
-      return;
+      return { queued: false, deduped: true };
     }
     throw err;
   }
