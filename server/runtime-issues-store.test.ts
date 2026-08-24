@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { BUILTIN_IGNORE_RULE_INPUTS } from "@shared/runtime-issues-ignore";
 import { gcs } from "./gcs";
 import {
   _resetRuntimeIssuesForTests,
@@ -14,6 +15,8 @@ import {
   setDropScrapers,
   getRuntimeIssuesLocalPath,
 } from "./runtime-issues-store";
+
+const BUILTIN_RULE_COUNT = BUILTIN_IGNORE_RULE_INPUTS.length;
 
 const CHROME =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -296,7 +299,10 @@ describe("runtime-issues-store", () => {
     expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual(["/us/keep"]);
     const reset = resetRuntimeIssuesForSite("site_test", contentRoot);
     expect(Object.keys(reset.issues)).toHaveLength(0);
-    expect(listRuntimeIssues("site_test", { contentRoot }).ignored).toHaveLength(1);
+    // Reset clears 404 rows but keeps ignore rules (builtins + staff-added).
+    expect(listRuntimeIssues("site_test", { contentRoot }).ignored).toHaveLength(
+      BUILTIN_RULE_COUNT + 1,
+    );
     expect(reset.dropScrapers).toBe(true);
   });
 
