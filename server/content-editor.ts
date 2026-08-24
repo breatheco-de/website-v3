@@ -835,6 +835,8 @@ export async function editContent(request: ContentEditRequest): Promise<{
         !!getContentTypeConfig(contentType, contentRoot)?.single_template);
     let resolvedOperations = operations;
     let forwardedTemplateOps = false;
+    /** True when stub scrub removed overlay section leftovers (worth rewriting entry YAML). */
+    let entryOverlayScrubDirty = false;
     const needsSharedSectionRemap =
       usesSharedTemplate &&
       operations.some(
@@ -987,9 +989,14 @@ export async function editContent(request: ContentEditRequest): Promise<{
 
             // Drop identity-less stubs previously written into the entry overlay.
             if (Array.isArray(localeData.sections)) {
-              localeData.sections = (localeData.sections as unknown[]).filter((s) =>
+              const beforeScrub = localeData.sections as unknown[];
+              const afterScrub = beforeScrub.filter((s) =>
                 keepSectionAfterTypelessScrub(s, false),
               );
+              if (afterScrub.length !== beforeScrub.length) {
+                entryOverlayScrubDirty = true;
+              }
+              localeData.sections = afterScrub;
             }
           }
         }
@@ -997,10 +1004,10 @@ export async function editContent(request: ContentEditRequest): Promise<{
     }
 
     // Layout-only Apply (e.g. X Spacing maxWidth) on attached entries: all ops were
-    // written to single.{locale}.yml. Persist stub scrub on the entry without
-    // re-running the live SEO gate (that gate blocked successful template saves).
+    // written to single.{locale}.yml. Persist stub scrub on the entry only when
+    // leftovers were actually removed (avoid empty writes / false redirects events).
     if (forwardedTemplateOps && resolvedOperations.length === 0) {
-      if (Array.isArray(localeData.sections)) {
+      if (entryOverlayScrubDirty && Array.isArray(localeData.sections)) {
         const scrubbedYaml = safeYamlDump(localeData, {
           lineWidth: -1,
           noRefs: true,
@@ -1448,15 +1455,42 @@ export function sanitizeClearedTemplatePaths(
 }
 
 /**
- * Restores `{{ single.* }}` and `{{ global.* }}` placeholder expressions from
- * the original template section back into the new section data, preventing any
- * resolved values (e.g. from the AI adapt flow) from leaking into the template.
- * Paths in skipPaths (staff-approved clears) are left absent.
+ * Re-bind one field value to its template expression without dropping surrounding
+ * literal text (e.g. `"{{ single.title }} test"` stays intact).
+ *
+ * - Already contains `{{ … }}` → keep the whole string.
+ * - Optional `resolved` (delivery value): equality → expression; prefix → expression + suffix.
+ * - Otherwise → expression (prevents baking resolved literals into the template).
+ */
+export function restoreTemplateFieldValue(
+  incoming: unknown,
+  templateExpr: string,
+  resolved?: string,
+): unknown {
+  if (typeof incoming !== "string") return templateExpr;
+  if (TEMPLATE_EXPR_RE.test(incoming)) return incoming;
+  if (typeof resolved === "string" && resolved.length > 0) {
+    if (incoming === resolved) return templateExpr;
+    if (incoming.startsWith(resolved)) {
+      return `${templateExpr}${incoming.slice(resolved.length)}`;
+    }
+  }
+  return templateExpr;
+}
+
+/**
+ * Restores `{{ single.* }}` / `{{ global.* }}` placeholder expressions from the
+ * original template section into new section data, preserving any literal text
+ * around expressions. Paths in skipPaths (staff-approved clears) stay absent.
+ *
+ * `resolvedByPath` (optional): delivery-resolved values per dot-path so
+ * `"Title test"` can become `"{{ single.title }} test"` when Title was the bind.
  */
 export function restoreTemplatePlaceholders(
   newSection: Record<string, unknown>,
   originalTemplateSection: Record<string, unknown>,
   skipPaths?: Iterable<string>,
+  resolvedByPath?: Record<string, string>,
 ): Record<string, unknown> {
   const varFields = extractVariableFields(originalTemplateSection);
   if (Object.keys(varFields).length === 0) return newSection;
@@ -1465,7 +1499,16 @@ export function restoreTemplatePlaceholders(
   const result = JSON.parse(JSON.stringify(newSection)) as Record<string, unknown>;
   for (const [dotPath, templateExpr] of Object.entries(varFields)) {
     if (skip?.has(dotPath)) continue;
-    setValueAtPath(result, dotPath, templateExpr);
+    const incoming = getValueAtPath(result, dotPath);
+    if (incoming === undefined) {
+      setValueAtPath(result, dotPath, templateExpr);
+      continue;
+    }
+    setValueAtPath(
+      result,
+      dotPath,
+      restoreTemplateFieldValue(incoming, templateExpr, resolvedByPath?.[dotPath]),
+    );
   }
   return result;
 }

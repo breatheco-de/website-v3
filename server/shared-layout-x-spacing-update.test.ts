@@ -108,4 +108,40 @@ describe("attached shared-layout X spacing update_field", () => {
     expect(entryRaw).not.toMatch(/maxWidth:/);
     expect(entryRaw).toMatch(/content:\s*Hello world/);
   });
+
+  it("does not rewrite a clean attached entry when forwarding template ops", async () => {
+    fs.writeFileSync(
+      path.join(contentRoot, "blog", "demo-post", "en.yml"),
+      `title: Demo
+content: Hello world
+sections: []
+`,
+      "utf-8",
+    );
+    const entryPath = path.join(contentRoot, "blog", "demo-post", "en.yml");
+    const before = fs.readFileSync(entryPath, "utf-8");
+    const beforeMtime = fs.statSync(entryPath).mtimeMs;
+
+    resetRegistry(contentRoot);
+    const ci = new ContentIndex(contentRoot);
+    const result = await editContent({
+      contentType: "blog",
+      slug: "demo-post",
+      locale: "en",
+      operations: [
+        {
+          action: "update_field",
+          path: "sections.1.maxWidth",
+          value: { desktop: "sm" },
+        },
+      ],
+      contentRoot,
+      ci,
+      skipSharedLayoutFanOut: true,
+    });
+
+    expect(result.success, result.error).toBe(true);
+    expect(fs.readFileSync(entryPath, "utf-8")).toBe(before);
+    expect(fs.statSync(entryPath).mtimeMs).toBe(beforeMtime);
+  });
 });

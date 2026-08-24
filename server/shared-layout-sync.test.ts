@@ -16,6 +16,7 @@ import {
   stripSectionLabels,
   MIRRORED_SECTION_NEEDS_EDIT_NOTE,
   cleanSectionIdFromEntryOverlays,
+  fanOutStructuralOpsToSiblings,
 } from "./shared-layout-sync";
 
 function safeYamlLoad(raw: string): Record<string, unknown> | null {
@@ -222,6 +223,51 @@ describe("shared-layout-sync", () => {
       ]);
       expect(written.some((p) => p.includes("detached-post"))).toBe(false);
       expect(written.some((p) => p.includes("attached-post"))).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fan-out does not rewrite sibling when dump is unchanged", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "shared-layout-fanout-"));
+    try {
+      const en = path.join(root, "single.en.yml");
+      const es = path.join(root, "single.es.yml");
+      const sections = [
+        {
+          type: "hero",
+          section_id: "hero-1",
+          title: "{{ single.title }}",
+          paddingY: { desktop: "sm" },
+        },
+      ];
+      const doc = { meta: { page_title: "{{ single.title }}" }, sections };
+      const body = dumpYaml(doc);
+      const normalized = body.endsWith("\n") ? body : `${body}\n`;
+      fs.writeFileSync(en, normalized);
+      fs.writeFileSync(es, normalized);
+      const beforeMtime = fs.statSync(es).mtimeMs;
+      const written: string[] = [];
+
+      const result = fanOutStructuralOpsToSiblings({
+        templateDir: root,
+        sourceLocale: "en",
+        sourceSections: sections,
+        operations: [
+          {
+            action: "update_section",
+            index: 0,
+            section: sections[0],
+          },
+        ],
+        safeYamlLoad,
+        dumpYaml,
+        onSiblingWritten: (p) => written.push(p),
+      });
+
+      expect(result.failed).toEqual([]);
+      expect(written).toEqual([]);
+      expect(fs.statSync(es).mtimeMs).toBe(beforeMtime);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

@@ -4,7 +4,7 @@ import { registerRoutes, startBackgroundSync } from "./routes/index";
 import { setupVite, serveStatic, log } from "./vite";
 import { registerDevViteForHubRender } from "./render-hub-html";
 import type { ViteDevServer } from "vite";
-import { fallbackRedirectMiddleware } from "./redirects";
+import { fallbackRedirectMiddleware, didRedirectsChange } from "./redirects";
 import { initialDataMiddleware } from "./initial-data-middleware";
 import compression from "compression";
 import cookieParser from "cookie-parser";
@@ -591,8 +591,10 @@ app.use((req, res, next) => {
     startJobApplier();
     startEngineWatchdog();
     startEventPruneTimer(siteNames);
+    /** Previous YAML bodies for redirects_changed gating (in-process seed). */
+    const lastYamlContentByPath = new Map<string, string>();
     addFileModifiedListener((evt) => {
-      const { filePath, author, actor } = evt;
+      const { filePath, author, actor, contentChanged, content } = evt;
       scheduleSectionVariantsRefreshForFile(filePath);
       if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
         for (const ctx of getSiteContextMap().values()) {
@@ -602,24 +604,34 @@ app.use((req, res, next) => {
           } catch {
             /* non-fatal */
           }
-          const abs = path.isAbsolute(filePath)
-            ? filePath
-            : path.join(process.cwd(), filePath);
-          const isCustomRedirects = filePath.endsWith("custom-redirects.yml");
-          let redirectsChanged = isCustomRedirects;
-          if (!isCustomRedirects) {
-            try {
-              const raw = fs.readFileSync(abs, "utf-8");
-              redirectsChanged = /\n\s*redirects\s*:/.test(raw) || /\nmeta:[\s\S]*?redirects\s*:/.test(raw);
-            } catch {
-              /* ignore */
-            }
-          }
           const resolvedActor =
             actor ?? (author ? { type: "ui" as const } : { type: "system" as const, source: "content-pipeline" });
           emitContentFileWritten(filePath, { author, actor: resolvedActor });
-          if (redirectsChanged) {
-            emitRedirectsChanged(filePath, { author, actor: resolvedActor });
+
+          if (contentChanged) {
+            const abs = path.isAbsolute(filePath)
+              ? filePath
+              : path.join(process.cwd(), filePath);
+            const next =
+              typeof content === "string"
+                ? content
+                : (() => {
+                    try {
+                      return fs.readFileSync(abs, "utf-8");
+                    } catch {
+                      return "";
+                    }
+                  })();
+            const prev = lastYamlContentByPath.get(filePath);
+            const isCustomRedirects = filePath.endsWith("custom-redirects.yml");
+            if (
+              didRedirectsChange(prev, next, {
+                isCustomRedirectsFile: isCustomRedirects,
+              })
+            ) {
+              emitRedirectsChanged(filePath, { author, actor: resolvedActor });
+            }
+            lastYamlContentByPath.set(filePath, next);
           }
           break;
         }

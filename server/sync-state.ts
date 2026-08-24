@@ -407,6 +407,10 @@ export type FileModifiedEvent = {
   filePath: string;
   author?: string;
   actor?: EventActor;
+  /** True when file bytes changed vs prior sync-state sha. */
+  contentChanged?: boolean;
+  /** New file body when the file still exists (listeners decide domain emits). */
+  content?: string;
 };
 
 const fileModifiedListeners: Set<(evt: FileModifiedEvent) => void> = new Set();
@@ -422,8 +426,15 @@ function notifyFileModifiedListeners(
   relativePath: string,
   author?: string,
   actor?: EventActor,
+  extras?: { contentChanged?: boolean; content?: string },
 ): void {
-  const evt: FileModifiedEvent = { filePath: relativePath, author, actor };
+  const evt: FileModifiedEvent = {
+    filePath: relativePath,
+    author,
+    actor,
+    contentChanged: extras?.contentChanged,
+    content: extras?.content,
+  };
   fileModifiedListeners.forEach((cb) => cb(evt));
 }
 
@@ -522,7 +533,10 @@ export function markFileAsModified(
     if (autoCommitCallback) {
       autoCommitCallback(relativePath, author, allowedExceptions);
     }
-    notifyFileModifiedListeners(relativePath, author || prev?.author, actor);
+    notifyFileModifiedListeners(relativePath, author || prev?.author, actor, {
+      contentChanged,
+      content,
+    });
   } else if (state.files[relativePath]) {
     // File deleted / missing — do not invent a content-change timestamp from a touch.
     state.files[relativePath] = {

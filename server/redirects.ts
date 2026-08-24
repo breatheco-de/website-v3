@@ -1,4 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
+import yaml from "js-yaml";
+import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
 import { contentIndex, type RedirectEntry } from "./content-index";
 import { databaseManager } from "./database";
 import {
@@ -1003,4 +1005,58 @@ export function clearRedirectCache(): void {
   regexRedirectsFallbackNonCustom = null;
   _siteRedirectCache.clear();
   log.info("[Redirects] Cache cleared (global + all per-site)");
+}
+
+// ============================================================================
+// Redirect-list signatures (for content_file_written → redirects_changed gating)
+// ============================================================================
+
+function redirectsFromDoc(data: unknown): unknown {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const doc = data as Record<string, unknown>;
+  const top = Array.isArray(doc.redirects) ? doc.redirects : null;
+  const meta =
+    doc.meta && typeof doc.meta === "object" && !Array.isArray(doc.meta)
+      ? (doc.meta as Record<string, unknown>)
+      : null;
+  const metaRedirects = meta && Array.isArray(meta.redirects) ? meta.redirects : null;
+  if (!top && !metaRedirects) return null;
+  return { redirects: top, metaRedirects };
+}
+
+/**
+ * Stable string for redirect arrays in a YAML file, or `""` when none.
+ * `custom-redirects.yml` callers should treat any content change as redirects change.
+ */
+export function computeRedirectsSignature(raw: string): string {
+  if (!raw || typeof raw !== "string") return "";
+  try {
+    const { escaped, map } = escapeTemplateVars(raw);
+    const parsed = yaml.load(escaped);
+    const unescaped = unescapeObjectVars(parsed, map);
+    const extracted = redirectsFromDoc(unescaped);
+    if (extracted == null) return "";
+    return JSON.stringify(extracted);
+  } catch {
+    if (/(?:^|\n)\s*redirects\s*:/.test(raw)) return `raw:${raw.length}`;
+    return "";
+  }
+}
+
+/** True when redirect lists differ between previous and next file contents. */
+export function didRedirectsChange(
+  previousRaw: string | undefined | null,
+  nextRaw: string,
+  opts?: { isCustomRedirectsFile?: boolean },
+): boolean {
+  if (opts?.isCustomRedirectsFile) {
+    return (previousRaw ?? "") !== nextRaw;
+  }
+  const prevSig = previousRaw != null ? computeRedirectsSignature(previousRaw) : undefined;
+  const nextSig = computeRedirectsSignature(nextRaw);
+  if (prevSig === undefined) {
+    // First observation: seed only, no event.
+    return false;
+  }
+  return prevSig !== nextSig;
 }

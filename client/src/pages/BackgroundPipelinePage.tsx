@@ -156,7 +156,7 @@ const EVENT_META: Record<string, EventMeta> = {
   redirects_changed: {
     label: "Redirects Changed",
     description:
-      "Redirect rules were updated in a content file or custom-redirects.yml. The redirect cache and validation scope refresh in the background.",
+      "Redirect lists in a content file (or custom-redirects.yml) actually changed. Unrelated edits on files that merely contain meta.redirects do not emit this. Redirect cache refresh still rides content_file_written.",
     icon: IconRoute,
     iconClass: "text-primary border-primary/40",
   },

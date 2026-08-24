@@ -347,13 +347,21 @@ export interface FanOutResult {
   manualVariantWarning?: boolean;
 }
 
+/** Write YAML only when bytes change. Returns true when the file was written. */
 function writeYamlFile(
   filePath: string,
   data: Record<string, unknown>,
   dump: (data: unknown) => string,
-): void {
+): boolean {
   const body = dump(data);
-  fs.writeFileSync(filePath, body.endsWith("\n") ? body : body + "\n", "utf-8");
+  const next = body.endsWith("\n") ? body : `${body}\n`;
+  if (fs.existsSync(filePath)) {
+    const prev = fs.readFileSync(filePath, "utf-8");
+    const prevNorm = prev.endsWith("\n") ? prev : prev.length > 0 ? `${prev}\n` : "";
+    if (prevNorm === next) return false;
+  }
+  fs.writeFileSync(filePath, next, "utf-8");
+  return true;
 }
 
 /**
@@ -491,8 +499,9 @@ export function fanOutStructuralOpsToSiblings(opts: {
           },
           sections: sourceSections.map((s) => prepareSiblingMirroredSection(s, requesterId)),
         };
-        writeYamlFile(filePath, mirrored, dumpYaml);
-        onSiblingWritten?.(filePath, locale);
+        if (writeYamlFile(filePath, mirrored, dumpYaml)) {
+          onSiblingWritten?.(filePath, locale);
+        }
         result.succeeded.push(locale);
         continue;
       }
@@ -536,8 +545,9 @@ export function fanOutStructuralOpsToSiblings(opts: {
       }
 
       data.sections = sections;
-      writeYamlFile(filePath, data, dumpYaml);
-      onSiblingWritten?.(filePath, locale);
+      if (writeYamlFile(filePath, data, dumpYaml)) {
+        onSiblingWritten?.(filePath, locale);
+      }
       result.succeeded.push(locale);
     } catch (err) {
       result.failed.push({
@@ -600,8 +610,9 @@ export function cleanSectionIdFromEntryOverlays(
           if (stripSectionFromEntryOverlay(data, id)) dirty = true;
         }
         if (dirty) {
-          writeYamlFile(filePath, data, dumpYaml);
-          onWritten?.(filePath);
+          if (writeYamlFile(filePath, data, dumpYaml)) {
+            onWritten?.(filePath);
+          }
         }
       } catch {
         /* skip */
