@@ -39,7 +39,9 @@ export class BindingPropagationJob extends Job {
       undefined as never,
       payload.author,
       payload.locale,
-      { reReadSource: true },
+      // markFileAsModified must run in the web process (applier) — Sidequest loads
+      // a separate bundle without auto-commit callbacks / file listeners.
+      { reReadSource: true, skipMarkModified: true },
     );
 
     if (!verifyLeaseToken(payload.site, resource, payload.token)) {
@@ -59,9 +61,11 @@ export class BindingPropagationJob extends Job {
       attribution: started?.attribution ?? [],
       payload: {
         updatedFiles: result.updatedFiles,
+        updatedPaths: result.updatedPaths,
         errors: result.errors,
         groupId: payload.groupId,
         locale: payload.locale,
+        author: payload.author,
       },
     });
 

@@ -11,6 +11,7 @@ import {
   getLastSnapshotGeneration,
   getWriteEventsBetween,
   getLatestWriteForEntry,
+  listOpenWritesForEntry,
   getUnpublishedEvents,
   getUnpublishedCount,
   getOldestUnpublishedAgeMs,
@@ -177,6 +178,21 @@ describe("event-store", () => {
       locale: "en",
     });
     expect(latest?.resource.slug).toBe("foo");
+  });
+
+  it("listOpenWritesForEntry excludes writes with matching ready", () => {
+    const site = `${TEST_SITE}-open-${Date.now()}`;
+    const resource = { contentType: "blog", slug: "a", locale: "en" };
+    const w1 = emitEvent({ site, type: "content_file_written", resource });
+    const w2 = emitEvent({ site, type: "content_file_written", resource });
+    emitEvent({
+      site,
+      type: "validation_results_ready",
+      triggeredByEventId: w2.id,
+      payload: { entryKey: "blog/a/en" },
+    });
+    const open = listOpenWritesForEntry(site, resource);
+    expect(open.map((e) => e.id)).toEqual([w1.id]);
   });
 
   it("clears all events for a site", () => {

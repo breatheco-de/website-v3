@@ -220,6 +220,38 @@ export function getLatestWriteForEntry(
   return row ? rowToEvent(row) : null;
 }
 
+/**
+ * content_file_written rows for an entry that still lack a matching
+ * validation_results_ready (triggered_by_event_id = write id). Newest first.
+ */
+export function listOpenWritesForEntry(
+  site: string,
+  resource: Pick<EventResource, "contentType" | "slug" | "locale">,
+  limit = 20,
+): ContentEvent[] {
+  ensureSchema(site);
+  const { contentType, slug, locale } = resource;
+  if (!contentType || !slug || !locale) return [];
+  const db = getSiteSqlite(site);
+  const rows = db
+    .prepare(
+      `SELECT w.* FROM events w
+       WHERE w.site = ? AND w.type = 'content_file_written'
+         AND json_extract(w.resource_json, '$.contentType') = ?
+         AND json_extract(w.resource_json, '$.slug') = ?
+         AND json_extract(w.resource_json, '$.locale') = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM events r
+           WHERE r.site = w.site
+             AND r.type = 'validation_results_ready'
+             AND r.triggered_by_event_id = w.id
+         )
+       ORDER BY w.id DESC LIMIT ?`,
+    )
+    .all(site, contentType, slug, locale, limit) as Record<string, unknown>[];
+  return rows.map(rowToEvent);
+}
+
 export { unionAttribution, singleAttribution };
 
 export function markEventsPublished(site: string, ids: number[]): void {

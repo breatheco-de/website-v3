@@ -45,3 +45,44 @@ export function setPersistedLastAppliedIndex(
     )
     .run(KEY_LAST_APPLIED_INDEX, JSON.stringify(payload));
 }
+
+function pendingValidationKey(entryKey: string): string {
+  return `pending_validation_write:${entryKey}`;
+}
+
+/**
+ * Stash the content_file_written id for an on_save_validation job.
+ * Kept out of Sidequest job args so hour-uniqueness stays per entryKey.
+ * Same SQLite file is visible to the Sidequest jobs bundle.
+ */
+export function setPendingValidationWriteId(
+  site: string,
+  entryKey: string,
+  writeEventId: number,
+): void {
+  ensureSchema(site);
+  getSiteSqlite(site)
+    .prepare(
+      `INSERT INTO pipeline_state (key, value_json) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+    )
+    .run(pendingValidationKey(entryKey), JSON.stringify({ writeEventId }));
+}
+
+/** Read+clear pending write id for an entry (job-side). */
+export function takePendingValidationWriteId(site: string, entryKey: string): number | null {
+  ensureSchema(site);
+  const db = getSiteSqlite(site);
+  const key = pendingValidationKey(entryKey);
+  const row = db.prepare("SELECT value_json FROM pipeline_state WHERE key = ?").get(key) as
+    | { value_json: string }
+    | undefined;
+  if (!row) return null;
+  db.prepare("DELETE FROM pipeline_state WHERE key = ?").run(key);
+  try {
+    const parsed = JSON.parse(row.value_json) as { writeEventId?: number };
+    return typeof parsed.writeEventId === "number" ? parsed.writeEventId : null;
+  } catch {
+    return null;
+  }
+}
