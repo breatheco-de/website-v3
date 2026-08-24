@@ -41,6 +41,9 @@ image_sizes:
   simpleTwoColumn.image.src: 300px
 variants:
   ApplyFormProductShowcase: {}
+  blogHero:
+    description: Left-aligned blog post hero with updated date, reading time, title, subtitle, and author avatars
+    best_for: Blog shared templates and article detail pages
   course:
     description: Two column layout with content on left (title, bullet points, tutors) and media + signup card on right
     best_for: Course landing pages, self-paced program pages
@@ -1150,6 +1153,30 @@ variant_props:
           type: boolean
           required: false
         gradientWidth:
+          type: number
+          required: false
+  blogHero:
+    subtitle:
+      type: string
+      required: false
+    updated_at:
+      type: string
+      required: false
+    authors:
+      type: array
+      required: false
+      items:
+        type:
+          type: string
+          required: true
+    reading_time:
+      type: object
+      required: false
+      properties:
+        from_content:
+          type: string
+          required: false
+        value_in_minutes:
           type: number
           required: false
   course:

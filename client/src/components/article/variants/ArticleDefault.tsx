@@ -5,11 +5,18 @@ import type { ComponentProps } from "react";
 import { ChevronRight, User, Clock, Calendar } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import rehypeRaw from "rehype-raw";
+import rehypeKatex from "rehype-katex";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { useLocation } from "wouter";
 import type { ArticleSection } from "@shared/schema";
 import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
+import {
+  normalizeMathDelimiters,
+  remarkMathOptions,
+  rehypeKatexOptions,
+} from "@shared/markdown-math";
 import { cn } from "@/lib/utils";
 import { useOrderedPageSections } from "@/contexts/PageSectionsContext";
 import { useSectionContext } from "@/contexts/SectionContext";
@@ -449,6 +456,8 @@ function ArticleMeta({
   authors,
   updatedAt,
   locale,
+  showAuthors = true,
+  showUpdatedAt = true,
 }: {
   tags: string[];
   category?: string;
@@ -457,16 +466,18 @@ function ArticleMeta({
   authors: Array<{ name: string; url?: string }>;
   updatedAt?: string | null;
   locale: string;
+  showAuthors?: boolean;
+  showUpdatedAt?: boolean;
 }) {
   const hasTags = tags.length > 0;
   const hasCategory = Boolean(category && category.trim() && !category.includes("{{"));
   const hasReading = typeof readingMinutes === "number" && readingMinutes > 0;
-  const hasAuthors = authors.length > 0;
+  const hasAuthors = showAuthors && authors.length > 0;
   const updatedIso =
     updatedAt && !String(updatedAt).includes("{{")
       ? normalizeFlexibleDate(updatedAt)
       : null;
-  const hasUpdated = Boolean(updatedIso);
+  const hasUpdated = showUpdatedAt && Boolean(updatedIso);
   if (!hasTags && !hasCategory && !hasReading && !hasAuthors && !hasUpdated) return null;
 
   const textItems: ReactNode[] = [];
@@ -615,6 +626,8 @@ export function Article({ data }: ArticleProps) {
     authors: rawAuthors,
     updated_at: rawUpdatedAt,
     show_reading_time = true,
+    show_authors = true,
+    show_updated_at = true,
   } = data;
 
   const [location] = useLocation();
@@ -715,6 +728,8 @@ export function Article({ data }: ArticleProps) {
         authors={authors}
         updatedAt={typeof rawUpdatedAt === "string" ? rawUpdatedAt : undefined}
         locale={locale}
+        showAuthors={show_authors}
+        showUpdatedAt={show_updated_at}
       />
     );
 
@@ -790,6 +805,8 @@ const sanitizeSchema = {
       "className",
       "style",
       "dataLine",
+      ["className", /^katex/],
+      ["className", /^math/],
     ],
     pre: [
       ...(defaultSchema.attributes?.pre ?? []),
@@ -806,6 +823,7 @@ const sanitizeSchema = {
       "className",
       "dataArticleAlert",
       "role",
+      ["className", /^katex/],
     ],
     p: [...(defaultSchema.attributes?.p ?? []), "className"],
     iframe: ["src", "width", "height", "allowFullScreen", "allow", "title", "frameBorder"],
@@ -820,6 +838,8 @@ const sanitizeSchema = {
       "dataLine",
       "dataRehypePrettyCodeFigure",
       "dataArticleAlert",
+      "ariaHidden",
+      "ariaLabel",
     ],
   },
 };
@@ -844,20 +864,26 @@ function MarkdownRenderer({
   const isEnhanced = safeContent.startsWith(ARTICLE_HTML_MARKER);
   const source = isEnhanced
     ? safeContent.slice(ARTICLE_HTML_MARKER.length).trim()
-    : safeContent;
+    : normalizeMathDelimiters(safeContent);
 
-  // Server-enhanced HTML was already sanitized before Shiki; re-sanitizing
+  // Server-enhanced HTML was already sanitized before Shiki/KaTeX; re-sanitizing
   // would strip token `style` / data-* attributes. Raw markdown still goes
-  // through rehypeSanitize on the client.
+  // through rehypeKatex + rehypeSanitize on the client.
+  const remarkPlugins = (
+    isEnhanced
+      ? [remarkGfm]
+      : [remarkGfm, [remarkMath, remarkMathOptions]]
+  ) as ComponentProps<typeof ReactMarkdown>["remarkPlugins"];
+
   const rehypePlugins = (
     isEnhanced
       ? [rehypeRaw]
-      : [rehypeRaw, [rehypeSanitize, sanitizeSchema]]
+      : [rehypeRaw, [rehypeKatex, rehypeKatexOptions], [rehypeSanitize, sanitizeSchema]]
   ) as ComponentProps<typeof ReactMarkdown>["rehypePlugins"];
 
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={remarkPlugins}
       rehypePlugins={rehypePlugins}
       components={{
         h1: ({ children, ...props }) => {

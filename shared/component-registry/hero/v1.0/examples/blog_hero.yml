@@ -1,0 +1,17 @@
+name: "Blog Hero"
+description: "Left-aligned blog post hero with updated date, reading time, title, subtitle, and author avatars"
+yaml: |
+  - type: hero
+    version: "1.0"
+    variant: blogHero
+    title: "Mastering Technical Knowledge"
+    subtitle: "A framework for technical education built on four measurable metrics."
+    updated_at: "2026-08-20"
+    reading_time:
+      from_content: |
+        Sample article body used only to estimate reading time in the hero meta row.
+    authors:
+      - name: Ada Lovelace
+        url: /en/authors/ada-lovelace
+        image: woman-profile-headshot-1-608aff01
+      - name: Grace Hopper

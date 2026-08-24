@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { FileCode, List, Maximize2, Minimize2, Pencil, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +15,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import {
+  normalizeMathDelimiters,
+  remarkMathOptions,
+  rehypeKatexOptions,
+} from "@shared/markdown-math";
 import "./prose-preview.css";
 
 interface TocPreviewItem {
@@ -276,6 +283,7 @@ function MarkdownEditorModal({
   const charCount = draft.length;
   const wordCount = draft.trim() ? draft.trim().split(/\s+/).length : 0;
   const hasChanges = draft !== value;
+  const previewMarkdown = useMemo(() => normalizeMathDelimiters(draft), [draft]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -329,6 +337,31 @@ function MarkdownEditorModal({
           </div>
         </DialogHeader>
 
+        <div className="flex-none border-b border-border bg-muted/20 px-4 py-2 space-y-1.5 text-sm text-muted-foreground">
+          <p>
+            Math uses{" "}
+            <code className="text-xs bg-muted px-1 rounded text-foreground">\(...\)</code>{" "}
+            inline and{" "}
+            <code className="text-xs bg-muted px-1 rounded text-foreground">\[...\]</code>{" "}
+            for display (LaTeX). Prices stay as{" "}
+            <code className="text-xs bg-muted px-1 rounded text-foreground">$99</code>
+            {" "}— a single <code className="text-xs bg-muted px-1 rounded">$</code> is not math.
+          </p>
+          <details className="text-xs">
+            <summary className="cursor-pointer text-foreground font-medium">
+              Read more (advanced)
+            </summary>
+            <ul className="mt-2 list-disc pl-5 font-mono space-y-1">
+              <li>shared/markdown-math.ts</li>
+              <li>server/markdown-enhance.ts</li>
+              <li>
+                Published articles: KaTeX HTML from the server enhance cache (same family as
+                Shiki). This preview runs KaTeX in-browser.
+              </li>
+            </ul>
+          </details>
+        </div>
+
         <div className="flex-1 flex min-h-0">
           <div className={cn("flex flex-col min-h-0", showPreview ? "w-1/2 border-r border-border" : "w-full")}>
             <div className="flex-none px-3 py-1.5 border-b border-border bg-muted/20">
@@ -356,8 +389,11 @@ function MarkdownEditorModal({
               </div>
               <ScrollArea className="flex-1">
                 <div className="p-6 prose-preview">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {draft}
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm, [remarkMath, remarkMathOptions]]}
+                    rehypePlugins={[[rehypeKatex, rehypeKatexOptions]]}
+                  >
+                    {previewMarkdown}
                   </ReactMarkdown>
                 </div>
               </ScrollArea>

@@ -6,7 +6,7 @@ import {
   IconSpeakerphone,
   IconTarget,
 } from "@tabler/icons-react";
-import { AlertTriangle, Check, ChevronDown, ExternalLink, Info, Plus } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ExternalLink, Info, Pencil, Plus } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -105,6 +105,7 @@ export function FunnelTab({
   const queryClient = useQueryClient();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [stage, setStage] = useState<string>("");
+  const [stageEditing, setStageEditing] = useState(false);
   const [productsMode, setProductsMode] = useState<"omit" | "all" | "list">("omit");
   const [selectedSlugs, setSelectedSlugs] = useState<string[]>([]);
   const [addProductOpen, setAddProductOpen] = useState(false);
@@ -126,7 +127,9 @@ export function FunnelTab({
   useEffect(() => {
     if (!data?.funnel) return;
     const f = data.funnel;
-    setStage(typeof f.stage === "string" ? f.stage : "");
+    const nextStage = typeof f.stage === "string" ? f.stage : "";
+    setStage(nextStage);
+    setStageEditing(!nextStage);
     if (f.products === "all") {
       setProductsMode("all");
       setSelectedSlugs([]);
@@ -275,47 +278,75 @@ export function FunnelTab({
       ))}
 
       <div className="space-y-2">
-        <Label>Stage</Label>
+        <div className="flex items-center justify-between gap-2">
+          <Label>Stage</Label>
+          {stage && !stageEditing && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={() => setStageEditing(true)}
+              aria-label="Change funnel stage"
+              data-testid="button-edit-funnel-stage"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
         <div
-          className="grid grid-cols-1 sm:grid-cols-2 gap-2"
+          className={cn(
+            "grid gap-2",
+            stage && !stageEditing ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2",
+          )}
           role="group"
           aria-label="Funnel stage"
           data-testid="funnel-stage-bar"
         >
-          {STAGE_OPTIONS.map((option) => {
-            const selected = stage === option.value;
-            const StageIcon = option.icon;
-            const taper = FUNNEL_STAGE_TAPER[option.value];
-            return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setStage(selected ? "" : option.value)}
-                className={cn(
-                  "text-left rounded-md border p-3 transition-colors hover-elevate",
-                  FUNNEL_STAGE_TONE[taper],
-                  selected && "ring-2 ring-offset-1 ring-offset-background",
-                  selected && FUNNEL_STAGE_SELECTED_RING[taper],
-                )}
-                data-testid={`button-funnel-stage-${option.value}`}
-              >
-                <div className="flex items-start gap-2">
-                  <StageIcon
-                    className={cn(
-                      "h-4 w-4 shrink-0 mt-0.5",
-                      FUNNEL_STAGE_ICON_TONE[taper],
-                    )}
-                  />
-                  <div className="min-w-0">
-                    <span className="text-sm font-medium">{option.label}</span>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
-                      {option.description}
-                    </p>
+          {STAGE_OPTIONS.filter((option) => stageEditing || !stage || stage === option.value).map(
+            (option) => {
+              const selected = stage === option.value;
+              const StageIcon = option.icon;
+              const taper = FUNNEL_STAGE_TAPER[option.value];
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    if (selected) {
+                      setStage("");
+                      setStageEditing(true);
+                      return;
+                    }
+                    setStage(option.value);
+                    setStageEditing(false);
+                  }}
+                  className={cn(
+                    "text-left rounded-md border p-3 transition-colors hover-elevate",
+                    FUNNEL_STAGE_TONE[taper],
+                    selected && "ring-2 ring-offset-1 ring-offset-background",
+                    selected && FUNNEL_STAGE_SELECTED_RING[taper],
+                  )}
+                  data-testid={`button-funnel-stage-${option.value}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <StageIcon
+                      className={cn(
+                        "h-4 w-4 shrink-0 mt-0.5",
+                        FUNNEL_STAGE_ICON_TONE[taper],
+                      )}
+                    />
+                    <div className="min-w-0">
+                      <span className="text-sm font-medium">{option.label}</span>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+                        {option.description}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </button>
-            );
-          })}
+                </button>
+              );
+            },
+          )}
         </div>
         {!stage && (
           <p className="text-[11px] text-muted-foreground">

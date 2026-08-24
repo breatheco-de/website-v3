@@ -95,6 +95,59 @@ export const heroSingleColumnSchema = z.object({
   image_width: z.string().optional(),
 }).passthrough();
 
+/** Author entry for blogHero byline (hydrated from `{{ single.authors }}`). */
+export const heroBlogAuthorSchema = z.union([
+  z.string(),
+  z
+    .object({
+      name: z.string().optional(),
+      slug: z.string().optional(),
+      url: z.string().optional(),
+      first_name: z.string().optional(),
+      last_name: z.string().optional(),
+      image: z.union([z.string(), z.record(z.unknown())]).optional(),
+      _image: z.union([z.string(), z.record(z.unknown())]).optional(),
+    })
+    .passthrough(),
+]);
+
+/** Reading time for blogHero — independent of article sections on the page. */
+export const heroBlogReadingTimeSchema = z.object({
+  from_content: z
+    .string()
+    .optional()
+    .describe(
+      "Body markdown/HTML used only to estimate reading time (~200 wpm). Map: reading_time.from_content: '{{ single.content }}'. Not rendered in the hero.",
+    ),
+  value_in_minutes: z
+    .number()
+    .optional()
+    .describe(
+      "Fixed reading time in minutes. When set, overrides from_content.",
+    ),
+});
+
+export const heroBlogHeroSchema = z.object({
+  type: z.literal("hero"),
+  version: z.string().optional(),
+  variant: z.literal("blogHero"),
+  title: z.string(),
+  subtitle: z.string().optional(),
+  updated_at: z
+    .string()
+    .optional()
+    .describe(
+      "Editorial last-modified. Map: updated_at: '{{ single.updated_at }}'. Shown in the meta row when parseable.",
+    ),
+  authors: z
+    .array(heroBlogAuthorSchema)
+    .optional()
+    .describe(
+      "Author byline with avatars. Map: authors: '{{ single.authors }}'. Pointers hydrate on page/SSR.",
+    ),
+  reading_time: heroBlogReadingTimeSchema.optional(),
+}).passthrough();
+
 export const heroShowcaseSchema = z.object({
   type: z.literal("hero"),
   version: z.string().optional(),
@@ -422,6 +475,7 @@ export const heroExerciseSchema = z.object({
 // Combined hero section schema
 export const heroSectionSchema = z.union([
   heroSingleColumnSchema,
+  heroBlogHeroSchema,
   heroShowcaseSchema,
   heroProductShowcaseSchema,
   heroSimpleTwoColumnSchema,
@@ -446,6 +500,7 @@ export type BulletItem = z.infer<typeof bulletItemSchema>;
 export type HeroCourseTutor = z.infer<typeof heroCourseTutorSchema>;
 export type HeroCourseFeature = z.infer<typeof heroCourseFeatureSchema>;
 export type HeroSingleColumn = z.infer<typeof heroSingleColumnSchema>;
+export type HeroBlogHero = z.infer<typeof heroBlogHeroSchema>;
 export type HeroShowcase = z.infer<typeof heroShowcaseSchema>;
 export type HeroProductShowcase = z.infer<typeof heroProductShowcaseSchema>;
 export type HeroSimpleTwoColumn = z.infer<typeof heroSimpleTwoColumnSchema>;

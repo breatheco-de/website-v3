@@ -1,5 +1,7 @@
 /* Scoped helpers for article markdown — things Tailwind handles awkwardly. */
 
+@import "katex/dist/katex.min.css";
+
 .article-prose li > p {
   margin-bottom: 0.5rem;
 }
@@ -99,4 +101,28 @@
   .article-prose .article-copy-code-btn:focus-visible {
     opacity: 1;
   }
+}
+
+/* KaTeX inherits semantic foreground in light/dark */
+.article-prose .katex {
+  color: inherit;
+  font-size: 1.05em;
+}
+
+/* Full-row / display formulas — center on the content column */
+.article-prose .katex-display {
+  display: block;
+  margin: 1.25rem 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.article-prose .katex-display > .katex {
+  text-align: center;
+}
+
+/* Lone $$...$$ often lands as inline math inside a single-child <p> */
+.article-prose p:has(> .katex:only-child) {
+  text-align: center;
 }

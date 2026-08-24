@@ -123,6 +123,7 @@ export {
 // Variant types for type narrowing (schemas are internal to component registry)
 export type {
   HeroSingleColumn,
+  HeroBlogHero,
   HeroShowcase,
   HeroProductShowcase,
   HeroSimpleTwoColumn,

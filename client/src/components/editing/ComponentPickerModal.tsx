@@ -138,6 +138,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 
 const variantLabels: Record<string, string> = {
   singleColumn: "Single Column",
+  blogHero: "Blog Hero",
   showcase: "Showcase",
   productShowcase: "Product Showcase",
   simpleTwoColumn: "Two Column",

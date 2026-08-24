@@ -39,6 +39,18 @@ export const articleSectionSchema = z.object({
     .describe(
       "Show estimated reading time on the first article (default true). On split pages, minutes combine all article bodies; later articles never show meta/reading time.",
     ),
+  show_authors: z
+    .boolean()
+    .optional()
+    .describe(
+      "Show author byline in the article meta row (default true). Keep authors mapped for schema.org even when false (e.g. blog posts that show authors in Blog Hero).",
+    ),
+  show_updated_at: z
+    .boolean()
+    .optional()
+    .describe(
+      "Show last-updated date in the article meta row (default true). dateModified JSON-LD still comes from the entry, not this flag.",
+    ),
   tags: z.array(z.string()).optional().describe("Optional tag chips in the article meta row"),
   category: z.string().optional().describe("Optional category chip in the article meta row"),
   category_url: z.string().optional().describe("Optional link for the category chip"),

@@ -1,20 +1,27 @@
 /**
- * Server-only markdown enhancement: GitHub alerts + Shiki via rehype-pretty-code.
- * Output is HTML prefixed with ARTICLE_HTML_MARKER so the client can render
- * without shipping Shiki.
+ * Server-only markdown enhancement: GitHub alerts + Shiki via rehype-pretty-code
+ * + KaTeX math. Output is HTML prefixed with ARTICLE_HTML_MARKER so the client
+ * can render without shipping Shiki / KaTeX JS.
  */
 import { createHash } from "node:crypto";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import remarkRehype from "remark-rehype";
 import rehypeRaw from "rehype-raw";
+import rehypeKatex from "rehype-katex";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import rehypeSlug from "rehype-slug";
 import rehypePrettyCode from "rehype-pretty-code";
 import rehypeStringify from "rehype-stringify";
 import type { Root, Element, ElementContent, Text, Parents } from "hast";
 import { visit } from "unist-util-visit";
+import {
+  normalizeMathDelimiters,
+  remarkMathOptions,
+  rehypeKatexOptions,
+} from "@shared/markdown-math";
 import { child } from "./logger";
 
 const log = child({ module: "markdown-enhance" });
@@ -26,6 +33,8 @@ const ALERT_TYPES = new Set(["NOTE", "TIP", "WARNING", "IMPORTANT"]);
 
 const enhanceCache = new Map<string, { html: string; fetched_at: number }>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+/** Bump when enhance output shape changes so in-memory cache cannot serve stale HTML. */
+const ENHANCE_PIPELINE_VERSION = "v2-katex-html-only";
 
 const prettyCodeOptions = {
   theme: { light: "github-light", dark: "github-dark-dimmed" },
@@ -60,6 +69,8 @@ const sanitizeSchema = {
       "className",
       "style",
       "dataLine",
+      ["className", /^katex/],
+      ["className", /^math/],
     ],
     pre: [
       ...(defaultSchema.attributes?.pre ?? []),
@@ -76,6 +87,7 @@ const sanitizeSchema = {
       "className",
       "dataArticleAlert",
       "role",
+      ["className", /^katex/],
     ],
     p: [...(defaultSchema.attributes?.p ?? []), "className"],
     iframe: ["src", "width", "height", "allowFullScreen", "allow", "title", "frameBorder"],
@@ -89,12 +101,17 @@ const sanitizeSchema = {
       "dataLine",
       "dataRehypePrettyCodeFigure",
       "style",
+      "ariaHidden",
+      "ariaLabel",
     ],
   },
 };
 
 function hashContent(markdown: string): string {
-  return createHash("sha256").update(markdown).digest("hex");
+  return createHash("sha256")
+    .update(ENHANCE_PIPELINE_VERSION)
+    .update(markdown)
+    .digest("hex");
 }
 
 /** Transform `> [!NOTE]` style blockquotes into alert divs before stringify. */
@@ -194,8 +211,10 @@ async function buildProcessor() {
   return unified()
     .use(remarkParse)
     .use(remarkGfm)
+    .use(remarkMath, remarkMathOptions)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
+    .use(rehypeKatex, rehypeKatexOptions)
     .use(rehypeSanitize, sanitizeSchema as Parameters<typeof rehypeSanitize>[0])
     .use(rehypeSlug)
     .use(rehypePrettyCode, prettyCodeOptions)
@@ -227,7 +246,7 @@ export async function enhanceMarkdownToHtml(markdown: string): Promise<string> {
 
   try {
     const processor = await getProcessor();
-    const file = await processor.process(markdown);
+    const file = await processor.process(normalizeMathDelimiters(markdown));
     const html = `${ARTICLE_HTML_MARKER}\n${String(file)}`;
     enhanceCache.set(key, { html, fetched_at: Date.now() });
     return html;
