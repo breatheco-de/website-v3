@@ -49,11 +49,24 @@ export type JobEnqueueOpts = {
 export type ConfigureJobQueueOpts = {
   /** Override Sidequest SQLite path (dry-run preflight on a copy). */
   sqlitePath?: string;
+  /** Override jobs registry (tests only). */
+  jobsFilePath?: string;
 };
+
+/** Prod: dist/sidequest.jobs.js. Dev (tsx): sidequest.jobs.ts at repo root. */
+function sidequestJobsFilePath(): string {
+  return path.resolve(
+    process.cwd(),
+    process.env.NODE_ENV === "production" ? "dist/sidequest.jobs.js" : "sidequest.jobs.ts",
+  );
+}
 
 export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<void> {
   const dbPath = opts?.sqlitePath ?? SIDEQUEST_DB;
   if (configured && !opts?.sqlitePath) return;
+  const jobsFilePath = opts?.jobsFilePath
+    ? path.resolve(opts.jobsFilePath)
+    : sidequestJobsFilePath();
   await Sidequest.configure({
     backend: {
       driver: "@sidequest/sqlite-backend",
@@ -63,6 +76,10 @@ export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<v
     // Worker threads / forked engine use plain Node ESM and fail on ../../content-index, etc.
     fork: false,
     runner: "inline",
+    // esbuild collapses the server into dist/index.js; stack-based script paths break
+    // ("Invalid job class"). Manual registry: enqueue stores script "sidequest.jobs.js".
+    manualJobResolution: true,
+    jobsFilePath,
     queues: [{ name: "default", concurrency: 1, priority: 50, state: "active" }],
     dashboard: {
       enabled: process.env.NODE_ENV !== "production",
@@ -70,6 +87,7 @@ export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<v
     },
   });
   configured = true;
+  log.info({ jobsFilePath }, "[JobQueue] Sidequest configured with manual job resolution");
 }
 
 export async function startJobQueue(): Promise<void> {
