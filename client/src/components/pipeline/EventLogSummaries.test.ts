@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   eventHasTypedDetails,
+  eventValidationEntryRef,
   formatBindingDoneOutcome,
   formatBulkSyncPreview,
   type PipelineContentEvent,
@@ -68,5 +69,44 @@ describe("eventHasTypedDetails", () => {
   it("returns false for raw-json-only types", () => {
     expect(eventHasTypedDetails(baseEvent({ type: "index_snapshot_ready" }))).toBe(false);
     expect(eventHasTypedDetails(baseEvent({ type: "content_file_written" }))).toBe(false);
+  });
+});
+
+describe("eventValidationEntryRef", () => {
+  it("returns entry key for validation results when not skipped", () => {
+    expect(
+      eventValidationEntryRef(
+        baseEvent({
+          type: "validation_results_ready",
+          payload: { entryKey: "page/foo/en" },
+        }),
+      ),
+    ).toEqual({ entryKey: "page/foo/en" });
+  });
+
+  it("returns null for skipped validation results", () => {
+    expect(
+      eventValidationEntryRef(
+        baseEvent({
+          type: "validation_results_ready",
+          payload: { entryKey: "page/foo/en", skipped: true },
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("returns entry key and page url for validation issue events", () => {
+    expect(
+      eventValidationEntryRef(
+        baseEvent({
+          type: "validation_issue_claimed",
+          payload: { entryKey: "page/foo/en", url: "/en/page/foo" },
+        }),
+      ),
+    ).toEqual({ entryKey: "page/foo/en", pageUrl: "/en/page/foo" });
+  });
+
+  it("returns null for unrelated event types", () => {
+    expect(eventValidationEntryRef(baseEvent({ type: "content_bulk_synced" }))).toBeNull();
   });
 });

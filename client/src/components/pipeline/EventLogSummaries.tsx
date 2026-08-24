@@ -6,13 +6,17 @@ import {
   IconLoader2,
   IconRoute,
 } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
+import { Link } from "wouter";
 import JsonViewer from "@/components/editing/JsonViewer";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 import { Badge } from "@/components/ui/badge";
+import { useContentTypes } from "@/hooks/useContentTypes";
 import { formatIssueActorLine, formatAttributionEntry, formatAttributionSummary, formatCausalityLabel, type EventAttributionEntry } from "@/lib/formatIssueActor";
+import { entryPartsToPageUrl } from "@/lib/entryKeyToPageUrl";
 import { parseEntryKey } from "@/lib/parseEntryKey";
 import { apiFetch } from "@/lib/queryClient";
+import { staff404DashboardHref } from "@/lib/staff404";
 
 export type PipelineContentEvent = {
   id: number;
@@ -47,12 +51,6 @@ function stringArrayField(obj: Record<string, unknown>, key: string): string[] {
   const v = obj[key];
   if (!Array.isArray(v)) return [];
   return v.filter((x): x is string => typeof x === "string");
-}
-
-function diagnosticsHref(entryKey: string): string {
-  const parsed = parseEntryKey(entryKey);
-  if (!parsed) return "/private/diagnostics";
-  return `/private/diagnostics?path=${encodeURIComponent(parsed.slug)}`;
 }
 
 function entryFromResourceOrPayload(
@@ -176,6 +174,29 @@ export function eventHasTypedDetails(event: PipelineContentEvent): boolean {
   return true;
 }
 
+export function eventValidationEntryRef(
+  event: PipelineContentEvent,
+): { entryKey: string; pageUrl?: string } | null {
+  const entryKey = strField(event.payload, "entryKey");
+  if (!entryKey) return null;
+
+  if (event.type === "validation_results_ready") {
+    const parsed = parseValidationPayload(event.payload);
+    if (parsed.skipped) return null;
+    return { entryKey };
+  }
+
+  if (
+    event.type === "validation_issue_claimed" ||
+    event.type === "validation_issue_completed" ||
+    event.type === "validation_issue_reopened"
+  ) {
+    return { entryKey, pageUrl: strField(event.payload, "url") };
+  }
+
+  return null;
+}
+
 export function EntryKeyBadges({
   slug,
   contentType,
@@ -189,14 +210,37 @@ export function EntryKeyBadges({
   variant?: string | null;
   groupId?: string | null;
 }) {
+  const contentTypes = useContentTypes();
+  const entryPageUrl = useMemo(() => {
+    if (!slug || !contentType || !locale) return null;
+    return entryPartsToPageUrl({ contentType, slug, locale, variant }, contentTypes);
+  }, [slug, contentType, locale, variant, contentTypes]);
+
   if (!slug && !contentType && !locale && !variant && !groupId) return null;
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {slug ? (
-        <Badge variant="outline" className="text-xs gap-1 font-normal">
-          <IconHash className="h-3 w-3 shrink-0" aria-hidden />
-          {slug}
-        </Badge>
+        entryPageUrl ? (
+          <a
+            href={entryPageUrl}
+            className="inline-flex min-w-0 max-w-full"
+            title={`Open ${slug}`}
+            data-testid={`link-entry-page-${slug}`}
+          >
+            <Badge
+              variant="outline"
+              className="text-xs gap-1 font-normal cursor-pointer hover:text-primary max-w-full"
+            >
+              <IconHash className="h-3 w-3 shrink-0" aria-hidden />
+              <span className="truncate">{slug}</span>
+            </Badge>
+          </a>
+        ) : (
+          <Badge variant="outline" className="text-xs gap-1 font-normal max-w-full">
+            <IconHash className="h-3 w-3 shrink-0" aria-hidden />
+            <span className="truncate">{slug}</span>
+          </Badge>
+        )
       ) : groupId ? (
         <Badge variant="outline" className="text-xs gap-1 font-normal">
           <IconHash className="h-3 w-3 shrink-0" aria-hidden />
@@ -204,10 +248,20 @@ export function EntryKeyBadges({
         </Badge>
       ) : null}
       {contentType ? (
-        <Badge variant="outline" className="text-xs gap-1 font-normal">
-          <IconFileText className="h-3 w-3 shrink-0" aria-hidden />
-          {contentType}
-        </Badge>
+        <Link
+          href={staff404DashboardHref(contentType)}
+          className="inline-flex"
+          title={`Open ${contentType} dashboard`}
+          data-testid={`link-content-type-dashboard-${contentType}`}
+        >
+          <Badge
+            variant="outline"
+            className="text-xs gap-1 font-normal cursor-pointer hover:text-primary"
+          >
+            <IconFileText className="h-3 w-3 shrink-0" aria-hidden />
+            {contentType}
+          </Badge>
+        </Link>
       ) : null}
       {variant ? (
         <Badge variant="secondary" className="text-xs font-normal">
@@ -374,9 +428,6 @@ function EventValidationSummary({ payload }: { payload: Record<string, unknown> 
         <EventPathRow path={parsed.entryKey} />
       ) : null}
       {validationOutcomeLine(parsed)}
-      {parsed.entryKey && !parsed.skipped ? (
-        <ExternalLinkRow href={diagnosticsHref(parsed.entryKey)} label="View in Diagnostics" />
-      ) : null}
     </div>
   );
 }
@@ -448,8 +499,6 @@ function EventValidationIssueSummary({
     outcome = <p className="text-xs text-muted-foreground">In progress</p>;
   }
 
-  const entryKey = strField(payload, "entryKey");
-
   return (
     <div className="mt-0.5 space-y-1">
       {entry ? (
@@ -470,9 +519,6 @@ function EventValidationIssueSummary({
         ) : null}
       </div>
       {outcome}
-      {entryKey ? (
-        <ExternalLinkRow href={diagnosticsHref(entryKey)} label="View in Diagnostics" />
-      ) : null}
     </div>
   );
 }
@@ -699,7 +745,6 @@ function ValidationResultsDetails({
           ))}
         </ul>
       )}
-      <ExternalLinkRow href={diagnosticsHref(entryKey)} label="Open in Diagnostics" />
     </div>
   );
 }
@@ -808,9 +853,6 @@ function ValidationIssueDetails({
             </div>
           ))}
       </dl>
-      {entryKey ? (
-        <ExternalLinkRow href={diagnosticsHref(entryKey)} label="Open in Diagnostics" />
-      ) : null}
     </div>
   );
 }

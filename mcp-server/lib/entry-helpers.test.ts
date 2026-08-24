@@ -109,7 +109,7 @@ describe("observeParamValues", () => {
     fs.mkdirSync(blog, { recursive: true });
     fs.writeFileSync(
       path.join(blog, "_common.yml"),
-      safeDump({ slug: "post-a", category: { slug: "ai-powered-learning" } }),
+      safeDump({ slug: "post-a", category: "ai-powered-learning" }),
       "utf-8",
     );
   });

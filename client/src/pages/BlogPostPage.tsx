@@ -140,9 +140,9 @@ export default function BlogPostPage() {
             {locale === "es" ? "Volver al blog" : "Back to blog"}
           </a>
 
-          {post.category?.slug && (
+          {typeof post.category === "string" && post.category && (
             <span className="text-xs font-medium text-primary uppercase tracking-wider" data-testid="text-blog-category">
-              {post.category.slug}
+              {post.category}
             </span>
           )}
         </div>

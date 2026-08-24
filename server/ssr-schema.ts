@@ -268,7 +268,8 @@ export async function generateDatabaseSsrHtml(
   const urlPattern = config.url_pattern[locale] || config.url_pattern["en"];
   if (!urlPattern) return "";
 
-  // Normalize any object-type fields used in URL patterns (e.g. blog `category` is {slug:...})
+  // Blog `category` (and similar URL params) are plain strings. Flatten any leftover
+  // object-shaped values from other fields that still expose `.slug` / `.name`.
   const recordForUrl: Record<string, unknown> = { ...record };
   for (const key of Object.keys(recordForUrl)) {
     const val = recordForUrl[key];

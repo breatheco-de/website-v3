@@ -2414,6 +2414,11 @@ function inferUrlParamShapes(
   }
 
   for (const param of params) {
+    // Blog (and peers): `:category` is always a plain string URL slug — never `{ slug }`.
+    if (param === "category") {
+      shapes[param] = "string";
+      continue;
+    }
     shapes[param] =
       votes[param].object_slug > votes[param].string ? "object_slug" : "string";
   }

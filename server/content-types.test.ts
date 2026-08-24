@@ -4,6 +4,7 @@ import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   extractUrlPatternParams,
+  formatUrlParamFieldValue,
   getContentTypeConfig,
   getHreflangsSource,
   getCanonicalHreflangSlug,
@@ -93,13 +94,22 @@ describe("updateContentTypeConfig database unlink", () => {
 });
 
 describe("extractUrlPatternParams", () => {
-  it("resolves multi-variable patterns from entry data, including nested object slugs", () => {
+  it("resolves multi-variable patterns from entry data with string category", () => {
     const { params, missing } = extractUrlPatternParams(
       "/en/blog/:category/:slug",
-      { slug: "my-post", category: { slug: "uncategorized" } },
+      { slug: "my-post", category: "uncategorized" },
     );
     expect(missing).toEqual([]);
     expect(params).toEqual({ category: "uncategorized" });
+  });
+
+  it("still unwraps leftover object.slug values via resolveFieldValue", () => {
+    const { params, missing } = extractUrlPatternParams(
+      "/en/blog/:category/:slug",
+      { slug: "my-post", category: { slug: "legacy" } },
+    );
+    expect(missing).toEqual([]);
+    expect(params).toEqual({ category: "legacy" });
   });
 
   it("resolves plain string fields and ignores slug/locale placeholders", () => {
@@ -145,7 +155,7 @@ describe("extractUrlPatternParams", () => {
   it("treats empty values as missing", () => {
     const { missing } = extractUrlPatternParams(
       "/en/blog/:category/:slug",
-      { slug: "my-post", category: { slug: "" } },
+      { slug: "my-post", category: "" },
     );
     expect(missing).toEqual(["category"]);
   });
@@ -158,6 +168,13 @@ describe("extractUrlPatternParams", () => {
     );
     expect(missing).toEqual([]);
     expect(params).toEqual({ category: "trends-and-tech" });
+  });
+});
+
+describe("formatUrlParamFieldValue", () => {
+  it("writes category as a plain string when shape is string", () => {
+    expect(formatUrlParamFieldValue("ai-tools", "string")).toBe("ai-tools");
+    expect(formatUrlParamFieldValue("ai-tools", "object_slug")).toEqual({ slug: "ai-tools" });
   });
 });
 

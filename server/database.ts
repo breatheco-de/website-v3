@@ -511,11 +511,19 @@ function applyContentTypeMapping(
       mapped.slug = slugify(mapped.title);
     }
 
+    // Category is a plain URL slug string (never `{ slug }`).
     if (mapped.category !== undefined && typeof mapped.category === "string") {
-      mapped.category = { slug: mapped.category };
+      // keep as string
+    } else if (
+      mapped.category &&
+      typeof mapped.category === "object" &&
+      !Array.isArray(mapped.category) &&
+      typeof (mapped.category as { slug?: unknown }).slug === "string"
+    ) {
+      mapped.category = String((mapped.category as { slug: string }).slug);
     } else if (mapped.category === undefined || mapped.category === null) {
       if (mapping.category) {
-        mapped.category = { slug: "uncategorized" };
+        mapped.category = "uncategorized";
       }
     }
 

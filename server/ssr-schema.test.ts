@@ -410,8 +410,7 @@ sections:
 title: AI Act for companies
 authors:
   - 4geeks-academy
-category:
-  slug: regulations
+category: regulations
 published_at: "2026-08-10T00:00:00.000Z"
 `,
       "utf-8",
@@ -430,7 +429,7 @@ description: What the AI Act requires.
       slug: "ai-act-post",
       title: "AI Act for companies",
       description: "What the AI Act requires.",
-      category: { slug: "regulations" },
+      category: "regulations",
       authors: ["4geeks-academy"],
       lang: "en",
       published_at: "2026-08-10T00:00:00.000Z",

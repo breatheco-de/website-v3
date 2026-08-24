@@ -130,7 +130,7 @@ export function extractParamSlug(value: unknown): string | null {
   return null;
 }
 
-/** Scan entry folders for distinct values of a URL/index param (e.g. category.slug). */
+/** Scan entry folders for distinct values of a URL/index param (e.g. category). */
 export function observeParamValues(
   contentPath: string,
   contentType: string,

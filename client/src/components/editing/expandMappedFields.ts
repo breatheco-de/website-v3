@@ -5,7 +5,7 @@ export interface AvailablePropertyPaths {
 
 /** One selectable row in the single-variable picker. */
 export interface PickerField {
-  /** Path inserted as `single.${key}` (e.g. `category` or `category.slug`). */
+  /** Path inserted as `single.${key}` (e.g. `category` or nested `author.name`). */
   key: string;
   /** YAML source path used for coverage validation. */
   source: string;
@@ -115,7 +115,7 @@ export function getPickerSample(
 
 /**
  * Expand field_mapping keys with object-shaped values into parent + nested paths
- * (e.g. `category` and `category.slug`) using discovered entry property paths
+ * (e.g. `authors` and nested children) using discovered entry property paths
  * and/or the shape of the current page's singleEntry.
  */
 export function expandMappedFields(

@@ -143,7 +143,7 @@ export default function BlogListingPage() {
       (post) =>
         post.title?.toLowerCase().includes(query) ||
         post.description?.toLowerCase().includes(query) ||
-        (post.category?.slug || "").toLowerCase().includes(query)
+        (typeof post.category === "string" ? post.category : "").toLowerCase().includes(query)
     );
   })();
 
@@ -274,7 +274,7 @@ export default function BlogListingPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="grid-blog-posts">
               {filteredPosts.map((post) => {
                 const postUrl = buildPostUrl(urlPattern, post, locale);
-                const catSlug = post.category?.slug || "";
+                const catSlug = typeof post.category === "string" ? post.category : "";
                 return (
                   <a
                     key={post.id}

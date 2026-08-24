@@ -1456,9 +1456,9 @@ export function getRawUrlParamValue(
 
 /**
  * Extract all `:variable` params (besides `slug` and `locale`) from a URL pattern
- * and resolve each from the entry's merged data. Supports nested values like a
- * `category` object whose `slug` should be used, as well as plain string fields
- * and dot-notation lookups via an optional field mapping.
+ * and resolve each from the entry's merged data. Blog `category` is a plain string;
+ * other fields may still be objects with `.slug` (unwrapped via resolveFieldValue)
+ * or use dot-notation lookups via an optional field mapping.
  *
  * Returns the resolved params plus a list of variables that could not be
  * resolved (missing or empty), so callers can skip entries instead of emitting

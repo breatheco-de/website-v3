@@ -28,8 +28,7 @@ function writeBlogFixture() {
     `image: https://example.com/a.jpg
 published_at: '2025-06-01T00:00:00.000Z'
 status: PUBLISHED
-category:
-  slug: ai
+category: ai
 lang: en
 slug: post-alpha
 `,
@@ -55,8 +54,7 @@ sections:
     `image: https://example.com/b.jpg
 published_at: '2025-07-01T00:00:00.000Z'
 status: PUBLISHED
-category:
-  slug: careers
+category: careers
 lang: en
 slug: post-beta
 `,
@@ -77,8 +75,7 @@ description: Beta description
     `image: https://example.com/c.jpg
 published_at: '2025-05-01T00:00:00.000Z'
 status: DRAFT
-category:
-  slug: ai
+category: ai
 lang: es
 slug: post-gamma-es
 `,
@@ -156,7 +153,7 @@ describe("queryEntries static content type", () => {
       status: "PUBLISHED",
       lang: "en",
     });
-    expect(alpha?.category).toEqual({ slug: "ai" });
+    expect(alpha?.category).toBe("ai");
     expect(alpha).not.toHaveProperty("content");
     expect(alpha).not.toHaveProperty("sections");
   });
@@ -187,7 +184,7 @@ describe("queryEntries static content type", () => {
     expect(items[0].slug).toBe("post-beta");
   });
 
-  it("filters category by slug object", async () => {
+  it("filters category by string slug", async () => {
     const { items } = await queryEntries(
       {
         from: { contentType: "blog" },

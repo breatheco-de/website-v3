@@ -76,7 +76,7 @@ export function SingleVariablePickerModal({
     enabled: open && !!contentType,
   });
 
-  // Full property inventory (including nested paths under mapped fields like category.slug).
+  // Full property inventory (including nested paths under mapped object fields).
   const { data: availableProps } = useQuery<AvailableProperties>({
     queryKey: [`/api/content-types/${contentType}/available-properties`],
     queryFn: () => fetch(`/api/content-types/${contentType}/available-properties`).then(r => r.json()),

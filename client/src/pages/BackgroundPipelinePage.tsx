@@ -33,12 +33,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { EntryValidationModalTrigger } from "@/components/pipeline/EntryValidationModalTrigger";
 import {
   EventAttributionBadge,
   EventCausalityLine,
   EventDetails,
   EventSummary,
   eventHasTypedDetails,
+  eventValidationEntryRef,
 } from "@/components/pipeline/EventLogSummaries";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -837,6 +839,7 @@ function EventLogPanel({
                 const Icon = isFailure ? IconAlertTriangle : meta.icon;
                 const isExpanded = expanded === e.id;
                 const hasTypedDetails = eventHasTypedDetails(e);
+                const validationEntry = eventValidationEntryRef(e);
                 return (
                   <li
                     key={e.id}
@@ -891,20 +894,28 @@ function EventLogPanel({
                         onNavigateToEvent={scrollToEvent}
                       />
                       <EventSummary event={e} />
-                      {isExpanded ? <EventDetails event={e} /> : null}
+                      {isExpanded && !validationEntry ? <EventDetails event={e} /> : null}
                     </div>
                     <div className="shrink-0 text-right pt-0.5">
                       <p className="text-xs font-medium">{formatTs(e.created_at)}</p>
                       <p className="text-[11px] text-muted-foreground mt-0.5">
                         {formatRelative(e.created_at)}
                       </p>
-                      <button
-                        type="button"
-                        className="text-xs text-primary hover:underline mt-1"
-                        onClick={() => setExpanded(isExpanded ? null : e.id)}
-                      >
-                        {isExpanded ? "Hide" : hasTypedDetails ? "Details" : "Payload"}
-                      </button>
+                      {validationEntry ? (
+                        <EntryValidationModalTrigger
+                          entryKey={validationEntry.entryKey}
+                          pageUrl={validationEntry.pageUrl}
+                          className="mt-1 justify-end"
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="text-xs text-primary hover:underline mt-1"
+                          onClick={() => setExpanded(isExpanded ? null : e.id)}
+                        >
+                          {isExpanded ? "Hide" : hasTypedDetails ? "Details" : "Payload"}
+                        </button>
+                      )}
                     </div>
                   </li>
                 );

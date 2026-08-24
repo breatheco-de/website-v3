@@ -3211,7 +3211,7 @@ function FieldMappingDialog({
     setTransformerModes(tmodes);
     setOptionalFields(optFields);
     setNewOptional(false);
-    // A source is "custom" if it contains a dot (dotted path like category.slug)
+    // A source is "custom" if it contains a dot (dotted path like author.name)
     const cmodes: Record<string, boolean> = {};
     const rmodes: Record<string, boolean> = {};
     for (const [k, v] of Object.entries(fm)) {
@@ -4803,7 +4803,7 @@ function SeoSettingsDialog({
     return unique.filter(v => !mappedKeys.includes(v));
   })();
 
-  const sampleItem = { slug: "sample-item", category: { slug: "general" } };
+  const sampleItem = { slug: "sample-item", category: "general" };
 
   const insertVariable = (varName: string) => {
     if (patternMode === "non-localized") {

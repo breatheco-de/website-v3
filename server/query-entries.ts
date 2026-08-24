@@ -193,11 +193,22 @@ function filterByContentTypeLocale(
   });
 }
 
+/** Blog category is always a plain URL slug string (never `{ slug }`). */
 function normalizeCategory(item: Record<string, unknown>, hasCategoryMapping: boolean): void {
-  if (item.category !== undefined && typeof item.category === "string") {
-    item.category = { slug: item.category };
-  } else if ((item.category === undefined || item.category === null) && hasCategoryMapping) {
-    item.category = { slug: "uncategorized" };
+  const raw = item.category;
+  if (typeof raw === "string") {
+    item.category = raw;
+    return;
+  }
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const slug = (raw as { slug?: unknown }).slug;
+    if (typeof slug === "string" && slug.trim()) {
+      item.category = slug.trim();
+      return;
+    }
+  }
+  if ((raw === undefined || raw === null) && hasCategoryMapping) {
+    item.category = "uncategorized";
   }
 }
 

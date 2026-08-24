@@ -1,7 +1,7 @@
 /**
  * Expand a single field cell into option/tag tokens for select/tags editors.
  * Arrays always flatten one level; strings optionally split on commas.
- * Objects with a string `slug` (e.g. blog category after queryEntries) yield that slug.
+ * Objects with a string `slug` yield that slug (legacy unwrap defense).
  * Other non-string / empty values are dropped.
  */
 export function expandEditorFieldTokens(
@@ -41,7 +41,7 @@ export function expandEditorFieldTokens(
 
 /**
  * Coerce a select/tags cell to a plain string for the item editor.
- * Supports plain strings and `{ slug: string }` (URL category shape).
+ * Supports plain strings and `{ slug: string }` (legacy unwrap defense).
  */
 export function coerceEditorSelectScalar(raw: unknown): string {
   if (typeof raw === "string") {

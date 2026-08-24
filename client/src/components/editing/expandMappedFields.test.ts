@@ -47,54 +47,73 @@ describe("expandMappedFields", () => {
     expect(result).toEqual([{ key: "title", source: "title", isObject: false }]);
   });
 
-  it("expands object fields into parent + nested leaf paths", () => {
+  it("keeps string category as a single option (no nested .slug)", () => {
     const result = expandMappedFields(
       [
         { key: "category", source: "category" },
         { key: "title", source: "title" },
       ],
       {
-        common: ["category", "category.slug", "category.name", "title"],
+        common: ["category", "title"],
+        partial: [],
+      },
+      { category: "ai-powered-learning", title: "Hello" },
+    );
+
+    expect(result).toEqual([
+      { key: "category", source: "category", isObject: false },
+      { key: "title", source: "title", isObject: false },
+    ]);
+  });
+
+  it("expands object fields into parent + nested leaf paths", () => {
+    const result = expandMappedFields(
+      [
+        { key: "author", source: "author" },
+        { key: "title", source: "title" },
+      ],
+      {
+        common: ["author", "author.name", "author.id", "title"],
         partial: [],
       },
     );
 
     expect(result).toEqual([
-      { key: "category", source: "category", isObject: true },
-      { key: "category.name", source: "category.name", isNested: true },
-      { key: "category.slug", source: "category.slug", isNested: true },
+      { key: "author", source: "author", isObject: true },
+      { key: "author.id", source: "author.id", isNested: true },
+      { key: "author.name", source: "author.name", isNested: true },
       { key: "title", source: "title", isObject: false },
     ]);
   });
 
   it("maps nested options onto the field_mapping key when source differs", () => {
     const result = expandMappedFields(
-      [{ key: "cat", source: "meta.category" }],
+      [{ key: "meta_block", source: "meta.block" }],
       {
-        common: ["meta.category", "meta.category.slug"],
+        common: ["meta.block", "meta.block.slug"],
         partial: [],
       },
     );
 
     expect(result).toEqual([
-      { key: "cat", source: "meta.category", isObject: true },
-      { key: "cat.slug", source: "meta.category.slug", isNested: true },
+      { key: "meta_block", source: "meta.block", isObject: true },
+      { key: "meta_block.slug", source: "meta.block.slug", isNested: true },
     ]);
   });
 
   it("includes nested paths that only appear on some entries", () => {
     const result = expandMappedFields(
-      [{ key: "category", source: "category" }],
+      [{ key: "author", source: "author" }],
       {
-        common: ["category", "category.slug"],
-        partial: [{ key: "category.label", count: 3, total: 10 }],
+        common: ["author", "author.name"],
+        partial: [{ key: "author.label", count: 3, total: 10 }],
       },
     );
 
     expect(result.map((f) => f.key)).toEqual([
-      "category",
-      "category.label",
-      "category.slug",
+      "author",
+      "author.label",
+      "author.name",
     ]);
   });
 
@@ -108,14 +127,14 @@ describe("expandMappedFields", () => {
 
   it("expands from the current singleEntry even without available-properties", () => {
     const result = expandMappedFields(
-      [{ key: "category", source: "category" }],
+      [{ key: "author", source: "author" }],
       undefined,
-      { category: { slug: "ai-powered-learning" }, title: "Hello" },
+      { author: { name: "Ada" }, title: "Hello" },
     );
 
     expect(result).toEqual([
-      { key: "category", source: "category", isObject: true },
-      { key: "category.slug", source: "category.slug", isNested: true },
+      { key: "author", source: "author", isObject: true },
+      { key: "author.name", source: "author.name", isNested: true },
     ]);
   });
 
@@ -132,15 +151,14 @@ describe("getPickerSample", () => {
   const entry = {
     title: "Why 4Geeks is Built for the AI Era",
     slug: "4geeks-in-the-ai-era",
-    category: { slug: "ai-powered-learning" },
+    category: "ai-powered-learning",
     tags: ["ai", "bootcamp"],
   };
 
   it("returns nested and scalar samples from the current single", () => {
     expect(getPickerSample(entry, "title")).toBe("Why 4Geeks is Built for the AI Era");
     expect(getPickerSample(entry, "slug")).toBe("4geeks-in-the-ai-era");
-    expect(getPickerSample(entry, "category.slug")).toBe("ai-powered-learning");
-    expect(getPickerSample(entry, "category")).toBe('{"slug":"ai-powered-learning"}');
+    expect(getPickerSample(entry, "category")).toBe("ai-powered-learning");
     expect(getPickerSample(entry, "tags")).toBe("ai, bootcamp");
   });
 

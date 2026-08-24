@@ -10,7 +10,7 @@ describe("coerceEditorSelectScalar", () => {
     expect(coerceEditorSelectScalar("  ai  ")).toBe("ai");
   });
 
-  it("extracts slug from category objects", () => {
+  it("extracts slug from leftover { slug } objects", () => {
     expect(coerceEditorSelectScalar({ slug: "trends-and-tech" })).toBe("trends-and-tech");
   });
 
@@ -37,10 +37,10 @@ describe("expandEditorFieldTokens", () => {
 });
 
 describe("collectEditorFieldTokens", () => {
-  it("collects distinct category slugs from peer items", () => {
+  it("collects distinct category strings from peer items", () => {
     const items = [
       { category: "trends-and-tech" },
-      { category: { slug: "aprender-a-programar" } },
+      { category: "aprender-a-programar" },
       { category: "trends-and-tech" },
       { category: null },
     ];

@@ -1271,7 +1271,7 @@ export function registerContentRoutes(app: Express): void {
       const categories = Array.from(
         new Set(
           posts
-            .map((p: any) => p.category?.slug || "")
+            .map((p: any) => (typeof p.category === "string" ? p.category : "") || "")
             .filter(Boolean),
         ),
       ).sort();
@@ -1293,7 +1293,7 @@ export function registerContentRoutes(app: Express): void {
         categoryList = Array.from(
           new Set(
             allLocalePosts
-              .map((p: any) => p.category?.slug || "")
+              .map((p: any) => (typeof p.category === "string" ? p.category : "") || "")
               .filter(Boolean),
           ),
         ).sort();
@@ -2324,6 +2324,11 @@ export function registerContentRoutes(app: Express): void {
         options[param] = [...valueSets[param]].sort((a, b) => a.localeCompare(b));
         for (const [locale, set] of Object.entries(localeSets[param])) {
           optionsByLocale[param][locale] = [...set].sort((a, b) => a.localeCompare(b));
+        }
+        // `:category` is always a plain string URL slug — never `{ slug }`.
+        if (param === "category") {
+          shapes[param] = "string";
+          continue;
         }
         const votes = shapeVotes[param];
         shapes[param] =
@@ -4422,7 +4427,7 @@ Return JSON with this exact structure:
   "notes": "<any observations about the data structure>"
 }
 
-Important: Only include mappings where you are confident the field exists. Use dot notation for nested fields (e.g. "author.name", "category.slug").`;
+Important: Only include mappings where you are confident the field exists. Use dot notation for nested fields (e.g. "author.name"). Blog category is a plain string field, not category.slug.`;
 
       const result = await llm.complete(userPrompt, {
         systemPrompt,
@@ -4559,7 +4564,7 @@ Return JSON with this exact structure:
   "notes": "<any observations about the data structure>"
 }
 
-Important: Only include mappings where you are confident the field exists. Use dot notation for nested fields (e.g. "author.name", "category.slug").`;
+Important: Only include mappings where you are confident the field exists. Use dot notation for nested fields (e.g. "author.name"). Blog category is a plain string field, not category.slug.`;
 
       const result = await llm.complete(userPrompt, {
         systemPrompt,

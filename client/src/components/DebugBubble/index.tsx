@@ -66,33 +66,13 @@ import { FileDiffModal } from "./components/FileDiffModal";
 import { DeletePageModal } from "./components/DeletePageModal";
 import { CreateContentModal } from "./components/CreateContentModal";
 import { PageErrorsModal, PER_PAGE_VALIDATORS } from "./components/PageErrorsModal";
+import { fetchPageDiagnostics } from "@/lib/fetchPageDiagnostics";
 import { SeoModal } from "./components/SeoModal";
 import { SiteManagerModal } from "./components/SiteManagerModal";
 import { SwitchSiteModal } from "./components/SwitchSiteModal";
 import { McpRequiredForAiModal } from "@/components/mcp/McpRequiredForAiModal";
 import type { McpSetupTabId } from "@/components/mcp/mcpUrlHelpers";
 import type { SolveWithAiAgentId } from "@/components/DebugBubble/solveWithAiPrompt";
-
-async function fetchPageDiagnostics(url: string, variant?: string | null): Promise<PageDiagnostics> {
-  const token = getDebugToken();
-  const params = new URLSearchParams({ url });
-  if (variant) params.set("variant", variant);
-  const res = await fetch(`/api/diagnostics/page?${params.toString()}`, {
-    headers: {
-      ...getSessionHeaders(),
-      ...(token ? { Authorization: `Token ${token}` } : {}),
-    },
-  });
-  if (!res.ok) {
-    let message = `Failed to load diagnostics (${res.status})`;
-    try {
-      const body = await res.json();
-      if (typeof body?.error === "string" && body.error) message = body.error;
-    } catch {}
-    throw new Error(message);
-  }
-  return res.json();
-}
 
 const componentIconMap: Record<string, typeof Blocks> = {
   hero: Rocket,
