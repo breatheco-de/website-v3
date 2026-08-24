@@ -1,0 +1,16 @@
+name: "Blog breadcrumb with tags"
+description: "Breadcrumb trail plus tag chips for blog shared templates"
+
+yaml: |
+  - type: breadcrumb
+    variant: blogWithTags
+    items:
+      - label: Blog
+        url: /en/blog
+      - label: AI-powered learning
+        url: /en/ai-powered-learning
+      - label: mastering-technical-knowledge
+    tags:
+      - learning-science
+      - memory-retention
+      - ai

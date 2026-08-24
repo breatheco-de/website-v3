@@ -12,12 +12,14 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { useLocation } from "wouter";
 import type { ArticleSection } from "@shared/schema";
 import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
+import { normalizeTags } from "@shared/normalize-tags";
 import {
   normalizeMathDelimiters,
   remarkMathOptions,
   rehypeKatexOptions,
 } from "@shared/markdown-math";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { useOrderedPageSections } from "@/contexts/PageSectionsContext";
 import { useSectionContext } from "@/contexts/SectionContext";
 import { CopyCodeButton } from "../CopyCodeButton";
@@ -192,25 +194,6 @@ function normalizeAuthors(
     }
   }
   return out;
-}
-
-function normalizeTags(tags: unknown): string[] {
-  if (!tags) return [];
-  if (Array.isArray(tags)) {
-    return tags.map(String).map((t) => t.trim()).filter(Boolean);
-  }
-  if (typeof tags === "string") {
-    const trimmed = tags.trim();
-    if (!trimmed || trimmed.startsWith("{{")) return [];
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return normalizeTags(parsed);
-    } catch {
-      /* not JSON */
-    }
-    return trimmed.split(/[,|]/).map((t) => t.trim()).filter(Boolean);
-  }
-  return [];
 }
 
 function useTocScrollSpy(items: TocItem[]) {
@@ -557,13 +540,14 @@ function ArticleMeta({
         )
       )}
       {tags.map((tag) => (
-        <span
+        <Badge
           key={tag}
-          className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground"
+          variant="secondary"
+          className="rounded-full font-medium"
           data-testid={`article-tag-${tag}`}
         >
           {tag}
-        </span>
+        </Badge>
       ))}
     </div>
   );

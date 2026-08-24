@@ -7,11 +7,21 @@ when_to_use: |
   Add near the top of content pages (blog posts, programs, landing pages) to help
   users understand where they are and navigate back to parent sections.
   Also generates BreadcrumbList JSON-LD for Google Rich Results.
+
+  Use variant `blogWithTags` on blog shared templates to show tag chips below the trail.
+  Bind tags from the entry: `tags: '{{ single.tags }}'`. Tags are visual only — not in JSON-LD.
 behaviors:
   schema_org:
     handler: breadcrumb
-    notes: Contributes BreadcrumbList JSON-LD during SSR via server/schema-components.
+    notes: Contributes BreadcrumbList JSON-LD during SSR via server/schema-components (items only; tags excluded).
 props:
+  variant:
+    type: string
+    required: false
+    options:
+      - default
+      - blogWithTags
+    description: Omit for default. blogWithTags adds a second row of tag chips.
   items:
     type: array
     required: true
@@ -26,3 +36,20 @@ props:
         description: Absolute or relative URL. Omit (or leave empty) for the current page item.
         example: /en/career-programs
     description: Ordered list of breadcrumb links. The last item is the current page (rendered without a link).
+  tags:
+    type: array
+    required: false
+    items:
+      type:
+        type: string
+        required: true
+    description: |
+      Tag chips for blogWithTags variant only. Map from entry: tags: '{{ single.tags }}'.
+      Not included in BreadcrumbList JSON-LD.
+variants:
+  blogWithTags:
+    file: client/src/components/breadcrumb/variants/BreadcrumbBlogWithTags.tsx
+    description: Breadcrumb trail plus tag chips from section tags field
+  default:
+    file: client/src/components/breadcrumb/variants/BreadcrumbDefault.tsx
+    description: Standard breadcrumb trail
