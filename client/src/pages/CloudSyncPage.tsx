@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
+import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { useSystemAlerts } from "@/hooks/useSystemAlerts";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import {
@@ -633,6 +634,7 @@ export default function CloudSyncPage() {
       const res = await fetch("/api/admin/gcs-connection-test", {
         method: "POST",
         credentials: "include",
+        headers: getSessionHeaders(),
       });
       const body = await res.json();
       if (!res.ok) {

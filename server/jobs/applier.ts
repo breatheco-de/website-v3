@@ -3,8 +3,8 @@
  */
 
 import fs from "fs";
-import path from "path";
 import { listEvents, getLatestWriteGeneration } from "../events/event-store";
+import { primaryAuthor } from "../events/types";
 import type { IndexSnapshot } from "../content-index-snapshot";
 import { getSiteContextMap } from "../site-manager";
 import { collectEntryHtmlPaths, flushAfterContentWrites } from "../content-write-flush";
@@ -12,6 +12,7 @@ import {
   getPersistedLastAppliedIndex,
   setPersistedLastAppliedIndex,
 } from "../pipeline-state";
+import { markFileAsModified } from "../sync-state";
 import { enqueueJob } from "./queue";
 import { child } from "../logger";
 
@@ -21,6 +22,8 @@ let timer: ReturnType<typeof setInterval> | null = null;
 
 const lastAppliedSnapshot = new Map<string, { generation: number; appliedAt: number }>();
 const refreshEnqueuePending = new Set<string>();
+/** Max binding_propagation_done id already applied for CMS side-effects (mark/auto-commit). */
+const lastAppliedBindingDoneId = new Map<string, number>();
 
 function recordLastApplied(site: string, generation: number): void {
   const prev = lastAppliedSnapshot.get(site);
@@ -162,27 +165,51 @@ async function applyPendingSnapshots(
   }
 
   const bindEvents = listEvents({ site, type: "binding_propagation_done", limit: 5 });
-  for (const event of bindEvents) {
+  // Newest first from listEvents — apply oldest-unseen first within the batch.
+  const pendingBind = bindEvents
+    .filter((e) => e.id > (lastAppliedBindingDoneId.get(site) ?? 0))
+    .sort((a, b) => a.id - b.id);
+
+  for (const event of pendingBind) {
     const updatedFiles = (event.payload.updatedFiles as string[]) ?? [];
-    if (updatedFiles.length === 0) continue;
-    const locale = (event.payload.locale as string) || "en";
-    const htmlPaths: string[] = [];
-    for (const bound of updatedFiles) {
-      const [boundType, boundSlug] = bound.split("/");
-      if (boundType && boundSlug) {
-        htmlPaths.push(...collectEntryHtmlPaths(ci, boundType, boundSlug, locale));
+    const updatedPaths = (event.payload.updatedPaths as string[]) ?? [];
+    const author =
+      (typeof event.payload.author === "string" ? event.payload.author : undefined) ||
+      primaryAuthor(event);
+
+    // Host-process mark: auto-commit + content_file_written listeners (job bundle cannot).
+    for (const filePath of updatedPaths) {
+      if (typeof filePath === "string" && filePath.length > 0) {
+        markFileAsModified(filePath, author);
       }
     }
-    flushAfterContentWrites({
-      ci,
-      contentTypes: updatedFiles.map((f) => f.split("/")[0]!).filter(Boolean),
-      sitemapEntries: updatedFiles.map((f) => {
-        const [t, s] = f.split("/");
-        return { contentType: t!, slug: s!, locale };
-      }),
-      siteId: site,
-      htmlPaths,
-    });
+
+    if (updatedFiles.length > 0) {
+      const locale = (event.payload.locale as string) || "en";
+      const htmlPaths: string[] = [];
+      for (const bound of updatedFiles) {
+        const [boundType, boundSlug] = bound.split("/");
+        if (boundType && boundSlug) {
+          htmlPaths.push(...collectEntryHtmlPaths(ci, boundType, boundSlug, locale));
+        }
+      }
+      flushAfterContentWrites({
+        ci,
+        contentTypes: updatedFiles.map((f) => f.split("/")[0]!).filter(Boolean),
+        sitemapEntries: updatedFiles.map((f) => {
+          const [t, s] = f.split("/");
+          return { contentType: t!, slug: s!, locale };
+        }),
+        siteId: site,
+        htmlPaths,
+      });
+    }
+
+    lastAppliedBindingDoneId.set(site, event.id);
+    log.info(
+      { site, eventId: event.id, files: updatedPaths.length },
+      "[Applier] binding_propagation_done side-effects applied",
+    );
   }
 }
 

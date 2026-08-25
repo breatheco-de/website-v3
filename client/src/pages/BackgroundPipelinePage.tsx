@@ -707,7 +707,7 @@ function EventLogPanel({
       <h2 className="text-base font-semibold">Event log</h2>
         <KpiEducation
           simple="Each row links to the save or action that caused it (Caused by #…). Attribution shows who is accountable — staff name, via Cursor for MCP agents, or a system source like GitHub sync."
-          advanced="Event store: data/{site}/app.db → events (triggered_by_event_id, triggered_by_event_ids_json, attribution_json). Parent ids derived at emit in server/jobs/definitions/index-refresh.ts and on-save-validation.ts. GET /api/admin/events?triggeredBy=. Rows pruned after ~7 days."
+          advanced="Event store: data/{site}/app.db → events (triggered_by_event_id, triggered_by_event_ids_json, attribution_json). Validation ready closes the writeEventId that enqueued the job (stashed in pipeline_state) plus any other still-open writes for that entry. Binding done → applier markFileAsModified. GET /api/admin/events?triggeredBy=. Rows pruned after ~7 days."
         />
         <div className="flex flex-wrap items-center gap-2">
           <Popover>

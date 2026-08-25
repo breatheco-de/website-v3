@@ -13,6 +13,7 @@ import { isOutboxDispatchable } from "./types";
 import { enqueueJob } from "../jobs/queue";
 import { getSiteContextMap } from "../site-manager";
 import { buildEntryKey } from "../../scripts/validation/shared/entryKey";
+import { setPendingValidationWriteId } from "../pipeline-state";
 import { child } from "../logger";
 
 const log = child({ module: "event-dispatcher" });
@@ -56,6 +57,9 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
         const entryKey = entryKeyFromEvent(event);
         if (entryKey) {
           const { contentType, slug, locale } = event.resource;
+          // Stash write id in shared SQLite (not Sidequest args) so hour-uniqueness
+          // stays per entryKey while ready still closes this exact write.
+          setPendingValidationWriteId(event.site, entryKey, event.id);
           const validationEnqueue = await enqueueJob(
             "on_save_validation",
             {

@@ -9,7 +9,13 @@ import { ENTRY_LOCAL_VALIDATOR_NAMES } from "../../../scripts/validation/shared/
 import { entryKeyFromContentFile } from "../../../scripts/validation/shared/entryKey";
 import type { ContentFile } from "../../../scripts/validation/shared/types";
 import { ValidationCacheService } from "../../services/validationCacheService";
-import { emitEvent, getLatestWriteForEntry } from "../../events/event-store";
+import {
+  emitEvent,
+  getEventById,
+  getLatestWriteForEntry,
+  listOpenWritesForEntry,
+} from "../../events/event-store";
+import { takePendingValidationWriteId } from "../../pipeline-state";
 import { child } from "../../logger";
 
 const log = child({ module: "job:on-save-validation" });
@@ -22,6 +28,8 @@ export type OnSaveValidationPayload = {
   slug: string;
   locale: string;
   variant?: string;
+  /** content_file_written id that enqueued this job — ready must close this write. */
+  writeEventId?: number;
 };
 
 export function filterContentFilesForEntry(
@@ -50,7 +58,11 @@ export function filterContentFilesForEntry(
   });
 }
 
-function emitValidationSettled(
+/**
+ * Emit validation_results_ready for the triggering write (and any other still-open
+ * writes for the same entry so the pipeline UI cannot spin on orphans).
+ */
+export function emitValidationSettled(
   site: string,
   entryKey: string,
   resource: { contentType: string; slug: string; locale: string },
@@ -66,21 +78,45 @@ function emitValidationSettled(
       duration: number;
     };
   },
+  writeEventId?: number,
 ): void {
-  const parentWrite = getLatestWriteForEntry(site, resource);
+  const primary =
+    (typeof writeEventId === "number" ? getEventById(site, writeEventId) : null) ??
+    getLatestWriteForEntry(site, resource);
+
   emitEvent({
     site,
     type: "validation_results_ready",
-    triggeredByEventId: parentWrite?.id,
-    attribution: parentWrite?.attribution ?? [],
+    triggeredByEventId: primary?.id,
+    attribution: primary?.attribution ?? [],
+    resource: { ...resource, path: primary?.resource.path },
     payload: { entryKey, ...payload },
   });
+
+  const openWrites = listOpenWritesForEntry(site, resource);
+  for (const w of openWrites) {
+    if (primary && w.id === primary.id) continue;
+    emitEvent({
+      site,
+      type: "validation_results_ready",
+      triggeredByEventId: w.id,
+      attribution: w.attribution,
+      resource: { ...resource, path: w.resource.path },
+      payload: {
+        entryKey,
+        skipped: true,
+        reason: "closed_with_validation_settle",
+      },
+    });
+  }
 }
 
 export class OnSaveValidationJob extends Job {
   async run(payload: OnSaveValidationPayload): Promise<{ ok: boolean }> {
     const { site, contentRoot, contentType, slug, locale, variant } = payload;
     const resource = { contentType, slug, locale };
+    const writeEventId =
+      payload.writeEventId ?? takePendingValidationWriteId(site, payload.entryKey) ?? undefined;
     const contentRootName = path.relative(process.cwd(), contentRoot);
     const mg = new MediaGallery(contentRootName);
     const database = new DatabaseManager(contentRoot, mg);
@@ -94,10 +130,16 @@ export class OnSaveValidationJob extends Job {
     await service.buildContext({ contentRoot, ci });
     const context = service.getContext();
     if (!context) {
-      emitValidationSettled(site, payload.entryKey, resource, {
-        skipped: true,
-        reason: "no_validation_context",
-      });
+      emitValidationSettled(
+        site,
+        payload.entryKey,
+        resource,
+        {
+          skipped: true,
+          reason: "no_validation_context",
+        },
+        writeEventId,
+      );
       log.warn({ site, entryKey: payload.entryKey }, "[OnSaveValidationJob] no validation context");
       return { ok: false };
     }
@@ -109,10 +151,16 @@ export class OnSaveValidationJob extends Job {
       variant,
     });
     if (filtered.length === 0) {
-      emitValidationSettled(site, payload.entryKey, resource, {
-        skipped: true,
-        reason: "no_matching_files",
-      });
+      emitValidationSettled(
+        site,
+        payload.entryKey,
+        resource,
+        {
+          skipped: true,
+          reason: "no_matching_files",
+        },
+        writeEventId,
+      );
       log.warn(
         { site, entryKey: payload.entryKey, contentType, slug, locale, variant },
         "[OnSaveValidationJob] no content files matched entry",
@@ -138,12 +186,21 @@ export class OnSaveValidationJob extends Job {
     };
     fs.writeFileSync(resultsPath, JSON.stringify(resultPayload), "utf-8");
 
-    emitValidationSettled(site, payload.entryKey, resource, {
-      resultsPath,
-      summary: result.summary,
-    });
+    emitValidationSettled(
+      site,
+      payload.entryKey,
+      resource,
+      {
+        resultsPath,
+        summary: result.summary,
+      },
+      writeEventId,
+    );
 
-    log.info({ site, entryKey: payload.entryKey }, "[OnSaveValidationJob] results written");
+    log.info(
+      { site, entryKey: payload.entryKey, writeEventId },
+      "[OnSaveValidationJob] results written",
+    );
     return { ok: true };
   }
 }

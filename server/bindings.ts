@@ -527,37 +527,38 @@ class BindingManager {
     updatedSection: Record<string, unknown> | undefined,
     author?: string,
     locale?: string,
-    opts?: { reReadSource?: boolean },
-  ): { success: boolean; updatedFiles: string[]; errors: string[] } {
+    opts?: { reReadSource?: boolean; skipMarkModified?: boolean },
+  ): { success: boolean; updatedFiles: string[]; updatedPaths: string[]; errors: string[] } {
     this.ensureLoaded();
 
     const resolvedLocale = locale || "en";
     const sectionId = this.getSectionIdAtIndex(sourceContentType, sourceSlug, sectionIndex, resolvedLocale);
-    if (!sectionId) return { success: true, updatedFiles: [], errors: [] };
+    if (!sectionId) return { success: true, updatedFiles: [], updatedPaths: [], errors: [] };
 
     const group = this.findGroupForSection(sourceContentType, sourceSlug, sectionId, resolvedLocale);
-    if (!group) return { success: true, updatedFiles: [], errors: [] };
+    if (!group) return { success: true, updatedFiles: [], updatedPaths: [], errors: [] };
 
     let sectionToPropagate = updatedSection;
     if (opts?.reReadSource || !sectionToPropagate) {
       const { data: sourceData } = this.loadPageContent(sourceContentType, sourceSlug, resolvedLocale);
       const sections = sourceData?.sections as Record<string, unknown>[] | undefined;
       if (!sections || sectionIndex >= sections.length) {
-        return { success: false, updatedFiles: [], errors: ["Source section not found for propagation"] };
+        return { success: false, updatedFiles: [], updatedPaths: [], errors: ["Source section not found for propagation"] };
       }
       sectionToPropagate = sections[sectionIndex] as Record<string, unknown>;
     }
     if (!sectionToPropagate) {
-      return { success: false, updatedFiles: [], errors: ["No section content to propagate"] };
+      return { success: false, updatedFiles: [], updatedPaths: [], errors: ["No section content to propagate"] };
     }
 
     const siblings = group.members.filter(
       m => !(m.contentType === sourceContentType && m.slug === sourceSlug && m.sectionId === sectionId)
     );
 
-    if (siblings.length === 0) return { success: true, updatedFiles: [], errors: [] };
+    if (siblings.length === 0) return { success: true, updatedFiles: [], updatedPaths: [], errors: [] };
 
     const updatedFiles: string[] = [];
+    const updatedPaths: string[] = [];
     const errors: string[] = [];
 
     for (const sibling of siblings) {
@@ -605,15 +606,18 @@ class BindingManager {
         });
 
         fs.writeFileSync(filePath, updatedYaml, "utf-8");
-        markFileAsModified(filePath, author);
+        if (!opts?.skipMarkModified) {
+          markFileAsModified(filePath, author);
+        }
         updatedFiles.push(`${sibling.contentType}/${sibling.slug}`);
+        updatedPaths.push(filePath);
       } catch (error) {
         const msg = error instanceof Error ? error.message : "Unknown error";
         errors.push(`Error propagating to ${sibling.contentType}/${sibling.slug}: ${msg}`);
       }
     }
 
-    return { success: errors.length === 0, updatedFiles, errors };
+    return { success: errors.length === 0, updatedFiles, updatedPaths, errors };
   }
 
   cleanupStaleReferences(dryRun = false): number {
