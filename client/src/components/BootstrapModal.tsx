@@ -27,7 +27,7 @@ export function BootstrapModal() {
 
   const { data: status } = useQuery<BootstrapStatus>({
     queryKey: ["/api/github/bootstrap-status"],
-    enabled: isValidated,
+    enabled: isValidated === true,
     refetchInterval: (query) => {
       const d = query.state.data;
       if (!d) return 1500;

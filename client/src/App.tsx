@@ -176,7 +176,7 @@ function Router() {
           const key = `${r.path}-${r.type}-${r.locale}-${r.isListingPrefix ? "listing" : r.kind}`;
           return (
             <Route key={key} path={r.path}>
-              {(params) => {
+              {(params: { locale?: string; slug?: string }) => {
                 if (r.regional && !REGIONAL_LOCALE_RE.test(params.locale || "")) {
                   return <NotFound />;
                 }

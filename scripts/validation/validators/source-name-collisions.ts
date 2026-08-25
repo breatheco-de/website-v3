@@ -23,8 +23,9 @@ export const sourceNameCollisionsValidator: Validator = {
     for (const name of collisions) {
       errors.push({
         type: "error",
+        code: "SOURCE_NAME_COLLISION",
         message: `Content type key "${name}" collides with database slug "${name}". Rename one so relation/query-options source names stay unambiguous.`,
-        filePath: contentRoot
+        file: contentRoot
           ? `${contentRoot}/content-types.yml`
           : "content-types.yml",
         suggestion: `Rename the database folder/slug (preferred when the content type owns public URLs), then update content-types.yml database.slug.`,
@@ -32,12 +33,13 @@ export const sourceNameCollisionsValidator: Validator = {
     }
 
     return {
-      validator: this.name,
+      name: this.name,
+      description: this.description,
       status: errors.length > 0 ? "failed" : "passed",
       errors,
       warnings: [],
       duration: Date.now() - startTime,
-      metadata: { collisionCount: collisions.length, collisions },
+      artifacts: { collisionCount: collisions.length, collisions },
     };
   },
 };

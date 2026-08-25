@@ -13,12 +13,31 @@
   bottom: 0;
   width: 1px;
   transform: translateX(-0.5px);
-  background: hsl(var(--foreground) / 0.35);
+  /* Scrubber is forced white — use black, not --foreground (light in dark mode). */
+  background: rgba(0, 0, 0, 0.35);
   pointer-events: none;
-  z-index: 5;
+  z-index: 20;
 }
 
-/* Full-bleed white scrubber (breaks out of page p-6). */
+.event-timeline-hover-label {
+  position: absolute;
+  bottom: 3px;
+  top: auto;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: rgba(0, 0, 0, 0.7);
+  background: rgba(255, 255, 255, 0.92);
+  padding: 1px 5px;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* Full-bleed white scrubber (page places this outside max-w-6xl). */
 .event-timeline-root {
   --et-bg: #ffffff;
   --et-border: hsl(var(--border));
@@ -41,28 +60,38 @@
   font-family: inherit;
   width: 100% !important;
   margin: 0 !important;
-  cursor: grab;
+  /* !important: vis sets inline cursor "move"/"auto" on drag start/end. */
+  cursor: grab !important;
 }
 
-.event-timeline-root .vis-timeline:active {
-  cursor: grabbing;
+.event-timeline-root .vis-timeline:active,
+.event-timeline-shell:active .event-timeline-root .vis-timeline {
+  cursor: grabbing !important;
 }
 
 .event-timeline-root .vis-panel.vis-center,
 .event-timeline-root .vis-panel.vis-background,
 .event-timeline-root .vis-content,
-.event-timeline-root .vis-foreground {
-  cursor: grab;
+.event-timeline-root .vis-foreground,
+.event-timeline-root .vis-item,
+.event-timeline-root .vis-item .vis-drag-center {
+  cursor: grab !important;
 }
 
 .event-timeline-root .vis-panel.vis-center:active,
 .event-timeline-root .vis-content:active,
-.event-timeline-root .vis-foreground:active {
-  cursor: grabbing;
+.event-timeline-root .vis-foreground:active,
+.event-timeline-root .vis-item:active,
+.event-timeline-root .vis-item .vis-drag-center:active,
+.event-timeline-shell:active .event-timeline-root .vis-panel.vis-center,
+.event-timeline-shell:active .event-timeline-root .vis-content,
+.event-timeline-shell:active .event-timeline-root .vis-foreground,
+.event-timeline-shell:active .event-timeline-root .vis-item,
+.event-timeline-shell:active .event-timeline-root .vis-item .vis-drag-center {
+  cursor: grabbing !important;
 }
 
 .event-timeline-root .vis-panel,
-.event-timeline-root .vis-panel.vis-center,
 .event-timeline-root .vis-panel.vis-left,
 .event-timeline-root .vis-panel.vis-right,
 .event-timeline-root .vis-panel.vis-top,
@@ -75,19 +104,53 @@
   background: #ffffff !important;
 }
 
-/* Hide day / time axis labels entirely */
+/* Center must stay transparent — hour grids live in the panel behind it. */
+.event-timeline-root .vis-panel.vis-center,
+.event-timeline-root .vis-panel.vis-background,
+.event-timeline-root .vis-content,
+.event-timeline-root .vis-foreground {
+  background: transparent !important;
+}
+
+/* Hide day / time axis labels entirely (keep vertical hour grids). */
 .event-timeline-root .vis-panel.vis-top,
 .event-timeline-root .vis-panel.vis-bottom {
   display: none !important;
   height: 0 !important;
 }
 
+/* Three staff lanes: no group labels / left gutter. */
+.event-timeline-root .vis-panel.vis-left,
+.event-timeline-root .vis-panel.vis-right {
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+}
+
+.event-timeline-root .vis-labelset .vis-label,
+.event-timeline-root .vis-group,
+.event-timeline-root .vis-foreground .vis-group {
+  border: none !important;
+  border-bottom: none !important;
+}
+
+/* No horizontal grid lines — staff lanes are invisible. */
+.event-timeline-root .vis-grid.vis-horizontal,
+.event-timeline-root .vis-panel.vis-background .vis-grid.vis-horizontal {
+  display: none !important;
+  border: none !important;
+}
+
+/* Hide vis rolling-mode FAB — we follow “now” via options / Jump to latest. */
+.event-timeline-root .vis-rolling-mode-btn {
+  display: none !important;
+}
+
 .event-timeline-root .vis-time-axis .vis-text {
   display: none !important;
 }
 
-.event-timeline-root .vis-time-axis .vis-grid.vis-minor,
-.event-timeline-root .vis-time-axis .vis-grid.vis-major,
+.event-timeline-root .vis-time-axis .vis-grid.vis-vertical,
 .event-timeline-root .vis-grid.vis-vertical {
   border-left-width: 1px !important;
   border-left-style: solid !important;
@@ -95,12 +158,12 @@
 
 .event-timeline-root .vis-time-axis .vis-grid.vis-minor,
 .event-timeline-root .vis-grid.vis-vertical.vis-minor {
-  border-left-color: rgba(0, 0, 0, 0.05) !important;
+  border-left-color: rgba(0, 0, 0, 0.08) !important;
 }
 
 .event-timeline-root .vis-time-axis .vis-grid.vis-major,
 .event-timeline-root .vis-grid.vis-vertical.vis-major {
-  border-left-color: rgba(0, 0, 0, 0.1) !important;
+  border-left-color: rgba(0, 0, 0, 0.16) !important;
 }
 
 .event-timeline-root .vis-current-time {
@@ -141,7 +204,7 @@
   border: none;
   background: var(--et-panel);
   box-shadow: none;
-  cursor: grab;
+  cursor: grab !important;
 }
 
 .event-timeline-root .vis-item.vis-selected .event-timeline-item {

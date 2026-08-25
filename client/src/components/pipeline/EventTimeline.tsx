@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { IconArrowRight } from "@tabler/icons-react";
 import { DataSet, Timeline } from "vis-timeline/standalone";
-import type { DataItem, TimelineOptions } from "vis-timeline/standalone";
+import type { DataGroup, DataItem, TimelineOptions } from "vis-timeline/standalone";
 import "vis-timeline/styles/vis-timeline-graph2d.min.css";
 import "./EventTimeline.css";
 import {
@@ -14,6 +14,27 @@ import type { EventAttributionEntry } from "@/lib/formatIssueActor";
 import { cn } from "@/lib/utils";
 
 const INITIAL_WINDOW_MS = 3 * 60 * 60 * 1000; // 3 hours
+const STAFF_LANE_COUNT = 3;
+/**
+ * Display-only chip occupancy at the default 3h window (~1200px wide).
+ * ~156px chip+gap → ~24.6 min so successive chips on one staff never overlap.
+ * List filtering and tooltips still use real `created_at`.
+ */
+const STAFF_SLOT_MS = Math.ceil((INITIAL_WINDOW_MS / 1200) * 164);
+const STAFF_HEIGHT_PX = 116;
+/** Treat window end within this of Date.now() as “parked at latest”. */
+const FOLLOW_NOW_EPS_MS = 2_000;
+
+function formatHoverTime(ts: number): string {
+  return new Date(ts).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+}
 
 export type EventTimelineEvent = {
   id: number;
@@ -29,6 +50,8 @@ export type VisibleTimeRange = {
 
 type TimelineItem = DataItem & {
   id: number;
+  group: number;
+  realStart: number;
   activityLabel: string;
   agentIconUrl: string | null;
 };
@@ -64,23 +87,56 @@ function itemContentElement(item: TimelineItem): HTMLElement {
   return root;
 }
 
-function toTimelineItems(
+/**
+ * Serial queue → 3-line music staff: order by event id, round-robin lanes,
+ * nudge display `start` so chips never sit on top of each other.
+ */
+export function layoutStaffItems(
   events: EventTimelineEvent[],
   getActivityLabel: (event: EventTimelineEvent) => string,
   theme: AgentTheme,
 ): TimelineItem[] {
-  return events.map((event) => {
+  const sorted = [...events].sort((a, b) => a.id - b.id);
+  const lastEnd = Array.from({ length: STAFF_LANE_COUNT }, () => Number.NEGATIVE_INFINITY);
+
+  return sorted.map((event, index) => {
+    const lane = index % STAFF_LANE_COUNT;
+    const displayStart = Math.max(event.created_at, lastEnd[lane] + STAFF_SLOT_MS);
+    lastEnd[lane] = displayStart + STAFF_SLOT_MS;
+
     const agentId = resolveAgentId(event.attribution);
+    const activityLabel = getActivityLabel(event);
     return {
       id: event.id,
-      start: event.created_at,
+      group: lane,
+      start: displayStart,
+      realStart: event.created_at,
       type: "box",
-      title: `#${event.id} · ${getActivityLabel(event)}`,
-      activityLabel: getActivityLabel(event),
+      title: `#${event.id} · ${activityLabel}`,
+      activityLabel,
       agentIconUrl: getAgentIconUrl(agentId, theme),
       content: "",
     };
   });
+}
+
+function staffGroups(): DataGroup[] {
+  return Array.from({ length: STAFF_LANE_COUNT }, (_, id) => ({
+    id,
+    content: "",
+  }));
+}
+
+function pinTimelineToNow(timeline: Timeline) {
+  const now = Date.now();
+  timeline.setOptions({
+    max: now,
+    rollingMode: { follow: true, offset: 1 },
+  });
+}
+
+function windowEndIsAtNow(end: number, now = Date.now()): boolean {
+  return end >= now - FOLLOW_NOW_EPS_MS;
 }
 
 export function EventTimeline({
@@ -101,15 +157,17 @@ export function EventTimeline({
   className?: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = useRef<Timeline | null>(null);
   const itemsRef = useRef<DataSet<TimelineItem> | null>(null);
+  const groupsRef = useRef<DataSet<DataGroup> | null>(null);
   const skipRangeEmitRef = useRef(false);
   const seededWindowRef = useRef(false);
   const draggingRef = useRef(false);
   const onRangeChangeRef = useRef(onRangeChange);
   const onSelectRef = useRef(onSelect);
   const getActivityLabelRef = useRef(getActivityLabel);
-  const [hoverX, setHoverX] = useState<number | null>(null);
+  const [hover, setHover] = useState<{ x: number; at: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   onRangeChangeRef.current = onRangeChange;
@@ -130,20 +188,73 @@ export function EventTimeline({
     };
   }, []);
 
+  // Capture-phase listeners: vis/Hammer stopPropagation on pan, which can
+  // swallow React bubble handlers for the scrubber line.
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+
+    const timeAtX = (x: number, width: number): number => {
+      const timeline = timelineRef.current;
+      if (!timeline || width <= 0) return Date.now();
+      const w = timeline.getWindow();
+      const start = +w.start;
+      const end = +w.end;
+      const ratio = Math.min(1, Math.max(0, x / width));
+      return start + ratio * (end - start);
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (draggingRef.current || e.buttons !== 0) {
+        setHover(null);
+        return;
+      }
+      const rect = shell.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      setHover({ x, at: timeAtX(x, rect.width) });
+    };
+    const onLeave = () => {
+      setHover(null);
+    };
+    const onDown = () => {
+      draggingRef.current = true;
+      setIsDragging(true);
+      setHover(null);
+    };
+    const onUp = () => {
+      draggingRef.current = false;
+      setIsDragging(false);
+    };
+
+    shell.addEventListener("pointermove", onMove, true);
+    shell.addEventListener("pointerleave", onLeave, true);
+    shell.addEventListener("pointerdown", onDown, true);
+    shell.addEventListener("pointerup", onUp, true);
+    shell.addEventListener("pointercancel", onUp, true);
+    return () => {
+      shell.removeEventListener("pointermove", onMove, true);
+      shell.removeEventListener("pointerleave", onLeave, true);
+      shell.removeEventListener("pointerdown", onDown, true);
+      shell.removeEventListener("pointerup", onUp, true);
+      shell.removeEventListener("pointercancel", onUp, true);
+    };
+  }, []);
+
   // Mount once
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    const theme = getDocumentTheme();
     const items = new DataSet<TimelineItem>([]);
+    const groups = new DataSet<DataGroup>(staffGroups());
     itemsRef.current = items;
+    groupsRef.current = groups;
 
     const end = Date.now();
     const start = end - INITIAL_WINDOW_MS;
 
     const options: TimelineOptions = {
-      stack: true,
+      stack: false,
       stackSubgroups: false,
       moveable: true,
       zoomable: true,
@@ -153,31 +264,49 @@ export function EventTimeline({
       showMajorLabels: false,
       showMinorLabels: false,
       orientation: "top",
-      height: 72,
-      margin: { item: { horizontal: 8, vertical: 4 }, axis: 0 },
+      height: STAFF_HEIGHT_PX,
+      margin: { item: { horizontal: 8, vertical: 6 }, axis: 0 },
       zoomMin: 5 * 60 * 1000,
       zoomMax: 7 * 24 * 60 * 60 * 1000,
+      // No future: right edge cannot pass “now”; rolling keeps it advancing.
+      max: end,
+      rollingMode: { follow: true, offset: 1 },
       start,
       end,
       // Prefer Element templates (XSS strips SVG/img from HTML strings).
       template: (item) => itemContentElement(item as TimelineItem),
     };
 
-    const timeline = new Timeline(el, items, options);
+    const timeline = new Timeline(el, items, groups, options);
     timelineRef.current = timeline;
 
     skipRangeEmitRef.current = true;
     timeline.setWindow(start, end, { animation: false });
+    pinTimelineToNow(timeline);
     onRangeChangeRef.current({ start, end });
     skipRangeEmitRef.current = false;
 
-    const onRange = () => {
+    const emitRange = () => {
       if (skipRangeEmitRef.current) return;
       const w = timeline.getWindow();
       onRangeChangeRef.current({ start: +w.start, end: +w.end });
     };
-    timeline.on("rangechanged", onRange);
-    timeline.on("rangechange", onRange);
+
+    const onRangeChangeEvt = () => {
+      emitRange();
+    };
+
+    const onRangeChangedEvt = () => {
+      emitRange();
+      // User parked at the right edge → resume live follow of “now”.
+      const w = timeline.getWindow();
+      if (windowEndIsAtNow(+w.end)) {
+        pinTimelineToNow(timeline);
+      }
+    };
+
+    timeline.on("rangechanged", onRangeChangedEvt);
+    timeline.on("rangechange", onRangeChangeEvt);
 
     timeline.on("select", (props) => {
       const id = props.items?.[0];
@@ -185,15 +314,20 @@ export function EventTimeline({
       else if (typeof id === "string" && /^\d+$/.test(id)) onSelectRef.current(Number(id));
     });
 
-    // Seed with current theme (items synced in next effect)
-    void theme;
+    const maxTick = window.setInterval(() => {
+      const t = timelineRef.current;
+      if (!t) return;
+      t.setOptions({ max: Date.now() });
+    }, 1000);
 
     return () => {
-      timeline.off("rangechanged", onRange);
-      timeline.off("rangechange", onRange);
+      window.clearInterval(maxTick);
+      timeline.off("rangechanged", onRangeChangedEvt);
+      timeline.off("rangechange", onRangeChangeEvt);
       timeline.destroy();
       timelineRef.current = null;
       itemsRef.current = null;
+      groupsRef.current = null;
       seededWindowRef.current = false;
     };
   }, []);
@@ -205,7 +339,7 @@ export function EventTimeline({
     if (!items) return;
 
     const theme = getDocumentTheme();
-    const next = toTimelineItems(events, getActivityLabelRef.current, theme);
+    const next = layoutStaffItems(events, getActivityLabelRef.current, theme);
     const nextIds = new Set(next.map((i) => i.id));
     const removeIds = items.getIds().filter((id) => !nextIds.has(id as number));
     if (removeIds.length > 0) items.remove(removeIds);
@@ -218,6 +352,7 @@ export function EventTimeline({
       const start = end - INITIAL_WINDOW_MS;
       skipRangeEmitRef.current = true;
       timeline.setWindow(start, end, { animation: false });
+      pinTimelineToNow(timeline);
       onRangeChangeRef.current({ start, end });
       skipRangeEmitRef.current = false;
     }
@@ -230,20 +365,8 @@ export function EventTimeline({
       const items = itemsRef.current;
       if (!items) return;
       const theme = getDocumentTheme();
-      const current = items.get();
-      items.update(
-        current.map((item) => {
-          const event = events.find((e) => e.id === item.id);
-          const agentId = resolveAgentId(event?.attribution);
-          return {
-            ...item,
-            agentIconUrl: getAgentIconUrl(agentId, theme),
-            activityLabel: event
-              ? getActivityLabelRef.current(event)
-              : item.activityLabel,
-          };
-        }),
-      );
+      const next = layoutStaffItems(events, getActivityLabelRef.current, theme);
+      items.update(next);
     });
     observer.observe(root, { attributes: true, attributeFilter: ["class"] });
     return () => observer.disconnect();
@@ -253,6 +376,10 @@ export function EventTimeline({
   useEffect(() => {
     const timeline = timelineRef.current;
     if (!timeline || !visibleRange) return;
+    if (windowEndIsAtNow(visibleRange.end)) {
+      pinTimelineToNow(timeline);
+      return;
+    }
     const current = timeline.getWindow();
     const same =
       Math.abs(+current.start - visibleRange.start) < 500 &&
@@ -263,24 +390,27 @@ export function EventTimeline({
     skipRangeEmitRef.current = false;
   }, [visibleRange]);
 
+  const handleJumpToLatest = () => {
+    const timeline = timelineRef.current;
+    if (timeline) pinTimelineToNow(timeline);
+    onJumpToLatest?.();
+  };
+
   return (
     <div
-      className={cn(
-        "-mx-6 w-[calc(100%+3rem)] bg-white py-3",
-        className,
-      )}
+      className={cn("w-full bg-white py-3", className)}
       data-testid="event-timeline"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 px-6 py-2 bg-foreground text-background">
-        <p className="text-xs text-background/80 leading-relaxed">
-          Drag the timeline to pan; the list below shows only events in this window. Icons are
-          MCP/model agents when known — GitHub sync and staff use a generic bot mark.
+        <p className="text-xs text-background/80 leading-relaxed max-w-3xl">
+          Your agents are working for you — watch them collaborate and interact on this timeline.
+          Drag to move along their timeline.
         </p>
         {onJumpToLatest ? (
           <button
             type="button"
             className="inline-flex items-center gap-1 text-xs text-background hover:underline shrink-0 font-medium"
-            onClick={onJumpToLatest}
+            onClick={handleJumpToLatest}
             data-testid="button-timeline-jump-latest"
           >
             Jump to latest
@@ -288,42 +418,18 @@ export function EventTimeline({
           </button>
         ) : null}
       </div>
-      <div
-        className="event-timeline-shell relative w-full"
-        onPointerDown={() => {
-          draggingRef.current = true;
-          setIsDragging(true);
-          setHoverX(null);
-        }}
-        onPointerUp={() => {
-          draggingRef.current = false;
-          setIsDragging(false);
-        }}
-        onPointerCancel={() => {
-          draggingRef.current = false;
-          setIsDragging(false);
-        }}
-        onPointerLeave={() => {
-          draggingRef.current = false;
-          setIsDragging(false);
-          setHoverX(null);
-        }}
-        onPointerMove={(e) => {
-          if (draggingRef.current || e.buttons !== 0) {
-            setHoverX(null);
-            return;
-          }
-          const rect = e.currentTarget.getBoundingClientRect();
-          setHoverX(e.clientX - rect.left);
-        }}
-      >
+      <div ref={shellRef} className="event-timeline-shell relative w-full">
         <div ref={containerRef} className="event-timeline-root w-full" />
-        {hoverX != null && !isDragging ? (
+        {hover != null && !isDragging ? (
           <div
             className="event-timeline-hover-line"
-            style={{ left: hoverX }}
+            style={{ left: hover.x }}
             aria-hidden
-          />
+          >
+            <span className="event-timeline-hover-label">
+              {formatHoverTime(hover.at)}
+            </span>
+          </div>
         ) : null}
       </div>
     </div>

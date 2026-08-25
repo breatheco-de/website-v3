@@ -190,3 +190,20 @@ export function getDocumentTheme(): AgentTheme {
   if (typeof document === "undefined") return "dark";
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
+
+/** Sentinel for staff / system / unmatched agents in filters. */
+export const AGENT_FILTER_OTHER = "__other__";
+
+/** Human label for agent filter dropdowns. */
+export function formatAgentLabel(agentId: AgentId | typeof AGENT_FILTER_OTHER): string {
+  if (agentId === AGENT_FILTER_OTHER) return "Staff & system";
+  return agentId
+    .split("-")
+    .map((part) => {
+      if (part === "ai") return "AI";
+      if (part === "chatgpt") return "ChatGPT";
+      if (part === "glm") return "GLM";
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(" ");
+}

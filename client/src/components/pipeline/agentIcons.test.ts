@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveAgentId } from "./agentIcons";
+import { formatAgentLabel, AGENT_FILTER_OTHER, resolveAgentId } from "./agentIcons";
 
 describe("resolveAgentId", () => {
   it("returns null for system and ui actors", () => {
@@ -27,5 +27,13 @@ describe("resolveAgentId", () => {
         { author: "jane", actor: { type: "mcp", client: "Cursor", model: "gemini-2" } },
       ]),
     ).toBeNull();
+  });
+});
+
+describe("formatAgentLabel", () => {
+  it("humanizes agent ids and the other sentinel", () => {
+    expect(formatAgentLabel("chatgpt")).toBe("ChatGPT");
+    expect(formatAgentLabel("apple-intelligent")).toBe("Apple Intelligent");
+    expect(formatAgentLabel(AGENT_FILTER_OTHER)).toBe("Staff & system");
   });
 });

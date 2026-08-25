@@ -8,7 +8,6 @@ import {
   getAllConfigs,
   getContentTypeConfig,
   getDatabaseName,
-  type ContentTypeEditorHint,
   type ContentTypeEntry,
 } from "../../../server/content-types";
 import { databaseManager } from "../../../server/database";
@@ -33,6 +32,7 @@ import {
   relationIndexKey,
   relationTargetMissing,
 } from "@shared/validateRelationTargets";
+import { skipCrossEntryVariantRow } from "../shared/draftFiles";
 
 function isSharedSingleTemplate(filePath: string): boolean {
   const base = filePath.split(/[/\\]/).pop() || "";
@@ -62,7 +62,7 @@ function mergedEditorForConfig(
     dbEditor = databaseManager.get(dbSlug).editor as Record<string, EditorHint> | undefined;
   }
   return mergeEditorHints(
-    config.editor as Record<string, ContentTypeEditorHint> | undefined,
+    config.editor as Record<string, EditorHint> | undefined,
     dbEditor,
   );
 }

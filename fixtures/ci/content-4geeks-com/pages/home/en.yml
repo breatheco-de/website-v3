@@ -1,0 +1,7 @@
+slug: home
+title: Home
+meta:
+  robots: index, follow
+  page_title: Home
+  description: CI fixture home page
+sections: []

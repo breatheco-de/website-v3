@@ -46,7 +46,7 @@ export type EditorHint = {
   populate_options?: boolean;
   allow_custom_values?: boolean;
   split_comma_values?: boolean;
-  required?: boolean;
+  required?: boolean | "attached";
   schema?: Record<string, unknown>;
   source?: string;
   value?: string;

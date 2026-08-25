@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { mockGcs, mockAggregateImageQueuePending, mockIsImageQueueBusy } = vi.hoisted(() => ({
+const {
+  mockGcs,
+  mockAggregateImageQueuePending,
+  mockIsImageQueueBusy,
+  mockGetBucketName,
+} = vi.hoisted(() => ({
   mockGcs: {
     available: true,
     getBucketName: vi.fn(() => "test-bucket"),
@@ -9,11 +14,20 @@ const { mockGcs, mockAggregateImageQueuePending, mockIsImageQueueBusy } = vi.hoi
   },
   mockAggregateImageQueuePending: vi.fn(() => 0),
   mockIsImageQueueBusy: vi.fn(() => false),
+  mockGetBucketName: vi.fn(() => null as string | null),
 }));
 
 vi.mock("./gcs", () => ({
   gcs: mockGcs,
 }));
+
+vi.mock("./site-config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./site-config")>();
+  return {
+    ...actual,
+    getBucketName: () => mockGetBucketName(),
+  };
+});
 
 vi.mock("./gcs-sync-inventory", () => ({
   aggregateImageQueuePending: () => mockAggregateImageQueuePending(),
@@ -44,6 +58,7 @@ afterEach(() => {
   vi.clearAllMocks();
   mockGcs.available = true;
   mockGcs.getBucketName.mockReturnValue("test-bucket");
+  mockGetBucketName.mockReturnValue(null);
   mockAggregateImageQueuePending.mockReturnValue(0);
   mockIsImageQueueBusy.mockReturnValue(false);
 });
@@ -182,6 +197,7 @@ describe("runGcsConnectionTest", () => {
   it("reports error when MCP bucket parity mismatches in production", async () => {
     process.env.NODE_ENV = "production";
     process.env.GCS_BUCKET_NAME = "env-bucket";
+    mockGetBucketName.mockReturnValue("sites-bucket");
     mockGcs.getStorage.mockReturnValue({
       bucket: () => ({
         getMetadata: vi.fn().mockResolvedValue([{}]),
@@ -224,6 +240,53 @@ describe("runGcsConnectionTest", () => {
     const result = await runGcsConnectionTest();
     const parity = result.checks.find((c) => c.id === "mcp_bucket_parity");
     expect(parity?.status).toBe("error");
+
+    delete process.env.GCS_BUCKET_NAME;
+  });
+
+  it("reports ok when sites.yml has no bucket_name", async () => {
+    process.env.GCS_BUCKET_NAME = "env-bucket";
+    mockGetBucketName.mockReturnValue(null);
+    mockGcs.getStorage.mockReturnValue({
+      bucket: () => ({
+        getMetadata: vi.fn().mockResolvedValue([{}]),
+      }),
+    });
+    mockGcs.checkArchitecture.mockResolvedValue({
+      migrationRequired: false,
+      bucketName: "test-bucket",
+      mediaSegment: "media",
+      knownSitePrefixes: [],
+      hasOldLayout: false,
+      hasNewLayout: true,
+      newLayoutSamples: {},
+      platform: {
+        sitesYml: {
+          label: "Site registry",
+          expectedKey: "sites.yml",
+          legacyKeys: [],
+          foundKey: "sites.yml",
+          exists: true,
+          status: "found",
+          updated: null,
+        },
+        userStore: {
+          label: "User store",
+          expectedKey: "user-store.json",
+          legacyKeys: [],
+          foundKey: "user-store.json",
+          exists: true,
+          status: "found",
+          updated: null,
+        },
+        mcpAuthSamples: [],
+      },
+    });
+
+    const result = await runGcsConnectionTest();
+    const parity = result.checks.find((c) => c.id === "mcp_bucket_parity");
+    expect(parity?.status).toBe("ok");
+    expect(parity?.summary).toMatch(/no bucket_name/i);
 
     delete process.env.GCS_BUCKET_NAME;
   });

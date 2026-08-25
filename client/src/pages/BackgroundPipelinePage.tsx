@@ -46,6 +46,13 @@ import {
   jumpToLatestRange,
   type VisibleTimeRange,
 } from "@/components/pipeline/EventTimeline";
+import {
+  AGENT_FILTER_OTHER,
+  AGENT_IDS,
+  formatAgentLabel,
+  resolveAgentId,
+  type AgentId,
+} from "@/components/pipeline/agentIcons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -630,7 +637,7 @@ function EventLogPanel({
   failures: ContentEvent[];
 }) {
   const [typeFilter, setTypeFilter] = useState("");
-  const [authorFilter, setAuthorFilter] = useState("");
+  const [agentFilter, setAgentFilter] = useState<"" | AgentId | typeof AGENT_FILTER_OTHER>("");
   const [events, setEvents] = useState<ContentEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -706,13 +713,15 @@ function EventLogPanel({
     };
   }, [loadEvents]);
 
-  /** Type filter is server-side; author filter applies to timeline + list. */
+  /** Type filter is server-side; agent filter applies to timeline + list. */
   const filterScopedEvents = useMemo(() => {
-    if (!authorFilter) return events;
-    return events.filter((e) =>
-      e.attribution.some((a) => a.author?.includes(authorFilter)),
-    );
-  }, [events, authorFilter]);
+    if (!agentFilter) return events;
+    return events.filter((e) => {
+      const agentId = resolveAgentId(e.attribution);
+      if (agentFilter === AGENT_FILTER_OTHER) return agentId == null;
+      return agentId === agentFilter;
+    });
+  }, [events, agentFilter]);
 
   const rangeFilteredEvents = useMemo(() => {
     if (!visibleRange) return filterScopedEvents;
@@ -736,129 +745,142 @@ function EventLogPanel({
   }, []);
 
   const failureIds = new Set(failures.map((f) => f.id));
-  const activeFilterCount = (typeFilter ? 1 : 0) + (authorFilter ? 1 : 0);
+  const activeFilterCount = (typeFilter ? 1 : 0) + (agentFilter ? 1 : 0);
 
   return (
     <section className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="relative"
-                data-testid="button-event-filters"
-              >
-                <IconFilter className="h-4 w-4 mr-2" />
-                Filters
-                {activeFilterCount > 0 ? (
-                  <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                    {activeFilterCount}
-                  </span>
-                ) : null}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent side="bottom" align="start" className="w-72 space-y-3 p-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium" htmlFor="event-type-filter">
-                  Event type
-                </label>
-                <select
-                  id="event-type-filter"
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
-                >
-                  <option value="">All types</option>
-                  {Object.entries(EVENT_META).map(([type, meta]) => (
-                    <option key={type} value={type}>
-                      {meta.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium" htmlFor="event-author-filter">
-                  Author
-                </label>
-                <input
-                  id="event-author-filter"
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  placeholder="e.g. mcp, staff email"
-                  value={authorFilter}
-                  onChange={(e) => setAuthorFilter(e.target.value)}
-                />
-              </div>
+      <div className="max-w-6xl mx-auto px-6 flex flex-wrap items-center gap-2">
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="relative"
+              data-testid="button-event-filters"
+            >
+              <IconFilter className="h-4 w-4 mr-2" />
+              Filters
               {activeFilterCount > 0 ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full h-7 text-xs"
-                  onClick={() => {
-                    setTypeFilter("");
-                    setAuthorFilter("");
-                  }}
-                >
-                  <IconX className="h-3.5 w-3.5 mr-1" />
-                  Clear filters
-                </Button>
+                <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                  {activeFilterCount}
+                </span>
               ) : null}
-            </PopoverContent>
-          </Popover>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={clearing || (events.length === 0 && !loading)}
-            onClick={() => setClearLogOpen(true)}
-            data-testid="button-clear-event-log"
-          >
-            {clearing ? (
-              <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <IconTrash className="h-4 w-4 mr-2" />
-            )}
-            Clear log
-          </Button>
-        </div>
-
-        {events.length > 0 ? (
-          <EventTimeline
-            events={filterScopedEvents}
-            getActivityLabel={getActivityLabel}
-            visibleRange={visibleRange}
-            onRangeChange={setVisibleRange}
-            onSelect={scrollToEvent}
-            onJumpToLatest={() => setVisibleRange(jumpToLatestRange())}
-          />
-        ) : null}
-
-        <AlertDialog open={clearLogOpen} onOpenChange={setClearLogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Clear event log?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This removes every background event for this site from the log. Saves and
-                pipeline work are not undone — only the diary entries disappear. New events will
-                still appear as work happens.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={clearing}>Cancel</AlertDialogCancel>
-              <Button
-                variant="destructive"
-                disabled={clearing}
-                onClick={() => void clearLog()}
-                data-testid="button-confirm-clear-event-log"
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent side="bottom" align="start" className="w-72 space-y-3 p-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium" htmlFor="event-type-filter">
+                Event type
+              </label>
+              <select
+                id="event-type-filter"
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
               >
-                {clearing ? (
-                  <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : null}
-                Clear log
+                <option value="">All types</option>
+                {Object.entries(EVENT_META).map(([type, meta]) => (
+                  <option key={type} value={type}>
+                    {meta.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium" htmlFor="event-agent-filter">
+                Agent
+              </label>
+              <select
+                id="event-agent-filter"
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                value={agentFilter}
+                onChange={(e) =>
+                  setAgentFilter(e.target.value as "" | AgentId | typeof AGENT_FILTER_OTHER)
+                }
+                data-testid="select-event-agent-filter"
+              >
+                <option value="">All agents</option>
+                {AGENT_IDS.map((id) => (
+                  <option key={id} value={id}>
+                    {formatAgentLabel(id)}
+                  </option>
+                ))}
+                <option value={AGENT_FILTER_OTHER}>
+                  {formatAgentLabel(AGENT_FILTER_OTHER)}
+                </option>
+              </select>
+            </div>
+            {activeFilterCount > 0 ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full h-7 text-xs"
+                onClick={() => {
+                  setTypeFilter("");
+                  setAgentFilter("");
+                }}
+              >
+                <IconX className="h-3.5 w-3.5 mr-1" />
+                Clear filters
               </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+            ) : null}
+          </PopoverContent>
+        </Popover>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={clearing || (events.length === 0 && !loading)}
+          onClick={() => setClearLogOpen(true)}
+          data-testid="button-clear-event-log"
+        >
+          {clearing ? (
+            <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <IconTrash className="h-4 w-4 mr-2" />
+          )}
+          Clear log
+        </Button>
+      </div>
 
+      {events.length > 0 ? (
+        <EventTimeline
+          events={filterScopedEvents}
+          getActivityLabel={getActivityLabel}
+          visibleRange={visibleRange}
+          onRangeChange={setVisibleRange}
+          onSelect={scrollToEvent}
+          onJumpToLatest={() => setVisibleRange(jumpToLatestRange())}
+        />
+      ) : null}
+
+      <AlertDialog open={clearLogOpen} onOpenChange={setClearLogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear event log?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes every background event for this site from the log. Saves and
+              pipeline work are not undone — only the diary entries disappear. New events will
+              still appear as work happens.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={clearing}>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={clearing}
+              onClick={() => void clearLog()}
+              data-testid="button-confirm-clear-event-log"
+            >
+              {clearing ? (
+                <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : null}
+              Clear log
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <div className="max-w-6xl mx-auto px-6">
         {loading && events.length === 0 ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <IconLoader2 className="h-4 w-4 animate-spin" />
@@ -993,6 +1015,7 @@ function EventLogPanel({
             )}
           </div>
         )}
+      </div>
     </section>
   );
 }
@@ -1017,49 +1040,52 @@ export default function BackgroundPipelinePage() {
   });
 
   return (
-    <div className="min-h-screen bg-background text-foreground p-6 pb-[100px] space-y-6 max-w-6xl mx-auto">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">
-            Agent Pipeline
-            {siteDomainLabel ? (
-              <>
-                {" for "}
-                <span className="text-primary">{siteDomainLabel}</span>
-              </>
-            ) : null}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Agents are why this site feels instant. When you save, you&apos;re done — your page
-            updates right away while AI agents quietly finish the rest: refreshing search and lists,
-            checking content quality, syncing shared sections across pages, and pushing updates to
-            GitHub. That&apos;s how the experience stays accurate and polished for visitors —
-            usually within seconds.
-          </p>
+    <div className="min-h-screen bg-background text-foreground pb-[100px] space-y-6">
+      <div className="max-w-6xl mx-auto px-6 pt-6 space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold">
+              Agent Pipeline
+              {siteDomainLabel ? (
+                <>
+                  {" for "}
+                  <span className="text-primary">{siteDomainLabel}</span>
+                </>
+              ) : null}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+              Agents are why this site feels instant. When you save, you&apos;re done — your page
+              updates right away while AI agents quietly finish the rest: refreshing search and lists,
+              checking content quality, syncing shared sections across pages, and pushing updates to
+              GitHub. That&apos;s how the experience stays accurate and polished for visitors —
+              usually within seconds.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="default"
+            onClick={() => refetch()}
+            disabled={isFetching || !site}
+            data-testid="button-refresh-pipeline"
+          >
+            <IconRefresh className={cn("w-4 h-4 mr-2", isFetching && "animate-spin")} />
+            Refresh
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          size="default"
-          onClick={() => refetch()}
-          disabled={isFetching || !site}
-          data-testid="button-refresh-pipeline"
-        >
-          <IconRefresh className={cn("w-4 h-4 mr-2", isFetching && "animate-spin")} />
-          Refresh
-        </Button>
+
+        {isLoading || !data ? (
+          <div className="flex items-center justify-center py-20 text-muted-foreground gap-2">
+            <IconLoader2 className="h-5 w-5 animate-spin" />
+            Loading pipeline status…
+          </div>
+        ) : (
+          <HealthStrip data={data} />
+        )}
       </div>
 
-      {isLoading || !data ? (
-        <div className="flex items-center justify-center py-20 text-muted-foreground gap-2">
-          <IconLoader2 className="h-5 w-5 animate-spin" />
-          Loading pipeline status…
-        </div>
-      ) : (
-        <>
-          <HealthStrip data={data} />
-          {site ? <EventLogPanel site={site} failures={data.recentFailures} /> : null}
-        </>
-      )}
+      {!isLoading && data && site ? (
+        <EventLogPanel site={site} failures={data.recentFailures} />
+      ) : null}
     </div>
   );
 }

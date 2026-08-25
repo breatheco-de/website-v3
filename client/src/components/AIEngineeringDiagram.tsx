@@ -126,7 +126,7 @@ export function AIEngineeringDiagram({ className = "" }: AIEngineeringDiagramPro
               ${!prefersReducedMotion ? "animate-pulse-slow" : ""}
             `}
           >
-            <IconChartDots3 className="w-8 h-8 md:w-10 md:h-10 text-primary-foreground" />
+            <ScatterChart className="w-8 h-8 md:w-10 md:h-10 text-primary-foreground" />
             <span className="text-[10px] md:text-xs font-semibold text-primary-foreground text-center leading-tight">
               AI Eng
             </span>

@@ -9,7 +9,7 @@ export type RelationEditorHint = {
   value?: string;
   label?: string;
   multiple?: boolean;
-  required?: boolean;
+  required?: boolean | "attached";
   description?: string;
 };
 

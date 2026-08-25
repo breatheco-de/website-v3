@@ -3,6 +3,7 @@ import * as path from "path";
 import type { Validator, ValidationContext, ValidatorResult, ValidationIssue } from "../shared/types";
 import { getAllConfigs } from "../../../server/content-types";
 import { databaseManager } from "../../../server/database";
+import { mappingSourceString, type FieldMappingValue } from "@shared/validateEditorFieldTypes";
 
 const MARKETING_CONTENT_PATH = path.join(process.cwd(), "4geeks-com");
 const SINGLE_VAR_PATTERN = /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*[^}]*?)?\s*\}\}/g;
@@ -72,8 +73,10 @@ export const databaseSinglesValidator: Validator = {
       const folder = config.directory || contentType;
       const typeDir = path.join(MARKETING_CONTENT_PATH, folder);
       const dbName = config.database!.slug;
-      const fieldMapping = config.database!.field_mapping;
-      const localeFieldPath = fieldMapping?._locale || null;
+      const fieldMapping = config.field_mapping;
+      const localeFieldPath = fieldMapping?._locale
+        ? mappingSourceString(fieldMapping._locale as FieldMappingValue)
+        : null;
 
       const locales = Object.keys(config.url_pattern).filter(k => k !== "default");
       if (locales.length === 0) locales.push("en");
@@ -124,7 +127,7 @@ export const databaseSinglesValidator: Validator = {
       if (fieldMapping) {
         for (const [key, value] of Object.entries(fieldMapping)) {
           if (!key.startsWith("_")) {
-            regularMapping[key] = value;
+            regularMapping[key] = mappingSourceString(value as FieldMappingValue);
           }
         }
       }

@@ -23,7 +23,10 @@ export class ConversationStore {
   }
 
   async createConversation(data: InsertConversation): Promise<Conversation> {
-    const [conv] = await this.db.insert(conversations).values(data).returning();
+    const [conv] = await this.db
+      .insert(conversations)
+      .values(data as typeof conversations.$inferInsert)
+      .returning();
     return conv;
   }
 
@@ -128,7 +131,10 @@ export class ConversationStore {
         }
       }
     } catch (err) {
-      log.warn("[ConversationStore] Failed to read empty_conversation_grace_minutes from llm.yml, using default:", err);
+      log.warn(
+        { err },
+        "[ConversationStore] Failed to read empty_conversation_grace_minutes from llm.yml, using default",
+      );
     }
     const cutoffEpochSec = Math.floor((Date.now() - graceMinutes * 60 * 1000) / 1000);
     conditions.push(

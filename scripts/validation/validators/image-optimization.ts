@@ -130,7 +130,7 @@ export const imageOptimizationValidator: Validator = {
           presetNames,
           entry.widths_generated ?? [],
           presets,
-          entry.width,
+          entry.width!,
         );
         if (missing.length > 0) {
           widthsOutdated++;
