@@ -22,6 +22,8 @@ export type McpWarning = {
 export type McpSideEffect = {
   kind: string;
   summary: string;
+  /** Concrete relative file paths when known (rule 10 — not top-level detach/reattach `paths`). */
+  paths?: string[];
 };
 
 export type McpTextResult = {

@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Typecheck MCP server
+        run: npm run check:mcp
+
       - name: Typecheck (advisory)
         continue-on-error: true
         run: npm run check

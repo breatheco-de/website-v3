@@ -100,7 +100,7 @@ import CodeMirror from "@uiw/react-codemirror";
 import type { EditorView } from "@codemirror/view";
 import { yaml } from "@codemirror/lang-yaml";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { createVariableWidgetPlugin, type TemplateSpan } from "@/lib/cm-variable-highlight";
+import { createVariableWidgetPlugin, findReplaceableTextRange, type TemplateSpan } from "@/lib/cm-variable-highlight";
 import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
 import {
   formatUnbindLiteralForInsert,
@@ -901,52 +901,65 @@ export function SectionEditorPanel({
       const view = editorViewRef.current;
       if (view) {
         const doc = view.state.doc.toString();
-        let from: number;
-        let to: number;
-
-        if (
-          selectionFrom !== undefined &&
-          selectionTo !== undefined &&
-          selectionFrom >= 0 &&
-          selectionTo <= doc.length &&
-          doc.slice(selectionFrom, selectionTo) === originalText
-        ) {
-          from = selectionFrom;
-          to = selectionTo;
-        } else {
-          const pos = doc.indexOf(originalText);
-          if (pos === -1) {
-            toast({
-              title: "Text not found",
-              description:
-                "The selected text was not found in the YAML content.",
-              variant: "destructive",
-            });
-            return;
-          }
-          from = pos;
-          to = pos + originalText.length;
+        const range = findReplaceableTextRange(
+          doc,
+          originalText,
+          selectionFrom,
+          selectionTo,
+        );
+        if (!range) {
+          toast({
+            title: "Text not found",
+            description:
+              "The selected text was not found outside an existing variable.",
+            variant: "destructive",
+          });
+          return;
         }
 
+        const before = view.state.doc.toString();
         view.dispatch({
-          changes: { from, to, insert: templateSyntax },
+          changes: {
+            from: range.from,
+            to: range.to,
+            insert: templateSyntax,
+          },
         });
+        const after = view.state.doc.toString();
+        if (before === after) {
+          toast({
+            title: "Could not insert variable",
+            description:
+              "The edit was blocked because it would change text inside an existing variable chip.",
+            variant: "destructive",
+          });
+          return;
+        }
         toast({
           title: "Variable inserted",
           description: "Text replaced with variable template.",
         });
       } else {
         setYamlContent((prev) => {
-          if (!prev.includes(originalText)) {
+          const range = findReplaceableTextRange(
+            prev,
+            originalText,
+            selectionFrom,
+            selectionTo,
+          );
+          if (!range) {
             toast({
               title: "Text not found",
               description:
-                "The selected text was not found in the YAML content.",
+                "The selected text was not found outside an existing variable.",
               variant: "destructive",
             });
             return prev;
           }
-          const updated = prev.replace(originalText, templateSyntax);
+          const updated =
+            prev.slice(0, range.from) +
+            templateSyntax +
+            prev.slice(range.to);
           setHasChanges(true);
           setParseError(null);
           try {

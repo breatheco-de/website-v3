@@ -89,18 +89,6 @@ interface PageErrorsModalProps {
 
 type PageIssue = NonNullable<PageDiagnostics["issues"]>[number];
 
-const DEFAULT_PAGE_ISSUES_EDUCATION = {
-  summary:
-    "Everyone sees the same issue list for this page. Check mark = you’ve fixed it (drops out of the open count). Claim = you’re working on it (30 minutes).",
-  details:
-    "Any staff member can release a claim. Saving the page or clicking Validate may bring an issue back if it’s still there, but won’t cancel an active claim. Redirect problems update when redirects change, or when you run validation from Redirects / Global Health.",
-  advanced_paths: [
-    "server/services/validationCacheService.ts",
-    "client/src/components/DebugBubble/components/PageErrorsModal.tsx",
-    "server/routes/validation.ts",
-  ],
-} as const;
-
 function formatStaleness(isoDate: string): string {
   const diffMs = Date.now() - new Date(isoDate).getTime();
   const mins = Math.floor(diffMs / 60000);
@@ -1221,44 +1209,6 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                 ))}
               </TabsContent>
             </Tabs>
-
-            <div
-              className="p-3 rounded-md bg-muted/50 border border-border text-sm space-y-1.5"
-              data-testid="text-page-issues-education"
-            >
-              {activeTab === "crawlers" ? (
-                <p className="text-muted-foreground text-xs">
-                  Green check = all applicable crawlers indexed. Badge number = crawlers not OK
-                  (including never checked). Drafts are excluded. Cache under SEO/GEO → Search
-                  Console.
-                </p>
-              ) : (
-                <>
-                  <p className="text-muted-foreground text-xs">
-                    {pageDiagnostics.education?.summary || DEFAULT_PAGE_ISSUES_EDUCATION.summary}
-                  </p>
-                  <Collapsible>
-                    <CollapsibleTrigger className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
-                      Read more
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="pt-1.5 text-[11px] text-muted-foreground space-y-1.5">
-                      <p>
-                        {pageDiagnostics.education?.details ||
-                          DEFAULT_PAGE_ISSUES_EDUCATION.details}
-                      </p>
-                      {(
-                        pageDiagnostics.education?.advanced_paths ??
-                        DEFAULT_PAGE_ISSUES_EDUCATION.advanced_paths
-                      ).map((path) => (
-                        <p key={path} className="font-mono">
-                          {path}
-                        </p>
-                      ))}
-                    </CollapsibleContent>
-                  </Collapsible>
-                </>
-              )}
-            </div>
           </div>
         )}
         <DialogFooter className="sm:justify-end gap-2 flex-wrap">

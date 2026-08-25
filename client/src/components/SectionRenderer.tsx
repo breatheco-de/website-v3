@@ -12,6 +12,7 @@ import { useMenuVisualContext } from "@/contexts/MenuVisualContext";
 import { VariableHighlightProvider } from "@/components/editing/VariableHighlight";
 import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
 import { resolveDeep, resolveTemplateString, type VariableContext } from "@/lib/variable-manager";
+import { findReplaceableTextRange } from "@/lib/cm-variable-highlight";
 import { SectionContextProvider } from "@/contexts/SectionContext";
 import {
   getCachedSectionComponent,
@@ -670,11 +671,13 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
       let foundMatch = false;
       const replaceInObj = (obj: unknown): unknown => {
         if (typeof obj === "string") {
-          if (obj.includes(originalText)) {
-            foundMatch = true;
-            return obj.replace(originalText, templateSyntax);
-          }
-          return obj;
+          if (foundMatch) return obj;
+          const range = findReplaceableTextRange(obj, originalText);
+          if (!range) return obj;
+          foundMatch = true;
+          return (
+            obj.slice(0, range.from) + templateSyntax + obj.slice(range.to)
+          );
         }
         if (Array.isArray(obj)) {
           return obj.map(replaceInObj);
@@ -692,7 +695,12 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
       const updatedSection = replaceInObj(section);
 
       if (!foundMatch) {
-        toast({ title: "Text not found", description: "The selected text was not found in the section content.", variant: "destructive" });
+        toast({
+          title: "Text not found",
+          description:
+            "The selected text was not found outside an existing variable.",
+          variant: "destructive",
+        });
         return;
       }
 

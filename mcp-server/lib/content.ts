@@ -6,7 +6,10 @@ import {
   listMergedComponentTypes,
   resolveComponentPath,
 } from "../../shared/registry-resolve.js";
-import { resolveComponentBehaviors } from "../../shared/component-behaviors.js";
+import {
+  resolveComponentBehaviors,
+  type ComponentBehaviors,
+} from "../../shared/component-behaviors.js";
 
 // ─── Multi-site helpers ───────────────────────────────────────────────────────
 
@@ -673,7 +676,7 @@ export interface ComponentSchemaSlim {
   description: string | null;
   when_to_use: string | null;
   variants: ComponentVariantSummary[];
-  behaviors?: Record<string, unknown>;
+  behaviors?: ComponentBehaviors;
 }
 
 export function getComponentSchema(componentType: string, contentPath?: string): ComponentSchemaSlim | null {

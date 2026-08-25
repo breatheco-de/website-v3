@@ -742,6 +742,11 @@ function mcpViewerAuthor(mcpToken?: string): string | undefined {
   return getTokenUsername(mcpToken) || undefined;
 }
 
+/** Author string for content_file_written events (username when known, else "mcp"). */
+function mcpWriteAuthor(mcpToken?: string): string {
+  return getTokenUsername(mcpToken ?? "") || "mcp";
+}
+
 const diagnosticsIssueListParams = {
   issues_limit: z
     .number()
@@ -2284,7 +2289,11 @@ export function registerPageTools(
       const expanded = expandSeoClusterToggle({
         contentType: resolved.contentType,
         contentRoot: contentPath,
-        updates,
+        updates: updates.map((u) => ({
+          field_path: u.field_path,
+          value: u.value,
+          ...(u.meta_target ? { meta_target: u.meta_target } : {}),
+        })),
         currentSeo,
         slug,
         locale,
@@ -4051,7 +4060,7 @@ export function registerPageTools(
 
       const commonData: Record<string, unknown> = { slug, ...common };
       fs.writeFileSync(path.join(pageDir, "_common.yml"), safeDump(commonData), "utf-8");
-      notifyMcpContentWrite(path.join(pageDir, "_common.yml"), "mcp");
+      notifyMcpContentWrite(path.join(pageDir, "_common.yml"), mcpWriteAuthor(mcpToken));
 
       const createdLocales: string[] = [];
       const createdFiles: string[] = ["_common.yml"];
@@ -4072,7 +4081,7 @@ export function registerPageTools(
         });
         const fileName = draftFirst ? `${draftVariant}.${loc}.yml` : `${loc}.yml`;
         fs.writeFileSync(path.join(pageDir, fileName), safeDump(localeData), "utf-8");
-        notifyMcpContentWrite(path.join(pageDir, fileName), "mcp");
+        notifyMcpContentWrite(path.join(pageDir, fileName), mcpWriteAuthor(mcpToken));
         createdLocales.push(loc);
         createdFiles.push(fileName);
       }
@@ -5220,7 +5229,7 @@ export function registerPageTools(
 
       const isNew = !fs.existsSync(targetFilePath);
       fs.writeFileSync(targetFilePath, intendedContent, "utf-8");
-      const writeEventId = notifyMcpContentWrite(targetFilePath, "mcp");
+      const writeEventId = notifyMcpContentWrite(targetFilePath, mcpWriteAuthor(mcpToken));
 
       if (writeAsDraft) {
         ensureDraftVariantInVersioning({
@@ -5980,7 +5989,7 @@ export function registerPageTools(
             value?: string;
             label?: string;
             multiple?: boolean;
-            required?: boolean;
+            required?: boolean | "attached";
             description?: string;
             type?: string;
           };

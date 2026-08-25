@@ -2,6 +2,7 @@ import { createContext, useContext, useRef, useLayoutEffect as _useLayoutEffect,
 import { Braces } from "lucide-react";
 import type { ReactNode, CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
+import { EditorView } from "@codemirror/view";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
 import {
@@ -163,20 +164,28 @@ function SelectionFloatingButton({
 }) {
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [selectedText, setSelectedText] = useState("");
+  /** Captured while the selection is alive — click clears DOM selection before handlers run. */
+  const selectionRangeRef = useRef<{
+    text: string;
+    from?: number;
+    to?: number;
+    sectionIndex: number;
+  } | null>(null);
   const editMode = useEditModeOptional();
   const isEditMode = editMode?.isEditMode ?? false;
 
   useEffect(() => {
     if (!isEditMode) {
       setPosition(null);
+      selectionRangeRef.current = null;
       return;
     }
 
     const handleSelectionChange = () => {
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed || !selection.toString().trim()) {
-        setPosition(null);
-        setSelectedText("");
+        // Keep last range + button: mousedown on the floating control clears
+        // window selection before click; we still need the captured offsets.
         return;
       }
 
@@ -185,6 +194,7 @@ function SelectionFloatingButton({
       if (!cmEditor) {
         setPosition(null);
         setSelectedText("");
+        selectionRangeRef.current = null;
         return;
       }
 
@@ -192,23 +202,67 @@ function SelectionFloatingButton({
       if (sectionAttr !== null && sectionAttr !== undefined && Number(sectionAttr) !== sectionIndex) {
         setPosition(null);
         setSelectedText("");
+        selectionRangeRef.current = null;
         return;
       }
 
-      const text = selection.toString().trim();
+      let from: number | undefined;
+      let to: number | undefined;
+      let cmText: string | undefined;
+      try {
+        const view = EditorView.findFromDOM(cmEditor);
+        if (view) {
+          const mainSel = view.state.selection.main;
+          if (!mainSel.empty) {
+            from = mainSel.from;
+            to = mainSel.to;
+            cmText = view.state.sliceDoc(from, to);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+
+      const text = (cmText || selection.toString()).trim();
       if (text.length < 2 || text.length > 500) {
         setPosition(null);
+        selectionRangeRef.current = null;
         return;
       }
 
       if (/\{\{.*\}\}/.test(text)) {
         setPosition(null);
+        selectionRangeRef.current = null;
         return;
+      }
+
+      // If we trimmed whitespace, shrink CM offsets to the trimmed slice.
+      if (
+        cmText !== undefined &&
+        from !== undefined &&
+        to !== undefined &&
+        cmText !== text
+      ) {
+        const lead = cmText.length - cmText.trimStart().length;
+        const trail = cmText.length - cmText.trimEnd().length;
+        from = from + lead;
+        to = to - trail;
       }
 
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
 
+      const resolvedSectionIndex =
+        sectionAttr !== null && sectionAttr !== undefined
+          ? Number(sectionAttr)
+          : sectionIndex;
+
+      selectionRangeRef.current = {
+        text,
+        from,
+        to,
+        sectionIndex: resolvedSectionIndex,
+      };
       setSelectedText(text);
       setPosition({
         top: rect.top + window.scrollY - 40,
@@ -218,51 +272,31 @@ function SelectionFloatingButton({
 
     document.addEventListener("selectionchange", handleSelectionChange);
     return () => document.removeEventListener("selectionchange", handleSelectionChange);
-  }, [isEditMode]);
+  }, [isEditMode, sectionIndex]);
 
-  const handleClick = () => {
-    if (!selectedText) return;
+  const handleClick = (e: ReactMouseEvent) => {
+    // Preserve captured range; default mousedown/click would clear window selection.
+    e.preventDefault();
+    e.stopPropagation();
 
-    let from: number | undefined;
-    let to: number | undefined;
-    let cmText: string | undefined;
-    let resolvedSectionIndex = sectionIndex;
-
-    try {
-      const sel = window.getSelection();
-      const anchor = sel?.anchorNode;
-      const cmEditor = anchor?.parentElement?.closest(".cm-editor") as HTMLElement | null;
-      if (cmEditor) {
-        const sectionAttr = cmEditor.closest("[data-section-index]")?.getAttribute("data-section-index");
-        if (sectionAttr !== null && sectionAttr !== undefined) {
-          resolvedSectionIndex = Number(sectionAttr);
-        }
-
-        const cmViewObj = (cmEditor as unknown as { cmView?: { view?: { state: { selection: { main: { from: number; to: number } }; sliceDoc: (from: number, to: number) => string } } } }).cmView;
-        if (cmViewObj?.view) {
-          const mainSel = cmViewObj.view.state.selection.main;
-          from = mainSel.from;
-          to = mainSel.to;
-          cmText = cmViewObj.view.state.sliceDoc(from, to);
-        }
-      }
-    } catch { /* ignore */ }
-
-    const textToUse = cmText || selectedText;
+    const captured = selectionRangeRef.current;
+    const textToUse = captured?.text || selectedText;
+    if (!textToUse) return;
 
     window.dispatchEvent(
       new CustomEvent<VariableCreateDetail>(VARIABLE_CREATE_EVENT, {
         detail: {
           selectedText: textToUse,
-          sectionIndex: resolvedSectionIndex,
-          selectionFrom: from,
-          selectionTo: to,
+          sectionIndex: captured?.sectionIndex ?? sectionIndex,
+          selectionFrom: captured?.from,
+          selectionTo: captured?.to,
           contentType,
           singleEntry,
         },
       }),
     );
     window.getSelection()?.removeAllRanges();
+    selectionRangeRef.current = null;
     setPosition(null);
     setSelectedText("");
   };
@@ -283,6 +317,10 @@ function SelectionFloatingButton({
       <Button
         size="sm"
         variant="default"
+        onMouseDown={(e) => {
+          // Prevent clearing the CodeMirror selection before we read it.
+          e.preventDefault();
+        }}
         onClick={handleClick}
         className="shadow-lg whitespace-nowrap gap-1.5"
       >

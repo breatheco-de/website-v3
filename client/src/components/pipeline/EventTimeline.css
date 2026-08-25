@@ -1,0 +1,188 @@
+.event-timeline-shell {
+  position: relative;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border-top: 3px solid hsl(var(--foreground));
+  border-bottom: 3px solid hsl(var(--foreground));
+}
+
+.event-timeline-hover-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-0.5px);
+  background: hsl(var(--foreground) / 0.35);
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* Full-bleed white scrubber (breaks out of page p-6). */
+.event-timeline-root {
+  --et-bg: #ffffff;
+  --et-border: hsl(var(--border));
+  --et-fg: hsl(var(--foreground));
+  --et-muted: hsl(var(--muted-foreground));
+  --et-panel: hsl(var(--muted) / 0.35);
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+}
+
+.event-timeline-root .vis-timeline {
+  border: none !important;
+  background: #ffffff !important;
+  color: var(--et-fg);
+  font-family: inherit;
+  width: 100% !important;
+  margin: 0 !important;
+  cursor: grab;
+}
+
+.event-timeline-root .vis-timeline:active {
+  cursor: grabbing;
+}
+
+.event-timeline-root .vis-panel.vis-center,
+.event-timeline-root .vis-panel.vis-background,
+.event-timeline-root .vis-content,
+.event-timeline-root .vis-foreground {
+  cursor: grab;
+}
+
+.event-timeline-root .vis-panel.vis-center:active,
+.event-timeline-root .vis-content:active,
+.event-timeline-root .vis-foreground:active {
+  cursor: grabbing;
+}
+
+.event-timeline-root .vis-panel,
+.event-timeline-root .vis-panel.vis-center,
+.event-timeline-root .vis-panel.vis-left,
+.event-timeline-root .vis-panel.vis-right,
+.event-timeline-root .vis-panel.vis-top,
+.event-timeline-root .vis-panel.vis-bottom,
+.event-timeline-root .vis-shadow,
+.event-timeline-root .vis-shadow.vis-top,
+.event-timeline-root .vis-shadow.vis-bottom {
+  border: none !important;
+  box-shadow: none !important;
+  background: #ffffff !important;
+}
+
+/* Hide day / time axis labels entirely */
+.event-timeline-root .vis-panel.vis-top,
+.event-timeline-root .vis-panel.vis-bottom {
+  display: none !important;
+  height: 0 !important;
+}
+
+.event-timeline-root .vis-time-axis .vis-text {
+  display: none !important;
+}
+
+.event-timeline-root .vis-time-axis .vis-grid.vis-minor,
+.event-timeline-root .vis-time-axis .vis-grid.vis-major,
+.event-timeline-root .vis-grid.vis-vertical {
+  border-left-width: 1px !important;
+  border-left-style: solid !important;
+}
+
+.event-timeline-root .vis-time-axis .vis-grid.vis-minor,
+.event-timeline-root .vis-grid.vis-vertical.vis-minor {
+  border-left-color: rgba(0, 0, 0, 0.05) !important;
+}
+
+.event-timeline-root .vis-time-axis .vis-grid.vis-major,
+.event-timeline-root .vis-grid.vis-vertical.vis-major {
+  border-left-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+.event-timeline-root .vis-current-time {
+  background-color: hsl(var(--primary) / 0.55);
+  width: 1px;
+}
+
+.event-timeline-root .vis-item {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--et-fg);
+}
+
+.event-timeline-root .vis-item.vis-selected {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.event-timeline-root .vis-item .vis-item-content {
+  padding: 0 !important;
+  transform: none !important;
+}
+
+.event-timeline-root .vis-item.vis-box {
+  border-radius: 9999px;
+  border-width: 0 !important;
+}
+
+.event-timeline-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 148px;
+  height: 24px;
+  padding: 2px 8px 2px 3px;
+  border-radius: 9999px;
+  border: none;
+  background: var(--et-panel);
+  box-shadow: none;
+  cursor: grab;
+}
+
+.event-timeline-root .vis-item.vis-selected .event-timeline-item {
+  outline: 1px solid hsl(var(--primary) / 0.55);
+  outline-offset: 1px;
+}
+
+.event-timeline-item__icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: transparent;
+}
+
+.event-timeline-item__fallback {
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--et-muted);
+  background: hsl(var(--muted) / 0.55);
+}
+
+.event-timeline-item__fallback svg {
+  width: 11px;
+  height: 11px;
+}
+
+.event-timeline-item__badge {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--et-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 110px;
+  letter-spacing: 0.01em;
+}

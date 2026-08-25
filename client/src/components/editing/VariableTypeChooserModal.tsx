@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Database, Globe } from "lucide-react";
 import {
   Dialog,
@@ -26,8 +25,6 @@ export function VariableTypeChooserModal({
   contentType,
   onChoose,
 }: VariableTypeChooserModalProps) {
-  const [selected, setSelected] = useState<"global" | "single" | null>(null);
-
   const { data: definitions } = useVariableDefinitions();
 
   const { data: typeConfig } = useQuery<{
@@ -51,19 +48,12 @@ export function VariableTypeChooserModal({
 
   const label = typeConfig?.label || contentType;
 
-  const handleContinue = () => {
-    if (!selected) return;
-    setSelected(null);
-    onChoose(selected);
-  };
-
-  const handleOpenChange = (o: boolean) => {
-    if (!o) setSelected(null);
-    onOpenChange(o);
+  const handleChoose = (type: "global" | "single") => {
+    onChoose(type);
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-w-md"
         data-testid="variable-type-chooser-modal"
@@ -79,12 +69,8 @@ export function VariableTypeChooserModal({
         <div className="space-y-2 mt-2" data-testid="chooser-options-list">
           <button
             type="button"
-            className={`w-full text-left p-3 rounded-md border transition-colors ${
-              selected === "single"
-                ? "border-primary bg-primary/5"
-                : "border-border hover-elevate"
-            }`}
-            onClick={() => setSelected("single")}
+            className="w-full text-left p-3 rounded-md border transition-colors border-border hover-elevate"
+            onClick={() => handleChoose("single")}
             data-testid="chooser-option-single"
           >
             <div className="flex items-start gap-3">
@@ -116,12 +102,8 @@ export function VariableTypeChooserModal({
 
           <button
             type="button"
-            className={`w-full text-left p-3 rounded-md border transition-colors ${
-              selected === "global"
-                ? "border-primary bg-primary/5"
-                : "border-border hover-elevate"
-            }`}
-            onClick={() => setSelected("global")}
+            className="w-full text-left p-3 rounded-md border transition-colors border-border hover-elevate"
+            onClick={() => handleChoose("global")}
             data-testid="chooser-option-global"
           >
             <div className="flex items-start gap-3">
@@ -155,17 +137,10 @@ export function VariableTypeChooserModal({
         <div className="flex justify-end gap-2 pt-2">
           <Button
             variant="outline"
-            onClick={() => handleOpenChange(false)}
+            onClick={() => onOpenChange(false)}
             data-testid="button-chooser-cancel"
           >
             Cancel
-          </Button>
-          <Button
-            onClick={handleContinue}
-            disabled={!selected}
-            data-testid="button-chooser-continue"
-          >
-            Continue
           </Button>
         </div>
       </DialogContent>

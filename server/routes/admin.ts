@@ -42,7 +42,7 @@ import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager, DatabaseManager } from "../database";
 import { collectSystemAlerts, recheckDatabaseHealth } from "../system-alerts";
-import { listEvents, clearAllEvents, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, type EventType } from "../events/event-store";
+import { listEvents, clearAllEvents, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents, type EventType } from "../events/event-store";
 import { listActiveLeases } from "../leases";
 import { getLastAppliedSnapshot } from "../jobs/applier";
 import { getEngineStatus } from "../jobs/queue";
@@ -645,6 +645,7 @@ export function registerAdminRoutes(app: Express): void {
     const behindBy = Math.max(0, currentGeneration - lastAppliedGeneration);
     const oldestAgeMs = getOldestUnpublishedAgeMs(site);
     const unpublishedCount = getUnpublishedCount(site);
+    const pendingEvents = getUnpublishedEvents(site, 20);
 
     const recentEvents = listEvents({ site, limit: 200 });
     const inFlight = deriveInFlight(recentEvents, lastAppliedGeneration);
@@ -679,6 +680,7 @@ export function registerAdminRoutes(app: Express): void {
         unpublishedCount,
         oldestAgeMs,
         currentGeneration,
+        pending: pendingEvents,
       },
       index: {
         lastAppliedGeneration,

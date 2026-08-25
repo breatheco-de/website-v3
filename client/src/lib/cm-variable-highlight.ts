@@ -2,6 +2,7 @@ export {
   createVariableWidgetPlugin,
   variableHighlightPlugin,
   findTemplateSpans,
+  findReplaceableTextRange,
   spansOverlap,
   type TemplateSpan,
   type VariableWidgetPluginOptions,

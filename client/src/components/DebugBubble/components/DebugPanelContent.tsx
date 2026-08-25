@@ -1132,7 +1132,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 className="flex flex-1 min-w-0 items-center justify-center gap-1.5 px-3 py-2 hover-elevate"
                 onClick={() => props.navigate("/private/background-pipeline")}
                 data-testid="button-background-pipeline"
-                title="Background pipeline"
+                title="Agent pipeline"
               >
                 <Bot
                   className={cn(

@@ -56,6 +56,45 @@ function spansOverlap(
   return spans.some((s) => from < s.to && to > s.from);
 }
 
+/**
+ * Locate where `originalText` should be replaced with a template.
+ * Prefers explicit selection offsets when they still match; otherwise finds the
+ * first occurrence that does not sit inside an existing `{{ ... }}` span
+ * (so e.g. selecting "category" in a URL does not hit `single.category`).
+ */
+export function findReplaceableTextRange(
+  doc: string,
+  originalText: string,
+  selectionFrom?: number,
+  selectionTo?: number,
+): { from: number; to: number } | null {
+  if (!originalText) return null;
+
+  if (
+    selectionFrom !== undefined &&
+    selectionTo !== undefined &&
+    selectionFrom >= 0 &&
+    selectionTo <= doc.length &&
+    selectionFrom < selectionTo &&
+    doc.slice(selectionFrom, selectionTo) === originalText
+  ) {
+    return { from: selectionFrom, to: selectionTo };
+  }
+
+  const spans = findTemplateSpans(doc);
+  let searchFrom = 0;
+  while (searchFrom <= doc.length - originalText.length) {
+    const pos = doc.indexOf(originalText, searchFrom);
+    if (pos === -1) return null;
+    const to = pos + originalText.length;
+    if (!spansOverlap(spans, pos, to)) {
+      return { from: pos, to };
+    }
+    searchFrom = pos + 1;
+  }
+  return null;
+}
+
 class VariablePillWidget extends WidgetType {
   constructor(
     private readonly span: TemplateSpan,
