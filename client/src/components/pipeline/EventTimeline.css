@@ -119,7 +119,7 @@
   height: 0 !important;
 }
 
-/* Three staff lanes: no group labels / left gutter. */
+/* Two staff lanes: no group labels / left gutter. */
 .event-timeline-root .vis-panel.vis-left,
 .event-timeline-root .vis-panel.vis-right {
   display: none !important;

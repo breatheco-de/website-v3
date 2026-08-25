@@ -14,14 +14,14 @@ import type { EventAttributionEntry } from "@/lib/formatIssueActor";
 import { cn } from "@/lib/utils";
 
 const INITIAL_WINDOW_MS = 3 * 60 * 60 * 1000; // 3 hours
-const STAFF_LANE_COUNT = 3;
+const STAFF_LANE_COUNT = 2;
 /**
  * Display-only chip occupancy at the default 3h window (~1200px wide).
  * ~156px chip+gap → ~24.6 min so successive chips on one staff never overlap.
  * List filtering and tooltips still use real `created_at`.
  */
 const STAFF_SLOT_MS = Math.ceil((INITIAL_WINDOW_MS / 1200) * 164);
-const STAFF_HEIGHT_PX = 116;
+const STAFF_HEIGHT_PX = 80;
 /** Treat window end within this of Date.now() as “parked at latest”. */
 const FOLLOW_NOW_EPS_MS = 2_000;
 
@@ -88,7 +88,7 @@ function itemContentElement(item: TimelineItem): HTMLElement {
 }
 
 /**
- * Serial queue → 3-line music staff: order by event id, round-robin lanes,
+ * Serial queue → 2-line music staff: order by event id, round-robin lanes,
  * nudge display `start` so chips never sit on top of each other.
  */
 export function layoutStaffItems(
