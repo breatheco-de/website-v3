@@ -4,6 +4,7 @@
 
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { DuplicatedJobError } from "@sidequest/core";
 import { Sidequest, Job } from "sidequest";
 import { child } from "../logger";
@@ -15,6 +16,9 @@ if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 const SIDEQUEST_DB = path.join(dataDir, "sidequest.sqlite");
 
+/** Same-origin path for the staff-proxied Sidequest UI. */
+export const SIDEQUEST_DASHBOARD_BASE_PATH = "/admin/sidequest";
+
 let configured = false;
 let starting: Promise<void> | null = null;
 let restartAttempts = 0;
@@ -24,17 +28,51 @@ export type EngineStatusState = "running" | "starting" | "stopped" | "restarting
 
 let engineStatus: EngineStatusState = "stopped";
 
+export function getSidequestDashboardPort(): number {
+  return Number(process.env.SIDEQUEST_DASHBOARD_PORT || 8678);
+}
+
+/** Kill switch: SIDEQUEST_DASHBOARD_ENABLED=false disables; unset/true enables. */
+export function isSidequestDashboardEnabled(): boolean {
+  const raw = process.env.SIDEQUEST_DASHBOARD_ENABLED;
+  if (raw === undefined || raw === "") return true;
+  return raw !== "false" && raw !== "0";
+}
+
+/**
+ * Internal Basic auth for the raw Sidequest port (proxy injects these).
+ * Prefer SIDEQUEST_DASHBOARD_USER / PASSWORD; otherwise derive from SESSION_SECRET.
+ */
+export function getSidequestDashboardInternalAuth(): { user: string; password: string } {
+  const user = process.env.SIDEQUEST_DASHBOARD_USER?.trim();
+  const password = process.env.SIDEQUEST_DASHBOARD_PASSWORD?.trim();
+  if (user && password) {
+    return { user, password };
+  }
+  const secret = process.env.SESSION_SECRET?.trim();
+  if (!secret && process.env.NODE_ENV === "production") {
+    throw new Error(
+      "SESSION_SECRET or SIDEQUEST_DASHBOARD_USER/PASSWORD required when the Sidequest dashboard is enabled",
+    );
+  }
+  const material = secret || "dev-sidequest-dashboard";
+  const derived = crypto
+    .createHash("sha256")
+    .update(`sidequest-dash:${material}`)
+    .digest("hex")
+    .slice(0, 32);
+  return { user: "sidequest-proxy", password: derived };
+}
+
 export function getEngineStatus(): {
   status: EngineStatusState;
   restartAttempts: number;
   dashboardUrl?: string;
 } {
-  const port = Number(process.env.SIDEQUEST_DASHBOARD_PORT || 8678);
   return {
     status: engineStatus,
     restartAttempts,
-    dashboardUrl:
-      process.env.NODE_ENV !== "production" ? `http://localhost:${port}` : undefined,
+    dashboardUrl: isSidequestDashboardEnabled() ? SIDEQUEST_DASHBOARD_BASE_PATH : undefined,
   };
 }
 
@@ -67,6 +105,23 @@ export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<v
   const jobsFilePath = opts?.jobsFilePath
     ? path.resolve(opts.jobsFilePath)
     : sidequestJobsFilePath();
+
+  const dashboardEnabled = isSidequestDashboardEnabled();
+  const port = getSidequestDashboardPort();
+  const dashboardConfig: {
+    enabled: boolean;
+    port: number;
+    basePath?: string;
+    auth?: { user: string; password: string };
+  } = {
+    enabled: dashboardEnabled,
+    port,
+  };
+  if (dashboardEnabled) {
+    dashboardConfig.basePath = SIDEQUEST_DASHBOARD_BASE_PATH;
+    dashboardConfig.auth = getSidequestDashboardInternalAuth();
+  }
+
   await Sidequest.configure({
     backend: {
       driver: "@sidequest/sqlite-backend",
@@ -81,13 +136,13 @@ export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<v
     manualJobResolution: true,
     jobsFilePath,
     queues: [{ name: "default", concurrency: 1, priority: 50, state: "active" }],
-    dashboard: {
-      enabled: process.env.NODE_ENV !== "production",
-      port: Number(process.env.SIDEQUEST_DASHBOARD_PORT || 8678),
-    },
+    dashboard: dashboardConfig,
   });
   configured = true;
-  log.info({ jobsFilePath }, "[JobQueue] Sidequest configured with manual job resolution");
+  log.info(
+    { jobsFilePath, dashboardEnabled, dashboardPort: port },
+    "[JobQueue] Sidequest configured with manual job resolution",
+  );
 }
 
 export async function startJobQueue(): Promise<void> {

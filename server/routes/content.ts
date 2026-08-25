@@ -1990,6 +1990,27 @@ export function registerContentRoutes(app: Express): void {
           return;
         }
       }
+      if (body.strategy !== undefined) {
+        if (body.strategy === null) {
+          update.strategy = null;
+        } else if (typeof body.strategy === "object") {
+          const { parseContentTypeStrategy } = await import(
+            "../../shared/contentTypeStrategy.js"
+          );
+          const parsed = parseContentTypeStrategy(body.strategy);
+          if (!parsed) {
+            res.status(400).json({
+              error: "strategy requires a non-empty purpose string (constraints optional).",
+              code: "missing_strategy",
+            });
+            return;
+          }
+          update.strategy = parsed;
+        } else {
+          res.status(400).json({ error: "strategy must be an object or null" });
+          return;
+        }
+      }
       if (body.single_template !== undefined) update.single_template = !!body.single_template;
       if (body.preview !== undefined) {
         if (body.preview === null) {
@@ -2071,6 +2092,45 @@ export function registerContentRoutes(app: Express): void {
           };
         } else {
           res.status(400).json({ error: "seo_monitoring must be an object or null" });
+          return;
+        }
+      }
+
+      // Gate: required fields need a valid CT strategy (merged post-update view).
+      {
+        const {
+          assertEditorRequiredHasStrategy,
+          assertCanClearStrategy,
+        } = await import("../../shared/contentTypeStrategy.js");
+        const prior = getContentTypeConfig(type, ctRoot(res));
+        const nextEditor =
+          update.editor === null
+            ? undefined
+            : update.editor !== undefined
+              ? update.editor
+              : prior?.editor;
+        const nextStrategy =
+          update.strategy === null
+            ? undefined
+            : update.strategy !== undefined
+              ? update.strategy
+              : prior?.strategy;
+        if (update.strategy === null) {
+          const clearCheck = assertCanClearStrategy(nextEditor);
+          if (!clearCheck.ok) {
+            res.status(400).json({
+              error: clearCheck.error,
+              code: clearCheck.code,
+            });
+            return;
+          }
+        }
+        const strategyCheck = assertEditorRequiredHasStrategy(nextStrategy, nextEditor);
+        if (!strategyCheck.ok) {
+          res.status(400).json({
+            error: strategyCheck.error,
+            code: strategyCheck.code,
+          });
           return;
         }
       }

@@ -3891,8 +3891,10 @@ function FieldMappingDialog({
                 <div className="space-y-2">
               <p>
                 Adding fields to your {contentType} helps you describe each entry better. It also increases
-                AI agents&apos; efficiency: agents read each field&apos;s description and other information
-                and try to set the right values. Field values then become accessible through{" "}
+                AI agents&apos; efficiency: agents read each field&apos;s{" "}
+                <code className="font-mono bg-muted px-1 rounded text-xs">fill_intent</code>{" "}
+                (goal and purpose) and try to set the right values. Purpose is also shown as the
+                hint in the item editor. Field values then become accessible through{" "}
                 <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ single.field_name }}"}</code>{" "}
                 in the entry YAML file.
               </p>
@@ -3939,8 +3941,8 @@ function FieldMappingDialog({
                       </p>
                       <p>
                         Agent playbook: <code className="font-mono">explain_site</code> topic{" "}
-                        <code className="font-mono">relation-fields</code>; field specs live in each field&apos;s editor
-                        description (sliders icon) and below.
+                        <code className="font-mono">relation-fields</code>; field specs live in each field&apos;s{" "}
+                        <code className="font-mono">fill_intent</code> purpose (sliders icon) and below.
                       </p>
                     </div>
                   )}

@@ -58,6 +58,7 @@ export type ContentTypeEditorHint = {
   /** When true, comma-separated strings are split into tokens (arrays always expand). Warning: values that legitimately contain commas will be split. */
   split_comma_values?: boolean;
   cache_images?: boolean;
+  /** Legacy UI hint (read-compat). Prefer fill_intent.purpose; Field Settings Apply omits this. */
   description?: string;
   /**
    * When true: drafts may omit a value; publishing to live requires non-empty;
@@ -132,6 +133,14 @@ export interface ContentTypeEntry {
    * Omitted = disabled. require_cluster warns when a monitored entry has no cluster assignment.
    */
   seo_monitoring?: SeoMonitoringConfig;
+  /**
+   * Type-level strategy brief for staff/agents (main why of this content type).
+   * Required before any editor.required true|attached. Context only for field fill_intent.
+   */
+  strategy?: {
+    purpose: string;
+    constraints?: string[];
+  };
 }
 
 interface ContentTypesRegistry {
@@ -232,7 +241,9 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   Per-field editor hints for the SEO Fields tab / item editors (same shape as db/*/config editor).
 #   Keys match field_mapping target names. Types: text, textarea, markdown, number, boolean,
 #   date, datetime, image, pdf, select, tags, json, relation. Optional: options, populate_options,
-#   allow_custom_values, split_comma_values, description, required, fill_intent, schema.
+#   allow_custom_values, split_comma_values, required, fill_intent, schema.
+#   description: legacy UI hint only (read-compat). Field Settings no longer edits it;
+#     Apply clears it. Prefer fill_intent.purpose as the staff/agent brief.
 #   required: when true, drafts may be empty; publish/live saves require a non-empty value
 #     (cannot clear on a live entry). When "attached", same rules only for shared-layout
 #     entries that are not detached (detached: true skips). On non–shared-layout types,
@@ -241,7 +252,9 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     ? prefix (key may be missing). Every required true|attached field MUST also set
 #     fill_intent: { goal (open string), purpose, constraints? string[] }.
 #     Goal presets (suggestions only): geo_llm, conversion, seo, editorial, structural,
-#     compliance, other — custom goals allowed.
+#     compliance, other — each has title/description in FILL_INTENT_GOAL_PRESET_OPTIONS;
+#     custom goals allowed. Content type must also have strategy.purpose before any
+#     required true|attached field (code: missing_strategy).
 #   split_comma_values: when true, string cells like "a, b" become tokens a and b (arrays always
 #     expand). WARNING: values that legitimately contain commas (e.g. "San Francisco, CA") will
 #     also be split. Saving a tags field may normalize CSV strings into string arrays.
@@ -253,6 +266,15 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     namespaces). Optional: value (default slug), label (default title/name), multiple.
 #     Stores slug string or string[] (multiple). Empty [] fails when required. Page/SSR
 #     hydrate to related objects via resolve-relations; listings keep pointers.
+#
+# strategy (optional until a field is required):
+#   Type-level main strategy for staff and agents — not the same as insights_intent
+#   (Component Insights taxonomy) or field fill_intent (per-field brief).
+#   strategy:
+#     purpose: string (required when any editor.required true|attached)
+#     constraints: optional string[]
+#   Context only: never replaces field fill_intent. Clearing strategy while required
+#   fields exist is rejected (code: missing_strategy).
 #
 # seo_monitoring (optional):
 #   When enabled: true, entries join seo-index.json and Cluster Map stats (omitted = off).
@@ -1103,7 +1125,7 @@ export function hasFieldMapping(type: string, contentRoot?: string): boolean {
   return !!getFieldMapping(type, contentRoot);
 }
 
-export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" | "preview" | "editor" | "seo_monitoring">> & {
+export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" | "preview" | "editor" | "seo_monitoring" | "strategy">> & {
   /** Pass `null` to unlink a database-backed type (removes the `database` key). */
   database?: DatabaseConfig | null;
   /** Pass `null` to remove preview screenshot config. */
@@ -1112,6 +1134,8 @@ export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" 
   editor?: ContentTypeEntry["editor"] | null;
   /** Pass `null` to remove seo_monitoring (same as omitted = disabled). */
   seo_monitoring?: SeoMonitoringConfig | null;
+  /** Pass `null` to remove strategy (rejected if required fields remain). */
+  strategy?: ContentTypeEntry["strategy"] | null;
 };
 
 export function updateContentTypeConfig(type: string, update: ContentTypeConfigUpdate, contentRoot?: string): void {
@@ -1122,7 +1146,14 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     throw new Error(`Content type "${type}" not found`);
   }
 
-  const { database: databaseUpdate, preview: previewUpdate, editor: editorUpdate, seo_monitoring: seoMonitoringUpdate, ...rest } = update;
+  const {
+    database: databaseUpdate,
+    preview: previewUpdate,
+    editor: editorUpdate,
+    seo_monitoring: seoMonitoringUpdate,
+    strategy: strategyUpdate,
+    ...rest
+  } = update;
   const merged: ContentTypeEntry = { ...existing, ...rest };
   if (databaseUpdate === null) {
     delete merged.database;
@@ -1148,6 +1179,12 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     delete merged.seo_monitoring;
   } else if (seoMonitoringUpdate) {
     merged.seo_monitoring = seoMonitoringUpdate;
+  }
+
+  if (strategyUpdate === null) {
+    delete merged.strategy;
+  } else if (strategyUpdate) {
+    merged.strategy = strategyUpdate;
   }
 
   // Database-backed types always use a shared template.

@@ -601,7 +601,7 @@ export function EventTimeline({
           className={cn(
             "text-xs leading-relaxed max-w-3xl event-timeline-help",
             atHistoryEndHint
-              ? "event-timeline-help--warn text-amber-300 inline-flex items-start gap-2"
+              ? "event-timeline-help--warn text-amber-300 dark:text-amber-800 inline-flex items-start gap-2"
               : "text-background/80",
           )}
           data-testid="text-timeline-help"
@@ -610,7 +610,7 @@ export function EventTimeline({
           {atHistoryEndHint ? (
             <>
               <IconAlertTriangle
-                className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-300"
+                className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-300 dark:text-amber-800"
                 aria-hidden
               />
               <span>{HELP_AT_NOW_EDGE}</span>

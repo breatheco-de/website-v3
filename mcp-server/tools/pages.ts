@@ -38,7 +38,7 @@ import {
 } from "../lib/diagnostics-issue-queue.js";
 import { getTokenUsername, getTokenClientName } from "../lib/oauth.js";
 import { buildEditorSystemHints } from "../../shared/editorSystemHints.js";
-import { FILL_INTENT_GOAL_PRESETS } from "../../shared/fillIntent.js";
+import { FILL_INTENT_GOAL_PRESET_OPTIONS } from "../../shared/fillIntent.js";
 import { promoteWarnings, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
 import {
   ok,
@@ -6090,11 +6090,16 @@ export function registerPageTools(
             field_mapping: config.field_mapping ?? null,
             editor,
             editor_required_modes: editorRequiredModes(config),
-            fill_intent_goal_presets: [...FILL_INTENT_GOAL_PRESETS],
+            fill_intent_goal_presets: FILL_INTENT_GOAL_PRESET_OPTIONS.map((o) => ({
+              value: o.value,
+              title: o.title,
+              description: o.description,
+            })),
             fill_intent_note:
               "Every editor.required true|attached field must have fill_intent { goal (open string), purpose, constraints? }. " +
-              "Presets are suggestions only; custom goals allowed. Read purpose before update_fields on required fields. " +
-              "Diagnostics suggestions prefer fill_intent over description.",
+              "Presets are suggestions only (use value as goal; title/description are staff/agent hints); custom goals allowed. " +
+              "Read purpose before update_fields on required fields. Prefer fill_intent.purpose over editor.*.description " +
+              "(Description is no longer edited in Field Settings and is cleared on Apply; legacy keys may remain until then).",
             relation_fields,
             immutable_slug: !!(config as { immutable_slug?: boolean }).immutable_slug,
             protected_slugs: (config as { protected_slugs?: string[] }).protected_slugs ?? [],
