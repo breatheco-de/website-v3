@@ -1062,30 +1062,20 @@
   animation: marquee-scroll-rev var(--marquee-speed, 58s) linear infinite;
 }
 
-/* ─── Event timeline: new events pop in on top with a bounce ──── */
-/* max-height growth pushes the items below down; the overshoot in
-   the 60–85% frames gives the whole stack a springy settle. */
-@keyframes timeline-event-in {
-  0% {
-    opacity: 0;
-    max-height: 0;
-    transform: translateY(-16px) scale(0.97);
-  }
-  55% {
-    opacity: 1;
-    max-height: 9rem;
-    transform: translateY(5px) scale(1.01);
-  }
-  75% {
-    transform: translateY(-3px) scale(1);
-  }
-  100% {
-    opacity: 1;
-    max-height: 24rem;
-    transform: translateY(0) scale(1);
-  }
+/* ─── Event log: scroll sync dim + preload helpers ──── */
+.event-list-scroll {
+  overflow-anchor: none;
 }
-.timeline-event-enter {
-  animation: timeline-event-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
-  overflow: hidden;
+.event-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 110px;
+}
+.event-row-dim {
+  opacity: 0.35;
+  transition: opacity 160ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .event-row-dim {
+    transition: none;
+  }
 }

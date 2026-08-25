@@ -5,18 +5,35 @@
   padding: 0;
   border-top: 3px solid hsl(var(--foreground));
   border-bottom: 3px solid hsl(var(--foreground));
+  cursor: grab !important;
+  isolation: isolate;
+  overflow: visible;
+}
+
+.event-timeline-shell:active {
+  cursor: grabbing !important;
 }
 
 .event-timeline-hover-line {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 1px;
-  transform: translateX(-0.5px);
+  left: 0;
+  width: 2px;
+  min-height: 80px;
+  transform: translateX(-1px);
   /* Scrubber is forced white — use black, not --foreground (light in dark mode). */
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.55);
   pointer-events: none;
-  z-index: 20;
+  z-index: 50;
+  opacity: 0;
+  visibility: hidden;
+  transition: none;
+}
+
+.event-timeline-hover-line.is-visible {
+  opacity: 1;
+  visibility: visible;
 }
 
 .event-timeline-hover-label {
@@ -25,16 +42,18 @@
   top: auto;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 9px;
-  font-weight: 500;
+  font-size: 10px;
+  font-weight: 600;
   line-height: 1.2;
   letter-spacing: 0.01em;
   white-space: nowrap;
-  color: rgba(0, 0, 0, 0.7);
-  background: rgba(255, 255, 255, 0.92);
-  padding: 1px 5px;
+  color: rgba(0, 0, 0, 0.85);
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  padding: 2px 6px;
   border-radius: 2px;
   pointer-events: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 /* Full-bleed white scrubber (page places this outside max-w-6xl). */
@@ -51,6 +70,7 @@
   margin: 0;
   padding: 0;
   background: #ffffff;
+  cursor: grab !important;
 }
 
 .event-timeline-root .vis-timeline {
@@ -65,6 +85,7 @@
 }
 
 .event-timeline-root .vis-timeline:active,
+.event-timeline-shell:active .event-timeline-root,
 .event-timeline-shell:active .event-timeline-root .vis-timeline {
   cursor: grabbing !important;
 }
@@ -74,7 +95,9 @@
 .event-timeline-root .vis-content,
 .event-timeline-root .vis-foreground,
 .event-timeline-root .vis-item,
-.event-timeline-root .vis-item .vis-drag-center {
+.event-timeline-root .vis-item .vis-drag-center,
+.event-timeline-root .vis-itemset,
+.event-timeline-root .vis-group {
   cursor: grab !important;
 }
 
@@ -87,7 +110,9 @@
 .event-timeline-shell:active .event-timeline-root .vis-content,
 .event-timeline-shell:active .event-timeline-root .vis-foreground,
 .event-timeline-shell:active .event-timeline-root .vis-item,
-.event-timeline-shell:active .event-timeline-root .vis-item .vis-drag-center {
+.event-timeline-shell:active .event-timeline-root .vis-item .vis-drag-center,
+.event-timeline-shell:active .event-timeline-root .vis-itemset,
+.event-timeline-shell:active .event-timeline-root .vis-group {
   cursor: grabbing !important;
 }
 
@@ -127,16 +152,30 @@
   min-width: 0 !important;
 }
 
+/* Kill every horizontal staff / group separator (vis draws borders + grid lines). */
+.event-timeline-root .vis-panel.vis-background.vis-horizontal {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 .event-timeline-root .vis-labelset .vis-label,
 .event-timeline-root .vis-group,
 .event-timeline-root .vis-foreground .vis-group,
 .event-timeline-root .vis-foreground .vis-group:last-child,
-.event-timeline-root .vis-label {
+.event-timeline-root .vis-label,
+.event-timeline-root .vis-itemset .vis-group,
+.event-timeline-root .vis-content .vis-group {
   border: none !important;
+  border-top: none !important;
   border-bottom: none !important;
   border-bottom-width: 0 !important;
   border-bottom-color: transparent !important;
+  border-top-width: 0 !important;
   box-shadow: none !important;
+  outline: none !important;
 }
 
 /* No horizontal grid / staff lines — lanes stay invisible. */

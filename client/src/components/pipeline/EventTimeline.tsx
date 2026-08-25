@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { IconArrowRight } from "@tabler/icons-react";
 import { DataSet, Timeline } from "vis-timeline/standalone";
 import type { DataGroup, DataItem, TimelineOptions } from "vis-timeline/standalone";
@@ -24,6 +24,83 @@ const STAFF_SLOT_MS = Math.ceil((INITIAL_WINDOW_MS / 1200) * 164);
 const STAFF_HEIGHT_PX = 80;
 /** Treat window end within this of Date.now() as “parked at latest”. */
 const FOLLOW_NOW_EPS_MS = 2_000;
+const CHROME_STYLE_ID = "event-timeline-chrome-overrides";
+
+/**
+ * Vis redraws group DOM on data changes; CSS alone occasionally loses to load
+ * order / inline leftovers. Force-hide horizontal staff chrome on the live DOM.
+ */
+function sanitizeTimelineChrome(root: HTMLElement | null) {
+  if (!root) return;
+  root.querySelectorAll<HTMLElement>(".vis-panel.vis-background.vis-horizontal").forEach((el) => {
+    el.style.setProperty("display", "none", "important");
+    el.style.setProperty("visibility", "hidden", "important");
+    el.style.setProperty("height", "0", "important");
+    el.style.setProperty("opacity", "0", "important");
+    el.style.setProperty("pointer-events", "none", "important");
+  });
+  root.querySelectorAll<HTMLElement>(".vis-grid.vis-horizontal").forEach((el) => {
+    el.style.setProperty("display", "none", "important");
+    el.style.setProperty("visibility", "hidden", "important");
+    el.style.setProperty("height", "0", "important");
+    el.style.setProperty("opacity", "0", "important");
+    el.style.setProperty("border", "none", "important");
+  });
+  root.querySelectorAll<HTMLElement>(".vis-group, .vis-label").forEach((el) => {
+    el.style.setProperty("border", "none", "important");
+    el.style.setProperty("border-bottom", "none", "important");
+    el.style.setProperty("border-top", "none", "important");
+    el.style.setProperty("box-shadow", "none", "important");
+  });
+}
+
+/** Head style beats vis stylesheet order regardless of Vite chunk sequence. */
+function ensureChromeStyleTag() {
+  if (typeof document === "undefined") return;
+  if (document.getElementById(CHROME_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = CHROME_STYLE_ID;
+  style.textContent = `
+.event-timeline-root .vis-panel.vis-background.vis-horizontal,
+.event-timeline-root .vis-grid.vis-horizontal {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  opacity: 0 !important;
+  border: none !important;
+  pointer-events: none !important;
+}
+.event-timeline-root .vis-group,
+.event-timeline-root .vis-foreground .vis-group,
+.event-timeline-root .vis-labelset .vis-label,
+.event-timeline-root .vis-label {
+  border: none !important;
+  border-bottom: none !important;
+  border-top: none !important;
+  box-shadow: none !important;
+}
+.event-timeline-shell,
+.event-timeline-root,
+.event-timeline-root .vis-timeline,
+.event-timeline-root .vis-panel,
+.event-timeline-root .vis-content,
+.event-timeline-root .vis-foreground,
+.event-timeline-root .vis-itemset,
+.event-timeline-root .vis-group,
+.event-timeline-root .vis-item,
+.event-timeline-item {
+  cursor: grab !important;
+}
+.event-timeline-shell:active,
+.event-timeline-shell:active .event-timeline-root,
+.event-timeline-shell:active .vis-timeline,
+.event-timeline-shell:active .vis-panel,
+.event-timeline-shell:active .vis-item {
+  cursor: grabbing !important;
+}
+`.trim();
+  document.head.appendChild(style);
+}
 
 function formatHoverTime(ts: number): string {
   return new Date(ts).toLocaleString("en-US", {
@@ -158,88 +235,119 @@ export function EventTimeline({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
+  const hoverLineRef = useRef<HTMLDivElement | null>(null);
+  const hoverLabelRef = useRef<HTMLSpanElement | null>(null);
   const timelineRef = useRef<Timeline | null>(null);
   const itemsRef = useRef<DataSet<TimelineItem> | null>(null);
   const groupsRef = useRef<DataSet<DataGroup> | null>(null);
   const skipRangeEmitRef = useRef(false);
   const seededWindowRef = useRef(false);
   const draggingRef = useRef(false);
+  const hoverAttachedRef = useRef(false);
   const onRangeChangeRef = useRef(onRangeChange);
   const onSelectRef = useRef(onSelect);
   const getActivityLabelRef = useRef(getActivityLabel);
-  const [hover, setHover] = useState<{ x: number; at: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
 
   onRangeChangeRef.current = onRangeChange;
   onSelectRef.current = onSelect;
   getActivityLabelRef.current = getActivityLabel;
 
+  // Imperative scrubber via document capture + hit-test.
+  // Attach in layout effect AND retry once via rAF so refs are never missed.
   useEffect(() => {
-    const endDrag = () => {
-      if (!draggingRef.current) return;
-      draggingRef.current = false;
-      setIsDragging(false);
-    };
-    window.addEventListener("pointerup", endDrag);
-    window.addEventListener("pointercancel", endDrag);
-    return () => {
-      window.removeEventListener("pointerup", endDrag);
-      window.removeEventListener("pointercancel", endDrag);
-    };
-  }, []);
+    ensureChromeStyleTag();
+    let removed = false;
+    let detach: (() => void) | null = null;
 
-  // Capture-phase move: vis/Hammer can stopPropagation on pan.
-  // pointerleave uses capture + relatedTarget check — leave events target
-  // children and do not bubble, so capture is required but must ignore
-  // moves between descendants (otherwise the scrubber line never sticks).
-  useEffect(() => {
-    const shell = shellRef.current;
-    if (!shell) return;
+    const attach = () => {
+      if (removed || hoverAttachedRef.current) return;
+      const shell = shellRef.current;
+      const line = hoverLineRef.current;
+      const label = hoverLabelRef.current;
+      if (!shell || !line || !label) return;
 
-    const timeAtX = (x: number, width: number): number => {
-      const timeline = timelineRef.current;
-      if (!timeline || width <= 0) return Date.now();
-      const w = timeline.getWindow();
-      const start = +w.start;
-      const end = +w.end;
-      const ratio = Math.min(1, Math.max(0, x / width));
-      return start + ratio * (end - start);
-    };
+      hoverAttachedRef.current = true;
 
-    const onMove = (e: PointerEvent) => {
-      if (e.buttons !== 0) {
-        draggingRef.current = true;
-        setIsDragging(true);
-        setHover(null);
-        return;
-      }
-      if (draggingRef.current) {
+      const timeAtX = (x: number, width: number): number => {
+        const timeline = timelineRef.current;
+        if (!timeline || width <= 0) return Date.now();
+        const w = timeline.getWindow();
+        const start = +w.start;
+        const end = +w.end;
+        const ratio = Math.min(1, Math.max(0, x / width));
+        return start + ratio * (end - start);
+      };
+
+      const hide = () => {
+        line.style.opacity = "0";
+        line.style.visibility = "hidden";
+        line.classList.remove("is-visible");
+      };
+
+      const showAt = (clientX: number) => {
+        const rect = shell.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const x = Math.min(Math.max(0, clientX - rect.left), rect.width);
+        line.style.left = `${x}px`;
+        line.style.opacity = "1";
+        line.style.visibility = "visible";
+        line.classList.add("is-visible");
+        label.textContent = formatHoverTime(timeAtX(x, rect.width));
+      };
+
+      const pointerInShell = (clientX: number, clientY: number) => {
+        const rect = shell.getBoundingClientRect();
+        return (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        );
+      };
+
+      const onMove = (e: PointerEvent | MouseEvent) => {
+        const buttons = "buttons" in e ? e.buttons : (e as MouseEvent).buttons;
+        if (!pointerInShell(e.clientX, e.clientY)) {
+          if (!draggingRef.current) hide();
+          return;
+        }
+        if (buttons !== 0) {
+          draggingRef.current = true;
+          hide();
+          return;
+        }
+        if (draggingRef.current) draggingRef.current = false;
+        showAt(e.clientX);
+      };
+
+      const endDrag = () => {
         draggingRef.current = false;
-        setIsDragging(false);
-      }
-      const rect = shell.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      setHover({ x, at: timeAtX(x, rect.width) });
-    };
-    const onLeave = (e: PointerEvent) => {
-      const related = e.relatedTarget;
-      if (related instanceof Node && shell.contains(related)) return;
-      setHover(null);
-    };
-    const onUp = () => {
-      draggingRef.current = false;
-      setIsDragging(false);
+      };
+
+      document.addEventListener("pointermove", onMove, true);
+      document.addEventListener("mousemove", onMove, true);
+      window.addEventListener("pointerup", endDrag);
+      window.addEventListener("pointercancel", endDrag);
+      shell.addEventListener("mouseenter", onMove as EventListener, true);
+
+      detach = () => {
+        document.removeEventListener("pointermove", onMove, true);
+        document.removeEventListener("mousemove", onMove, true);
+        window.removeEventListener("pointerup", endDrag);
+        window.removeEventListener("pointercancel", endDrag);
+        shell.removeEventListener("mouseenter", onMove as EventListener, true);
+        hoverAttachedRef.current = false;
+        hide();
+      };
     };
 
-    shell.addEventListener("pointermove", onMove, true);
-    shell.addEventListener("pointerleave", onLeave, true);
-    shell.addEventListener("pointerup", onUp, true);
-    shell.addEventListener("pointercancel", onUp, true);
+    attach();
+    const raf = requestAnimationFrame(attach);
+
     return () => {
-      shell.removeEventListener("pointermove", onMove, true);
-      shell.removeEventListener("pointerleave", onLeave, true);
-      shell.removeEventListener("pointerup", onUp, true);
-      shell.removeEventListener("pointercancel", onUp, true);
+      removed = true;
+      cancelAnimationFrame(raf);
+      detach?.();
     };
   }, []);
 
@@ -247,6 +355,7 @@ export function EventTimeline({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    ensureChromeStyleTag();
 
     const items = new DataSet<TimelineItem>([]);
     const groups = new DataSet<DataGroup>(staffGroups());
@@ -282,6 +391,7 @@ export function EventTimeline({
 
     const timeline = new Timeline(el, items, groups, options);
     timelineRef.current = timeline;
+    sanitizeTimelineChrome(el);
 
     skipRangeEmitRef.current = true;
     timeline.setWindow(start, end, { animation: false });
@@ -293,6 +403,7 @@ export function EventTimeline({
       if (skipRangeEmitRef.current) return;
       const w = timeline.getWindow();
       onRangeChangeRef.current({ start: +w.start, end: +w.end });
+      sanitizeTimelineChrome(el);
     };
 
     const onRangeChangeEvt = () => {
@@ -321,6 +432,7 @@ export function EventTimeline({
       const t = timelineRef.current;
       if (!t) return;
       t.setOptions({ max: Date.now() });
+      sanitizeTimelineChrome(el);
     }, 1000);
 
     return () => {
@@ -347,6 +459,7 @@ export function EventTimeline({
     const removeIds = items.getIds().filter((id) => !nextIds.has(id as number));
     if (removeIds.length > 0) items.remove(removeIds);
     items.update(next);
+    sanitizeTimelineChrome(containerRef.current);
 
     // First non-empty populate: keep the 3h "latest" window (vis may otherwise fit all).
     if (!seededWindowRef.current && next.length > 0 && timeline) {
@@ -358,6 +471,7 @@ export function EventTimeline({
       pinTimelineToNow(timeline);
       onRangeChangeRef.current({ start, end });
       skipRangeEmitRef.current = false;
+      sanitizeTimelineChrome(containerRef.current);
     }
   }, [events]);
 
@@ -370,6 +484,7 @@ export function EventTimeline({
       const theme = getDocumentTheme();
       const next = layoutStaffItems(events, getActivityLabelRef.current, theme);
       items.update(next);
+      sanitizeTimelineChrome(containerRef.current);
     });
     observer.observe(root, { attributes: true, attributeFilter: ["class"] });
     return () => observer.disconnect();
@@ -381,6 +496,7 @@ export function EventTimeline({
     if (!timeline || !visibleRange) return;
     if (windowEndIsAtNow(visibleRange.end)) {
       pinTimelineToNow(timeline);
+      sanitizeTimelineChrome(containerRef.current);
       return;
     }
     const current = timeline.getWindow();
@@ -391,6 +507,7 @@ export function EventTimeline({
     skipRangeEmitRef.current = true;
     timeline.setWindow(visibleRange.start, visibleRange.end, { animation: false });
     skipRangeEmitRef.current = false;
+    sanitizeTimelineChrome(containerRef.current);
   }, [visibleRange]);
 
   const handleJumpToLatest = () => {
@@ -407,7 +524,8 @@ export function EventTimeline({
       <div className="flex flex-wrap items-center justify-between gap-2 px-6 py-2 bg-foreground text-background">
         <p className="text-xs text-background/80 leading-relaxed max-w-3xl">
           Your agents are working for you — watch them collaborate and interact on this timeline.
-          Drag to move along their timeline.
+          Drag to move along their timeline; the list below scrolls and highlights with you so
+          nothing is ever filtered away.
         </p>
         {onJumpToLatest ? (
           <button
@@ -423,17 +541,14 @@ export function EventTimeline({
       </div>
       <div ref={shellRef} className="event-timeline-shell relative w-full">
         <div ref={containerRef} className="event-timeline-root w-full" />
-        {hover != null && !isDragging ? (
-          <div
-            className="event-timeline-hover-line"
-            style={{ left: hover.x }}
-            aria-hidden
-          >
-            <span className="event-timeline-hover-label">
-              {formatHoverTime(hover.at)}
-            </span>
-          </div>
-        ) : null}
+        <div
+          ref={hoverLineRef}
+          className="event-timeline-hover-line"
+          style={{ opacity: 0, visibility: "hidden" }}
+          aria-hidden
+        >
+          <span ref={hoverLabelRef} className="event-timeline-hover-label" />
+        </div>
       </div>
     </div>
   );

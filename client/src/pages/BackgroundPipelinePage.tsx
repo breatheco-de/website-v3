@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconActivity,
@@ -12,6 +22,7 @@ import {
   IconDatabase,
   IconExternalLink,
   IconFilter,
+  IconFlask,
   IconInfoCircle,
   IconLink,
   IconLoader2,
@@ -629,6 +640,133 @@ function HealthStrip({ data }: { data: PipelineStatus }) {
   );
 }
 
+const MANUAL_SCROLL_SUPPRESS_MS = 800;
+const NEW_EVENT_ANIM_MS = 1000;
+const EVENT_LIST_MIN_PX = 672;
+const EVENT_LIST_BOTTOM_PAD_PX = 24;
+
+type EventRowProps = {
+  event: ContentEvent;
+  isFailure: boolean;
+  isExpanded: boolean;
+  isNew: boolean;
+  loadedEventIds: ReadonlySet<number>;
+  reduceMotion: boolean;
+  onToggleExpand: (eventId: number) => void;
+  onNavigateToEvent: (eventId: number) => void;
+  setRowRef: (id: number, el: HTMLLIElement | null) => void;
+};
+
+const EventRow = memo(function EventRow({
+  event,
+  isFailure,
+  isExpanded,
+  isNew,
+  loadedEventIds,
+  reduceMotion,
+  onToggleExpand,
+  onNavigateToEvent,
+  setRowRef,
+}: EventRowProps) {
+  const validationSkipped =
+    event.type === "validation_results_ready" && event.payload?.skipped === true;
+  const meta = eventMeta(event.type);
+  const label = validationSkipped ? "Validation Skipped" : meta.label;
+  const iconClass = validationSkipped
+    ? "text-muted-foreground border-border"
+    : meta.iconClass;
+  const Icon = isFailure ? IconAlertTriangle : meta.icon;
+  const hasTypedDetails = eventHasTypedDetails(event);
+  const validationEntry = eventValidationEntryRef(event);
+
+  return (
+    <motion.li
+      initial={isNew ? { height: 0, opacity: 0, y: -14 } : false}
+      animate={{ height: "auto", opacity: 1, y: 0 }}
+      transition={
+        reduceMotion
+          ? { duration: 0.01 }
+          : { type: "spring", stiffness: 420, damping: 26, mass: 0.7 }
+      }
+      style={{ overflow: "hidden" }}
+      ref={(el) => setRowRef(event.id, el)}
+      className={cn(
+        "relative flex gap-4 pb-6 last:pb-0",
+        !isNew && "event-row",
+      )}
+      data-testid={`event-row-${event.id}`}
+    >
+      <span
+        className={cn(
+          "relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-card",
+          isFailure ? "text-red-400 border-red-400/40" : iconClass,
+        )}
+      >
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="flex-1 min-w-0 pt-0.5">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "text-sm font-semibold text-left hover:underline decoration-dotted underline-offset-2 cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  isFailure && "text-red-400",
+                  validationSkipped && "text-muted-foreground",
+                )}
+                aria-label={`What is ${label}?`}
+              >
+                {label}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="start" className="w-80 p-3">
+              <p className="text-xs font-medium text-foreground mb-1">{label}</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {validationSkipped
+                  ? "Validation was not re-run because the same page was already queued or validated recently (1-hour dedupe). The save still succeeded."
+                  : meta.description}
+              </p>
+            </PopoverContent>
+          </Popover>
+          {event.attribution.length > 0 ? (
+            <EventAttributionBadge attribution={event.attribution} />
+          ) : null}
+          <span className="text-[10px] font-mono text-muted-foreground">#{event.id}</span>
+        </div>
+        <EventCausalityLine
+          event={event}
+          loadedEventIds={loadedEventIds}
+          onNavigateToEvent={onNavigateToEvent}
+        />
+        <EventSummary event={event} />
+        {isExpanded && !validationEntry ? <EventDetails event={event} /> : null}
+      </div>
+      <div className="shrink-0 text-right pt-0.5">
+        <p className="text-xs font-medium">{formatTs(event.created_at)}</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          {formatRelative(event.created_at)}
+        </p>
+        {validationEntry ? (
+          <EntryValidationModalTrigger
+            entryKey={validationEntry.entryKey}
+            pageUrl={validationEntry.pageUrl}
+            className="mt-1 justify-end"
+          />
+        ) : (
+          <button
+            type="button"
+            className="text-xs text-primary hover:underline mt-1"
+            onClick={() => onToggleExpand(event.id)}
+          >
+            {isExpanded ? "Hide" : hasTypedDetails ? "Details" : "Payload"}
+          </button>
+        )}
+      </div>
+    </motion.li>
+  );
+});
+
 function EventLogPanel({
   site,
   failures,
@@ -644,14 +782,21 @@ function EventLogPanel({
   const [newIds, setNewIds] = useState<ReadonlySet<number>>(new Set());
   const [clearLogOpen, setClearLogOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const [visibleRange, setVisibleRange] = useState<VisibleTimeRange | null>(null);
-  const [listHeightPx, setListHeightPx] = useState(672);
+  const [seedingDemo, setSeedingDemo] = useState(false);
+  /** Jump-to-latest / programmatic window only — pan does not round-trip through React. */
+  const [rangeCommand, setRangeCommand] = useState<VisibleTimeRange | null>(null);
+  const [listHeightPx, setListHeightPx] = useState(EVENT_LIST_MIN_PX);
+  const reduceMotion = useReducedMotion() ?? false;
+
   const listScrollRef = useRef<HTMLDivElement | null>(null);
   const maxSeenIdRef = useRef<number | null>(null);
   const newIdsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const EVENT_LIST_MIN_PX = 672;
-  const EVENT_LIST_BOTTOM_PAD_PX = 24;
+  const visibleRangeRef = useRef<VisibleTimeRange | null>(null);
+  const rowElsRef = useRef(new Map<number, HTMLLIElement>());
+  const dimmedIdsRef = useRef(new Set<number>());
+  const rafIdRef = useRef<number | null>(null);
+  const suppressScrollUntilRef = useRef(0);
+  const filterScopedEventsRef = useRef<ContentEvent[]>([]);
 
   /** Viewport remainder × 3 so the log is tall; page scrolls when needed. */
   useLayoutEffect(() => {
@@ -679,6 +824,66 @@ function EventLogPanel({
     };
   }, [events.length, loading]);
 
+  const syncListToRange = useCallback(() => {
+    rafIdRef.current = null;
+    const range = visibleRangeRef.current;
+    const scrollEl = listScrollRef.current;
+    if (!range || !scrollEl) return;
+
+    const scoped = filterScopedEventsRef.current;
+    const nextDimmed = new Set<number>();
+    for (const ev of scoped) {
+      const inWindow = ev.created_at >= range.start && ev.created_at <= range.end;
+      if (!inWindow) nextDimmed.add(ev.id);
+    }
+
+    const prevDimmed = dimmedIdsRef.current;
+    for (const id of prevDimmed) {
+      if (!nextDimmed.has(id)) {
+        rowElsRef.current.get(id)?.classList.remove("event-row-dim");
+      }
+    }
+    for (const id of nextDimmed) {
+      if (!prevDimmed.has(id)) {
+        rowElsRef.current.get(id)?.classList.add("event-row-dim");
+      }
+    }
+    dimmedIdsRef.current = nextDimmed;
+
+    if (Date.now() < suppressScrollUntilRef.current) return;
+
+    // Newest-first list: first event at or before the window's right edge.
+    let anchor: ContentEvent | undefined;
+    for (const ev of scoped) {
+      if (ev.created_at <= range.end) {
+        anchor = ev;
+        break;
+      }
+    }
+    if (!anchor) return;
+    const rowEl = rowElsRef.current.get(anchor.id);
+    if (!rowEl) return;
+    scrollEl.scrollTop = rowEl.offsetTop;
+  }, []);
+
+  const scheduleSync = useCallback(() => {
+    if (rafIdRef.current != null) return;
+    rafIdRef.current = requestAnimationFrame(syncListToRange);
+  }, [syncListToRange]);
+
+  const handleRangeChange = useCallback(
+    (range: VisibleTimeRange) => {
+      visibleRangeRef.current = range;
+      scheduleSync();
+    },
+    [scheduleSync],
+  );
+
+  const setRowRef = useCallback((id: number, el: HTMLLIElement | null) => {
+    if (el) rowElsRef.current.set(id, el);
+    else rowElsRef.current.delete(id);
+  }, []);
+
   const loadEvents = useCallback(async () => {
     setLoading(true);
     try {
@@ -694,13 +899,18 @@ function EventLogPanel({
         if (fresh.length > 0) {
           setNewIds(new Set(fresh));
           if (newIdsTimerRef.current) clearTimeout(newIdsTimerRef.current);
-          newIdsTimerRef.current = setTimeout(() => setNewIds(new Set()), 700);
+          newIdsTimerRef.current = setTimeout(() => setNewIds(new Set()), NEW_EVENT_ANIM_MS);
         }
       }
       if (incoming.length > 0) {
         maxSeenIdRef.current = Math.max(prevMax ?? 0, ...incoming.map((ev) => ev.id));
       }
-      setEvents(incoming);
+      // Reuse prior object identity for unchanged ids so memoized rows skip re-render.
+      setEvents((prev) => {
+        if (prev.length === 0) return incoming;
+        const prevById = new Map(prev.map((e) => [e.id, e]));
+        return incoming.map((ev) => prevById.get(ev.id) ?? ev);
+      });
     } finally {
       setLoading(false);
     }
@@ -717,15 +927,46 @@ function EventLogPanel({
       setExpanded(null);
       setNewIds(new Set());
       maxSeenIdRef.current = null;
+      dimmedIdsRef.current = new Set();
       setClearLogOpen(false);
     } finally {
       setClearing(false);
     }
   }, [site]);
 
+  /** Dev-only: historical burst, then a few live drips so pop-in can be exercised. */
+  const seedDemoEvents = useCallback(async () => {
+    if (!import.meta.env.DEV) return;
+    setSeedingDemo(true);
+    try {
+      const batchRes = await apiFetch("/api/admin/events/seed-demo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site, mode: "batch" }),
+      });
+      if (!batchRes.ok) return;
+      await loadEvents();
+      setRangeCommand(jumpToLatestRange());
+
+      for (let tick = 0; tick < 3; tick++) {
+        await new Promise((r) => setTimeout(r, 900));
+        const liveRes = await apiFetch("/api/admin/events/seed-demo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ site, mode: "live", tick }),
+        });
+        if (!liveRes.ok) break;
+        await loadEvents();
+      }
+    } finally {
+      setSeedingDemo(false);
+    }
+  }, [site, loadEvents]);
+
   useEffect(() => {
     return () => {
       if (newIdsTimerRef.current) clearTimeout(newIdsTimerRef.current);
+      if (rafIdRef.current != null) cancelAnimationFrame(rafIdRef.current);
     };
   }, []);
 
@@ -744,6 +985,23 @@ function EventLogPanel({
     };
   }, [loadEvents]);
 
+  // Suppress auto-scroll while the user is manually scrolling the list.
+  useEffect(() => {
+    const el = listScrollRef.current;
+    if (!el) return;
+    const markManual = () => {
+      suppressScrollUntilRef.current = Date.now() + MANUAL_SCROLL_SUPPRESS_MS;
+    };
+    el.addEventListener("wheel", markManual, { passive: true });
+    el.addEventListener("pointerdown", markManual);
+    el.addEventListener("touchstart", markManual, { passive: true });
+    return () => {
+      el.removeEventListener("wheel", markManual);
+      el.removeEventListener("pointerdown", markManual);
+      el.removeEventListener("touchstart", markManual);
+    };
+  }, [loading, events.length]);
+
   /** Type filter is server-side; agent filter applies to timeline + list. */
   const filterScopedEvents = useMemo(() => {
     if (!agentFilter) return events;
@@ -754,18 +1012,27 @@ function EventLogPanel({
     });
   }, [events, agentFilter]);
 
-  const rangeFilteredEvents = useMemo(() => {
-    if (!visibleRange) return filterScopedEvents;
-    return filterScopedEvents.filter(
-      (e) => e.created_at >= visibleRange.start && e.created_at <= visibleRange.end,
-    );
-  }, [filterScopedEvents, visibleRange]);
+  filterScopedEventsRef.current = filterScopedEvents;
+
+  // Re-apply dim/scroll when the filtered set changes (agent filter, new poll).
+  useEffect(() => {
+    scheduleSync();
+  }, [filterScopedEvents, scheduleSync]);
 
   const loadedEventIds = useMemo(() => new Set(events.map((e) => e.id)), [events]);
 
+  const failureIds = useMemo(() => new Set(failures.map((f) => f.id)), [failures]);
+
   const scrollToEvent = useCallback((eventId: number) => {
-    const el = document.querySelector(`[data-testid="event-row-${eventId}"]`);
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const el = rowElsRef.current.get(eventId) ??
+      document.querySelector(`[data-testid="event-row-${eventId}"]`);
+    if (!(el instanceof HTMLElement)) return;
+    suppressScrollUntilRef.current = Date.now() + MANUAL_SCROLL_SUPPRESS_MS;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+
+  const onToggleExpand = useCallback((eventId: number) => {
+    setExpanded((prev) => (prev === eventId ? null : eventId));
   }, []);
 
   const getActivityLabel = useCallback((event: { type: string; payload?: Record<string, unknown> }) => {
@@ -775,7 +1042,6 @@ function EventLogPanel({
     return eventMeta(event.type).label;
   }, []);
 
-  const failureIds = new Set(failures.map((f) => f.id));
   const activeFilterCount = (typeFilter ? 1 : 0) + (agentFilter ? 1 : 0);
 
   return (
@@ -871,16 +1137,33 @@ function EventLogPanel({
           )}
           Clear log
         </Button>
+        {import.meta.env.DEV ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={seedingDemo || clearing}
+            onClick={() => void seedDemoEvents()}
+            data-testid="button-seed-demo-events"
+            title="Dev only: inject fake timeline events, then drip three live ones for pop-in"
+          >
+            {seedingDemo ? (
+              <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <IconFlask className="h-4 w-4 mr-2" />
+            )}
+            {seedingDemo ? "Seeding…" : "Seed demo"}
+          </Button>
+        ) : null}
       </div>
 
       {events.length > 0 ? (
         <EventTimeline
           events={filterScopedEvents}
           getActivityLabel={getActivityLabel}
-          visibleRange={visibleRange}
-          onRangeChange={setVisibleRange}
+          visibleRange={rangeCommand}
+          onRangeChange={handleRangeChange}
           onSelect={scrollToEvent}
-          onJumpToLatest={() => setVisibleRange(jumpToLatestRange())}
+          onJumpToLatest={() => setRangeCommand(jumpToLatestRange())}
         />
       ) : null}
 
@@ -924,128 +1207,34 @@ function EventLogPanel({
         ) : (
           <div
             ref={listScrollRef}
-            className="relative overflow-y-auto overflow-x-hidden pr-1"
+            className="event-list-scroll relative overflow-y-auto overflow-x-hidden pr-1"
             style={{ height: listHeightPx }}
             data-testid="event-list-scroll"
           >
-            {rangeFilteredEvents.length === 0 ? (
-              <div className="flex h-full flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                <span>No events in this time window.</span>
-                <button
-                  type="button"
-                  className="text-primary hover:underline"
-                  onClick={() => setVisibleRange(jumpToLatestRange())}
-                  data-testid="button-list-jump-latest"
-                >
-                  Jump to latest
-                </button>
-              </div>
-            ) : (
-              <div className="relative">
-                <span
-                  className="absolute left-[17px] top-4 bottom-4 w-px bg-border"
-                  aria-hidden
-                />
-                <ol className="space-y-0">
-                  {rangeFilteredEvents.map((e) => {
-                    const isFailure = e.type === "job_failed" || failureIds.has(e.id);
-                    const validationSkipped =
-                      e.type === "validation_results_ready" && e.payload?.skipped === true;
-                    const meta = eventMeta(e.type);
-                    const label = validationSkipped ? "Validation Skipped" : meta.label;
-                    const iconClass = validationSkipped
-                      ? "text-muted-foreground border-border"
-                      : meta.iconClass;
-                    const Icon = isFailure ? IconAlertTriangle : meta.icon;
-                    const isExpanded = expanded === e.id;
-                    const hasTypedDetails = eventHasTypedDetails(e);
-                    const validationEntry = eventValidationEntryRef(e);
-                    return (
-                      <li
-                        key={e.id}
-                        className={cn(
-                          "relative flex gap-4 pb-6 last:pb-0",
-                          newIds.has(e.id) && "timeline-event-enter",
-                        )}
-                        data-testid={`event-row-${e.id}`}
-                      >
-                        <span
-                          className={cn(
-                            "relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-card",
-                            isFailure ? "text-red-400 border-red-400/40" : iconClass,
-                          )}
-                        >
-                          <Icon className="h-4 w-4" />
-                        </span>
-                        <div className="flex-1 min-w-0 pt-0.5">
-                          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <button
-                                  type="button"
-                                  className={cn(
-                                    "text-sm font-semibold text-left hover:underline decoration-dotted underline-offset-2 cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    isFailure && "text-red-400",
-                                    validationSkipped && "text-muted-foreground",
-                                  )}
-                                  aria-label={`What is ${label}?`}
-                                >
-                                  {label}
-                                </button>
-                              </PopoverTrigger>
-                              <PopoverContent side="bottom" align="start" className="w-80 p-3">
-                                <p className="text-xs font-medium text-foreground mb-1">
-                                  {label}
-                                </p>
-                                <p className="text-xs text-muted-foreground leading-relaxed">
-                                  {validationSkipped
-                                    ? "Validation was not re-run because the same page was already queued or validated recently (1-hour dedupe). The save still succeeded."
-                                    : meta.description}
-                                </p>
-                              </PopoverContent>
-                            </Popover>
-                            {e.attribution.length > 0 ? (
-                              <EventAttributionBadge attribution={e.attribution} />
-                            ) : null}
-                            <span className="text-[10px] font-mono text-muted-foreground">
-                              #{e.id}
-                            </span>
-                          </div>
-                          <EventCausalityLine
-                            event={e}
-                            loadedEventIds={loadedEventIds}
-                            onNavigateToEvent={scrollToEvent}
-                          />
-                          <EventSummary event={e} />
-                          {isExpanded && !validationEntry ? <EventDetails event={e} /> : null}
-                        </div>
-                        <div className="shrink-0 text-right pt-0.5">
-                          <p className="text-xs font-medium">{formatTs(e.created_at)}</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">
-                            {formatRelative(e.created_at)}
-                          </p>
-                          {validationEntry ? (
-                            <EntryValidationModalTrigger
-                              entryKey={validationEntry.entryKey}
-                              pageUrl={validationEntry.pageUrl}
-                              className="mt-1 justify-end"
-                            />
-                          ) : (
-                            <button
-                              type="button"
-                              className="text-xs text-primary hover:underline mt-1"
-                              onClick={() => setExpanded(isExpanded ? null : e.id)}
-                            >
-                              {isExpanded ? "Hide" : hasTypedDetails ? "Details" : "Payload"}
-                            </button>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ol>
-              </div>
-            )}
+            <div className="relative">
+              <span
+                className="absolute left-[17px] top-4 bottom-4 w-px bg-border"
+                aria-hidden
+              />
+              <ol className="space-y-0">
+                <AnimatePresence initial={false}>
+                  {filterScopedEvents.map((e) => (
+                    <EventRow
+                      key={e.id}
+                      event={e}
+                      isFailure={e.type === "job_failed" || failureIds.has(e.id)}
+                      isExpanded={expanded === e.id}
+                      isNew={newIds.has(e.id)}
+                      loadedEventIds={loadedEventIds}
+                      reduceMotion={reduceMotion}
+                      onToggleExpand={onToggleExpand}
+                      onNavigateToEvent={scrollToEvent}
+                      setRowRef={setRowRef}
+                    />
+                  ))}
+                </AnimatePresence>
+              </ol>
+            </div>
           </div>
         )}
       </div>

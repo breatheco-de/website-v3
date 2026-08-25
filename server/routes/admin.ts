@@ -43,6 +43,7 @@ import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager, DatabaseManager } from "../database";
 import { collectSystemAlerts, recheckDatabaseHealth } from "../system-alerts";
 import { listEvents, clearAllEvents, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents, type EventType } from "../events/event-store";
+import { seedDemoPipelineEvents } from "../events/seed-demo";
 import { listActiveLeases } from "../leases";
 import { getLastAppliedSnapshot } from "../jobs/applier";
 import { getEngineStatus } from "../jobs/queue";
@@ -626,6 +627,45 @@ export function registerAdminRoutes(app: Express): void {
 
     const deleted = clearAllEvents(site);
     res.json({ success: true, deleted });
+  });
+
+  /** Dev-only: insert fake timeline events (published; does not wake outbox jobs). */
+  app.post("/api/admin/events/seed-demo", async (req, res) => {
+    if (process.env.NODE_ENV === "production") {
+      res.status(403).json({
+        error: "dev_only",
+        message: "Demo event seeding is only available in development.",
+      });
+      return;
+    }
+
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    const site =
+      (typeof req.body?.site === "string" && req.body.site) ||
+      (req.query.site as string) ||
+      res.locals.site?.contentRootName;
+    if (!site) {
+      res.status(400).json({ error: "Missing site" });
+      return;
+    }
+
+    const mode = req.body?.mode === "live" ? "live" : "batch";
+    const liveTick =
+      typeof req.body?.tick === "number" && Number.isFinite(req.body.tick)
+        ? Math.max(0, Math.floor(req.body.tick))
+        : 0;
+
+    const result = seedDemoPipelineEvents(site, mode, liveTick);
+    res.json({
+      success: true,
+      mode: result.mode,
+      inserted: result.events.length,
+      ids: result.events.map((e) => e.id),
+      education:
+        "Demo rows are marked published with cause demo-seed so the outbox dispatcher is not woken. Safe for timeline / list UI testing only.",
+    });
   });
 
   app.get("/api/admin/pipeline/status", async (req, res) => {

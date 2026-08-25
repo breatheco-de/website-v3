@@ -2766,35 +2766,22 @@ export function registerContentRoutes(app: Express): void {
         typeof req.query.q === "string" && req.query.q.trim()
           ? req.query.q.trim().toLowerCase()
           : "";
-      const errorsOnly =
-        req.query.errorsOnly === "1" ||
-        req.query.errorsOnly === "true";
-      const entries = getCI(res).findByType(type);
+      const allEntries = getCI(res).findByType(type);
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       const root = ctRoot(res);
-      const indexedSlugs = new Set(entries.map((e) => e.slug));
+      const indexedSlugs = new Set(allEntries.map((e) => e.slug));
 
-      // Per-slug mapping gaps: invert validateFieldMapping's per-field missing
-      // lists into slug → missing mapped-field names (e.g. ["image"]).
-      // Only meaningful for YAML-backed types; DB-backed entries are validated
-      // against the database, not per-entry YAML.
-      const missingBySlug = new Map<string, string[]>();
-      const config = getContentTypeConfig(type, root);
-      if (config && !config.database?.slug) {
-        const mapping = getFieldMapping(type, root);
-        if (mapping) {
-          const { results: mappingResults } = validateFieldMapping(type, mapping);
-          for (const [field, result] of Object.entries(mappingResults)) {
-            for (const missing of result.missing) {
-              const list = missingBySlug.get(missing.slug);
-              if (list) list.push(field);
-              else missingBySlug.set(missing.slug, [field]);
-            }
-          }
-        }
-      }
+      const matchesQuery = (title: string, slug: string) =>
+        !q ||
+        title.toLowerCase().includes(q) ||
+        slug.toLowerCase().includes(q);
 
-      const results = entries.map((entry) => {
+      // When searching, skip expensive enrichment for non-matching entries.
+      const entries = q
+        ? allEntries.filter((e) => matchesQuery(e.title || e.slug, e.slug))
+        : allEntries;
+
+      const enrichEntry = (entry: (typeof allEntries)[number]) => {
         const urls = getCI(res).getLocaleUrls(entry.slug, type, {
           includeEmptyLocales: true,
         });
@@ -2802,27 +2789,18 @@ export function registerContentRoutes(app: Express): void {
         const locales = entry.locales.filter(
           (l) => !l.startsWith("_") && !l.includes("."),
         );
-        const emptyLocales = locales.filter((loc) =>
-          isEmptyDetachedLocaleEntry({
-            contentType: type,
-            slug: entry.slug,
-            locale: loc,
-            contentRoot: root,
-            ci: getCI(res),
-          }),
-        );
         return {
           slug: entry.slug,
           title: entry.title || entry.slug,
           locales,
           urls,
           versionCounts,
-          mappingErrors: missingBySlug.get(entry.slug) ?? [],
-          emptyLocales,
           updated_at: resolveStaticEntryUpdatedAt(type, entry.slug, locales, root),
           status: "published" as const,
         };
-      });
+      };
+
+      const results = entries.map(enrichEntry);
 
       // Include draft-only folders (no live locales) for non-shared-layout types
       if (usesDraftFirstCreate(type, root)) {
@@ -2842,6 +2820,8 @@ export function registerContentRoutes(app: Express): void {
             } catch { /* ignore */ }
           }
 
+          if (!matchesQuery(title, slug)) continue;
+
           const draftVariants = new Set<string>();
           for (const loc of draftLocales) {
             for (const v of listVariantSlugsForLocale(dir, loc, false)) draftVariants.add(v);
@@ -2857,8 +2837,6 @@ export function registerContentRoutes(app: Express): void {
             locales: draftLocales,
             urls: {},
             versionCounts: versioningManager.getVersionCounts(type, slug),
-            mappingErrors: missingBySlug.get(slug) ?? [],
-            emptyLocales: [],
             updated_at: resolveStaticEntryUpdatedAt(type, slug, draftLocales, root),
             status: "draft" as const,
             draftVariant: primaryVariant,
@@ -2866,12 +2844,6 @@ export function registerContentRoutes(app: Express): void {
           } as any);
         }
       }
-
-      const entryErrorCount = (e: {
-        mappingErrors?: string[];
-        emptyLocales?: string[];
-      }) => (e.mappingErrors?.length ?? 0) + (e.emptyLocales?.length ?? 0);
-      const withErrors = results.filter((e) => entryErrorCount(e) > 0).length;
 
       if (!pagination.paginate) {
         res.json({ count: results.length, results });
@@ -2881,14 +2853,10 @@ export function registerContentRoutes(app: Express): void {
       let filtered = results as Array<{
         slug: string;
         title: string;
-        mappingErrors?: string[];
-        emptyLocales?: string[];
         updated_at?: string | null;
         [key: string]: unknown;
       }>;
-      if (errorsOnly) {
-        filtered = filtered.filter((e) => entryErrorCount(e) > 0);
-      }
+      // q already applied when building `results`; keep a defensive pass for title/slug.
       if (q) {
         filtered = filtered.filter(
           (e) =>
@@ -2906,7 +2874,6 @@ export function registerContentRoutes(app: Express): void {
         page: paged.page,
         pageSize: paged.pageSize,
         totalPages: paged.totalPages,
-        withErrors,
       });
     } catch (err) {
       res.status(500).json({ error: String(err) });
