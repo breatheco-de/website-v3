@@ -188,8 +188,10 @@ export function EventTimeline({
     };
   }, []);
 
-  // Capture-phase listeners: vis/Hammer stopPropagation on pan, which can
-  // swallow React bubble handlers for the scrubber line.
+  // Capture-phase move: vis/Hammer can stopPropagation on pan.
+  // pointerleave uses capture + relatedTarget check — leave events target
+  // children and do not bubble, so capture is required but must ignore
+  // moves between descendants (otherwise the scrubber line never sticks).
   useEffect(() => {
     const shell = shellRef.current;
     if (!shell) return;
@@ -205,20 +207,23 @@ export function EventTimeline({
     };
 
     const onMove = (e: PointerEvent) => {
-      if (draggingRef.current || e.buttons !== 0) {
+      if (e.buttons !== 0) {
+        draggingRef.current = true;
+        setIsDragging(true);
         setHover(null);
         return;
+      }
+      if (draggingRef.current) {
+        draggingRef.current = false;
+        setIsDragging(false);
       }
       const rect = shell.getBoundingClientRect();
       const x = e.clientX - rect.left;
       setHover({ x, at: timeAtX(x, rect.width) });
     };
-    const onLeave = () => {
-      setHover(null);
-    };
-    const onDown = () => {
-      draggingRef.current = true;
-      setIsDragging(true);
+    const onLeave = (e: PointerEvent) => {
+      const related = e.relatedTarget;
+      if (related instanceof Node && shell.contains(related)) return;
       setHover(null);
     };
     const onUp = () => {
@@ -228,13 +233,11 @@ export function EventTimeline({
 
     shell.addEventListener("pointermove", onMove, true);
     shell.addEventListener("pointerleave", onLeave, true);
-    shell.addEventListener("pointerdown", onDown, true);
     shell.addEventListener("pointerup", onUp, true);
     shell.addEventListener("pointercancel", onUp, true);
     return () => {
       shell.removeEventListener("pointermove", onMove, true);
       shell.removeEventListener("pointerleave", onLeave, true);
-      shell.removeEventListener("pointerdown", onDown, true);
       shell.removeEventListener("pointerup", onUp, true);
       shell.removeEventListener("pointercancel", onUp, true);
     };

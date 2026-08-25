@@ -645,25 +645,25 @@ function EventLogPanel({
   const [clearLogOpen, setClearLogOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [visibleRange, setVisibleRange] = useState<VisibleTimeRange | null>(null);
-  const [listHeightPx, setListHeightPx] = useState(224);
+  const [listHeightPx, setListHeightPx] = useState(672);
   const listScrollRef = useRef<HTMLDivElement | null>(null);
   const maxSeenIdRef = useRef<number | null>(null);
   const newIdsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const EVENT_LIST_MIN_PX = 224;
+  const EVENT_LIST_MIN_PX = 672;
   const EVENT_LIST_BOTTOM_PAD_PX = 24;
 
-  /** Fill from list top to viewport bottom so timeline + log share one screen. */
+  /** Viewport remainder × 3 so the log is tall; page scrolls when needed. */
   useLayoutEffect(() => {
     const el = listScrollRef.current;
     if (!el) return;
 
     const measure = () => {
       const top = el.getBoundingClientRect().top;
-      const next = Math.max(
-        EVENT_LIST_MIN_PX,
-        Math.floor(window.innerHeight - top - EVENT_LIST_BOTTOM_PAD_PX),
+      const viewportRemainder = Math.floor(
+        window.innerHeight - top - EVENT_LIST_BOTTOM_PAD_PX,
       );
+      const next = Math.max(EVENT_LIST_MIN_PX, viewportRemainder * 3);
       setListHeightPx((prev) => (prev === next ? prev : next));
     };
 

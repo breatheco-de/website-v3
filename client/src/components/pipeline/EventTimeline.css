@@ -129,16 +129,28 @@
 
 .event-timeline-root .vis-labelset .vis-label,
 .event-timeline-root .vis-group,
-.event-timeline-root .vis-foreground .vis-group {
+.event-timeline-root .vis-foreground .vis-group,
+.event-timeline-root .vis-foreground .vis-group:last-child,
+.event-timeline-root .vis-label {
   border: none !important;
   border-bottom: none !important;
+  border-bottom-width: 0 !important;
+  border-bottom-color: transparent !important;
+  box-shadow: none !important;
 }
 
-/* No horizontal grid lines — staff lanes are invisible. */
+/* No horizontal grid / staff lines — lanes stay invisible. */
 .event-timeline-root .vis-grid.vis-horizontal,
-.event-timeline-root .vis-panel.vis-background .vis-grid.vis-horizontal {
+.event-timeline-root .vis-panel.vis-background .vis-grid.vis-horizontal,
+.event-timeline-root .vis-panel.vis-background.vis-horizontal .vis-grid.vis-horizontal,
+.event-timeline-root .vis-panel.vis-background.vis-horizontal .vis-grid.vis-minor,
+.event-timeline-root .vis-panel.vis-background.vis-horizontal .vis-grid.vis-major {
   display: none !important;
+  visibility: hidden !important;
   border: none !important;
+  border-bottom: none !important;
+  height: 0 !important;
+  opacity: 0 !important;
 }
 
 /* Hide vis rolling-mode FAB — we follow “now” via options / Jump to latest. */
