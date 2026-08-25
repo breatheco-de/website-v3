@@ -135,6 +135,41 @@ export const enrollmentPlanSchema = z.object({
   unlocks: z.array(unlockSchema).optional(),
 });
 
+// ─── Query-driven summary card (e.g. learning path from ?cohort=) ─────────────
+
+const queryComponentBulletSchema = z.object({
+  text: z.string(),
+  icon: z.string().optional(),
+});
+
+const queryComponentItemSchema = z.object({
+  value: z.string(),
+  name: z.string(),
+  tagline: z.string().optional(),
+  hrs: z.string().optional(),
+  color: z.string().optional(),
+  icon: z.string().optional(),
+  bullets: z.array(queryComponentBulletSchema).default([]),
+  /** Badge chips (PathItem-style). Always shown as marquee when expanded if non-empty. */
+  badges: z.array(z.string()).optional(),
+  /**
+   * When true, collapsed card uses PathItem layout with first badges under the tagline
+   * (fade/scale into the expand marquee). When false (default), collapsed stays as-is;
+   * badges still appear as marquee when expanded (option B).
+   */
+  show_badges_collapsed: z.boolean().optional().default(false),
+});
+
+export const enrollmentQueryComponentSchema = z.object({
+  /** Querystring key to read (e.g. "cohort"). Matched against items[].value. */
+  param: z.string(),
+  /** Optional uppercase label above the card */
+  label: z.string().optional(),
+  /** Expand control copy (default "View details") */
+  view_details_label: z.string().optional(),
+  items: z.array(queryComponentItemSchema),
+});
+
 // ─── Program ──────────────────────────────────────────────────────────────────
 
 export const enrollmentProgramSchema = z.object({
@@ -147,6 +182,11 @@ export const enrollmentProgramSchema = z.object({
   dates: enrollmentDatesSchema.optional(),
   plans: z.array(enrollmentPlanSchema).optional(),
   addon: enrollmentAddonSchema.optional(),
+  /**
+   * Optional card shown when the page URL has ?{param}={items[].value}.
+   * Independent of date-mode cohort matching on `dates`.
+   */
+  query_component: enrollmentQueryComponentSchema.optional(),
   /** Sent as top-level CTA checkout params (plan labels override when present). */
   callback_label_en: z.string().optional(),
   callback_label_es: z.string().optional(),
@@ -178,3 +218,5 @@ export type EnrollmentSelectorProgram = z.infer<typeof enrollmentProgramSchema>;
 export type EnrollmentSelectorPlan = z.infer<typeof enrollmentPlanSchema>;
 export type EnrollmentSummary = z.infer<typeof enrollmentSummarySchema>;
 export type EnrollmentAddon = z.infer<typeof enrollmentAddonSchema>;
+export type EnrollmentQueryComponent = z.infer<typeof enrollmentQueryComponentSchema>;
+export type EnrollmentQueryComponentItem = z.infer<typeof queryComponentItemSchema>;

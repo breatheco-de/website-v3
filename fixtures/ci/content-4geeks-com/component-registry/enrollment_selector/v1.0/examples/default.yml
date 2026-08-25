@@ -133,6 +133,30 @@ programs:
       duration: Self-paced
       badge: Customizable
       icon: IconAdjustmentsHorizontal
+    query_component:
+      param: cohort
+      label: Your learning path
+      view_details_label: View details
+      items:
+        - value: "1713"
+          name: The Builder
+          tagline: Build apps with AI coding assistants
+          hrs: "~30 hrs"
+          color: "hsl(330 80% 62%)"
+          icon: IconCode
+          badges:
+            - Cursor
+            - Claude
+            - GitHub Copilot
+            - OpenClaw
+            - Windsurf
+          show_badges_collapsed: true
+          bullets:
+            - text: Prompt Engineering — craft clear instructions that get better AI outputs every time
+              icon: IconSparkles
+            - text: Vibe Coding with AI — ship real apps faster by pairing with coding assistants
+            - text: OpenClaw — build personal assistants and custom skills you can run day to day
+              icon: IconRobot
     plans:
       - id: basic
         name: Basic

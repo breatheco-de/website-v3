@@ -901,6 +901,7 @@ import {
   type EnrollmentSelectorProgram,
   type EnrollmentSelectorPlan,
   type EnrollmentSummary,
+  type EnrollmentQueryComponentItem,
 } from "../site_4geeks-com/component-registry/enrollment_selector/v1.0/schema";
 export {
   enrollmentSelectorDefaultSchema,
@@ -913,6 +914,7 @@ export {
   type EnrollmentSelectorProgram,
   type EnrollmentSelectorPlan,
   type EnrollmentSummary,
+  type EnrollmentQueryComponentItem,
 };
 import { articleSectionSchema, type ArticleSection } from "../shared/component-registry/article/v1.0/schema";
 export { articleSectionSchema, type ArticleSection };
