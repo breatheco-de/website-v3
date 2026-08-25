@@ -96,4 +96,21 @@ describe("mergeSavedSectionForLivePreview", () => {
       { question: "New?", answer: "B." },
     ]);
   });
+
+  it("drops stale _variableFields after unbind to static literal", () => {
+    const previous = {
+      type: "list_cards",
+      badge: "Guides",
+      _variableFields: {
+        badge: "{{ single.category | category }}",
+      },
+    };
+    const saved = {
+      type: "list_cards",
+      badge: "Guides",
+    };
+    const merged = mergeSavedSectionForLivePreview(previous, saved);
+    expect(merged.badge).toBe("Guides");
+    expect(merged._variableFields).toBeUndefined();
+  });
 });

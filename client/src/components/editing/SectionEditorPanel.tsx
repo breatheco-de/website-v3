@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { AlertTriangle, Check, ChevronDown, CloudUpload, Code, Database, ExternalLink, HelpCircle, Image, Info, Laptop, Link, Unlink, Loader2, MapPin, Monitor, Pencil, Plus, Redo2, RefreshCw, Save, Search, Settings, Smartphone, Trash2, Undo2, Upload, Video, X } from "lucide-react";
 import { IconGitBranch, IconTargetArrow, IconFileCode, IconPencil, IconX, IconShieldCheck, IconShoppingCart } from "@tabler/icons-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -55,7 +55,8 @@ import { FaqItemsPicker } from "./FaqItemsPicker";
 import { FaqSectionEditorField } from "./FaqSectionEditorField";
 import { SchemaOrgSectionEditorField } from "./SchemaOrgSectionEditorField";
 import { DbFieldValuesPicker } from "./DbFieldValuesPicker";
-import { restoreVariableFieldsForEditor, mergeSavedSectionForLivePreview } from "./restoreVariableFieldsForEditor";
+import { restoreVariableFieldsForEditor, mergeSavedSectionForLivePreview, detectUnboundTemplatePaths, findFieldPathForExpression } from "./restoreVariableFieldsForEditor";
+import { ReplaceBindingModal } from "./ReplaceBindingModal";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import { RichTextArea } from "./RichTextArea";
 import { MarkdownEditorField } from "./MarkdownEditorField";
@@ -96,7 +97,12 @@ import CodeMirror from "@uiw/react-codemirror";
 import type { EditorView } from "@codemirror/view";
 import { yaml } from "@codemirror/lang-yaml";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { variableHighlightPlugin } from "@/lib/cm-variable-highlight";
+import { createVariableWidgetPlugin, type TemplateSpan } from "@/lib/cm-variable-highlight";
+import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
+import {
+  formatUnbindLiteralForInsert,
+  getSuggestedUnbindDefault,
+} from "@shared/templateUnbind";
 import * as yamlParser from "js-yaml";
 import {
   escapeTemplateVars,
@@ -203,8 +209,27 @@ function detectClearedTemplatePaths(
 }
 
 /** Strip runtime keys; restore `{{ }}` binds from `_variableFields` for the Code editor. */
-function stripTransientDynamicKeys(section: unknown): unknown {
-  return restoreVariableFieldsForEditor(section);
+function stripTransientDynamicKeys(
+  section: unknown,
+  skipPaths?: Iterable<string>,
+): unknown {
+  return restoreVariableFieldsForEditor(section, skipPaths);
+}
+
+function buildOriginalTemplatePaths(
+  originalYaml: string,
+  variableFields?: Record<string, string>,
+): Record<string, string> {
+  let originalPaths: Record<string, string> = { ...(variableFields ?? {}) };
+  try {
+    const original = safeYamlLoad(originalYaml) as Record<string, unknown> | null;
+    if (original && typeof original === "object") {
+      originalPaths = { ...originalPaths, ...collectTemplateExprPaths(original) };
+    }
+  } catch {
+    /* keep variableFields-only */
+  }
+  return originalPaths;
 }
 import { usePageHistoryOptional } from "@/contexts/PageHistoryContext";
 import { useImagePickerContext } from "@/contexts/ImagePickerContext";
@@ -547,6 +572,25 @@ export function SectionEditorPanel({
   const [templateSaveConfirmOpen, setTemplateSaveConfirmOpen] = useState(false);
   /** Cleared `{{ single.* }}` paths approved via the shared-template confirm. */
   const [pendingClearedTemplatePaths, setPendingClearedTemplatePaths] = useState<string[]>([]);
+  /** Unbound paths → static literals for shared-template save confirm. */
+  const [pendingUnboundTemplateDetails, setPendingUnboundTemplateDetails] = useState<
+    Array<{ path: string; literal: string }>
+  >([]);
+  const sessionUnboundPathsRef = useRef<Set<string>>(new Set());
+  const [replaceBindingOpen, setReplaceBindingOpen] = useState(false);
+  const [pendingReplaceBinding, setPendingReplaceBinding] = useState<{
+    span: TemplateSpan;
+    fieldPath?: string;
+    suggestedDefault: string;
+    isMixedString: boolean;
+  } | null>(null);
+
+  const { data: variableDefinitions } = useVariableDefinitions();
+  const variableContext = useVariableContext();
+  const variableDefinitionsRef = useRef(variableDefinitions);
+  variableDefinitionsRef.current = variableDefinitions;
+  const variableContextRef = useRef(variableContext);
+  variableContextRef.current = variableContext;
 
   const hasChangesRef = useRef(hasChanges);
   hasChangesRef.current = hasChanges;
@@ -812,8 +856,12 @@ export function SectionEditorPanel({
   // deps (which would cause an infinite re-render loop).
   useEffect(() => {
     clearUndoHistory();
+    sessionUnboundPathsRef.current = new Set();
     try {
-      const sectionForEditor = stripTransientDynamicKeys(sectionRef.current);
+      const sectionForEditor = stripTransientDynamicKeys(
+        sectionRef.current,
+        sessionUnboundPathsRef.current,
+      );
       const yamlStr = safeYamlDump(sectionForEditor, {
         lineWidth: -1,
         noRefs: true,
@@ -1146,7 +1194,10 @@ export function SectionEditorPanel({
       return;
     }
     try {
-      const sectionForEditor = stripTransientDynamicKeys(section);
+      const sectionForEditor = stripTransientDynamicKeys(
+        section,
+        sessionUnboundPathsRef.current,
+      );
       const yamlStr = safeYamlDump(sectionForEditor, {
         lineWidth: -1,
         noRefs: true,
@@ -1158,6 +1209,65 @@ export function SectionEditorPanel({
       console.error("Error converting section to YAML:", error);
     }
   }, [section, slug]); // intentionally excludes templateSectionsData — see comment above
+
+  const handleRequestUnbind = useCallback(
+    (span: TemplateSpan) => {
+      const vf = (sectionRef.current as Record<string, unknown>)._variableFields as
+        | Record<string, string>
+        | undefined;
+      const fieldPath = vf ? findFieldPathForExpression(vf, span.expr) : undefined;
+      const suggested = getSuggestedUnbindDefault(span.expr, {
+        definitions: variableDefinitionsRef.current ?? {},
+        context: variableContextRef.current ?? {},
+      });
+      const suggestedDefault = formatUnbindLiteralForInsert(suggested);
+      let isMixedString = false;
+      if (fieldPath && vf?.[fieldPath]) {
+        isMixedString = vf[fieldPath].trim() !== span.expr.trim();
+      }
+      setPendingReplaceBinding({
+        span,
+        fieldPath,
+        suggestedDefault,
+        isMixedString,
+      });
+      setReplaceBindingOpen(true);
+    },
+    [],
+  );
+
+  const handleRequestUnbindRef = useRef(handleRequestUnbind);
+  handleRequestUnbindRef.current = handleRequestUnbind;
+
+  const cmExtensions = useMemo(
+    () => [
+      yaml(),
+      createVariableWidgetPlugin({
+        getDefinitions: () => variableDefinitionsRef.current ?? {},
+        getContext: () => variableContextRef.current ?? {},
+        onRequestUnbind: (span) => handleRequestUnbindRef.current(span),
+      }),
+    ],
+    [],
+  );
+
+  const handleConfirmReplaceBinding = (literal: string) => {
+    if (!pendingReplaceBinding) return;
+    const { span, fieldPath } = pendingReplaceBinding;
+    const view = editorViewRef.current;
+    if (view) {
+      if (!hasChanges && initialYamlRef.current && yamlContent) {
+        pushUndoState(initialYamlRef.current);
+      }
+      view.dispatch({
+        changes: { from: span.from, to: span.to, insert: literal },
+      });
+    }
+    if (fieldPath) {
+      sessionUnboundPathsRef.current.add(fieldPath);
+    }
+    setPendingReplaceBinding(null);
+  };
 
   const handleYamlChange = (value: string) => {
     // Save the initial state on first edit so user can undo back to it
@@ -2180,6 +2290,7 @@ export function SectionEditorPanel({
       const writeSharedTemplateVariant = !!(isSharedTemplate && effectiveVariant);
       const pathsToClear =
         clearedTemplatePaths ?? pendingClearedTemplatePaths;
+      const pathsToUnbind = computeUnboundTemplatePaths();
       const result = await editContent({
         contentType,
         slug,
@@ -2194,6 +2305,9 @@ export function SectionEditorPanel({
             section: parsed as Record<string, unknown>,
             ...(pathsToClear.length > 0
               ? { clearedTemplatePaths: pathsToClear }
+              : {}),
+            ...(pathsToUnbind.length > 0
+              ? { unboundTemplatePaths: pathsToUnbind }
               : {}),
           },
         ],
@@ -2217,6 +2331,8 @@ export function SectionEditorPanel({
         );
         setHasChanges(false);
         setPendingClearedTemplatePaths([]);
+        setPendingUnboundTemplateDetails([]);
+        sessionUnboundPathsRef.current = new Set();
 
         // Update initial state reference so next undo session starts from saved state
         initialYamlRef.current = yamlContent;
@@ -2258,9 +2374,47 @@ export function SectionEditorPanel({
     );
   };
 
+  const computeUnboundTemplatePaths = (): string[] => {
+    const vf = (section as Record<string, unknown>)._variableFields as
+      | Record<string, string>
+      | undefined;
+    const originalPaths = buildOriginalTemplatePaths(
+      initialYamlRef.current ?? "",
+      vf,
+    );
+    try {
+      const current = safeYamlLoad(yamlContent) as Record<string, unknown>;
+      if (!current || typeof current !== "object") return [];
+      return detectUnboundTemplatePaths(originalPaths, current);
+    } catch {
+      return [];
+    }
+  };
+
+  const computeUnboundTemplateDetails = (): Array<{ path: string; literal: string }> => {
+    const vf = (section as Record<string, unknown>)._variableFields as
+      | Record<string, string>
+      | undefined;
+    const originalPaths = buildOriginalTemplatePaths(
+      initialYamlRef.current ?? "",
+      vf,
+    );
+    try {
+      const current = safeYamlLoad(yamlContent) as Record<string, unknown>;
+      if (!current || typeof current !== "object") return [];
+      return detectUnboundTemplatePaths(originalPaths, current).map((path) => ({
+        path,
+        literal: String(getValueAtFieldPath(current, path) ?? ""),
+      }));
+    } catch {
+      return [];
+    }
+  };
+
   /** Prepare shared-template confirm: stash cleared bindings for the enriched dialog. */
   const openSharedTemplateConfirm = () => {
     setPendingClearedTemplatePaths(computeClearedTemplatePaths());
+    setPendingUnboundTemplateDetails(computeUnboundTemplateDetails());
     setTemplateSaveConfirmOpen(true);
   };
 
@@ -2377,8 +2531,10 @@ export function SectionEditorPanel({
       }
       // Variant preview: still confirm when unbinding template fields.
       const cleared = computeClearedTemplatePaths();
-      if (cleared.length > 0) {
+      const unbound = computeUnboundTemplateDetails();
+      if (cleared.length > 0 || unbound.length > 0) {
         setPendingClearedTemplatePaths(cleared);
+        setPendingUnboundTemplateDetails(unbound);
         setTemplateSaveConfirmOpen(true);
         return;
       }
@@ -2646,7 +2802,7 @@ export function SectionEditorPanel({
               key={`${slug}-${sectionIndex}`}
               value={yamlContent}
               height="100%"
-              extensions={[yaml(), variableHighlightPlugin]}
+              extensions={cmExtensions}
               theme={oneDark}
               onChange={handleYamlChange}
               onCreateEditor={(view) => {
@@ -9273,6 +9429,20 @@ export function SectionEditorPanel({
         />
       )}
 
+      <ReplaceBindingModal
+        open={replaceBindingOpen}
+        onOpenChange={(open) => {
+          setReplaceBindingOpen(open);
+          if (!open) setPendingReplaceBinding(null);
+        }}
+        expression={pendingReplaceBinding?.span.expr ?? ""}
+        fieldPath={pendingReplaceBinding?.fieldPath}
+        suggestedDefault={pendingReplaceBinding?.suggestedDefault ?? ""}
+        isMixedString={pendingReplaceBinding?.isMixedString ?? false}
+        isSharedTemplate={!!isSharedTemplate}
+        onConfirm={handleConfirmReplaceBinding}
+      />
+
       <BindingConfirmDialog
         open={bindingConfirmOpen}
         onOpenChange={setBindingConfirmOpen}
@@ -9365,6 +9535,7 @@ export function SectionEditorPanel({
           if (!o && !isSaving) {
             setTemplateSaveConfirmOpen(false);
             setPendingClearedTemplatePaths([]);
+            setPendingUnboundTemplateDetails([]);
           }
         }}
       >
@@ -9388,9 +9559,38 @@ export function SectionEditorPanel({
                   attached {contentType ? contentType.replace(/_/g, " ") : "content type"} entries.
                 </p>
                 <p>
+                  This page uses a shared layout file (
+                  <code className="text-xs">single.{locale ?? "en"}.yml</code>
+                  ). Saving replaces live per-post data with fixed text for{" "}
+                  <strong className="text-foreground">every</strong> page attached to this layout in
+                  this language—not only the page you are viewing. To change one page only, detach
+                  from the shared template or use a per-entry save when available.
+                </p>
+                <p>
                   If you only want this change on this item, detach it from the shared template first,
                   then edit again.
                 </p>
+                {pendingUnboundTemplateDetails.length > 0 && (
+                  <div
+                    className="rounded-md border border-blue-500/40 bg-blue-500/10 p-3 space-y-2 text-foreground"
+                    data-testid="unbound-template-bindings-notice"
+                  >
+                    <p className="font-medium text-sm">
+                      Replacing template bindings with static text
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      These fields keep their YAML key but stop pulling from entry data. Sibling
+                      locales are not updated.
+                    </p>
+                    <ul className="list-none pl-0 text-xs font-mono space-y-1">
+                      {pendingUnboundTemplateDetails.map(({ path, literal }) => (
+                        <li key={path}>
+                          {path} → &quot;{literal}&quot;
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {pendingClearedTemplatePaths.length > 0 && (
                   <div
                     className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 space-y-2 text-foreground"
@@ -9429,6 +9629,7 @@ export function SectionEditorPanel({
               onClick={() => {
                 setTemplateSaveConfirmOpen(false);
                 setPendingClearedTemplatePaths([]);
+                setPendingUnboundTemplateDetails([]);
               }}
               disabled={isSaving}
               data-testid="button-template-save-cancel"
@@ -9478,12 +9679,15 @@ export function SectionEditorPanel({
               onClick={async () => {
                 setScopeDialogOpen(false);
                 const cleared = computeClearedTemplatePaths();
-                if (cleared.length > 0) {
+                const unbound = computeUnboundTemplateDetails();
+                if (cleared.length > 0 || unbound.length > 0) {
                   setPendingClearedTemplatePaths(cleared);
+                  setPendingUnboundTemplateDetails(unbound);
                   setTemplateSaveConfirmOpen(true);
                   return;
                 }
                 setPendingClearedTemplatePaths([]);
+                setPendingUnboundTemplateDetails([]);
                 if (boundSiblings.length > 0) {
                   setBindingConfirmOpen(true);
                 } else {

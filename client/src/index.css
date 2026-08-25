@@ -814,6 +814,53 @@
   border-radius: 3px;
 }
 
+.cm-variable-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  vertical-align: baseline;
+  margin: 0 1px;
+  padding: 0 0.35rem 0 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid hsl(var(--primary) / 0.35);
+  background: hsl(var(--primary) / 0.14);
+  color: hsl(var(--primary));
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.cm-variable-pill-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-variable-pill-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cm-variable-pill-remove:hover {
+  background: hsl(var(--destructive) / 0.15);
+  color: hsl(var(--destructive));
+}
+
 .cm-variable-delim {
   color: hsl(var(--primary) / 0.5);
   font-weight: 600;

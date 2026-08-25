@@ -1156,7 +1156,13 @@ export function EntryPreviewCard({
           {hasPreview && (
             <div className="space-y-1">
               {isLoading ? (
-                <p className="text-sm font-medium">...</p>
+                <div
+                  className="flex items-center gap-1.5 text-sm text-muted-foreground"
+                  data-testid="text-entry-preview-stats-loading"
+                >
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Loading…</span>
+                </div>
               ) : data?.captureReady === false ? (
                 <p
                   className="text-xs text-destructive leading-relaxed"

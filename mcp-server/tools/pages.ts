@@ -17,6 +17,7 @@ import {
   resolveSiteContext,
   listMcpSites,
 } from "../lib/content.js";
+import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
 import { notifyMcpContentWrite } from "../lib/content-write-notify.js";
 import { checkCap, denyResponse, denyUnlessContentView, denyUnlessContentViewOrSeo } from "../lib/auth.js";
 import {

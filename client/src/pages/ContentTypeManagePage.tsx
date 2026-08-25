@@ -5296,6 +5296,9 @@ export default function ContentTypeManagePage() {
   });
 
   const [schemaOrgEnsuring, setSchemaOrgEnsuring] = useState(false);
+  /** After Generate OG, show a Refresh link until the user reloads the thumb. */
+  const [ogAwaitingRefresh, setOgAwaitingRefresh] = useState<Set<string>>(() => new Set());
+  const [ogThumbBustByKey, setOgThumbBustByKey] = useState<Record<string, number>>({});
   const [schemaOrgMissingOpen, setSchemaOrgMissingOpen] = useState(false);
 
   const handleSchemaOrgEnsure = async () => {
@@ -5457,11 +5460,47 @@ export default function ContentTypeManagePage() {
   );
 
   const markEntryPreviewDirty = async (slug: string, locale: string) => {
+    const previewKey = `${slug}:${locale}`;
+    setOgAwaitingRefresh((prev) => {
+      const next = new Set(prev);
+      next.add(previewKey);
+      return next;
+    });
     try {
       await enqueueServerPreviews({ mode: "all", locales: [locale], slugs: [slug] });
     } catch {
       /* toast already shown */
     }
+  };
+
+  const refreshOgPreviewRow = async (previewKey: string) => {
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentType, "entry-previews"],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentType, "seo-entries"],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentType, "items"],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentType, "static-entries"],
+      }),
+    ]);
+    setOgThumbBustByKey((prev) => ({ ...prev, [previewKey]: Date.now() }));
+    setOgAwaitingRefresh((prev) => {
+      const next = new Set(prev);
+      next.delete(previewKey);
+      return next;
+    });
+  };
+
+  const withOgThumbBust = (previewKey: string, src: string) => {
+    if (!src) return src;
+    const bust = ogThumbBustByKey[previewKey];
+    if (!bust) return src;
+    return `${src}${src.includes("?") ? "&" : "?"}__refresh=${bust}`;
   };
 
   const handleRetryQueuedPreviews = useCallback(
@@ -6980,6 +7019,7 @@ export default function ContentTypeManagePage() {
                         const isUsableOg = isUsableOgImageUrl(ogImage);
                         const thumbSrc =
                           (isUsableOg ? ogImage : "") || previewRow?.cacheBustedUrl || "";
+                        const displayThumbSrc = withOgThumbBust(previewKey, thumbSrc);
                         return (
                           <tr
                             key={rowKey}
@@ -6989,9 +7029,9 @@ export default function ContentTypeManagePage() {
                             <td className="px-4 py-3">
                               <div className="space-y-1.5">
                                 <div className="relative w-[120px] h-[63px] flex-shrink-0 rounded-md overflow-hidden bg-muted">
-                                  {thumbSrc ? (
+                                  {displayThumbSrc ? (
                                     <a
-                                      href={thumbSrc}
+                                      href={displayThumbSrc}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       title="Open preview image"
@@ -7000,7 +7040,8 @@ export default function ContentTypeManagePage() {
                                       onClick={(e) => e.stopPropagation()}
                                     >
                                       <img
-                                        src={thumbSrc}
+                                        key={ogThumbBustByKey[previewKey] ?? displayThumbSrc}
+                                        src={displayThumbSrc}
                                         alt=""
                                         className="w-full h-full object-cover"
                                       />
@@ -7021,29 +7062,45 @@ export default function ContentTypeManagePage() {
                                 {typeConfig?.preview?.component &&
                                   !previewRow?.fromSource &&
                                   entryPreviewsData?.captureReady !== false && (
-                                    <button
-                                      type="button"
-                                      className={cn(
-                                        "text-[10px] underline underline-offset-2 disabled:opacity-50 disabled:no-underline",
-                                        captureSt === "failed"
-                                          ? "text-destructive hover:text-destructive/90"
-                                          : "text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300",
+                                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                      <button
+                                        type="button"
+                                        className={cn(
+                                          "text-[10px] underline underline-offset-2 disabled:opacity-50 disabled:no-underline",
+                                          captureSt === "failed"
+                                            ? "text-destructive hover:text-destructive/90"
+                                            : "text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300",
+                                        )}
+                                        disabled={captureSt === "capturing" || captureSt === "queued"}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          void markEntryPreviewDirty(slug, locale);
+                                        }}
+                                        data-testid={`button-generate-seo-preview-${rowKey}`}
+                                      >
+                                        {captureSt === "capturing" || captureSt === "queued"
+                                          ? "Generating…"
+                                          : captureSt === "failed"
+                                            ? "Retry OG"
+                                            : thumbSrc
+                                              ? "Regenerate OG"
+                                              : "Generate OG"}
+                                      </button>
+                                      {ogAwaitingRefresh.has(previewKey) && (
+                                        <button
+                                          type="button"
+                                          className="text-[10px] underline underline-offset-2 disabled:opacity-50 disabled:no-underline text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                                          disabled={captureSt === "capturing" || captureSt === "queued"}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            void refreshOgPreviewRow(previewKey);
+                                          }}
+                                          data-testid={`button-refresh-seo-preview-${rowKey}`}
+                                        >
+                                          Refresh
+                                        </button>
                                       )}
-                                      disabled={captureSt === "capturing" || captureSt === "queued"}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        void markEntryPreviewDirty(slug, locale);
-                                      }}
-                                      data-testid={`button-generate-seo-preview-${rowKey}`}
-                                    >
-                                      {captureSt === "capturing" || captureSt === "queued"
-                                        ? "Generating…"
-                                        : captureSt === "failed"
-                                          ? "Retry OG"
-                                          : thumbSrc
-                                            ? "Regenerate OG"
-                                            : "Generate OG"}
-                                    </button>
+                                    </div>
                                   )}
                               </div>
                             </td>
@@ -7634,6 +7691,7 @@ export default function ContentTypeManagePage() {
                           (typeof item.preview === "string" && item.preview.trim()) ||
                           previewRow?.cacheBustedUrl ||
                           "";
+                        const displayThumbSrc = withOgThumbBust(previewKey, thumbSrc);
                         return (
                           <tr
                             key={item.id || item.slug}
@@ -7643,9 +7701,9 @@ export default function ContentTypeManagePage() {
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-3">
                                 <div className="relative w-10 h-10 flex-shrink-0 hidden sm:block">
-                                  {thumbSrc ? (
+                                  {displayThumbSrc ? (
                                     <a
-                                      href={thumbSrc}
+                                      href={displayThumbSrc}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       title="Open preview image"
@@ -7654,7 +7712,8 @@ export default function ContentTypeManagePage() {
                                       onClick={(e) => e.stopPropagation()}
                                     >
                                       <img
-                                        src={thumbSrc}
+                                        key={ogThumbBustByKey[previewKey] ?? displayThumbSrc}
+                                        src={displayThumbSrc}
                                         alt=""
                                         className="w-10 h-10 rounded-md object-cover"
                                       />
@@ -7679,29 +7738,45 @@ export default function ContentTypeManagePage() {
                                   {typeConfig?.preview?.component &&
                                     !previewRow?.fromSource &&
                                     entryPreviewsData?.captureReady !== false && (
-                                      <button
-                                        type="button"
-                                        className={cn(
-                                          "text-[10px] underline underline-offset-2 disabled:opacity-50 disabled:no-underline",
-                                          captureSt === "failed"
-                                            ? "text-destructive hover:text-destructive/90"
-                                            : "text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300",
+                                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                        <button
+                                          type="button"
+                                          className={cn(
+                                            "text-[10px] underline underline-offset-2 disabled:opacity-50 disabled:no-underline",
+                                            captureSt === "failed"
+                                              ? "text-destructive hover:text-destructive/90"
+                                              : "text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300",
+                                          )}
+                                          disabled={captureSt === "capturing" || captureSt === "queued"}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            void markEntryPreviewDirty(String(item.slug), itemLocale);
+                                          }}
+                                          data-testid={`button-generate-entry-preview-${item.id || item.slug}`}
+                                        >
+                                          {captureSt === "capturing" || captureSt === "queued"
+                                            ? "Generating…"
+                                            : captureSt === "failed"
+                                              ? "Retry OG"
+                                              : thumbSrc
+                                                ? "Regenerate OG"
+                                                : "Generate OG"}
+                                        </button>
+                                        {ogAwaitingRefresh.has(previewKey) && (
+                                          <button
+                                            type="button"
+                                            className="text-[10px] underline underline-offset-2 disabled:opacity-50 disabled:no-underline text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                                            disabled={captureSt === "capturing" || captureSt === "queued"}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              void refreshOgPreviewRow(previewKey);
+                                            }}
+                                            data-testid={`button-refresh-entry-preview-${item.id || item.slug}`}
+                                          >
+                                            Refresh
+                                          </button>
                                         )}
-                                        disabled={captureSt === "capturing" || captureSt === "queued"}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          void markEntryPreviewDirty(String(item.slug), itemLocale);
-                                        }}
-                                        data-testid={`button-generate-entry-preview-${item.id || item.slug}`}
-                                      >
-                                        {captureSt === "capturing" || captureSt === "queued"
-                                          ? "Generating…"
-                                          : captureSt === "failed"
-                                            ? "Retry OG"
-                                            : thumbSrc
-                                              ? "Regenerate OG"
-                                              : "Generate OG"}
-                                      </button>
+                                      </div>
                                     )}
                                 </div>
                               </div>

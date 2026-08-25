@@ -3,6 +3,7 @@ import {
   restoreTemplatePlaceholders,
   restoreTemplateFieldValue,
   sanitizeClearedTemplatePaths,
+  sanitizeUnboundTemplatePaths,
 } from "./content-editor";
 
 const original = {
@@ -123,6 +124,34 @@ describe("restoreTemplatePlaceholders", () => {
       "{{ single.image | https://example.com/fallback.webp }}",
     );
   });
+
+  it("keeps static literals for unbound paths", () => {
+    const incoming = {
+      type: "hero",
+      title: "category",
+      subtitle: "{{ single.description }}",
+      image: { src: "https://cdn.example.com/fallback.webp" },
+      badge: "static-badge",
+    };
+    const result = restoreTemplatePlaceholders(incoming, original, undefined, undefined, [
+      "title",
+      "image.src",
+    ]);
+    expect(result.title).toBe("category");
+    expect((result.image as { src: string }).src).toBe("https://cdn.example.com/fallback.webp");
+    expect(result.subtitle).toBe("{{ single.description }}");
+  });
+
+  it("unbound wins when literal equals pipe fallback and resolved value", () => {
+    const incoming = {
+      type: "hero",
+      title: "blog title",
+      subtitle: "{{ single.description }}",
+      badge: "static-badge",
+    };
+    const result = restoreTemplatePlaceholders(incoming, original, undefined, undefined, ["title"]);
+    expect(result.title).toBe("blog title");
+  });
 });
 
 describe("sanitizeClearedTemplatePaths", () => {
@@ -144,5 +173,32 @@ describe("sanitizeClearedTemplatePaths", () => {
   it("returns empty for undefined or empty requests", () => {
     expect(sanitizeClearedTemplatePaths(undefined, {}, original)).toEqual([]);
     expect(sanitizeClearedTemplatePaths([], {}, original)).toEqual([]);
+  });
+});
+
+describe("sanitizeUnboundTemplatePaths", () => {
+  it("keeps only real bindings that are static strings on incoming", () => {
+    const incoming = {
+      type: "hero",
+      title: "Guides",
+      subtitle: "{{ single.description }}",
+    };
+    expect(
+      sanitizeUnboundTemplatePaths(
+        ["title", "subtitle", "image.src", "not.a.binding"],
+        incoming,
+        original,
+      ),
+    ).toEqual(["title"]);
+  });
+
+  it("rejects paths still containing template syntax", () => {
+    const incoming = {
+      type: "hero",
+      title: "{{ single.title | blog title }}",
+    };
+    expect(
+      sanitizeUnboundTemplatePaths(["title"], incoming, original),
+    ).toEqual([]);
   });
 });

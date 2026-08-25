@@ -1358,6 +1358,8 @@ export const editOperationSchema = z.discriminatedUnion("action", [
     structural: z.boolean().optional(),
     /** Bound `{{ single.* }}` paths staff confirmed clearing from the shared template. */
     clearedTemplatePaths: z.array(z.string()).optional(),
+    /** Bound paths replaced with static literals (key kept; no template restore on save). */
+    unboundTemplatePaths: z.array(z.string()).optional(),
   }),
   z.object({
     action: z.literal("replace_all_sections"),
