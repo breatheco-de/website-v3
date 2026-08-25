@@ -72,7 +72,7 @@ export function getEngineStatus(): {
   return {
     status: engineStatus,
     restartAttempts,
-    dashboardUrl: isSidequestDashboardEnabled() ? SIDEQUEST_DASHBOARD_BASE_PATH : undefined,
+    dashboardUrl: isSidequestDashboardEnabled() ? `${SIDEQUEST_DASHBOARD_BASE_PATH}/` : undefined,
   };
 }
 
@@ -99,28 +99,36 @@ function sidequestJobsFilePath(): string {
   );
 }
 
+export type SidequestDashboardConfig = {
+  enabled: boolean;
+  port: number;
+  basePath?: string;
+  auth?: { user: string; password: string };
+};
+
+/**
+ * Dashboard options for Sidequest.start({ dashboard }).
+ * Sidequest.configure() ignores `dashboard` — only start() passes it to SidequestDashboard.
+ */
+export function buildSidequestDashboardConfig(): SidequestDashboardConfig {
+  const enabled = isSidequestDashboardEnabled();
+  const config: SidequestDashboardConfig = {
+    enabled,
+    port: getSidequestDashboardPort(),
+  };
+  if (enabled) {
+    config.basePath = SIDEQUEST_DASHBOARD_BASE_PATH;
+    config.auth = getSidequestDashboardInternalAuth();
+  }
+  return config;
+}
+
 export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<void> {
   const dbPath = opts?.sqlitePath ?? SIDEQUEST_DB;
   if (configured && !opts?.sqlitePath) return;
   const jobsFilePath = opts?.jobsFilePath
     ? path.resolve(opts.jobsFilePath)
     : sidequestJobsFilePath();
-
-  const dashboardEnabled = isSidequestDashboardEnabled();
-  const port = getSidequestDashboardPort();
-  const dashboardConfig: {
-    enabled: boolean;
-    port: number;
-    basePath?: string;
-    auth?: { user: string; password: string };
-  } = {
-    enabled: dashboardEnabled,
-    port,
-  };
-  if (dashboardEnabled) {
-    dashboardConfig.basePath = SIDEQUEST_DASHBOARD_BASE_PATH;
-    dashboardConfig.auth = getSidequestDashboardInternalAuth();
-  }
 
   await Sidequest.configure({
     backend: {
@@ -136,11 +144,10 @@ export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<v
     manualJobResolution: true,
     jobsFilePath,
     queues: [{ name: "default", concurrency: 1, priority: 50, state: "active" }],
-    dashboard: dashboardConfig,
   });
   configured = true;
   log.info(
-    { jobsFilePath, dashboardEnabled, dashboardPort: port },
+    { jobsFilePath, dashboardEnabled: isSidequestDashboardEnabled(), dashboardPort: getSidequestDashboardPort() },
     "[JobQueue] Sidequest configured with manual job resolution",
   );
 }
@@ -151,10 +158,21 @@ export async function startJobQueue(): Promise<void> {
   starting = (async () => {
     try {
       await configureJobQueue();
-      await Sidequest.start();
+      // Must pass dashboard here — Sidequest.start spreads config?.dashboard into Dashboard.start.
+      // A bare Sidequest.start() after configure() boots the UI at "/" with no auth/basePath.
+      const dashboard = buildSidequestDashboardConfig();
+      await Sidequest.start({ dashboard });
       restartAttempts = 0;
       engineStatus = "running";
-      log.info({ db: SIDEQUEST_DB }, "[JobQueue] Sidequest engine started");
+      log.info(
+        {
+          db: SIDEQUEST_DB,
+          dashboardEnabled: dashboard.enabled,
+          dashboardBasePath: dashboard.basePath,
+          dashboardPort: dashboard.port,
+        },
+        "[JobQueue] Sidequest engine started",
+      );
     } catch (err) {
       log.error({ err }, "[JobQueue] Failed to start Sidequest");
       engineStatus = "restarting";

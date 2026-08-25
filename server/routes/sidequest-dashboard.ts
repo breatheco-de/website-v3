@@ -105,7 +105,8 @@ export function registerSidequestDashboardRoutes(app: Express): void {
       if (!auth.authorized) return;
 
       mintSidequestDashCookie(res, { username: auth.username ?? undefined });
-      res.json({ url: SIDEQUEST_DASHBOARD_BASE_PATH });
+      // Trailing slash matches Sidequest's basePath routes and avoids a bounce.
+      res.json({ url: `${SIDEQUEST_DASHBOARD_BASE_PATH}/` });
     } catch (err) {
       log.error({ err }, "Failed to open Sidequest dashboard");
       res.status(500).json({
@@ -154,6 +155,13 @@ export function registerSidequestDashboardRoutes(app: Express): void {
           } catch (err) {
             log.error({ err }, "Failed to inject Sidequest Basic auth");
           }
+        },
+        proxyRes: (proxyRes) => {
+          // Never leak Sidequest Basic challenges or cookies onto our origin —
+          // WWW-Authenticate would make the browser treat the whole site as
+          // Basic-auth and break SPA navigations after visiting the dashboard.
+          delete proxyRes.headers["www-authenticate"];
+          delete proxyRes.headers["set-cookie"];
         },
         error: (err, _req, res) => {
           log.error({ err }, "Sidequest dashboard proxy error");

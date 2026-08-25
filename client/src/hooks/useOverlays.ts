@@ -39,8 +39,20 @@ export interface Overlay {
   targeting: OverlayTargeting;
   frequency: "once" | "session" | "always";
   component: "modal" | "top_banner" | "slide_in";
+  /**
+   * When false, visitors cannot dismiss via X / backdrop / Escape —
+   * only action buttons. Default true (omit or true = soft-dismiss).
+   */
+  dismissible?: boolean;
   content: OverlayContent;
 }
+
+export {
+  overlayHasLabeledButton,
+  isOverlayDismissible,
+  overlayBlockingSaveError,
+  validateOverlaysConfig,
+} from "@shared/overlays";
 
 export interface OverlayConfig {
   overlays: Overlay[];
@@ -60,6 +72,15 @@ interface GeoData {
 const GEO_CACHE_KEY = "__overlay_geo__";
 const SEEN_PREFIX = "__overlay_seen_";
 const SESSION_PREFIX = "__overlay_sess_";
+
+/** Clears the overlay runtime geo cache (sessionStorage). */
+export function clearOverlayGeoCache(): void {
+  try {
+    sessionStorage.removeItem(GEO_CACHE_KEY);
+  } catch {
+    // ignore storage errors
+  }
+}
 
 async function fetchGeo(): Promise<GeoData | null> {
   try {
@@ -190,6 +211,10 @@ export function markOverlaySeen(overlay: Overlay): void {
   }
 }
 
+export function isPrivateStaffPath(pathname: string): boolean {
+  return pathname === "/private" || pathname.startsWith("/private/");
+}
+
 export function useOverlays() {
   const [activeOverlay, setActiveOverlay] = useState<Overlay | null>(null);
   const [location] = useLocation();
@@ -201,6 +226,13 @@ export function useOverlays() {
     let mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
 
     async function evaluate() {
+      const pathname = window.location.pathname;
+      // Never fire marketing overlays on staff /private routes (incl. preview).
+      if (isPrivateStaffPath(pathname)) {
+        setActiveOverlay(null);
+        return;
+      }
+
       // Fetch overlays config
       let config: OverlayConfig;
       try {
@@ -218,8 +250,6 @@ export function useOverlays() {
       // Fetch geo (non-blocking — fail-open)
       const geo = await fetchGeo();
       if (cancelled) return;
-
-      const pathname = window.location.pathname;
 
       const candidates = enabled.filter(
         (o) =>

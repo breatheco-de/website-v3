@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import type { Session, Location, UTMParams, WorkerMessage, WorkerResponse } from '@shared/session';
 import { defaultSession } from '@shared/session';
 import { 
@@ -12,6 +12,7 @@ import {
 import { locations, getLocationBySlug } from '../lib/locations';
 import { setSessionHeaders } from '../lib/sessionHeaders';
 import { setVisitorContext } from '../lib/tracking';
+import { clearOverlayGeoCache } from '@/hooks/useOverlays';
 
 function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   if (lat1 === lat2 && lon1 === lon2) return 0;
@@ -36,6 +37,11 @@ interface SessionContextValue {
   updateUTM: (utm: Partial<UTMParams>) => void;
   /** Record the pathname of a successful conversion (overwrites prior). */
   setConversionPage: (path: string) => void;
+  /**
+   * Drop client geo caches (session cookie geo + overlay sessionStorage) and
+   * re-fetch `/api/geo` via the session worker. Does not clear server IP cache.
+   */
+  refreshGeo: () => Promise<void>;
   nearestLocations: Location[];
   getLocationsByRegion: (region: Location['region']) => Location[];
 }
@@ -167,6 +173,86 @@ export function SessionProvider({ children }: SessionProviderProps) {
     });
   };
 
+  const refreshGeo = useCallback(async () => {
+    clearOverlayGeoCache();
+
+    const worker = workerRef.current;
+    if (!worker) {
+      throw new Error('Session worker is not ready');
+    }
+
+    setIsLoading(true);
+
+    const cached = getCachedSession();
+    // Strip geo + campus so the worker re-fetches and re-derives location.
+    const stripped: Session | null = cached
+      ? {
+          ...cached,
+          geo: null,
+          location: null,
+          timestamp: 0,
+        }
+      : null;
+
+    await new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        setIsLoading(false);
+        reject(new Error('Geo refresh timed out'));
+      }, 10_000);
+
+      const cleanup = () => {
+        window.clearTimeout(timeout);
+        worker.removeEventListener('message', onMessage);
+        worker.removeEventListener('error', onError);
+      };
+
+      const onMessage = (event: MessageEvent<WorkerResponse>) => {
+        if (event.data.type !== 'SESSION_READY') return;
+        cleanup();
+        const newSession = event.data.payload;
+        setSession(newSession);
+        saveSession(newSession);
+        if (newSession.userId) {
+          setUserIdCookie(newSession.userId);
+        }
+        setVisitorContext({
+          user_id: newSession.userId,
+          location_city: newSession.location?.name,
+          location_country: newSession.location?.country,
+          location_slug: newSession.location?.slug,
+          language: newSession.language,
+          latitude: newSession.geo?.latitude,
+          longitude: newSession.geo?.longitude,
+          utm: newSession.utm,
+        });
+        setIsLoading(false);
+        resolve();
+      };
+      const onError = (error: ErrorEvent) => {
+        cleanup();
+        setIsLoading(false);
+        reject(error.error ?? new Error(error.message || 'Geo refresh failed'));
+      };
+
+      worker.addEventListener('message', onMessage);
+      worker.addEventListener('error', onError);
+
+      const message: WorkerMessage = {
+        type: 'INIT_SESSION',
+        payload: {
+          cachedSession: stripped,
+          path: window.location.pathname,
+          search: window.location.search,
+          navigator: getNavigatorInfo(),
+          device: getDeviceInfo(),
+          existingUserId: getUserIdFromCookie() ?? undefined,
+        },
+      };
+      worker.postMessage(message);
+    });
+  }, []);
+
   const nearestLocations = locations
     .filter(loc => loc.visibility === 'listed' && loc.slug !== 'online')
     .sort((a, b) => {
@@ -208,6 +294,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     setLanguage,
     updateUTM,
     setConversionPage,
+    refreshGeo,
     nearestLocations,
     getLocationsByRegion,
   };

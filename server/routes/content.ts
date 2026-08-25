@@ -1702,6 +1702,7 @@ export function registerContentRoutes(app: Express): void {
         preview: config.preview || null,
         schema_org_requirements: config.schema_org_requirements || [],
         seo_monitoring: config.seo_monitoring || null,
+        strategy: config.strategy || null,
         static_entry_count: getCI(res).findByType(type).length,
       });
     } catch (err) {

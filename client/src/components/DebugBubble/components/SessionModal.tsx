@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/collapsible";
 import { getConsumerToken, clearConsumerToken } from "@/hooks/useAuthUser";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
+import { useSession } from "@/contexts/SessionContext";
+import { useToast } from "@/hooks/use-toast";
 import { CAPABILITY_REGISTRY } from "@shared/capabilities";
 import { cn } from "@/lib/utils";
 
@@ -140,12 +142,34 @@ export function SessionModal(props: SessionModalProps) {
   const debugToken = hasToken ? getDebugToken() : null;
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [rolesCapsOpen, setRolesCapsOpen] = useState(false);
+  const [isClearingGeo, setIsClearingGeo] = useState(false);
   const { roles, capabilities, isValidated } = useDebugAuth();
+  const { refreshGeo } = useSession();
+  const { toast } = useToast();
 
   // Re-read on open in case the user logged in/out since the modal mounted.
   useEffect(() => {
     if (open) setConsumerTokenState(getConsumerToken());
   }, [open]);
+
+  async function handleClearGeoCache() {
+    setIsClearingGeo(true);
+    try {
+      await refreshGeo();
+      toast({
+        title: "Geo cache cleared",
+        description: "Session and overlay geo were re-fetched from /api/geo.",
+      });
+    } catch {
+      toast({
+        title: "Could not refresh geo",
+        description: "Clear failed. Try again or reload the page.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsClearingGeo(false);
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -331,7 +355,22 @@ export function SessionModal(props: SessionModalProps) {
           </Collapsible>
 
           <div className="space-y-2">
-            <h4 className="text-sm font-semibold text-foreground">Geolocation</h4>
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-sm font-semibold text-foreground">Geolocation</h4>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-[11px] text-muted-foreground"
+                onClick={handleClearGeoCache}
+                disabled={isClearingGeo}
+                title="Clear session + overlay geo caches and re-fetch /api/geo"
+                data-testid="button-clear-geo-cache"
+              >
+                <IconRefresh className={`h-3 w-3 mr-1 ${isClearingGeo ? "animate-spin" : ""}`} />
+                {isClearingGeo ? "Clearing…" : "Clear geo cache"}
+              </Button>
+            </div>
             <div className="grid grid-cols-2 gap-1.5 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Country:</span>

@@ -16,11 +16,20 @@ import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { McpAgentSetupTabs } from "@/components/mcp/McpAgentSetupTabs";
 import { McpCopyButton } from "@/components/mcp/McpSetupUi";
 import {
   getMcpServerUrl,
 } from "@/components/mcp/mcpUrlHelpers";
+
+const ROLE_FILTER_ALL = "all";
 
 interface McpReadiness {
   siteUrlConfigured: boolean;
@@ -51,6 +60,12 @@ interface FetchedTool {
     properties?: Record<string, { type?: string; description?: string; default?: unknown }>;
     required?: string[];
   };
+}
+
+interface McpRoleFilter {
+  id: string;
+  label: string;
+  allowedTools: string[];
 }
 
 function toolFromFetched(t: FetchedTool): McpTool {
@@ -160,10 +175,12 @@ function ToolCard({ tool }: { tool: McpTool }) {
 
 export default function McpServerPage() {
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
   const mcpUrl = getMcpServerUrl();
 
   const { data, isLoading, isError } = useQuery<{
     tools: FetchedTool[];
+    roles?: McpRoleFilter[];
     siteUrl?: string | null;
     error?: string;
     readiness?: McpReadiness;
@@ -184,16 +201,25 @@ export default function McpServerPage() {
     [data],
   );
 
+  const roles = data?.roles ?? [];
+  const selectedRole = roles.find((r) => r.id === roleFilter);
+  const allowedByRole = useMemo(
+    () => (selectedRole ? new Set(selectedRole.allowedTools) : null),
+    [selectedRole],
+  );
+
   const query = search.trim().toLowerCase();
   const filteredTools = useMemo(
     () =>
-      allTools.filter(
-        (tool) =>
-          !query ||
+      allTools.filter((tool) => {
+        if (allowedByRole && !allowedByRole.has(tool.name)) return false;
+        if (!query) return true;
+        return (
           tool.name.toLowerCase().includes(query) ||
-          tool.description.toLowerCase().includes(query),
-      ),
-    [allTools, query],
+          tool.description.toLowerCase().includes(query)
+        );
+      }),
+    [allTools, allowedByRole, query],
   );
 
   return (
@@ -345,22 +371,54 @@ export default function McpServerPage() {
               Available tools
               {!isLoading && (
                 <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  ({allTools.length} total)
+                  {roleFilter || query
+                    ? `(${filteredTools.length} of ${allTools.length})`
+                    : `(${allTools.length} total)`}
                 </span>
               )}
             </h2>
-            <div className="relative w-64">
-              <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-              <Input
-                placeholder="Search tools…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8"
-                data-testid="input-search-tools"
-                disabled={isLoading}
-              />
+            <div className="flex items-center gap-2 flex-wrap">
+              <Select
+                value={roleFilter || undefined}
+                onValueChange={(value) =>
+                  setRoleFilter(value === ROLE_FILTER_ALL ? "" : value)
+                }
+                disabled={isLoading || roles.length === 0}
+              >
+                <SelectTrigger className="w-52" data-testid="select-filter-tools-role">
+                  <SelectValue placeholder="Filter tools by role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ROLE_FILTER_ALL}>All roles</SelectItem>
+                  {roles.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="relative w-64">
+                <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  placeholder="Search tools…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-8"
+                  data-testid="input-search-tools"
+                  disabled={isLoading}
+                />
+              </div>
             </div>
           </div>
+
+          {selectedRole && (
+            <p className="text-xs text-muted-foreground">
+              Showing tools visible in production{" "}
+              <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">tools/list</code>{" "}
+              for <span className="text-foreground font-medium">{selectedRole.label}</span>
+              {" "}({selectedRole.allowedTools.length} tools). Identity tools are always included.
+            </p>
+          )}
 
           {isLoading && (
             <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
@@ -377,7 +435,9 @@ export default function McpServerPage() {
 
           {!isLoading && !mcpUnreachable && filteredTools.length === 0 && (
             <p className="text-sm text-muted-foreground py-4 text-center">
-              {query ? "No tools match your search." : "No tools found."}
+              {query || roleFilter
+                ? "No tools match your filters."
+                : "No tools found."}
             </p>
           )}
 

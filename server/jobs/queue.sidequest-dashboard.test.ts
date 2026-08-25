@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import {
+  buildSidequestDashboardConfig,
   getEngineStatus,
   getSidequestDashboardInternalAuth,
   isSidequestDashboardEnabled,
@@ -35,7 +36,7 @@ describe("sidequest dashboard queue config", () => {
   it("defaults dashboard enabled and returns same-origin path", () => {
     delete process.env.SIDEQUEST_DASHBOARD_ENABLED;
     expect(isSidequestDashboardEnabled()).toBe(true);
-    expect(getEngineStatus().dashboardUrl).toBe(SIDEQUEST_DASHBOARD_BASE_PATH);
+    expect(getEngineStatus().dashboardUrl).toBe(`${SIDEQUEST_DASHBOARD_BASE_PATH}/`);
   });
 
   it("respects SIDEQUEST_DASHBOARD_ENABLED=false", () => {
@@ -61,5 +62,23 @@ describe("sidequest dashboard queue config", () => {
     const auth = getSidequestDashboardInternalAuth();
     expect(auth.user).toBe("sidequest-proxy");
     expect(auth.password.length).toBeGreaterThan(8);
+  });
+
+  it("buildSidequestDashboardConfig sets basePath and auth when enabled", () => {
+    delete process.env.SIDEQUEST_DASHBOARD_ENABLED;
+    process.env.SIDEQUEST_DASHBOARD_USER = "proxy-user";
+    process.env.SIDEQUEST_DASHBOARD_PASSWORD = "proxy-pass";
+    const cfg = buildSidequestDashboardConfig();
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.basePath).toBe(SIDEQUEST_DASHBOARD_BASE_PATH);
+    expect(cfg.auth).toEqual({ user: "proxy-user", password: "proxy-pass" });
+  });
+
+  it("buildSidequestDashboardConfig omits basePath/auth when disabled", () => {
+    process.env.SIDEQUEST_DASHBOARD_ENABLED = "false";
+    const cfg = buildSidequestDashboardConfig();
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.basePath).toBeUndefined();
+    expect(cfg.auth).toBeUndefined();
   });
 });

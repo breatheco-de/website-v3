@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { matchesPage, pathnameMatchesEntry } from "./useOverlays";
+import {
+  matchesPage,
+  pathnameMatchesEntry,
+  overlayBlockingSaveError,
+  overlayHasLabeledButton,
+  validateOverlaysConfig,
+  isPrivateStaffPath,
+} from "./useOverlays";
 
 describe("pathnameMatchesEntry", () => {
   it("matches exact path and prefix", () => {
@@ -54,5 +61,46 @@ describe("matchesPage", () => {
     };
     expect(matchesPage(targeting, "/us/how-to/setup")).toBe(false);
     expect(matchesPage(targeting, "/us/home")).toBe(true);
+  });
+});
+
+describe("isPrivateStaffPath", () => {
+  it("matches /private and nested staff routes", () => {
+    expect(isPrivateStaffPath("/private")).toBe(true);
+    expect(isPrivateStaffPath("/private/overlays")).toBe(true);
+    expect(isPrivateStaffPath("/private/preview/landing/foo")).toBe(true);
+  });
+
+  it("does not match public paths", () => {
+    expect(isPrivateStaffPath("/")).toBe(false);
+    expect(isPrivateStaffPath("/us")).toBe(false);
+    expect(isPrivateStaffPath("/en/privacy")).toBe(false);
+  });
+});
+
+describe("overlay blocking save validation", () => {
+  it("allows soft-dismiss overlays without buttons", () => {
+    expect(overlayBlockingSaveError({ id: "a", dismissible: true, content: { buttons: [] } })).toBeNull();
+    expect(overlayBlockingSaveError({ id: "a", content: { buttons: [] } })).toBeNull();
+  });
+
+  it("rejects blocking overlays with no labeled button", () => {
+    expect(
+      overlayBlockingSaveError({
+        id: "a",
+        dismissible: false,
+        content: { buttons: [{ label: "  " }] },
+      }),
+    ).toMatch(/at least one button/i);
+    expect(overlayHasLabeledButton({ content: { buttons: [{ label: "OK" }] } })).toBe(true);
+  });
+
+  it("validateOverlaysConfig scans the array", () => {
+    expect(
+      validateOverlaysConfig({
+        overlays: [{ id: "x", dismissible: false, content: { buttons: [] } }],
+      }),
+    ).toMatch(/at least one button/i);
+    expect(validateOverlaysConfig({ overlays: [] })).toBeNull();
   });
 });

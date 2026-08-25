@@ -33,9 +33,10 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `list_sites` | Configured domains + content folders (`sites.yml`) |
 | `explain_site` | Architecture playbooks + live per-site catalogs (conversion_events, CRM tags, locales). Pass `site`. |
 | `list_entries` | List YAML (non-DB) entries with slug, content type, locales, title, urls |
-| `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, observed URL-param values, create_via |
+| `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, strategy, observed URL-param values, create_via |
 | `get_entry_content` | Merged entry content without meta/SEO |
 | `get_entry_seo` | SEO/meta + resolved schema.org preview + companion/CT gaps for one entry |
+| `update_content_type` | Patch `content-types.yml` (v1: `strategy` only). Cap: `content_types_manage`. Not entry ensure. |
 | `ensure_content_type_schema_org` | Attach seeded schema_org companions for CT `schema_org_requirements` |
 | `list_entry_seo` | SEO listing; **unfiltered = minimal sample**; pass `slugs` for full meta |
 | `create_entry` | Create YAML entry (draft-first or live shared-layout); not for DB-backed types |
@@ -74,6 +75,24 @@ Lists YAML-driven content entries (includes static `single_template` types such 
 ### `get_content_type_info`
 
 **Parameters:** `contentType` (required), `site` (multi-site).
+
+Returns `strategy` / `strategy_valid` / `strategy_note`. When required fields exist without a valid strategy, `next_actions` includes `update_content_type`.
+
+### `update_content_type`
+
+Patch allowlisted keys on `content-types.yml` via `PUT /api/content-types/:type/config`. **Requires** `content_types_manage`.
+
+**v1 allowlist:** `strategy` only — `{ purpose, constraints? }` or `null` to clear. At least one allowlisted key required. Empty patch → `code: empty_patch`. Clear while required fields remain → API `code: missing_strategy`.
+
+**Non-effects:** does not edit entries, `fill_intent`, `insights_intent`, `seo_monitoring`, or run `ensure_content_type_schema_org`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `contentType` | string | yes | Content type key |
+| `strategy` | object \| null | for v1 yes | Set or clear strategy |
+| `site` | string | multi-site | Domain from `list_sites` |
 
 ### `get_entry_content`
 

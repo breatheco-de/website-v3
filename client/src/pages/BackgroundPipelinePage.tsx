@@ -514,19 +514,39 @@ function HealthStrip({ data }: { data: PipelineStatus }) {
 
   const openSidequestDashboard = async () => {
     if (openingDash) return;
-    const w = window.open("about:blank", "_blank");
+    // Open synchronously during the click (keeps a window handle). Never navigate
+    // this tab — a null handle used to fall back to location.href and poison the SPA
+    // with Sidequest / optional Basic-auth prompts for the whole origin.
+    const w = window.open("about:blank", "sidequest_dashboard");
+    if (!w) {
+      toast({
+        title: "Popup blocked",
+        description: "Allow pop-ups for this site, then open Sidequest again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      w.document.write(
+        "<!doctype html><title>Opening Sidequest…</title><p style=\"font:14px system-ui;padding:1rem\">Opening Sidequest…</p>",
+      );
+      w.document.close();
+    } catch {
+      // Cross-origin about:blank edge cases — still try location.replace below.
+    }
     setOpeningDash(true);
     try {
       const res = await apiRequestWithAuth("POST", "/api/admin/sidequest/open");
       const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
-      const url = body.url || data.engine.dashboardUrl || "/admin/sidequest";
-      if (w) {
-        w.location.href = url;
-      } else {
-        window.location.href = url;
-      }
+      const path = body.url || data.engine.dashboardUrl || "/admin/sidequest/";
+      const absolute = new URL(path, window.location.origin).href;
+      w.location.replace(absolute);
     } catch (err) {
-      if (w) w.close();
+      try {
+        w.close();
+      } catch {
+        // ignore
+      }
       toast({
         title: "Could not open Sidequest dashboard",
         description: err instanceof Error ? err.message : String(err),
