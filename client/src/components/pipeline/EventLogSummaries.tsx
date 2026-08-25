@@ -17,6 +17,7 @@ import { entryPartsToPageUrl } from "@/lib/entryKeyToPageUrl";
 import { parseEntryKey } from "@/lib/parseEntryKey";
 import { apiFetch } from "@/lib/queryClient";
 import { staff404DashboardHref } from "@/lib/staff404";
+import { formatAgentLabel, resolveAgentId } from "./agentIcons";
 
 export type PipelineContentEvent = {
   id: number;
@@ -93,6 +94,13 @@ const TYPED_DETAIL_TYPES = new Set([
   "validation_results_ready",
 ]);
 
+/** Prefer icon-matched agent label (e.g. "Grok") over author · via client (model). */
+function formatAttributionDisplay(entry: EventAttributionEntry): string {
+  const agentId = resolveAgentId([entry]);
+  if (agentId) return formatAgentLabel(agentId);
+  return formatAttributionEntry(entry);
+}
+
 export function EventAttributionBadge({
   attribution,
 }: {
@@ -100,9 +108,10 @@ export function EventAttributionBadge({
 }) {
   const { primary, extraCount } = formatAttributionSummary(attribution);
   if (!primary) return null;
+  const label = formatAttributionDisplay(attribution[0]!);
   return (
     <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
-      {primary}
+      {label}
       {extraCount > 0 ? (
         <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0">
           +{extraCount} more
@@ -123,7 +132,7 @@ export function EventAttributionDetails({
       <p className="text-xs font-medium text-foreground">Attribution</p>
       <ul className="space-y-0.5 text-xs text-muted-foreground">
         {attribution.map((entry, idx) => (
-          <li key={idx}>{formatAttributionEntry(entry)}</li>
+          <li key={idx}>{formatAttributionDisplay(entry)}</li>
         ))}
       </ul>
     </div>

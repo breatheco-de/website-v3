@@ -640,7 +640,6 @@ function HealthStrip({ data }: { data: PipelineStatus }) {
   );
 }
 
-const MANUAL_SCROLL_SUPPRESS_MS = 800;
 const NEW_EVENT_ANIM_MS = 1000;
 const EVENT_LIST_MIN_PX = 672;
 const EVENT_LIST_BOTTOM_PAD_PX = 24;
@@ -795,7 +794,8 @@ function EventLogPanel({
   const rowElsRef = useRef(new Map<number, HTMLLIElement>());
   const dimmedIdsRef = useRef(new Set<number>());
   const rafIdRef = useRef<number | null>(null);
-  const suppressScrollUntilRef = useRef(0);
+  /** When true, timeline/poll sync may dim rows but must not move list scrollTop. */
+  const listOwnsScrollRef = useRef(false);
   const filterScopedEventsRef = useRef<ContentEvent[]>([]);
 
   /** Viewport remainder × 3 so the log is tall; page scrolls when needed. */
@@ -850,7 +850,8 @@ function EventLogPanel({
     }
     dimmedIdsRef.current = nextDimmed;
 
-    if (Date.now() < suppressScrollUntilRef.current) return;
+    // User is browsing the list — keep dimming in sync, but do not yank scrollTop.
+    if (listOwnsScrollRef.current) return;
 
     // Newest-first list: first event at or before the window's right edge.
     let anchor: ContentEvent | undefined;
@@ -985,22 +986,42 @@ function EventLogPanel({
     };
   }, [loadEvents]);
 
-  // Suppress auto-scroll while the user is manually scrolling the list.
+  // List scroll takes ownership until the user scrubs the timeline or jumps to latest.
   useEffect(() => {
     const el = listScrollRef.current;
     if (!el) return;
-    const markManual = () => {
-      suppressScrollUntilRef.current = Date.now() + MANUAL_SCROLL_SUPPRESS_MS;
+    const markOwns = () => {
+      listOwnsScrollRef.current = true;
     };
-    el.addEventListener("wheel", markManual, { passive: true });
-    el.addEventListener("pointerdown", markManual);
-    el.addEventListener("touchstart", markManual, { passive: true });
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!el.contains(e.target as Node)) return;
+      if (
+        e.key === "ArrowDown" ||
+        e.key === "ArrowUp" ||
+        e.key === "PageDown" ||
+        e.key === "PageUp" ||
+        e.key === "Home" ||
+        e.key === "End" ||
+        e.key === " "
+      ) {
+        markOwns();
+      }
+    };
+    el.addEventListener("wheel", markOwns, { passive: true });
+    el.addEventListener("pointerdown", markOwns);
+    el.addEventListener("touchstart", markOwns, { passive: true });
+    el.addEventListener("keydown", onKeyDown);
     return () => {
-      el.removeEventListener("wheel", markManual);
-      el.removeEventListener("pointerdown", markManual);
-      el.removeEventListener("touchstart", markManual);
+      el.removeEventListener("wheel", markOwns);
+      el.removeEventListener("pointerdown", markOwns);
+      el.removeEventListener("touchstart", markOwns);
+      el.removeEventListener("keydown", onKeyDown);
     };
   }, [loading, events.length]);
+
+  const releaseListScrollOwnership = useCallback(() => {
+    listOwnsScrollRef.current = false;
+  }, []);
 
   /** Type filter is server-side; agent filter applies to timeline + list. */
   const filterScopedEvents = useMemo(() => {
@@ -1027,7 +1048,9 @@ function EventLogPanel({
     const el = rowElsRef.current.get(eventId) ??
       document.querySelector(`[data-testid="event-row-${eventId}"]`);
     if (!(el instanceof HTMLElement)) return;
-    suppressScrollUntilRef.current = Date.now() + MANUAL_SCROLL_SUPPRESS_MS;
+    // Chip jump is intentional list navigation — keep ownership so live sync
+    // does not yank the row away after scrollIntoView settles.
+    listOwnsScrollRef.current = true;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
 
@@ -1163,7 +1186,12 @@ function EventLogPanel({
           visibleRange={rangeCommand}
           onRangeChange={handleRangeChange}
           onSelect={scrollToEvent}
-          onJumpToLatest={() => setRangeCommand(jumpToLatestRange())}
+          onUserInteract={releaseListScrollOwnership}
+          onJumpToLatest={() => {
+            releaseListScrollOwnership();
+            setRangeCommand(jumpToLatestRange());
+            scheduleSync();
+          }}
         />
       ) : null}
 

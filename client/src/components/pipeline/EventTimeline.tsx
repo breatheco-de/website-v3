@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { IconArrowRight } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
+import { IconAlertTriangle, IconArrowRight } from "@tabler/icons-react";
 import { DataSet, Timeline } from "vis-timeline/standalone";
 import type { DataGroup, DataItem, TimelineOptions } from "vis-timeline/standalone";
 import "vis-timeline/styles/vis-timeline-graph2d.min.css";
@@ -25,6 +25,11 @@ const STAFF_HEIGHT_PX = 80;
 /** Treat window end within this of Date.now() as “parked at latest”. */
 const FOLLOW_NOW_EPS_MS = 2_000;
 const CHROME_STYLE_ID = "event-timeline-chrome-overrides";
+
+const HELP_DEFAULT =
+  "Your agents are working for you — watch them collaborate and interact on this timeline. Drag to move along their timeline; the list below scrolls and highlights with you so nothing is ever filtered away.";
+const HELP_AT_NOW_EDGE =
+  "You've already reached the end of the history — you can drag right to move back in time.";
 
 /**
  * Vis redraws group DOM on data changes; CSS alone occasionally loses to load
@@ -222,6 +227,7 @@ export function EventTimeline({
   visibleRange,
   onRangeChange,
   onSelect,
+  onUserInteract,
   onJumpToLatest,
   className,
 }: {
@@ -230,6 +236,8 @@ export function EventTimeline({
   visibleRange: VisibleTimeRange | null;
   onRangeChange: (range: VisibleTimeRange) => void;
   onSelect: (eventId: number) => void;
+  /** User started scrubbing/zooming the timeline (not live rolling updates). */
+  onUserInteract?: () => void;
   onJumpToLatest?: () => void;
   className?: string;
 }) {
@@ -244,12 +252,19 @@ export function EventTimeline({
   const seededWindowRef = useRef(false);
   const draggingRef = useRef(false);
   const hoverAttachedRef = useRef(false);
+  const atNowRef = useRef(true);
+  const lastPointerXRef = useRef<number | null>(null);
   const onRangeChangeRef = useRef(onRangeChange);
   const onSelectRef = useRef(onSelect);
+  const onUserInteractRef = useRef(onUserInteract);
   const getActivityLabelRef = useRef(getActivityLabel);
+  const [atHistoryEndHint, setAtHistoryEndHint] = useState(false);
+  /** True when the visible window end is parked at “now” (latest). */
+  const [isAtLatest, setIsAtLatest] = useState(true);
 
   onRangeChangeRef.current = onRangeChange;
   onSelectRef.current = onSelect;
+  onUserInteractRef.current = onUserInteract;
   getActivityLabelRef.current = getActivityLabel;
 
   // Imperative scrubber via document capture + hit-test.
@@ -402,7 +417,13 @@ export function EventTimeline({
     const emitRange = () => {
       if (skipRangeEmitRef.current) return;
       const w = timeline.getWindow();
-      onRangeChangeRef.current({ start: +w.start, end: +w.end });
+      const start = +w.start;
+      const end = +w.end;
+      const atNow = windowEndIsAtNow(end);
+      atNowRef.current = atNow;
+      setIsAtLatest(atNow);
+      if (!atNow) setAtHistoryEndHint(false);
+      onRangeChangeRef.current({ start, end });
       sanitizeTimelineChrome(el);
     };
 
@@ -435,8 +456,39 @@ export function EventTimeline({
       sanitizeTimelineChrome(el);
     }, 1000);
 
+    // Detect drag-left while already at “now” (window is clamped by max).
+    const onPointerDown = (e: PointerEvent) => {
+      lastPointerXRef.current = e.clientX;
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (e.buttons === 0) {
+        lastPointerXRef.current = e.clientX;
+        return;
+      }
+      const prevX = lastPointerXRef.current;
+      lastPointerXRef.current = e.clientX;
+      if (prevX == null) return;
+      const dx = e.clientX - prevX;
+      // Dragging content left tries to reveal the future past “now”.
+      if (atNowRef.current && dx < -2) {
+        setAtHistoryEndHint(true);
+      }
+    };
+    const onPointerUp = () => {
+      lastPointerXRef.current = null;
+    };
+
+    el.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+
     return () => {
       window.clearInterval(maxTick);
+      el.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
       timeline.off("rangechanged", onRangeChangedEvt);
       timeline.off("rangechange", onRangeChangeEvt);
       timeline.destroy();
@@ -490,12 +542,27 @@ export function EventTimeline({
     return () => observer.disconnect();
   }, [events]);
 
+  // Pan / zoom on the staff is a deliberate scrub — notify parent (e.g. release list scroll lock).
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    const notify = () => onUserInteractRef.current?.();
+    shell.addEventListener("pointerdown", notify);
+    shell.addEventListener("wheel", notify, { passive: true });
+    return () => {
+      shell.removeEventListener("pointerdown", notify);
+      shell.removeEventListener("wheel", notify);
+    };
+  }, []);
+
   // External jump-to-latest / programmatic window
   useEffect(() => {
     const timeline = timelineRef.current;
     if (!timeline || !visibleRange) return;
     if (windowEndIsAtNow(visibleRange.end)) {
       pinTimelineToNow(timeline);
+      atNowRef.current = true;
+      setIsAtLatest(true);
       sanitizeTimelineChrome(containerRef.current);
       return;
     }
@@ -507,12 +574,19 @@ export function EventTimeline({
     skipRangeEmitRef.current = true;
     timeline.setWindow(visibleRange.start, visibleRange.end, { animation: false });
     skipRangeEmitRef.current = false;
+    atNowRef.current = false;
+    setIsAtLatest(false);
+    setAtHistoryEndHint(false);
     sanitizeTimelineChrome(containerRef.current);
   }, [visibleRange]);
 
   const handleJumpToLatest = () => {
+    onUserInteractRef.current?.();
     const timeline = timelineRef.current;
     if (timeline) pinTimelineToNow(timeline);
+    atNowRef.current = true;
+    setIsAtLatest(true);
+    setAtHistoryEndHint(false);
     onJumpToLatest?.();
   };
 
@@ -522,12 +596,30 @@ export function EventTimeline({
       data-testid="event-timeline"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 px-6 py-2 bg-foreground text-background">
-        <p className="text-xs text-background/80 leading-relaxed max-w-3xl">
-          Your agents are working for you — watch them collaborate and interact on this timeline.
-          Drag to move along their timeline; the list below scrolls and highlights with you so
-          nothing is ever filtered away.
+        <p
+          key={atHistoryEndHint ? "at-end" : "default"}
+          className={cn(
+            "text-xs leading-relaxed max-w-3xl event-timeline-help",
+            atHistoryEndHint
+              ? "event-timeline-help--warn text-amber-300 inline-flex items-start gap-2"
+              : "text-background/80",
+          )}
+          data-testid="text-timeline-help"
+          role={atHistoryEndHint ? "status" : undefined}
+        >
+          {atHistoryEndHint ? (
+            <>
+              <IconAlertTriangle
+                className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-300"
+                aria-hidden
+              />
+              <span>{HELP_AT_NOW_EDGE}</span>
+            </>
+          ) : (
+            HELP_DEFAULT
+          )}
         </p>
-        {onJumpToLatest ? (
+        {onJumpToLatest && !isAtLatest ? (
           <button
             type="button"
             className="inline-flex items-center gap-1 text-xs text-background hover:underline shrink-0 font-medium"

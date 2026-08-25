@@ -218,8 +218,32 @@
 }
 
 .event-timeline-root .vis-current-time {
-  background-color: hsl(var(--primary) / 0.55);
-  width: 1px;
+  background-color: hsl(var(--primary));
+  width: 2px;
+  z-index: 40;
+}
+
+.event-timeline-root .vis-current-time::after {
+  content: "Now";
+  position: absolute;
+  top: 4px;
+  /* Sit to the left of the line so the badge stays visible when “now” is at the right edge. */
+  right: 100%;
+  margin-right: 4px;
+  left: auto;
+  transform: none;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
+  padding: 3px 6px;
+  border-radius: 2px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 .event-timeline-root .vis-item {
@@ -299,4 +323,23 @@
   text-overflow: ellipsis;
   max-width: 110px;
   letter-spacing: 0.01em;
+}
+
+.event-timeline-help {
+  animation: event-timeline-help-fade 280ms ease-out;
+}
+
+.event-timeline-help--warn {
+  font-weight: 500;
+}
+
+@keyframes event-timeline-help-fade {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
