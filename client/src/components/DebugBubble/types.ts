@@ -236,7 +236,11 @@ export interface PageDiagnostics {
   /** @deprecated Removed — use issue counts from the shared store. */
   score?: { total: number; seo: number; schema: number; content: number };
   cached?: CachedValidationEntry | null;
-  education?: { summary: string };
+  education?: {
+    summary: string;
+    details?: string;
+    advanced_paths?: string[];
+  };
 }
 
 export interface SeoData {

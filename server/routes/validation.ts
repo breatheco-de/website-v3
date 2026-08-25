@@ -1556,11 +1556,27 @@ export function registerValidationRoutes(app: Express): void {
 
         issues,
 
-        education: {
-          summary: file.variant
-            ? `Validation for published variant “${file.variant}” (own issue bucket). Redirects stay on the live locale file only. Check = mark fixed; claim = someone is working (30m TTL). Saving or Run validation can resurface a wrongly marked complete.`
-            : "Validation uses one shared store. Check = mark fixed (hides from open counts). Claim = in progress (30m TTL; staff can release). Saving or Run validation clears complete if the issue returns, but keeps an active claim. Redirect conflicts refresh when redirect config changes or you run Redirects/Global Health.",
-        },
+        education: file.variant
+          ? {
+              summary: `This published variant (“${file.variant}”) has its own issue list. Check mark = you’ve fixed it; Claim = you’re working on it (30 minutes).`,
+              details:
+                "Redirect problems are tracked on the live locale page only, not here. Saving the page or clicking Validate can bring an issue back if it was marked fixed too early. Claims do not cancel when you re-validate.",
+              advanced_paths: [
+                "server/services/validationCacheService.ts",
+                "client/src/components/DebugBubble/components/PageErrorsModal.tsx",
+              ],
+            }
+          : {
+              summary:
+                "Everyone sees the same issue list for this page. Check mark = you’ve fixed it (drops out of the open count). Claim = you’re working on it (30 minutes).",
+              details:
+                "Any staff member can release a claim. Saving the page or clicking Validate may bring an issue back if it’s still there, but won’t cancel an active claim. Redirect problems update when redirects change, or when you run validation from Redirects / Global Health.",
+              advanced_paths: [
+                "server/services/validationCacheService.ts",
+                "client/src/components/DebugBubble/components/PageErrorsModal.tsx",
+                "server/routes/validation.ts",
+              ],
+            },
       });
     } catch (error) {
       log.error({ err: error }, "Diagnostics page error:");

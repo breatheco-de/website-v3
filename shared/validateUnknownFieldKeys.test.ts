@@ -11,6 +11,8 @@ describe("collectUnknownFieldKeys", () => {
           slug: "a",
           title: "Hi",
           detached: true,
+          section_defaults: { maxWidth: { desktop: "xl" } },
+          maxWidth: { desktop: "xl" },
         },
         { title: "title" },
       ),

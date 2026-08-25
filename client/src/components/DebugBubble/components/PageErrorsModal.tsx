@@ -22,10 +22,14 @@ import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { cn } from "@/lib/utils";
 import { formatIssueActorLine } from "@/lib/formatIssueActor";
 import {
-  gscHeadline,
-  gscCrawlerErrorCount,
   type GscInspectionGetResponse,
 } from "@/lib/gscInspection";
+import {
+  crawlerBadgeState,
+  googleToCrawlerStatus,
+  type CrawlerBadgeState,
+  type CrawlerPageStatus,
+} from "@/lib/crawlerStatus";
 import {
   IconAlertTriangle,
   IconArrowRight,
@@ -85,6 +89,18 @@ interface PageErrorsModalProps {
 
 type PageIssue = NonNullable<PageDiagnostics["issues"]>[number];
 
+const DEFAULT_PAGE_ISSUES_EDUCATION = {
+  summary:
+    "Everyone sees the same issue list for this page. Check mark = you’ve fixed it (drops out of the open count). Claim = you’re working on it (30 minutes).",
+  details:
+    "Any staff member can release a claim. Saving the page or clicking Validate may bring an issue back if it’s still there, but won’t cancel an active claim. Redirect problems update when redirects change, or when you run validation from Redirects / Global Health.",
+  advanced_paths: [
+    "server/services/validationCacheService.ts",
+    "client/src/components/DebugBubble/components/PageErrorsModal.tsx",
+    "server/routes/validation.ts",
+  ],
+} as const;
+
 function formatStaleness(isoDate: string): string {
   const diffMs = Date.now() - new Date(isoDate).getTime();
   const mins = Math.floor(diffMs / 60000);
@@ -99,6 +115,140 @@ function formatStaleness(isoDate: string): string {
 function LocaleFlag({ locale }: { locale: string }) {
   const FlagComponent = locale === "es" ? Flags.ES : Flags.US;
   return <FlagComponent className="h-3.5 w-auto rounded-sm" title={locale === "es" ? "Spanish" : "English"} />;
+}
+
+function TabCountBadge({
+  count,
+  variant,
+  testId,
+  crawlerState,
+}: {
+  count?: number;
+  variant?: "error" | "warning";
+  testId: string;
+  /** When set, badge follows crawler semantics (ok / problems / loading / none). */
+  crawlerState?: CrawlerBadgeState;
+}) {
+  if (crawlerState) {
+    const { kind, count: problemCount } = crawlerState;
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center justify-center rounded-sm px-1.5 py-0 text-[10px] font-semibold tabular-nums",
+          kind === "ok"
+            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+            : kind === "problems"
+              ? "bg-destructive/15 text-destructive"
+              : "bg-muted text-muted-foreground",
+        )}
+        data-testid={testId}
+      >
+        {kind === "ok" ? (
+          <IconCheck className="h-3 w-3" stroke={2.5} aria-hidden />
+        ) : kind === "problems" ? (
+          problemCount
+        ) : (
+          "—"
+        )}
+      </span>
+    );
+  }
+
+  const n = count ?? 0;
+  const isZero = n === 0;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center justify-center rounded-sm px-1.5 py-0 text-[10px] font-semibold tabular-nums",
+        isZero
+          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+          : variant === "error"
+            ? "bg-destructive/15 text-destructive"
+            : "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+      )}
+      data-testid={testId}
+    >
+      {isZero ? <IconCheck className="h-3 w-3" stroke={2.5} aria-hidden /> : n}
+    </span>
+  );
+}
+
+function CrawlerStatusCard({
+  crawler,
+  formatStaleness,
+  onOpenChange,
+  inspectError,
+}: {
+  crawler: CrawlerPageStatus;
+  formatStaleness: (iso: string) => string;
+  onOpenChange: (open: boolean) => void;
+  inspectError?: string | null;
+}) {
+  const isGoogle = crawler.id === "google";
+
+  return (
+    <Card data-testid={isGoogle ? "card-google-indexing-kpi" : `card-crawler-${crawler.id}`}>
+      <CardContent className="pt-4 pb-3 space-y-1">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {isGoogle ? <IconBrandGoogle className="h-3.5 w-3.5" /> : null}
+          <span>{crawler.label}</span>
+        </div>
+        {crawler.status === "loading" ? (
+          <p className="text-sm text-muted-foreground">Loading cache…</p>
+        ) : crawler.status === "not_configured" ? (
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">{crawler.detail || "Not configured"}</p>
+            {isGoogle ? (
+              <Link
+                href="/private/settings/seo/search-console"
+                className="text-xs underline underline-offset-2 text-muted-foreground hover:text-foreground"
+                data-testid="link-gsc-settings-from-modal"
+                onClick={() => onOpenChange(false)}
+              >
+                Set up Search Console
+              </Link>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <p
+              className="text-sm font-medium text-foreground"
+              data-testid={isGoogle ? "text-google-index-status" : `text-crawler-status-${crawler.id}`}
+            >
+              {crawler.status === "error"
+                ? "Error"
+                : crawler.detail || crawler.status}
+            </p>
+            {crawler.loc ? (
+              <p className="text-[11px] font-mono text-muted-foreground truncate" title={crawler.loc}>
+                {crawler.loc}
+              </p>
+            ) : null}
+            {crawler.inSitemap === false && crawler.status !== "not_applicable" ? (
+              <p className="text-xs text-chart-2">This URL is excluded from /sitemap.xml.</p>
+            ) : null}
+            {crawler.lastCrawlAt ? (
+              <p className="text-xs text-muted-foreground">
+                Last crawl {formatStaleness(crawler.lastCrawlAt)}
+              </p>
+            ) : null}
+            {crawler.checkedAt ? (
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <IconClock className="h-3 w-3" />
+                Checked {formatStaleness(crawler.checkedAt)}
+              </p>
+            ) : null}
+            {crawler.status === "error" && crawler.detail && crawler.detail !== "Error" ? (
+              <p className="text-xs text-destructive">{crawler.detail}</p>
+            ) : null}
+            {inspectError ? (
+              <p className="text-xs text-destructive">{inspectError}</p>
+            ) : null}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 /** Site-relative URL path in quotes (e.g. "/en/career-programs"), not a YAML file path. */
@@ -552,12 +702,16 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
     },
   });
 
-  const crawlerErrors = gscCrawlerErrorCount({
-    configured: gscQuery.data?.configured,
-    record: gscQuery.data?.record,
-    resolved: gscQuery.data?.resolved,
-    loadError: gscQuery.isError,
-  });
+  const crawlerStatuses: CrawlerPageStatus[] = [
+    googleToCrawlerStatus({
+      configured: gscQuery.data?.configured,
+      record: gscQuery.data?.record,
+      resolved: gscQuery.data?.resolved,
+      loadError: gscQuery.isError,
+      loading: gscQuery.isLoading,
+    }),
+  ];
+  const crawlerBadge = crawlerBadgeState(crawlerStatuses);
 
   const inspectMutation = useMutation({
     mutationFn: async () => {
@@ -791,30 +945,26 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                 <TabsList className="h-9" data-testid="tabs-page-errors">
                   <TabsTrigger value="errors" data-testid="tab-errors" className="gap-1.5">
                     Errors
-                    <span
-                      className="rounded-sm bg-destructive/15 text-destructive px-1.5 py-0 text-[10px] font-semibold tabular-nums"
-                      data-testid="text-modal-error-count"
-                    >
-                      {errors.length}
-                    </span>
+                    <TabCountBadge
+                      count={errors.length}
+                      variant="error"
+                      testId="text-modal-error-count"
+                    />
                   </TabsTrigger>
                   <TabsTrigger value="warnings" data-testid="tab-warnings" className="gap-1.5">
                     Warnings
-                    <span
-                      className="rounded-sm bg-amber-500/15 text-amber-700 dark:text-amber-300 px-1.5 py-0 text-[10px] font-semibold tabular-nums"
-                      data-testid="text-modal-warning-count"
-                    >
-                      {warnings.length}
-                    </span>
+                    <TabCountBadge
+                      count={warnings.length}
+                      variant="warning"
+                      testId="text-modal-warning-count"
+                    />
                   </TabsTrigger>
                   <TabsTrigger value="crawlers" data-testid="tab-crawlers" className="gap-1.5">
                     Crawlers
-                    <span
-                      className="rounded-sm bg-destructive/15 text-destructive px-1.5 py-0 text-[10px] font-semibold tabular-nums"
-                      data-testid="text-modal-crawler-error-count"
-                    >
-                      {crawlerErrors}
-                    </span>
+                    <TabCountBadge
+                      crawlerState={crawlerBadge}
+                      testId="text-modal-crawler-error-count"
+                    />
                   </TabsTrigger>
                 </TabsList>
                 <div className="flex items-center gap-2">
@@ -861,9 +1011,9 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                           ? "Unpublished variants are not validated"
                           : isRunningValidation
                             ? "Running…"
-                            : "Run validation"
+                            : "Validate"
                       }
-                      aria-label={isRunningValidation ? "Running…" : "Run validation"}
+                      aria-label={isRunningValidation ? "Running…" : "Validate"}
                       data-testid="button-run-validation"
                     >
                       {isRunningValidation ? (
@@ -874,7 +1024,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                       ) : (
                         <>
                           <IconRefresh className="h-3.5 w-3.5 shrink-0" />
-                          <span className="hidden sm:inline">Run validation</span>
+                          <span className="hidden sm:inline">Validate</span>
                         </>
                       )}
                     </Button>
@@ -898,7 +1048,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground mt-2" data-testid="cached-not-yet-validated">
-                  Not yet validated — click &quot;Run validation&quot; to refresh this list.
+                  Not yet validated — click &quot;Validate&quot; to refresh this list.
                 </p>
               ))
               )}
@@ -1028,78 +1178,86 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
               )}
 
               <TabsContent value="crawlers" className="mt-3 space-y-3">
-                <p className="text-xs text-muted-foreground" data-testid="text-crawlers-education">
-                  Cached Search Console inspection for this URL — not live Google, not a re-index,
-                  and not local validation. Check Google spends daily quota.
-                </p>
-                <Card data-testid="card-google-indexing-kpi">
-                  <CardContent className="pt-4 pb-3 space-y-1">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <IconBrandGoogle className="h-3.5 w-3.5" />
-                      <span>Google</span>
-                    </div>
-                    {gscQuery.isLoading ? (
-                      <p className="text-sm text-muted-foreground">Loading cache…</p>
-                    ) : !gscQuery.data?.configured ? (
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium text-foreground">Not configured</p>
-                        <Link
-                          href="/private/settings/seo/search-console"
-                          className="text-xs underline underline-offset-2 text-muted-foreground hover:text-foreground"
-                          data-testid="link-gsc-settings-from-modal"
-                          onClick={() => onOpenChange(false)}
-                        >
-                          Set up Search Console
-                        </Link>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="text-sm font-medium text-foreground" data-testid="text-google-index-status">
-                          {gscHeadline(gscQuery.data.record, gscQuery.data.resolved)}
-                        </p>
-                        {gscQuery.data.resolved?.loc && (
-                          <p className="text-[11px] font-mono text-muted-foreground truncate" title={gscQuery.data.resolved.loc}>
-                            {gscQuery.data.resolved.loc}
-                          </p>
-                        )}
-                        {gscQuery.data.resolved && !gscQuery.data.resolved.inSitemap && !gscQuery.data.resolved.isDraft && (
-                          <p className="text-xs text-chart-2">This URL is excluded from /sitemap.xml.</p>
-                        )}
-                        {gscQuery.data.record?.lastCrawlTime && (
-                          <p className="text-xs text-muted-foreground">
-                            Last crawl {formatStaleness(gscQuery.data.record.lastCrawlTime)}
-                          </p>
-                        )}
-                        {gscQuery.data.record?.inspectedAt && (
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <IconClock className="h-3 w-3" />
-                            Checked {formatStaleness(gscQuery.data.record.inspectedAt)}
-                          </p>
-                        )}
-                        {gscQuery.data.record?.error && (
-                          <p className="text-xs text-destructive">{gscQuery.data.record.error}</p>
-                        )}
-                        {inspectMutation.isError && (
-                          <p className="text-xs text-destructive">
-                            {inspectMutation.error instanceof Error
-                              ? inspectMutation.error.message
-                              : "Inspect failed"}
-                          </p>
-                        )}
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
+                <div className="space-y-1.5" data-testid="text-crawlers-education">
+                  <p className="text-xs text-muted-foreground">
+                    Badge counts crawlers that are not OK (never checked, not indexed, errors, or not
+                    configured). Green check means every applicable crawler has this URL indexed —
+                    drafts do not count. Cached Search Console data only; Check Google spends daily
+                    quota.
+                  </p>
+                  <Collapsible>
+                    <CollapsibleTrigger className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                      Read more (advanced)
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="pt-1.5 text-[11px] text-muted-foreground space-y-1">
+                      <p>
+                        Status model: <code className="font-mono">client/src/lib/crawlerStatus.ts</code>
+                      </p>
+                      <p>
+                        Google inspection helpers:{" "}
+                        <code className="font-mono">client/src/lib/gscInspection.ts</code>
+                      </p>
+                      <p>
+                        Configure the service account under SEO/GEO → Search Console. Restarts do not
+                        call Google; they read the disk cache.
+                      </p>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+                {crawlerStatuses.map((crawler) => (
+                  <CrawlerStatusCard
+                    key={crawler.id}
+                    crawler={crawler}
+                    formatStaleness={formatStaleness}
+                    onOpenChange={onOpenChange}
+                    inspectError={
+                      crawler.id === "google" && inspectMutation.isError
+                        ? inspectMutation.error instanceof Error
+                          ? inspectMutation.error.message
+                          : "Inspect failed"
+                        : null
+                    }
+                  />
+                ))}
               </TabsContent>
             </Tabs>
 
-            <div className="p-3 rounded-md bg-muted/50 border border-border text-sm">
-              <p className="text-muted-foreground text-xs">
-                {activeTab === "crawlers"
-                  ? "Crawlers read a disk cache of Search Console URL Inspection results. Restarts do not call Google. Configure the service account under SEO/GEO → Search Console."
-                  : pageDiagnostics.education?.summary ||
-                    "Check mark = mark fixed for tracking; hides from open counts. Saving or Run validation can bring an issue back if still detected."}
-              </p>
+            <div
+              className="p-3 rounded-md bg-muted/50 border border-border text-sm space-y-1.5"
+              data-testid="text-page-issues-education"
+            >
+              {activeTab === "crawlers" ? (
+                <p className="text-muted-foreground text-xs">
+                  Green check = all applicable crawlers indexed. Badge number = crawlers not OK
+                  (including never checked). Drafts are excluded. Cache under SEO/GEO → Search
+                  Console.
+                </p>
+              ) : (
+                <>
+                  <p className="text-muted-foreground text-xs">
+                    {pageDiagnostics.education?.summary || DEFAULT_PAGE_ISSUES_EDUCATION.summary}
+                  </p>
+                  <Collapsible>
+                    <CollapsibleTrigger className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                      Read more
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="pt-1.5 text-[11px] text-muted-foreground space-y-1.5">
+                      <p>
+                        {pageDiagnostics.education?.details ||
+                          DEFAULT_PAGE_ISSUES_EDUCATION.details}
+                      </p>
+                      {(
+                        pageDiagnostics.education?.advanced_paths ??
+                        DEFAULT_PAGE_ISSUES_EDUCATION.advanced_paths
+                      ).map((path) => (
+                        <p key={path} className="font-mono">
+                          {path}
+                        </p>
+                      ))}
+                    </CollapsibleContent>
+                  </Collapsible>
+                </>
+              )}
             </div>
           </div>
         )}

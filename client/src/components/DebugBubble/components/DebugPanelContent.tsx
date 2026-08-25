@@ -19,7 +19,13 @@ import type { PreviewBreakpoint } from "@/contexts/EditModeContext";
 import { isVisualEditPath } from "@/lib/visual-edit-path";
 import { useEnterVisualEditMode } from "@/hooks/useEnterVisualEditMode";
 import { GitHubSyncChip } from "./GitHubSyncChip";
-import { PipelineCounts, getPipelineVisualState, type PipelineCountsData } from "./PipelineCounts";
+import {
+  AnimatedEllipsis,
+  PipelineCounts,
+  getPipelineVisualState,
+  pipelineActivityTotals,
+  type PipelineCountsData,
+} from "./PipelineCounts";
 import { LocationOverrideBadge } from "./LocationOverrideBadge";
 import { GcsBucketSyncChip } from "./GcsBucketSyncChip";
 import { SystemAlertsPanel } from "@/components/StaffSystemAlertBanner";
@@ -283,6 +289,8 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
     refetchInterval: () => (document.hidden ? false : 5000),
   });
   const pipelineVisualState = getPipelineVisualState(pipelineStatus, pipelineLoading);
+  const { queued: pipelineQueued, running: pipelineRunning } = pipelineActivityTotals(pipelineStatus);
+  const pipelineIsWorking = pipelineQueued > 0 || pipelineRunning > 0;
 
   const openReattachConfirm = useCallback(() => {
     setReattachConfirmOpen(true);
@@ -1137,8 +1145,20 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                   )}
                 />
                 <PipelineCounts data={pipelineStatus} loading={pipelineLoading} />
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide shrink-0">
-                  Workers
+                <span
+                  className={cn(
+                    "text-xs font-semibold text-muted-foreground tracking-wide shrink-0",
+                    !pipelineIsWorking && "uppercase",
+                  )}
+                >
+                  {pipelineIsWorking ? (
+                    <>
+                      Working
+                      <AnimatedEllipsis className="inline-block w-[1.5em] text-left" />
+                    </>
+                  ) : (
+                    "Agents"
+                  )}
                 </span>
               </button>
             </div>

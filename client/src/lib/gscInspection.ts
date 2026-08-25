@@ -149,18 +149,3 @@ export function isGscPropertyAccessDenied(message: string | undefined | null): b
   }
   return false;
 }
-
-/** Page-errors Crawlers tab: not configured or not indexed counts as an error. */
-export function gscCrawlerErrorCount(opts: {
-  configured?: boolean;
-  record?: GscInspectionRecord | null;
-  resolved?: GscResolvedUrl;
-  loadError?: boolean;
-}): number {
-  if (opts.loadError) return 1;
-  if (opts.configured === false) return 1;
-  if (opts.configured !== true) return 0;
-  const headline = gscHeadline(opts.record, opts.resolved);
-  if (headline === "Not indexed" || headline === "Error") return 1;
-  return 0;
-}

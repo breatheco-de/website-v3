@@ -19,14 +19,14 @@
       - item_property_slug: locale
         value: en
     user_filters:
-      - item_property_slug: category
+      - item_property_slug: taxonomy
         component_renderer: tags
         all_label: "All categories"
     item_template:
       image: "{{ single.image }}"
       title: "{{ single.title }}"
       description: "{{ single.description }}"
-      badge: "{{ single.category }}"
+      taxonomy: "{{ single.category }}"
       url: "{{ single._resolved_url }}"
       meta_left: "{{ single.author }}"
       meta_right: "{{ single.published_at | }}"

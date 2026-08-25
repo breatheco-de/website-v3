@@ -57,6 +57,9 @@ import { SchemaOrgSectionEditorField } from "./SchemaOrgSectionEditorField";
 import { DbFieldValuesPicker } from "./DbFieldValuesPicker";
 import { restoreVariableFieldsForEditor, mergeSavedSectionForLivePreview, detectUnboundTemplatePaths, findFieldPathForExpression } from "./restoreVariableFieldsForEditor";
 import { ReplaceBindingModal } from "./ReplaceBindingModal";
+import { VariableTypeChooserModal } from "./VariableTypeChooserModal";
+import { SingleVariablePickerModal } from "./SingleVariablePickerModal";
+import { VariableDetailModal } from "./VariableDetailModal";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import { RichTextArea } from "./RichTextArea";
 import { MarkdownEditorField } from "./MarkdownEditorField";
@@ -584,6 +587,13 @@ export function SectionEditorPanel({
     suggestedDefault: string;
     isMixedString: boolean;
   } | null>(null);
+  /** Variable swap stack after “Another variable” on the replace modal. */
+  const [replaceVarModal, setReplaceVarModal] = useState<
+    "chooser" | "single" | "global" | null
+  >(null);
+  const skipClearPendingOnReplaceCloseRef = useRef(false);
+  const replaceVarSucceededRef = useRef(false);
+  const advancingReplaceVarRef = useRef(false);
 
   const { data: variableDefinitions } = useVariableDefinitions();
   const variableContext = useVariableContext();
@@ -1264,9 +1274,59 @@ export function SectionEditorPanel({
       });
     }
     if (fieldPath) {
-      sessionUnboundPathsRef.current.add(fieldPath);
+      if (/\{\{[\s\S]*?\}\}/.test(literal)) {
+        sessionUnboundPathsRef.current.delete(fieldPath);
+      } else {
+        sessionUnboundPathsRef.current.add(fieldPath);
+      }
     }
     setPendingReplaceBinding(null);
+  };
+
+  const handleChooseReplaceVariable = () => {
+    skipClearPendingOnReplaceCloseRef.current = true;
+    setReplaceBindingOpen(false);
+    replaceVarSucceededRef.current = false;
+    if (contentType) {
+      setReplaceVarModal("chooser");
+    } else {
+      setReplaceVarModal("global");
+    }
+  };
+
+  const handleReplaceVariableCreated = (
+    _variableName: string,
+    templateSyntax: string,
+  ) => {
+    if (!pendingReplaceBinding) return;
+    const { span, fieldPath } = pendingReplaceBinding;
+    const view = editorViewRef.current;
+    if (view) {
+      if (!hasChanges && initialYamlRef.current && yamlContent) {
+        pushUndoState(initialYamlRef.current);
+      }
+      view.dispatch({
+        changes: { from: span.from, to: span.to, insert: templateSyntax },
+      });
+    }
+    if (fieldPath) {
+      sessionUnboundPathsRef.current.delete(fieldPath);
+    }
+    replaceVarSucceededRef.current = true;
+    setPendingReplaceBinding(null);
+    setReplaceVarModal(null);
+  };
+
+  const resumeReplaceChooseFromPickerCancel = () => {
+    if (replaceVarSucceededRef.current) {
+      replaceVarSucceededRef.current = false;
+      setReplaceVarModal(null);
+      return;
+    }
+    setReplaceVarModal(null);
+    if (pendingReplaceBinding) {
+      setReplaceBindingOpen(true);
+    }
   };
 
   const handleYamlChange = (value: string) => {
@@ -9433,7 +9493,13 @@ export function SectionEditorPanel({
         open={replaceBindingOpen}
         onOpenChange={(open) => {
           setReplaceBindingOpen(open);
-          if (!open) setPendingReplaceBinding(null);
+          if (!open) {
+            if (skipClearPendingOnReplaceCloseRef.current) {
+              skipClearPendingOnReplaceCloseRef.current = false;
+            } else {
+              setPendingReplaceBinding(null);
+            }
+          }
         }}
         expression={pendingReplaceBinding?.span.expr ?? ""}
         fieldPath={pendingReplaceBinding?.fieldPath}
@@ -9441,6 +9507,45 @@ export function SectionEditorPanel({
         isMixedString={pendingReplaceBinding?.isMixedString ?? false}
         isSharedTemplate={!!isSharedTemplate}
         onConfirm={handleConfirmReplaceBinding}
+        onChooseVariable={handleChooseReplaceVariable}
+      />
+
+      <VariableTypeChooserModal
+        open={replaceVarModal === "chooser"}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (advancingReplaceVarRef.current) {
+              advancingReplaceVarRef.current = false;
+              return;
+            }
+            resumeReplaceChooseFromPickerCancel();
+          }
+        }}
+        contentType={contentType || ""}
+        onChoose={(type) => {
+          advancingReplaceVarRef.current = true;
+          setReplaceVarModal(type);
+        }}
+      />
+      <SingleVariablePickerModal
+        open={replaceVarModal === "single"}
+        onOpenChange={(open) => {
+          if (!open) resumeReplaceChooseFromPickerCancel();
+        }}
+        contentType={contentType || ""}
+        inlineDefault={pendingReplaceBinding?.suggestedDefault ?? ""}
+        singleEntry={singleEntry}
+        onCreated={handleReplaceVariableCreated}
+      />
+      <VariableDetailModal
+        open={replaceVarModal === "global"}
+        onOpenChange={(open) => {
+          if (!open) resumeReplaceChooseFromPickerCancel();
+        }}
+        variableName=""
+        inlineDefault={pendingReplaceBinding?.suggestedDefault ?? ""}
+        mode="create"
+        onCreated={handleReplaceVariableCreated}
       />
 
       <BindingConfirmDialog

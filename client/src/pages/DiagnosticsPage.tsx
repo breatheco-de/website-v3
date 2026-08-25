@@ -170,7 +170,11 @@ interface PageDiagnostics {
   score?: { total: number; seo: number; schema: number; content: number };
   dirty?: boolean;
   entryKey?: string;
-  education?: { summary: string };
+  education?: {
+    summary: string;
+    details?: string;
+    advanced_paths?: string[];
+  };
 }
 
 function normalizeIssuePath(urlOrPath: string): string {

@@ -25,7 +25,10 @@ interface ListingItem {
   image?: string;
   title?: string;
   description?: string;
+  /** @deprecated Prefer `taxonomy` for category/tag chips on listing cards */
   badge?: string;
+  /** Taxonomy term (category, tag, technology, etc.) shown as the card chip and used by filters */
+  taxonomy?: string;
   url?: string;
   meta_left?: string;
   meta_right?: string;
@@ -151,18 +154,26 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
   const itemsLabel = data.pagination?.items_label ?? data.items_label ?? "items";
 
   const userFilters = data.dynamic_entries?.user_filters || [];
-
-  const [userFilterValues, setUserFilterValues] = useState<Record<string, string>>(() => {
-    const init: Record<string, string> = {};
-    for (const uf of userFilters) {
-      init[uf.item_property_slug] = uf.default_value != null ? String(uf.default_value) : "";
-    }
-    return init;
-  });
+  const userFilterSlugs = userFilters.map((uf) => uf.item_property_slug);
 
   const params = new URLSearchParams(searchString);
   const currentPage = Math.max(1, parseInt(params.get("page") || "1", 10));
   const [searchQuery, setSearchQuery] = useState("");
+
+  // URL is source of truth for filters (shareable / back-forward). Falls back to YAML default_value.
+  const userFilterValues = (() => {
+    const values: Record<string, string> = {};
+    for (const uf of userFilters) {
+      const fromUrl = params.get(uf.item_property_slug);
+      if (fromUrl != null && fromUrl !== "") {
+        values[uf.item_property_slug] = fromUrl;
+      } else {
+        values[uf.item_property_slug] =
+          uf.default_value != null ? String(uf.default_value) : "";
+      }
+    }
+    return values;
+  })();
 
   const userFilterOptions = (() => {
     const opts: Record<string, string[]> = {};
@@ -200,6 +211,7 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
     return userFiltered.filter(item =>
       (item.title || "").toLowerCase().includes(query) ||
       (item.description || "").toLowerCase().includes(query) ||
+      (typeof item.taxonomy === "string" ? item.taxonomy : "").toLowerCase().includes(query) ||
       (typeof item.badge === "string" ? item.badge : "").toLowerCase().includes(query)
     );
   })();
@@ -211,8 +223,14 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
     : filteredBySearch;
 
   const buildPageUrl = (page: number) => {
-    const p = new URLSearchParams();
+    const p = new URLSearchParams(searchString);
+    for (const slug of userFilterSlugs) {
+      const val = userFilterValues[slug];
+      if (val) p.set(slug, val);
+      else p.delete(slug);
+    }
     if (page > 1) p.set("page", String(page));
+    else p.delete("page");
     const qs = p.toString();
     return `${location.split("?")[0]}${qs ? `?${qs}` : ""}`;
   };
@@ -225,10 +243,9 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
   useEffect(() => {
     if (perPage <= 0 || totalPages <= 1) return;
 
-    const basePath = location.split("?")[0];
-    const canonicalHref = currentPage > 1 ? `${basePath}?page=${currentPage}` : basePath;
-    const prevHref = currentPage > 1 ? (currentPage === 2 ? basePath : `${basePath}?page=${currentPage - 1}`) : null;
-    const nextHref = currentPage < totalPages ? `${basePath}?page=${currentPage + 1}` : null;
+    const canonicalHref = buildPageUrl(currentPage);
+    const prevHref = currentPage > 1 ? buildPageUrl(currentPage - 1) : null;
+    const nextHref = currentPage < totalPages ? buildPageUrl(currentPage + 1) : null;
 
     document.querySelectorAll('link[data-listcards-pagination]').forEach(el => el.remove());
 
@@ -262,10 +279,17 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
     return () => {
       added.forEach(el => el.remove());
     };
-  }, [perPage, totalPages, currentPage, location]);
+  }, [perPage, totalPages, currentPage, location, searchString]);
 
-  const setUserFilter = (slug: string, value: string) => {
-    setUserFilterValues(prev => ({ ...prev, [slug]: value }));
+  const setUserFilter = (slug: string, value: string, opts?: { replace?: boolean }) => {
+    const p = new URLSearchParams(searchString);
+    if (value) p.set(slug, value);
+    else p.delete(slug);
+    // Changing filters resets pagination
+    p.delete("page");
+    const qs = p.toString();
+    const next = `${location.split("?")[0]}${qs ? `?${qs}` : ""}`;
+    setLocation(next, opts?.replace ? { replace: true } : undefined);
   };
 
   const pageNumbers = (() => {
@@ -290,11 +314,16 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
     : columns === 4 ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-4"
     : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3";
 
-  const getBadgeText = (badge: unknown): string => {
-    if (typeof badge === "string") return badge;
-    if (badge && typeof badge === "object" && "slug" in (badge as any)) return (badge as any).slug;
+  const getBadgeText = (value: unknown): string => {
+    if (typeof value === "string") return value;
+    if (value && typeof value === "object" && "slug" in (value as Record<string, unknown>)) {
+      return String((value as Record<string, unknown>).slug);
+    }
     return "";
   };
+
+  const getTaxonomyText = (item: ListingItem): string =>
+    getBadgeText(item.taxonomy) || getBadgeText(item.badge);
 
   const hasHeader = data.title || showSearch || userFilters.length > 0;
 
@@ -322,7 +351,7 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
                   <Input
                     placeholder={uf.all_label || "Search..."}
                     value={userFilterValues[uf.item_property_slug] || ""}
-                    onChange={e => setUserFilter(uf.item_property_slug, e.target.value)}
+                    onChange={e => setUserFilter(uf.item_property_slug, e.target.value, { replace: true })}
                     className="pl-10"
                     data-testid={`input-filter-${uf.item_property_slug}`}
                   />
@@ -401,7 +430,7 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
         <>
           <div className={`grid ${gridCols} gap-6`} data-testid="grid-listing-cards">
             {paginatedItems.map((item, index) => {
-              const badgeText = getBadgeText(item.badge);
+              const badgeText = getTaxonomyText(item);
               const metaLeft = formatAuthor(item.meta_left);
               const metaRight = item.meta_right ? formatDate(String(item.meta_right)) : "";
               const content = (

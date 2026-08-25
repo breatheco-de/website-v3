@@ -25,9 +25,15 @@ dynamic_item_fields:
   - name: description
     type: string
     description: Card description text (line-clamped to 3 lines)
+  - name: taxonomy
+    type: string
+    description: >
+      Taxonomy term (category, tag, technology, etc.) shown as the chip above the title.
+      Prefer this over badge. When used with user_filters, set item_property_slug to taxonomy
+      so the URL query is ?taxonomy=<slug> (shareable / crawlable filter state).
   - name: badge
     type: string
-    description: Category or tag badge displayed above the title
+    description: Deprecated — prefer taxonomy. Category or tag chip above the title.
   - name: url
     type: string
     required: true

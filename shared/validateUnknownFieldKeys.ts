@@ -13,6 +13,14 @@ const STRUCTURAL_KEYS = new Set([
   "field_overrides",
   "status",
   "detached",
+  // Legacy + page-root layout defaults (server/section-layout-defaults.ts)
+  "section_defaults",
+  "maxWidth",
+  "paddingX",
+  "paddingY",
+  "marginX",
+  "marginY",
+  "background",
 ]);
 
 const ALIAS_KEYS = new Set([

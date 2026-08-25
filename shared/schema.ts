@@ -1088,6 +1088,9 @@ const listingCardItemSchema = z.object({
   image: z.string().optional(),
   title: z.string().optional(),
   description: z.string().optional(),
+  /** Preferred: category/tag/technology term for the card chip + user_filters */
+  taxonomy: z.union([z.string(), z.object({ slug: z.string() })]).optional(),
+  /** @deprecated Prefer taxonomy */
   badge: z.union([z.string(), z.object({ slug: z.string() })]).optional(),
   url: z.string().optional(),
   meta_left: z.unknown().optional(),

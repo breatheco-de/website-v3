@@ -14,7 +14,7 @@ export type PipelineCountsData = {
 
 export type PipelineVisualState = "loading" | "idle" | "degraded" | "stalled" | "active";
 
-function pipelineActivityTotals(data: PipelineCountsData | null | undefined) {
+export function pipelineActivityTotals(data: PipelineCountsData | null | undefined) {
   const queued = data?.outbox.unpublishedCount ?? 0;
   const running =
     (data?.inFlight.validations.length ?? 0) +
@@ -37,7 +37,14 @@ export function getPipelineVisualState(
   return "loading";
 }
 
-function TypingDots() {
+/** Animated `.` / `..` / `...` for loading / working labels. */
+export function AnimatedEllipsis({
+  className,
+  "data-testid": testId,
+}: {
+  className?: string;
+  "data-testid"?: string;
+}) {
   const [count, setCount] = useState(1);
 
   useEffect(() => {
@@ -49,12 +56,21 @@ function TypingDots() {
 
   return (
     <span
-      className="inline-block w-[1.8em] text-[10px] leading-none text-muted-foreground"
+      className={className}
       aria-hidden
-      data-testid="badge-pipeline-counts-loading"
+      data-testid={testId}
     >
       {".".repeat(count)}
     </span>
+  );
+}
+
+function TypingDots() {
+  return (
+    <AnimatedEllipsis
+      className="inline-block w-[1.8em] text-[10px] leading-none text-muted-foreground"
+      data-testid="badge-pipeline-counts-loading"
+    />
   );
 }
 
