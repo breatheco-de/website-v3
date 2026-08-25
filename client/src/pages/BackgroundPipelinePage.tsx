@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconActivity,
@@ -645,8 +645,39 @@ function EventLogPanel({
   const [clearLogOpen, setClearLogOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [visibleRange, setVisibleRange] = useState<VisibleTimeRange | null>(null);
+  const [listHeightPx, setListHeightPx] = useState(224);
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
   const maxSeenIdRef = useRef<number | null>(null);
   const newIdsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const EVENT_LIST_MIN_PX = 224;
+  const EVENT_LIST_BOTTOM_PAD_PX = 24;
+
+  /** Fill from list top to viewport bottom so timeline + log share one screen. */
+  useLayoutEffect(() => {
+    const el = listScrollRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      const top = el.getBoundingClientRect().top;
+      const next = Math.max(
+        EVENT_LIST_MIN_PX,
+        Math.floor(window.innerHeight - top - EVENT_LIST_BOTTOM_PAD_PX),
+      );
+      setListHeightPx((prev) => (prev === next ? prev : next));
+    };
+
+    measure();
+    requestAnimationFrame(measure);
+    const ro = new ResizeObserver(measure);
+    ro.observe(document.documentElement);
+    if (el.parentElement) ro.observe(el.parentElement);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [events.length, loading]);
 
   const loadEvents = useCallback(async () => {
     setLoading(true);
@@ -749,7 +780,7 @@ function EventLogPanel({
 
   return (
     <section className="space-y-4">
-      <div className="max-w-6xl mx-auto px-6 flex flex-wrap items-center gap-2">
+      <div className="max-w-6xl mx-auto px-6 w-full flex flex-wrap items-center gap-2">
         <Popover>
           <PopoverTrigger asChild>
             <Button
@@ -880,7 +911,7 @@ function EventLogPanel({
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="max-w-6xl mx-auto px-6">
+      <div className="max-w-6xl mx-auto px-6 w-full pb-6">
         {loading && events.length === 0 ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <IconLoader2 className="h-4 w-4 animate-spin" />
@@ -892,7 +923,9 @@ function EventLogPanel({
           </p>
         ) : (
           <div
-            className="relative h-[min(28rem,55vh)] overflow-y-auto overflow-x-hidden pr-1"
+            ref={listScrollRef}
+            className="relative overflow-y-auto overflow-x-hidden pr-1"
+            style={{ height: listHeightPx }}
             data-testid="event-list-scroll"
           >
             {rangeFilteredEvents.length === 0 ? (
@@ -1040,7 +1073,7 @@ export default function BackgroundPipelinePage() {
   });
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-[100px] space-y-6">
+    <div className="min-h-screen bg-background text-foreground pb-6 space-y-6">
       <div className="max-w-6xl mx-auto px-6 pt-6 space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
