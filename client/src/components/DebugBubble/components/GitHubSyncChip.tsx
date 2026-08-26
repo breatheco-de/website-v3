@@ -258,17 +258,17 @@ export function GitHubSyncChip({
             Off
           </span>
         )}
-      </button>
-      <div className="flex items-center gap-0.5 shrink-0">
         {connection?.connected && connection.githubLogin && (
           <span
-            className="text-[10px] text-muted-foreground truncate max-w-[4.5rem]"
+            className="text-[10px] text-muted-foreground truncate max-w-[4.5rem] pointer-events-none"
             title={`Connected as @${connection.githubLogin}`}
             data-testid="badge-github-connected"
           >
             @{connection.githubLogin}
           </span>
         )}
+      </button>
+      <div className="flex items-center gap-0.5 shrink-0">
         {hasErrorDetail ? (
           <div className="flex items-center gap-1" data-testid="button-sync-status-popover">
             {syncStatusLoading ? (
@@ -302,15 +302,17 @@ export function GitHubSyncChip({
             )}
           </button>
         )}
-        <button
-          onClick={refreshSyncStatus}
-          disabled={syncStatusLoading}
-          className="p-0.5 rounded hover-elevate disabled:opacity-50"
-          data-testid="button-refresh-sync-status"
-          title="Refresh sync status"
-        >
-          <RefreshCw className={cn("h-3 w-3", syncStatusLoading && "animate-spin")} />
-        </button>
+        {status !== "in-sync" && (
+          <button
+            onClick={refreshSyncStatus}
+            disabled={syncStatusLoading}
+            className="p-0.5 rounded hover-elevate disabled:opacity-50"
+            data-testid="button-refresh-sync-status"
+            title="Refresh sync status"
+          >
+            <RefreshCw className={cn("h-3 w-3", syncStatusLoading && "animate-spin")} />
+          </button>
+        )}
         {githubSyncStatus?.syncEnabled && (
           <button
             onClick={(e) => {

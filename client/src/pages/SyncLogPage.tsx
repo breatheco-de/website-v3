@@ -45,6 +45,10 @@ import { downloadSiteArchive } from "@/lib/download-site-archive";
 import { openSyncModal } from "@/components/SyncConflictBanner";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import {
+  startGitHubConnect,
+  useGitHubUserConnection,
+} from "@/hooks/useGitHubUserConnection";
 
 const CATEGORIES = [
   "RESTART",
@@ -221,6 +225,8 @@ function extractPath(url: string): string {
 
 export default function SyncLogPage() {
   const { toast } = useToast();
+  const { connection, isLoading: githubConnectionLoading, invalidate: invalidateGitHubConnection } =
+    useGitHubUserConnection();
   const initialSearch = useRef(
     new URLSearchParams(window.location.search).get("search") || ""
   );
@@ -230,7 +236,28 @@ export default function SyncLogPage() {
     new Set([])
   );
   const [activePersons, setActivePersons] = useState<Set<string>>(new Set([]));
+  const [githubConnectSuccessOpen, setGithubConnectSuccessOpen] = useState(false);
+  const [githubConnectError, setGithubConnectError] = useState<string | null>(null);
   const qc = useQueryClient();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const github = params.get("github");
+    if (!github) return;
+
+    if (github === "connected") {
+      setGithubConnectSuccessOpen(true);
+      void invalidateGitHubConnection();
+    } else if (github === "error") {
+      setGithubConnectError(params.get("message") || "GitHub Connect failed");
+    }
+
+    params.delete("github");
+    params.delete("message");
+    const next = params.toString();
+    const path = window.location.pathname + (next ? `?${next}` : "");
+    window.history.replaceState({}, "", path);
+  }, [invalidateGitHubConnection]);
 
   const { data: sitemapUrls = [] } = useQuery<SitemapEntry[]>({
     queryKey: ["/api/sitemap-urls"],
@@ -703,6 +730,35 @@ export default function SyncLogPage() {
                   </button>
                 )}
               </span>
+              {!githubConnectionLoading && connection && (
+                connection.connected && connection.githubLogin ? (
+                  <Badge
+                    variant="secondary"
+                    className="gap-1 border-transparent bg-chart-3/15 text-chart-3 font-normal"
+                    data-testid="badge-github-connection-ok"
+                    title={`Connected as @${connection.githubLogin}`}
+                  >
+                    <Github className="h-3 w-3" />
+                    @{connection.githubLogin}
+                  </Badge>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void startGitHubConnect()}
+                    className="inline-flex"
+                    title="Connect GitHub to commit content"
+                  >
+                    <Badge
+                      variant="destructive"
+                      className="gap-1 font-normal cursor-pointer"
+                      data-testid="badge-github-connection-missing"
+                    >
+                      <Github className="h-3 w-3" />
+                      Github account not connected
+                    </Badge>
+                  </button>
+                )
+              )}
             </div>
           )}
         </div>
@@ -1547,6 +1603,86 @@ export default function SyncLogPage() {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+    <Dialog
+      open={githubConnectSuccessOpen}
+      onOpenChange={setGithubConnectSuccessOpen}
+    >
+      <DialogContent className="sm:max-w-md" data-testid="dialog-github-connect-success">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Check className="h-5 w-5 text-chart-3" />
+            GitHub connected
+          </DialogTitle>
+          <DialogDescription asChild>
+            <div className="space-y-2 text-sm text-muted-foreground pt-1">
+              <p>
+                Your GitHub account is linked. Content commits in this environment will use your
+                identity
+                {connection?.githubLogin ? (
+                  <>
+                    {" "}
+                    (<span className="font-medium text-foreground">@{connection.githubLogin}</span>)
+                  </>
+                ) : null}
+                .
+              </p>
+              <p>
+                The service <code className="text-xs bg-muted px-1 rounded">GITHUB_TOKEN</code> is
+                still used only for pulls and system operations.
+              </p>
+            </div>
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            type="button"
+            onClick={() => setGithubConnectSuccessOpen(false)}
+            data-testid="button-github-connect-success-ok"
+          >
+            Done
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog
+      open={githubConnectError !== null}
+      onOpenChange={(open) => {
+        if (!open) setGithubConnectError(null);
+      }}
+    >
+      <DialogContent className="sm:max-w-md" data-testid="dialog-github-connect-error">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-destructive">
+            <X className="h-5 w-5" />
+            GitHub Connect failed
+          </DialogTitle>
+          <DialogDescription className="pt-1 whitespace-pre-wrap break-words">
+            {githubConnectError}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setGithubConnectError(null)}
+          >
+            Close
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              setGithubConnectError(null);
+              void startGitHubConnect();
+            }}
+            data-testid="button-github-connect-retry"
+          >
+            Try again
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }
