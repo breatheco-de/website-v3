@@ -11,7 +11,8 @@ export type SystemAlertCode =
   | "database_auth_failed"
   | "database_fetch_failed"
   | "turnstile_env_missing"
-  | "turnstile_secret_invalid";
+  | "turnstile_secret_invalid"
+  | "github_app_env_missing";
 
 export interface SystemAlert {
   id: string;

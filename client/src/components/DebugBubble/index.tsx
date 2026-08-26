@@ -35,6 +35,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useDebugAuth, getDebugToken, getDebugUserName, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { useSystemAlerts } from "@/hooks/useSystemAlerts";
+import { useGitHubUserConnection } from "@/hooks/useGitHubUserConnection";
 import { queryClient } from "@/lib/queryClient";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { LocaleFlag } from "./components/LocaleFlag";
@@ -132,6 +133,8 @@ export function DebugBubble() {
   
   const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, clearToken, checkSession } = useDebugAuth();
   const { criticalAlerts } = useSystemAlerts();
+  const { showCritical: githubConnectCritical, needsConnect: githubConnectRequired } =
+    useGitHubUserConnection();
   const contentTypesMap = useContentTypes();
   const { data: contentTypesRaw } = useContentTypesRaw();
   const { session } = useSession();
@@ -1343,14 +1346,24 @@ export function DebugBubble() {
   // Handle commit
   const handleCommit = async () => {
     if (!commitMessage.trim()) return;
-    
+    if (githubConnectRequired) {
+      alert(
+        "Connect GitHub to commit content in production. Use Connect on the GitHub sync chip.",
+      );
+      return;
+    }
+
     setIsCommitting(true);
     try {
       const forceCommit = syncContext?.forceCommitEnabled || false;
       const author = await resolveAuthorName();
       const res = await fetch("/api/github/commit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getSessionHeaders(),
+        },
+        credentials: "include",
         body: JSON.stringify({ 
           message: commitMessage.trim(),
           force: forceCommit,
@@ -1382,13 +1395,23 @@ export function DebugBubble() {
   // Handle per-file commit
   const handleFileCommit = async (filePath: string) => {
     if (!fileCommitMessage.trim()) return;
-    
+    if (githubConnectRequired) {
+      alert(
+        "Connect GitHub to commit content in production. Use Connect on the GitHub sync chip.",
+      );
+      return;
+    }
+
     setFileCommitting(filePath);
     try {
       const author = await resolveAuthorName();
       const res = await fetch("/api/github/commit-file", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getSessionHeaders(),
+        },
+        credentials: "include",
         body: JSON.stringify({ 
           filePath,
           message: fileCommitMessage.trim(),
@@ -1640,7 +1663,10 @@ export function DebugBubble() {
     pendingChanges.some((c) => c.source === "local" || c.source === "conflict") &&
     !noTokenDetected &&
     !tokenWithoutCapabilities;
-  const hasSystemAlerts = criticalAlerts.length > 0 && !noTokenDetected && !tokenWithoutCapabilities;
+  const hasSystemAlerts =
+    (criticalAlerts.length > 0 || githubConnectCritical) &&
+    !noTokenDetected &&
+    !tokenWithoutCapabilities;
   const pillTop = (index: number) => (index === 0 ? "-0.25rem" : `${index * 1.5}rem`);
 
   const toggleTheme = () => {
@@ -2413,6 +2439,7 @@ export function DebugBubble() {
         setCommitMessage={setCommitMessage}
         isCommitting={isCommitting}
         handleCommit={handleCommit}
+        githubConnectRequired={githubConnectRequired}
         handleSyncFromRemote={handleSyncFromRemote}
         isSyncing={isSyncing}
         handleIgnoreAllChanges={handleIgnoreAllChanges}

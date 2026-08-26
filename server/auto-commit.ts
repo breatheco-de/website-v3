@@ -81,9 +81,9 @@ function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   return match ? { owner: match[1], repo: match[2] } : null;
 }
 
-function buildConfig(repoUrl: string): GitHubConfig | null {
-  const token = process.env.GITHUB_TOKEN || '';
-  const branch = process.env.GITHUB_BRANCH || 'main';
+function buildConfig(repoUrl: string, tokenOverride?: string): GitHubConfig | null {
+  const token = (tokenOverride || process.env.GITHUB_TOKEN || "").trim();
+  const branch = process.env.GITHUB_BRANCH || "main";
   const parsed = parseGitHubUrl(repoUrl);
   if (!token || !parsed) return null;
   return { token, owner: parsed.owner, repo: parsed.repo, branch };
@@ -96,21 +96,24 @@ function buildConfig(repoUrl: string): GitHubConfig | null {
  * Falls back to the global GITHUB_REPO_URL env var for single-site mode
  * or any file that doesn't match a site with its own repo configured.
  */
-function getGitHubConfigForFile(filePath: string): { config: GitHubConfig; repoUrl: string } | null {
-  const token = process.env.GITHUB_TOKEN || '';
-  if (!token) return null;
-
+function getGitHubConfigForFile(
+  filePath: string,
+  tokenOverride?: string,
+): { config: GitHubConfig; repoUrl: string } | null {
   const sites = getSiteConfigs();
   for (const site of sites) {
-    const prefix = site.contentFolder.replace(/\/$/, '');
-    if ((filePath.startsWith(prefix + '/') || filePath === prefix) && site.githubRepoUrl) {
-      const config = buildConfig(site.githubRepoUrl);
+    const prefix = site.contentFolder.replace(/\/$/, "");
+    if (
+      (filePath.startsWith(prefix + "/") || filePath === prefix) &&
+      site.githubRepoUrl
+    ) {
+      const config = buildConfig(site.githubRepoUrl, tokenOverride);
       if (config) return { config, repoUrl: site.githubRepoUrl };
     }
   }
 
-  const globalRepoUrl = process.env.GITHUB_REPO_URL || '';
-  const config = buildConfig(globalRepoUrl);
+  const globalRepoUrl = process.env.GITHUB_REPO_URL || "";
+  const config = buildConfig(globalRepoUrl, tokenOverride);
   return config ? { config, repoUrl: globalRepoUrl } : null;
 }
 
@@ -281,10 +284,61 @@ async function processQueue(): Promise<void> {
     }
 
     const errorBefore = lastError;
-    for (const { config, changes } of Array.from(byRepo.values())) {
+    for (const { config: _baseConfig, changes } of Array.from(byRepo.values())) {
       const authorGroups = groupByAuthor(changes);
       for (const [author, files] of Array.from(authorGroups.entries())) {
-        await commitBatch(config, author, files);
+        const {
+          resolveCommitGitHubToken,
+          GitHubConnectError,
+        } = await import("./github-user-tokens");
+        const isSystemAuthor =
+          !author ||
+          author === "System" ||
+          author === "Unknown" ||
+          author === "github-pull" ||
+          author === "agent";
+        try {
+          const resolved = await resolveCommitGitHubToken({
+            username: isSystemAuthor ? null : author,
+            purpose: isSystemAuthor ? "system" : "user_commit",
+          });
+          const firstFile = files[0];
+          const withToken = getGitHubConfigForFile(firstFile, resolved.token);
+          if (!withToken) {
+            lastError = "GitHub not configured";
+            hadFailure = true;
+            for (const filePath of files) {
+              const change = changes.get(filePath);
+              if (change && !pendingChanges.has(filePath)) {
+                pendingChanges.set(filePath, change);
+              }
+            }
+            continue;
+          }
+          const commitAuthor =
+            resolved.githubName || resolved.githubLogin
+              ? {
+                  name: resolved.githubName || resolved.githubLogin!,
+                  email:
+                    resolved.githubEmail ||
+                    `${resolved.githubLogin}@users.noreply.github.com`,
+                }
+              : undefined;
+          await commitBatch(withToken.config, author, files, commitAuthor);
+        } catch (err) {
+          if (err instanceof GitHubConnectError) {
+            lastError = err.message;
+            hadFailure = true;
+            for (const filePath of files) {
+              const change = changes.get(filePath);
+              if (change && !pendingChanges.has(filePath)) {
+                pendingChanges.set(filePath, change);
+              }
+            }
+            continue;
+          }
+          throw err;
+        }
       }
     }
 
@@ -331,7 +385,12 @@ function groupByAuthor(changes: Map<string, PendingFileChange>): Map<string, str
   return groups;
 }
 
-async function commitBatch(config: GitHubConfig, author: string, files: string[]): Promise<void> {
+async function commitBatch(
+  config: GitHubConfig,
+  author: string,
+  files: string[],
+  commitAuthor?: { name: string; email: string },
+): Promise<void> {
   const { getSiteConfigs } = await import('./site-config');
   const contentRootForLog = (() => {
     if (files.length === 0) return undefined;
@@ -359,7 +418,13 @@ async function commitBatch(config: GitHubConfig, author: string, files: string[]
   const fileNames = files.map(f => stripContentFolderPrefix(f)).join(', ');
   const message = `[Auto-sync] ${author} updated ${fileNames}`;
 
-  const result = await commitFilesViaTreeAPI(config, message, existingFiles, deletedFiles);
+  const result = await commitFilesViaTreeAPI(
+    config,
+    message,
+    existingFiles,
+    deletedFiles,
+    commitAuthor,
+  );
 
   if (result.success && result.commitSha) {
     recordLastCommitSha(result.commitSha);
@@ -455,7 +520,8 @@ async function commitFilesViaTreeAPI(
   config: GitHubConfig,
   message: string,
   files: Array<{ path: string; content: string }>,
-  deletedFiles: string[]
+  deletedFiles: string[],
+  commitAuthor?: { name: string; email: string },
 ): Promise<{ success: boolean; commitSha?: string; error?: string }> {
   function formatGhError(status: number, body: string): string {
     try {
@@ -538,16 +604,22 @@ async function commitFilesViaTreeAPI(
     }
     const treeData = await treeRes.json();
 
+    const commitBody: Record<string, unknown> = {
+      message,
+      tree: treeData.sha,
+      parents: [headSha],
+    };
+    if (commitAuthor?.name && commitAuthor?.email) {
+      commitBody.author = commitAuthor;
+      commitBody.committer = commitAuthor;
+    }
+
     const newCommitRes = await fetch(
       `https://api.github.com/repos/${config.owner}/${config.repo}/git/commits`,
       {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          message,
-          tree: treeData.sha,
-          parents: [headSha],
-        }),
+        body: JSON.stringify(commitBody),
       }
     );
     if (!newCommitRes.ok) {

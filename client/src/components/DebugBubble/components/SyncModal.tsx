@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { AutoCommitStatus, PendingChange, GitHubSyncStatus } from "../types";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
+import { startGitHubConnect } from "@/hooks/useGitHubUserConnection";
 
 export interface SyncModalProps {
   open: boolean;
@@ -45,6 +46,8 @@ export interface SyncModalProps {
   setCommitMessage: (v: string) => void;
   isCommitting: boolean;
   handleCommit: () => Promise<void>;
+  /** When true, commit controls are blocked (production without GitHub Connect). */
+  githubConnectRequired?: boolean;
   handleSyncFromRemote: () => Promise<void>;
   isSyncing: boolean;
   handleIgnoreAllChanges: () => Promise<void>;
@@ -83,6 +86,7 @@ export function SyncModal({
   handleFilePull,
   setConfirmPullFile,
   githubSyncStatus,
+  githubConnectRequired = false,
   handleIgnoreAllChanges,
   isIgnoringAllChanges,
   fetchPendingChanges,
@@ -369,6 +373,28 @@ export function SyncModal({
         </DialogHeader>
         
         <div className="space-y-4 py-2">
+          {githubConnectRequired && (
+            <div
+              className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20"
+              data-testid="sync-modal-github-connect-required"
+            >
+              <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+              <div className="text-sm space-y-1">
+                <p className="font-medium text-foreground">Connect GitHub to commit</p>
+                <p className="text-xs text-muted-foreground">
+                  Production commits require your GitHub identity. Use Connect on the sync chip, then retry.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => void startGitHubConnect()}
+                >
+                  Connect GitHub
+                </Button>
+              </div>
+            </div>
+          )}
           {autoCommitStatus && (!autoCommitStatus.githubConfigured || autoCommitStatus.lastError) && (
             <div className="flex items-start gap-2 p-3 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
               <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
@@ -920,7 +946,11 @@ export function SyncModal({
                                     size="sm"
                                     className="h-7 text-xs flex-1"
                                     onClick={() => handleFileCommit(change.file)}
-                                    disabled={!fileCommitMessage.trim() || fileCommitting === change.file}
+                                    disabled={
+                                      !fileCommitMessage.trim() ||
+                                      fileCommitting === change.file ||
+                                      githubConnectRequired
+                                    }
                                     data-testid={`button-confirm-file-commit-${index}`}
                                   >
                                     {fileCommitting === change.file ? (

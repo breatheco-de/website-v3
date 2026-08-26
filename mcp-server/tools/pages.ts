@@ -482,7 +482,7 @@ async function callCommitFilesApi(
   message: string,
   mcpToken?: string,
   domain?: string
-): Promise<{ commitSha?: string; queued?: boolean; warning?: string }> {
+): Promise<{ commitSha?: string; queued?: boolean; warning?: string; connectRequired?: boolean }> {
   if (files.length === 0) return {};
   try {
     const url = `http://localhost:${MAIN_SERVER_PORT}/api/github/commit${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
@@ -497,7 +497,15 @@ async function callCommitFilesApi(
         ...(author ? { author } : {}),
       }),
     });
-    const data = await res.json() as Record<string, unknown>;
+    const data = (await res.json()) as Record<string, unknown>;
+    if (res.status === 403 || data.code === "github_connect_required") {
+      return {
+        connectRequired: true,
+        warning:
+          (data.error as string) ||
+          "GitHub Connect required for production commits. Staff must Connect GitHub in DebugBubble first.",
+      };
+    }
     if (res.status === 202 || data.queued) {
       return { queued: true };
     }
@@ -513,7 +521,16 @@ async function callCommitFilesApi(
 function githubCommitWarning(result: {
   queued?: boolean;
   warning?: string;
+  connectRequired?: boolean;
 }): McpWarning | undefined {
+  if (result.connectRequired) {
+    return {
+      code: "github_connect_required",
+      message:
+        result.warning ||
+        "Production commits need GitHub Connect by this BreatheCode user (DebugBubble → Connect). Connect does not replace env GITHUB_TOKEN used for pulls. Status: GET /api/github/user-connection.",
+    };
+  }
   if (result.queued) {
     return {
       code: "github_commit_queued",

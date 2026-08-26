@@ -269,14 +269,17 @@ async function fetchFilesFromTree(config: GitHubConfig, commitSha: string, conte
 /**
  * Get GitHub config from environment variables
  */
-export function getGitHubConfig(repoUrl?: string): GitHubConfig | null {
-  const token = process.env.GITHUB_TOKEN || '';
-  const url = repoUrl || process.env.GITHUB_REPO_URL || '';
-  const branch = process.env.GITHUB_BRANCH || 'main';
-  
+export function getGitHubConfig(
+  repoUrl?: string,
+  tokenOverride?: string,
+): GitHubConfig | null {
+  const token = (tokenOverride || process.env.GITHUB_TOKEN || "").trim();
+  const url = repoUrl || process.env.GITHUB_REPO_URL || "";
+  const branch = process.env.GITHUB_BRANCH || "main";
+
   const parsed = parseGitHubUrl(url);
   if (!token || !parsed) return null;
-  
+
   return {
     token,
     owner: parsed.owner,
@@ -431,11 +434,22 @@ async function createCommitObject(
   config: GitHubConfig,
   message: string,
   treeSha: string,
-  parentSha: string
+  parentSha: string,
+  commitAuthor?: { name: string; email: string },
 ): Promise<string | null> {
   const url = `https://api.github.com/repos/${config.owner}/${config.repo}/git/commits`;
-  
+
   try {
+    const body: Record<string, unknown> = {
+      message,
+      tree: treeSha,
+      parents: [parentSha],
+    };
+    if (commitAuthor?.name && commitAuthor?.email) {
+      body.author = commitAuthor;
+      body.committer = commitAuthor;
+    }
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -444,11 +458,7 @@ async function createCommitObject(
         'Content-Type': 'application/json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
-      body: JSON.stringify({
-        message,
-        tree: treeSha,
-        parents: [parentSha],
-      }),
+      body: JSON.stringify(body),
     });
     
     if (!response.ok) {
@@ -601,15 +611,22 @@ async function getBranchHeadSha(config: GitHubConfig): Promise<string | null> {
  */
 export async function commitAndPush(
   message: string,
-  options?: { force?: boolean; files?: string[]; repoUrl?: string; contentRoot?: string }
-): Promise<{ success: boolean; error?: string; commitHash?: string }> {
+  options?: {
+    force?: boolean;
+    files?: string[];
+    repoUrl?: string;
+    contentRoot?: string;
+    token?: string;
+    commitAuthor?: { name: string; email: string };
+  },
+): Promise<{ success: boolean; error?: string; commitHash?: string; errorCode?: string }> {
   const syncEnabled = process.env.GITHUB_SYNC_ENABLED === "true";
   
   if (!syncEnabled) {
     return { success: false, error: "GitHub sync is not enabled" };
   }
   
-  const config = getGitHubConfig(options?.repoUrl);
+  const config = getGitHubConfig(options?.repoUrl, options?.token);
   if (!config) {
     return { success: false, error: "GitHub not configured (missing GITHUB_TOKEN or GITHUB_REPO_URL)" };
   }
@@ -693,7 +710,13 @@ export async function commitAndPush(
       return { success: false, error: "Failed to create tree" };
     }
     
-    const newCommitSha = await createCommitObject(config, message, newTreeSha, currentHeadSha);
+    const newCommitSha = await createCommitObject(
+      config,
+      message,
+      newTreeSha,
+      currentHeadSha,
+      options?.commitAuthor,
+    );
     if (!newCommitSha) {
       return { success: false, error: "Failed to create commit" };
     }
@@ -2123,10 +2146,13 @@ export async function commitSingleFile(options: {
   author?: string;
   repoUrl?: string;
   contentRoot?: string;
+  token?: string;
+  commitAuthor?: { name: string; email: string };
 }): Promise<{ 
   success: boolean; 
   commitSha?: string;
   error?: string;
+  errorCode?: string;
 }> {
   // Per-file ops: path owns the site (localhost may resolve to the wrong domain).
   const { getSiteConfigs } = await import("./site-config");
@@ -2135,7 +2161,10 @@ export async function commitSingleFile(options: {
     return options.filePath.startsWith(prefix);
   });
   const contentRoot = matchedSite?.contentFolder || options.contentRoot;
-  const config = getGitHubConfig(options.repoUrl || matchedSite?.githubRepoUrl);
+  const config = getGitHubConfig(
+    options.repoUrl || matchedSite?.githubRepoUrl,
+    options.token,
+  );
   
   if (!config) {
     return { success: false, error: "GitHub not configured" };
@@ -2166,7 +2195,7 @@ export async function commitSingleFile(options: {
     const sha = await getFileSha(config, options.filePath);
     
     // Prepare the request body
-    const body: Record<string, string> = {
+    const body: Record<string, unknown> = {
       message,
       content: Buffer.from(content).toString('base64'),
       branch: config.branch,
@@ -2174,6 +2203,11 @@ export async function commitSingleFile(options: {
     
     if (sha) {
       body.sha = sha;
+    }
+
+    if (options.commitAuthor?.name && options.commitAuthor?.email) {
+      body.author = options.commitAuthor;
+      body.committer = options.commitAuthor;
     }
     
     // Make the commit via GitHub Contents API

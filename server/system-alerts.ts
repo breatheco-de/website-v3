@@ -20,7 +20,8 @@ export type SystemAlertCode =
   | "database_fetch_failed"
   | "turnstile_env_missing"
   | "turnstile_secret_invalid"
-  | "background_jobs_stalled";
+  | "background_jobs_stalled"
+  | "github_app_env_missing";
 
 export interface SystemAlert {
   id: string;
@@ -231,6 +232,27 @@ function issuesFromCacheOrEvaluate(
   return errors;
 }
 
+async function collectGitHubAppAlerts(isProduction: boolean): Promise<SystemAlert[]> {
+  if (!isProduction) return [];
+  if (process.env.GITHUB_SYNC_ENABLED !== "true") return [];
+
+  const { getGitHubAppEnvStatus } = await import("./github-user-tokens");
+  const status = getGitHubAppEnvStatus();
+  if (status.complete) return [];
+
+  return [
+    {
+      id: "github_app_env_missing",
+      severity: "critical",
+      code: "github_app_env_missing",
+      title: "GitHub Connect is not configured",
+      message: `Production content commits require GitHub App Connect, but env is incomplete (missing: ${status.missing.join(", ")}). Set GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET, and GITHUB_APP_SLUG.`,
+      actionHref: "/private/repository-sync",
+      actionLabel: "Open repository sync",
+    },
+  ];
+}
+
 export async function collectSystemAlerts(): Promise<SystemAlert[]> {
   const alerts: SystemAlert[] = [];
   const multiSite = hasMultipleSites();
@@ -239,6 +261,7 @@ export async function collectSystemAlerts(): Promise<SystemAlert[]> {
   alerts.push(...(await collectTurnstileAlerts()));
   alerts.push(...collectMcpAuthAlerts(isProduction));
   alerts.push(...(await collectMcpAuthBlobAlerts(isProduction)));
+  alerts.push(...(await collectGitHubAppAlerts(isProduction)));
 
   try {
     const { getOldestUnpublishedAgeMs } = await import("./events/event-store");

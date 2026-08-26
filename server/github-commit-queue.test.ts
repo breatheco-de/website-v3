@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { markFileAsModified, detectPendingChanges, isAutoCommitEnabled, commitAndPush } = vi.hoisted(() => ({
+const { markFileAsModified, detectPendingChanges, isAutoCommitEnabled, commitAndPush, resolveCommitGitHubToken } = vi.hoisted(() => ({
   markFileAsModified: vi.fn(),
   detectPendingChanges: vi.fn(),
   isAutoCommitEnabled: vi.fn(),
   commitAndPush: vi.fn(),
+  resolveCommitGitHubToken: vi.fn(),
 }));
 
 vi.mock("./sync-state", () => ({
@@ -20,6 +21,17 @@ vi.mock("./github", () => ({
   commitAndPush,
 }));
 
+vi.mock("./github-user-tokens", () => ({
+  resolveCommitGitHubToken,
+  GitHubConnectError: class GitHubConnectError extends Error {
+    code: string;
+    constructor(code: string, message: string) {
+      super(message);
+      this.code = code;
+    }
+  },
+}));
+
 import { queueOrCommitFiles } from "./github-commit-queue";
 
 const FILES = [
@@ -31,6 +43,10 @@ describe("queueOrCommitFiles", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     detectPendingChanges.mockReturnValue([]);
+    resolveCommitGitHubToken.mockResolvedValue({
+      token: "service-token",
+      source: "service",
+    });
   });
 
   it("returns 202 and does not commitAndPush when auto-commit is on", async () => {
@@ -82,6 +98,8 @@ describe("queueOrCommitFiles", () => {
       files: FILES,
       repoUrl: "https://github.com/org/repo",
       contentRoot: "site_test",
+      token: "service-token",
+      commitAuthor: undefined,
     });
   });
 

@@ -29,6 +29,10 @@ import {
 import { LocationOverrideBadge } from "./LocationOverrideBadge";
 import { GcsBucketSyncChip } from "./GcsBucketSyncChip";
 import { SystemAlertsPanel } from "@/components/StaffSystemAlertBanner";
+import {
+  startGitHubConnect,
+  useGitHubUserConnection,
+} from "@/hooks/useGitHubUserConnection";
 import { ComponentsView } from "./ComponentsView";
 import { VersioningView } from "./VersioningView";
 import { MenusView } from "./MenusView";
@@ -245,6 +249,60 @@ function ExpandableMenuItem({ icon: Icon, label, expanded, onToggle, testId, act
           {children}
         </div>
       )}
+    </div>
+  );
+}
+
+function GitHubConnectCriticalBanner() {
+  const { showCritical, connection } = useGitHubUserConnection();
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  if (!showCritical) return null;
+
+  return (
+    <div
+      className="p-3 bg-destructive/10 border-b border-destructive/20"
+      data-testid="banner-github-connect-required"
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <p className="text-xs font-medium text-foreground">
+            Connect GitHub to commit
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {connection?.education?.summary ||
+              "In production, content commits use your connected GitHub identity on the content repo. The service GITHUB_TOKEN is only for pulls and system operations."}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => void startGitHubConnect()}
+              data-testid="button-github-connect-banner"
+            >
+              Connect GitHub
+            </Button>
+            {connection?.education?.advanced?.length ? (
+              <button
+                type="button"
+                className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+                onClick={() => setShowAdvanced((v) => !v)}
+              >
+                {showAdvanced ? "Hide advanced" : "Read more (advanced)"}
+              </button>
+            ) : null}
+          </div>
+          {showAdvanced && connection?.education?.advanced?.length ? (
+            <ul className="text-[10px] font-mono text-muted-foreground list-disc pl-4 space-y-0.5">
+              {connection.education.advanced.map((path) => (
+                <li key={path}>{path}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
@@ -534,6 +592,8 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           </div>
         </div>
       )}
+
+      <GitHubConnectCriticalBanner />
 
       <SystemAlertsPanel compact />
 

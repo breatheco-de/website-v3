@@ -10,6 +10,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { GitHubSyncStatus, PendingChange } from "../types";
+import {
+  startGitHubConnect,
+  useGitHubUserConnection,
+} from "@/hooks/useGitHubUserConnection";
 
 export interface GitHubSyncChipProps {
   className?: string;
@@ -201,11 +205,41 @@ export function GitHubSyncChip({
   const status = githubSyncStatus?.status;
   const hasErrorDetail =
     status === "unknown" || status === "rate-limited" || status === "invalid-credentials";
+  const { needsConnect, connection } = useGitHubUserConnection();
+
+  if (needsConnect) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void startGitHubConnect();
+        }}
+        className={cn(
+          "flex items-center gap-1.5 min-w-0 flex-1 px-2 py-2 text-sm",
+          "bg-destructive/10 border border-destructive/20 hover-elevate",
+          "text-left",
+          className,
+        )}
+        title="Connect GitHub to commit content"
+        data-testid="chip-github-sync"
+      >
+        <Github className="h-3.5 w-3.5 text-destructive shrink-0" />
+        <span
+          className="text-[10px] leading-none font-medium text-destructive truncate"
+          data-testid="button-github-connect"
+        >
+          Connect to Github
+        </span>
+      </button>
+    );
+  }
 
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-1 min-w-0 px-2 py-2 rounded-md text-sm hover-elevate",
+        "flex items-center justify-between gap-1 min-w-0 px-2 py-2 text-sm hover-elevate",
         className,
       )}
       data-testid="chip-github-sync"
@@ -226,6 +260,15 @@ export function GitHubSyncChip({
         )}
       </button>
       <div className="flex items-center gap-0.5 shrink-0">
+        {connection?.connected && connection.githubLogin && (
+          <span
+            className="text-[10px] text-muted-foreground truncate max-w-[4.5rem]"
+            title={`Connected as @${connection.githubLogin}`}
+            data-testid="badge-github-connected"
+          >
+            @{connection.githubLogin}
+          </span>
+        )}
         {hasErrorDetail ? (
           <div className="flex items-center gap-1" data-testid="button-sync-status-popover">
             {syncStatusLoading ? (

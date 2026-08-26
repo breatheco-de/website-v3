@@ -237,7 +237,8 @@ No secret values in this doc.
 | Operator keys | Laptop → Droplet deploy user | Human ops |
 | GHA deploy key | GitHub Actions → Droplet deploy user | Deploy |
 | Git deploy key | Droplet → GitHub **code** repo | Fetch / archive |
-| `GITHUB_TOKEN` (content) | App → GitHub **content** repo | YAML sync |
+| `GITHUB_TOKEN` (content) | App → GitHub **content** repo | YAML **pulls** / system / local commits |
+| GitHub App Connect | Staff → content repo as themselves | Production **push** identity (`GITHUB_APP_*`) |
 
 Actions deploy key must not live in root `authorized_keys`.
 
@@ -257,7 +258,8 @@ Runtime secrets can come from **GitHub Actions** (`_WEBSITE_*` → pack → merg
 4. Code/runtime secrets vs content-repo token stay out of git; Replit secrets stay on Replit if a parallel env still exists.
 5. `sites.yml` is not an app secret but is gitignored in the code repo.
 
-Typical names (not values): `DATABASE_URL`, `SESSION_SECRET`, `SITE_URL`, `PORT`, `LISTEN_HOST`, `TURNSTILE_*`, `MCP_*`, `MCP_TOKEN_ENCRYPTION_KEY`, `GITHUB_*` (content), `GCS_*`, `OPENROUTER_API_KEY`, `VITE_BREATHECODE_HOST`, `QDRANT_URL`, `IPN_SECRET`, …
+Typical names (not values): `DATABASE_URL`, `SESSION_SECRET`, `SITE_URL`, `PORT`, `LISTEN_HOST`, `TURNSTILE_*`, `MCP_*`, `MCP_TOKEN_ENCRYPTION_KEY`, `GITHUB_*` (content + App Connect), `GCS_*`, `OPENROUTER_API_KEY`, `VITE_BREATHECODE_HOST`, `QDRANT_URL`, `IPN_SECRET`, …
+
 
 MCP OAuth persistence across redeploys: see [`docs/runbooks/mcp-oauth-persistence.md`](runbooks/mcp-oauth-persistence.md).
 

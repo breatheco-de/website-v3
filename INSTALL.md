@@ -157,11 +157,17 @@ GitHub sync lets content editors commit YAML edits back to the repository automa
 | Variable | Required | Default | Description | Features enabled | Extra config needed |
 |---|---|---|---|---|---|
 | `GITHUB_SYNC_ENABLED` | No | `false` | Set to `true` to activate the GitHub sync subsystem. Acts as a master switch — other GitHub variables are ignored when this is `false`. | GitHub content sync (commit & pull) | All other `GITHUB_*` variables |
-| `GITHUB_TOKEN` | No* | — | GitHub personal access token with `repo` scope (or a fine-grained token with contents read/write). | Committing and reading files via the GitHub REST API | `GITHUB_SYNC_ENABLED=true`, `GITHUB_REPO_URL` |
+| `GITHUB_TOKEN` | No* | — | **Service** token for pulls, webhooks, bootstrap, and local/dev commits. Prefer a fine-grained PAT with Contents read/write on the content repo. In production, **staff commits use GitHub Connect** (below), not this token. | Pulls / system / local commits | `GITHUB_SYNC_ENABLED=true`, `GITHUB_REPO_URL` |
 | `GITHUB_REPO_URL` | No* | — | Full URL of the GitHub repository (e.g. `https://github.com/owner/repo`). `.git` suffix is optional. | Repository targeting for all sync operations | `GITHUB_SYNC_ENABLED=true`, `GITHUB_TOKEN` |
 | `GITHUB_BRANCH` | No | `main` | Branch to read from and commit to. | Branch targeting for sync operations | `GITHUB_SYNC_ENABLED=true` |
 | `GITHUB_AUTO_COMMIT_ENABLED` | No | `false` | Set to `true` to automatically commit local content changes to GitHub when files are saved. Requires `GITHUB_SYNC_ENABLED=true`. | Automatic commit on save | `GITHUB_SYNC_ENABLED=true` |
 | `GITHUB_AUTO_PULL_ENABLED` | No | `false` | Set to `true` to automatically pull remote changes from GitHub into the running server (triggered by a GitHub webhook). Requires `GITHUB_SYNC_ENABLED=true` and a registered webhook (auto-registered when `SITE_URL` is set). | Webhook-driven content pull | `GITHUB_SYNC_ENABLED=true`, `SITE_URL` |
+| `GITHUB_APP_CLIENT_ID` | No* | — | GitHub App **client ID** for staff Connect OAuth. Required in production when sync is enabled. | Per-user content commits | `GITHUB_SYNC_ENABLED=true`, production |
+| `GITHUB_APP_CLIENT_SECRET` | No* | — | GitHub App client secret. | OAuth code exchange | `GITHUB_APP_CLIENT_ID` |
+| `GITHUB_APP_SLUG` | No* | — | GitHub App slug (for install/docs URLs). | Connect setup | `GITHUB_APP_CLIENT_ID` |
+| `GITHUB_CONNECT_REQUIRED` | No | `false` | Set to `true` to force Connect for user commits even outside production (local testing). Still requires `GITHUB_SYNC_ENABLED=true`. | Dev Connect UI / commit gate | `GITHUB_SYNC_ENABLED=true`, App env |
+
+**GitHub Connect (production):** Create a GitHub App with Repository permission **Contents: Read and write**, install it on the content org/repo, set callback URL to `${SITE_URL}/api/github/oauth/callback`, and set `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, and `GITHUB_APP_SLUG`. Staff click **Connect** on the DebugBubble GitHub sync chip. Local/dev normally keeps using `GITHUB_TOKEN` for commits; set `GITHUB_CONNECT_REQUIRED=true` to exercise Connect locally. Tokens live in `data/github-user-tokens.json` (+ GCS when encryption is enabled).
 
 ### Google Cloud Storage
 

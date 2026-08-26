@@ -374,6 +374,170 @@ export function registerGithubRoutes(app: Express): void {
     }
   });
 
+  // Per-user GitHub App connection status (staff session)
+  app.get("/api/github/user-connection", async (req, res) => {
+    try {
+      const auth = await requireStaffSession(req, res);
+      if (!auth.authorized) return;
+
+      const {
+        getUserConnectionStatus,
+        isGitHubConnectRequired,
+      } = await import("../github-user-tokens");
+      const status = await getUserConnectionStatus(auth.username);
+      res.json({
+        ...status,
+        required: isGitHubConnectRequired(),
+        education: {
+          summary:
+            "In production, content commits use your connected GitHub identity on the content repo. The service GITHUB_TOKEN is only for pulls and system operations.",
+          advanced: [
+            "server/github-user-tokens.ts",
+            "GET/DELETE /api/github/user-connection",
+            "GET /api/github/oauth/start",
+            "GCS blob mcp-auth/github-user-tokens.enc",
+          ],
+        },
+      });
+    } catch (error) {
+      log.error({ err: error }, "Error reading GitHub user connection:");
+      res.status(500).json({ error: "Failed to read GitHub connection" });
+    }
+  });
+
+  app.delete("/api/github/user-connection", async (req, res) => {
+    try {
+      const auth = await requireStaffSession(req, res);
+      if (!auth.authorized) return;
+      if (!auth.username) {
+        res.status(400).json({ error: "No username on session" });
+        return;
+      }
+      const { deleteUserGitHubToken } = await import("../github-user-tokens");
+      await deleteUserGitHubToken(auth.username);
+      res.json({ success: true, connected: false });
+    } catch (error) {
+      log.error({ err: error }, "Error disconnecting GitHub:");
+      res.status(500).json({ error: "Failed to disconnect GitHub" });
+    }
+  });
+
+  app.get("/api/github/oauth/start", async (req, res) => {
+    try {
+      const auth = await requireStaffSession(req, res);
+      if (!auth.authorized) return;
+
+      const {
+        isGitHubAppConfigured,
+        createOAuthState,
+        getOAuthAuthorizeUrl,
+      } = await import("../github-user-tokens");
+
+      if (!isGitHubAppConfigured()) {
+        res.status(503).json({
+          error:
+            "GitHub App is not configured (GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET, GITHUB_APP_SLUG).",
+          code: "github_app_env_missing",
+        });
+        return;
+      }
+
+      const username =
+        auth.username ||
+        (process.env.NODE_ENV !== "production" ? "dev" : null);
+      if (!username) {
+        res.status(401).json({ error: "Staff username required to Connect GitHub" });
+        return;
+      }
+
+      const state = createOAuthState(username);
+      const url = getOAuthAuthorizeUrl(state);
+
+      // JSON when client asks for it (Bearer session from DebugBubble).
+      const wantsJson =
+        req.query.format === "json" ||
+        (typeof req.headers.accept === "string" &&
+          req.headers.accept.includes("application/json"));
+      if (wantsJson) {
+        res.json({ url });
+        return;
+      }
+      res.redirect(url);
+    } catch (error) {
+      log.error({ err: error }, "Error starting GitHub OAuth:");
+      res.status(500).json({ error: "Failed to start GitHub Connect" });
+    }
+  });
+
+  app.get("/api/github/oauth/callback", async (req, res) => {
+    const failRedirect = (msg: string) => {
+      const q = new URLSearchParams({ github: "error", message: msg });
+      res.redirect(`/private/repository-sync?${q.toString()}`);
+    };
+
+    try {
+      const code = typeof req.query.code === "string" ? req.query.code : "";
+      const state = typeof req.query.state === "string" ? req.query.state : "";
+      const oauthError =
+        typeof req.query.error === "string" ? req.query.error : "";
+
+      if (oauthError) {
+        failRedirect(oauthError);
+        return;
+      }
+      if (!code || !state) {
+        failRedirect("Missing OAuth code or state");
+        return;
+      }
+
+      const {
+        consumeOAuthState,
+        exchangeOAuthCode,
+        fetchGitHubUser,
+        verifyContentRepoWriteAccess,
+        setUserGitHubToken,
+      } = await import("../github-user-tokens");
+
+      const username = consumeOAuthState(state);
+      if (!username) {
+        failRedirect("Invalid or expired OAuth state. Try Connect again.");
+        return;
+      }
+
+      const exchanged = await exchangeOAuthCode(code);
+      const ghUser = await fetchGitHubUser(exchanged.access_token);
+      const writeCheck = await verifyContentRepoWriteAccess(
+        exchanged.access_token,
+      );
+      if (!writeCheck.ok) {
+        failRedirect(writeCheck.error || "No write access to content repo");
+        return;
+      }
+
+      const expiresIn =
+        typeof exchanged.expires_in === "number"
+          ? exchanged.expires_in
+          : 8 * 60 * 60;
+
+      await setUserGitHubToken(username, {
+        accessToken: exchanged.access_token,
+        refreshToken: exchanged.refresh_token,
+        githubLogin: ghUser.login,
+        githubName: ghUser.name,
+        githubEmail: ghUser.email,
+        expiresAt: Date.now() + expiresIn * 1000,
+        connectedAt: new Date().toISOString(),
+      });
+
+      res.redirect("/private/repository-sync?github=connected");
+    } catch (error) {
+      log.error({ err: error }, "GitHub OAuth callback failed:");
+      failRedirect(
+        error instanceof Error ? error.message : "OAuth callback failed",
+      );
+    }
+  });
+
   // GitHub webhook endpoint - receives push events for auto-pull
   app.post("/api/github/webhook", async (req, res) => {
     try {
@@ -1191,6 +1355,64 @@ export function registerGithubRoutes(app: Express): void {
           ? author.trim()
           : undefined;
 
+      // Resolve acting username: MCP x-mcp-author / body author, or staff session
+      let actingUsername = authorName || null;
+      {
+        const authHeader = req.headers.authorization || "";
+        const bearer = authHeader.startsWith("Bearer ")
+          ? authHeader.slice(7).trim()
+          : "";
+        const mcpSecret =
+          process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
+        if (bearer && mcpSecret && bearer === mcpSecret) {
+          const mcpAuthor = req.headers["x-mcp-author"];
+          if (typeof mcpAuthor === "string" && mcpAuthor.trim()) {
+            actingUsername = mcpAuthor.trim();
+          } else if (authorName) {
+            actingUsername = authorName;
+          }
+        } else {
+          const staff = await requireStaffSession(req, res);
+          if (!staff.authorized) return;
+          actingUsername = staff.username || authorName || null;
+        }
+      }
+
+      const {
+        resolveCommitGitHubToken,
+        GitHubConnectError,
+      } = await import("../github-user-tokens");
+
+      let resolved;
+      try {
+        resolved = await resolveCommitGitHubToken({
+          username: actingUsername,
+          purpose: "user_commit",
+        });
+      } catch (err) {
+        if (err instanceof GitHubConnectError) {
+          const status =
+            err.code === "github_connect_required" ? 403 : 401;
+          res.status(status).json({
+            success: false,
+            error: err.message,
+            code: err.code,
+          });
+          return;
+        }
+        throw err;
+      }
+
+      const commitAuthor =
+        resolved.githubName || resolved.githubLogin
+          ? {
+              name: resolved.githubName || resolved.githubLogin!,
+              email:
+                resolved.githubEmail ||
+                `${resolved.githubLogin}@users.noreply.github.com`,
+            }
+          : undefined;
+
       // Queue mode: markFileAsModified then auto-commit queue, or one tree commit
       // when auto-commit is off. Used by MCP so multi-file writes never parallel
       // Contents API PUTs (GitHub 409). DebugBubble per-file still uses commit-file.
@@ -1204,10 +1426,12 @@ export function registerGithubRoutes(app: Express): void {
         const result = await queueOrCommitFiles({
           files: Array.isArray(files) ? files : undefined,
           message: message.trim(),
-          author: authorName,
+          author: authorName || actingUsername || undefined,
           force: !!force,
           contentRoot: site?.contentRootName,
           repoUrl: site?.config?.githubRepoUrl,
+          token: resolved.token,
+          commitAuthor,
           logEdit: (shortPath, author) => {
             getSyncLogForResponse(res).log("EDIT", `MCP queued edit: ${shortPath}`, author);
           },
@@ -1220,14 +1444,22 @@ export function registerGithubRoutes(app: Express): void {
           res.json({ success: true, commitHash: result.commitHash });
           return;
         }
+        if (result.status === 403) {
+          res.status(403).json({
+            success: false,
+            error: result.error,
+            code: result.errorCode,
+          });
+          return;
+        }
         res.status(400).json({ success: false, error: result.error });
         return;
       }
 
       // Direct-commit mode (existing path — used by DebugBubble / manual CMS commits)
       let finalMessage = message.trim();
-      if (authorName) {
-        finalMessage = `[Author: ${authorName}] ${finalMessage}`;
+      if (authorName || actingUsername) {
+        finalMessage = `[Author: ${authorName || actingUsername}] ${finalMessage}`;
       }
 
       const { commitAndPush } = await import("../github");
@@ -1237,6 +1469,8 @@ export function registerGithubRoutes(app: Express): void {
         files: Array.isArray(files) ? files : undefined,
         repoUrl: site?.config?.githubRepoUrl,
         contentRoot: site?.contentRootName,
+        token: resolved.token,
+        commitAuthor,
       });
 
       if (result.success) {
@@ -1345,6 +1579,40 @@ export function registerGithubRoutes(app: Express): void {
         res.status(400).json({ error: "Missing filePath or message" });
         return;
       }
+
+      const staff = await requireStaffSession(req, res);
+      if (!staff.authorized) return;
+
+      const actingUsername =
+        (author && typeof author === "string" && author.trim()) ||
+        staff.username ||
+        null;
+
+      const {
+        resolveCommitGitHubToken,
+        GitHubConnectError,
+      } = await import("../github-user-tokens");
+
+      let resolved;
+      try {
+        resolved = await resolveCommitGitHubToken({
+          username: actingUsername,
+          purpose: "user_commit",
+        });
+      } catch (err) {
+        if (err instanceof GitHubConnectError) {
+          res
+            .status(err.code === "github_connect_required" ? 403 : 401)
+            .json({
+              success: false,
+              error: err.message,
+              code: err.code,
+            });
+          return;
+        }
+        throw err;
+      }
+
       const site = res.locals.site as {
         contentRootName?: string;
         config?: { githubRepoUrl?: string };
@@ -1353,9 +1621,19 @@ export function registerGithubRoutes(app: Express): void {
       const result = await commitSingleFile({
         filePath,
         message,
-        author,
+        author: actingUsername || undefined,
         repoUrl: site?.config?.githubRepoUrl,
         contentRoot: site?.contentRootName,
+        token: resolved.token,
+        commitAuthor:
+          resolved.githubName || resolved.githubLogin
+            ? {
+                name: resolved.githubName || resolved.githubLogin!,
+                email:
+                  resolved.githubEmail ||
+                  `${resolved.githubLogin}@users.noreply.github.com`,
+              }
+            : undefined,
       });
 
       if (result.success) {

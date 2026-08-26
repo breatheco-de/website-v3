@@ -6,11 +6,16 @@
 import { markFileAsModified, detectPendingChanges } from "./sync-state";
 import { isAutoCommitEnabled } from "./auto-commit";
 import { commitAndPush } from "./github";
+import {
+  resolveCommitGitHubToken,
+  GitHubConnectError,
+} from "./github-user-tokens";
 
 export type QueueOrCommitResult =
   | { status: 202; queued: true; files: string[]; author: string }
   | { status: 200; success: true; commitHash?: string }
-  | { status: 400; success: false; error: string };
+  | { status: 400; success: false; error: string }
+  | { status: 403; success: false; error: string; errorCode?: string };
 
 export async function queueOrCommitFiles(opts: {
   files?: string[];
@@ -19,6 +24,8 @@ export async function queueOrCommitFiles(opts: {
   force?: boolean;
   contentRoot?: string;
   repoUrl?: string;
+  token?: string;
+  commitAuthor?: { name: string; email: string };
   logEdit?: (shortPath: string, author: string) => void;
 }): Promise<QueueOrCommitResult> {
   let filesToQueue: string[];
@@ -45,12 +52,44 @@ export async function queueOrCommitFiles(opts: {
     return { status: 202, queued: true, files: filesToQueue, author: effectiveAuthor };
   }
 
+  let token = opts.token;
+  let commitAuthor = opts.commitAuthor;
+  if (!token) {
+    try {
+      const resolved = await resolveCommitGitHubToken({
+        username: effectiveAuthor,
+        purpose: "user_commit",
+      });
+      token = resolved.token;
+      if (resolved.githubLogin || resolved.githubName) {
+        commitAuthor = {
+          name: resolved.githubName || resolved.githubLogin!,
+          email:
+            resolved.githubEmail ||
+            `${resolved.githubLogin}@users.noreply.github.com`,
+        };
+      }
+    } catch (err) {
+      if (err instanceof GitHubConnectError) {
+        return {
+          status: 403,
+          success: false,
+          error: err.message,
+          errorCode: err.code,
+        };
+      }
+      throw err;
+    }
+  }
+
   const finalMsg = `[Author: ${effectiveAuthor}] ${opts.message.trim()}`;
   const result = await commitAndPush(finalMsg, {
     force: !!opts.force,
     files: filesToQueue,
     repoUrl: opts.repoUrl,
     contentRoot: opts.contentRoot,
+    token,
+    commitAuthor,
   });
 
   if (result.success) {

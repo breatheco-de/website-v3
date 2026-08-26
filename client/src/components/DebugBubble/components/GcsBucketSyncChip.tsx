@@ -37,7 +37,7 @@ export function GcsBucketSyncChip({ className, enabled = true, onNavigate }: Gcs
       type="button"
       onClick={onNavigate}
       className={cn(
-        "flex items-center justify-between gap-1 min-w-0 px-2 py-2 rounded-md text-sm hover-elevate text-left w-full",
+        "flex items-center justify-between gap-1 min-w-0 px-2 py-2 text-sm hover-elevate text-left w-full",
         className,
       )}
       data-testid="chip-gcs-sync"
