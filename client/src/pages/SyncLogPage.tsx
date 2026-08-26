@@ -31,6 +31,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -708,56 +713,115 @@ export default function SyncLogPage() {
                   )}
                 </code>
               </span>
-              <span className="flex items-center gap-1.5">
-                <Webhook className="h-3.5 w-3.5" />
+              <button
+                type="button"
+                className="inline-flex"
+                onClick={() => { setWebhookRetryResult(null); setWebhookRetryOpen(true); }}
+                title={syncInfo.webhook.active ? "Webhook settings" : "Set up webhook"}
+              >
                 {syncInfo.webhook.active ? (
-                  <button
-                    className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:underline"
-                    onClick={() => { setWebhookRetryResult(null); setWebhookRetryOpen(true); }}
-                    data-testid="button-webhook-active"
-                  >
-                    <Check className="h-3 w-3" />
-                    Active
-                  </button>
-                ) : (
-                  <button
-                    className="flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:underline"
-                    onClick={() => { setWebhookRetryResult(null); setWebhookRetryOpen(true); }}
-                    data-testid="button-webhook-inactive"
-                  >
-                    <X className="h-3 w-3" />
-                    Webhooks Inactive
-                  </button>
-                )}
-              </span>
-              {!githubConnectionLoading && connection && (
-                connection.connected && connection.githubLogin ? (
                   <Badge
                     variant="secondary"
-                    className="gap-1 border-transparent bg-chart-3/15 text-chart-3 font-normal"
-                    data-testid="badge-github-connection-ok"
-                    title={`Connected as @${connection.githubLogin}`}
+                    className="gap-1 border-transparent bg-chart-3/15 text-chart-3 font-normal cursor-pointer"
+                    data-testid="button-webhook-active"
                   >
-                    <Github className="h-3 w-3" />
-                    @{connection.githubLogin}
+                    <Webhook className="h-3 w-3" />
+                    Webhook Active
                   </Badge>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => void startGitHubConnect()}
-                    className="inline-flex"
-                    title="Connect GitHub to commit content"
+                  <Badge
+                    variant="secondary"
+                    className="gap-1 border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400 font-normal cursor-pointer"
+                    data-testid="button-webhook-inactive"
                   >
-                    <Badge
-                      variant="destructive"
-                      className="gap-1 font-normal cursor-pointer"
-                      data-testid="badge-github-connection-missing"
+                    <Webhook className="h-3 w-3" />
+                    Webhook Inactive
+                  </Badge>
+                )}
+              </button>
+              {!githubConnectionLoading && connection && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex"
+                      data-testid={
+                        connection.connected && connection.githubLogin
+                          ? "badge-github-connection-ok"
+                          : "badge-github-connection-missing"
+                      }
                     >
-                      <Github className="h-3 w-3" />
-                      Github account not connected
-                    </Badge>
-                  </button>
-                )
+                      {connection.connected && connection.githubLogin ? (
+                        <Badge
+                          variant="secondary"
+                          className="gap-1 border-transparent bg-chart-3/15 text-chart-3 font-normal cursor-pointer"
+                        >
+                          <Github className="h-3 w-3" />
+                          @{connection.githubLogin}
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="destructive"
+                          className="gap-1 font-normal cursor-pointer"
+                        >
+                          <Github className="h-3 w-3" />
+                          Github account not connected
+                        </Badge>
+                      )}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    className="w-80 space-y-3 text-sm"
+                    data-testid="popover-github-connection"
+                  >
+                    {connection.connected && connection.githubLogin ? (
+                      <>
+                        <div className="space-y-1">
+                          <p className="font-medium text-foreground flex items-center gap-1.5">
+                            <Github className="h-3.5 w-3.5" />
+                            Connected as @{connection.githubLogin}
+                          </p>
+                          <p className="text-muted-foreground text-xs leading-relaxed">
+                            When you save or push content, GitHub records the commit under your
+                            account. Other people will see you as the author on the content repo.
+                          </p>
+                          <p className="text-muted-foreground text-xs leading-relaxed">
+                            Pulls and automatic system jobs still use the shared service token —
+                            that does not change your commit identity.
+                          </p>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="space-y-1">
+                          <p className="font-medium text-foreground flex items-center gap-1.5">
+                            <Github className="h-3.5 w-3.5" />
+                            GitHub not connected
+                          </p>
+                          <p className="text-muted-foreground text-xs leading-relaxed">
+                            {connection.required
+                              ? "This environment requires your personal GitHub account before you can push content. Until you connect, commits are blocked so changes are not published under the shared bot account."
+                              : "You have not linked a GitHub account yet. Commits currently use the shared service token. Connecting is optional here, but it lets commits show up as you on GitHub."}
+                          </p>
+                          <p className="text-muted-foreground text-xs leading-relaxed">
+                            Fix: click Connect below, approve access for the content repository, then
+                            return here. You only need to do this once per user on this site.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => void startGitHubConnect()}
+                          data-testid="button-github-connect-popover"
+                        >
+                          Connect GitHub
+                        </Button>
+                      </>
+                    )}
+                  </PopoverContent>
+                </Popover>
               )}
             </div>
           )}

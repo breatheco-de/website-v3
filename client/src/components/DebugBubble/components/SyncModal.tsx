@@ -20,7 +20,10 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { AutoCommitStatus, PendingChange, GitHubSyncStatus } from "../types";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
-import { startGitHubConnect } from "@/hooks/useGitHubUserConnection";
+import {
+  startGitHubConnect,
+  useGitHubUserConnection,
+} from "@/hooks/useGitHubUserConnection";
 
 export interface SyncModalProps {
   open: boolean;
@@ -112,9 +115,12 @@ export function SyncModal({
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [autoPushExpanded, setAutoPushExpanded] = useState(false);
   const [autoPullExpanded, setAutoPullExpanded] = useState(false);
+  const [githubIdentityExpanded, setGithubIdentityExpanded] = useState(false);
   const [queueFilter, setQueueFilter] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const formatSitePath = useFormatSitePath();
+  const { connection, needsConnect, isLoading: githubConnectionLoading } =
+    useGitHubUserConnection();
 
   const { data: syncInfo } = useQuery<{
     repoUrl: string | null;
@@ -424,7 +430,109 @@ export function SyncModal({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {/* GitHub identity card */}
+            <Card
+              className={`p-3 space-y-2 ${
+                needsConnect
+                  ? "border-destructive/30 bg-destructive/5"
+                  : connection?.connected
+                    ? "border-chart-3/30 bg-chart-3/5"
+                    : ""
+              }`}
+              data-testid="card-github-identity"
+            >
+              <button
+                type="button"
+                className="flex items-center gap-1.5 w-full"
+                onClick={() => setGithubIdentityExpanded((v) => !v)}
+                data-testid="button-toggle-github-identity"
+              >
+                {githubIdentityExpanded ? (
+                  <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+                ) : (
+                  <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                )}
+                <div
+                  className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                    githubConnectionLoading
+                      ? "bg-muted-foreground/30"
+                      : connection?.connected
+                        ? "bg-green-500"
+                        : needsConnect
+                          ? "bg-destructive"
+                          : "bg-muted-foreground/30"
+                  }`}
+                />
+                <Github
+                  className={`h-3 w-3 shrink-0 ${
+                    connection?.connected
+                      ? "text-chart-3"
+                      : needsConnect
+                        ? "text-destructive"
+                        : "text-muted-foreground"
+                  }`}
+                />
+                <span className="text-xs font-medium truncate text-left">
+                  {githubConnectionLoading
+                    ? "GitHub…"
+                    : connection?.connected && connection.githubLogin
+                      ? `Commits as @${connection.githubLogin}`
+                      : needsConnect
+                        ? "Not connected"
+                        : "Service token"}
+                </span>
+              </button>
+              {githubIdentityExpanded && (
+                <div className="space-y-2">
+                  {connection?.connected && connection.githubLogin ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      Content commits use your GitHub identity{" "}
+                      <span className="font-medium text-foreground">
+                        @{connection.githubLogin}
+                      </span>
+                      . Pulls and system operations still use the service{" "}
+                      <span className="font-mono">GITHUB_TOKEN</span>.
+                    </p>
+                  ) : needsConnect ? (
+                    <>
+                      <p className="text-[11px] text-muted-foreground">
+                        Connect GitHub to commit. Until then, content commits are
+                        blocked.
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 text-xs w-full"
+                        onClick={() => void startGitHubConnect()}
+                        data-testid="button-github-connect-identity-card"
+                      >
+                        Connect GitHub
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      Connect is not required here. Commits use the shared service{" "}
+                      <span className="font-mono">GITHUB_TOKEN</span>. Set{" "}
+                      <span className="font-mono">GITHUB_CONNECT_REQUIRED=true</span>{" "}
+                      (or run production) to require personal GitHub identity.
+                    </p>
+                  )}
+                </div>
+              )}
+              {!githubIdentityExpanded && needsConnect && (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 text-xs w-full"
+                  onClick={() => void startGitHubConnect()}
+                  data-testid="button-github-connect-identity-card-compact"
+                >
+                  Connect GitHub
+                </Button>
+              )}
+            </Card>
+
             {/* Auto-push card */}
             <Card className="p-3 space-y-2">
               <button
