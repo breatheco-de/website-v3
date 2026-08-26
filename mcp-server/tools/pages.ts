@@ -93,7 +93,6 @@ import {
   collectProposedUrlParamValues,
   collectProposedUrlParamValuesByLocale,
   validateUrlParamPeerValues,
-  LOCALE_ONLY_URL_PARAMS,
   extractParamSlug,
   missingRequiredFields,
   getEditorConfig,
@@ -2237,50 +2236,48 @@ export function registerPageTools(
         return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
 
-      const categoryUpdate = updates.find((u) => u.field_path === "category");
-      if (categoryUpdate) {
-        const urlParams = listExtraUrlPatternParams(resolved.config.url_pattern);
-        if (urlParams.includes("category")) {
-          const catValue = extractParamSlug(categoryUpdate.value);
-          if (catValue) {
-            const peerGate = validateUrlParamPeerValues(
-              contentPath,
-              resolved.contentType,
-              resolved.config,
-              { [locale]: { category: catValue } },
-              confirm_new_values,
-            );
-            if (peerGate) {
-              return actionRequired(
-                {
-                  success: false,
-                  action_required: "confirm_new_url_param_value",
-                  code: "confirm_new_url_param_value",
-                  message:
-                    `New category '${catValue}' for ${locale} is not used by any ${locale} peer. ` +
-                    `Observed: [${peerGate.observed_values.slice(0, 40).join(", ")}]. ` +
-                    "Get principal approval, then retry with confirm_new_values: true or pick an observed slug.",
-                  ...peerGate,
-                  contentType: resolved.contentType,
-                  slug,
-                },
-                [
-                  {
-                    tool: "update_fields",
-                    reason: "Retry with confirm_new_values: true or an observed category",
-                    args_hint: { slug, locale, contentType: resolved.contentType, updates: inputUpdates, confirm_new_values: true, site },
-                    priority: "required",
-                  },
-                  {
-                    tool: "get_content_type_info",
-                    reason: "Inspect observed_values_by_locale.category",
-                    args_hint: { contentType: resolved.contentType, site },
-                    priority: "recommended",
-                  },
-                ],
-              );
-            }
-          }
+      const urlParams = listExtraUrlPatternParams(resolved.config.url_pattern);
+      for (const param of urlParams) {
+        const paramUpdate = updates.find((u) => u.field_path === param);
+        if (!paramUpdate) continue;
+        const paramValue = extractParamSlug(paramUpdate.value);
+        if (!paramValue) continue;
+        const peerGate = validateUrlParamPeerValues(
+          contentPath,
+          resolved.contentType,
+          resolved.config,
+          { [locale]: { [param]: paramValue } },
+          confirm_new_values,
+        );
+        if (peerGate) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "confirm_new_url_param_value",
+              code: "confirm_new_url_param_value",
+              message:
+                `New value '${paramValue}' for URL param '${param}' (${locale}) is not used by any ${locale} peer. ` +
+                `Observed: [${peerGate.observed_values.slice(0, 40).join(", ")}]. ` +
+                "Get principal approval, then retry with confirm_new_values: true or pick an observed slug.",
+              ...peerGate,
+              contentType: resolved.contentType,
+              slug,
+            },
+            [
+              {
+                tool: "update_fields",
+                reason: "Retry with confirm_new_values: true or an observed URL param value",
+                args_hint: { slug, locale, contentType: resolved.contentType, updates: inputUpdates, confirm_new_values: true, site },
+                priority: "required",
+              },
+              {
+                tool: "get_content_type_info",
+                reason: `Inspect observed_values_by_locale.${param}`,
+                args_hint: { contentType: resolved.contentType, site },
+                priority: "recommended",
+              },
+            ],
+          );
         }
       }
 
@@ -3908,7 +3905,7 @@ export function registerPageTools(
     "Call explain_site topic shared-layout and/or get_content_type_info before creating shared-layout entries. " +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
     "locales map: locale → { meta?, sections?, …field_mapping keys }. Exactly one locale key.\n" +
-    "Blog category (and other locale-only URL params) must be on the locale object — never _common.yml. " +
+    "URL pattern params (from url_pattern, e.g. :category) must be on the locale object — never _common.yml. " +
     "Use observed_values_by_locale from get_content_type_info to pick a peer slug for that language.\n" +
     "New URL-param/select values not seen on same-locale peers require confirm_new_values: true after principal approval.\n\n" +
     "Possible errors: unknown/DB-backed contentType, slug exists, single_locale_create, missing editor.required fields, sections on shared-layout create, unconfirmed new param values.\n" +
@@ -3917,8 +3914,7 @@ export function registerPageTools(
       contentType: z.string().describe("Content type from content-types.yml without database.slug, e.g. 'blog', 'program', 'page', 'landing'."),
       slug: z.string().describe("URL-safe slug for the new entry. Must not already exist for this content type."),
       common: z.record(z.unknown()).describe(
-        "Fields written to _common.yml (locale-independent). Do NOT put category here — use the locale object. " +
-        "Other URL params may go here only when identical across all locales (blog category never).",
+        "Fields written to _common.yml (locale-independent). Do NOT put URL pattern params here — use the locale object.",
       ),
       locales: z.record(z.record(z.unknown())).describe(
         "Map of locale → locale YAML fields. Include meta, optional sections, and field_mapping keys (title, description, content, …). " +
@@ -4079,17 +4075,16 @@ export function registerPageTools(
         };
       }
 
-      // URL param / select observed gate (locale-scoped for category)
+      // URL pattern params must live on locale YAML only
       const urlParams = listExtraUrlPatternParams(config.url_pattern);
       const commonRecord = { ...(common as Record<string, unknown>) };
-      const localeOnlyOnCommon: string[] = [];
+      const urlParamsOnCommon: string[] = [];
       for (const param of urlParams) {
-        if (!LOCALE_ONLY_URL_PARAMS.has(param)) continue;
-        if (extractParamSlug(commonRecord[param])) localeOnlyOnCommon.push(param);
+        if (extractParamSlug(commonRecord[param])) urlParamsOnCommon.push(param);
         delete commonRecord[param];
       }
-      if (localeOnlyOnCommon.length > 0) {
-        const missingOnLocale = localeOnlyOnCommon.filter((param) =>
+      if (urlParamsOnCommon.length > 0) {
+        const missingOnLocale = urlParamsOnCommon.filter((param) =>
           !Object.entries(normalizedLocales).some(([, v]) => extractParamSlug(v.fields[param])),
         );
         if (missingOnLocale.length > 0) {
@@ -4099,9 +4094,8 @@ export function registerPageTools(
               action_required: "locale_only_url_param_on_common",
               code: "locale_only_url_param_on_common",
               message:
-                `URL param(s) [${missingOnLocale.join(", ")}] must be on the locale object, not _common.yml. ` +
-                "Blog category is language-specific (e.g. en → ai-tools, es → herramientas-ia). " +
-                "Put category on locales.{locale} and retry.",
+                `URL pattern param(s) [${missingOnLocale.join(", ")}] must be on the locale object, not _common.yml. ` +
+                "Put each param on locales.{locale} and retry.",
               params: missingOnLocale,
               contentType,
               slug,
@@ -4115,7 +4109,7 @@ export function registerPageTools(
               },
               {
                 tool: "create_entry",
-                reason: "Retry with category on the locale object (not common)",
+                reason: "Retry with URL pattern params on the locale object (not common)",
                 args_hint: { contentType, slug, common: commonRecord, locales, site },
                 priority: "required",
               },
@@ -5381,14 +5375,14 @@ export function registerPageTools(
       const localeData = built.localeData;
 
       const urlParams = listExtraUrlPatternParams(resolved.config.url_pattern);
-      if (urlParams.includes("category")) {
-        const catValue = extractParamSlug(localeData.category);
-        if (catValue) {
+      for (const param of urlParams) {
+        const paramValue = extractParamSlug(localeData[param]);
+        if (paramValue) {
           const peerGate = validateUrlParamPeerValues(
             contentPath,
             resolved.contentType,
             resolved.config,
-            { [target_locale]: { category: catValue } },
+            { [target_locale]: { [param]: paramValue } },
             confirm_new_values,
           );
           if (peerGate) {
@@ -5398,8 +5392,8 @@ export function registerPageTools(
                 action_required: "confirm_new_url_param_value",
                 code: "confirm_new_url_param_value",
                 message:
-                  `Category '${catValue}' for ${target_locale} is not used by any ${target_locale} peer. ` +
-                  "Blog category is language-specific — pick an observed slug for the target locale or get principal approval.",
+                  `URL param '${param}' value '${paramValue}' for ${target_locale} is not used by any ${target_locale} peer. ` +
+                  "Pick an observed slug for the target locale or get principal approval.",
                 ...peerGate,
                 contentType: resolved.contentType,
                 slug,
@@ -5407,28 +5401,29 @@ export function registerPageTools(
               [
                 {
                   tool: "translate_entry",
-                  reason: "Retry with confirm_new_values: true or a peer category for the target locale",
+                  reason: "Retry with confirm_new_values: true or a peer URL param for the target locale",
                   args_hint: { slug, contentType: resolved.contentType, source_locale, target_locale, content, confirm_new_values: true, site },
                   priority: "required",
                 },
                 {
                   tool: "get_content_type_info",
-                  reason: "Inspect observed_values_by_locale.category",
+                  reason: `Inspect observed_values_by_locale.${param}`,
                   args_hint: { contentType: resolved.contentType, site },
                   priority: "recommended",
                 },
               ],
             );
           }
-        } else if (resolved.contentType === "blog" && !mergeIntoExisting) {
+        } else if (!mergeIntoExisting) {
           return actionRequired(
             {
               success: false,
-              action_required: "missing_category_on_translate",
-              code: "missing_category_on_translate",
+              action_required: "missing_url_param_on_translate",
+              code: "missing_url_param_on_translate",
               message:
-                `Blog translate to ${target_locale} requires category on the locale payload (language-specific URL slug). ` +
-                "Do not reuse the source locale's category — pick one from observed_values_by_locale for the target locale.",
+                `Translate to ${target_locale} requires URL param '${param}' on the locale payload. ` +
+                "Pick one from observed_values_by_locale for the target locale.",
+              param,
               contentType: resolved.contentType,
               slug,
               target_locale,
@@ -5436,14 +5431,14 @@ export function registerPageTools(
             [
               {
                 tool: "get_content_type_info",
-                reason: "Inspect observed_values_by_locale.category",
+                reason: `Inspect observed_values_by_locale.${param}`,
                 args_hint: { contentType: resolved.contentType, site },
                 priority: "required",
               },
               {
                 tool: "translate_entry",
-                reason: "Retry with category on content for the target locale",
-                args_hint: { slug, contentType: resolved.contentType, source_locale, target_locale, content: { ...content, category: "…" }, site },
+                reason: `Retry with ${param} on content for the target locale`,
+                args_hint: { slug, contentType: resolved.contentType, source_locale, target_locale, content: { ...content, [param]: "…" }, site },
                 priority: "required",
               },
             ],
@@ -6274,12 +6269,8 @@ export function registerPageTools(
       const observed: Record<string, string[]> = {};
       const observedByLocale: Record<string, Record<string, string[]>> = {};
       for (const param of urlParams) {
-        if (LOCALE_ONLY_URL_PARAMS.has(param)) {
-          observedByLocale[param] = observeParamValuesByLocale(contentPath, contentType, config, param);
-          observed[param] = [...new Set(Object.values(observedByLocale[param]).flat())].sort();
-        } else {
-          observed[param] = observeParamValues(contentPath, contentType, config, param);
-        }
+        observedByLocale[param] = observeParamValuesByLocale(contentPath, contentType, config, param);
+        observed[param] = [...new Set(Object.values(observedByLocale[param]).flat())].sort();
       }
       const editor = getEditorConfig(config);
       const relation_fields = Object.entries(editor || {})
@@ -6432,7 +6423,7 @@ export function registerPageTools(
             observed_values: observed,
             observed_values_by_locale: observedByLocale,
             observed_values_note:
-              "For locale-only URL params (category on blog), use observed_values_by_locale — pick a slug from the target locale list, not the flat union.",
+              "For URL pattern params, use observed_values_by_locale — pick a slug from the target locale list, not the flat union.",
             create_via: createVia,
             create_via_note: createVia
               ? "Use create_entry (YAML). Shared-layout: one locale, sections []."

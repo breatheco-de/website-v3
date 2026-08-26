@@ -4,29 +4,51 @@
  * scripts/start-sidequest.sh (prod / systemd).
  *
  * Build: esbuild → dist/sidequest-worker.js
- * Liveness: writes data/sidequest.pid for the web process (getEngineStatus).
+ * Liveness: writes data/sidequest.pid + data/sidequest.heartbeat for the web process.
  */
 
 import "dotenv/config";
 import { registerAllJobs } from "./register";
 import {
+  clearSidequestHeartbeat,
   clearSidequestWorkerPid,
   startJobQueue,
   stopJobQueue,
+  writeSidequestHeartbeat,
   writeSidequestWorkerPid,
 } from "./queue";
-import { child } from "../logger";
+import { createSidequestWorkerLogger } from "./sidequest-worker-logger";
 
-const log = child({ module: "sidequest-worker" });
+const log = createSidequestWorkerLogger();
+
+const HEARTBEAT_INTERVAL_MS = 30_000;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
 let shuttingDown = false;
+
+function startHeartbeatLoop(): void {
+  writeSidequestHeartbeat({ pid: process.pid, startedAt: new Date().toISOString() });
+  heartbeatTimer = setInterval(() => {
+    writeSidequestHeartbeat({ pid: process.pid });
+  }, HEARTBEAT_INTERVAL_MS);
+  heartbeatTimer.unref();
+}
+
+function stopHeartbeatLoop(): void {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
 
 async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info({ signal }, "[SidequestWorker] shutting down");
+  stopHeartbeatLoop();
   try {
     clearSidequestWorkerPid(process.pid);
+    clearSidequestHeartbeat(process.pid);
     await stopJobQueue();
   } catch (err) {
     log.error({ err }, "[SidequestWorker] error during shutdown");
@@ -42,7 +64,8 @@ async function main(): Promise<void> {
   registerAllJobs();
   await startJobQueue();
   writeSidequestWorkerPid(process.pid);
-  log.info({ pid: process.pid }, "[SidequestWorker] engine ready (pid file written)");
+  startHeartbeatLoop();
+  log.info({ pid: process.pid }, "[SidequestWorker] engine ready (pid + heartbeat written)");
 }
 
 process.on("SIGTERM", () => {
@@ -55,5 +78,6 @@ process.on("SIGINT", () => {
 void main().catch((err) => {
   log.error({ err }, "[SidequestWorker] failed to start");
   clearSidequestWorkerPid(process.pid);
+  clearSidequestHeartbeat(process.pid);
   process.exit(1);
 });

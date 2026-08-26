@@ -92,6 +92,17 @@ ReadWritePaths=/opt/website-v3
 This limits what the process can touch on the host while still allowing the app
 to write to its runtime files under `/opt/website-v3`.
 
+### Sidequest remote restart bridge
+
+`website-runtime` cannot run `sudo systemctl`. For in-app **Restart Sidequest**
+(webmaster only), the app writes `current/data/sidequest.restart-requested`.
+A separate root-owned **path unit** (`website-sidequest-restart.path`) runs
+`systemctl restart website-sidequest` when that file is touched.
+
+This is intentional and narrow: fixed `ExecStart`, single watched path, no
+user-controlled shell. It is **not** general privilege escalation for the web
+process. Install steps are in [vps.md](vps.md) under Sidequest.
+
 ## Runtime file ownership
 
 Current important ownership/mode expectations:

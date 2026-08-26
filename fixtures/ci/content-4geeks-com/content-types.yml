@@ -6,6 +6,7 @@
 #   directory: folder inside 4geeks-com/ where YAML entries live
 #   url_pattern: URL routing pattern (must include :slug for unique entry URLs)
 #     - Per-locale object: { en: /en/path/:slug, es: /es/ruta/:slug }
+#     - Extra :param segments (not :slug / :locale) are stored on locale YAML only; read merge still falls back to _common for legacy entries.
 #     - Shorthand: { default: /landing/:slug } (same path for all locales)
 #
 # field_mapping (recommended):

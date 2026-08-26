@@ -12,6 +12,7 @@ import {
   unionAttribution,
 } from "../../events/event-store";
 import { child } from "../../logger";
+import { markJobFinished, markJobStarted } from "../heartbeat";
 
 const log = child({ module: "job:index-refresh" });
 
@@ -23,6 +24,8 @@ export type IndexRefreshPayload = {
 
 export class IndexRefreshJob extends Job {
   async run(payload: IndexRefreshPayload): Promise<{ ok: boolean }> {
+    markJobStarted("index_refresh");
+    try {
     const { site, contentRoot } = payload;
     const contentRootName = path.relative(process.cwd(), contentRoot);
     const mg = new MediaGallery(contentRootName);
@@ -58,5 +61,8 @@ export class IndexRefreshJob extends Job {
       "[IndexRefreshJob] snapshot written",
     );
     return { ok: true };
+    } finally {
+      markJobFinished("index_refresh");
+    }
   }
 }

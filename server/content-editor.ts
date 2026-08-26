@@ -3,7 +3,6 @@ import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
-import { isLocaleOnlyUrlParam } from "@shared/urlParamRules";
 import { getConsentKeyError } from "@shared/consentLegacyKeys";
 import {
   wipeSectionOnDuplicate,
@@ -2858,21 +2857,10 @@ export async function createContentEntry(
     normalizeUrlParamInput(urlParamValues[loc]?.[param]) ??
     normalizeUrlParamInput(uniqueFieldValues[param]);
 
-  // Params whose value is identical across active locales go to _common.yml;
-  // params that differ per locale are written into each locale file instead.
-  const uniformUrlParams: Record<string, string> = {};
+  // URL pattern params are always written on locale YAML (never _common.yml).
   const perLocaleUrlParams: string[] = [];
   for (const param of urlParams) {
-    if (isLocaleOnlyUrlParam(param)) {
-      if (activeUrlLocales.some((l) => urlParamValueForLocale(param, l))) {
-        perLocaleUrlParams.push(param);
-      }
-      continue;
-    }
-    const vals = activeUrlLocales.map(l => urlParamValueForLocale(param, l));
-    if (vals.length > 0 && vals[0] && vals.every(v => v === vals[0])) {
-      uniformUrlParams[param] = vals[0];
-    } else if (vals.some(v => v)) {
+    if (activeUrlLocales.some((l) => urlParamValueForLocale(param, l))) {
       perLocaleUrlParams.push(param);
     }
   }
@@ -3170,11 +3158,9 @@ export async function createContentEntry(
               if (fieldName === "slug" || fieldName === "title") continue;
               parsed[fieldName] = coerceToOriginalType(String(newValue), parsed[fieldName]);
             }
-            for (const [param, value] of Object.entries(uniformUrlParams)) {
-              const existing = parsed[param];
-              parsed[param] = existing !== undefined
-                ? coerceToOriginalType(value, existing)
-                : formatUrlParamFieldValue(value, urlParamShapes[param] ?? "string");
+            // URL pattern params must not live on _common.yml
+            for (const param of urlParams) {
+              delete parsed[param];
             }
             // Duplicates never keep source go-live date
             delete parsed[RESERVED_PUBLISHED_AT_FIELD];
@@ -3344,22 +3330,14 @@ export async function createContentEntry(
     else if (key === RESERVED_PUBLISHED_AT_FIELD) {
       // Draft-first: omit until publish/promote. Live create: stamp now.
       if (!draftFirst) commonObj[key] = new Date().toISOString();
-    } else if (urlParams.includes(key) && !isLocaleOnlyUrlParam(key)) {
-      const uniform = uniformUrlParams[key];
-      commonObj[key] = uniform
-        ? formatUrlParamFieldValue(uniform, urlParamShapes[key] ?? "string")
-        : "";
+    } else if (urlParams.includes(key)) {
+      // URL pattern params are locale-only; omit from _common.yml
     } else if (uniqueFieldValues[key] !== undefined) {
       const ufv = uniqueFieldValues[key];
       commonObj[key] = typeof ufv === "boolean" ? ufv : coerceStringValue(ufv as string);
     } else {
       commonObj[key] = "";
     }
-  }
-  // Uniform URL pattern params must be present even if missing from field_mapping
-  for (const [param, value] of Object.entries(uniformUrlParams)) {
-    if (commonObj[param] !== undefined && commonObj[param] !== "") continue;
-    commonObj[param] = formatUrlParamFieldValue(value, urlParamShapes[param] ?? "string");
   }
   const commonYml = yaml.dump(commonObj, { lineWidth: 120, noRefs: true, sortKeys: false });
 

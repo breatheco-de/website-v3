@@ -25,8 +25,111 @@ const SIDEQUEST_DB = path.join(dataDir, "sidequest.sqlite");
 /** Written by the Sidequest worker; web probes process liveness via this path. */
 export const SIDEQUEST_PID_PATH = path.join(dataDir, "sidequest.pid");
 
+/** Worker heartbeat — refreshed every 30s; used for stuck detection. */
+export const SIDEQUEST_HEARTBEAT_PATH = path.join(dataDir, "sidequest.heartbeat");
+
+/** Touched by webmaster restart API; systemd path unit restarts website-sidequest. */
+export const SIDEQUEST_RESTART_FLAG_PATH = path.join(dataDir, "sidequest.restart-requested");
+
+/** Sidequest worker JSON log (tail via admin API). */
+export const SIDEQUEST_LOG_PATH = path.join(dataDir, "logs", "sidequest.log");
+
+export const SIDEQUEST_DB_PATH = SIDEQUEST_DB;
+
 /** Same-origin path for the staff-proxied Sidequest UI. */
 export const SIDEQUEST_DASHBOARD_BASE_PATH = "/admin/sidequest";
+
+export type SidequestHeartbeatPayload = {
+  pid: number;
+  ts: string;
+  startedAt: string;
+  lastJobFinishedAt?: string;
+  currentJob?: string;
+};
+
+export function getSidequestHeartbeatStaleMs(): number {
+  return Number(process.env.SIDEQUEST_HEARTBEAT_STALE_MS || 120_000);
+}
+
+export function readSidequestHeartbeat(): {
+  exists: boolean;
+  mtimeMs: number | null;
+  payload: SidequestHeartbeatPayload | null;
+} {
+  try {
+    const stat = fs.statSync(SIDEQUEST_HEARTBEAT_PATH);
+    const raw = fs.readFileSync(SIDEQUEST_HEARTBEAT_PATH, "utf-8").trim();
+    let payload: SidequestHeartbeatPayload | null = null;
+    if (raw) {
+      try {
+        payload = JSON.parse(raw) as SidequestHeartbeatPayload;
+      } catch {
+        payload = null;
+      }
+    }
+    return { exists: true, mtimeMs: stat.mtimeMs, payload };
+  } catch {
+    return { exists: false, mtimeMs: null, payload: null };
+  }
+}
+
+export function writeSidequestHeartbeat(partial: Partial<SidequestHeartbeatPayload> & { pid: number }): void {
+  fs.mkdirSync(path.dirname(SIDEQUEST_HEARTBEAT_PATH), { recursive: true });
+  const existing = readSidequestHeartbeat().payload;
+  const now = new Date().toISOString();
+  const merged: SidequestHeartbeatPayload = {
+    pid: partial.pid,
+    ts: now,
+    startedAt: partial.startedAt ?? existing?.startedAt ?? now,
+    lastJobFinishedAt: partial.lastJobFinishedAt ?? existing?.lastJobFinishedAt,
+    currentJob: "currentJob" in partial ? partial.currentJob : existing?.currentJob,
+  };
+  fs.writeFileSync(SIDEQUEST_HEARTBEAT_PATH, `${JSON.stringify(merged)}\n`, "utf-8");
+}
+
+export function clearSidequestHeartbeat(expectedPid?: number): void {
+  try {
+    if (expectedPid !== undefined) {
+      const hb = readSidequestHeartbeat().payload;
+      if (hb !== null && hb.pid !== expectedPid) return;
+    }
+    fs.unlinkSync(SIDEQUEST_HEARTBEAT_PATH);
+  } catch {
+    // missing file is fine
+  }
+}
+
+export function readSidequestRestartFlag(): { exists: boolean; mtimeMs: number | null; requestedAt?: string; requestedBy?: string } {
+  try {
+    const stat = fs.statSync(SIDEQUEST_RESTART_FLAG_PATH);
+    let requestedAt: string | undefined;
+    let requestedBy: string | undefined;
+    try {
+      const raw = fs.readFileSync(SIDEQUEST_RESTART_FLAG_PATH, "utf-8").trim();
+      if (raw) {
+        const parsed = JSON.parse(raw) as { requestedAt?: string; requestedBy?: string };
+        requestedAt = parsed.requestedAt;
+        requestedBy = parsed.requestedBy;
+      }
+    } catch {
+      // flag may be empty touch-only
+    }
+    return { exists: true, mtimeMs: stat.mtimeMs, requestedAt, requestedBy };
+  } catch {
+    return { exists: false, mtimeMs: null };
+  }
+}
+
+export function writeSidequestRestartFlag(requestedBy: string | null): void {
+  fs.mkdirSync(path.dirname(SIDEQUEST_RESTART_FLAG_PATH), { recursive: true });
+  const body = JSON.stringify({
+    requestedAt: new Date().toISOString(),
+    requestedBy: requestedBy ?? "unknown",
+  });
+  fs.writeFileSync(SIDEQUEST_RESTART_FLAG_PATH, `${body}\n`, "utf-8");
+}
+
+export const SIDEQUEST_RESTART_DEBOUNCE_MS = 30_000;
 
 let configured = false;
 let starting: Promise<void> | null = null;

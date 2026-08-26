@@ -14,8 +14,6 @@ import {
   normalizeRequiredFlag,
   type ListRequiredEditorFieldsOpts,
 } from "../../shared/validateRequiredFields.js";
-import { LOCALE_ONLY_URL_PARAMS } from "../../shared/urlParamRules.js";
-
 export const MULTI_SITE_TOOL_BLURB =
   "Multi-site: always pass site (domain from sites.yml / list_sites; matching is case-insensitive). Never assume the first site or default to any domain — use the domain the user named. If unsure, call list_sites first.";
 
@@ -127,10 +125,9 @@ export function extractParamSlug(value: unknown): string | null {
   return null;
 }
 
-/** URL params that must live on locale YAML only (never _common.yml). Re-export for MCP callers. */
-export { LOCALE_ONLY_URL_PARAMS, isLocaleOnlyUrlParam } from "../../shared/urlParamRules.js";
-
 export {
+  urlPatternParams,
+  isUrlPatternParam,
   localeYamlCandidatesForObserve,
   observeParamValues,
   observeParamValuesByLocale,
@@ -140,27 +137,12 @@ export {
 } from "../../server/url-param-peers.js";
 
 export function collectProposedUrlParamValues(
-  common: Record<string, unknown>,
+  _common: Record<string, unknown>,
   locales: Record<string, Record<string, unknown>>,
   params: string[],
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const param of params) {
-    if (LOCALE_ONLY_URL_PARAMS.has(param)) {
-      for (const locData of Object.values(locales)) {
-        const v = extractParamSlug(locData[param]);
-        if (v) {
-          out[param] = v;
-          break;
-        }
-      }
-      continue;
-    }
-    const fromCommon = extractParamSlug(common[param]);
-    if (fromCommon) {
-      out[param] = fromCommon;
-      continue;
-    }
     for (const locData of Object.values(locales)) {
       const v = extractParamSlug(locData[param]);
       if (v) {

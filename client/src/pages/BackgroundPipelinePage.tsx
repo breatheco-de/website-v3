@@ -70,6 +70,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { apiFetch, apiRequestWithAuth } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { SidequestDiagnosticsPanel } from "@/components/pipeline/SidequestDiagnosticsPanel";
+import { useSidequestDiagnostics } from "@/hooks/useSidequestDiagnostics";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -500,8 +502,11 @@ function LocksDetailList({ leases }: { leases: PipelineStatus["leases"] }) {
   );
 }
 
-function HealthStrip({ data }: { data: PipelineStatus }) {
+function HealthStrip({ data, site }: { data: PipelineStatus; site?: string }) {
   const { roles, isDevelopment } = useDebugAuth();
+  const { data: sqDiag } = useSidequestDiagnostics(site, !!site);
+  const isStuck = sqDiag?.derivedHealth === "running_stuck";
+  const engineNeedsHelp = data.engine.status === "stopped" || isStuck;
   const { toast } = useToast();
   const [openingDash, setOpeningDash] = useState(false);
   const activeCount = inFlightCount(data.inFlight);
@@ -561,9 +566,17 @@ function HealthStrip({ data }: { data: PipelineStatus }) {
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="pipeline-health-kpis">
       <HealthKpiCard
         label="Agent engine"
-        value={data.engine.status.charAt(0).toUpperCase() + data.engine.status.slice(1)}
-        valueClassName={engineStatusValueClass[data.engine.status]}
-        icon={engineStatusIcon(data.engine.status)}
+        value={
+          isStuck
+            ? "Stuck?"
+            : data.engine.status.charAt(0).toUpperCase() + data.engine.status.slice(1)
+        }
+        valueClassName={
+          isStuck
+            ? "text-amber-400"
+            : engineStatusValueClass[data.engine.status]
+        }
+        icon={isStuck ? engineStatusIcon("restarting") : engineStatusIcon(data.engine.status)}
         subline={
           <div className="space-y-1">
             {canOpenSidequest ? (
@@ -584,20 +597,26 @@ function HealthStrip({ data }: { data: PipelineStatus }) {
           </div>
         }
         detail={
-          activeCount > 0
+          engineNeedsHelp
             ? {
-                label: "View running",
-                testId: "button-view-running",
-                content: <InFlightDetailList data={data.inFlight} />,
+                label: "Diagnostics & logs",
+                testId: "button-sidequest-diagnostics",
+                content: <SidequestDiagnosticsPanel site={site} />,
               }
-            : undefined
+            : activeCount > 0
+              ? {
+                  label: "View running",
+                  testId: "button-view-running",
+                  content: <InFlightDetailList data={data.inFlight} />,
+                }
+              : undefined
         }
         testId="kpi-pipeline-engine"
         education={{
           simple:
-            "Process health for the dedicated Sidequest process that picks up background work (not the website process itself). Running means Sidequest is up. Idle under it means no tasks are in flight right now — not that the engine is down. Restarting or Stopped: saves are safe, but index and validations wait until it recovers (local: npm run sidequest; prod: website-sidequest). A critical staff banner also appears when Sidequest is confirmed down. Sidequest dashboard (webmasters only) opens the job UI; outbox work stays under Events waiting → View waiting.",
+            "Process health for the dedicated Sidequest worker (not the website process). Running means the worker is up. Stuck? means the PID is alive but the heartbeat file is stale — the event loop may be blocked. Stopped: saves still work; use Diagnostics & logs → Check again or Restart Sidequest (webmaster). Prod restart uses a flag file + systemd path unit (docs/vps.md).",
           advanced:
-            "Sidequest.js engine in a separate Node process (server/jobs/sidequest-worker.ts); web only configures/enqueues via server/jobs/queue.ts. Shared SQLite: data/sidequest.sqlite. Engine KPI checks data/sidequest.pid (process alive) — not HTTP, so blocked inline jobs do not look stopped. Dashboard still on :8678; staff proxy: POST /api/admin/sidequest/open (webmaster) sets HttpOnly sidequest_dash cookie; /admin/sidequest reverse-proxies with internal Basic auth. See server/routes/sidequest-dashboard.ts, server/sidequest-dashboard-auth.ts, docs/vps.md (website-sidequest.service).",
+            "Sidequest.js in server/jobs/sidequest-worker.ts; enqueue via server/jobs/queue.ts. Liveness: data/sidequest.pid + data/sidequest.heartbeat (SIDEQUEST_HEARTBEAT_STALE_MS, default 120s). APIs: GET /api/admin/sidequest/diagnostics, POST recheck/restart (webmaster), GET logs → data/logs/sidequest.log. Dashboard: POST /api/admin/sidequest/open, proxy /admin/sidequest.",
         }}
       />
       <HealthKpiCard
@@ -1383,7 +1402,7 @@ export default function BackgroundPipelinePage() {
             Loading pipeline status…
           </div>
         ) : (
-          <HealthStrip data={data} />
+          <HealthStrip data={data} site={site} />
         )}
       </div>
 

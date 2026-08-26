@@ -22,6 +22,7 @@ export type SystemAlertCode =
   | "turnstile_secret_invalid"
   | "background_jobs_stalled"
   | "sidequest_engine_down"
+  | "sidequest_engine_stuck"
   | "github_app_env_missing";
 
 export interface SystemAlert {
@@ -266,20 +267,45 @@ export async function collectSystemAlerts(): Promise<SystemAlert[]> {
 
   try {
     const { getEngineStatus } = await import("./jobs/queue");
+    const { collectSidequestDiagnostics } = await import("./jobs/sidequest-diagnostics");
     const engine = await getEngineStatus();
     if (engine.status === "stopped") {
-      const isProd = process.env.NODE_ENV === "production";
+      let message: string;
+      try {
+        const diagnostics = await collectSidequestDiagnostics();
+        message = `${diagnostics.summary} Saves still work; use Background pipeline → Check again or Restart Sidequest (webmaster).`;
+      } catch {
+        const isProd = process.env.NODE_ENV === "production";
+        message = isProd
+          ? "Index refresh and on-save validation are paused (saves still work). Open Background pipeline for diagnostics, or Restart Sidequest (webmaster)."
+          : "Index refresh and on-save validation are paused (saves still work). In a local environment, start Sidequest in another terminal with: npm run sidequest";
+      }
       alerts.push({
         id: "sidequest_engine_down",
         severity: "critical",
         code: "sidequest_engine_down",
         title: "Sidequest is not running",
-        message: isProd
-          ? "Index refresh and on-save validation are paused (saves still work). On the VPS check website-sidequest: sudo systemctl status website-sidequest — then start/enable if needed (docs/vps.md)."
-          : "Index refresh and on-save validation are paused (saves still work). In a local environment, start Sidequest in another terminal with: npm run sidequest",
+        message,
         actionHref: "/private/background-pipeline",
         actionLabel: "Open pipeline",
       });
+    } else {
+      try {
+        const diagnostics = await collectSidequestDiagnostics();
+        if (diagnostics.derivedHealth === "running_stuck") {
+          alerts.push({
+            id: "sidequest_engine_stuck",
+            severity: "warning",
+            code: "sidequest_engine_stuck",
+            title: "Sidequest may be stuck",
+            message: `${diagnostics.summary} Heartbeat is stale — worker PID is alive but may not be processing jobs. Webmaster can restart from Background pipeline.`,
+            actionHref: "/private/background-pipeline",
+            actionLabel: "Open pipeline",
+          });
+        }
+      } catch {
+        /* non-fatal */
+      }
     }
   } catch {
     /* non-fatal */

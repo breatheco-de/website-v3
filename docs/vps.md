@@ -170,6 +170,44 @@ sudo systemctl is-active website-sidequest
 
 Until the Sidequest unit is enabled, saves still succeed but index/validation jobs queue and never run. `deploy.sh` restarts **both** `website` and `website-sidequest` when each unit exists.
 
+### Remote Sidequest restart (staff UI → systemd)
+
+The web process runs as `website-runtime` (no sudo). Webmasters can restart Sidequest from **Agent Pipeline** or the system alert panel; the API touches a flag file only — it never runs `systemctl` from Node.
+
+**Security:** The path unit watches **one file** and runs **fixed** commands (no shell, no flag contents in `ExecStart`). Same trust bar as other webmaster actions (Sidequest dashboard, sites.yml). See `docs/vps-deployment.md` for the runtime hardening context.
+
+One-time install (root):
+
+```bash
+# /etc/systemd/system/website-sidequest-restart.path
+[Unit]
+Description=Watch for Sidequest restart flag (webmaster API only)
+
+[Path]
+PathModified=/opt/website-v3/current/data/sidequest.restart-requested
+
+[Install]
+WantedBy=multi-user.target
+
+# /etc/systemd/system/website-sidequest-restart.service
+[Unit]
+Description=Restart Sidequest when flag file is touched
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart website-sidequest
+ExecStartPost=/bin/rm -f /opt/website-v3/current/data/sidequest.restart-requested
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now website-sidequest-restart.path
+```
+
+Optional in release `.env` when the path unit is enabled: `SIDEQUEST_SYSTEMD_RESTART_ENABLED=true` (lets diagnostics report path unit as available).
+
+Staff diagnostics: `GET /api/admin/sidequest/diagnostics`, log tail `GET /api/admin/sidequest/logs` (from `data/logs/sidequest.log`). Worker also writes `data/sidequest.heartbeat` (stale threshold `SIDEQUEST_HEARTBEAT_STALE_MS`, default 120000).
+
 Until the web service flip, `deploy.sh` still builds releases and updates `current`, but the running service may keep using the legacy root tree — the script prints a WARNING if `WorkingDirectory` ≠ `…/current`.
 
 ---

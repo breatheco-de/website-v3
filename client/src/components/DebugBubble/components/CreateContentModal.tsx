@@ -1245,7 +1245,7 @@ export function CreateContentModal({
                       {urlParams.length > 0 && (
                         <div className="space-y-2">
                           <p className="text-xs text-muted-foreground">
-                            Category is saved on each language file (<code className="text-[11px]">en.yml</code> /{" "}
+                            URL pattern fields are saved on each language file (<code className="text-[11px]">en.yml</code> /{" "}
                             <code className="text-[11px]">es.yml</code>), not on <code className="text-[11px]">_common.yml</code>.
                             Pick a slug used by peers in that language.
                           </p>

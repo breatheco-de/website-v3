@@ -4,6 +4,7 @@ import { bindingManager } from "../../bindings";
 import { verifyLeaseToken, renewLease, releaseLease, bindingLeaseResource } from "../../leases";
 import { emitEvent, getEventById } from "../../events/event-store";
 import { child } from "../../logger";
+import { markJobFinished, markJobStarted } from "../heartbeat";
 
 const log = child({ module: "job:binding-propagation" });
 
@@ -23,6 +24,8 @@ export type BindingPropagationPayload = {
 
 export class BindingPropagationJob extends Job {
   async run(payload: BindingPropagationPayload): Promise<{ ok: boolean; updatedFiles: string[] }> {
+    markJobStarted("binding_propagation");
+    try {
     const resource = bindingLeaseResource(payload.groupId, payload.locale);
 
     if (!verifyLeaseToken(payload.site, resource, payload.token)) {
@@ -70,5 +73,8 @@ export class BindingPropagationJob extends Job {
     });
 
     return { ok: true, updatedFiles: result.updatedFiles };
+    } finally {
+      markJobFinished("binding_propagation");
+    }
   }
 }

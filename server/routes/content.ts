@@ -187,7 +187,10 @@ import {
 import { mediaGallery } from "../media-gallery";
 import { media } from "../media";
 import multer from "multer";
+import fs from "fs";
+import path from "path";
 import { contentIndex, type ContentType } from "../content-index";
+import { observeParamValuesByLocale, localeYamlCandidatesForObserve } from "../url-param-peers";
 import {
   usesDraftFirstCreate,
   getEntryContentDir,
@@ -2348,43 +2351,49 @@ export function registerContentRoutes(app: Express): void {
       }
 
       const mapping = getFieldMapping(type, ctRoot(res));
-      const valueSets: Record<string, Set<string>> = {};
-      const localeSets: Record<string, Record<string, Set<string>>> = {};
       const shapeVotes: Record<string, { object_slug: number; string: number }> = {};
       for (const param of params) {
-        valueSets[param] = new Set();
-        localeSets[param] = {};
         shapeVotes[param] = { object_slug: 0, string: 0 };
       }
 
-      const ci = getCI(res);
-      const slugs = ci.listContentSlugs(type as ContentType);
-      for (const slug of slugs) {
-        const locales = ci
-          .getAvailableLocalesOrVariants(type as ContentType, slug)
-          .filter((l) => !l.startsWith("_") && !l.includes("."));
-        for (const locale of locales) {
-          const { data } = ci.loadMergedContent(type, slug, locale);
-          if (!data) continue;
-          const record = data as Record<string, unknown>;
-          for (const param of params) {
-            const raw = getRawUrlParamValue(record, param, mapping);
-            if (raw === undefined || raw === null) continue;
-            shapeVotes[param][detectUrlParamValueShape(raw)] += 1;
-            const resolved = resolveUrlFieldValue(raw);
-            if (resolved) {
-              valueSets[param].add(resolved);
-              (localeSets[param][locale] ??= new Set()).add(resolved);
+      const contentPath = ctRoot(res);
+      const typeDir = path.join(contentPath, getDirectory(type, contentPath));
+      const supportedLocales = getSupportedLocales();
+
+      for (const param of params) {
+        optionsByLocale[param] = observeParamValuesByLocale(contentPath, type, config, param, supportedLocales);
+        options[param] = [...new Set(Object.values(optionsByLocale[param]).flat())].sort((a, b) =>
+          a.localeCompare(b),
+        );
+      }
+
+      if (fs.existsSync(typeDir)) {
+        const ci = getCI(res);
+        for (const entry of fs.readdirSync(typeDir, { withFileTypes: true })) {
+          if (!entry.isDirectory() || entry.name.startsWith("_")) continue;
+          const slugDir = path.join(typeDir, entry.name);
+          for (const locale of supportedLocales) {
+            for (const candidate of localeYamlCandidatesForObserve(locale)) {
+              const filePath = path.join(slugDir, candidate);
+              if (!fs.existsSync(filePath)) continue;
+              try {
+                const raw = fs.readFileSync(filePath, "utf-8");
+                const record = ci.safeYamlLoad(raw) as Record<string, unknown> | null;
+                if (!record) continue;
+                for (const param of params) {
+                  const rawValue = getRawUrlParamValue(record, param, mapping);
+                  if (rawValue === undefined || rawValue === null) continue;
+                  shapeVotes[param][detectUrlParamValueShape(rawValue)] += 1;
+                }
+              } catch {
+                /* skip */
+              }
             }
           }
         }
       }
 
       for (const param of params) {
-        options[param] = [...valueSets[param]].sort((a, b) => a.localeCompare(b));
-        for (const [locale, set] of Object.entries(localeSets[param])) {
-          optionsByLocale[param][locale] = [...set].sort((a, b) => a.localeCompare(b));
-        }
         // `:category` is always a plain string URL slug — never `{ slug }`.
         if (param === "category") {
           shapes[param] = "string";

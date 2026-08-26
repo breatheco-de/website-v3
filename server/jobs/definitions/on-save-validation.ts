@@ -17,6 +17,7 @@ import {
 } from "../../events/event-store";
 import { takePendingValidationWriteId } from "../../pipeline-state";
 import { child } from "../../logger";
+import { markJobFinished, markJobStarted } from "../heartbeat";
 
 const log = child({ module: "job:on-save-validation" });
 
@@ -113,6 +114,8 @@ export function emitValidationSettled(
 
 export class OnSaveValidationJob extends Job {
   async run(payload: OnSaveValidationPayload): Promise<{ ok: boolean }> {
+    markJobStarted("on_save_validation");
+    try {
     const { site, contentRoot, contentType, slug, locale, variant } = payload;
     const resource = { contentType, slug, locale };
     const writeEventId =
@@ -202,5 +205,8 @@ export class OnSaveValidationJob extends Job {
       "[OnSaveValidationJob] results written",
     );
     return { ok: true };
+    } finally {
+      markJobFinished("on_save_validation");
+    }
   }
 }

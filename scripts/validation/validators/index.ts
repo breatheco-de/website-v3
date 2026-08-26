@@ -43,7 +43,7 @@ import { editorFieldTypesValidator } from "./editor-field-types";
 import { unknownKeysValidator } from "./unknown-keys";
 import { relationTargetsValidator } from "./relation-targets";
 import { updatedAtValidator } from "./updated-at";
-import { blogCategoryLocaleValidator } from "./blog-category-locale";
+import { urlParamLocaleValidator } from "./url-param-locale";
 
 export const validators: Validator[] = [
   redirectValidator,
@@ -75,7 +75,7 @@ export const validators: Validator[] = [
   unknownKeysValidator,
   relationTargetsValidator,
   staticFieldOverridesValidator,
-  blogCategoryLocaleValidator,
+  urlParamLocaleValidator,
   orphanedFilesValidator,
   formsValidator,
   consentLegacyKeysValidator,
