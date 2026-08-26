@@ -97,5 +97,6 @@ export const ENTRY_LOCAL_VALIDATOR_NAMES = [
   "component-behaviors",
   "cta-tracking",
   "static-field-overrides",
+  "blog-category-locale",
   "updated-at",
 ] as const;

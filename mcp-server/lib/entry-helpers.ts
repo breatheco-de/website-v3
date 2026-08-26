@@ -2,13 +2,9 @@
  * Helpers for create_entry / list_entry_seo / get_content_type_info / SAFE_TOP_LEVEL.
  * Rules are driven by content-type config — never hardcode a contentType name.
  */
-import fs from "fs";
-import path from "path";
 import {
-  getDirectory,
   isDbBacked,
   isSharedLayoutConfig,
-  safeLoad,
   type ContentTypeConfig,
 } from "./content.js";
 import { actionRequired, type McpTextResult, type NextAction } from "./respond.js";
@@ -18,6 +14,7 @@ import {
   normalizeRequiredFlag,
   type ListRequiredEditorFieldsOpts,
 } from "../../shared/validateRequiredFields.js";
+import { LOCALE_ONLY_URL_PARAMS } from "../../shared/urlParamRules.js";
 
 export const MULTI_SITE_TOOL_BLURB =
   "Multi-site: always pass site (domain from sites.yml / list_sites; matching is case-insensitive). Never assume the first site or default to any domain — use the domain the user named. If unsure, call list_sites first.";
@@ -130,38 +127,17 @@ export function extractParamSlug(value: unknown): string | null {
   return null;
 }
 
-/** Scan entry folders for distinct values of a URL/index param (e.g. category). */
-export function observeParamValues(
-  contentPath: string,
-  contentType: string,
-  config: ContentTypeConfig,
-  param: string,
-): string[] {
-  const dir = path.join(contentPath, getDirectory(contentType, config));
-  if (!fs.existsSync(dir)) return [];
-  const seen = new Set<string>();
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name.startsWith("_")) continue;
-    const candidates = [
-      path.join(dir, entry.name, "_common.yml"),
-      path.join(dir, entry.name, "en.yml"),
-      path.join(dir, entry.name, "es.yml"),
-    ];
-    for (const file of candidates) {
-      if (!fs.existsSync(file)) continue;
-      try {
-        const data = safeLoad(fs.readFileSync(file, "utf-8")) as Record<string, unknown> | null;
-        if (!data) continue;
-        const slug = extractParamSlug(data[param]);
-        if (slug) seen.add(slug);
-      } catch {
-        /* skip */
-      }
-    }
-  }
-  return [...seen].sort();
-}
+/** URL params that must live on locale YAML only (never _common.yml). Re-export for MCP callers. */
+export { LOCALE_ONLY_URL_PARAMS, isLocaleOnlyUrlParam } from "../../shared/urlParamRules.js";
+
+export {
+  localeYamlCandidatesForObserve,
+  observeParamValues,
+  observeParamValuesByLocale,
+  validateUrlParamPeerValues,
+  collectProposedUrlParamValuesByLocale,
+  type UrlParamPeerGateFailure,
+} from "../../server/url-param-peers.js";
 
 export function collectProposedUrlParamValues(
   common: Record<string, unknown>,
@@ -170,6 +146,16 @@ export function collectProposedUrlParamValues(
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const param of params) {
+    if (LOCALE_ONLY_URL_PARAMS.has(param)) {
+      for (const locData of Object.values(locales)) {
+        const v = extractParamSlug(locData[param]);
+        if (v) {
+          out[param] = v;
+          break;
+        }
+      }
+      continue;
+    }
     const fromCommon = extractParamSlug(common[param]);
     if (fromCommon) {
       out[param] = fromCommon;

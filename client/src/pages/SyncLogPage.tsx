@@ -51,6 +51,7 @@ import { openSyncModal } from "@/components/SyncConflictBanner";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
+  disconnectGitHub,
   startGitHubConnect,
   useGitHubUserConnection,
 } from "@/hooks/useGitHubUserConnection";
@@ -791,6 +792,34 @@ export default function SyncLogPage() {
                             that does not change your commit identity.
                           </p>
                         </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => {
+                            void (async () => {
+                              const result = await disconnectGitHub();
+                              if (!result.ok) {
+                                toast({
+                                  title: "Disconnect failed",
+                                  description: result.error,
+                                  variant: "destructive",
+                                });
+                                return;
+                              }
+                              await invalidateGitHubConnection();
+                              toast({
+                                title: "GitHub disconnected",
+                                description:
+                                  "You can Connect again anytime to resume commits as yourself.",
+                              });
+                            })();
+                          }}
+                          data-testid="button-github-disconnect-popover"
+                        >
+                          Disconnect GitHub
+                        </Button>
                       </>
                     ) : (
                       <>

@@ -1482,7 +1482,9 @@ export default function RuntimeIssuesTab() {
         filters={filters}
         locales={locales}
         devices={devices}
-        onPatch={patchFilters}
+        onApply={(next) => {
+          writeView({ ...view, filters: next, page: 1 });
+        }}
         onClear={clearFilters}
       />
       <RuntimeIssueIngestionFiltersDialog

@@ -1244,6 +1244,11 @@ export function CreateContentModal({
                     <>
                       {urlParams.length > 0 && (
                         <div className="space-y-2">
+                          <p className="text-xs text-muted-foreground">
+                            Category is saved on each language file (<code className="text-[11px]">en.yml</code> /{" "}
+                            <code className="text-[11px]">es.yml</code>), not on <code className="text-[11px]">_common.yml</code>.
+                            Pick a slug used by peers in that language.
+                          </p>
                           {urlParams.map((param) => (
                             <div key={param} className="space-y-1.5">
                               <p className="text-xs font-medium text-muted-foreground">
@@ -1446,15 +1451,10 @@ export function CreateContentModal({
                           const commonNotes: string[] = [];
                           const localeNotes: Record<string, string[]> = {};
                           for (const param of urlParams) {
-                            const vals = activeLocales.map((l) => urlParamValues[l]?.[param] ?? "");
-                            const allFilledSame = vals.every((v) => v && v === vals[0]);
-                            if (allFilledSame) {
-                              commonNotes.push(fmtParam(param, vals[0]));
-                            } else {
-                              activeLocales.forEach((l, i) => {
-                                if (vals[i]) (localeNotes[l] ??= []).push(fmtParam(param, vals[i]));
-                              });
-                            }
+                            activeLocales.forEach((l) => {
+                              const v = urlParamValues[l]?.[param] ?? "";
+                              if (v) (localeNotes[l] ??= []).push(fmtParam(param, v));
+                            });
                           }
                           return (
                             <div className="space-y-0.5 font-mono text-xs text-muted-foreground pl-4 pt-1">

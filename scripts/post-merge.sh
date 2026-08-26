@@ -70,31 +70,7 @@ PYEOF
 echo "[post-merge] Scanning for merge conflict markers..."
 resolve_conflicts
 
-# ── Version bump ──────────────────────────────────────────────────────────────
-python3 - << 'PYEOF'
-import json, os, re
-from datetime import datetime, timezone
-
-version_path = os.path.join(os.getcwd(), "version.json")
-try:
-    with open(version_path, "r") as f:
-        data = json.load(f)
-    version = data.get("version", "1.0.0")
-    parts = version.split(".")
-    if len(parts) == 3:
-        parts[2] = str(int(parts[2]) + 1)
-        new_version = ".".join(parts)
-        data["version"] = new_version
-        data["deployedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        with open(version_path, "w") as f:
-            json.dump(data, f)
-            f.write("\n")
-        print(f"[post-merge] Version bumped: {version} → {new_version} (deployedAt={data['deployedAt']})", flush=True)
-    else:
-        print(f"[post-merge] WARNING: Unexpected version format '{version}', skipping bump.", flush=True)
-except Exception as e:
-    print(f"[post-merge] WARNING: Could not bump version: {e}", flush=True)
-PYEOF
+# Version bump runs in scripts/deploy.sh at VPS deploy time (not here).
 
 # ── Dependencies & DB ─────────────────────────────────────────────────────────
 # Guardrail: a node_modules/@shared symlink pointing at the real shared/ folder

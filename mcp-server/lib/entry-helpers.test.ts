@@ -108,7 +108,7 @@ describe("observeParamValues", () => {
     const blog = path.join(tmp, "blog", "post-a");
     fs.mkdirSync(blog, { recursive: true });
     fs.writeFileSync(
-      path.join(blog, "_common.yml"),
+      path.join(blog, "en.yml"),
       safeDump({ slug: "post-a", category: "ai-powered-learning" }),
       "utf-8",
     );
@@ -116,8 +116,8 @@ describe("observeParamValues", () => {
   afterEach(() => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
-  it("collects category slugs from peers", () => {
-    const vals = observeParamValues(tmp, "blog", { directory: "blog" }, "category");
+  it("collects category slugs from locale peers", () => {
+    const vals = observeParamValues(tmp, "blog", { directory: "blog" }, "category", "en");
     expect(vals).toContain("ai-powered-learning");
   });
 });
