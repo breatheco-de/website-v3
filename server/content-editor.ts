@@ -3,6 +3,7 @@ import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
+import { isLocaleOnlyUrlParam } from "@shared/urlParamRules";
 import { getConsentKeyError } from "@shared/consentLegacyKeys";
 import {
   wipeSectionOnDuplicate,
@@ -2833,6 +2834,12 @@ export async function createContentEntry(
   const uniformUrlParams: Record<string, string> = {};
   const perLocaleUrlParams: string[] = [];
   for (const param of urlParams) {
+    if (isLocaleOnlyUrlParam(param)) {
+      if (activeUrlLocales.some((l) => urlParamValueForLocale(param, l))) {
+        perLocaleUrlParams.push(param);
+      }
+      continue;
+    }
     const vals = activeUrlLocales.map(l => urlParamValueForLocale(param, l));
     if (vals.length > 0 && vals[0] && vals.every(v => v === vals[0])) {
       uniformUrlParams[param] = vals[0];
@@ -3308,7 +3315,7 @@ export async function createContentEntry(
     else if (key === RESERVED_PUBLISHED_AT_FIELD) {
       // Draft-first: omit until publish/promote. Live create: stamp now.
       if (!draftFirst) commonObj[key] = new Date().toISOString();
-    } else if (urlParams.includes(key)) {
+    } else if (urlParams.includes(key) && !isLocaleOnlyUrlParam(key)) {
       const uniform = uniformUrlParams[key];
       commonObj[key] = uniform
         ? formatUrlParamFieldValue(uniform, urlParamShapes[key] ?? "string")

@@ -269,6 +269,59 @@ done
 
 ensure_release_site_dirs
 
+# Bump version.json in the release only (not committed to git). Read the live
+# current release so repeated deploys increment correctly; fall back to the
+# archived tree from this commit.
+bump_release_version() {
+  local dest="$RELEASE/version.json"
+  local prior=""
+  if [[ -e "$CURRENT_LINK/version.json" ]]; then
+    prior="$CURRENT_LINK/version.json"
+  elif [[ -e "$dest" ]]; then
+    prior="$dest"
+  fi
+  PRIOR_VERSION_JSON="$prior" DEST_VERSION_JSON="$dest" python3 <<'PY'
+import json
+import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+prior_path = (os.environ.get("PRIOR_VERSION_JSON") or "").strip()
+dest_path = Path(os.environ["DEST_VERSION_JSON"])
+
+data = {"version": "1.0.0"}
+if prior_path:
+    try:
+        data = json.loads(Path(prior_path).read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"[deploy] WARNING: could not read {prior_path}: {exc}", flush=True)
+
+version = str(data.get("version") or "1.0.0")
+parts = version.split(".")
+if len(parts) != 3:
+    print(f"[deploy] WARNING: unexpected version format '{version}', skipping bump", flush=True)
+    sys.exit(0)
+
+try:
+    parts[2] = str(int(parts[2]) + 1)
+except ValueError:
+    print(f"[deploy] WARNING: non-numeric patch in '{version}', skipping bump", flush=True)
+    sys.exit(0)
+
+new_version = ".".join(parts)
+deployed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+payload = {"version": new_version, "deployedAt": deployed_at}
+dest_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+print(
+    f"[deploy] version bumped: {version} → {new_version} (deployedAt={deployed_at})",
+    flush=True,
+)
+PY
+}
+
+bump_release_version
+
 copy_prior_env() {
   local dest="$1"
   echo "[deploy] reusing prior .env"
