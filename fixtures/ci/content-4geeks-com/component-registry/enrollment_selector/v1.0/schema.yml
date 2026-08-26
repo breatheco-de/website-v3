@@ -9,7 +9,8 @@ description: >-
 when_to_use: >
   Use on enrollment or pricing pages where users need to choose a program, pick a start date or subscription plan, and
   review what is included before completing enrollment. The right column summary card is sticky and shows pricing,
-  summary rows, feature unlocks, a CTA button, and an optional trust note.
+  summary rows, feature unlocks, a CTA button, and an optional trust note. Optional programs[].query_component shows a
+  PathItem-like card when a querystring param matches an item value (e.g. ?cohort=1713) — independent of date tiles.
 behaviors:
   ecommerce:
     role: funnel
@@ -113,7 +114,7 @@ props:
                 options:
                   - none
                   - add_to_cart
-                  - begin_checkout
+                  - click_begin_checkout
               button_variant:
                 type: string
                 required: false
@@ -232,7 +233,7 @@ props:
                     options:
                       - none
                       - add_to_cart
-                      - begin_checkout
+                      - click_begin_checkout
                   button_variant:
                     type: string
                     required: false
@@ -342,6 +343,79 @@ props:
           (default ?addon=). Summary rows with show_dynamic_addon show on/off summary_value; rows with value_with_addon
           swap their value while ON. The toggle resets to OFF when the user switches programs, and initializes ON if the
           on.url params are already present in the page URL.
+      query_component:
+        type: object
+        required: false
+        description: >-
+          Optional summary card shown above the plan picker when the page URL has ?{param}={items[].value}.
+          Independent of date-mode cohort matching on `dates`. Authors choose param (e.g. cohort) and values
+          (e.g. BC cohort ids). Checkout URLs using {qs:cohort|…} still forward the page QS — keep display
+          values and checkout ids consistent intentionally.
+        properties:
+          param:
+            type: string
+            required: true
+            description: Querystring key to read (e.g. "cohort")
+          label:
+            type: string
+            required: false
+            description: Optional uppercase label above the card (e.g. "Your learning path")
+          view_details_label:
+            type: string
+            required: false
+            description: Expand control copy (default "View details")
+          items:
+            type: array
+            required: true
+            description: Cards keyed by querystring value; first matching value wins
+            items:
+              value:
+                type: string
+                required: true
+                description: Value that must equal the querystring param (e.g. "1713")
+              name:
+                type: string
+                required: true
+              tagline:
+                type: string
+                required: false
+              hrs:
+                type: string
+                required: false
+              color:
+                type: string
+                required: false
+                description: Accent color for icon, hrs pill, and borders (hsl or CSS color)
+              icon:
+                type: string
+                required: false
+              bullets:
+                type: array
+                required: false
+                description: Expand panel rows; each has text and optional icon (defaults to check)
+                items:
+                  text:
+                    type: string
+                    required: true
+                  icon:
+                    type: string
+                    required: false
+              badges:
+                type: array
+                required: false
+                description: >-
+                  Badge chip labels (like PathItem tools). When non-empty, shown as a scrolling
+                  marquee under bullets when the card is expanded.
+                items:
+                  type: string
+              show_badges_collapsed:
+                type: boolean
+                required: false
+                description: >-
+                  Default false. When true, collapsed card switches to PathItem layout and shows
+                  the first badges under the tagline (they animate into the expand marquee).
+                  When false, collapsed stays without badges; expand still shows the marquee if
+                  badges are set.
       callback_label_en:
         type: string
         required: false
@@ -358,10 +432,13 @@ props:
       Array of programs. A program with a "dates" key uses date-mode; one with a "plans" key uses plan-mode. Each
       program has: id, selection_card (name, duration, badge?, icon?), summary (price_label, price_amount,
       price_period?, price_sub?, rows[], cta, trust_note?), benefits[], unlocks[], either dates (static or interval) or
-      plans[], an optional addon toggle, and optional callback_label_en / callback_label_es (sent as top-level params on
+      plans[], an optional addon toggle, optional query_component (card when ?{param} matches items[].value; independent
+      of date cohort matching), and optional callback_label_en / callback_label_es (sent as top-level params on
       the CTA checkout URL from the current selection; plan labels override program). Plans can override summary,
       benefits, unlocks, and callback labels from the parent program. Summary rows support value_with_addon (alternative
       value when the add-on is ON) and show_dynamic_addon (renders the addon's on/off summary value).
   variant:
     type: string
     required: true
+variants:
+  default: {}

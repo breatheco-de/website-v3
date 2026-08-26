@@ -1004,6 +1004,7 @@ export default function AiFlexPathCourseColorSelector({ data }: { data: AiFlexPa
     ? data.slot_colors.map((s) => s.color)
     : DEFAULT_COURSE_COLORS;
   const isDraggable = data.draggable !== false;
+  const showAvailableCourses = data.show_available_courses !== false;
   const viewDetailsLabel = data.view_details_label;
   const replaceLabel = data.replace_label;
   const dragInstructionLabel = data.drag_instruction_label;
@@ -1267,7 +1268,7 @@ export default function AiFlexPathCourseColorSelector({ data }: { data: AiFlexPa
               </div>
             </div>
 
-            {availableCourses.length > 0 && (
+            {showAvailableCourses && availableCourses.length > 0 && (
               <div>
                 {dragInstructionLabel && (
                 <div className="text-[11px] font-bold tracking-[0.09em] uppercase mb-4 md:hidden" style={{ color: "hsl(var(--muted-foreground) / 0.45)" }}>
@@ -1330,18 +1331,44 @@ export default function AiFlexPathCourseColorSelector({ data }: { data: AiFlexPa
               <div className="text-[11px] md:text-[14px] font-bold tracking-[0.09em] uppercase mb-2 md:mb-3 text-center" style={{ color: "hsl(var(--muted-foreground) / 0.4)" }}>
                 {data.tools_label ?? "Tools in this path"}
               </div>
-              <div className="flex flex-col gap-1 md:gap-[5px]">
-                <div className="mx-2 md:mx-[60px]">
-                  <CSSMarquee direction="fwd" speed={80} maskStyle={maskStyle}>
-                    {row1.map((item, i) => <span key={i} className={toolBadgeClassName} style={toolBadgeStyle}>{item}</span>)}
-                  </CSSMarquee>
+              {!data.tools_marquee ? (
+                <div className="flex flex-wrap gap-[5px] md:gap-[7px] justify-center">
+                  {pathTools.map((tool) => (
+                    <span
+                      key={tool}
+                      className={toolBadgeClassName}
+                      style={{
+                        ...toolBadgeStyle,
+                        marginRight: 0,
+                        background: "hsl(var(--background))",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "hsl(var(--primary) / 0.1)";
+                        e.currentTarget.style.color = "hsl(var(--primary))";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "hsl(var(--background))";
+                        e.currentTarget.style.color = "hsl(var(--muted-foreground))";
+                      }}
+                    >
+                      {tool}
+                    </span>
+                  ))}
                 </div>
-                {useTwoRows && (
-                  <CSSMarquee direction="rev" speed={80} maskStyle={maskStyle}>
-                    {row2.map((item, i) => <span key={i} className={toolBadgeClassName} style={toolBadgeStyle}>{item}</span>)}
-                  </CSSMarquee>
-                )}
-              </div>
+              ) : (
+                <div className="flex flex-col gap-1 md:gap-[5px]">
+                  <div className="mx-2 md:mx-[60px]">
+                    <CSSMarquee direction="fwd" speed={80} maskStyle={maskStyle}>
+                      {row1.map((item, i) => <span key={i} className={toolBadgeClassName} style={toolBadgeStyle}>{item}</span>)}
+                    </CSSMarquee>
+                  </div>
+                  {useTwoRows && (
+                    <CSSMarquee direction="rev" speed={80} maskStyle={maskStyle}>
+                      {row2.map((item, i) => <span key={i} className={toolBadgeClassName} style={toolBadgeStyle}>{item}</span>)}
+                    </CSSMarquee>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

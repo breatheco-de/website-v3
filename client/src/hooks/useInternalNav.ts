@@ -14,12 +14,16 @@ function isInternalHref(href: string): boolean {
  *  - If absent and a fallback is provided (e.g. {qs:cohort|bootcamp-2025}): use the fallback.
  *  - If absent and no fallback: strip the entire key=value pair from the URL. */
 function resolveQsTokens(str: string): string {
-  const qIdx = str.indexOf("?");
+  const hashIdx = str.indexOf("#");
+  const hash = hashIdx === -1 ? "" : str.slice(hashIdx);
+  const withoutHash = hashIdx === -1 ? str : str.slice(0, hashIdx);
+
+  const qIdx = withoutHash.indexOf("?");
   if (qIdx === -1) return str;
 
   const urlParams = new URLSearchParams(window.location.search);
-  const base = str.slice(0, qIdx);
-  const pairs = str.slice(qIdx + 1).split("&").filter(Boolean);
+  const base = withoutHash.slice(0, qIdx);
+  const pairs = withoutHash.slice(qIdx + 1).split("&").filter(Boolean);
 
   const resolved = pairs
     .map((pair) => {
@@ -32,25 +36,55 @@ function resolveQsTokens(str: string): string {
         const paramName = match[1];
         const fallback = match[2]; // undefined if no fallback was specified
         const val = urlParams.get(paramName);
-        if (val !== null) return `${k}=${encodeURIComponent(val)}`;
-        if (fallback !== undefined) return `${k}=${encodeURIComponent(fallback)}`;
+        if (val !== null) return `${k}=${encodeURIComponent(val.trim())}`;
+        if (fallback !== undefined) return `${k}=${encodeURIComponent(fallback.trim())}`;
         return null; // no value, no fallback → strip pair
       }
       return pair;
     })
     .filter((p): p is string => p !== null);
 
-  return resolved.length > 0 ? `${base}?${resolved.join("&")}` : base;
+  const withSearch = resolved.length > 0 ? `${base}?${resolved.join("&")}` : base;
+  return `${withSearch}${hash}`;
 }
 
-/** Resolve {{ global.var | resolved_value }} template variables that are
- *  preserved in edit mode (preserveTemplate: true). The server keeps the full
- *  `{{ global.foo | actual_url }}` string so the inline editor can display it;
- *  here we extract the resolved value after the pipe so that clicks navigate
- *  to the correct destination instead of the raw template string. */
-function resolveGlobalTemplate(href: string): string {
-  const match = href.match(/^\{\{\s*\S+\s*\|\s*([\s\S]+?)\s*\}\}$/);
-  return match ? match[1].trim() : href;
+/**
+ * Resolve {{ name | resolved_value }} templates (edit-mode preserveTemplate).
+ * Unwraps whole-href templates and inline values in query/path.
+ */
+export function resolveGlobalTemplate(href: string): string {
+  if (!href.includes("{{")) return href;
+  const exact = href.match(/^\{\{\s*\S+\s*\|\s*([\s\S]+?)\s*\}\}$/);
+  if (exact) return exact[1].trim();
+  return href.replace(/\{\{\s*\S+\s*\|\s*([\s\S]+?)\s*\}\}/g, (_m, val: string) => val.trim());
+}
+
+/**
+ * Move `?…` authored after `#` into the search string.
+ * `#id?a=1` → `?a=1#id`; `/path#id?a=1` → `/path?a=1#id`.
+ */
+export function normalizeHashQuery(href: string): string {
+  const hashIdx = href.indexOf("#");
+  if (hashIdx === -1) return href;
+
+  const before = href.slice(0, hashIdx);
+  const afterHash = href.slice(hashIdx + 1);
+  const qInHash = afterHash.indexOf("?");
+  if (qInHash === -1) return href;
+
+  const id = afterHash.slice(0, qInHash);
+  const hashQuery = afterHash.slice(qInHash + 1);
+  if (!hashQuery) return id ? `${before}#${id}` : before;
+
+  const qIdx = before.indexOf("?");
+  const path = qIdx === -1 ? before : before.slice(0, qIdx);
+  const existingSearch = qIdx === -1 ? "" : before.slice(qIdx + 1);
+  const merged = mergeSearch(existingSearch ? `?${existingSearch}` : "", hashQuery);
+  return id ? `${path}${merged}#${id}` : `${path}${merged}`;
+}
+
+function prepareHref(raw: string): string {
+  return normalizeHashQuery(resolveQsTokens(resolveGlobalTemplate(raw)));
 }
 
 /** For a hash URL like "#pricing?cohort=x", separate the element id from the extra querystring */
@@ -69,9 +103,41 @@ function mergeSearch(existing: string, extra: string): string {
   if (!extra) return existing;
   const base = new URLSearchParams(existing.startsWith("?") ? existing.slice(1) : existing);
   const added = new URLSearchParams(extra);
-  added.forEach((v, k) => base.set(k, v));
+  added.forEach((v, k) => base.set(k, v.trim()));
   const str = base.toString();
   return str ? `?${str}` : "";
+}
+
+/**
+ * Apply `?query` or `?query#id` on the current page.
+ * Splits `#` before URLSearchParams so it never lands inside a query value.
+ */
+function applyQueryOnlyHref(href: string): void {
+  const withoutLead = href.startsWith("?") ? href.slice(1) : href;
+  const hashIdx = withoutLead.indexOf("#");
+  const queryPart = hashIdx === -1 ? withoutLead : withoutLead.slice(0, hashIdx);
+  const hashId = hashIdx === -1 ? "" : withoutLead.slice(hashIdx + 1).split("?")[0];
+  const mergedSearch = mergeSearch(window.location.search, queryPart);
+
+  if (hashId) {
+    history.replaceState(null, "", `${window.location.pathname}${mergedSearch}#${hashId}`);
+    const el = document.getElementById(hashId);
+    if (el) {
+      if (el.dataset.sectionType === "modal") {
+        window.location.hash = hashId;
+      } else {
+        window.dispatchEvent(new CustomEvent("scrollToSection", { detail: { targetId: hashId } }));
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+        });
+      }
+    }
+    return;
+  }
+
+  history.replaceState(null, "", window.location.pathname + mergedSearch);
 }
 
 /** Append callback=<encoded current page URL> plus callback_label_* as top-level params.
@@ -97,11 +163,14 @@ function withCallbackParam(
     (qs ? `?${qs}` : "") +
     window.location.hash;
 
-  const join = href.includes("?") ? "&" : "?";
-  let out = `${href}${join}callback=${encodeURIComponent(callbackUrl)}`;
+  const hashIdx = href.indexOf("#");
+  const beforeHash = hashIdx === -1 ? href : href.slice(0, hashIdx);
+  const hash = hashIdx === -1 ? "" : href.slice(hashIdx);
+  const join = beforeHash.includes("?") ? "&" : "?";
+  let out = `${beforeHash}${join}callback=${encodeURIComponent(callbackUrl)}`;
   if (labels?.en) out += `&callback_label_en=${labels.en}`;
   if (labels?.es) out += `&callback_label_es=${labels.es}`;
-  return out;
+  return `${out}${hash}`;
 }
 
 /** Append every utm_* param from the current page URL to outbound absolute
@@ -175,7 +244,7 @@ export function useInternalNav(
         if (!shouldAllowDeviceEmbedHref(raw)) e.preventDefault();
         return;
       }
-      const resolved = withUtmParams(resolveQsTokens(resolveGlobalTemplate(raw)));
+      const resolved = withUtmParams(prepareHref(raw));
       if (resolved === raw) return;
       e.preventDefault();
       window.open(resolved, "_blank", "noopener,noreferrer");
@@ -195,7 +264,7 @@ export function useInternalNav(
 
     const href = withUtmParams(
       withCallbackParam(
-        resolveQsTokens(resolveGlobalTemplate(rawHref)),
+        prepareHref(rawHref),
         appendCallback,
         appendCallback ? getCallbackLabels?.() : undefined,
       ),
@@ -254,8 +323,7 @@ export function useInternalNav(
 
     if (href.startsWith("?")) {
       e.preventDefault();
-      const mergedSearch = mergeSearch(window.location.search, href.slice(1));
-      history.replaceState(null, "", window.location.pathname + mergedSearch);
+      applyQueryOnlyHref(href);
       onNavigate?.();
       return;
     }
@@ -281,7 +349,7 @@ export function useInternalNav(
   const navigate = (url: string): Record<string, unknown> | null => {
     if (!url || isNonNavigableHref(url)) return null;
 
-    const resolved = withUtmParams(resolveQsTokens(resolveGlobalTemplate(url)));
+    const resolved = withUtmParams(prepareHref(url));
 
     if (isDeviceEmbedPreview() && !shouldAllowDeviceEmbedHref(resolved)) {
       notifyDeviceEmbedNavBlocked();
@@ -327,8 +395,7 @@ export function useInternalNav(
     }
 
     if (resolved.startsWith("?")) {
-      const mergedSearch = mergeSearch(window.location.search, resolved.slice(1));
-      history.replaceState(null, "", window.location.pathname + mergedSearch);
+      applyQueryOnlyHref(resolved);
       onNavigate?.();
       return null;
     }
@@ -353,10 +420,10 @@ export function useInternalNav(
     const anchor = e.currentTarget;
     const rawHref = anchor.getAttribute("href");
     if (!rawHref) return;
-    if (!appendCallback && !rawHref.includes("{qs:")) return;
+    if (!appendCallback && !rawHref.includes("{qs:") && !rawHref.includes("{{")) return;
     const href = withUtmParams(
       withCallbackParam(
-        resolveQsTokens(rawHref),
+        prepareHref(rawHref),
         appendCallback,
         appendCallback ? getCallbackLabels?.() : undefined,
       ),

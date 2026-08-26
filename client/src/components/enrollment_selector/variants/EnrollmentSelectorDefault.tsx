@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, type MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { RichTextContent } from "@/components/ui/rich-text-content";
@@ -6,8 +6,8 @@ import { UniversalImage } from "@/components/UniversalImage";
 import { getIcon } from "@/lib/icons";
 import { useInternalNav } from "@/hooks/useInternalNav";
 import { useSectionContext } from "@/contexts/SectionContext";
-import { IconChevronRight, IconCheck } from "@tabler/icons-react";
-import type { EnrollmentSelectorDefault, EnrollmentSelectorProgram } from "@shared/schema";
+import { IconChevronRight, IconCheck, IconBookFilled } from "@tabler/icons-react";
+import type { EnrollmentSelectorDefault, EnrollmentSelectorProgram, EnrollmentQueryComponentItem } from "@shared/schema";
 import { addDays, addWeeks, addMonths } from "date-fns";
 import { resolveColorVar, hslColor } from "@/components/course_selector/shared";
 import { trackEcommerce, type EcommercePayload } from "@/lib/tracking";
@@ -472,6 +472,318 @@ function UnlocksList({ unlocks }: { unlocks: { icon?: string; text: string }[] }
   );
 }
 
+/** PathItem-like card for programs[].query_component (no DnD / tools / skill bars). */
+function QueryComponentBadgesMarquee({
+  badges,
+  resolved,
+}: {
+  badges: string[];
+  resolved: ReturnType<typeof resolveColorVar>;
+}) {
+  const duration = Math.max(5, badges.length * 1.8);
+  const copies = 8;
+  const pct = (100 / copies).toFixed(6);
+  return (
+    <>
+      <style>{`
+        @keyframes query-badges-loop {
+          from { transform: translateX(0); }
+          to   { transform: translateX(-${pct}%); }
+        }
+      `}</style>
+      <div
+        style={{
+          position: "relative",
+          height: 26,
+          overflow: "hidden",
+          WebkitMaskImage: "linear-gradient(to right, transparent 0%, black 7%, black 93%, transparent 100%)",
+          maskImage: "linear-gradient(to right, transparent 0%, black 7%, black 93%, transparent 100%)",
+          marginBottom: 10,
+        }}
+      >
+        <div
+          className="mt-0.5"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            display: "flex",
+            animation: `query-badges-loop ${duration}s linear infinite`,
+          }}
+        >
+          {Array.from({ length: copies }, (_, ci) =>
+            badges.map((badge, bi) => (
+              <span
+                key={`${ci}-${bi}`}
+                style={{
+                  fontFamily: "'SF Mono','Fira Code',monospace",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  padding: "3px 8px",
+                  borderRadius: "9999px",
+                  whiteSpace: "nowrap",
+                  color: hslColor(resolved, 1),
+                  background: hslColor(resolved, 0.1),
+                  marginRight: 5,
+                  flexShrink: 0,
+                }}
+              >
+                {badge}
+              </span>
+            ))
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function QueryComponentCard({
+  item,
+  viewDetailsLabel = "View details",
+}: {
+  item: EnrollmentQueryComponentItem;
+  viewDetailsLabel?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [btnHovered, setBtnHovered] = useState(false);
+  const [hovered, setHovered] = useState(false);
+
+  const resolved = resolveColorVar(item.color ?? "hsl(var(--primary))");
+  const ItemIcon = item.icon ? getIcon(item.icon) : null;
+  const bullets = item.bullets ?? [];
+  const badges = item.badges ?? [];
+  const showBadgesCollapsed = item.show_badges_collapsed === true && badges.length > 0;
+  const showBadgesMarquee = badges.length > 0;
+
+  const pathCardShadow = hovered
+    ? `0 3px 10px ${hslColor(resolved, 0.13)}, 0 8px 22px ${hslColor(resolved, 0.08)}`
+    : "0 1px 4px rgba(0,0,0,0.09), 0 4px 14px rgba(0,0,0,0.07)";
+
+  const toggle = (e: MouseEvent) => {
+    e.stopPropagation();
+    setExpanded((x) => !x);
+  };
+
+  const viewDetailsBtn = (opts?: { className?: string; size?: "sm" | "md" }) => {
+    const size = opts?.size ?? "sm";
+    return (
+      <div
+        className={
+          opts?.className ??
+          (size === "md"
+            ? "inline-flex items-center gap-[5px] text-[12px] font-semibold px-[11px] py-[5px] rounded-[8px] cursor-pointer select-none transition-all duration-150 whitespace-nowrap flex-shrink-0"
+            : "inline-flex items-center gap-[4px] text-[10px] md:text-[12px] font-semibold px-[9px] md:px-[11px] py-[4px] md:py-[5px] rounded-[8px] cursor-pointer select-none transition-all duration-150 whitespace-nowrap flex-shrink-0")
+        }
+        style={{
+          color: hslColor(resolved, 1),
+          background: "transparent",
+          border: `1.5px solid ${hslColor(resolved, 0.45)}`,
+          borderRadius: 8,
+          transform: btnHovered ? "scale(1.04)" : "scale(1)",
+        }}
+        onClick={toggle}
+        onMouseEnter={() => setBtnHovered(true)}
+        onMouseLeave={() => setBtnHovered(false)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setExpanded((x) => !x);
+          }
+        }}
+      >
+        {viewDetailsLabel}
+        <span
+          className={
+            size === "md"
+              ? "text-[12px] leading-none transition-transform duration-200"
+              : "text-[11px] md:text-[12px] leading-none transition-transform duration-200"
+          }
+          style={{ display: "inline-block", transform: expanded ? "rotate(180deg)" : "none" }}
+        >
+          ▾
+        </span>
+      </div>
+    );
+  };
+
+  const collapsedBadges = (
+    <div className="flex flex-wrap items-center gap-[5px] min-w-0">
+      {badges.slice(0, 4).map((badge, badgeIdx) => (
+        <span
+          key={badge}
+          className={`text-[9px] md:text-[10px] font-semibold px-[6px] md:px-[7px] py-[2px] rounded-full whitespace-nowrap ${badgeIdx >= 3 ? "hidden md:inline-flex" : "inline-flex"}`}
+          style={{
+            color: hslColor(resolved, 1),
+            background: hslColor(resolved, 0.1),
+            transition: "opacity 160ms ease 60ms, transform 200ms cubic-bezier(.4,0,.8,1) 0ms",
+            opacity: expanded ? 0 : 1,
+            transform: expanded ? "translateY(145px) scale(0.6)" : "translateY(0) scale(1)",
+          }}
+        >
+          {badge}
+        </span>
+      ))}
+    </div>
+  );
+
+  const hrsPill = item.hrs ? (
+    <div
+      className="text-[9px] md:text-[10px] px-[6px] py-[2px] rounded-full font-semibold whitespace-nowrap"
+      style={{ color: hslColor(resolved, 1), background: hslColor(resolved, 0.12) }}
+    >
+      {item.hrs}
+    </div>
+  ) : null;
+
+  return (
+    <div
+      className="relative w-full my-[4px] md:my-[6px] rounded-[13px]"
+      style={{
+        background: "hsl(var(--background))",
+        border: "2px solid transparent",
+        boxShadow: pathCardShadow,
+        transform: hovered ? "translateY(-2px)" : "none",
+        transition: "transform 180ms ease, box-shadow 200ms",
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      data-testid="enrollment-query-component-card"
+    >
+      {/* Mobile: hrs top-right */}
+      {item.hrs && (
+        <div className={`${showBadgesCollapsed ? "md:hidden" : "sm:hidden"} absolute top-3 right-3 z-20`}>
+          {hrsPill}
+        </div>
+      )}
+
+      {showBadgesCollapsed ? (
+        /* PathItem-like layout when collapsed badges are enabled */
+        <div className="flex flex-col gap-2 md:gap-3 px-3 pt-3 pb-2.5 md:px-[15px] md:pt-[14px] md:pb-[12px] md:flex-row md:items-start md:gap-[10px]">
+          <div className="flex-1 min-w-0 w-full">
+            <div className={`flex items-start gap-[6px] mb-[4px] w-full ${item.hrs ? "pr-16" : ""} md:pr-0`}>
+              <div className="shrink-0 scale-90 md:scale-100 origin-top-left">
+                {ItemIcon ? (
+                  <ItemIcon size={17} style={{ color: hslColor(resolved, 1) }} />
+                ) : (
+                  <IconBookFilled size={17} style={{ color: hslColor(resolved, 1) }} />
+                )}
+              </div>
+              <div
+                className="font-inter text-[15.5px] md:text-[18px] leading-[1.3] pb-[2px] flex-1 min-w-0"
+                style={{ color: "hsl(var(--foreground))", fontWeight: 700 }}
+              >
+                {item.name}
+              </div>
+            </div>
+            {item.tagline && (
+              <div
+                className={`font-inter text-[13px] md:text-[15px] leading-[1.4] mb-[8px] w-full ${item.hrs ? "pr-16" : ""} md:pr-0 md:pl-[23px]`}
+                style={{ color: "hsl(var(--muted-foreground) / 0.75)", fontWeight: 400 }}
+              >
+                {item.tagline}
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2 w-[calc(100%+1.5rem)] -mx-3 px-3 md:mx-0 md:w-full md:px-0 md:pl-[23px] md:justify-start">
+              {collapsedBadges}
+              {viewDetailsBtn({
+                className:
+                  "md:hidden inline-flex items-center gap-[5px] text-[12px] font-semibold px-[11px] py-[5px] rounded-[8px] cursor-pointer select-none transition-all duration-150 whitespace-nowrap flex-shrink-0",
+                size: "md",
+              })}
+            </div>
+          </div>
+
+          <div className="hidden md:flex md:flex-col md:items-end md:justify-between md:w-auto flex-shrink-0 md:self-stretch">
+            {hrsPill}
+            {viewDetailsBtn({ size: "md" })}
+          </div>
+        </div>
+      ) : (
+        /* Default collapsed layout (no badges under tagline) */
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 px-3 pt-3 pb-2.5 md:px-[15px] md:pt-[14px] md:pb-[12px]">
+          <div className="flex-1 min-w-0 w-full flex flex-col justify-center">
+            <div className={`flex items-center gap-[6px] mb-[4px] w-full ${item.hrs ? "pr-16" : ""} sm:pr-0`}>
+              <div className="shrink-0 scale-90 md:scale-100 origin-top-left">
+                {ItemIcon ? (
+                  <ItemIcon size={17} style={{ color: hslColor(resolved, 1) }} />
+                ) : (
+                  <IconBookFilled size={17} style={{ color: hslColor(resolved, 1) }} />
+                )}
+              </div>
+              <div
+                className="font-inter text-[15.5px] md:text-[18px] leading-[1.3] pb-[2px] flex-1 min-w-0"
+                style={{ color: "hsl(var(--foreground))", fontWeight: 700 }}
+              >
+                {item.name}
+              </div>
+            </div>
+            {item.tagline && (
+              <div
+                className={`font-inter text-[13px] md:text-[15px] leading-[1.4] w-full ${item.hrs ? "pr-16" : ""} sm:pr-0 md:pl-[23px]`}
+                style={{ color: "hsl(var(--muted-foreground) / 0.75)", fontWeight: 400 }}
+              >
+                {item.tagline}
+              </div>
+            )}
+            <div className="flex sm:hidden items-center justify-end gap-3 mt-2">
+              {viewDetailsBtn({
+                className:
+                  "inline-flex items-center gap-[5px] text-[12px] font-semibold px-[11px] py-[5px] rounded-[8px] cursor-pointer select-none transition-all duration-150 whitespace-nowrap flex-shrink-0",
+                size: "md",
+              })}
+            </div>
+          </div>
+
+          <div className="hidden sm:flex flex-col items-end justify-center gap-2 flex-shrink-0">
+            {hrsPill}
+            {viewDetailsBtn()}
+          </div>
+        </div>
+      )}
+
+      <div
+        className="overflow-hidden transition-all duration-300"
+        style={{
+          maxHeight: expanded ? 400 : 0,
+          borderTop: `1px solid ${hslColor(resolved, expanded ? 0.15 : 0)}`,
+        }}
+      >
+        <div className="px-3 md:px-[15px] pb-[10px] pt-[10px] flex flex-col gap-2">
+          <div className="flex flex-col gap-2">
+            {bullets.map((b, i) => {
+              const BulletIcon = b.icon ? getIcon(b.icon) : null;
+              return (
+                <div key={i} className="flex items-start gap-2">
+                  <span
+                    className="w-4 h-4 rounded-full shrink-0 flex items-center justify-center mt-[1px]"
+                    style={{ background: hslColor(resolved, 0.12) }}
+                  >
+                    {BulletIcon ? (
+                      <BulletIcon size={10} style={{ color: hslColor(resolved, 1) }} />
+                    ) : (
+                      <IconCheck size={10} style={{ color: hslColor(resolved, 1) }} stroke={3} />
+                    )}
+                  </span>
+                  <span
+                    className="text-[12px] md:text-[13px] font-medium leading-snug"
+                    style={{ color: "hsl(var(--foreground) / 0.85)" }}
+                  >
+                    {b.text}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {showBadgesMarquee && <QueryComponentBadgesMarquee badges={badges} resolved={resolved} />}
+      </div>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSelectorDefault }) {
@@ -546,6 +858,30 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
   const program = data.programs[selectedProgramIdx] ?? data.programs[0];
   const isDateMode = !!program?.dates;
   const isPlanMode = !isDateMode && !!(program?.plans?.length);
+
+  const queryComponentItem = useMemo((): EnrollmentQueryComponentItem | null => {
+    const qc = program?.query_component;
+    if (!qc?.param || !qc.items?.length) return null;
+    if (typeof window === "undefined") return null;
+    const qsValue = new URLSearchParams(window.location.search).get(qc.param);
+    if (!qsValue) return null;
+    return qc.items.find((i) => i.value === qsValue) ?? null;
+  }, [program]);
+
+  const queryComponentBlock =
+    queryComponentItem && program?.query_component ? (
+      <div className="mb-4">
+        {program.query_component.label && (
+          <p className="text-[10px] md:text-[12px] font-bold tracking-[1.5px] md:tracking-[1.8px] uppercase text-muted-foreground mb-2 md:mb-3.5">
+            {program.query_component.label}
+          </p>
+        )}
+        <QueryComponentCard
+          item={queryComponentItem}
+          viewDetailsLabel={program.query_component.view_details_label ?? "View details"}
+        />
+      </div>
+    ) : null;
 
   // Build list of upcoming dates for date-mode
   const displayDates = useMemo<DisplayDate[]>(() => {
@@ -813,17 +1149,18 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
               </div>
 
               {plansAttachToProgramCard && program.plans && (
-                <PlanSelectorBlock
-                  plans={program.plans}
-                  label={data.choose_plan_label ?? "Choose your plan"}
-                  selectedPlanIdx={selectedPlanIdx}
-                  flashId={flashId}
-                  className="md:hidden mt-4 pt-4 border-t border-border"
-                  onSelect={(i) => {
-                    triggerFlash(`plan-${i}`);
-                    setSelectedPlanIdx(i);
-                  }}
-                />
+                <div className="md:hidden mt-4 pt-4 border-t border-border">
+                  <PlanSelectorBlock
+                    plans={program.plans}
+                    label={data.choose_plan_label ?? "Choose your plan"}
+                    selectedPlanIdx={selectedPlanIdx}
+                    flashId={flashId}
+                    onSelect={(i) => {
+                      triggerFlash(`plan-${i}`);
+                      setSelectedPlanIdx(i);
+                    }}
+                  />
+                </div>
               )}
 
               {/* MOBILE: addon toggle at the bottom of the program card (below plans if present) */}
@@ -856,6 +1193,9 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
               />
             </div>
           )}
+
+          {/* Query card sits above the plan/program section cards, not inside them */}
+          {isPlanMode && queryComponentBlock}
 
           {/* PLAN SELECTOR */}
           {isPlanMode && program.plans && (

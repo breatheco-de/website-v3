@@ -1,4 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("vis-timeline/standalone", () => ({
+  DataSet: class DataSet {},
+  Timeline: class Timeline {
+    on() {}
+    off() {}
+    destroy() {}
+    setItems() {}
+    setGroups() {}
+    setOptions() {}
+    setWindow() {}
+    getWindow() {
+      return { start: new Date(), end: new Date() };
+    }
+  },
+}));
+vi.mock("vis-timeline/styles/vis-timeline-graph2d.min.css", () => ({}));
+vi.mock("./EventTimeline.css", () => ({}));
+
 import { layoutStaffItems, type EventTimelineEvent } from "./EventTimeline";
 
 function ev(id: number, created_at: number): EventTimelineEvent {
