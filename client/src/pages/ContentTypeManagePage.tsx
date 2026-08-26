@@ -9,6 +9,8 @@ import {
   type ContentTypePreviewConfig,
   type EntryPreviewFailure,
 } from "@/components/EntryPreviewAdmin";
+import { ContentUpdateTimeline } from "@/components/content/ContentUpdateTimeline";
+import { buildContentUpdateTimelineItems } from "@/components/content/buildContentUpdateTimelineItems";
 import { Link, useRoute, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -5572,6 +5574,14 @@ export default function ContentTypeManagePage() {
     staleTime: 60000,
   });
 
+  /** Unpaginated static entries for the 14-day update timeline (omit `page`). */
+  const { data: staticTimelineData } = useQuery<StaticEntriesResponse>({
+    queryKey: ["/api/content-types", contentType, "static-entries", "timeline-full"],
+    queryFn: () =>
+      fetch(`/api/content-types/${contentType}/static-entries`).then((r) => r.json()),
+    staleTime: 60000,
+  });
+
   const schemaOrgRequirements = typeConfig?.schema_org_requirements ?? [];
   const hasSchemaOrgRequirements = schemaOrgRequirements.length > 0;
 
@@ -5853,6 +5863,38 @@ export default function ContentTypeManagePage() {
     hasDbConnection ? metaItems.map((item) => String(item.slug ?? "")).filter(Boolean) : [],
   );
   const isPartialOverride = (entrySlug: string) => hasDbConnection && dbSlugSet.has(entrySlug);
+
+  const contentUpdateTimelineItems = useMemo(() => {
+    const staticSources = (staticTimelineData?.results || []).map((entry) => ({
+      slug: entry.slug,
+      title: entry.title,
+      updated_at: entry.updated_at,
+      urls: entry.urls,
+    }));
+
+    const dbSources = metaItems
+      .map((item) => {
+        const slug = String(item.slug ?? "").trim();
+        if (!slug) return null;
+        const itemLocale = localeKey ? String(item[localeKey] || "en") : "en";
+        const pattern =
+          itemLocale === "es"
+            ? urlPatterns.es || urlPatterns.en
+            : urlPatterns.en || urlPatterns.default || "";
+        const itemUrl = pattern ? buildItemUrl(pattern, item, itemLocale) : "";
+        const urls: Record<string, string> = {};
+        if (itemUrl) urls[itemLocale] = itemUrl;
+        return {
+          slug,
+          title: String(item.title || slug),
+          updated_at: item.updated_at,
+          urls,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row != null);
+
+    return buildContentUpdateTimelineItems(staticSources, dbSources);
+  }, [staticTimelineData?.results, metaItems, localeKey, urlPatterns]);
 
   const LOCALE_LABELS: Record<string, string> = { en: "English", es: "Spanish", pt: "Portuguese", fr: "French", de: "German", it: "Italian" };
 
@@ -7070,10 +7112,15 @@ export default function ContentTypeManagePage() {
             </Card>
           )}
         </div>
+      </div>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3 flex-wrap">
+      <ContentUpdateTimeline
+        key={contentType}
+        items={contentUpdateTimelineItems}
+      />
+
+      <div className="w-full pb-6" data-testid="content-type-entries-list">
+          <div className="flex items-center gap-3 flex-wrap px-6 pt-6 pb-3">
               <div className="flex items-center gap-1" data-testid="toggle-view-mode">
                 <Button
                   variant="ghost"
@@ -7268,8 +7315,7 @@ export default function ContentTypeManagePage() {
                 );
               })()}
             </div>
-          </CardHeader>
-          <CardContent className="p-0">
+          <div>
             {listPerspective === "seo" ? (
               seoEntriesLoading || (seoEntriesFetching && !seoEntriesData) ? (
                 <div className="flex items-center justify-center py-12" data-testid="loading-seo-entries">
@@ -8253,8 +8299,7 @@ export default function ContentTypeManagePage() {
                 )}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
       </div>
 
       <Dialog
