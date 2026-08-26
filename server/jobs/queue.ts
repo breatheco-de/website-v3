@@ -4,6 +4,7 @@
 
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { DuplicatedJobError } from "@sidequest/core";
 import { Sidequest, Job } from "sidequest";
 import { child } from "../logger";
@@ -15,6 +16,9 @@ if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 const SIDEQUEST_DB = path.join(dataDir, "sidequest.sqlite");
 
+/** Same-origin path for the staff-proxied Sidequest UI. */
+export const SIDEQUEST_DASHBOARD_BASE_PATH = "/admin/sidequest";
+
 let configured = false;
 let starting: Promise<void> | null = null;
 let restartAttempts = 0;
@@ -24,17 +28,51 @@ export type EngineStatusState = "running" | "starting" | "stopped" | "restarting
 
 let engineStatus: EngineStatusState = "stopped";
 
+export function getSidequestDashboardPort(): number {
+  return Number(process.env.SIDEQUEST_DASHBOARD_PORT || 8678);
+}
+
+/** Kill switch: SIDEQUEST_DASHBOARD_ENABLED=false disables; unset/true enables. */
+export function isSidequestDashboardEnabled(): boolean {
+  const raw = process.env.SIDEQUEST_DASHBOARD_ENABLED;
+  if (raw === undefined || raw === "") return true;
+  return raw !== "false" && raw !== "0";
+}
+
+/**
+ * Internal Basic auth for the raw Sidequest port (proxy injects these).
+ * Prefer SIDEQUEST_DASHBOARD_USER / PASSWORD; otherwise derive from SESSION_SECRET.
+ */
+export function getSidequestDashboardInternalAuth(): { user: string; password: string } {
+  const user = process.env.SIDEQUEST_DASHBOARD_USER?.trim();
+  const password = process.env.SIDEQUEST_DASHBOARD_PASSWORD?.trim();
+  if (user && password) {
+    return { user, password };
+  }
+  const secret = process.env.SESSION_SECRET?.trim();
+  if (!secret && process.env.NODE_ENV === "production") {
+    throw new Error(
+      "SESSION_SECRET or SIDEQUEST_DASHBOARD_USER/PASSWORD required when the Sidequest dashboard is enabled",
+    );
+  }
+  const material = secret || "dev-sidequest-dashboard";
+  const derived = crypto
+    .createHash("sha256")
+    .update(`sidequest-dash:${material}`)
+    .digest("hex")
+    .slice(0, 32);
+  return { user: "sidequest-proxy", password: derived };
+}
+
 export function getEngineStatus(): {
   status: EngineStatusState;
   restartAttempts: number;
   dashboardUrl?: string;
 } {
-  const port = Number(process.env.SIDEQUEST_DASHBOARD_PORT || 8678);
   return {
     status: engineStatus,
     restartAttempts,
-    dashboardUrl:
-      process.env.NODE_ENV !== "production" ? `http://localhost:${port}` : undefined,
+    dashboardUrl: isSidequestDashboardEnabled() ? `${SIDEQUEST_DASHBOARD_BASE_PATH}/` : undefined,
   };
 }
 
@@ -61,12 +99,37 @@ function sidequestJobsFilePath(): string {
   );
 }
 
+export type SidequestDashboardConfig = {
+  enabled: boolean;
+  port: number;
+  basePath?: string;
+  auth?: { user: string; password: string };
+};
+
+/**
+ * Dashboard options for Sidequest.start({ dashboard }).
+ * Sidequest.configure() ignores `dashboard` — only start() passes it to SidequestDashboard.
+ */
+export function buildSidequestDashboardConfig(): SidequestDashboardConfig {
+  const enabled = isSidequestDashboardEnabled();
+  const config: SidequestDashboardConfig = {
+    enabled,
+    port: getSidequestDashboardPort(),
+  };
+  if (enabled) {
+    config.basePath = SIDEQUEST_DASHBOARD_BASE_PATH;
+    config.auth = getSidequestDashboardInternalAuth();
+  }
+  return config;
+}
+
 export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<void> {
   const dbPath = opts?.sqlitePath ?? SIDEQUEST_DB;
   if (configured && !opts?.sqlitePath) return;
   const jobsFilePath = opts?.jobsFilePath
     ? path.resolve(opts.jobsFilePath)
     : sidequestJobsFilePath();
+
   await Sidequest.configure({
     backend: {
       driver: "@sidequest/sqlite-backend",
@@ -81,13 +144,12 @@ export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<v
     manualJobResolution: true,
     jobsFilePath,
     queues: [{ name: "default", concurrency: 1, priority: 50, state: "active" }],
-    dashboard: {
-      enabled: process.env.NODE_ENV !== "production",
-      port: Number(process.env.SIDEQUEST_DASHBOARD_PORT || 8678),
-    },
   });
   configured = true;
-  log.info({ jobsFilePath }, "[JobQueue] Sidequest configured with manual job resolution");
+  log.info(
+    { jobsFilePath, dashboardEnabled: isSidequestDashboardEnabled(), dashboardPort: getSidequestDashboardPort() },
+    "[JobQueue] Sidequest configured with manual job resolution",
+  );
 }
 
 export async function startJobQueue(): Promise<void> {
@@ -96,10 +158,21 @@ export async function startJobQueue(): Promise<void> {
   starting = (async () => {
     try {
       await configureJobQueue();
-      await Sidequest.start();
+      // Must pass dashboard here — Sidequest.start spreads config?.dashboard into Dashboard.start.
+      // A bare Sidequest.start() after configure() boots the UI at "/" with no auth/basePath.
+      const dashboard = buildSidequestDashboardConfig();
+      await Sidequest.start({ dashboard });
       restartAttempts = 0;
       engineStatus = "running";
-      log.info({ db: SIDEQUEST_DB }, "[JobQueue] Sidequest engine started");
+      log.info(
+        {
+          db: SIDEQUEST_DB,
+          dashboardEnabled: dashboard.enabled,
+          dashboardBasePath: dashboard.basePath,
+          dashboardPort: dashboard.port,
+        },
+        "[JobQueue] Sidequest engine started",
+      );
     } catch (err) {
       log.error({ err }, "[JobQueue] Failed to start Sidequest");
       engineStatus = "restarting";

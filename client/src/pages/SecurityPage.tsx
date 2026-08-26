@@ -628,7 +628,7 @@ function RolesTab() {
                             <p>
                               Defined in <code className="font-mono">shared/capabilities.ts</code> and{" "}
                               <code className="font-mono">server/user-store.ts</code>. Catalog map:{" "}
-                              <code className="font-mono">mcp-server/lib/tool-catalog.ts</code>.
+                              <code className="font-mono">shared/mcp-tool-catalog.ts</code>.
                             </p>
                           </div>
                         </details>

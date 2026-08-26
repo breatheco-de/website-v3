@@ -52,6 +52,7 @@ import {
   collectEditorFieldTokens,
   expandEditorFieldTokens,
 } from "@shared/editor-field-values";
+import { parseFillIntent } from "@shared/fillIntent";
 import type { ImageEntry } from "@shared/schema";
 import { CheckCircle2, Clock, AlertCircle, Unlink, ImageIcon, Images, FileText } from "lucide-react";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
@@ -381,7 +382,9 @@ export interface EditorConfig {
   allow_custom_values?: boolean;
   split_comma_values?: boolean;
   cache_images?: boolean;
+  /** Legacy UI hint; prefer fill_intent.purpose. */
   description?: string;
+  fill_intent?: { goal: string; purpose: string; constraints?: string[] };
   /** Required when type is `json`. */
   schema?: Record<string, unknown>;
   source?: string;
@@ -1373,6 +1376,9 @@ export function ItemEditModal({
               const showAlwaysRequired = req === true;
               const showAttachedRequired = req === "attached" && !entryDetached;
               const showOptionalWhileDetached = req === "attached" && entryDetached;
+              const staffHint =
+                parseFillIntent(editorConfig?.fill_intent)?.purpose?.trim() ||
+                editorConfig?.description?.trim();
               return (
                 <div key={key} className="space-y-1.5">
                   {!useMarkdown && (
@@ -1395,9 +1401,14 @@ export function ItemEditModal({
                       ) : null}
                     </Label>
                   )}
-                  {editorConfig?.description && (
-                    <p className="text-xs text-muted-foreground">{editorConfig.description}</p>
-                  )}
+                  {staffHint ? (
+                    <p
+                      className="text-xs text-muted-foreground"
+                      data-testid={`text-field-fill-purpose-${key}`}
+                    >
+                      {staffHint}
+                    </p>
+                  ) : null}
                   {renderField(key)}
                 </div>
               );

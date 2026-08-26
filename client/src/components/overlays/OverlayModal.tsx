@@ -6,7 +6,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import type { Overlay } from "@/hooks/useOverlays";
-import { markOverlaySeen } from "@/hooks/useOverlays";
+import { markOverlaySeen, isOverlayDismissible } from "@/hooks/useOverlays";
 import { UniversalImage } from "@/components/UniversalImage";
 import { OverlayActionButtons } from "./OverlayActionButtons";
 
@@ -17,6 +17,7 @@ interface OverlayModalProps {
 
 export function OverlayModal({ overlay, onDismiss }: OverlayModalProps) {
   const { content } = overlay;
+  const dismissible = isOverlayDismissible(overlay);
 
   function handleDismiss() {
     markOverlaySeen(overlay);
@@ -24,12 +25,23 @@ export function OverlayModal({ overlay, onDismiss }: OverlayModalProps) {
   }
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) handleDismiss(); }}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && dismissible) handleDismiss();
+      }}
+    >
+      <DialogContent
+        className="sm:max-w-md"
+        hideClose={!dismissible}
+        onPointerDownOutside={dismissible ? undefined : (e) => e.preventDefault()}
+        onEscapeKeyDown={dismissible ? undefined : (e) => e.preventDefault()}
+        onInteractOutside={dismissible ? undefined : (e) => e.preventDefault()}
+      >
         {content.image_id && (
           <div className="rounded-md overflow-hidden mb-2">
             <UniversalImage
-              imageId={content.image_id}
+              id={content.image_id}
               alt={content.title}
               className="w-full object-cover max-h-48"
             />

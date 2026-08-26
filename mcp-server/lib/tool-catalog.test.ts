@@ -70,6 +70,16 @@ describe("allowedToolNames", () => {
     expect(names.has("run_entry_diagnostics")).toBe(true);
     expect(names.has("reindex_database")).toBe(true);
     expect(names.has("test_redirect")).toBe(true);
+    expect(names.has("update_content_type")).toBe(false);
+  });
+
+  it("content_types_manage reveals update_content_type", () => {
+    const names = new Set(
+      allowedToolNames([{ name: "content_types_manage" }, { name: "content_view", contentTypes: "*" }]),
+    );
+    expect(names.has("update_content_type")).toBe(true);
+    expect(names.has("get_content_type_info")).toBe(true);
+    expect(names.has("ensure_content_type_schema_org")).toBe(false);
   });
 
   it("seo_edit-only sees SEO inspect and SEO writes, not YAML body reads", () => {

@@ -3,18 +3,59 @@
  * goal is an open string; FILL_INTENT_GOAL_PRESETS are UI/MCP suggestions only.
  */
 
-/** Suggested goal values for UI/MCP; validation only requires a non-empty trimmed string. */
-export const FILL_INTENT_GOAL_PRESETS = [
-  "geo_llm",
-  "conversion",
-  "seo",
-  "editorial",
-  "structural",
-  "compliance",
-  "other",
-] as const;
+export type FillIntentGoalPresetOption = {
+  /** Stored `fill_intent.goal` slug. */
+  value: string;
+  /** Staff-facing short title in the Goal preset dropdown. */
+  title: string;
+  /** One-line help under the title. */
+  description: string;
+};
 
-export type FillIntentGoalPreset = (typeof FILL_INTENT_GOAL_PRESETS)[number];
+/** Suggested goals with UI/MCP copy; validation only requires a non-empty trimmed string. */
+export const FILL_INTENT_GOAL_PRESET_OPTIONS = [
+  {
+    value: "geo_llm",
+    title: "GEO / LLM answers",
+    description: "Clear, citation-friendly answers for AI search and answer engines.",
+  },
+  {
+    value: "conversion",
+    title: "Conversion",
+    description: "Drive leads or purchases — CTAs, offers, and funnel-aligned copy.",
+  },
+  {
+    value: "seo",
+    title: "SEO",
+    description: "Search visibility: keywords, titles, snippets, and topical coverage.",
+  },
+  {
+    value: "editorial",
+    title: "Editorial",
+    description: "Voice, clarity, and narrative quality for human readers.",
+  },
+  {
+    value: "structural",
+    title: "Structural",
+    description: "Shape and completeness (counts, required pieces, layout integrity).",
+  },
+  {
+    value: "compliance",
+    title: "Compliance",
+    description: "Legal, policy, accuracy, or brand-safety constraints.",
+  },
+  {
+    value: "other",
+    title: "Other",
+    description: "Doesn’t fit a preset — spell the why in Purpose below.",
+  },
+] as const satisfies readonly FillIntentGoalPresetOption[];
+
+export type FillIntentGoalPreset = (typeof FILL_INTENT_GOAL_PRESET_OPTIONS)[number]["value"];
+
+/** Slug list derived from options (includes checks, MCP string arrays, tests). */
+export const FILL_INTENT_GOAL_PRESETS: readonly FillIntentGoalPreset[] =
+  FILL_INTENT_GOAL_PRESET_OPTIONS.map((o) => o.value);
 
 export type EditorFillIntent = {
   /** Open slug/tag; presets are suggestions only. */
@@ -23,8 +64,15 @@ export type EditorFillIntent = {
   constraints?: string[];
 };
 
+export function getFillIntentGoalPreset(
+  goal: string,
+): FillIntentGoalPresetOption | undefined {
+  const trimmed = goal.trim();
+  return FILL_INTENT_GOAL_PRESET_OPTIONS.find((o) => o.value === trimmed);
+}
+
 export function isPresetFillIntentGoal(goal: string): boolean {
-  return (FILL_INTENT_GOAL_PRESETS as readonly string[]).includes(goal.trim());
+  return getFillIntentGoalPreset(goal) != null;
 }
 
 /**

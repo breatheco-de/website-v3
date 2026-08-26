@@ -38,7 +38,10 @@ import {
 } from "../lib/diagnostics-issue-queue.js";
 import { getTokenUsername, getTokenClientName } from "../lib/oauth.js";
 import { buildEditorSystemHints } from "../../shared/editorSystemHints.js";
-import { FILL_INTENT_GOAL_PRESETS } from "../../shared/fillIntent.js";
+import { FILL_INTENT_GOAL_PRESET_OPTIONS } from "../../shared/fillIntent.js";
+import {
+  parseContentTypeStrategy,
+} from "../../shared/contentTypeStrategy.js";
 import { promoteWarnings, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
 import {
   ok,
@@ -5948,12 +5951,13 @@ export function registerPageTools(
   mcp.tool(
     "get_content_type_info",
     "Describe a content type from content-types.yml: db_backed vs single_template, field_mapping, editor, " +
-    "url_pattern, extra URL params, observed peer values for those params, create_via, body_model, " +
+    "url_pattern, strategy, extra URL params, observed peer values for those params, create_via, body_model, " +
     "and schema_org_requirements with coverage { present, missing_slugs } when declared. " +
     "For editor.type json fields, read editor.<field>.schema (JSON Schema) before writing values via " +
     "update_fields — schema is required and returned again on validation failure. " +
     "Call this before create_entry when unsure how a type works. Requires content_view. " +
     "When coverage shows missing_slugs, call ensure_content_type_schema_org to attach seeded companions. " +
+    "When strategy is missing while required fields exist, call update_content_type. " +
     MULTI_SITE_TOOL_BLURB,
     {
       contentType: z.string().describe("Content type key, e.g. 'blog', 'program', 'page', 'lesson'"),
@@ -6029,6 +6033,23 @@ export function registerPageTools(
         });
       }
 
+      const requiredModes = editorRequiredModes(config);
+      const hasRequiredField = Object.values(requiredModes).some(
+        (m) => m === true || m === "attached",
+      );
+      const strategyRaw = (config as { strategy?: unknown }).strategy ?? null;
+      const strategyParsed = parseContentTypeStrategy(strategyRaw);
+      const strategy_valid = strategyParsed !== null;
+      if (hasRequiredField && !strategy_valid) {
+        next_actions.push({
+          tool: "update_content_type",
+          reason:
+            "Type has required fields but strategy is missing/invalid — set strategy.purpose before editing required fields",
+          args_hint: { contentType, site, strategy: { purpose: "…" } },
+          priority: "required",
+        });
+      }
+
       const schema_org_requirements = Array.isArray(
         (config as { schema_org_requirements?: Array<{ schema_type: string }> }).schema_org_requirements,
       )
@@ -6090,11 +6111,24 @@ export function registerPageTools(
             field_mapping: config.field_mapping ?? null,
             editor,
             editor_required_modes: editorRequiredModes(config),
-            fill_intent_goal_presets: [...FILL_INTENT_GOAL_PRESETS],
+            strategy: strategyParsed,
+            strategy_valid,
+            strategy_note:
+              "Type-level purpose/constraints for staff/agents. Context only for field fill_intent — does not replace per-field briefs. " +
+              "Any editor.required true|attached requires a valid strategy (non-empty purpose). " +
+              "Clear rejected while required fields remain (code: missing_strategy). " +
+              "Not insights_intent. Patch via update_content_type.",
+            fill_intent_goal_presets: FILL_INTENT_GOAL_PRESET_OPTIONS.map((o) => ({
+              value: o.value,
+              title: o.title,
+              description: o.description,
+            })),
             fill_intent_note:
               "Every editor.required true|attached field must have fill_intent { goal (open string), purpose, constraints? }. " +
-              "Presets are suggestions only; custom goals allowed. Read purpose before update_fields on required fields. " +
-              "Diagnostics suggestions prefer fill_intent over description.",
+              "Presets are suggestions only (use value as goal; title/description are staff/agent hints); custom goals allowed. " +
+              "Read purpose before update_fields on required fields. Prefer fill_intent.purpose over editor.*.description " +
+              "(Description is no longer edited in Field Settings and is cleared on Apply; legacy keys may remain until then). " +
+              "Content type must also have strategy.purpose (see strategy / update_content_type).",
             relation_fields,
             immutable_slug: !!(config as { immutable_slug?: boolean }).immutable_slug,
             protected_slugs: (config as { protected_slugs?: string[] }).protected_slugs ?? [],
@@ -6138,6 +6172,139 @@ export function registerPageTools(
         }],
       };
     }
+  );
+
+  // update_content_type — patch allowlisted keys on content-types.yml via PUT .../config
+  mcp.tool(
+    "update_content_type",
+    "Patch content-types.yml for one content type via the main server config API. " +
+    "v1 allowlist: strategy only ({ purpose, constraints? } or null to clear). " +
+    "Omit keys you do not want to change; at least one allowlisted key is required. " +
+    "Does not edit entries, fill_intent, insights_intent, seo_monitoring, or run schema_org ensure. " +
+    "Clearing strategy while any editor.required true|attached remains fails with code missing_strategy. " +
+    "Requires content_types_manage. Call get_content_type_info first. " +
+    MULTI_SITE_TOOL_BLURB,
+    {
+      contentType: z.string().describe("Content type key, e.g. 'blog', 'program', 'location'"),
+      strategy: z
+        .union([
+          z.object({
+            purpose: z.string().describe("Non-empty type-level purpose brief"),
+            constraints: z.array(z.string()).optional().describe("Optional constraint strings"),
+          }),
+          z.null(),
+        ])
+        .optional()
+        .describe(
+          "Set strategy object, or null to clear. Omit to leave unchanged. Required fields need a valid strategy.",
+        ),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ contentType, strategy, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) {
+        return siteFailResult(siteResult.error, "update_content_type", { contentType });
+      }
+      const { domain, contentPath } = siteResult;
+      try {
+        assertSafeSegment(contentType, "contentType");
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+      if (mcpToken && !(await checkCap(mcpToken, "content_types_manage"))) {
+        return denyResponse("content_types_manage");
+      }
+
+      if (strategy === undefined) {
+        return fail(
+          "No allowlisted patch keys provided. v1 accepts strategy: { purpose, constraints? } or strategy: null.",
+          { allowlisted: ["strategy"], code: "empty_patch" },
+        );
+      }
+
+      const body: Record<string, unknown> = {};
+      if (strategy === null) {
+        body.strategy = null;
+      } else {
+        const parsed = parseContentTypeStrategy(strategy);
+        if (!parsed) {
+          return fail(
+            "strategy requires a non-empty purpose string (constraints optional).",
+            { code: "missing_strategy" },
+          );
+        }
+        body.strategy = parsed;
+      }
+
+      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      const ymlPath = `${path.basename(contentPath)}/content-types.yml`;
+      try {
+        const res = await fetch(
+          `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
+          {
+            method: "PUT",
+            headers: { ...internalHeaders(mcpToken), "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        );
+        const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        if (!res.ok) {
+          return fail(String(data.error ?? data.message ?? `update failed (${res.status})`), {
+            code: data.code,
+            ...data,
+          });
+        }
+
+        const cleared = strategy === null;
+        return ok(
+          {
+            message: cleared
+              ? `Cleared strategy on content type '${contentType}'`
+              : `Updated strategy on content type '${contentType}'`,
+            contentType,
+            strategy: cleared ? null : body.strategy,
+            patched: ["strategy"],
+          },
+          {
+            warnings: [
+              {
+                code: "type_config_only",
+                message:
+                  "Writes content-types.yml strategy only. Does not change entries, fill_intent, insights_intent, or SEO monitoring.",
+              },
+              {
+                code: "no_entry_fanout",
+                message: "Does not update entry YAML or field values.",
+              },
+              {
+                code: "no_schema_org_ensure",
+                message:
+                  "Does not attach schema_org companions. Use ensure_content_type_schema_org for entry seeding.",
+              },
+            ],
+            side_effects: [
+              {
+                kind: "content_types_yml",
+                summary: cleared
+                  ? `Cleared strategy on ${ymlPath}`
+                  : `Updated strategy on ${ymlPath}`,
+                paths: [ymlPath],
+              },
+            ],
+            next_actions: [
+              {
+                tool: "get_content_type_info",
+                reason: "Confirm strategy after write",
+                args_hint: { contentType, site },
+                priority: "recommended",
+              },
+            ],
+          },
+        );
+      } catch (e) {
+        return fail(`Failed to update content type: ${(e as Error).message}`);
+      }
+    },
   );
 
   // ensure_content_type_schema_org

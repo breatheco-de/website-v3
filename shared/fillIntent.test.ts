@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   FILL_INTENT_GOAL_PRESETS,
+  FILL_INTENT_GOAL_PRESET_OPTIONS,
   parseFillIntent,
   isValidFillIntent,
   isPresetFillIntentGoal,
+  getFillIntentGoalPreset,
   formatFillIntentForSuggestion,
   assertRequiredFieldsHaveFillIntent,
   listNonPresetFillIntentGoals,
@@ -35,6 +37,10 @@ describe("fillIntent", () => {
     expect(isPresetFillIntentGoal("geo_llm")).toBe(true);
     expect(isPresetFillIntentGoal("lead_nurture")).toBe(false);
     expect(FILL_INTENT_GOAL_PRESETS).toContain("conversion");
+    expect(getFillIntentGoalPreset("conversion")?.title).toMatch(/Conversion/i);
+    expect(FILL_INTENT_GOAL_PRESET_OPTIONS.every((o) => o.title && o.description)).toBe(
+      true,
+    );
   });
 
   it("assertRequiredFieldsHaveFillIntent lists gaps", () => {

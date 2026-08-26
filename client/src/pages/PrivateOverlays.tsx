@@ -67,6 +67,10 @@ import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Overlay, OverlayButton, OverlayConfig } from "@/hooks/useOverlays";
+import {
+  isOverlayDismissible,
+  overlayBlockingSaveError,
+} from "@/hooks/useOverlays";
 import { LinkPicker } from "@/components/editing/LinkPicker";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
 
@@ -159,8 +163,25 @@ function newOverlay(): Overlay {
     targeting: { pages: "all", geo: {} },
     frequency: "once",
     component: "modal",
+    dismissible: true,
     content: { title: "", body: "", buttons: [], image_id: "" },
   };
+}
+
+function buttonChipClass(variant: OverlayButton["variant"]): string {
+  if (variant === "outline") {
+    return "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium border border-border cursor-default select-none";
+  }
+  if (variant === "secondary") {
+    return "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-secondary text-secondary-foreground cursor-default select-none";
+  }
+  if (variant === "ghost") {
+    return "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium cursor-default select-none";
+  }
+  if (variant === "destructive") {
+    return "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-destructive text-destructive-foreground cursor-default select-none";
+  }
+  return "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground cursor-default select-none";
 }
 
 function PreviewButtons({ buttons }: { buttons?: OverlayButton[] }) {
@@ -168,18 +189,7 @@ function PreviewButtons({ buttons }: { buttons?: OverlayButton[] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {buttons.map((btn, i) => (
-        <span
-          key={i}
-          className={
-            btn.variant === "outline"
-              ? "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium border border-border cursor-default select-none"
-              : btn.variant === "secondary"
-              ? "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-secondary text-secondary-foreground cursor-default select-none"
-              : btn.variant === "ghost"
-              ? "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium cursor-default select-none"
-              : "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground cursor-default select-none"
-          }
-        >
+        <span key={i} className={buttonChipClass(btn.variant)}>
           {btn.label || "Button"}
         </span>
       ))}
@@ -270,11 +280,26 @@ function OverlayButtonDestination({
 function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
   const { content } = overlay;
   const buttons = content.buttons ?? [];
+  const dismissible = isOverlayDismissible(overlay);
+  const image = content.image_id ? (
+    <img
+      src={content.image_id}
+      alt=""
+      className="w-full object-cover max-h-28 rounded-md"
+    />
+  ) : null;
 
   if (overlay.component === "top_banner") {
     return (
       <div className="rounded-md overflow-hidden border border-border">
         <div className="bg-primary text-primary-foreground px-4 py-2 flex items-center gap-3">
+          {content.image_id && (
+            <img
+              src={content.image_id}
+              alt=""
+              className="h-10 w-10 shrink-0 rounded object-cover bg-primary-foreground/10"
+            />
+          )}
           <div className="flex-1 min-w-0 flex flex-wrap items-center gap-2">
             {content.title && <span className="font-semibold text-sm">{content.title}</span>}
             {content.body && <span className="text-sm opacity-90">{content.body}</span>}
@@ -284,9 +309,11 @@ function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
               </span>
             )}
           </div>
-          <span className="shrink-0 opacity-60 cursor-default">
-            <IconX size={14} />
-          </span>
+          {dismissible && (
+            <span className="shrink-0 opacity-60 cursor-default">
+              <IconX size={14} />
+            </span>
+          )}
         </div>
         <div className="bg-muted/30 h-14 flex items-center justify-center">
           <span className="text-xs text-muted-foreground">Page content below</span>
@@ -297,40 +324,43 @@ function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
 
   if (overlay.component === "slide_in") {
     return (
-      <div className="rounded-md overflow-hidden border border-border bg-muted/20 relative" style={{ minHeight: "10rem" }}>
-        <div className="absolute bottom-3 right-3 w-64 rounded-[0.8rem] border border-border bg-card shadow-md p-3">
-          <div className="flex items-start justify-between gap-2 mb-1">
-            <span className="text-sm font-semibold leading-snug">{content.title}</span>
-            <span className="opacity-40 cursor-default shrink-0"><IconX size={14} /></span>
+      <div className="rounded-md overflow-hidden border border-border bg-muted/20 p-4 min-h-[10rem] flex flex-col">
+        <span className="text-xs text-muted-foreground mb-3">Page content</span>
+        <div className="mt-auto self-end w-64 max-w-full rounded-[0.8rem] border border-border bg-card shadow-md overflow-hidden">
+          {image}
+          <div className="p-3 space-y-2">
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-sm font-semibold leading-snug">{content.title}</span>
+              {dismissible && (
+                <span className="opacity-40 cursor-default shrink-0"><IconX size={14} /></span>
+              )}
+            </div>
+            {content.body && <p className="text-xs text-muted-foreground">{content.body}</p>}
+            {buttons.length > 0 && <PreviewButtons buttons={buttons} />}
           </div>
-          {content.body && <p className="text-xs text-muted-foreground mb-2">{content.body}</p>}
-          {buttons.length > 0 && <PreviewButtons buttons={buttons} />}
-        </div>
-        <div className="h-10 flex items-start pl-3 pt-3">
-          <span className="text-xs text-muted-foreground">Page content</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="rounded-md overflow-hidden border border-border bg-muted/20 relative" style={{ minHeight: "12rem" }}>
-      <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] flex items-center justify-center p-4">
-        <div className="w-full max-w-sm rounded-[0.8rem] border border-border bg-card shadow-lg p-5">
-          <div className="flex items-start justify-between gap-2 mb-2">
+    <div className="rounded-md overflow-hidden border border-border bg-muted/20 p-6">
+      <div className="flex items-center justify-center">
+        <div className="w-full max-w-sm rounded-[0.8rem] border border-border bg-card shadow-lg p-5 space-y-3">
+          {image}
+          <div className="flex items-start justify-between gap-2">
             <span className="text-sm font-semibold leading-snug">{content.title || "Untitled overlay"}</span>
-            <span className="opacity-40 cursor-default shrink-0"><IconX size={14} /></span>
+            {dismissible && (
+              <span className="opacity-40 cursor-default shrink-0"><IconX size={14} /></span>
+            )}
           </div>
-          {content.body && <p className="text-xs text-muted-foreground mb-4">{content.body}</p>}
+          {content.body && <p className="text-xs text-muted-foreground">{content.body}</p>}
           {buttons.length > 0 ? (
             <div className="flex justify-end gap-2">
               <PreviewButtons buttons={buttons} />
             </div>
           ) : null}
         </div>
-      </div>
-      <div className="h-10 flex items-start pl-3 pt-3">
-        <span className="text-xs text-muted-foreground">Page content</span>
       </div>
     </div>
   );
@@ -350,6 +380,7 @@ export default function PrivateOverlays() {
   const [sheetSaving, setSheetSaving] = useState(false);
   const [sheetContainer, setSheetContainer] = useState<HTMLDivElement | null>(null);
   const [showYmlEditor, setShowYmlEditor] = useState(false);
+  const [editingButtonIndex, setEditingButtonIndex] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery<OverlayConfig>({
     queryKey: ["/api/overlays"],
@@ -365,8 +396,19 @@ export default function PrivateOverlays() {
       await queryClient.invalidateQueries({ queryKey: ["/api/overlays"] });
       toast({ title: "Overlays saved" });
       return true;
-    } catch {
-      toast({ title: "Failed to save overlays", variant: "destructive" });
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : "";
+      const jsonMatch = raw.match(/^\d+:\s*(\{[\s\S]*\})$/);
+      let description = "Failed to save overlays";
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1]) as { error?: string };
+          if (parsed.error) description = parsed.error;
+        } catch {
+          // keep default
+        }
+      }
+      toast({ title: "Failed to save overlays", description, variant: "destructive" });
       return false;
     } finally {
       setSaving(false);
@@ -391,10 +433,12 @@ export default function PrivateOverlays() {
     const draft = overlay ? structuredClone(overlay) : newOverlay();
     setSheetDraft(draft);
     setSheetTab("content");
+    setEditingButtonIndex(null);
   }
 
   function closeSheet() {
     setSheetDraft(null);
+    setEditingButtonIndex(null);
   }
 
   function handleTabChange(tab: string) {
@@ -434,6 +478,11 @@ export default function PrivateOverlays() {
       toast({ title: "Overlay ID is required", variant: "destructive" });
       return;
     }
+    const blockingError = overlayBlockingSaveError(toSave);
+    if (blockingError) {
+      toast({ title: "Cannot save", description: blockingError, variant: "destructive" });
+      return;
+    }
     setSheetSaving(true);
     try {
       const isNew = !overlays.find((o) => o.id === sheetDraft.id);
@@ -463,6 +512,8 @@ export default function PrivateOverlays() {
     ? pageTargetingConflicts(pagesArray, excludePagesArray)
     : [];
   const isNewOverlay = sheetDraft ? !overlays.find((o) => o.id === sheetDraft.id) : false;
+  const sheetBlockingError = sheetDraft ? overlayBlockingSaveError(sheetDraft) : null;
+  const sheetSaveDisabled = sheetSaving || !!sheetBlockingError;
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 space-y-6">
@@ -734,14 +785,14 @@ export default function PrivateOverlays() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() =>
-                          patchContent({
-                            buttons: [
-                              ...(sheetDraft.content.buttons ?? []),
-                              { label: "", variant: "default", href: "" } as OverlayButton,
-                            ],
-                          })
-                        }
+                        onClick={() => {
+                          const next = [
+                            ...(sheetDraft.content.buttons ?? []),
+                            { label: "", variant: "default", href: "" } as OverlayButton,
+                          ];
+                          patchContent({ buttons: next });
+                          setEditingButtonIndex(next.length - 1);
+                        }}
                         data-testid="button-add-overlay-button"
                       >
                         <IconPlus size={13} />
@@ -763,6 +814,12 @@ export default function PrivateOverlays() {
                         const removeBtn = () => {
                           const updated = (sheetDraft.content.buttons ?? []).filter((_, idx) => idx !== i);
                           patchContent({ buttons: updated });
+                          setEditingButtonIndex((prev) => {
+                            if (prev === null) return null;
+                            if (prev === i) return null;
+                            if (prev > i) return prev - 1;
+                            return prev;
+                          });
                         };
                         const moveBtn = (dir: -1 | 1) => {
                           const arr = [...(sheetDraft.content.buttons ?? [])];
@@ -770,13 +827,33 @@ export default function PrivateOverlays() {
                           if (j < 0 || j >= arr.length) return;
                           [arr[i], arr[j]] = [arr[j], arr[i]];
                           patchContent({ buttons: arr });
+                          setEditingButtonIndex((prev) => {
+                            if (prev === i) return j;
+                            if (prev === j) return i;
+                            return prev;
+                          });
                         };
                         const total = (sheetDraft.content.buttons ?? []).length;
+                        const isEditing = editingButtonIndex === i;
+                        const destMeta = btn.href?.trim()
+                          ? btn.href.trim()
+                          : "Close modal";
                         return (
-                          <div key={i} className="rounded-md border p-3 space-y-2.5 bg-muted/30">
+                          <div
+                            key={i}
+                            className="rounded-md border p-2.5 space-y-2.5 bg-muted/30"
+                            data-testid={`card-overlay-button-${i}`}
+                          >
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-medium text-muted-foreground">Button {i + 1}</span>
-                              <div className="flex items-center gap-1">
+                              <div className="min-w-0 flex-1 space-y-0.5">
+                                <span className={buttonChipClass(btn.variant)}>
+                                  {btn.label || "Button"}
+                                </span>
+                                <p className="text-[11px] text-muted-foreground truncate" title={destMeta}>
+                                  {destMeta}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -801,6 +878,19 @@ export default function PrivateOverlays() {
                                   type="button"
                                   variant="ghost"
                                   size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() =>
+                                    setEditingButtonIndex(isEditing ? null : i)
+                                  }
+                                  title={isEditing ? "Collapse" : "Edit button"}
+                                  data-testid={`button-edit-overlay-button-${i}`}
+                                >
+                                  {isEditing ? <IconX size={14} /> : <IconPencil size={14} />}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
                                   onClick={removeBtn}
                                   data-testid={`button-remove-overlay-button-${i}`}
                                 >
@@ -808,49 +898,79 @@ export default function PrivateOverlays() {
                                 </Button>
                               </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="space-y-1">
-                                <Label className="text-xs">Label</Label>
-                                <Input
-                                  value={btn.label}
-                                  onChange={(e) => updateBtn({ label: e.target.value })}
-                                  placeholder="Apply now"
-                                  data-testid={`input-overlay-button-label-${i}`}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Style</Label>
-                                <Select
-                                  value={btn.variant}
-                                  onValueChange={(v) => updateBtn({ variant: v as OverlayButton["variant"] })}
-                                >
-                                  <SelectTrigger data-testid={`select-overlay-button-variant-${i}`}>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="default">Primary</SelectItem>
-                                    <SelectItem value="secondary">Secondary</SelectItem>
-                                    <SelectItem value="outline">Outline</SelectItem>
-                                    <SelectItem value="ghost">Ghost</SelectItem>
-                                    <SelectItem value="destructive">Destructive</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Destination</Label>
-                              <OverlayButtonDestination
-                                href={btn.href}
-                                onChange={(v) => updateBtn({ href: v })}
-                                portalContainer={sheetContainer}
-                                testId={`link-picker-overlay-button-${i}`}
-                              />
-                            </div>
+                            {isEditing && (
+                              <>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Label</Label>
+                                    <Input
+                                      value={btn.label}
+                                      onChange={(e) => updateBtn({ label: e.target.value })}
+                                      placeholder="Apply now"
+                                      data-testid={`input-overlay-button-label-${i}`}
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Style</Label>
+                                    <Select
+                                      value={btn.variant}
+                                      onValueChange={(v) => updateBtn({ variant: v as OverlayButton["variant"] })}
+                                    >
+                                      <SelectTrigger data-testid={`select-overlay-button-variant-${i}`}>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="default">Primary</SelectItem>
+                                        <SelectItem value="secondary">Secondary</SelectItem>
+                                        <SelectItem value="outline">Outline</SelectItem>
+                                        <SelectItem value="ghost">Ghost</SelectItem>
+                                        <SelectItem value="destructive">Destructive</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Destination</Label>
+                                  <OverlayButtonDestination
+                                    href={btn.href}
+                                    onChange={(v) => updateBtn({ href: v })}
+                                    portalContainer={sheetContainer}
+                                    testId={`link-picker-overlay-button-${i}`}
+                                  />
+                                </div>
+                              </>
+                            )}
                           </div>
                         );
                       })}
                     </div>
                   </div>
+
+                  <div className="space-y-2 rounded-md border p-3 bg-muted/20">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="space-y-0.5 min-w-0">
+                        <Label htmlFor="overlay-dismissible">Allow close without answering</Label>
+                        <p className="text-xs text-muted-foreground">
+                          When off, visitors must use a button — X and backdrop (modals) will not dismiss.
+                        </p>
+                      </div>
+                      <Switch
+                        id="overlay-dismissible"
+                        checked={isOverlayDismissible(sheetDraft)}
+                        onCheckedChange={(checked) => patchOverlay({ dismissible: checked })}
+                        data-testid="switch-overlay-dismissible"
+                      />
+                    </div>
+                    {sheetBlockingError && (
+                      <p
+                        className="text-xs text-destructive"
+                        data-testid="text-overlay-blocking-error"
+                      >
+                        {sheetBlockingError}
+                      </p>
+                    )}
+                  </div>
+
                   <div className="space-y-1.5">
                     <Label>Image <span className="text-muted-foreground font-normal">(optional)</span></Label>
                     <div className="flex items-center gap-3">
@@ -1155,7 +1275,7 @@ export default function PrivateOverlays() {
             </Button>
             <Button
               onClick={saveSheet}
-              disabled={sheetSaving}
+              disabled={sheetSaveDisabled}
               data-testid="button-save-sheet"
             >
               {sheetSaving ? (

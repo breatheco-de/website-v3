@@ -211,6 +211,7 @@ import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
 import type { CapabilityName } from "../user-store";
+import { allowedToolNames } from "@shared/mcp-tool-catalog";
 
 
 import {
@@ -3210,12 +3211,22 @@ export function registerAdminRoutes(app: Express): void {
       replitDevDomain,
     };
 
+    /** Role → tools/list visibility (same map as production MCP catalog filter). */
+    const roles = Object.entries(userStore.getAllRoles())
+      .map(([id, role]) => ({
+        id,
+        label: role.label,
+        allowedTools: allowedToolNames(role.capabilities ?? []),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+
     try {
       const mcpPort = process.env.MCP_PORT || "3001";
       const response = await fetch(`http://localhost:${mcpPort}/tools`);
       if (!response.ok) {
         res.json({
           tools: [],
+          roles,
           error: "MCP server unavailable",
           siteUrl,
           readiness: { ...readiness, mcpReachable: false },
@@ -3225,12 +3236,14 @@ export function registerAdminRoutes(app: Express): void {
       const data = await response.json();
       res.json({
         ...data,
+        roles,
         siteUrl,
         readiness: { ...readiness, mcpReachable: true },
       });
     } catch {
       res.json({
         tools: [],
+        roles,
         error: "MCP server unavailable",
         siteUrl,
         readiness: { ...readiness, mcpReachable: false },

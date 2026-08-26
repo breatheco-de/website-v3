@@ -287,14 +287,16 @@ export interface ContentTypeConfig {
   layout?: unknown;
   single_template?: boolean;
   editor?: Record<string, {
-    required?: boolean;
+    required?: boolean | "attached";
     type?: string;
     allow_custom_values?: boolean;
     populate_options?: boolean;
     description?: string;
+    fill_intent?: unknown;
   }>;
   indexes?: string[];
   schema_org_requirements?: Array<{ schema_type: string }>;
+  strategy?: { purpose: string; constraints?: string[] };
 }
 
 export function loadContentTypes(contentPath?: string): Record<string, ContentTypeConfig> {

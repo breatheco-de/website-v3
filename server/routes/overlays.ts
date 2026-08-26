@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { safeYamlLoad, safeYamlDump, requireCapability } from "./_helpers";
 import { markFileAsModified } from "../sync-state";
+import { validateOverlaysConfig } from "@shared/overlays";
 
 function getOverlaysFile(contentRoot: string): string {
   return path.join(contentRoot, "overlays.yml");
@@ -77,6 +78,12 @@ export function registerOverlaysRoutes(app: Express): void {
         return;
       }
 
+      const validationError = validateOverlaysConfig(parsed);
+      if (validationError) {
+        res.status(400).json({ error: validationError });
+        return;
+      }
+
       const contentRoot = getContentRoot(res);
       const contentFolder = path.basename(contentRoot);
       const overlaysFile = getOverlaysFile(contentRoot);
@@ -100,6 +107,13 @@ export function registerOverlaysRoutes(app: Express): void {
         res.status(400).json({ error: "Invalid body" });
         return;
       }
+
+      const validationError = validateOverlaysConfig(body);
+      if (validationError) {
+        res.status(400).json({ error: validationError });
+        return;
+      }
+
       const contentRoot = getContentRoot(res);
       const contentFolder = path.basename(contentRoot);
       const overlaysFile = getOverlaysFile(contentRoot);

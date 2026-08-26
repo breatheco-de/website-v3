@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Asterisk, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, HelpCircle, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Asterisk, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Crosshair, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, HelpCircle, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
 import { IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
@@ -68,6 +68,7 @@ import { LinkedDatabaseExplainDialog } from "@/components/editing/LinkedDatabase
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
 import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
 import { isValidFillIntent } from "@shared/fillIntent";
+import { isValidContentTypeStrategy } from "@shared/contentTypeStrategy";
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
 import { getMetaIssues } from "@/lib/metaIssues";
 import { isUsableOgImageUrl } from "@shared/ogImageUrl";
@@ -171,6 +172,7 @@ interface ContentTypeConfig {
   preview?: ContentTypePreviewConfig | null;
   schema_org_requirements?: Array<{ schema_type: string }>;
   seo_monitoring?: { enabled?: boolean; require_cluster?: boolean } | null;
+  strategy?: { purpose: string; constraints?: string[] } | null;
 }
 
 interface SchemaOrgCoverageRow {
@@ -770,9 +772,17 @@ function RequiredFieldConfirmDialog({
             <code className="font-mono text-[10px]">minItems</code> enforce structure; fill_intent does not
             replace them.
           </p>
+          <p>
+            The content type must also have a valid{" "}
+            <code className="font-mono text-[10px]">strategy</code> (non-empty{" "}
+            <code className="font-mono text-[10px]">purpose</code>) before any field can be required.
+            Set it with the Strategy button on this manage page — that is the type-level brief for staff
+            and agents, not the same as per-field fill_intent.
+          </p>
           <p className="text-xs">
             Read more:{" "}
             <code className="font-mono text-[10px]">shared/fillIntent.ts</code>,{" "}
+            <code className="font-mono text-[10px]">shared/contentTypeStrategy.ts</code>,{" "}
             <code className="font-mono text-[10px]">shared/validateRequiredFields.ts</code>,{" "}
             <code className="font-mono text-[10px]">server/live-entry-seo-gate.ts</code>,{" "}
             <code className="font-mono text-[10px]">scripts/validation/validators/required-fields.ts</code>
@@ -3015,10 +3025,13 @@ function FieldMappingDialog({
   open,
   onOpenChange,
   contentType,
+  onRequestStrategy,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   contentType: string;
+  /** Open the type Strategy dialog (required before marking fields required). */
+  onRequestStrategy?: () => void;
 }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
@@ -3891,8 +3904,10 @@ function FieldMappingDialog({
                 <div className="space-y-2">
               <p>
                 Adding fields to your {contentType} helps you describe each entry better. It also increases
-                AI agents&apos; efficiency: agents read each field&apos;s description and other information
-                and try to set the right values. Field values then become accessible through{" "}
+                AI agents&apos; efficiency: agents read each field&apos;s{" "}
+                <code className="font-mono bg-muted px-1 rounded text-xs">fill_intent</code>{" "}
+                (goal and purpose) and try to set the right values. Purpose is also shown as the
+                hint in the item editor. Field values then become accessible through{" "}
                 <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ single.field_name }}"}</code>{" "}
                 in the entry YAML file.
               </p>
@@ -3939,8 +3954,8 @@ function FieldMappingDialog({
                       </p>
                       <p>
                         Agent playbook: <code className="font-mono">explain_site</code> topic{" "}
-                        <code className="font-mono">relation-fields</code>; field specs live in each field&apos;s editor
-                        description (sliders icon) and below.
+                        <code className="font-mono">relation-fields</code>; field specs live in each field&apos;s{" "}
+                        <code className="font-mono">fill_intent</code> purpose (sliders icon) and below.
                       </p>
                     </div>
                   )}
@@ -4635,6 +4650,17 @@ function FieldMappingDialog({
         const field = pendingRequiredField;
         if (!field) return;
         if (nextRequired !== false) {
+          if (!isValidContentTypeStrategy(config?.strategy)) {
+            toast({
+              title: "Content type strategy required",
+              description:
+                "Set a type strategy (non-empty purpose) before marking fields required.",
+              variant: "destructive",
+            });
+            setPendingRequiredField(null);
+            onRequestStrategy?.();
+            return;
+          }
           const cur = editorHints[field] || {};
           if (!isValidFillIntent(cur.fill_intent)) {
             toast({
@@ -4677,6 +4703,270 @@ function FieldMappingDialog({
       }}
     />
     </>
+  );
+}
+
+function StrategyDialog({
+  open,
+  onOpenChange,
+  contentType,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  contentType: string;
+}) {
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+  const [clearingStrategy, setClearingStrategy] = useState(false);
+  const [purpose, setPurpose] = useState("");
+  const [constraints, setConstraints] = useState<string[]>([]);
+  const [newConstraint, setNewConstraint] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const label = contentType.charAt(0).toUpperCase() + contentType.slice(1);
+
+  const { data: config, isLoading } = useQuery<ContentTypeConfig>({
+    queryKey: ["/api/content-types", contentType, "config"],
+    queryFn: () => fetch(`/api/content-types/${contentType}/config`).then((r) => r.json()),
+    enabled: open,
+  });
+
+  useEffect(() => {
+    if (!open || !config) return;
+    const s = config.strategy;
+    setPurpose(typeof s?.purpose === "string" ? s.purpose : "");
+    setConstraints(
+      Array.isArray(s?.constraints)
+        ? s.constraints.filter((c): c is string => typeof c === "string")
+        : [],
+    );
+    setNewConstraint("");
+    setShowAdvanced(false);
+  }, [open, config]);
+
+  const hasRequiredFields = Object.values(config?.editor || {}).some(
+    (h) => h?.required === true || h?.required === "attached",
+  );
+  const canClear = !hasRequiredFields && isValidContentTypeStrategy(config?.strategy);
+  const purposeTrimmed = purpose.trim();
+  const canSave = purposeTrimmed.length > 0;
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      const trimmedConstraints = constraints.map((c) => c.trim()).filter(Boolean);
+      const strategy = trimmedConstraints.length
+        ? { purpose: purposeTrimmed, constraints: trimmedConstraints }
+        : { purpose: purposeTrimmed };
+      await apiRequest("PUT", `/api/content-types/${contentType}/config`, { strategy });
+      await queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
+      toast({ title: "Strategy saved" });
+      onOpenChange(false);
+    } catch (err) {
+      toast({
+        title: "Failed to save strategy",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClear = async () => {
+    if (!canClear) return;
+    setClearingStrategy(true);
+    try {
+      await apiRequest("PUT", `/api/content-types/${contentType}/config`, { strategy: null });
+      await queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
+      toast({ title: "Strategy cleared" });
+      onOpenChange(false);
+    } catch (err) {
+      toast({
+        title: "Failed to clear strategy",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setClearingStrategy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[560px]" data-testid="dialog-content-type-strategy">
+        <DialogHeader>
+          <DialogTitle>{label} Strategy</DialogTitle>
+          <DialogDescription>
+            Type-level purpose for staff and agents — why this content type exists.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-solid border-current border-r-transparent" />
+            <span className="ml-2 text-sm text-muted-foreground">Loading...</span>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div
+              className="space-y-2 text-sm text-muted-foreground rounded-md border border-border bg-muted/30 px-3 py-2.5"
+              data-testid="strategy-education"
+            >
+              <p>
+                <strong className="font-medium text-foreground">Strategy</strong> is the main brief for
+                this content type. Agents and staff use it as context when filling required fields.
+              </p>
+              <p>
+                It is <strong className="font-medium text-foreground">not</strong> the same as per-field{" "}
+                <code className="font-mono text-[10px]">fill_intent</code> (why/how to fill one field)
+                or Insights <code className="font-mono text-[10px]">insights_intent</code> (component
+                taxonomy).
+              </p>
+              <p>
+                Any field marked required (<code className="font-mono text-[10px]">true</code> or{" "}
+                <code className="font-mono text-[10px]">attached</code>) needs a valid strategy with a
+                non-empty purpose first.
+              </p>
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline"
+                onClick={() => setShowAdvanced((v) => !v)}
+                data-testid="button-strategy-advanced"
+              >
+                {showAdvanced ? "Hide advanced" : "Read more (advanced)"}
+              </button>
+              {showAdvanced && (
+                <p className="text-xs pt-1">
+                  Stored on <code className="font-mono text-[10px]">content-types.yml</code> as{" "}
+                  <code className="font-mono text-[10px]">strategy.purpose</code> /{" "}
+                  <code className="font-mono text-[10px]">strategy.constraints</code>. Code:{" "}
+                  <code className="font-mono text-[10px]">shared/contentTypeStrategy.ts</code>,{" "}
+                  <code className="font-mono text-[10px]">server/content-types.ts</code> (strategy
+                  header). MCP: <code className="font-mono text-[10px]">update_content_type</code>.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="strategy-purpose">Purpose</Label>
+              <Textarea
+                id="strategy-purpose"
+                value={purpose}
+                onChange={(e) => setPurpose(e.target.value)}
+                placeholder="Why this content type exists — catalog clarity, local presence, editorial, …"
+                className="min-h-[88px] text-sm"
+                data-testid="input-strategy-purpose"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Constraints (optional)</Label>
+              <div className="space-y-1.5" data-testid="section-strategy-constraints">
+                {constraints.map((c, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <Input
+                      value={c}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setConstraints((prev) => prev.map((x, j) => (j === i ? v : x)));
+                      }}
+                      className="text-sm"
+                      data-testid={`input-strategy-constraint-${i}`}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="flex-shrink-0"
+                      onClick={() => setConstraints((prev) => prev.filter((_, j) => j !== i))}
+                      data-testid={`button-remove-strategy-constraint-${i}`}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={newConstraint}
+                  onChange={(e) => setNewConstraint(e.target.value)}
+                  placeholder="Add a constraint…"
+                  className="text-sm"
+                  data-testid="input-strategy-constraint-new"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const t = newConstraint.trim();
+                      if (!t) return;
+                      setConstraints((prev) => [...prev, t]);
+                      setNewConstraint("");
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!newConstraint.trim()}
+                  onClick={() => {
+                    const t = newConstraint.trim();
+                    if (!t) return;
+                    setConstraints((prev) => [...prev, t]);
+                    setNewConstraint("");
+                  }}
+                  data-testid="button-add-strategy-constraint"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add
+                </Button>
+              </div>
+            </div>
+
+            {hasRequiredFields && (
+              <p className="text-xs text-muted-foreground" data-testid="text-strategy-clear-blocked">
+                Clear is disabled while required fields exist. Remove required/attached from all fields
+                first, or keep a valid strategy.
+              </p>
+            )}
+          </div>
+        )}
+
+        <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between sm:space-x-0">
+          <Button
+            variant="outline"
+            onClick={handleClear}
+            disabled={!canClear || clearingStrategy || saving || isLoading}
+            data-testid="button-clear-strategy"
+            title={
+              hasRequiredFields
+                ? "Cannot clear while required fields exist"
+                : !isValidContentTypeStrategy(config?.strategy)
+                  ? "No strategy to clear"
+                  : "Clear strategy from content-types.yml"
+            }
+          >
+            {clearingStrategy ? "Clearing…" : "Clear"}
+          </Button>
+          <div className="flex gap-2 w-full sm:w-auto justify-end">
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              data-testid="button-cancel-strategy"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={!canSave || saving || isLoading}
+              data-testid="button-save-strategy"
+            >
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -5085,6 +5375,7 @@ export default function ContentTypeManagePage() {
   const [connectDbConfirmOpen, setConnectDbConfirmOpen] = useState(false);
   const [clearCacheConfirmOpen, setClearCacheConfirmOpen] = useState(false);
   const [seoDialogOpen, setSeoDialogOpen] = useState(false);
+  const [strategyDialogOpen, setStrategyDialogOpen] = useState(false);
   const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"static" | "db">("static");
   const [listPerspective, setListPerspective] = useState<"default" | "seo">("default");
@@ -6383,6 +6674,23 @@ export default function ContentTypeManagePage() {
             >
               <LinkIcon className="h-4 w-4 mr-1" />
               URLs
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStrategyDialogOpen(true)}
+              data-testid="button-content-type-strategy"
+              className={
+                !isValidContentTypeStrategy(typeConfig?.strategy) &&
+                Object.values(typeConfig?.editor || {}).some(
+                  (h) => h?.required === true || h?.required === "attached",
+                )
+                  ? "border-destructive/50 text-destructive"
+                  : undefined
+              }
+            >
+              <Crosshair className="h-4 w-4 mr-1" />
+              Strategy
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -8242,7 +8550,20 @@ export default function ContentTypeManagePage() {
         alreadyConnected={hasDb}
       />
       <DataSourceDialog open={dsDialogOpen} onOpenChange={setDsDialogOpen} contentType={contentType} />
-      <FieldMappingDialog open={mappingDialogOpen} onOpenChange={setMappingDialogOpen} contentType={contentType} />
+      <FieldMappingDialog
+        open={mappingDialogOpen}
+        onOpenChange={setMappingDialogOpen}
+        contentType={contentType}
+        onRequestStrategy={() => {
+          setMappingDialogOpen(false);
+          setStrategyDialogOpen(true);
+        }}
+      />
+      <StrategyDialog
+        open={strategyDialogOpen}
+        onOpenChange={setStrategyDialogOpen}
+        contentType={contentType}
+      />
       <SeoSettingsDialog
         open={seoDialogOpen}
         onOpenChange={setSeoDialogOpen}

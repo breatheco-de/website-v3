@@ -37,7 +37,8 @@ import {
 import { collectEditorFieldTokens } from "@shared/editor-field-values";
 import { compileJsonSchema } from "@shared/json-field";
 import {
-  FILL_INTENT_GOAL_PRESETS,
+  FILL_INTENT_GOAL_PRESET_OPTIONS,
+  isPresetFillIntentGoal,
   isValidFillIntent,
   parseFillIntent,
   type EditorFillIntent,
@@ -51,6 +52,7 @@ export type EditorHint = {
   /** Split comma-separated strings into tokens. Arrays always expand. */
   split_comma_values?: boolean;
   cache_images?: boolean;
+  /** Legacy UI hint; no longer written by Field Settings. Prefer fill_intent.purpose. */
   description?: string;
   /** Required for publish / cannot clear when live. `"attached"` = only when not detached. */
   required?: boolean | "attached";
@@ -138,8 +140,8 @@ export function EditorTypeDialog({
   const [populateOptions, setPopulateOptions] = useState(false);
   const [allowCustom, setAllowCustom] = useState(false);
   const [splitComma, setSplitComma] = useState(false);
-  const [description, setDescription] = useState("");
   const [fillGoal, setFillGoal] = useState("");
+  const [fillGoalCustomMode, setFillGoalCustomMode] = useState(false);
   const [fillPurpose, setFillPurpose] = useState("");
   const [fillConstraintsText, setFillConstraintsText] = useState("");
   const [fillIntentError, setFillIntentError] = useState<string | null>(null);
@@ -170,10 +172,12 @@ export function EditorTypeDialog({
     setPopulateOptions(hint.populate_options ?? false);
     setAllowCustom(hint.allow_custom_values ?? false);
     setSplitComma(hint.split_comma_values ?? false);
-    setDescription(hint.description || "");
     const fi = parseFillIntent(hint.fill_intent);
-    setFillGoal(fi?.goal || "");
-    setFillPurpose(fi?.purpose || "");
+    const goal = fi?.goal || "";
+    setFillGoal(goal);
+    setFillGoalCustomMode(Boolean(goal) && !isPresetFillIntentGoal(goal));
+    // Seed purpose from legacy description only when purpose is empty.
+    setFillPurpose(fi?.purpose || hint.description?.trim() || "");
     setFillConstraintsText(fi?.constraints?.join("\n") || "");
     setFillIntentError(null);
     setSchemaText(
@@ -253,7 +257,7 @@ export function EditorTypeDialog({
     if (initialHint?.required === true || initialHint?.required === "attached") {
       hint.required = initialHint.required;
     }
-    if (description.trim()) hint.description = description.trim();
+    // Intentionally omit description — Purpose replaces it; parent replace-merge clears legacy YAML.
 
     const goal = fillGoal.trim();
     const purpose = fillPurpose.trim();
@@ -419,17 +423,6 @@ export function EditorTypeDialog({
               </p>
             )}
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Description (shown as hint in editor)</Label>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Choose the programming language for this course"
-              className="w-full text-sm px-3 py-1.5 rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-              data-testid="input-hint-description"
-            />
-          </div>
           <div
             className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-3"
             data-testid="fill-intent-editor"
@@ -439,56 +432,75 @@ export function EditorTypeDialog({
               <p className="text-[11px] text-muted-foreground leading-relaxed">
                 Declarative why/how agents and Diagnostics should fill this field. Required when the
                 field is marked required for publish. Goal is an open tag — presets are shortcuts;
-                custom goals are fine. Purpose is the brief.
+                custom goals are fine. Purpose is the brief shown as the editor hint (legacy
+                Description is no longer edited here and is cleared on Apply).
               </p>
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Goal</Label>
-              <div className="flex flex-col gap-1.5 sm:flex-row">
+              <div className="flex flex-col gap-1.5">
                 <Select
                   value={
-                    (FILL_INTENT_GOAL_PRESETS as readonly string[]).includes(fillGoal)
+                    isPresetFillIntentGoal(fillGoal)
                       ? fillGoal
-                      : fillGoal
+                      : fillGoalCustomMode
                         ? "__custom__"
                         : ""
                   }
                   onValueChange={(v) => {
                     if (v === "__custom__") {
-                      if ((FILL_INTENT_GOAL_PRESETS as readonly string[]).includes(fillGoal)) {
+                      setFillGoalCustomMode(true);
+                      if (isPresetFillIntentGoal(fillGoal)) {
                         setFillGoal("");
                       }
+                      setFillIntentError(null);
                       return;
                     }
+                    setFillGoalCustomMode(false);
                     setFillGoal(v);
                     setFillIntentError(null);
                   }}
                 >
-                  <SelectTrigger className="h-8 text-xs sm:w-44" data-testid="select-fill-intent-goal-preset">
+                  <SelectTrigger className="h-8 w-full text-xs" data-testid="select-fill-intent-goal-preset">
                     <SelectValue placeholder="Preset…" />
                   </SelectTrigger>
-                  <SelectContent>
-                    {FILL_INTENT_GOAL_PRESETS.map((g) => (
-                      <SelectItem key={g} value={g} className="text-xs">
-                        {g}
+                  {/* Above this dialog (z-[10002]); same as type SelectContent above. */}
+                  <SelectContent className="z-[10003] min-w-[18rem] max-w-[22rem]">
+                    {FILL_INTENT_GOAL_PRESET_OPTIONS.map((g) => (
+                      <SelectItem
+                        key={g.value}
+                        value={g.value}
+                        textValue={g.title}
+                        description={g.description}
+                        className="py-2 text-xs"
+                      >
+                        <span className="font-medium leading-tight">{g.title}</span>
                       </SelectItem>
                     ))}
-                    <SelectItem value="__custom__" className="text-xs">
-                      Custom…
+                    <SelectItem
+                      value="__custom__"
+                      textValue="Custom"
+                      description="Enter your own goal slug below."
+                      className="py-2 text-xs"
+                    >
+                      <span className="font-medium leading-tight">Custom…</span>
                     </SelectItem>
                   </SelectContent>
                 </Select>
-                <input
-                  type="text"
-                  value={fillGoal}
-                  onChange={(e) => {
-                    setFillGoal(e.target.value);
-                    setFillIntentError(null);
-                  }}
-                  placeholder="goal slug (e.g. geo_llm or lead_nurture)"
-                  className="w-full flex-1 text-sm px-3 py-1.5 rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                  data-testid="input-fill-intent-goal"
-                />
+                {fillGoalCustomMode && (
+                  <input
+                    type="text"
+                    value={fillGoal}
+                    onChange={(e) => {
+                      setFillGoal(e.target.value);
+                      setFillIntentError(null);
+                    }}
+                    placeholder="goal slug (e.g. lead_nurture)"
+                    className="w-full text-sm px-3 py-1.5 rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                    data-testid="input-fill-intent-goal"
+                    autoFocus
+                  />
+                )}
               </div>
             </div>
             <div className="space-y-1">

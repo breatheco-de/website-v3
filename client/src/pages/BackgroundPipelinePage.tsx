@@ -68,8 +68,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { apiFetch } from "@/lib/queryClient";
+import { apiFetch, apiRequestWithAuth } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { useDebugAuth } from "@/hooks/useDebugAuth";
+import { useToast } from "@/hooks/use-toast";
 
 type PipelineStatus = {
   engine: {
@@ -499,10 +501,61 @@ function LocksDetailList({ leases }: { leases: PipelineStatus["leases"] }) {
 }
 
 function HealthStrip({ data }: { data: PipelineStatus }) {
+  const { roles, isDevelopment } = useDebugAuth();
+  const { toast } = useToast();
+  const [openingDash, setOpeningDash] = useState(false);
   const activeCount = inFlightCount(data.inFlight);
   const pending = data.outbox.pending ?? [];
   const waitingCount = data.outbox.unpublishedCount;
   const lockCount = data.leases.length;
+  const canOpenSidequest =
+    Boolean(data.engine.dashboardUrl) &&
+    (isDevelopment || roles.includes("webmaster"));
+
+  const openSidequestDashboard = async () => {
+    if (openingDash) return;
+    // Open synchronously during the click (keeps a window handle). Never navigate
+    // this tab — a null handle used to fall back to location.href and poison the SPA
+    // with Sidequest / optional Basic-auth prompts for the whole origin.
+    const w = window.open("about:blank", "sidequest_dashboard");
+    if (!w) {
+      toast({
+        title: "Popup blocked",
+        description: "Allow pop-ups for this site, then open Sidequest again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      w.document.write(
+        "<!doctype html><title>Opening Sidequest…</title><p style=\"font:14px system-ui;padding:1rem\">Opening Sidequest…</p>",
+      );
+      w.document.close();
+    } catch {
+      // Cross-origin about:blank edge cases — still try location.replace below.
+    }
+    setOpeningDash(true);
+    try {
+      const res = await apiRequestWithAuth("POST", "/api/admin/sidequest/open");
+      const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      const path = body.url || data.engine.dashboardUrl || "/admin/sidequest/";
+      const absolute = new URL(path, window.location.origin).href;
+      w.location.replace(absolute);
+    } catch (err) {
+      try {
+        w.close();
+      } catch {
+        // ignore
+      }
+      toast({
+        title: "Could not open Sidequest dashboard",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setOpeningDash(false);
+    }
+  };
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="pipeline-health-kpis">
@@ -513,16 +566,17 @@ function HealthStrip({ data }: { data: PipelineStatus }) {
         icon={engineStatusIcon(data.engine.status)}
         subline={
           <div className="space-y-1">
-            {data.engine.dashboardUrl ? (
-              <a
-                href={data.engine.dashboardUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-primary hover:underline"
+            {canOpenSidequest ? (
+              <button
+                type="button"
+                onClick={() => void openSidequestDashboard()}
+                disabled={openingDash}
+                className="inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-50"
+                data-testid="button-open-sidequest-dashboard"
               >
-                Sidequest dashboard
+                {openingDash ? "Opening…" : "Sidequest dashboard"}
                 <IconExternalLink className="h-3 w-3" />
-              </a>
+              </button>
             ) : null}
             <p className={cn(activeCount > 0 ? "text-amber-400 font-medium" : undefined)}>
               {activeCount > 0 ? `${activeCount} active` : "Idle"}
@@ -541,9 +595,9 @@ function HealthStrip({ data }: { data: PipelineStatus }) {
         testId="kpi-pipeline-engine"
         education={{
           simple:
-            "Process health for the agent runtime that picks up background work. Running means the engine is up. Idle under it means no tasks are in flight right now — not that the engine is down. Restarting or Stopped: saves are safe, but index and validations wait until it recovers.",
+            "Process health for the agent runtime that picks up background work. Running means the engine is up. Idle under it means no tasks are in flight right now — not that the engine is down. Restarting or Stopped: saves are safe, but index and validations wait until it recovers. Sidequest dashboard (webmasters only) opens the job UI; outbox work stays under Events waiting → View waiting.",
           advanced:
-            "Sidequest.js engine in server/jobs/queue.ts, SQLite backend at data/sidequest.sqlite. Auto-restarts with exponential backoff (max 10 attempts). In-flight list from GET /api/admin/pipeline/status → inFlight (events, not the Sidequest job table).",
+            "Sidequest.js engine in server/jobs/queue.ts, SQLite backend at data/sidequest.sqlite. Staff proxy: POST /api/admin/sidequest/open (webmaster) sets HttpOnly sidequest_dash cookie; /admin/sidequest reverse-proxies to localhost with internal Basic auth. See server/routes/sidequest-dashboard.ts and server/sidequest-dashboard-auth.ts (cookie TTL slides on each request).",
         }}
       />
       <HealthKpiCard

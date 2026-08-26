@@ -23,6 +23,7 @@ const MUTATING_TOOLS = [
   "set_entry_attachment",
   "regenerate_entry_previews",
   "ensure_content_type_schema_org",
+  "update_content_type",
   "update_redirect",
 ] as const;
 

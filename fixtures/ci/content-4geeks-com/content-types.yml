@@ -103,6 +103,10 @@
 
 program:
   insights_intent: product_service
+  strategy:
+    purpose: "Product/service pages for programs we teach/sell; catalog clarity and accurate offers."
+    constraints:
+      - "Ecommerce purchasable lives in sidecar; respect immutable/protected slugs."
   directory: programs
   unique_fields:
     - slug
@@ -130,6 +134,10 @@ program:
     require_cluster: true
 location:
   insights_intent: brand_corporate
+  strategy:
+    purpose: "Brand/local presence pages (campuses, markets); support LocalBusiness companions."
+    constraints:
+      - "Keep geo facts accurate; companions when schema_org_requirements say so."
   directory: locations
   field_mapping:
     slug: slug
@@ -174,6 +182,10 @@ location:
     require_cluster: true
 landing:
   insights_intent: lead_generation
+  strategy:
+    purpose: "Campaign/lead-generation landings; conversion and offer clarity over evergreen SEO."
+    constraints:
+      - "Keep conversion_name / products aligned with tracking and funnel."
   directory: landings
   field_mapping:
     title: title
@@ -223,6 +235,10 @@ landing:
     require_cluster: true
 page:
   insights_intent: brand_corporate
+  strategy:
+    purpose: "Brand/corporate evergreen pages."
+    constraints:
+      - "When seo_monitoring is on, prefer cluster assignment over orphans."
   directory: pages
   field_mapping:
     title: title
@@ -258,6 +274,10 @@ page:
     require_cluster: true
 blog:
   insights_intent: content_seo
+  strategy:
+    purpose: "SEO/GEO educational posts; topical depth, clusters, and answer quality."
+    constraints:
+      - "Attached FAQ/CTA when on shared layout; complete meta + body before publish."
   directory: blog
   single_template: true
   field_mapping:
@@ -422,6 +442,10 @@ blog:
     require_cluster: true
 authors:
   insights_intent: content_seo
+  strategy:
+    purpose: "Person entity pages for authorship and E-E-A-T signals."
+    constraints:
+      - "Stable topical knowsAbout labels; https profile URLs only."
   directory: authors
   single_template: true
   immutable_slug: true
@@ -509,6 +533,10 @@ authors:
         empty.
 downloadable:
   insights_intent: lead_generation
+  strategy:
+    purpose: "Lead magnets and gated downloadable assets."
+    constraints:
+      - "Clear conversion path; not a substitute for blog/how-to."
   directory: downloadable
   field_mapping:
     title: title
@@ -533,6 +561,10 @@ downloadable:
       type: pdf
 outcome-report:
   insights_intent: outcome
+  strategy:
+    purpose: "Outcomes and results reporting for trust and proof."
+    constraints:
+      - "Prefer accurate, attributable claims over hype."
   directory: outcome-report
   single_template: true
   field_mapping:
@@ -555,6 +587,10 @@ outcome-report:
   unique_fields:
     - slug
 how-to:
+  strategy:
+    purpose: "Step-by-step learning guides for discovery and nurture."
+    constraints:
+      - "Reuse peer taxonomy; primary CTA stays in template/forms."
   directory: how-to
   url_pattern:
     en: /en/how-to/:slug
@@ -581,6 +617,10 @@ how-to:
       bottom: main-footer
   single_template: true
 interactive-exercise:
+  strategy:
+    purpose: "Hands-on LearnPack exercises for practice and related-exercise discovery."
+    constraints:
+      - "Reuse peer category/tags; not primary lead-capture pages; CTAs in template/forms."
   directory: interactive-exercise
   url_pattern:
     en: /en/interactive-exercise/:slug
@@ -622,6 +662,10 @@ interactive-exercise:
     - slug
   single_template: true
 lesson:
+  strategy:
+    purpose: "Curriculum lesson pages for structured learning."
+    constraints:
+      - "Align with program/syllabus context; reuse peer taxonomy."
   directory: lesson
   url_pattern:
     en: /en/lesson/:slug
