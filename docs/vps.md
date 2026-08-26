@@ -164,7 +164,8 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now website-sidequest
 sudo systemctl restart website
 curl -fsS http://127.0.0.1:5000/health
-curl -fsS http://127.0.0.1:8679/health   # Sidequest loopback health (default SIDEQUEST_WORKER_HEALTH_PORT)
+sudo systemctl is-active website-sidequest
+# Optional: cat /opt/website-v3/current/data/sidequest.pid  (web probes this PID)
 ```
 
 Until the Sidequest unit is enabled, saves still succeed but index/validation jobs queue and never run. `deploy.sh` restarts **both** `website` and `website-sidequest` when each unit exists.
@@ -198,7 +199,6 @@ Canonical public URL in prod: **`https://4geeks.com`** (`SITE_URL`).
 
 - Express `:5000`
 - Sidequest dashboard `:8678` (staff proxy via Express `/admin/sidequest`)
-- Sidequest worker health `:8679` (web probes only; no nginx route)
 - Qdrant `:6333`
 - MCP `:3001` (public only as Nginx → Express → loopback `/mcp`)
 - sGTM `:8080`, `:8081`
@@ -326,7 +326,7 @@ Rate limit APIs/forms/`/mcp`, not a blunt global RPS on all static assets.
 | Process | `website.service` → `current/scripts/start-production.sh` |
 | Sidequest | `website-sidequest.service` → `current/scripts/start-sidequest.sh` |
 | Reverse proxy | Nginx 80/443 |
-| Health | `http://127.0.0.1:5000/health` (web); `http://127.0.0.1:8679/health` (Sidequest) |
+| Health | `http://127.0.0.1:5000/health` (web); Sidequest liveness via `data/sidequest.pid` / `systemctl is-active website-sidequest` |
 | sGTM | `/opt/sgtm` Docker compose |
 
 IP, hostname, and which DNS records already point here: check DigitalOcean + Cloudflare, not this file.

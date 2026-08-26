@@ -4,60 +4,29 @@
  * scripts/start-sidequest.sh (prod / systemd).
  *
  * Build: esbuild → dist/sidequest-worker.js
+ * Liveness: writes data/sidequest.pid for the web process (getEngineStatus).
  */
 
 import "dotenv/config";
-import http from "http";
 import { registerAllJobs } from "./register";
 import {
-  getWorkerHealthPort,
+  clearSidequestWorkerPid,
   startJobQueue,
   stopJobQueue,
+  writeSidequestWorkerPid,
 } from "./queue";
 import { child } from "../logger";
 
 const log = child({ module: "sidequest-worker" });
 
-let healthServer: http.Server | null = null;
 let shuttingDown = false;
-
-function startHealthServer(): Promise<void> {
-  const port = getWorkerHealthPort();
-  return new Promise((resolve, reject) => {
-    const server = http.createServer((req, res) => {
-      if (req.method === "GET" && (req.url === "/health" || req.url?.startsWith("/health?"))) {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, engine: "running", pid: process.pid }));
-        return;
-      }
-      res.writeHead(404, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: false, error: "not_found" }));
-    });
-
-    server.on("error", reject);
-    server.listen(port, "127.0.0.1", () => {
-      healthServer = server;
-      log.info({ port, pid: process.pid }, "[SidequestWorker] health listening on loopback");
-      resolve();
-    });
-  });
-}
-
-async function stopHealthServer(): Promise<void> {
-  if (!healthServer) return;
-  const server = healthServer;
-  healthServer = null;
-  await new Promise<void>((resolve) => {
-    server.close(() => resolve());
-  });
-}
 
 async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info({ signal }, "[SidequestWorker] shutting down");
   try {
-    await stopHealthServer();
+    clearSidequestWorkerPid(process.pid);
     await stopJobQueue();
   } catch (err) {
     log.error({ err }, "[SidequestWorker] error during shutdown");
@@ -72,8 +41,8 @@ async function main(): Promise<void> {
   );
   registerAllJobs();
   await startJobQueue();
-  await startHealthServer();
-  log.info("[SidequestWorker] engine ready");
+  writeSidequestWorkerPid(process.pid);
+  log.info({ pid: process.pid }, "[SidequestWorker] engine ready (pid file written)");
 }
 
 process.on("SIGTERM", () => {
@@ -85,5 +54,6 @@ process.on("SIGINT", () => {
 
 void main().catch((err) => {
   log.error({ err }, "[SidequestWorker] failed to start");
+  clearSidequestWorkerPid(process.pid);
   process.exit(1);
 });

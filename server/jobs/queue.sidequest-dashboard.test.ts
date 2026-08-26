@@ -1,11 +1,14 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import fs from "fs";
 import {
   buildSidequestDashboardConfig,
+  clearSidequestWorkerPid,
   getEngineStatus,
   getSidequestDashboardInternalAuth,
-  getWorkerHealthPort,
   isSidequestDashboardEnabled,
   SIDEQUEST_DASHBOARD_BASE_PATH,
+  SIDEQUEST_PID_PATH,
+  writeSidequestWorkerPid,
 } from "./queue";
 
 describe("sidequest dashboard queue config", () => {
@@ -15,14 +18,7 @@ describe("sidequest dashboard queue config", () => {
     password: process.env.SIDEQUEST_DASHBOARD_PASSWORD,
     nodeEnv: process.env.NODE_ENV,
     secret: process.env.SESSION_SECRET,
-    healthPort: process.env.SIDEQUEST_WORKER_HEALTH_PORT,
-    confirmDelay: process.env.SIDEQUEST_HEALTH_CONFIRM_DELAY_MS,
   };
-
-  beforeEach(() => {
-    // Avoid 1.5s confirm wait when tests only care about dashboard config / status shape.
-    process.env.SIDEQUEST_HEALTH_CONFIRM_DELAY_MS = "0";
-  });
 
   afterEach(() => {
     for (const [k, v] of Object.entries(prev)) {
@@ -35,15 +31,12 @@ describe("sidequest dashboard queue config", () => {
               ? "SIDEQUEST_DASHBOARD_PASSWORD"
               : k === "nodeEnv"
                 ? "NODE_ENV"
-                : k === "healthPort"
-                  ? "SIDEQUEST_WORKER_HEALTH_PORT"
-                  : k === "confirmDelay"
-                    ? "SIDEQUEST_HEALTH_CONFIRM_DELAY_MS"
-                    : "SESSION_SECRET";
+                : "SESSION_SECRET";
       if (v === undefined) delete process.env[envKey];
       else process.env[envKey] = v;
     }
-    vi.unstubAllGlobals();
+    clearSidequestWorkerPid();
+    vi.restoreAllMocks();
   });
 
   it("defaults dashboard enabled and returns same-origin path", async () => {
@@ -95,41 +88,23 @@ describe("sidequest dashboard queue config", () => {
     expect(cfg.auth).toBeUndefined();
   });
 
-  it("defaults worker health port to 8679", () => {
-    delete process.env.SIDEQUEST_WORKER_HEALTH_PORT;
-    expect(getWorkerHealthPort()).toBe(8679);
-  });
-
-  it("getEngineStatus reports running when worker /health returns 200", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })),
-    );
+  it("getEngineStatus reports running when pid file points at a live process", async () => {
+    writeSidequestWorkerPid(process.pid);
     const status = await getEngineStatus();
     expect(status.status).toBe("running");
-    expect(status.restartAttempts).toBe(0);
+    expect(status.pid).toBe(process.pid);
   });
 
-  it("getEngineStatus reports stopped only after a confirmed failed probe", async () => {
-    process.env.SIDEQUEST_HEALTH_CONFIRM_DELAY_MS = "0";
-    const fetchMock = vi.fn(async () => {
-      throw new Error("ECONNREFUSED");
-    });
-    vi.stubGlobal("fetch", fetchMock);
+  it("getEngineStatus reports stopped when pid file is missing", async () => {
+    clearSidequestWorkerPid();
     const status = await getEngineStatus();
     expect(status.status).toBe("stopped");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(status.pid).toBeUndefined();
   });
 
-  it("getEngineStatus recovers to running if the confirm probe succeeds", async () => {
-    process.env.SIDEQUEST_HEALTH_CONFIRM_DELAY_MS = "0";
-    const fetchMock = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("ECONNREFUSED"))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
+  it("getEngineStatus reports stopped when pid file points at a dead process", async () => {
+    fs.writeFileSync(SIDEQUEST_PID_PATH, "999999999\n", "utf-8");
     const status = await getEngineStatus();
-    expect(status.status).toBe("running");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(status.status).toBe("stopped");
   });
 });

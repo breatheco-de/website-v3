@@ -35,7 +35,7 @@ In a second terminal, start the Sidequest job worker (required for index refresh
 npm run sidequest
 ```
 
-Worker health: `curl -fsS http://127.0.0.1:8679/health`
+Worker liveness: `data/sidequest.pid` (written by `npm run sidequest`). Check with `systemctl status website-sidequest` in prod.
 
 ### Site content folders
 

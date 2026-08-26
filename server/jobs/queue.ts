@@ -3,6 +3,9 @@
  *
  * Web process: configure + enqueue only (never Sidequest.start).
  * Worker process: startJobQueue() runs the engine + dashboard.
+ *
+ * Engine liveness for the web: PID file (data/sidequest.pid), not HTTP —
+ * inline jobs can block the worker event loop and make an HTTP /health flake.
  */
 
 import path from "path";
@@ -19,17 +22,11 @@ if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 const SIDEQUEST_DB = path.join(dataDir, "sidequest.sqlite");
 
+/** Written by the Sidequest worker; web probes process liveness via this path. */
+export const SIDEQUEST_PID_PATH = path.join(dataDir, "sidequest.pid");
+
 /** Same-origin path for the staff-proxied Sidequest UI. */
 export const SIDEQUEST_DASHBOARD_BASE_PATH = "/admin/sidequest";
-
-const HEALTH_PROBE_TIMEOUT_MS = 500;
-/** Wait before a second probe when the first fails — avoids false "stopped" during restart. */
-function healthConfirmDelayMs(): number {
-  const raw = process.env.SIDEQUEST_HEALTH_CONFIRM_DELAY_MS;
-  if (raw === undefined || raw === "") return 1500;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : 1500;
-}
 
 let configured = false;
 let starting: Promise<void> | null = null;
@@ -40,11 +37,6 @@ export type EngineStatusState = "running" | "starting" | "stopped" | "restarting
 
 export function getSidequestDashboardPort(): number {
   return Number(process.env.SIDEQUEST_DASHBOARD_PORT || 8678);
-}
-
-/** Loopback health port for the dedicated Sidequest worker (not the dashboard). */
-export function getWorkerHealthPort(): number {
-  return Number(process.env.SIDEQUEST_WORKER_HEALTH_PORT || 8679);
 }
 
 /** Kill switch: SIDEQUEST_DASHBOARD_ENABLED=false disables; unset/true enables. */
@@ -83,45 +75,60 @@ export type EngineStatusResult = {
   status: EngineStatusState;
   restartAttempts: number;
   dashboardUrl?: string;
+  pid?: number;
 };
 
-async function probeWorkerHealth(): Promise<boolean> {
-  const port = getWorkerHealthPort();
-  const url = `http://127.0.0.1:${port}/health`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), HEALTH_PROBE_TIMEOUT_MS);
+/** True if `pid` refers to a live process (signal 0 — no kill). */
+export function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    return res.ok;
+    process.kill(pid, 0);
+    return true;
   } catch {
     return false;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export function readSidequestWorkerPid(): number | null {
+  try {
+    const raw = fs.readFileSync(SIDEQUEST_PID_PATH, "utf-8").trim();
+    const pid = Number(raw);
+    if (!Number.isInteger(pid) || pid <= 0) return null;
+    return pid;
+  } catch {
+    return null;
+  }
+}
+
+export function writeSidequestWorkerPid(pid: number = process.pid): void {
+  fs.mkdirSync(path.dirname(SIDEQUEST_PID_PATH), { recursive: true });
+  fs.writeFileSync(SIDEQUEST_PID_PATH, `${pid}\n`, "utf-8");
+}
+
+export function clearSidequestWorkerPid(expectedPid?: number): void {
+  try {
+    if (expectedPid !== undefined) {
+      const current = readSidequestWorkerPid();
+      if (current !== null && current !== expectedPid) return;
+    }
+    fs.unlinkSync(SIDEQUEST_PID_PATH);
+  } catch {
+    // missing file is fine
+  }
 }
 
 /**
- * Probe the dedicated worker loopback /health (not the dashboard port).
- * Web process has no local Sidequest engine — status reflects the worker only.
- * A failed probe is confirmed after a short delay to avoid flicker during restarts.
+ * Liveness of the dedicated Sidequest worker via PID file.
+ * Survives event-loop blocking from inline jobs (unlike HTTP /health).
  */
 export async function getEngineStatus(): Promise<EngineStatusResult> {
   const dashboardUrl = isSidequestDashboardEnabled()
     ? `${SIDEQUEST_DASHBOARD_BASE_PATH}/`
     : undefined;
 
-  if (await probeWorkerHealth()) {
-    return { status: "running", restartAttempts: 0, dashboardUrl };
-  }
-
-  await sleep(healthConfirmDelayMs());
-
-  if (await probeWorkerHealth()) {
-    return { status: "running", restartAttempts: 0, dashboardUrl };
+  const pid = readSidequestWorkerPid();
+  if (pid !== null && isProcessAlive(pid)) {
+    return { status: "running", restartAttempts: 0, dashboardUrl, pid };
   }
 
   return { status: "stopped", restartAttempts: 0, dashboardUrl };
