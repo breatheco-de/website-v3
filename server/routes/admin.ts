@@ -680,7 +680,7 @@ export function registerAdminRoutes(app: Express): void {
       return;
     }
 
-    const engine = getEngineStatus();
+    const engine = await getEngineStatus();
     const currentGeneration = getLatestWriteGeneration(site);
     const lastApplied = getLastAppliedSnapshot(site);
     const lastAppliedGeneration = lastApplied?.generation ?? 0;

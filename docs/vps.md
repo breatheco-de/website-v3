@@ -137,13 +137,40 @@ ExecStart=/opt/website-v3/current/scripts/start-production.sh
 
 Keep `ReadWritePaths=/opt/website-v3` so `persistent/` remains writable.
 
+**Sidequest (required for background jobs):** Express only enqueues; a separate unit runs the engine.
+
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl restart website
-curl -fsS http://127.0.0.1:5000/health
+# /etc/systemd/system/website-sidequest.service
+[Unit]
+Description=Website Sidequest job engine
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/website-v3/current
+EnvironmentFile=/opt/website-v3/current/.env
+ExecStart=/opt/website-v3/current/scripts/start-sidequest.sh
+Restart=always
+RestartSec=5
+# Same writable root as website.service so data/sidequest.sqlite is shared
+ReadWritePaths=/opt/website-v3
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-Until this flip, `deploy.sh` still builds releases and updates `current`, but the running service may keep using the legacy root tree — the script prints a WARNING if `WorkingDirectory` ≠ `…/current`.
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now website-sidequest
+sudo systemctl restart website
+curl -fsS http://127.0.0.1:5000/health
+sudo systemctl is-active website-sidequest
+# Optional: cat /opt/website-v3/current/data/sidequest.pid  (web probes this PID)
+```
+
+Until the Sidequest unit is enabled, saves still succeed but index/validation jobs queue and never run. `deploy.sh` restarts **both** `website` and `website-sidequest` when each unit exists.
+
+Until the web service flip, `deploy.sh` still builds releases and updates `current`, but the running service may keep using the legacy root tree — the script prints a WARNING if `WorkingDirectory` ≠ `…/current`.
 
 ---
 
@@ -171,6 +198,7 @@ Canonical public URL in prod: **`https://4geeks.com`** (`SITE_URL`).
 ### Must not be public (loopback / Docker bind `127.0.0.1`)
 
 - Express `:5000`
+- Sidequest dashboard `:8678` (staff proxy via Express `/admin/sidequest`)
 - Qdrant `:6333`
 - MCP `:3001` (public only as Nginx → Express → loopback `/mcp`)
 - sGTM `:8080`, `:8081`
@@ -296,8 +324,9 @@ Rate limit APIs/forms/`/mcp`, not a blunt global RPS on all static assets.
 | OS | Ubuntu 24.04 |
 | App root | `/opt/website-v3` |
 | Process | `website.service` → `current/scripts/start-production.sh` |
+| Sidequest | `website-sidequest.service` → `current/scripts/start-sidequest.sh` |
 | Reverse proxy | Nginx 80/443 |
-| Health | `http://127.0.0.1:5000/health` |
+| Health | `http://127.0.0.1:5000/health` (web); Sidequest liveness via `data/sidequest.pid` / `systemctl is-active website-sidequest` |
 | sGTM | `/opt/sgtm` Docker compose |
 
 IP, hostname, and which DNS records already point here: check DigitalOcean + Cloudflare, not this file.

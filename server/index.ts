@@ -28,7 +28,7 @@ import { emitContentFileWritten, emitRedirectsChanged } from "./content-events";
 import { startEventPruneTimer, wipeAllSiteEventStores } from "./events/event-store";
 import { startEventDispatcher } from "./events/dispatcher";
 import { registerAllJobs } from "./jobs/register";
-import { startJobQueue, stopJobQueue } from "./jobs/queue";
+import { configureJobQueue } from "./jobs/queue";
 import { ensurePipelineDbForSites } from "./pipeline-db/runner";
 import { startJobApplier, stopJobApplier } from "./jobs/applier";
 import { startEngineWatchdog } from "./jobs/engine-watchdog";
@@ -584,8 +584,10 @@ app.use((req, res, next) => {
         logger.info({ wiped, sites: siteNames.length }, "[Events] Dev boot wiped site event logs");
       }
     }
-    void startJobQueue().catch((err) => {
-      logger.error({ err, worker: "JobQueue" }, "failed to start job queue");
+    // Configure Sidequest for enqueue only — engine runs in a dedicated worker
+    // (`npm run sidequest` / website-sidequest.service). Never Sidequest.start() here.
+    void configureJobQueue().catch((err) => {
+      logger.error({ err, worker: "JobQueue" }, "failed to configure job queue for enqueue");
     });
     startEventDispatcher();
     startJobApplier();
@@ -657,7 +659,6 @@ app.use((req, res, next) => {
     try {
       flushAllPendingSyncStateWrites();
       stopJobApplier();
-      await stopJobQueue();
       await getVersioningManager().shutdown();
       await shutdownValidationCaches();
       await shutdownRuntimeIssues();
