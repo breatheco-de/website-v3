@@ -75,3 +75,27 @@ export async function startGitHubConnect(): Promise<void> {
     );
   }
 }
+
+/** Clear the stored per-user GitHub token so staff can reconnect. */
+export async function disconnectGitHub(): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch("/api/github/user-connection", {
+      method: "DELETE",
+      credentials: "include",
+      headers: getSessionHeaders(),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return {
+        ok: false,
+        error: data.error || `Failed to disconnect GitHub (${res.status})`,
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to disconnect GitHub",
+    };
+  }
+}

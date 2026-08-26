@@ -21,6 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { AutoCommitStatus, PendingChange, GitHubSyncStatus } from "../types";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import {
+  disconnectGitHub,
   startGitHubConnect,
   useGitHubUserConnection,
 } from "@/hooks/useGitHubUserConnection";
@@ -119,8 +120,12 @@ export function SyncModal({
   const [queueFilter, setQueueFilter] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const formatSitePath = useFormatSitePath();
-  const { connection, needsConnect, isLoading: githubConnectionLoading } =
-    useGitHubUserConnection();
+  const {
+    connection,
+    needsConnect,
+    isLoading: githubConnectionLoading,
+    invalidate: invalidateGitHubConnection,
+  } = useGitHubUserConnection();
 
   const { data: syncInfo } = useQuery<{
     repoUrl: string | null;
@@ -486,14 +491,44 @@ export function SyncModal({
               {githubIdentityExpanded && (
                 <div className="space-y-2">
                   {connection?.connected && connection.githubLogin ? (
-                    <p className="text-[11px] text-muted-foreground">
-                      Content commits use your GitHub identity{" "}
-                      <span className="font-medium text-foreground">
-                        @{connection.githubLogin}
-                      </span>
-                      . Pulls and system operations still use the service{" "}
-                      <span className="font-mono">GITHUB_TOKEN</span>.
-                    </p>
+                    <>
+                      <p className="text-[11px] text-muted-foreground">
+                        Content commits use your GitHub identity{" "}
+                        <span className="font-medium text-foreground">
+                          @{connection.githubLogin}
+                        </span>
+                        . Pulls and system operations still use the service{" "}
+                        <span className="font-mono">GITHUB_TOKEN</span>.
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs w-full"
+                        onClick={() => {
+                          void (async () => {
+                            const result = await disconnectGitHub();
+                            if (!result.ok) {
+                              toast({
+                                title: "Disconnect failed",
+                                description: result.error,
+                                variant: "destructive",
+                              });
+                              return;
+                            }
+                            await invalidateGitHubConnection();
+                            toast({
+                              title: "GitHub disconnected",
+                              description:
+                                "Connect again anytime to resume commits as yourself.",
+                            });
+                          })();
+                        }}
+                        data-testid="button-github-disconnect-identity-card"
+                      >
+                        Disconnect GitHub
+                      </Button>
+                    </>
                   ) : needsConnect ? (
                     <>
                       <p className="text-[11px] text-muted-foreground">
