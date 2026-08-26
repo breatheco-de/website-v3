@@ -13,6 +13,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import type { NavbarConfig, NavbarItem } from "./index";
 
@@ -57,7 +58,14 @@ function MobileNavItem({ item, onNavigate, isOpen, onToggle }: MobileNavItemProp
                   data-testid={`mobile-nav-card-${(card.title || "item").toLowerCase().replace(/\s+/g, "-")}`}
                 >
                   <div>
-                    <div className="font-medium text-foreground">{card.title}</div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <div className="font-medium text-foreground">{card.title}</div>
+                      {card.badge?.trim() ? (
+                        <Badge variant="secondary" className="text-[9px] font-semibold uppercase tracking-wide">
+                          {card.badge}
+                        </Badge>
+                      ) : null}
+                    </div>
                     <div className="text-xs text-muted-foreground line-clamp-1">{card.description}</div>
                   </div>
                   <ChevronRight className="h-3 w-3 shrink-0 ml-2" />

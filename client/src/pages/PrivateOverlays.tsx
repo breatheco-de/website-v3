@@ -327,16 +327,23 @@ function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
       <div className="rounded-md overflow-hidden border border-border bg-muted/20 p-4 min-h-[10rem] flex flex-col">
         <span className="text-xs text-muted-foreground mb-3">Page content</span>
         <div className="mt-auto self-end w-64 max-w-full rounded-[0.8rem] border border-border bg-card shadow-md overflow-hidden">
-          {image}
-          <div className="p-3 space-y-2">
-            <div className="flex items-start justify-between gap-2">
-              <span className="text-sm font-semibold leading-snug">{content.title}</span>
-              {dismissible && (
-                <span className="opacity-40 cursor-default shrink-0"><IconX size={14} /></span>
-              )}
+          {dismissible && (
+            <div className="flex justify-end px-2 pt-2">
+              <span className="inline-flex h-6 w-6 items-center justify-center opacity-40 cursor-default">
+                <IconX size={14} />
+              </span>
             </div>
+          )}
+          {image}
+          <div className="p-3 space-y-2 text-center">
+            <span className="text-sm font-semibold leading-snug block">{content.title}</span>
             {content.body && <p className="text-xs text-muted-foreground">{content.body}</p>}
             {buttons.length > 0 && <PreviewButtons buttons={buttons} />}
+            {dismissible && (
+              <span className="inline-flex min-w-[7rem] mx-auto items-center justify-center rounded-md border border-border px-6 py-1.5 text-xs font-medium cursor-default select-none">
+                Close
+              </span>
+            )}
           </div>
         </div>
       </div>

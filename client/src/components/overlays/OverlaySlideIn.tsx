@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { IconX } from "@tabler/icons-react";
 import type { Overlay } from "@/hooks/useOverlays";
 import { markOverlaySeen, isOverlayDismissible } from "@/hooks/useOverlays";
-import { UniversalImage } from "@/components/UniversalImage";
 import { OverlayActionButtons } from "./OverlayActionButtons";
+import { OverlayContentImage, overlayHasImage } from "./OverlayContentImage";
 
 interface OverlaySlideInProps {
   overlay: Overlay;
@@ -28,42 +28,65 @@ export function OverlaySlideIn({ overlay, onDismiss }: OverlaySlideInProps) {
       className="fixed bottom-4 right-4 z-[9999] w-80 animate-in slide-in-from-bottom-4 duration-300"
       data-testid="overlay-slide-in"
     >
-      <Card className="shadow-lg">
-        {content.image_id && (
-          <div className="rounded-t-lg overflow-hidden">
-            <UniversalImage
-              id={content.image_id}
-              alt={content.title}
-              className="w-full object-cover max-h-36"
-            />
-          </div>
-        )}
-        <CardHeader className="pb-2 flex flex-row items-start justify-between gap-2">
-          <CardTitle className="text-base leading-snug">{content.title}</CardTitle>
+      <Card className="shadow-lg overflow-hidden">
+        <div className="relative px-5 pt-4">
           {dismissible && (
-            <Button
-              size="icon"
-              variant="ghost"
+            <button
+              type="button"
               onClick={handleDismiss}
               aria-label="Close"
               data-testid="button-dismiss-slide-in"
+              className="absolute top-3 right-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             >
               <IconX size={16} />
-            </Button>
+            </button>
           )}
+
+          {overlayHasImage(content) && (
+            <div className={dismissible ? "pt-2 pr-6" : ""}>
+              <OverlayContentImage
+                content={content}
+                className="mx-auto h-12 w-auto object-contain"
+              />
+            </div>
+          )}
+        </div>
+
+        <CardHeader className="px-5 pb-2 pt-3">
+          <CardTitle className="text-base leading-snug text-center">
+            {content.title}
+          </CardTitle>
         </CardHeader>
+
         {content.body && (
-          <CardContent className="pt-0 pb-3">
-            <p className="text-sm text-muted-foreground">{content.body}</p>
+          <CardContent className="px-5 pt-0 pb-3">
+            <p className="text-sm text-muted-foreground leading-relaxed text-center">
+              {content.body}
+            </p>
           </CardContent>
         )}
+
         {hasButtons && (
-          <CardContent className="pt-0 pb-4">
+          <CardContent className="px-5 pt-0 pb-3">
             <OverlayActionButtons
               buttons={content.buttons}
               onDismiss={handleDismiss}
               buttonClassName="flex-1"
             />
+          </CardContent>
+        )}
+
+        {dismissible && (
+          <CardContent className="px-5 pt-0 pb-4 flex justify-center">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDismiss}
+              className="h-8 min-w-[7rem] px-6 text-xs"
+              data-testid="button-dismiss-slide-in-bottom"
+            >
+              Close
+            </Button>
           </CardContent>
         )}
       </Card>

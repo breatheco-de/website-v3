@@ -6,8 +6,11 @@ import { useInternalNav } from "@/hooks/useInternalNav";
 
 import { useImageRegistry } from "@/components/UniversalImage";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
+import fldoeLogo from "@/assets/fldoe-logo.png";
 
 const LOGO_ID = "4geeks-devs-logo-1763162063433";
+const DEFAULT_COPYRIGHT =
+  "4Geeks Academy is a Florida company approved by the Commission for Independent Education, License #5904";
 
 interface FooterColumn {
   title: string;
@@ -90,12 +93,10 @@ export default function Footer({ menuId = "main-footer" }: FooterProps) {
   if (!config) return null;
   if (editMode?.isEditMode && editMode.previewBreakpoint === "mobile") return null;
 
-  const currentYear = new Date().getFullYear();
-  const rawCopyright = (config.copyright_text || "4Geeks Academy").replace(
+  const copyrightText = (config.copyright_text || DEFAULT_COPYRIGHT).replace(
     /^\d{4}\s*/,
     "",
   );
-  const copyrightText = `${currentYear} ${rawCopyright}`;
 
   return (
     <footer className="text-foreground" data-testid="section-global-footer">
@@ -217,12 +218,19 @@ export default function Footer({ menuId = "main-footer" }: FooterProps) {
 
         <div className="pt-8 border-t border-background/20">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p
-              className="text-sm text-foreground/60"
+            <div
+              className="flex items-center gap-3 max-w-xl"
               data-testid="text-copyright"
             >
-              {copyrightText}
-            </p>
+              <img
+                src={fldoeLogo}
+                alt="Florida Department of Education"
+                className="h-10 w-auto shrink-0 rounded-sm"
+              />
+              <p className="text-sm text-foreground/60 leading-snug">
+                {copyrightText}
+              </p>
+            </div>
             <div
               className="flex items-center gap-6 flex-wrap"
               data-testid="footer-legal-links"

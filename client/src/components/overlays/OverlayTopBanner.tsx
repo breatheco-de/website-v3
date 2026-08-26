@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button";
 import { IconX } from "@tabler/icons-react";
 import type { Overlay } from "@/hooks/useOverlays";
 import { markOverlaySeen, isOverlayDismissible } from "@/hooks/useOverlays";
-import { UniversalImage } from "@/components/UniversalImage";
 import { OverlayActionButtons } from "./OverlayActionButtons";
+import { OverlayContentImage, overlayHasImage } from "./OverlayContentImage";
 
 interface OverlayTopBannerProps {
   overlay: Overlay;
@@ -25,13 +25,9 @@ export function OverlayTopBanner({ overlay, onDismiss }: OverlayTopBannerProps) 
       className="fixed top-0 left-0 right-0 z-[9999] bg-primary text-primary-foreground px-4 py-2 flex items-center gap-3 shadow-md"
       data-testid="overlay-top-banner"
     >
-      {content.image_id && (
-        <div className="h-10 w-10 shrink-0 rounded overflow-hidden bg-primary-foreground/10">
-          <UniversalImage
-            id={content.image_id}
-            alt={content.title}
-            className="h-full w-full object-cover"
-          />
+      {overlayHasImage(content) && (
+        <div className="h-10 w-auto shrink-0 rounded overflow-hidden bg-primary-foreground/10">
+          <OverlayContentImage content={content} className="h-10 w-auto object-contain" />
         </div>
       )}
       <div className="flex-1 min-w-0 flex flex-wrap items-center gap-2">

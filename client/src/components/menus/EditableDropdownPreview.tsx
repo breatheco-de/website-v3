@@ -271,6 +271,7 @@ interface CardItem {
   cta: string;
   href: string;
   icon?: string;
+  badge?: string;
 }
 
 interface ColumnItem {
@@ -378,6 +379,14 @@ function EditableCardItem({
         className="font-semibold text-foreground mb-2 block"
         as="h4"
         testId={`editable-card-${index}-title`}
+      />
+      <EditableText
+        value={item.badge ?? ""}
+        onChange={(badge) => onUpdate({ badge: badge.trim() || undefined })}
+        placeholder="Badge (optional, e.g. Pending Approval)"
+        className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2 block"
+        as="span"
+        testId={`editable-card-${index}-badge`}
       />
       <EditableText
         value={item.description}

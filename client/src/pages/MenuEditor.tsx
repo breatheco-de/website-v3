@@ -2250,7 +2250,7 @@ export default function MenuEditor() {
                   <Input
                     value={footerData.copyright_text || ""}
                     onChange={(e) => updateFooter({ copyright_text: e.target.value })}
-                    placeholder="2024 4Geeks Academy. All rights reserved."
+                    placeholder="4Geeks Academy is a Florida company approved by the Commission for Independent Education, License #5904"
                     data-testid="footer-copyright-input"
                   />
                 </div>

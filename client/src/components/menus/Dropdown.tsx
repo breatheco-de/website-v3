@@ -1,6 +1,7 @@
 import { useState, useRef, useLayoutEffect as _useLayoutEffect, useEffect } from "react";
 import { ChevronDown, ChevronRight, Code, BarChart3, Shield, Brain, Medal, GraduationCap, Building, Briefcase, Puzzle, Wifi } from "lucide-react";
 import { InternalLink } from "@/components/InternalLink";
+import { Badge } from "@/components/ui/badge";
 import {
   cardsGridColsClass,
   cardsPanelNominalWidthPx,
@@ -33,6 +34,8 @@ export interface CardItem {
   /** When set with layout `onSelect`, used as the selected value (falls back to `href`). */
   value?: string;
   icon?: string;
+  /** Optional pill label (e.g. "Pending Approval", "Special Promotion"). */
+  badge?: string;
 }
 
 export interface ColumnItem {
@@ -111,6 +114,42 @@ export interface DropdownProps {
   dropdown: DropdownData;
 }
 
+function CardTitleWithBadge({ title, badge }: { title: string; badge?: string }) {
+  if (!badge?.trim()) {
+    return (
+      <h4 className="text-base font-semibold text-foreground mb-2 break-words">
+        {title}
+      </h4>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 mb-2">
+      <h4 className="text-base font-semibold text-foreground break-words">{title}</h4>
+      <Badge variant="secondary" className="text-[10px] font-semibold uppercase tracking-wide shrink-0">
+        {badge}
+      </Badge>
+    </div>
+  );
+}
+
+function CardTitleWithBadgeCompact({ title, badge }: { title: string; badge?: string }) {
+  if (!badge?.trim()) {
+    return (
+      <h4 className="text-sm md:text-base font-semibold text-foreground mb-0.5 md:mb-2">
+        {title}
+      </h4>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mb-0.5 md:mb-2">
+      <h4 className="text-sm md:text-base font-semibold text-foreground">{title}</h4>
+      <Badge variant="secondary" className="text-[9px] md:text-[10px] font-semibold uppercase tracking-wide shrink-0">
+        {badge}
+      </Badge>
+    </div>
+  );
+}
+
 export function CardsDropdown({
   dropdown,
   onNavigate,
@@ -180,9 +219,7 @@ export function CardsDropdown({
                 </div>
               )}
               <div className="min-w-0 flex-1 md:flex-none md:w-full">
-                <h4 className="text-sm md:text-base font-semibold text-foreground mb-0.5 md:mb-2">
-                  {item.title}
-                </h4>
+                <CardTitleWithBadgeCompact title={item.title} badge={item.badge} />
                 <p className="text-xs md:text-sm text-muted-foreground mb-0 md:mb-3 line-clamp-2 md:line-clamp-4">
                   {item.description}
                 </p>
@@ -198,9 +235,7 @@ export function CardsDropdown({
                   <IconComponent className="w-6 h-6" />
                 </div>
               )}
-              <h4 className="text-base font-semibold text-foreground mb-2 break-words">
-                {item.title}
-              </h4>
+              <CardTitleWithBadge title={item.title} badge={item.badge} />
               <p className="text-sm text-muted-foreground mb-3 line-clamp-4 break-words">
                 {item.description}
               </p>

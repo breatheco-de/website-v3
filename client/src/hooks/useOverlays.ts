@@ -12,6 +12,8 @@ export interface OverlayContent {
   body: string;
   buttons?: OverlayButton[];
   image_id?: string;
+  /** Public URL for overlay image when not using media gallery image_id (e.g. /fldoe-logo.png). */
+  image_url?: string;
 }
 
 export interface OverlayTrigger {

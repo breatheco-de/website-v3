@@ -7,8 +7,8 @@ import {
 } from "@/components/ui/dialog";
 import type { Overlay } from "@/hooks/useOverlays";
 import { markOverlaySeen, isOverlayDismissible } from "@/hooks/useOverlays";
-import { UniversalImage } from "@/components/UniversalImage";
 import { OverlayActionButtons } from "./OverlayActionButtons";
+import { OverlayContentImage, overlayHasImage } from "./OverlayContentImage";
 
 interface OverlayModalProps {
   overlay: Overlay;
@@ -38,13 +38,9 @@ export function OverlayModal({ overlay, onDismiss }: OverlayModalProps) {
         onEscapeKeyDown={dismissible ? undefined : (e) => e.preventDefault()}
         onInteractOutside={dismissible ? undefined : (e) => e.preventDefault()}
       >
-        {content.image_id && (
+        {overlayHasImage(content) && (
           <div className="rounded-md overflow-hidden mb-2">
-            <UniversalImage
-              id={content.image_id}
-              alt={content.title}
-              className="w-full object-cover max-h-48"
-            />
+            <OverlayContentImage content={content} className="w-full object-cover max-h-48" />
           </div>
         )}
         <DialogHeader>
