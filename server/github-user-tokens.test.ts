@@ -6,6 +6,8 @@ import {
   setUserGitHubToken,
   _resetGitHubUserTokensForTests,
   getUserConnectionStatus,
+  getContentRepoFullNames,
+  getGitHubConnectSetupInfo,
 } from "./github-user-tokens";
 
 describe("resolveCommitGitHubToken", () => {
@@ -114,5 +116,19 @@ describe("resolveCommitGitHubToken", () => {
     const status = await getUserConnectionStatus("bob");
     expect(status.required).toBe(true);
     expect(status.connected).toBe(false);
+  });
+
+  it("getGitHubConnectSetupInfo exposes install URL when app slug is set", () => {
+    process.env.GITHUB_APP_CLIENT_ID = "cid";
+    process.env.GITHUB_APP_CLIENT_SECRET = "secret";
+    process.env.GITHUB_APP_SLUG = "caxton-cms";
+    const setup = getGitHubConnectSetupInfo();
+    expect(setup.appConfigured).toBe(true);
+    expect(setup.appSlug).toBe("caxton-cms");
+    expect(setup.appInstallUrl).toBe(
+      "https://github.com/apps/caxton-cms/installations/new",
+    );
+    expect(Array.isArray(setup.contentRepos)).toBe(true);
+    expect(Array.isArray(getContentRepoFullNames())).toBe(true);
   });
 });

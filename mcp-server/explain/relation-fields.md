@@ -62,7 +62,7 @@ Picker options come from `/api/query-options?source=…` (omit locale → entrie
 
 ## Blog + authors (4geeks)
 
-- Content type `authors` (seeded on `site_4geeks-com` only): public hubs, `immutable_slug`, protected default `4geeks-academy`.
+- Content type `authors` (seeded on `site_4geeks-com` only): public hubs; protected default `4geeks-academy`.
 - Blog `authors` relation is required, multi, stored on `_common.yml`, indexed.
 - Article template must map explicitly:
 

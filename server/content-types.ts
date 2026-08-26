@@ -121,10 +121,6 @@ export interface ContentTypeEntry {
    */
   schema_org_requirements?: Array<{ schema_type: string }>;
   /**
-   * When true, entry slug cannot be renamed via rename-slug API / SEO UI.
-   */
-  immutable_slug?: boolean;
-  /**
    * Entry slugs that cannot be deleted (system defaults, e.g. org author).
    */
   protected_slugs?: string[];

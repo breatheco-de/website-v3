@@ -19,8 +19,7 @@ url_pattern:
   default: /landing/:slug
 ```
 
-The `:slug` placeholder is replaced with the locale file `slug` value at runtime (for example `es.yml -> slug:`).  
-If a locale file does not define `slug`, the folder name is used as fallback.
+The `:slug` placeholder is replaced with the locale file `slug` value at runtime (merged `_common.yml` + locale; **locale wins**). Entry **identity** (directory name) is the MCP/API lookup key and the default when locale YAML omits `slug`.
 
 Routing ownership is checked against the live content index. If a real folder or another entry already resolves the same URL, slug changes are rejected with `slug_already_owned_by_other_entry`.
 

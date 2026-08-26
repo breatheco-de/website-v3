@@ -291,10 +291,12 @@ export async function fetchGitHubUser(accessToken: string): Promise<{
   };
 }
 
-/** Verify the token can push to at least one configured content repo. */
-export async function verifyContentRepoWriteAccess(
-  accessToken: string,
-): Promise<{ ok: boolean; error?: string; reposChecked: string[] }> {
+export type GitHubConnectFailureCode =
+  | "no_content_repo_write"
+  | "no_content_repo_configured";
+
+/** Content repos from sites.yml github_repo_url and GITHUB_REPO_URL. */
+export function getContentRepoFullNames(): string[] {
   const repos = new Set<string>();
   for (const site of getSiteConfigs()) {
     if (site.githubRepoUrl) {
@@ -309,11 +311,41 @@ export async function verifyContentRepoWriteAccess(
     .replace(/\.git$/, "")
     .match(/github\.com\/([^\/]+)\/([^\/]+)/);
   if (envMatch) repos.add(`${envMatch[1]}/${envMatch[2]}`);
+  return [...repos];
+}
 
-  const list = [...repos];
+export function getGitHubConnectSetupInfo(): {
+  contentRepos: string[];
+  appSlug?: string;
+  appInstallUrl?: string;
+  appConfigured: boolean;
+} {
+  const appConfigured = isGitHubAppConfigured();
+  const appSlug = process.env.GITHUB_APP_SLUG?.trim() || undefined;
+  return {
+    contentRepos: getContentRepoFullNames(),
+    appSlug,
+    appInstallUrl: appSlug
+      ? `https://github.com/apps/${appSlug}/installations/new`
+      : undefined,
+    appConfigured,
+  };
+}
+
+/** Verify the token can push to at least one configured content repo. */
+export async function verifyContentRepoWriteAccess(
+  accessToken: string,
+): Promise<{
+  ok: boolean;
+  error?: string;
+  code?: GitHubConnectFailureCode;
+  reposChecked: string[];
+}> {
+  const list = getContentRepoFullNames();
   if (list.length === 0) {
     return {
       ok: false,
+      code: "no_content_repo_configured",
       error: "No content github_repo_url configured",
       reposChecked: [],
     };
@@ -339,8 +371,9 @@ export async function verifyContentRepoWriteAccess(
 
   return {
     ok: false,
+    code: "no_content_repo_write",
     error:
-      "Connected GitHub account cannot push to the content repository. Install the GitHub App on the content org and grant Contents write, or ensure your account has write access.",
+      "Your GitHub account cannot push to the content repository. Complete the setup steps below, then try again.",
     reposChecked: list,
   };
 }

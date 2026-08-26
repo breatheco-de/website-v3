@@ -55,6 +55,10 @@ import {
   startGitHubConnect,
   useGitHubUserConnection,
 } from "@/hooks/useGitHubUserConnection";
+import {
+  GitHubConnectErrorDialog,
+  type GitHubConnectErrorState,
+} from "@/components/GitHubConnectErrorDialog";
 
 const CATEGORIES = [
   "RESTART",
@@ -243,7 +247,8 @@ export default function SyncLogPage() {
   );
   const [activePersons, setActivePersons] = useState<Set<string>>(new Set([]));
   const [githubConnectSuccessOpen, setGithubConnectSuccessOpen] = useState(false);
-  const [githubConnectError, setGithubConnectError] = useState<string | null>(null);
+  const [githubConnectError, setGithubConnectError] =
+    useState<GitHubConnectErrorState | null>(null);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -255,11 +260,16 @@ export default function SyncLogPage() {
       setGithubConnectSuccessOpen(true);
       void invalidateGitHubConnection();
     } else if (github === "error") {
-      setGithubConnectError(params.get("message") || "GitHub Connect failed");
+      setGithubConnectError({
+        message: params.get("message") || "GitHub Connect failed",
+        code: params.get("code"),
+      });
     }
 
     params.delete("github");
     params.delete("message");
+    params.delete("code");
+    params.delete("repos");
     const next = params.toString();
     const path = window.location.pathname + (next ? `?${next}` : "");
     window.history.replaceState({}, "", path);
@@ -1739,43 +1749,18 @@ export default function SyncLogPage() {
       </DialogContent>
     </Dialog>
 
-    <Dialog
+    <GitHubConnectErrorDialog
       open={githubConnectError !== null}
       onOpenChange={(open) => {
         if (!open) setGithubConnectError(null);
       }}
-    >
-      <DialogContent className="sm:max-w-md" data-testid="dialog-github-connect-error">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-destructive">
-            <X className="h-5 w-5" />
-            GitHub Connect failed
-          </DialogTitle>
-          <DialogDescription className="pt-1 whitespace-pre-wrap break-words">
-            {githubConnectError}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setGithubConnectError(null)}
-          >
-            Close
-          </Button>
-          <Button
-            type="button"
-            onClick={() => {
-              setGithubConnectError(null);
-              void startGitHubConnect();
-            }}
-            data-testid="button-github-connect-retry"
-          >
-            Try again
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      error={githubConnectError}
+      setup={connection?.setup}
+      onRetry={() => {
+        setGithubConnectError(null);
+        void startGitHubConnect();
+      }}
+    />
     </>
   );
 }

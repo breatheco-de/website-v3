@@ -58,7 +58,7 @@ describe("splitTranslateContent / filterAllowedFields", () => {
     });
     expect(split.fields).toEqual({ bio: "hola" });
     expect(split.meta).toEqual({ page_title: "t" });
-    expect(split.sections).toEqual([]);
+    expect(split.reservedUrlKeys).toEqual(["content.slug"]);
   });
 
   it("filters to safe editor fields", () => {
@@ -75,7 +75,7 @@ describe("buildTranslateLocaleData attached_fields", () => {
   it("writes new draft with sections []", () => {
     const built = buildTranslateLocaleData({
       mode: "attached_fields",
-      slug: "ada",
+      localeUrlSlug: "ada",
       targetLocale: "es",
       allowedFields: { bio: "bio es" },
       existing: null,
@@ -92,7 +92,7 @@ describe("buildTranslateLocaleData attached_fields", () => {
   it("rejects non-empty sections when attached", () => {
     const built = buildTranslateLocaleData({
       mode: "attached_fields",
-      slug: "ada",
+      localeUrlSlug: "ada",
       targetLocale: "es",
       sections: [{ type: "hero" }],
       allowedFields: { bio: "x" },
@@ -108,7 +108,7 @@ describe("buildTranslateLocaleData attached_fields", () => {
   it("merges live refresh and preserves legacy sections + unrelated keys", () => {
     const built = buildTranslateLocaleData({
       mode: "attached_fields",
-      slug: "ada",
+      localeUrlSlug: "ada",
       targetLocale: "es",
       allowedFields: { bio: "nuevo" },
       meta: { page_title: "ES" },
@@ -137,7 +137,7 @@ describe("buildTranslateLocaleData detached_sections", () => {
   it("requires sections or content for new draft", () => {
     const built = buildTranslateLocaleData({
       mode: "detached_sections",
-      slug: "p",
+      localeUrlSlug: "p",
       targetLocale: "es",
       allowedFields: {},
       sections: [],
@@ -153,7 +153,7 @@ describe("buildTranslateLocaleData detached_sections", () => {
   it("allows content-only new draft for blog body", () => {
     const built = buildTranslateLocaleData({
       mode: "detached_sections",
-      slug: "p",
+      localeUrlSlug: "p",
       targetLocale: "es",
       allowedFields: { title: "T", content: "# hola" },
       existing: null,
@@ -168,11 +168,11 @@ describe("buildTranslateLocaleData detached_sections", () => {
   it("fields-only merge preserves existing sections", () => {
     const built = buildTranslateLocaleData({
       mode: "detached_sections",
-      slug: "p",
+      localeUrlSlug: "p",
       targetLocale: "es",
       allowedFields: { title: "Nuevo" },
       existing: {
-        slug: "p",
+        localeUrlSlug: "p",
         title: "Old",
         sections: [{ type: "hero", version: "v1.0" }],
       },
@@ -188,12 +188,12 @@ describe("buildTranslateLocaleData detached_sections", () => {
   it("rejects clearing sections on non-empty detached live", () => {
     const built = buildTranslateLocaleData({
       mode: "detached_sections",
-      slug: "p",
+      localeUrlSlug: "p",
       targetLocale: "es",
       allowedFields: {},
       sections: [],
       existing: {
-        slug: "p",
+        localeUrlSlug: "p",
         sections: [{ type: "hero" }],
       },
       writeAsDraft: false,
@@ -207,7 +207,7 @@ describe("buildTranslateLocaleData detached_sections", () => {
   it("accepts full sections replace", () => {
     const built = buildTranslateLocaleData({
       mode: "detached_sections",
-      slug: "p",
+      localeUrlSlug: "p",
       targetLocale: "es",
       sections: [{ type: "hero", version: "v1.0", data: { title: "H" } }],
       allowedFields: { title: "T" },

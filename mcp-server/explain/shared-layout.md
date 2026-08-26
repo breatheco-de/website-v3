@@ -15,10 +15,10 @@ Example (blog): body markdown is `content` on the locale file; `{{ single.conten
 
 1. `list_sites` — if multi-site, pick a domain and pass `site` on every later call.
 2. `get_content_type_info` with `contentType` + `site` — read `field_mapping`, `editor` / `editor_required_modes`, URL params, observed values, `create_via`.
-3. `create_entry` with **exactly one** locale for shared-layout; put required fields on the locale object; `sections: []` (or omit); put **category on the locale object** (never `_common.yml` — it is language-specific).
+3. `create_entry` with **exactly one** locale (all content types); put required fields on the locale object; `sections: []` (or omit) for shared-layout; put **category on the locale object** (never `_common.yml` — it is language-specific).
 4. If a URL-param/select value is **not** in observed peers **for that locale** → stop; get approval from the **principal** (human or orchestrator/reviewer), then re-call with `confirm_new_values: true`.
 5. Fill SEO via `update_fields` or multi-entry `update_meta_fields` if needed; verify with `get_entry_content` / `get_entry_seo`.
-6. Add another locale with `translate_entry` (fields while attached → draft → promote). Do **not** detach for field translation.
+6. Add another locale with `translate_entry` (optional `url_slug`; fields while attached → draft → promote). Do **not** detach for field translation.
 7. `run_entry_diagnostics` when ready.
 
 ## Custom shell

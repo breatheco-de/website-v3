@@ -2,12 +2,20 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 
+export interface GitHubConnectSetup {
+  contentRepos: string[];
+  appSlug?: string;
+  appInstallUrl?: string;
+  appConfigured: boolean;
+}
+
 export interface GitHubUserConnection {
   connected: boolean;
   required: boolean;
   githubLogin?: string;
   expiresAt?: number;
   appConfigured: boolean;
+  setup?: GitHubConnectSetup;
   education?: {
     summary: string;
     advanced: string[];

@@ -448,7 +448,6 @@ authors:
       - "Stable topical knowsAbout labels; https profile URLs only."
   directory: authors
   single_template: true
-  immutable_slug: true
   protected_slugs:
     - 4geeks-academy
   schema_org_requirements:

@@ -1697,7 +1697,6 @@ export function registerContentRoutes(app: Express): void {
         database: config.database || null,
         url_pattern: config.url_pattern,
         single_template: !!config.single_template,
-        immutable_slug: !!config.immutable_slug,
         protected_slugs: config.protected_slugs || [],
         preview: config.preview || null,
         schema_org_requirements: config.schema_org_requirements || [],

@@ -31,6 +31,7 @@ import {
 } from "../sitemap";
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
+import { assertLocaleUrlAvailable } from "../locale-url-slug";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager } from "../database";
 import {
@@ -800,6 +801,25 @@ export function registerVersioningRoutes(app: Express): void {
           res.status(400).json({ error: `Cannot publish: ${seoGateErr}`, locale });
           return;
         }
+        if (!resolved.templateMode) {
+          const mergedForUrl = deepMerge(commonForGate, parsedVariant) as Record<string, unknown>;
+          const urlCheck = assertLocaleUrlAvailable({
+            contentType,
+            entryIdentity: resolved.slug,
+            locale,
+            mergedPageData: mergedForUrl,
+            ci: getCI(res),
+          });
+          if (!urlCheck.ok) {
+            res.status(urlCheck.statusCode).json({
+              error: `Cannot publish: ${urlCheck.error}`,
+              locale,
+              code: urlCheck.code,
+              url: urlCheck.url,
+            });
+            return;
+          }
+        }
         fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
 
         const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
@@ -948,6 +968,24 @@ export function registerVersioningRoutes(app: Express): void {
       if (seoGateErr) {
         res.status(400).json({ error: `Cannot promote: ${seoGateErr}` });
         return;
+      }
+      if (!resolved.templateMode) {
+        const mergedForUrl = deepMerge(commonForGate, parsedVariant) as Record<string, unknown>;
+        const urlCheck = assertLocaleUrlAvailable({
+          contentType,
+          entryIdentity: resolved.slug,
+          locale,
+          mergedPageData: mergedForUrl,
+          ci: getCI(res),
+        });
+        if (!urlCheck.ok) {
+          res.status(urlCheck.statusCode).json({
+            error: `Cannot promote: ${urlCheck.error}`,
+            code: urlCheck.code,
+            url: urlCheck.url,
+          });
+          return;
+        }
       }
       fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
 

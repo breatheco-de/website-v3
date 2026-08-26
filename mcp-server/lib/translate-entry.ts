@@ -16,13 +16,18 @@ export function resolveTranslateMode(opts: {
   return "detached_sections";
 }
 
-/** Strip reserved keys; keep meta/sections/fields. */
+/** Strip reserved keys; keep meta/sections/fields. slug/url in content are rejected at handler. */
 export function splitTranslateContent(raw: Record<string, unknown>): {
   meta?: Record<string, unknown>;
   sections: Record<string, unknown>[] | undefined;
   fields: Record<string, unknown>;
+  reservedUrlKeys: string[];
 } {
-  const { meta, sections, slug: _slug, locale: _locale, ...rest } = raw;
+  const reservedUrlKeys: string[] = [];
+  if ("slug" in raw && raw.slug !== undefined) reservedUrlKeys.push("content.slug");
+  if ("url" in raw && raw.url !== undefined) reservedUrlKeys.push("content.url");
+
+  const { meta, sections, slug: _slug, url: _url, locale: _locale, ...rest } = raw;
   const sectionArr = Array.isArray(sections)
     ? (sections as Record<string, unknown>[])
     : undefined;
@@ -37,6 +42,7 @@ export function splitTranslateContent(raw: Record<string, unknown>): {
       : undefined,
     sections: sectionArr,
     fields,
+    reservedUrlKeys,
   };
 }
 
@@ -65,7 +71,8 @@ export type BuildLocaleResult =
  */
 export function buildTranslateLocaleData(opts: {
   mode: TranslateMode;
-  slug: string;
+  /** Resolved locale URL slug (public URL segment). */
+  localeUrlSlug: string;
   targetLocale: string;
   meta?: Record<string, unknown>;
   sections?: Record<string, unknown>[];
@@ -79,7 +86,7 @@ export function buildTranslateLocaleData(opts: {
 }): BuildLocaleResult {
   const {
     mode,
-    slug,
+    localeUrlSlug,
     targetLocale,
     meta,
     sections,
@@ -105,7 +112,7 @@ export function buildTranslateLocaleData(opts: {
     }
 
     if (mergeIntoExisting && existing) {
-      const next: Record<string, unknown> = { ...existing, ...allowedFields, slug };
+      const next: Record<string, unknown> = { ...existing, ...allowedFields, slug: localeUrlSlug };
       if (meta && Object.keys(meta).length > 0) {
         const prevMeta =
           existing.meta && typeof existing.meta === "object" && !Array.isArray(existing.meta)
@@ -120,7 +127,7 @@ export function buildTranslateLocaleData(opts: {
     }
 
     const localeData: Record<string, unknown> = {
-      slug,
+      slug: localeUrlSlug,
       locale: targetLocale,
       ...allowedFields,
       sections: [],
@@ -165,7 +172,7 @@ export function buildTranslateLocaleData(opts: {
           "(or non-empty content) for translate_entry.",
       };
     }
-    const next: Record<string, unknown> = { ...existing, ...allowedFields, slug };
+    const next: Record<string, unknown> = { ...existing, ...allowedFields, slug: localeUrlSlug };
     // Preserve sections — do not clear
     if (Array.isArray(existing.sections)) next.sections = existing.sections;
     if (meta && Object.keys(meta).length > 0) {
@@ -196,7 +203,7 @@ export function buildTranslateLocaleData(opts: {
     // content-only new draft is allowed when content is non-empty (blog body)
     if (hasContent && !sectionsNonEmpty) {
       if (mergeIntoExisting && existing) {
-        const next: Record<string, unknown> = { ...existing, ...allowedFields, slug };
+        const next: Record<string, unknown> = { ...existing, ...allowedFields, slug: localeUrlSlug };
         if (Array.isArray(existing.sections) && existing.sections.length > 0) {
           next.sections = existing.sections;
         } else if (hasSectionsPayload) {
@@ -214,7 +221,7 @@ export function buildTranslateLocaleData(opts: {
         return { ok: true, localeData: next, merge: true };
       }
       const localeData: Record<string, unknown> = {
-        slug,
+        slug: localeUrlSlug,
         locale: targetLocale,
         ...allowedFields,
         sections: hasSectionsPayload ? sections! : [],
@@ -236,14 +243,14 @@ export function buildTranslateLocaleData(opts: {
   if (sectionsNonEmpty) {
     if (mergeIntoExisting && existing && Object.keys(allowedFields).length === 0 && !meta) {
       // pure sections replace
-      const next: Record<string, unknown> = { ...existing, slug, sections: sections! };
+      const next: Record<string, unknown> = { ...existing, slug: localeUrlSlug, sections: sections! };
       return { ok: true, localeData: next, merge: true };
     }
     if (mergeIntoExisting && existing) {
       const next: Record<string, unknown> = {
         ...existing,
         ...allowedFields,
-        slug,
+        slug: localeUrlSlug,
         sections: sections!,
       };
       if (meta && Object.keys(meta).length > 0) {
@@ -256,7 +263,7 @@ export function buildTranslateLocaleData(opts: {
       return { ok: true, localeData: next, merge: true };
     }
     const localeData: Record<string, unknown> = {
-      slug,
+      slug: localeUrlSlug,
       locale: targetLocale,
       ...allowedFields,
       sections: sections!,

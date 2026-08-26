@@ -452,7 +452,14 @@ async function callRefreshCacheApi(
 }
 
 async function callRenameSlugApi(
-  params: { contentType: string; folderSlug: string; locale: string; newSlug: string; createRedirect?: boolean },
+  params: {
+    contentType: string;
+    folderSlug: string;
+    locale: string;
+    newSlug: string;
+    createRedirect?: boolean;
+    enforceRedirectPolicy?: boolean;
+  },
   mcpToken?: string,
   domain?: string,
 ): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; error: McpTextResult }> {
@@ -2161,9 +2168,12 @@ export function registerPageTools(
       confirm_new_values: z.boolean().optional().describe(
         "Set true after principal approval when setting category (or other URL param) to a slug not yet used by peers of this locale.",
       ),
+      create_redirect: z.boolean().optional().describe(
+        "When renaming live slug (field_path slug): required if published_at is >= 24h ago. Adds old URL to meta.redirects.",
+      ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, updates: inputUpdates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, confirm_new_values, site }) => {
+    async ({ slug, locale, updates: inputUpdates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, confirm_new_values, create_redirect, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
@@ -2581,7 +2591,8 @@ export function registerPageTools(
             folderSlug: slug,
             locale,
             newSlug: slugRenameValue,
-            createRedirect: false,
+            createRedirect: !!create_redirect,
+            enforceRedirectPolicy: true,
           },
           mcpToken,
           domain,
@@ -3891,15 +3902,16 @@ export function registerPageTools(
     "For normal (non-shared-layout) types this creates an unpublished DRAFT: " +
     "writes _common.yml + draft.{locale}.yml + versioning.yml (0% allocation). " +
     "Edit with variant: 'draft', then call publish_draft. Confirm with the principal before publishing.\n" +
-    "Shared-layout / single_template types write exactly ONE live locale immediately (multi-locale create is rejected). " +
+    "All content types: exactly ONE locale per create (multi-locale create is rejected). Add translations via translate_entry.\n" +
+    "Shared-layout / single_template types write that one locale live immediately. " +
     "Put body/fields on the locale (title, description, content, … per field_mapping); sections must be [] — shell comes from single.{locale}.yml. " +
     "Call explain_site topic shared-layout and/or get_content_type_info before creating shared-layout entries. " +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
-    "locales map: locale → { meta?, sections?, …field_mapping keys }. Shared-layout: exactly one locale key.\n" +
+    "locales map: locale → { meta?, sections?, …field_mapping keys }. Exactly one locale key.\n" +
     "Blog category (and other locale-only URL params) must be on the locale object — never _common.yml. " +
     "Use observed_values_by_locale from get_content_type_info to pick a peer slug for that language.\n" +
     "New URL-param/select values not seen on same-locale peers require confirm_new_values: true after principal approval.\n\n" +
-    "Possible errors: unknown/DB-backed contentType, slug exists, shared-layout multi-locale, missing editor.required fields, sections on shared-layout create, unconfirmed new param values.\n" +
+    "Possible errors: unknown/DB-backed contentType, slug exists, single_locale_create, missing editor.required fields, sections on shared-layout create, unconfirmed new param values.\n" +
     GITHUB_COMMIT_TOOL_BLURB,
     {
       contentType: z.string().describe("Content type from content-types.yml without database.slug, e.g. 'blog', 'program', 'page', 'landing'."),
@@ -3910,7 +3922,7 @@ export function registerPageTools(
       ),
       locales: z.record(z.record(z.unknown())).describe(
         "Map of locale → locale YAML fields. Include meta, optional sections, and field_mapping keys (title, description, content, …). " +
-        "Shared-layout: exactly one locale; sections must be [] or omitted.",
+        "Exactly one locale key. Shared-layout: sections must be [] or omitted.",
       ),
       confirm_new_values: z.boolean().optional().describe(
         "Set true only after the principal (human or orchestrator/reviewer) approved inventing a new URL-param/select value not in observed peers.",
@@ -3960,15 +3972,14 @@ export function registerPageTools(
       }
 
       const sharedLayoutCreate = isSharedLayoutConfig(config) || !!config.single_template;
-      if (sharedLayoutCreate && localeKeys.length !== 1) {
+      if (localeKeys.length !== 1) {
         return actionRequired(
           {
             success: false,
-            action_required: "shared_layout_single_locale_create",
-            code: "shared_layout_single_locale_create",
+            action_required: "single_locale_create",
+            code: "single_locale_create",
             message:
-              "Shared-layout types go live immediately and must be created with exactly one locale. " +
-              "Create the first locale now; add translations later via translate_entry (draft → promote) with locale fields while attached.",
+              "Create exactly one locale at a time. Add translations later via translate_entry (draft.{locale}.yml) then promote or publish_draft.",
             contentType,
             slug,
             locales_provided: localeKeys,
@@ -5114,9 +5125,9 @@ export function registerPageTools(
     "Modes (from entry state, not a detach flag):\n" +
     "- attached shared-layout: locale field_mapping keys + optional meta; sections omit or []. Shell stays on single.{locale}.yml.\n" +
     "- detached shared-layout or classic page: non-empty sections for new/full shell (fields optional); fields-only merges preserve existing sections.\n" +
-    "New target locale (no live file): writes draft.{locale}.yml at 0% (not public). " +
-    "Empty detached live stub: auto-converts to draft then writes. " +
-    "Existing non-empty live: merges fields/meta (preserves unrelated keys); live SEO/required gates apply.\n" +
+    "New target locale: always writes draft.{locale}.yml (not public). Promote/publish validates URL uniqueness.\n" +
+    "Optional url_slug sets this locale's public URL segment (defaults to entry identity). Do not pass content.slug or content.url — use url_slug.\n" +
+    "Existing non-empty live: merges fields only; fails if url_slug would change the live URL (use update_fields slug + create_redirect for renames).\n" +
     "Custom shell ownership: set_entry_attachment (not this tool). Tiny field tweaks on existing locales: update_fields is fine.\n" +
     "Go live with promote_variant or publish_draft (confirm with the user first).\n" +
     GITHUB_COMMIT_TOOL_BLURB,
@@ -5127,14 +5138,18 @@ export function registerPageTools(
       target_locale: z.string().describe("The locale code to write the translated content to, e.g. 'es' or 'fr'"),
       content: z.record(z.unknown()).describe(
         "Translated payload. Attached: field keys (bio, title, content, …) + optional meta; sections [] or omit. " +
-        "Detached/classic: sections[] for shell translate; or fields-only to merge into an existing locale (preserves sections).",
+        "Detached/classic: sections[] for shell translate; or fields-only to merge into an existing locale (preserves sections). " +
+        "Do not include slug or url — use top-level url_slug.",
+      ),
+      url_slug: z.string().optional().describe(
+        "Optional public URL slug for the target locale (kebab-case). Omitted on merge keeps existing locale slug; omitted on new draft defaults to entry identity.",
       ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
       confirm_new_values: z.boolean().optional().describe(
         "Set true after principal approval when category uses a slug not yet seen on target-locale peers.",
       ),
     },
-    async ({ slug, contentType, source_locale, target_locale, content, site, confirm_new_values }) => {
+    async ({ slug, contentType, source_locale, target_locale, content, url_slug, site, confirm_new_values }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
@@ -5168,14 +5183,29 @@ export function registerPageTools(
         ensureDraftVariantInVersioning,
       } = await import("../../server/convert-empty-locale-to-draft.js");
       const { isEmptyDetachedLocaleEntry } = await import("../../server/empty-locale.js");
+      const { isEmptyLocaleContent } = await import("../../shared/isEmptyLocaleContent.js");
       const { assertLiveEntrySeoAndRequiredFields } = await import("../../server/live-entry-seo-gate.js");
       const { contentIndex } = await import("../../server/content-index.js");
+      const {
+        resolveLocaleUrlSlug,
+        validateLocaleUrlSlugFormat,
+      } = await import("../../server/locale-url-slug.js");
 
       const sharedLayout = isSharedLayoutType(resolved.contentType, contentPath);
       const detached = isEntryDetached(resolved.contentType, slug, contentPath);
       const mode = resolveTranslateMode({ sharedLayout, detached });
 
       const split = splitTranslateContent(content as Record<string, unknown>);
+      if (split.reservedUrlKeys.length > 0) {
+        return fail(
+          `Do not pass ${split.reservedUrlKeys.join(" or ")} in content. Use top-level url_slug instead.`,
+          { code: "use_url_slug_instead", keys: split.reservedUrlKeys },
+        );
+      }
+      if (url_slug !== undefined) {
+        const formatErr = validateLocaleUrlSlugFormat(url_slug.trim());
+        if (formatErr) return fail(formatErr, { code: "invalid_url_slug" });
+      }
       const { allowed: allowedFields, rejected } = filterAllowedFields(split.fields, resolved.config);
 
       if (mode === "attached_fields" && Array.isArray(split.sections) && split.sections.length > 0) {
@@ -5247,29 +5277,45 @@ export function registerPageTools(
       let reason = "live_locale_refresh";
       let autoConverted = false;
 
-      if (!fs.existsSync(liveTargetPath)) {
+      const liveExists = fs.existsSync(liveTargetPath);
+      let liveNonEmpty = false;
+      if (liveExists) {
+        if (
+          isEmptyDetachedLocaleEntry({
+            contentType: resolved.contentType,
+            slug,
+            locale: target_locale,
+            contentRoot: contentPath,
+            ci: contentIndex,
+          })
+        ) {
+          liveNonEmpty = false;
+        } else {
+          try {
+            const mergedLive = contentIndex.loadMergedContent(resolved.contentType, slug, target_locale);
+            liveNonEmpty = !isEmptyLocaleContent((mergedLive?.data ?? {}) as Record<string, unknown>);
+          } catch {
+            liveNonEmpty = true;
+          }
+        }
+      }
+
+      if (!liveNonEmpty) {
+        if (liveExists) {
+          const converted = convertEmptyLiveLocaleToDraft({
+            contentType: resolved.contentType,
+            slug,
+            locale: target_locale,
+            contentRoot: contentPath,
+            ci: contentIndex,
+            author: "mcp-translate_entry",
+          });
+          autoConverted = !!converted;
+          reason = converted ? "empty_live_converted_to_draft" : "new_locale_starts_as_draft";
+        } else {
+          reason = "new_locale_starts_as_draft";
+        }
         writeAsDraft = true;
-        reason = "new_locale_starts_as_draft";
-      } else if (
-        isEmptyDetachedLocaleEntry({
-          contentType: resolved.contentType,
-          slug,
-          locale: target_locale,
-          contentRoot: contentPath,
-          ci: contentIndex,
-        })
-      ) {
-        const converted = convertEmptyLiveLocaleToDraft({
-          contentType: resolved.contentType,
-          slug,
-          locale: target_locale,
-          contentRoot: contentPath,
-          ci: contentIndex,
-          author: "mcp-translate_entry",
-        });
-        writeAsDraft = true;
-        reason = "empty_live_converted_to_draft";
-        autoConverted = !!converted;
       }
 
       const targetFileName = writeAsDraft ? `draft.${target_locale}.yml` : `${target_locale}.yml`;
@@ -5281,9 +5327,46 @@ export function registerPageTools(
         : null;
       const mergeIntoExisting = !!existing;
 
+      const existingLocaleSlug =
+        existing && typeof existing.slug === "string" ? existing.slug : null;
+      const liveLocaleSlug = liveNonEmpty && liveExists
+        ? (() => {
+            try {
+              const raw = safeLoad(fs.readFileSync(liveTargetPath, "utf-8")) as Record<string, unknown> | null;
+              return typeof raw?.slug === "string" ? raw.slug : null;
+            } catch {
+              return null;
+            }
+          })()
+        : null;
+
+      const localeUrlSlug = resolveLocaleUrlSlug({
+        urlSlug: url_slug,
+        existingSlug: mergeIntoExisting ? existingLocaleSlug : null,
+        entryIdentity: slug,
+      });
+
+      if (liveNonEmpty && url_slug !== undefined) {
+        const currentPublicSlug = resolveLocaleUrlSlug({
+          existingSlug: liveLocaleSlug,
+          entryIdentity: slug,
+        });
+        if (localeUrlSlug !== currentPublicSlug) {
+          return fail(
+            `Cannot change live locale URL slug via translate_entry (${currentPublicSlug} → ${localeUrlSlug}). ` +
+            "Use update_fields with field_path slug and create_redirect when required.",
+            {
+              code: "live_slug_change_not_allowed",
+              current_slug: currentPublicSlug,
+              requested_slug: localeUrlSlug,
+            },
+          );
+        }
+      }
+
       const built = buildTranslateLocaleData({
         mode,
-        slug,
+        localeUrlSlug,
         targetLocale: target_locale,
         meta: split.meta,
         sections: split.sections,
@@ -5388,6 +5471,13 @@ export function registerPageTools(
         warnings.push({
           code: "translate_fields_rejected",
           message: `Ignored disallowed field keys (not in editor/field_mapping safe set): ${rejected.join(", ")}.`,
+        });
+      }
+      if (url_slug !== undefined && writeAsDraft) {
+        warnings.push({
+          code: "url_slug_on_draft",
+          message:
+            `Draft locale slug set to "${localeUrlSlug}". URL uniqueness is validated at promote/publish, not on draft write.`,
         });
       }
       if (writeAsDraft) {
@@ -5529,6 +5619,7 @@ export function registerPageTools(
             ? `Draft translation ${isNew ? "created" : "updated"} at ${resolved.contentType}/${slug}/${targetFileName}`
             : `Translated content ${isNew ? "created" : "updated"} at ${resolved.contentType}/${slug}/${targetFileName}`,
           slug,
+          locale_url_slug: localeUrlSlug,
           contentType: resolved.contentType,
           source_locale,
           target_locale,
@@ -6336,7 +6427,6 @@ export function registerPageTools(
               "(Description is no longer edited in Field Settings and is cleared on Apply; legacy keys may remain until then). " +
               "Content type must also have strategy.purpose (see strategy / update_content_type).",
             relation_fields,
-            immutable_slug: !!(config as { immutable_slug?: boolean }).immutable_slug,
             protected_slugs: (config as { protected_slugs?: string[] }).protected_slugs ?? [],
             indexes: config.indexes ?? [],
             observed_values: observed,

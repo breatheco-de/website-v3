@@ -1495,9 +1495,9 @@ export function registerSectionsRoutes(app: Express): void {
     try {
       const auth = await requireCapability(req, res, "content_edit_structure", req.body.contentType || undefined);
       if (!auth.authorized) return;
-      const { contentType, folderSlug, locale, newSlug, createRedirect, author: rawAuthor } = req.body;
+      const { contentType, folderSlug, locale, newSlug, createRedirect, enforceRedirectPolicy, author: rawAuthor } = req.body;
       const author = auth.author || (rawAuthor && typeof rawAuthor === "string" ? rawAuthor : undefined);
-      const result = await renameContentSlug({ contentType, folderSlug, locale, newSlug, createRedirect: !!createRedirect, author, contentRootName: getContentRootName(res) });
+      const result = await renameContentSlug({ contentType, folderSlug, locale, newSlug, createRedirect: !!createRedirect, enforceRedirectPolicy: !!enforceRedirectPolicy, author, contentRootName: getContentRootName(res) });
       if (!result.success) { res.status(result.statusCode).json({ error: result.error }); return; }
       res.json(result.data);
     } catch (error) {

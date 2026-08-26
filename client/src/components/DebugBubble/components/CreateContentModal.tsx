@@ -554,8 +554,8 @@ export function CreateContentModal({
   const isSharedLayoutCreate = isSharedLayoutType(selectedTypeData);
   const isLocaleAgnosticPattern =
     !!urlPattern?.["default"] && !urlPattern?.[loc0] && !urlPattern?.[loc1];
-  /** Shared-layout (live-on-create) and locale-agnostic URL patterns: exactly one locale. */
-  const forceSingleLocaleCreate = isLocaleAgnosticPattern || isSharedLayoutCreate;
+  /** All content types: one locale at create; add translations via translate_entry. */
+  const forceSingleLocaleCreate = true;
 
   const sourceSlug = (() => {
     if (!duplicatingPage) return undefined;

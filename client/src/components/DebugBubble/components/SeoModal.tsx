@@ -251,13 +251,6 @@ export function SeoModal({
     }
   }, [open]);
 
-  const { data: ctConfig } = useQuery<{ immutable_slug?: boolean }>({
-    queryKey: ["/api/content-types", contentInfo.type, "config"],
-    enabled: open && !!contentInfo.type,
-    staleTime: 5 * 60 * 1000,
-  });
-  const slugImmutable = !!ctConfig?.immutable_slug;
-
   const snippetUrl = seoMeta.canonical_url || (typeof window !== "undefined" ? `${window.location.origin}/${contentInfo.slug || ""}` : "");
   const snippetBreadcrumb = (() => {
     try {
@@ -286,7 +279,7 @@ export function SeoModal({
                     {contentInfo.slug ? `${contentInfo.label}: ${contentInfo.slug}` : "Page SEO settings"}
                     {isVariantContext ? ` · variant ${seoVariant}` : ""}
                   </span>
-                  {contentInfo.type && !slugImmutable && !slugRenameDisabled && (
+                  {contentInfo.type && !slugRenameDisabled && (
                     <Button
                       size="icon"
                       variant="ghost"
@@ -379,11 +372,6 @@ export function SeoModal({
               {slugRenameDisabled && !slugEditing && (
                 <p className="text-xs" data-testid="text-slug-rename-disabled-variant">
                   Slug rename is disabled while editing a variant. Open LIVE context to rename.
-                </p>
-              )}
-              {slugImmutable && !slugRenameDisabled && !slugEditing && (
-                <p className="text-xs" data-testid="text-slug-immutable">
-                  Slug is immutable for this content type (authors).
                 </p>
               )}
               {slugRedirectPrompt && (

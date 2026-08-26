@@ -146,12 +146,12 @@ import {
   rejectLiveWriteIfDraft,
 } from "./draft-entry";
 
-/** Shared-layout create/duplicate: exactly one live locale (no empty sibling stubs). */
-export const SHARED_LAYOUT_SINGLE_LOCALE_CREATE_ERROR =
-  "Shared-layout types go live immediately and must be created with exactly one locale. " +
-  "Seeding a second locale at create writes a public locale file before content exists " +
-  "(empty/broken URLs in listings and language switchers). " +
-  "Create the first locale now; add translations later as drafts (detach if needed, then translate_page / draft locale, then promote).";
+/** Create/duplicate: exactly one locale at a time (all content types). */
+export const SINGLE_LOCALE_CREATE_ERROR =
+  "Create exactly one locale at a time. Add translations later via translate_entry (draft.{locale}.yml) then promote or publish_draft.";
+
+/** @deprecated Use SINGLE_LOCALE_CREATE_ERROR */
+export const SHARED_LAYOUT_SINGLE_LOCALE_CREATE_ERROR = SINGLE_LOCALE_CREATE_ERROR;
 import {
   RESERVED_PUBLISHED_AT_FIELD,
   clearPublishedAtFromCommon,
@@ -584,6 +584,16 @@ export async function editContent(request: ContentEditRequest): Promise<{
       return { success: false, error: seoResult.error };
     }
     return { success: true, updatedSections: [] };
+  }
+
+  for (const op of operations) {
+    if (op.action === "update_field" && op.path === "slug") {
+      return {
+        success: false,
+        error:
+          "Locale URL slug cannot be changed via update_field. Use POST /api/content/rename-slug instead.",
+      };
+    }
   }
   
   try {
@@ -2536,6 +2546,8 @@ export interface RenameContentSlugInput {
   locale: string;
   newSlug: string;
   createRedirect?: boolean;
+  /** When true (MCP), entries >= 24h old must pass createRedirect: true. */
+  enforceRedirectPolicy?: boolean;
   author?: string;
   contentRootName?: string;
 }
@@ -2546,7 +2558,7 @@ export async function renameContentSlug(
   success: boolean; folderSlug: string; oldSlug: string; newSlug: string;
   oldUrl: string; newUrl: string; locale: string; redirectCreated: boolean; routed: boolean;
 }>> {
-  const { contentType, folderSlug, locale, newSlug, createRedirect = false, author } = input;
+  const { contentType, folderSlug, locale, newSlug, createRedirect = false, enforceRedirectPolicy = false, author } = input;
   const rootName = input.contentRootName ?? getDefaultContentRootName();
 
   if (!contentType || !folderSlug || !locale || !newSlug) {
@@ -2559,18 +2571,12 @@ export async function renameContentSlug(
     return { success: false, statusCode: 400, error: "Invalid slug format. Use lowercase letters, numbers, and hyphens only." };
   }
 
-  try {
-    const { isImmutableSlugContentType } = await import("./relation-delete");
-    if (isImmutableSlugContentType(contentType)) {
-      return {
-        success: false,
-        statusCode: 403,
-        error: `Content type "${contentType}" has immutable slugs; rename is not allowed`,
-      };
-    }
-  } catch {
-    /* ignore */
-  }
+  const {
+    assertCreateRedirectIfRequired,
+    assertLocaleUrlAvailable,
+    entryAgeHours,
+    readPublishedAtFromCommon,
+  } = await import("./locale-url-slug.js");
 
   const contentFolder = getFolder(contentType);
   const resolvedFolderSlug = contentIndex.resolveBaseSlug(folderSlug, contentFolder);
@@ -2602,18 +2608,41 @@ export async function renameContentSlug(
     return { success: false, statusCode: 400, error: "New slug is the same as current slug" };
   }
 
-  const oldUrl = contentIndex.buildUrl(contentFolder, effectiveLocale, currentSlug);
-  const newUrl = contentIndex.buildUrl(contentFolder, effectiveLocale, newSlug);
-  const existingOwner = contentIndex.resolveUrl(newUrl);
-  if (existingOwner && existingOwner.slug !== resolvedFolderSlug) {
-    return {
-      success: false,
-      statusCode: 409,
-      error:
-        `slug_already_owned_by_other_entry: "${newUrl}" resolves to ` +
-        `"${existingOwner.contentType}/${existingOwner.slug}"`,
-    };
+  const commonData = contentIndex.loadCommonData(contentType, resolvedFolderSlug) || {};
+  const redirectGate = assertCreateRedirectIfRequired({
+    ageHours: entryAgeHours(readPublishedAtFromCommon(commonData)),
+    createRedirect: !!createRedirect,
+    isLiveSlugChange: true,
+    enforceRedirectPolicy,
+  });
+  if (!redirectGate.ok) {
+    return { success: false, statusCode: redirectGate.statusCode, error: redirectGate.error };
   }
+
+  const mergedForUrl = { ...commonData, ...parsed, slug: newSlug };
+  const urlCheck = assertLocaleUrlAvailable({
+    contentType,
+    entryIdentity: resolvedFolderSlug,
+    locale: effectiveLocale,
+    mergedPageData: mergedForUrl,
+    ci: contentIndex,
+  });
+  if (!urlCheck.ok) {
+    return { success: false, statusCode: urlCheck.statusCode, error: urlCheck.error };
+  }
+
+  const mergedOldForUrl = { ...commonData, ...parsed, slug: currentSlug };
+  const oldUrlResult = assertLocaleUrlAvailable({
+    contentType,
+    entryIdentity: resolvedFolderSlug,
+    locale: effectiveLocale,
+    mergedPageData: mergedOldForUrl,
+    ci: contentIndex,
+  });
+  const oldUrl = oldUrlResult.ok
+    ? oldUrlResult.url
+    : contentIndex.buildUrl(contentFolder, effectiveLocale, currentSlug);
+  const newUrl = urlCheck.url;
   parsed.slug = newSlug;
 
   if (createRedirect) {
@@ -2817,11 +2846,11 @@ export async function createContentEntry(
   const sharedLayout = isSharedLayoutType(type, contentRootAbs);
 
   const activeUrlLocales = getSupportedLocales().filter(l => !skipLocales.includes(l));
-  if (sharedLayout && activeUrlLocales.length !== 1) {
+  if (activeUrlLocales.length !== 1) {
     return {
       success: false,
       statusCode: 400,
-      error: SHARED_LAYOUT_SINGLE_LOCALE_CREATE_ERROR,
+      error: SINGLE_LOCALE_CREATE_ERROR,
     };
   }
 
