@@ -1,6 +1,10 @@
 /**
  * Per-site runtime issues store — in-memory aggregates flushed to local + GCS.
  * Last-write-wins on GCS (v1). Never await GCS on the request hot path.
+ *
+ * Hydrate gate: in production with GCS, do not ingest or upload until
+ * `loadRuntimeIssuesForSite` finishes. Early 404s on an empty disk must not
+ * mark the store "loaded" and push a thin snapshot that overwrites GCS.
  */
 
 import * as fs from "fs";
@@ -41,16 +45,29 @@ import {
 } from "./runtime-issues-ignore-store";
 
 const log = child({ module: "runtime-issues" });
-const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const DEBOUNCE_MS = 5_000;
+
+/** Override for vitest — when set, replaces NODE_ENV===production checks. */
+let productionOverrideForTests: boolean | undefined;
+
+export function _setRuntimeIssuesProductionForTests(value: boolean | undefined): void {
+  productionOverrideForTests = value;
+}
+
+function isProduction(): boolean {
+  return productionOverrideForTests ?? process.env.NODE_ENV === "production";
+}
 
 type SiteBucket = {
   state: RuntimeIssuesState;
-  loaded: boolean;
+  /** True after intentional hydrate (GCS in prod, local otherwise). Gates ingest + GCS upload. */
+  hydrated: boolean;
   contentRoot?: string;
 };
 
 const bySite = new Map<string, SiteBucket>();
+/** Site → timer; fires with a fresh JSON snapshot of current in-memory state. */
+const pendingUploadTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function localPathForSite(site: string, contentRoot?: string): string {
   if (contentRoot) {
@@ -66,7 +83,7 @@ function gcsKey(site: string): string {
 function ensureBucket(site: string, contentRoot?: string): SiteBucket {
   let b = bySite.get(site);
   if (!b) {
-    b = { state: emptyRuntimeIssuesState(), loaded: false, contentRoot };
+    b = { state: emptyRuntimeIssuesState(), hydrated: false, contentRoot };
     bySite.set(site, b);
   } else if (contentRoot && !b.contentRoot) {
     b.contentRoot = contentRoot;
@@ -87,16 +104,30 @@ function saveLocal(site: string): void {
   }
 }
 
+/**
+ * Schedule GCS upload of the *current* in-memory state when the timer fires
+ * (not a stale buffer captured at schedule time).
+ */
 function saveToBucket(site: string): void {
-  if (!IS_PRODUCTION || !gcs.available) return;
+  if (!isProduction() || !gcs.available) return;
   const b = bySite.get(site);
-  if (!b) return;
-  try {
-    const content = JSON.stringify(b.state, null, 2);
-    gcs.debouncedUpload(gcsKey(site), Buffer.from(content, "utf-8"), "application/json", DEBOUNCE_MS);
-  } catch (err) {
-    log.error({ err, site }, "failed to schedule GCS upload for runtime-issues");
-  }
+  if (!b?.hydrated) return;
+
+  const existing = pendingUploadTimers.get(site);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(() => {
+    pendingUploadTimers.delete(site);
+    const latest = bySite.get(site);
+    if (!latest?.hydrated) return;
+    const key = gcsKey(site);
+    const payload = Buffer.from(JSON.stringify(latest.state, null, 2), "utf-8");
+    void gcs.upload(key, payload, "application/json").catch((err) => {
+      log.error({ err, site }, "runtime-issues GCS upload failed");
+    });
+  }, DEBOUNCE_MS);
+
+  pendingUploadTimers.set(site, timer);
 }
 
 function save(site: string): void {
@@ -130,6 +161,7 @@ function applyLoadedState(b: SiteBucket, state: RuntimeIssuesState): void {
 
 /**
  * Load one site's runtime issues from GCS (prod) or local file.
+ * Marks the site hydrated — ingest and GCS uploads are allowed afterward.
  */
 export async function loadRuntimeIssuesForSite(
   site: string,
@@ -138,9 +170,9 @@ export async function loadRuntimeIssuesForSite(
   const b = ensureBucket(site, contentRoot);
   await loadRuntimeIssuesIgnoreForSite(site, contentRoot);
 
-  if (!IS_PRODUCTION || !gcs.available) {
+  if (!isProduction() || !gcs.available) {
     applyLoadedState(b, loadLocalInto(site, contentRoot));
-    b.loaded = true;
+    b.hydrated = true;
     return;
   }
 
@@ -159,7 +191,7 @@ export async function loadRuntimeIssuesForSite(
     log.error({ err, site }, "GCS load failed for runtime-issues");
     applyLoadedState(b, loadLocalInto(site, contentRoot));
   }
-  b.loaded = true;
+  b.hydrated = true;
 }
 
 export async function loadAllRuntimeIssuesFromBucket(
@@ -168,13 +200,24 @@ export async function loadAllRuntimeIssuesFromBucket(
   await Promise.all(sites.map((s) => loadRuntimeIssuesForSite(s.site, s.contentRoot)));
 }
 
-function ensureLoadedSync(site: string, contentRoot?: string): SiteBucket {
+/**
+ * Ready for ingest/mutate. In prod+GCS, returns null until `loadRuntimeIssuesForSite`
+ * so we never treat empty post-deploy disk as authoritative.
+ */
+function tryHydrateForWrite(site: string, contentRoot?: string): SiteBucket | null {
   const b = ensureBucket(site, contentRoot);
-  if (!b.loaded) {
-    applyLoadedState(b, loadLocalInto(site, contentRoot));
-    b.loaded = true;
-  }
+  if (b.hydrated) return b;
+  if (isProduction() && gcs.available) return null;
+  applyLoadedState(b, loadLocalInto(site, contentRoot));
+  b.hydrated = true;
   return b;
+}
+
+/** Read path: hydrate from local when not waiting on GCS; otherwise return bucket as-is. */
+function ensureLoadedSync(site: string, contentRoot?: string): SiteBucket {
+  const ready = tryHydrateForWrite(site, contentRoot);
+  if (ready) return ready;
+  return ensureBucket(site, contentRoot);
 }
 
 export interface RecordNotFoundInput {
@@ -190,13 +233,14 @@ export interface RecordNotFoundInput {
 
 /**
  * Record a public HTML 404. Synchronous; never awaits GCS.
- * Returns false if hard-dropped.
+ * Returns false if hard-dropped or the store is not hydrated yet (prod+GCS boot).
  */
 export function recordPublicNotFound(input: RecordNotFoundInput): boolean {
   const pathNorm = normalizeRuntimePath(input.path);
   if (pathNorm.startsWith("/api/") || pathNorm.startsWith("/private/")) return false;
   const site = input.site || "default";
-  const b = ensureLoadedSync(site, input.contentRoot);
+  const b = tryHydrateForWrite(site, input.contentRoot);
+  if (!b) return false;
   const dropScrapers = resolvedDropScrapers(b.state);
   if (shouldHardDropNotFound(pathNorm, input.userAgent, input.referrer, dropScrapers)) return false;
   if (isPathIgnored(site, pathNorm, input.contentRoot)) return false;
@@ -265,7 +309,8 @@ export function saveIssueProbe(
   contentRoot?: string,
 ): RuntimeIssueRecord | null {
   if (!probe) return getRuntimeIssue(site, fingerprint, contentRoot);
-  const b = ensureLoadedSync(site, contentRoot);
+  const b = tryHydrateForWrite(site, contentRoot);
+  if (!b) return null;
   const existing = b.state.issues[fingerprint];
   if (!existing) return null;
   const next: RuntimeIssueRecord = { ...existing, lastProbe: probe };
@@ -311,12 +356,16 @@ export function listRuntimeIssues(
 }
 
 export async function shutdownRuntimeIssues(): Promise<void> {
+  for (const [site, timer] of Array.from(pendingUploadTimers.entries())) {
+    clearTimeout(timer);
+    pendingUploadTimers.delete(site);
+  }
   for (const site of Array.from(bySite.keys())) {
     saveLocal(site);
   }
-  if (!IS_PRODUCTION || !gcs.available) return;
-  await gcs.flushPending();
+  if (!isProduction() || !gcs.available) return;
   for (const [site, b] of Array.from(bySite.entries())) {
+    if (!b.hydrated) continue;
     try {
       const content = JSON.stringify(b.state, null, 2);
       await gcs.upload(gcsKey(site), Buffer.from(content, "utf-8"), "application/json");
@@ -340,7 +389,7 @@ export async function reuploadRuntimeIssuesToBucket(
 ): Promise<ReuploadRuntimeIssuesResult> {
   const key = gcsKey(site);
 
-  if (!IS_PRODUCTION) {
+  if (!isProduction()) {
     return {
       success: false,
       uploaded: false,
@@ -361,7 +410,11 @@ export async function reuploadRuntimeIssuesToBucket(
     };
   }
 
-  const b = ensureLoadedSync(site, contentRoot);
+  const b = tryHydrateForWrite(site, contentRoot) ?? ensureLoadedSync(site, contentRoot);
+  if (!b.hydrated) {
+    applyLoadedState(b, loadLocalInto(site, contentRoot));
+    b.hydrated = true;
+  }
   const file = localPathForSite(site, b.contentRoot);
   if (!fs.existsSync(file) && Object.keys(b.state.issues).length === 0) {
     return {
@@ -397,7 +450,7 @@ export async function pullRuntimeIssuesFromGcs(
   const key = gcsKey(site);
   const currentCount = () => Object.keys(ensureLoadedSync(site, contentRoot).state.issues).length;
 
-  if (IS_PRODUCTION) {
+  if (isProduction()) {
     return {
       success: false,
       pulled: false,
@@ -445,7 +498,7 @@ export async function pullRuntimeIssuesFromGcs(
 
     const b = ensureBucket(site, contentRoot);
     applyLoadedState(b, parsed);
-    b.loaded = true;
+    b.hydrated = true;
     saveLocal(site);
     const issueCount = Object.keys(b.state.issues).length;
     log.info(
@@ -471,7 +524,11 @@ export function getRuntimeIssuesLocalPath(site: string, contentRoot?: string): s
 
 /** Wipe in-memory + local issues for a site, then attempt GCS upload (prod). Keeps ingest settings. */
 export function resetRuntimeIssuesForSite(site: string, contentRoot?: string): RuntimeIssuesState {
-  const b = ensureLoadedSync(site, contentRoot);
+  const b = tryHydrateForWrite(site, contentRoot) ?? ensureLoadedSync(site, contentRoot);
+  if (!b.hydrated) {
+    applyLoadedState(b, loadLocalInto(site, contentRoot));
+    b.hydrated = true;
+  }
   const dropScrapers = resolvedDropScrapers(b.state);
   b.state = emptyRuntimeIssuesState();
   b.state.dropScrapers = dropScrapers;
@@ -485,7 +542,11 @@ export function setDropScrapers(
   enabled: boolean,
   contentRoot?: string,
 ): { dropScrapers: boolean } {
-  const b = ensureLoadedSync(site, contentRoot);
+  const b = tryHydrateForWrite(site, contentRoot) ?? ensureLoadedSync(site, contentRoot);
+  if (!b.hydrated) {
+    applyLoadedState(b, loadLocalInto(site, contentRoot));
+    b.hydrated = true;
+  }
   b.state.dropScrapers = Boolean(enabled);
   b.state.updatedAt = Date.now();
   save(site);
@@ -500,7 +561,11 @@ export function addIgnoreRules(
   const { ignored, added } = addIgnoreRulesToStore(site, rules, opts);
   let removed = 0;
   if (added.length) {
-    const b = ensureLoadedSync(site, opts?.contentRoot);
+    const b = tryHydrateForWrite(site, opts?.contentRoot) ?? ensureLoadedSync(site, opts?.contentRoot);
+    if (!b.hydrated) {
+      applyLoadedState(b, loadLocalInto(site, opts?.contentRoot));
+      b.hydrated = true;
+    }
     const nextIssues: Record<string, RuntimeIssueRecord> = {};
     for (const [fp, issue] of Object.entries(b.state.issues)) {
       if (pathMatchesAnyIgnoreRule(issue.path, added)) {
@@ -544,6 +609,9 @@ export async function resetAndUploadRuntimeIssues(
 
 /** Test helper */
 export function _resetRuntimeIssuesForTests(): void {
+  for (const timer of pendingUploadTimers.values()) clearTimeout(timer);
+  pendingUploadTimers.clear();
   bySite.clear();
+  productionOverrideForTests = undefined;
   _resetRuntimeIssuesIgnoreForTests();
 }

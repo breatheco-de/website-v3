@@ -1,6 +1,9 @@
 /**
  * Per-site staff ignore rules for runtime 404 digestion.
  * Separate file from the 404 log so Reset and last-write-wins counts cannot wipe rules.
+ *
+ * Same hydrate gate as runtime-issues-store: in prod+GCS, do not treat empty local
+ * as authoritative or upload until `loadRuntimeIssuesIgnoreForSite` finishes.
  */
 
 import * as fs from "fs";
@@ -26,16 +29,26 @@ import { gcs } from "./gcs";
 import { child } from "./logger";
 
 const log = child({ module: "runtime-issues-ignore" });
-const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const DEBOUNCE_MS = 5_000;
+
+let productionOverrideForTests: boolean | undefined;
+
+export function _setRuntimeIssuesIgnoreProductionForTests(value: boolean | undefined): void {
+  productionOverrideForTests = value;
+}
+
+function isProduction(): boolean {
+  return productionOverrideForTests ?? process.env.NODE_ENV === "production";
+}
 
 type SiteBucket = {
   state: IgnoreState;
-  loaded: boolean;
+  hydrated: boolean;
   contentRoot?: string;
 };
 
 const bySite = new Map<string, SiteBucket>();
+const pendingUploadTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function localPathForSite(site: string, contentRoot?: string): string {
   if (contentRoot) {
@@ -70,7 +83,7 @@ function ensureBuiltinIgnoreRules(state: IgnoreState): IgnoreState {
 function ensureBucket(site: string, contentRoot?: string): SiteBucket {
   let b = bySite.get(site);
   if (!b) {
-    b = { state: emptyIgnoreState(), loaded: false, contentRoot };
+    b = { state: emptyIgnoreState(), hydrated: false, contentRoot };
     bySite.set(site, b);
   } else if (contentRoot && !b.contentRoot) {
     b.contentRoot = contentRoot;
@@ -92,15 +105,25 @@ function saveLocal(site: string): void {
 }
 
 function saveToBucket(site: string): void {
-  if (!IS_PRODUCTION || !gcs.available) return;
+  if (!isProduction() || !gcs.available) return;
   const b = bySite.get(site);
-  if (!b) return;
-  try {
-    const content = JSON.stringify(b.state, null, 2);
-    gcs.debouncedUpload(gcsKey(site), Buffer.from(content, "utf-8"), "application/json", DEBOUNCE_MS);
-  } catch (err) {
-    log.error({ err, site }, "failed to schedule GCS upload for runtime-issues-ignore");
-  }
+  if (!b?.hydrated) return;
+
+  const existing = pendingUploadTimers.get(site);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(() => {
+    pendingUploadTimers.delete(site);
+    const latest = bySite.get(site);
+    if (!latest?.hydrated) return;
+    const key = gcsKey(site);
+    const payload = Buffer.from(JSON.stringify(latest.state, null, 2), "utf-8");
+    void gcs.upload(key, payload, "application/json").catch((err) => {
+      log.error({ err, site }, "runtime-issues-ignore GCS upload failed");
+    });
+  }, DEBOUNCE_MS);
+
+  pendingUploadTimers.set(site, timer);
 }
 
 function save(site: string): void {
@@ -125,12 +148,23 @@ function loadLocalInto(site: string, contentRoot?: string): IgnoreState {
   return emptyIgnoreState();
 }
 
-function ensureLoadedSync(site: string, contentRoot?: string): SiteBucket {
+function tryHydrateForWrite(site: string, contentRoot?: string): SiteBucket | null {
   const b = ensureBucket(site, contentRoot);
-  if (!b.loaded) {
-    b.state = ensureBuiltinIgnoreRules(loadLocalInto(site, contentRoot));
-    b.loaded = true;
-    saveLocal(site);
+  if (b.hydrated) return b;
+  if (isProduction() && gcs.available) return null;
+  b.state = ensureBuiltinIgnoreRules(loadLocalInto(site, contentRoot));
+  b.hydrated = true;
+  saveLocal(site);
+  return b;
+}
+
+function ensureLoadedSync(site: string, contentRoot?: string): SiteBucket {
+  const ready = tryHydrateForWrite(site, contentRoot);
+  if (ready) return ready;
+  // Prod waiting on GCS: expose builtins only for ignore checks (do not mark hydrated).
+  const b = ensureBucket(site, contentRoot);
+  if (!b.state.rules.length) {
+    b.state = ensureBuiltinIgnoreRules(emptyIgnoreState());
   }
   return b;
 }
@@ -141,9 +175,9 @@ export async function loadRuntimeIssuesIgnoreForSite(
 ): Promise<void> {
   const b = ensureBucket(site, contentRoot);
 
-  if (!IS_PRODUCTION || !gcs.available) {
+  if (!isProduction() || !gcs.available) {
     b.state = ensureBuiltinIgnoreRules(loadLocalInto(site, contentRoot));
-    b.loaded = true;
+    b.hydrated = true;
     saveLocal(site);
     return;
   }
@@ -163,7 +197,7 @@ export async function loadRuntimeIssuesIgnoreForSite(
     log.error({ err, site }, "GCS load failed for runtime-issues-ignore");
     b.state = ensureBuiltinIgnoreRules(loadLocalInto(site, contentRoot));
   }
-  b.loaded = true;
+  b.hydrated = true;
   saveLocal(site);
 }
 
@@ -187,7 +221,17 @@ export function addIgnoreRules(
   inputs: IgnoreRuleInput[],
   opts?: { contentRoot?: string; seedPaths?: string[] },
 ): { ignored: IgnoreRule[]; added: IgnoreRule[] } {
-  const b = ensureLoadedSync(site, opts?.contentRoot);
+  const b =
+    tryHydrateForWrite(site, opts?.contentRoot) ??
+    (() => {
+      const bucket = ensureBucket(site, opts?.contentRoot);
+      if (!bucket.hydrated) {
+        bucket.state = ensureBuiltinIgnoreRules(loadLocalInto(site, opts?.contentRoot));
+        bucket.hydrated = true;
+        saveLocal(site);
+      }
+      return bucket;
+    })();
   const existingIds = new Set(b.state.rules.map(ignoreRuleIdentity));
   const added: IgnoreRule[] = [];
   const seedPaths = opts?.seedPaths;
@@ -219,7 +263,17 @@ export function removeIgnoreRules(
   ids: string[],
   contentRoot?: string,
 ): { ignored: IgnoreRule[] } {
-  const b = ensureLoadedSync(site, contentRoot);
+  const b =
+    tryHydrateForWrite(site, contentRoot) ??
+    (() => {
+      const bucket = ensureBucket(site, contentRoot);
+      if (!bucket.hydrated) {
+        bucket.state = ensureBuiltinIgnoreRules(loadLocalInto(site, contentRoot));
+        bucket.hydrated = true;
+        saveLocal(site);
+      }
+      return bucket;
+    })();
   const idSet = new Set(ids);
   b.state.rules = b.state.rules.filter((r) => !idSet.has(r.id));
   save(site);
@@ -231,13 +285,23 @@ export async function reuploadRuntimeIssuesIgnoreToBucket(
   contentRoot?: string,
 ): Promise<{ success: boolean; uploaded: boolean; gcsKey: string; reason?: string }> {
   const key = gcsKey(site);
-  if (!IS_PRODUCTION) {
+  if (!isProduction()) {
     return { success: false, uploaded: false, gcsKey: key, reason: "GCS sync only runs in production." };
   }
   if (!gcs.available) {
     return { success: false, uploaded: false, gcsKey: key, reason: "GCS is unavailable." };
   }
-  const b = ensureLoadedSync(site, contentRoot);
+  const b =
+    tryHydrateForWrite(site, contentRoot) ??
+    (() => {
+      const bucket = ensureBucket(site, contentRoot);
+      if (!bucket.hydrated) {
+        bucket.state = ensureBuiltinIgnoreRules(loadLocalInto(site, contentRoot));
+        bucket.hydrated = true;
+        saveLocal(site);
+      }
+      return bucket;
+    })();
   saveLocal(site);
   await gcs.upload(key, Buffer.from(JSON.stringify(b.state, null, 2), "utf-8"), "application/json");
   return { success: true, uploaded: true, gcsKey: key };
@@ -245,5 +309,8 @@ export async function reuploadRuntimeIssuesIgnoreToBucket(
 
 /** Test helper */
 export function _resetRuntimeIssuesIgnoreForTests(): void {
+  for (const timer of pendingUploadTimers.values()) clearTimeout(timer);
+  pendingUploadTimers.clear();
   bySite.clear();
+  productionOverrideForTests = undefined;
 }

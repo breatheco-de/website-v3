@@ -56,8 +56,8 @@ export function RuntimeIssueIgnoreRulesDialog({
           </DialogHeader>
           {ignored.length === 0 ? (
             <p className="text-sm text-muted-foreground" data-testid="ignore-rules-empty">
-              No custom ignore rules yet. Use a path’s menu or select rows, then Ignore selected. Each
-              ignore is the exact path only.
+              No custom ignore rules yet. Use a path’s menu or select rows, then Ignore selected (exact
+              path). Built-in prefixes (e.g. /wordpress/*, /wp/*, /wp-json/*) are seeded automatically.
             </p>
           ) : (
             <ul className="divide-y">

@@ -8,7 +8,7 @@ Structured `behaviors` on each component `schema.yml` declare how a section part
 |----|---------|---------|-------------|
 | `ecommerce` | GA4-style ecommerce dataLayer funnel / catalog events | Client `trackEcommerce` in `client/src/lib/tracking.ts` | Does not charge; no on-site `purchase`; CMS does not manage billing plan catalogs |
 | `schema_org` | Contributes JSON-LD during SSR; may declare `requires` companions (`companion_type` + `schema_type`, optional `when_variant`) | `server/schema-components` | Does not push GTM events by itself; OG/meta is separate. Site `schema-org.yml` holds Organization/Website templates only. |
-| `listing` | Mapping fields + queries → card lists | `dynamic_entries` pipeline | Not a product SKU; not a lead form |
+| `listing` | Mapping fields + queries → card lists | `dynamic_entries` pipeline | Not a product SKU; not a lead form. `list_cards` tags `user_filters`: arrays always explode into chips; CSV only when the field editor has `split_comma_values` (injected at resolve). Match is case-insensitive contains. Filter fields are preserved when `item_template` omits them. Does **not** expose a CT tag catalog / facets API. |
 | `conversion` | Lead form conversion + webhook defaults | `form-settings` + `trackFormSubmission` | Not ecommerce funnel; CTA-only heroes are not conversions |
 
 Nested `form-settings` paths (e.g. `course:signup_card.form`) are **optional in presence**: if the form object is absent, save does not require `conversion_name` (CTA → modal / link). When the form object exists, `conversion_name` (or `null`) is required — same as root `lead_form`. CTA clicks use `cta.tracking`, not lead `conversion_name`.

@@ -40,6 +40,23 @@ export function expandEditorFieldTokens(
 }
 
 /**
+ * Case-insensitive: does `item[field]` contain the selected tag/token?
+ * Empty selection always matches. Uses the same expand rules as facets.
+ */
+export function itemHasEditorFieldToken(
+  item: Record<string, unknown>,
+  field: string,
+  selected: string,
+  opts: { splitComma?: boolean } = {},
+): boolean {
+  const needle = selected.trim().toLowerCase();
+  if (!needle) return true;
+  return expandEditorFieldTokens(item[field], opts).some(
+    (t) => t.toLowerCase() === needle,
+  );
+}
+
+/**
  * Coerce a select/tags cell to a plain string for the item editor.
  * Supports plain strings and `{ slug: string }` (legacy unwrap defense).
  */

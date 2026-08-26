@@ -15,6 +15,12 @@ export const ignoreRuleSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     ...ignoreRuleBase,
+    kind: z.literal("prefix"),
+    /** Normalized path prefix without trailing slash (e.g. `/wordpress`). */
+    prefix: z.string(),
+  }),
+  z.object({
+    ...ignoreRuleBase,
     kind: z.literal("locales"),
     locales: z.array(z.string()).min(1),
     rest: z.string(),
@@ -34,6 +40,11 @@ export const ignoreRuleInputSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("exact"),
     path: z.string(),
+    label: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("prefix"),
+    prefix: z.string(),
     label: z.string().optional(),
   }),
   z.object({
@@ -99,6 +110,21 @@ export const BUILTIN_IGNORE_RULE_INPUTS: IgnoreRuleInput[] = [
     path: "/landing/inline",
     label: "Junk landing path (inline layout variant)",
   },
+  {
+    kind: "prefix",
+    prefix: "/wordpress",
+    label: "Legacy WordPress paths",
+  },
+  {
+    kind: "prefix",
+    prefix: "/wp",
+    label: "Legacy WordPress /wp paths",
+  },
+  {
+    kind: "prefix",
+    prefix: "/wp-json",
+    label: "Legacy WordPress REST API",
+  },
 ];
 
 export function newIgnoreRuleId(): string {
@@ -125,8 +151,27 @@ function normalizeParent(parent: string): string {
   return n === "/" ? "/" : n;
 }
 
+/** Normalize a path prefix: no trailing slash; `/` alone is invalid for matching. */
+export function normalizeIgnorePrefix(prefix: string): string {
+  const n = normalizeRuntimePath(prefix);
+  if (n === "/") return "/";
+  return n.replace(/\/+$/, "") || "/";
+}
+
+/**
+ * True when `path` equals `prefix` or is nested under it (`/wp/foo`).
+ * Does not match longer first segments (`/wp` does not match `/wp-json`).
+ */
+export function pathMatchesIgnorePrefix(path: string, prefix: string): boolean {
+  const normalized = normalizeRuntimePath(path);
+  const p = normalizeIgnorePrefix(prefix);
+  if (!p || p === "/") return false;
+  return normalized === p || normalized.startsWith(`${p}/`);
+}
+
 export function ignoreRuleIdentity(rule: IgnoreRuleInput | IgnoreRule): string {
   if (rule.kind === "exact") return `exact:${normalizeRuntimePath(rule.path)}`;
+  if (rule.kind === "prefix") return `prefix:${normalizeIgnorePrefix(rule.prefix)}`;
   if (rule.kind === "locales") {
     return `locales:${uniqueSorted(rule.locales).join(",")}:${normalizeRuntimePath(rule.rest)}`;
   }
@@ -142,6 +187,15 @@ export function hydrateIgnoreRule(input: IgnoreRuleInput, now = Date.now()): Ign
       id: newIgnoreRuleId(),
       kind: "exact",
       path: normalizeRuntimePath(input.path),
+      label,
+      addedAt: now,
+    };
+  }
+  if (input.kind === "prefix") {
+    return {
+      id: newIgnoreRuleId(),
+      kind: "prefix",
+      prefix: normalizeIgnorePrefix(input.prefix),
       label,
       addedAt: now,
     };
@@ -177,6 +231,11 @@ export function validateIgnoreRuleInput(input: IgnoreRuleInput): IgnoreRule | nu
       if (!path || path === "/") return null;
       return hydrateIgnoreRule({ ...parsed, path });
     }
+    if (parsed.kind === "prefix") {
+      const prefix = normalizeIgnorePrefix(parsed.prefix);
+      if (!prefix || prefix === "/") return null;
+      return hydrateIgnoreRule({ ...parsed, prefix });
+    }
     if (parsed.kind === "locales") {
       const locales = uniqueSorted(parsed.locales);
       const rest = parsed.rest.startsWith("/")
@@ -200,6 +259,9 @@ export function pathMatchesIgnoreRule(path: string, rule: IgnoreRule | IgnoreRul
   const normalized = normalizeRuntimePath(path);
   if (rule.kind === "exact") {
     return normalized === normalizeRuntimePath(rule.path);
+  }
+  if (rule.kind === "prefix") {
+    return pathMatchesIgnorePrefix(normalized, rule.prefix);
   }
   if (rule.kind === "locales") {
     const split = splitLocalePrefix(normalized);
@@ -250,6 +312,10 @@ export function previewIgnoreRules(
 
 export function formatIgnoreRulePreview(rule: IgnoreRule | IgnoreRuleInput): string {
   if (rule.kind === "exact") return normalizeRuntimePath(rule.path);
+  if (rule.kind === "prefix") {
+    const p = normalizeIgnorePrefix(rule.prefix);
+    return `${p}/*`;
+  }
   if (rule.kind === "locales") {
     const locales = uniqueSorted(rule.locales).join(",");
     const rest = rule.rest.startsWith("/") ? rule.rest : `/${rule.rest}`;

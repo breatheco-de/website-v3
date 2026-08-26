@@ -3,7 +3,33 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as fs from "fs";
 import * as path from "path";
 import { child, registerLogSink } from "./logger";
+import { errorLogFingerprint } from "./utils/error-log-fingerprint";
 const log = child({ module: "db" });
+
+/** Max frequency for storing the same warning fingerprint in SQLite. */
+const WARN_SINK_RATE_LIMIT_MS = 60_000;
+const warnSinkLastInsert = new Map<string, number>();
+const WARN_SINK_MAP_MAX = 5000;
+
+function shouldInsertWarn(module: string, message: string, ts: number): boolean {
+  const fp = errorLogFingerprint(module, message);
+  const last = warnSinkLastInsert.get(fp);
+  if (last != null && ts - last < WARN_SINK_RATE_LIMIT_MS) {
+    return false;
+  }
+  warnSinkLastInsert.set(fp, ts);
+  if (warnSinkLastInsert.size > WARN_SINK_MAP_MAX) {
+    const cutoff = ts - WARN_SINK_RATE_LIMIT_MS;
+    for (const [key, at] of warnSinkLastInsert) {
+      if (at < cutoff) warnSinkLastInsert.delete(key);
+    }
+    if (warnSinkLastInsert.size > WARN_SINK_MAP_MAX) {
+      warnSinkLastInsert.clear();
+      warnSinkLastInsert.set(fp, ts);
+    }
+  }
+  return true;
+}
 
 
 
@@ -116,9 +142,13 @@ function pruneOldErrorLogs() {
 pruneOldErrorLogs();
 setInterval(pruneOldErrorLogs, 60 * 60 * 1000).unref();
 
-// Register log sink so logger.ts can insert warn/error entries into SQLite
+// Register log sink so logger.ts can insert warn/error entries into SQLite.
+// Errors always insert; warnings are rate-limited per fingerprint (module+normalized message).
 registerLogSink((ts, level, module, message, errName, errStack) => {
   try {
+    if (level === "warn" && !shouldInsertWarn(module, message, ts)) {
+      return;
+    }
     _insertErrorLog.run(ts, level, module, message, errName, errStack);
   } catch {
     // never throw from a log sink

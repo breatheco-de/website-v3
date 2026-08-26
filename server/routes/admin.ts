@@ -253,6 +253,7 @@ import {
 } from "./_helpers";
 import { child } from "../logger";
 import { sqlite } from "../db";
+import { errorLogFingerprint } from "../utils/error-log-fingerprint";
 import { resolveDatabaseBackedRedirectDestination } from "../debug-redirect-db-dest";
 const log = child({ module: "routes/admin" });
 
@@ -3272,16 +3273,58 @@ export function registerAdminRoutes(app: Express): void {
          FROM error_log WHERE ts >= ?`
       ).get(cutoff) as { totalErrors: number; totalWarnings: number };
 
-      const byModule = sqlite.prepare(
-        `SELECT module,
-                SUM(CASE WHEN level = 'error' THEN 1 ELSE 0 END) AS errors,
-                SUM(CASE WHEN level = 'warn' THEN 1 ELSE 0 END) AS warnings
+      const issueRows = sqlite.prepare(
+        `SELECT level, module, message, err_name, ts
          FROM error_log
-         WHERE ts >= ?${levelFilter}
-         GROUP BY module
-         ORDER BY (errors + warnings) DESC
-         LIMIT 50`
-      ).all(...args) as Array<{ module: string; errors: number; warnings: number }>;
+         WHERE ts >= ?${levelFilter}`
+      ).all(...args) as Array<{
+        level: string;
+        module: string;
+        message: string;
+        err_name: string | null;
+        ts: number;
+      }>;
+
+      type UniqueIssue = {
+        module: string;
+        level: "error" | "warn";
+        message: string;
+        err_name: string | null;
+        count: number;
+        lastTs: number;
+      };
+
+      const byFingerprint = new Map<string, UniqueIssue>();
+      for (const row of issueRows) {
+        const level: "error" | "warn" = row.level === "error" ? "error" : "warn";
+        const fp = `${level}|${errorLogFingerprint(row.module, row.message)}`;
+        const existing = byFingerprint.get(fp);
+        if (existing) {
+          existing.count += 1;
+          if (row.ts > existing.lastTs) {
+            existing.lastTs = row.ts;
+            existing.message = row.message;
+            existing.err_name = row.err_name;
+          }
+        } else {
+          byFingerprint.set(fp, {
+            module: row.module,
+            level,
+            message: row.message,
+            err_name: row.err_name,
+            count: 1,
+            lastTs: row.ts,
+          });
+        }
+      }
+
+      const uniqueIssues = Array.from(byFingerprint.values())
+        .sort((a, b) => {
+          if (a.level !== b.level) return a.level === "error" ? -1 : 1;
+          if (b.count !== a.count) return b.count - a.count;
+          return b.lastTs - a.lastTs;
+        })
+        .slice(0, 50);
 
       const topIssueRow = sqlite.prepare(
         `SELECT err_name, COUNT(*) AS cnt
@@ -3310,7 +3353,7 @@ export function registerAdminRoutes(app: Express): void {
       res.json({
         totalErrors: totals?.totalErrors ?? 0,
         totalWarnings: totals?.totalWarnings ?? 0,
-        byModule,
+        uniqueIssues,
         topIssue: topIssueRow?.err_name ?? null,
         recent,
       });

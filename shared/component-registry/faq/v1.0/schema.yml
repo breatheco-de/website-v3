@@ -100,6 +100,12 @@ props:
           all_label:
             type: string
             required: false
+          split_comma_values:
+            type: boolean
+            required: false
+            description: >
+              Server-injected when the field editor enables CSV splitting (source of truth is
+              Treat comma-separated strings as multiple values on the CT/DB field).
       ignored_entries:
         type: array
         required: false

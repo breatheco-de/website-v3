@@ -1067,7 +1067,7 @@ export default function RuntimeIssuesTab() {
                     <code>…/sync/runtime-issues-ignore.json</code> (not the 404 counts file)
                   </li>
                   <li>
-                    <code>shared/runtime-issues-ignore.ts</code> — exact / locales / slug_list matchers
+                    <code>shared/runtime-issues-ignore.ts</code> — exact / prefix / locales / slug_list matchers
                   </li>
                   <li>
                     <code>server/runtime-issues-ignore-store.ts</code> — load/save; digest reads memory only

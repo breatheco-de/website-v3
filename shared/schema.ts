@@ -1081,6 +1081,12 @@ export const userFilterSchema = z.object({
   component_renderer: z.enum(["text-input", "dropdown", "tags"]),
   default_value: z.unknown().optional(),
   all_label: z.string().optional(),
+  /**
+   * Injected by resolveDynamicEntries from the CT/DB field editor when true.
+   * Staff set the source of truth via "Treat comma-separated strings as multiple values"
+   * on the field — not by authoring this on the filter YAML.
+   */
+  split_comma_values: z.boolean().optional(),
 });
 
 export type PermanentFilter = z.infer<typeof permanentFilterSchema>;

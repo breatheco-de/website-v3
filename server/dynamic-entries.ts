@@ -1,6 +1,6 @@
 import { databaseManager, type DatabaseManager } from "./database";
 import { contentIndex, type ContentIndex } from "./content-index";
-import { resolveContentTypeUrl } from "./content-types";
+import { getContentTypeConfig, resolveContentTypeUrl } from "./content-types";
 import { queryEntries, type QueryFilter, applyFilters, applyMatchCountSort } from "./query-entries";
 import { child } from "./logger";
 import { resolveSingleTemplateValue } from "@shared/json-field";
@@ -32,6 +32,8 @@ interface UserFilter {
   component_renderer: string;
   default_value?: unknown;
   all_label?: string;
+  /** Injected from CT/DB field editor when true — client tag chips split CSV. */
+  split_comma_values?: boolean;
 }
 
 interface DynamicEntriesConfig {
@@ -92,6 +94,86 @@ export function mergeFaqItemsWithLimit(
   const includedHardcoded = hardcoded.slice(0, limit);
   const remaining = Math.max(0, limit - includedHardcoded.length);
   return [...includedHardcoded, ...dbItems.slice(0, remaining)];
+}
+
+/**
+ * Whether the CT/DB field editor has `split_comma_values` for this property.
+ * Checks content-type editor first, then linked (or explicit) database editor.
+ * Exported for unit tests.
+ */
+export function lookupSplitCommaValues(
+  field: string,
+  opts: {
+    contentType?: string;
+    database?: string;
+    contentRoot?: string;
+    db?: DatabaseManager;
+  },
+): boolean {
+  const db = opts.db ?? databaseManager;
+  if (opts.contentType) {
+    const ct = getContentTypeConfig(opts.contentType, opts.contentRoot);
+    if (ct?.editor?.[field]?.split_comma_values === true) return true;
+    const dbSlug = ct?.database?.slug || opts.database;
+    if (dbSlug && db.exists(dbSlug)) {
+      if (db.get(dbSlug).editor?.[field]?.split_comma_values === true) return true;
+    }
+    return false;
+  }
+  if (opts.database && db.exists(opts.database)) {
+    return db.get(opts.database).editor?.[field]?.split_comma_values === true;
+  }
+  return false;
+}
+
+/**
+ * Attach `split_comma_values: true` onto user_filters when the field editor enables it.
+ * Exported for unit tests.
+ */
+export function enrichUserFiltersSplitComma(
+  userFilters: UserFilter[] | undefined,
+  opts: {
+    contentType?: string;
+    database?: string;
+    contentRoot?: string;
+    db?: DatabaseManager;
+  },
+): UserFilter[] | undefined {
+  if (!userFilters?.length) return userFilters;
+  return userFilters.map((uf) => {
+    const split = lookupSplitCommaValues(uf.item_property_slug, opts);
+    if (!split) {
+      if (uf.split_comma_values === undefined) return uf;
+      const { split_comma_values: _drop, ...rest } = uf;
+      return rest;
+    }
+    return { ...uf, split_comma_values: true };
+  });
+}
+
+/**
+ * Apply item_template, then copy any missing user_filter fields from the raw entry
+ * so tag/dropdown chips can still read multi-value properties omitted from the card map.
+ * Exported for unit tests.
+ */
+export function applyItemTemplatePreservingUserFilters(
+  itemTemplate: Record<string, unknown>,
+  enriched: Record<string, unknown>,
+  userFilters: UserFilter[] | undefined,
+): Record<string, unknown> {
+  const mapped = resolveAgainstSingle(itemTemplate, enriched);
+  const out =
+    mapped !== null && typeof mapped === "object" && !Array.isArray(mapped)
+      ? { ...(mapped as Record<string, unknown>) }
+      : {};
+  for (const uf of userFilters || []) {
+    const slug = uf.item_property_slug;
+    if (!slug) continue;
+    if (!(slug in out) || out[slug] === undefined) {
+      if (slug in enriched) out[slug] = enriched[slug];
+    }
+  }
+  return out;
 }
 
 export async function resolveDynamicEntries(
@@ -243,6 +325,16 @@ export async function resolveDynamicEntries(
         }
       }
 
+      const enrichedUserFilters = enrichUserFiltersSplitComma(
+        dynamicEntries.user_filters,
+        {
+          contentType: contentType || undefined,
+          database: dynamicEntries.database,
+          contentRoot,
+          db,
+        },
+      );
+
       let resolvedItems: unknown[];
       if (itemTemplate) {
         resolvedItems = items.map((item) => {
@@ -251,7 +343,11 @@ export async function resolveDynamicEntries(
             const url = resolveContentTypeUrl(contentType, item, locale, contentRoot);
             if (url) enriched._resolved_url = url;
           }
-          return resolveAgainstSingle(itemTemplate, enriched);
+          return applyItemTemplatePreservingUserFilters(
+            itemTemplate,
+            enriched,
+            enrichedUserFilters,
+          );
         });
       } else {
         resolvedItems = items.map((item) => {
@@ -274,6 +370,10 @@ export async function resolveDynamicEntries(
         // Keep resolved array on the section so FAQ UI / schema see it before
         // the later resolveAllTemplateVars pass.
         ...(hardcodedEntries.length > 0 ? { hardcoded_entries: hardcodedEntries } : {}),
+        dynamic_entries: {
+          ...dynamicEntries,
+          ...(enrichedUserFilters ? { user_filters: enrichedUserFilters } : {}),
+        },
         items: finalItems,
         _dynamic_meta: {
           content_type: contentType || dynamicEntries.database,

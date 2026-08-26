@@ -60,6 +60,8 @@ const faqUserFilterSchema = z.object({
   component_renderer: z.enum(["text-input", "dropdown", "tags"]),
   default_value: z.unknown().optional(),
   all_label: z.string().optional(),
+  /** Injected by resolveDynamicEntries from CT/DB field editor when true. */
+  split_comma_values: z.boolean().optional(),
 });
 
 /** Resolved/simple Q&A rows (runtime or hardcoded). */

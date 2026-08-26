@@ -8,6 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useInternalNav } from "@/hooks/useInternalNav";
 import { deslugifyLabel } from "@shared/relation-field";
+import {
+  collectEditorFieldTokens,
+  itemHasEditorFieldToken,
+} from "@shared/editor-field-values";
 
 interface PermanentFilter {
   item_property_slug: string;
@@ -19,6 +23,8 @@ interface UserFilter {
   component_renderer: "text-input" | "dropdown" | "tags";
   default_value?: unknown;
   all_label?: string;
+  /** From CT/DB field editor via dynamic-entries — CSV becomes multiple chips. */
+  split_comma_values?: boolean;
 }
 
 interface ListingItem {
@@ -178,13 +184,19 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
   const userFilterOptions = (() => {
     const opts: Record<string, string[]> = {};
     for (const uf of userFilters) {
-      if (uf.component_renderer === "dropdown" || uf.component_renderer === "tags") {
+      if (uf.component_renderer === "dropdown") {
         const values = new Set<string>();
         for (const item of items) {
           const v = getFieldStringValue(item as Record<string, unknown>, uf.item_property_slug);
           if (v) values.add(v);
         }
         opts[uf.item_property_slug] = Array.from(values).sort();
+      } else if (uf.component_renderer === "tags") {
+        opts[uf.item_property_slug] = collectEditorFieldTokens(
+          items as Record<string, unknown>[],
+          uf.item_property_slug,
+          { splitComma: uf.split_comma_values === true },
+        );
       }
     }
     return opts;
@@ -196,6 +208,14 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
       userFilters.every(f => {
         const val = userFilterValues[f.item_property_slug];
         if (!val) return true;
+        if (f.component_renderer === "tags") {
+          return itemHasEditorFieldToken(
+            item as Record<string, unknown>,
+            f.item_property_slug,
+            val,
+            { splitComma: f.split_comma_values === true },
+          );
+        }
         const itemVal = getFieldStringValue(item as Record<string, unknown>, f.item_property_slug);
         if (f.component_renderer === "text-input") {
           return itemVal.toLowerCase().includes(val.toLowerCase());

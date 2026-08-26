@@ -3,6 +3,9 @@ import {
   resolveHardcodedEntriesForDynamic,
   resolveSearchPhraseForDynamic,
   mergeFaqItemsWithLimit,
+  applyItemTemplatePreservingUserFilters,
+  enrichUserFiltersSplitComma,
+  lookupSplitCommaValues,
 } from "./dynamic-entries";
 
 describe("resolveHardcodedEntriesForDynamic", () => {
@@ -107,5 +110,76 @@ describe("mergeFaqItemsWithLimit", () => {
       { question: "D1", answer: "d" },
       { question: "D2", answer: "e" },
     ]);
+  });
+});
+
+describe("applyItemTemplatePreservingUserFilters", () => {
+  it("keeps tags from the raw entry when item_template omits them", () => {
+    const mapped = applyItemTemplatePreservingUserFilters(
+      {
+        title: "{{ single.title }}",
+        taxonomy: "{{ single.category }}",
+      },
+      {
+        title: "Hello",
+        category: "js",
+        tags: ["Javascript", "Python"],
+      },
+      [{ item_property_slug: "tags", component_renderer: "tags" }],
+    );
+    expect(mapped).toEqual({
+      title: "Hello",
+      taxonomy: "js",
+      tags: ["Javascript", "Python"],
+    });
+  });
+
+  it("does not overwrite tags already mapped by the template", () => {
+    const mapped = applyItemTemplatePreservingUserFilters(
+      {
+        title: "{{ single.title }}",
+        tags: "{{ single.category }}",
+      },
+      {
+        title: "Hello",
+        category: "from-category",
+        tags: ["raw-tag"],
+      },
+      [{ item_property_slug: "tags", component_renderer: "tags" }],
+    );
+    expect(mapped.tags).toBe("from-category");
+  });
+});
+
+describe("enrichUserFiltersSplitComma", () => {
+  it("attaches split_comma_values from database editor", () => {
+    const db = {
+      exists: (name: string) => name === "interactive-exercises",
+      get: () => ({
+        editor: { tags: { type: "tags", split_comma_values: true } },
+      }),
+    };
+    const enriched = enrichUserFiltersSplitComma(
+      [
+        { item_property_slug: "tags", component_renderer: "tags" },
+        { item_property_slug: "category", component_renderer: "dropdown" },
+      ],
+      { database: "interactive-exercises", db: db as never },
+    );
+    expect(enriched?.[0].split_comma_values).toBe(true);
+    expect(enriched?.[1].split_comma_values).toBeUndefined();
+  });
+
+  it("lookupSplitCommaValues is false when editor omits the flag", () => {
+    const db = {
+      exists: () => true,
+      get: () => ({ editor: { tags: { type: "tags" } } }),
+    };
+    expect(
+      lookupSplitCommaValues("tags", {
+        database: "interactive-exercises",
+        db: db as never,
+      }),
+    ).toBe(false);
   });
 });

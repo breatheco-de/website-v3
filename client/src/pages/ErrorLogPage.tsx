@@ -26,16 +26,19 @@ interface ErrorLogEntry {
   err_name: string | null;
 }
 
-interface ModuleBreakdown {
+interface UniqueIssue {
   module: string;
-  errors: number;
-  warnings: number;
+  level: "error" | "warn";
+  message: string;
+  err_name: string | null;
+  count: number;
+  lastTs: number;
 }
 
 interface ErrorLogResponse {
   totalErrors: number;
   totalWarnings: number;
-  byModule: ModuleBreakdown[];
+  uniqueIssues: UniqueIssue[];
   topIssue: string | null;
   recent: ErrorLogEntry[];
 }
@@ -89,7 +92,7 @@ function ErrorLogPageInner() {
     refetchInterval: 30000,
   });
 
-  const topModule = data?.byModule?.[0]?.module ?? "—";
+  const topIssueModule = data?.uniqueIssues?.[0]?.module ?? "—";
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
@@ -110,13 +113,32 @@ function ErrorLogPageInner() {
         </Button>
       </div>
 
-      {/* Centralized log notice */}
       <div className="flex items-start gap-3 rounded-md border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
         <IconInfoCircle className="h-4 w-4 mt-0.5 shrink-0 text-foreground/60" />
-        <span>This log is <strong className="text-foreground font-medium">centralized across all sites</strong>. It captures process-level errors and warnings from the entire server, not just the currently active site.</span>
+        <div className="space-y-2">
+          <p>
+            This log is <strong className="text-foreground font-medium">centralized across all sites</strong>.
+            It captures process-level errors and warnings from the entire server, not just the currently active site.
+          </p>
+          <p>
+            The main table lists <strong className="text-foreground font-medium">unique issues</strong> (same message shape collapsed).
+            Repeated warnings are rate-limited when stored so totals stay usable.
+            The DebugBubble badge counts <strong className="text-foreground font-medium">errors only</strong>.
+          </p>
+          <details className="text-xs">
+            <summary className="cursor-pointer text-foreground/80 hover:text-foreground">
+              Read more (advanced)
+            </summary>
+            <ul className="mt-2 list-disc pl-4 space-y-1 font-mono">
+              <li>server/db.ts — SQLite warn sink rate-limit</li>
+              <li>server/logger.ts — DbLogStream (warn+)</li>
+              <li>server/utils/error-log-fingerprint.ts — message normalize</li>
+              <li>server/routes/admin.ts — GET /api/admin/error-log</li>
+            </ul>
+          </details>
+        </div>
       </div>
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card data-testid="card-total-errors">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2 space-y-0">
@@ -140,20 +162,20 @@ function ErrorLogPageInner() {
             <div className="text-3xl font-bold" data-testid="text-total-warnings">
               {isLoading ? "—" : (data?.totalWarnings ?? 0)}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">last 48h</p>
+            <p className="text-xs text-muted-foreground mt-1">last 48h (after rate-limit)</p>
           </CardContent>
         </Card>
 
         <Card data-testid="card-top-module">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Top Failing Module</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Top Issue Module</CardTitle>
             <IconServerBolt className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-base font-semibold truncate" data-testid="text-top-module">
-              {isLoading ? "—" : topModule}
+              {isLoading ? "—" : topIssueModule}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">most events</p>
+            <p className="text-xs text-muted-foreground mt-1">from top unique issue</p>
           </CardContent>
         </Card>
 
@@ -171,42 +193,47 @@ function ErrorLogPageInner() {
         </Card>
       </div>
 
-      {/* Module Breakdown */}
-      {data?.byModule && data.byModule.length > 0 && (
-        <Card data-testid="card-module-breakdown">
+      {data?.uniqueIssues && data.uniqueIssues.length > 0 && (
+        <Card data-testid="card-unique-issues">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">By Module</CardTitle>
+            <CardTitle className="text-base">Top unique issues</CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Same message shape collapsed. Errors first, then by count. Last seen shows the most recent occurrence.
+            </p>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Module</TableHead>
-                  <TableHead className="text-right">Errors</TableHead>
-                  <TableHead className="text-right">Warnings</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="w-20">Level</TableHead>
+                  <TableHead className="w-44">Module</TableHead>
+                  <TableHead>Message</TableHead>
+                  <TableHead className="text-right w-24">Count</TableHead>
+                  <TableHead className="w-40">Last seen</TableHead>
+                  <TableHead className="w-36">Error type</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.byModule.map((row) => (
-                  <TableRow key={row.module} data-testid={`row-module-${row.module}`}>
+                {data.uniqueIssues.map((row, idx) => (
+                  <TableRow
+                    key={`${row.level}-${row.module}-${idx}`}
+                    data-testid={`row-unique-issue-${idx}`}
+                  >
+                    <TableCell>
+                      <LevelBadge level={row.level} />
+                    </TableCell>
                     <TableCell className="font-mono text-sm">{row.module}</TableCell>
-                    <TableCell className="text-right">
-                      {row.errors > 0 ? (
-                        <span className="text-destructive font-medium">{row.errors}</span>
-                      ) : (
-                        <span className="text-muted-foreground">0</span>
-                      )}
+                    <TableCell className="text-sm text-foreground max-w-md">
+                      <span className="line-clamp-2">{row.message}</span>
                     </TableCell>
-                    <TableCell className="text-right">
-                      {row.warnings > 0 ? (
-                        <span className="text-amber-600 font-medium">{row.warnings}</span>
-                      ) : (
-                        <span className="text-muted-foreground">0</span>
-                      )}
+                    <TableCell className="text-right font-medium tabular-nums">
+                      {row.count}
                     </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {row.errors + row.warnings}
+                    <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      {formatTs(row.lastTs)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {row.err_name ?? "—"}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -216,11 +243,15 @@ function ErrorLogPageInner() {
         </Card>
       )}
 
-      {/* Recent Events */}
       <Card data-testid="card-recent-events">
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle className="text-base">Recent Events</CardTitle>
+            <div>
+              <CardTitle className="text-base">Recent Events</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Latest raw rows as stored (warnings already rate-limited at ingest).
+              </p>
+            </div>
             <div className="flex gap-1" role="group" aria-label="Filter by level">
               {(["all", "error", "warn"] as LevelFilter[]).map((f) => (
                 <Button

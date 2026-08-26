@@ -47,6 +47,23 @@ describe("pathMatchesIgnoreRule", () => {
     expect(pathMatchesIgnoreRule("/us/old-blog/post-3", rule!)).toBe(false);
     expect(pathMatchesIgnoreRule("/es/old-blog/post-1", rule!)).toBe(false);
   });
+
+  it("matches prefix paths with segment boundary", () => {
+    const wp = validateIgnoreRuleInput({ kind: "prefix", prefix: "/wp" })!;
+    const wpJson = validateIgnoreRuleInput({ kind: "prefix", prefix: "/wp-json" })!;
+    const wordpress = validateIgnoreRuleInput({ kind: "prefix", prefix: "/wordpress/" })!;
+
+    expect(pathMatchesIgnoreRule("/wp", wp)).toBe(true);
+    expect(pathMatchesIgnoreRule("/wp/login", wp)).toBe(true);
+    expect(pathMatchesIgnoreRule("/wp-json", wp)).toBe(false);
+    expect(pathMatchesIgnoreRule("/wp-admin", wp)).toBe(false);
+
+    expect(pathMatchesIgnoreRule("/wp-json", wpJson)).toBe(true);
+    expect(pathMatchesIgnoreRule("/wp-json/wp/v2/posts", wpJson)).toBe(true);
+
+    expect(pathMatchesIgnoreRule("/wordpress", wordpress)).toBe(true);
+    expect(pathMatchesIgnoreRule("/wordpress/2020/01/post", wordpress)).toBe(true);
+  });
 });
 
 describe("previewIgnoreRule", () => {

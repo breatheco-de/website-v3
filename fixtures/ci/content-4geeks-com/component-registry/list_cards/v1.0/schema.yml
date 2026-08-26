@@ -124,7 +124,16 @@ properties:
             description: The value to match against
       - name: user_filters
         type: array
-        description: Client-side interactive filter controls rendered above the grid
+        description: >
+          Client-side interactive filter controls rendered above the grid.
+          For component_renderer tags: chips are distinct tokens from that property on listing
+          items (arrays always explode). Comma-separated strings become multiple chips only when
+          the content-type or database field editor has "Treat comma-separated strings as multiple
+          values" (split_comma_values) — the server injects that flag onto the filter at resolve time.
+          Tag matching is case-insensitive contains. item_template need not map the filter field;
+          resolveDynamicEntries preserves user_filter properties from the raw entry.
+          Advanced: shared/editor-field-values.ts, ListCardsDefault.tsx, EditorTypeDialog.tsx.
+          Non-effect: does not create a reusable content-type tag catalog / facets API.
         items:
           - name: item_property_slug
             type: string
@@ -138,6 +147,11 @@ properties:
           - name: default_value
             type: any
             description: Initial filter value
+          - name: split_comma_values
+            type: boolean
+            description: >
+              Server-injected when the field editor enables CSV splitting. Do not author as the
+              source of truth — set Treat comma-separated strings as multiple values on the field.
       - name: item_template
         type: object
         description: "Mapping of item fields to Jinja2 template expressions. Available variable: single (the raw entry object)"

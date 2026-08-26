@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Asterisk, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Crosshair, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, HelpCircle, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
-import { IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Asterisk, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, HelpCircle, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
+import { IconChess, IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import {
@@ -6731,7 +6731,7 @@ export default function ContentTypeManagePage() {
                   : undefined
               }
             >
-              <Crosshair className="h-4 w-4 mr-1" />
+              <IconChess className="h-4 w-4 mr-1" />
               Strategy
             </Button>
             <DropdownMenu>

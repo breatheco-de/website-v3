@@ -4,6 +4,15 @@ See [docs/component-behaviors.md](../../docs/component-behaviors.md) for the ful
 
 Agents: when adding tracking, SSR schema contributors, `dynamic_entries`, or `form-settings`, declare matching `behaviors` on that component's `schema.yml`.
 
+## Listing (`list_cards` tag filters)
+
+- `user_filters` with `component_renderer: tags`: chips = distinct tokens from that property on resolved items.
+- Arrays always explode; CSV only if CT/DB field editor `split_comma_values: true` (server injects onto the filter; source of truth is Editor Type → “Treat comma-separated strings as multiple values”).
+- Match: case-insensitive contains (any token).
+- `item_template` need not map the filter field — `resolveDynamicEntries` copies missing `user_filters` properties from the raw entry.
+- Paths: `shared/editor-field-values.ts`, `server/dynamic-entries.ts`, `client/.../ListCardsDefault.tsx`.
+- Non-effect: no reusable CT tag catalog / facets API for public listings.
+
 ## Wipe on duplicate (derived)
 
 Page/section duplicate clears identity fields — no `reset_on_duplicate` schema key:

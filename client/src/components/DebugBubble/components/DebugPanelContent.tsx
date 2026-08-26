@@ -416,7 +416,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
   });
   const siteDisallowed = !!robotsSettings?.block_indexing;
 
-  const errorLogCount = (errorLogData?.totalErrors ?? 0) + (errorLogData?.totalWarnings ?? 0);
+  const errorLogCount = errorLogData?.totalErrors ?? 0;
   const showEditChrome = !!props.editMode && isVisualEditPath(props.pathname);
 
   const enterPrivatePreview = useCallback(() => {
@@ -966,12 +966,12 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 href="/private/error-log"
                 indicator="arrow"
                 testId="link-error-log"
-                infoTooltip="This log is centralized across all sites. It tracks process-level errors and warnings from the entire server, not just the active site."
+                infoTooltip="Process-level errors and warnings across all sites. Badge shows error count only (warnings are rate-limited and listed on the page)."
                 rightContent={
                   errorLogCount > 0 ? (
                     <span
                       className={cn(
-                        badgeVariants({ variant: errorLogData && errorLogData.totalErrors > 0 ? "destructive" : "secondary" }),
+                        badgeVariants({ variant: "destructive" }),
                         "text-xs px-1.5 py-0 min-w-[1.25rem] text-center tabular-nums"
                       )}
                       data-testid="badge-error-log-count"

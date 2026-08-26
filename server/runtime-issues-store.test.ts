@@ -6,8 +6,10 @@ import { BUILTIN_IGNORE_RULE_INPUTS } from "@shared/runtime-issues-ignore";
 import { gcs } from "./gcs";
 import {
   _resetRuntimeIssuesForTests,
+  _setRuntimeIssuesProductionForTests,
   addIgnoreRules,
   listRuntimeIssues,
+  loadRuntimeIssuesForSite,
   pullRuntimeIssuesFromGcs,
   recordPublicNotFound,
   resetRuntimeIssuesForSite,
@@ -25,6 +27,7 @@ describe("runtime-issues-store", () => {
   let tmp: string;
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     _resetRuntimeIssuesForTests();
     if (tmp) rmSync(tmp, { recursive: true, force: true });
@@ -277,6 +280,45 @@ describe("runtime-issues-store", () => {
     expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual(["/us/keep"]);
   });
 
+  it("skips WordPress prefix builtins without a manual rule", () => {
+    const contentRoot = root();
+    expect(
+      recordPublicNotFound({
+        site: "site_test",
+        contentRoot,
+        path: "/wordpress/2020/hello",
+        userAgent: CHROME,
+      }),
+    ).toBe(false);
+    expect(
+      recordPublicNotFound({
+        site: "site_test",
+        contentRoot,
+        path: "/wp/login",
+        userAgent: CHROME,
+      }),
+    ).toBe(false);
+    expect(
+      recordPublicNotFound({
+        site: "site_test",
+        contentRoot,
+        path: "/wp-json/wp/v2/posts",
+        userAgent: CHROME,
+      }),
+    ).toBe(false);
+    expect(
+      recordPublicNotFound({
+        site: "site_test",
+        contentRoot,
+        path: "/us/blog/real",
+        userAgent: CHROME,
+      }),
+    ).toBe(true);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual([
+      "/us/blog/real",
+    ]);
+  });
+
   it("addIgnoreRules deletes matching rows and reset keeps rules", () => {
     const contentRoot = root();
     recordPublicNotFound({
@@ -337,5 +379,77 @@ describe("runtime-issues-store", () => {
     const listed = listRuntimeIssues("site_test", { contentRoot });
     expect(listed.issues).toHaveLength(0);
     expect(listed.totalCount).toBe(0);
+  });
+
+  it("prod+GCS: skips ingest and upload until hydrate, then keeps GCS history", async () => {
+    vi.useFakeTimers();
+    const contentRoot = root();
+    _setRuntimeIssuesProductionForTests(true);
+    vi.spyOn(gcs, "available", "get").mockReturnValue(true);
+
+    const prodFp = "prod-fp";
+    const prodState = {
+      version: 1 as const,
+      updatedAt: Date.UTC(2026, 7, 1),
+      issues: {
+        [prodFp]: {
+          fingerprint: prodFp,
+          kind: "http.not_found" as const,
+          path: "/prod-history",
+          locale: "en",
+          count: 9,
+          firstSeen: Date.UTC(2026, 7, 1),
+          lastSeen: Date.UTC(2026, 7, 14),
+        },
+      },
+      recent: [],
+    };
+    const download = vi.spyOn(gcs, "downloadFirstExisting").mockResolvedValue({
+      key: "site_test/sync/runtime-issues-state.json",
+      data: Buffer.from(JSON.stringify(prodState), "utf-8"),
+    });
+    const upload = vi.spyOn(gcs, "upload").mockResolvedValue(undefined as never);
+    const debounced = vi.spyOn(gcs, "debouncedUpload");
+
+    // Early traffic on empty disk must not invent authority or push to GCS.
+    expect(
+      recordPublicNotFound({
+        site: "site_test",
+        contentRoot,
+        path: "/early-miss",
+        userAgent: CHROME,
+      }),
+    ).toBe(false);
+    expect(upload).not.toHaveBeenCalled();
+    expect(debounced).not.toHaveBeenCalled();
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues).toHaveLength(0);
+
+    await loadRuntimeIssuesForSite("site_test", contentRoot);
+    expect(download).toHaveBeenCalled();
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual([
+      "/prod-history",
+    ]);
+
+    expect(
+      recordPublicNotFound({
+        site: "site_test",
+        contentRoot,
+        path: "/after-hydrate",
+        userAgent: CHROME,
+      }),
+    ).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(upload).toHaveBeenCalled();
+    const lastUpload = upload.mock.calls[upload.mock.calls.length - 1];
+    const uploaded = JSON.parse((lastUpload[1] as Buffer).toString("utf-8"));
+    expect(Object.keys(uploaded.issues).length).toBe(2);
+    expect(Object.values(uploaded.issues).map((i: { path: string }) => i.path).sort()).toEqual([
+      "/after-hydrate",
+      "/prod-history",
+    ]);
+    expect(debounced).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
   });
 });

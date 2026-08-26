@@ -3,6 +3,7 @@ import {
   coerceEditorSelectScalar,
   collectEditorFieldTokens,
   expandEditorFieldTokens,
+  itemHasEditorFieldToken,
 } from "./editor-field-values";
 
 describe("coerceEditorSelectScalar", () => {
@@ -48,5 +49,27 @@ describe("collectEditorFieldTokens", () => {
       "aprender-a-programar",
       "trends-and-tech",
     ]);
+  });
+});
+
+describe("itemHasEditorFieldToken", () => {
+  it("matches arrays case-insensitively", () => {
+    const item = { tags: ["Javascript", "Python"] };
+    expect(itemHasEditorFieldToken(item, "tags", "javascript")).toBe(true);
+    expect(itemHasEditorFieldToken(item, "tags", "RUBY")).toBe(false);
+  });
+
+  it("splits CSV only when splitComma is true", () => {
+    const item = { tags: "js, python" };
+    expect(itemHasEditorFieldToken(item, "tags", "js")).toBe(false);
+    expect(itemHasEditorFieldToken(item, "tags", "js", { splitComma: true })).toBe(true);
+    expect(
+      itemHasEditorFieldToken(item, "tags", "PYTHON", { splitComma: true }),
+    ).toBe(true);
+  });
+
+  it("treats empty selection as match-all", () => {
+    expect(itemHasEditorFieldToken({ tags: ["a"] }, "tags", "")).toBe(true);
+    expect(itemHasEditorFieldToken({ tags: ["a"] }, "tags", "  ")).toBe(true);
   });
 });
