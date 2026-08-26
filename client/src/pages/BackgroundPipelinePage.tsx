@@ -595,9 +595,9 @@ function HealthStrip({ data }: { data: PipelineStatus }) {
         testId="kpi-pipeline-engine"
         education={{
           simple:
-            "Process health for the agent runtime that picks up background work. Running means the engine is up. Idle under it means no tasks are in flight right now — not that the engine is down. Restarting or Stopped: saves are safe, but index and validations wait until it recovers. Sidequest dashboard (webmasters only) opens the job UI; outbox work stays under Events waiting → View waiting.",
+            "Process health for the dedicated Sidequest process that picks up background work (not the website process itself). Running means Sidequest is up. Idle under it means no tasks are in flight right now — not that the engine is down. Restarting or Stopped: saves are safe, but index and validations wait until it recovers (local: npm run sidequest; prod: website-sidequest). A critical staff banner also appears when Sidequest is confirmed down. Sidequest dashboard (webmasters only) opens the job UI; outbox work stays under Events waiting → View waiting.",
           advanced:
-            "Sidequest.js engine in server/jobs/queue.ts, SQLite backend at data/sidequest.sqlite. Staff proxy: POST /api/admin/sidequest/open (webmaster) sets HttpOnly sidequest_dash cookie; /admin/sidequest reverse-proxies to localhost with internal Basic auth. See server/routes/sidequest-dashboard.ts and server/sidequest-dashboard-auth.ts (cookie TTL slides on each request).",
+            "Sidequest.js engine in a separate Node process (server/jobs/sidequest-worker.ts); web only configures/enqueues via server/jobs/queue.ts. Shared SQLite: data/sidequest.sqlite. Engine KPI probes loopback GET :8679/health (SIDEQUEST_WORKER_HEALTH_PORT), not the dashboard. Dashboard still on :8678; staff proxy: POST /api/admin/sidequest/open (webmaster) sets HttpOnly sidequest_dash cookie; /admin/sidequest reverse-proxies with internal Basic auth. See server/routes/sidequest-dashboard.ts, server/sidequest-dashboard-auth.ts, docs/vps.md (website-sidequest.service).",
         }}
       />
       <HealthKpiCard

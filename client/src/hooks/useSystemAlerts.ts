@@ -12,6 +12,8 @@ export type SystemAlertCode =
   | "database_fetch_failed"
   | "turnstile_env_missing"
   | "turnstile_secret_invalid"
+  | "background_jobs_stalled"
+  | "sidequest_engine_down"
   | "github_app_env_missing";
 
 export interface SystemAlert {

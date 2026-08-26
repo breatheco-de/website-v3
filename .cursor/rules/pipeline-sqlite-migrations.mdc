@@ -29,4 +29,4 @@ Pipeline tables live in per-site `data/<site>/app.db` (events, `pipeline_state`,
 
 ## Sidequest
 
-`data/sidequest.sqlite` is library-managed via [`configureJobQueue()`](server/jobs/queue.ts). Pin package version; smoke-test on upgrades.
+`data/sidequest.sqlite` is library-managed via [`configureJobQueue()`](server/jobs/queue.ts) (web enqueue + Sidequest process). The engine runs only in the dedicated process (`npm run sidequest` / `website-sidequest.service`). Pin package version; smoke-test on upgrades.

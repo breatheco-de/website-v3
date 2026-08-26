@@ -21,6 +21,7 @@ export type SystemAlertCode =
   | "turnstile_env_missing"
   | "turnstile_secret_invalid"
   | "background_jobs_stalled"
+  | "sidequest_engine_down"
   | "github_app_env_missing";
 
 export interface SystemAlert {
@@ -262,6 +263,27 @@ export async function collectSystemAlerts(): Promise<SystemAlert[]> {
   alerts.push(...collectMcpAuthAlerts(isProduction));
   alerts.push(...(await collectMcpAuthBlobAlerts(isProduction)));
   alerts.push(...(await collectGitHubAppAlerts(isProduction)));
+
+  try {
+    const { getEngineStatus } = await import("./jobs/queue");
+    const engine = await getEngineStatus();
+    if (engine.status === "stopped") {
+      const isProd = process.env.NODE_ENV === "production";
+      alerts.push({
+        id: "sidequest_engine_down",
+        severity: "critical",
+        code: "sidequest_engine_down",
+        title: "Sidequest is not running",
+        message: isProd
+          ? "Index refresh and on-save validation are paused (saves still work). On the VPS check website-sidequest: sudo systemctl status website-sidequest — then start/enable if needed (docs/vps.md)."
+          : "Index refresh and on-save validation are paused (saves still work). In a local environment, start Sidequest in another terminal with: npm run sidequest",
+        actionHref: "/private/background-pipeline",
+        actionLabel: "Open pipeline",
+      });
+    }
+  } catch {
+    /* non-fatal */
+  }
 
   try {
     const { getOldestUnpublishedAgeMs } = await import("./events/event-store");

@@ -11,7 +11,7 @@ This document explains how to set up and run the AI Reskilling Platform locally 
 | Node.js | 20 or later |
 | npm | 10 or later (bundled with Node 20) |
 
-No other runtime or containerisation tool is required. The server and client both run from a single `npm run dev` command.
+No other runtime or containerisation tool is required. The website runs with `npm run dev`. Background jobs need a second terminal: `npm run sidequest`.
 
 ---
 
@@ -28,6 +28,14 @@ Copy or create a `.env` file at the project root (see the environment variable r
 ```
 npm run dev
 ```
+
+In a second terminal, start the Sidequest job worker (required for index refresh / on-save validation after content edits):
+
+```
+npm run sidequest
+```
+
+Worker health: `curl -fsS http://127.0.0.1:8679/health`
 
 ### Site content folders
 

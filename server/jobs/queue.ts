@@ -1,5 +1,8 @@
 /**
  * Thin wrapper over Sidequest.js — swap transport here if needed.
+ *
+ * Web process: configure + enqueue only (never Sidequest.start).
+ * Worker process: startJobQueue() runs the engine + dashboard.
  */
 
 import path from "path";
@@ -19,6 +22,15 @@ const SIDEQUEST_DB = path.join(dataDir, "sidequest.sqlite");
 /** Same-origin path for the staff-proxied Sidequest UI. */
 export const SIDEQUEST_DASHBOARD_BASE_PATH = "/admin/sidequest";
 
+const HEALTH_PROBE_TIMEOUT_MS = 500;
+/** Wait before a second probe when the first fails — avoids false "stopped" during restart. */
+function healthConfirmDelayMs(): number {
+  const raw = process.env.SIDEQUEST_HEALTH_CONFIRM_DELAY_MS;
+  if (raw === undefined || raw === "") return 1500;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 1500;
+}
+
 let configured = false;
 let starting: Promise<void> | null = null;
 let restartAttempts = 0;
@@ -26,10 +38,13 @@ const MAX_RESTART_ATTEMPTS = 10;
 
 export type EngineStatusState = "running" | "starting" | "stopped" | "restarting";
 
-let engineStatus: EngineStatusState = "stopped";
-
 export function getSidequestDashboardPort(): number {
   return Number(process.env.SIDEQUEST_DASHBOARD_PORT || 8678);
+}
+
+/** Loopback health port for the dedicated Sidequest worker (not the dashboard). */
+export function getWorkerHealthPort(): number {
+  return Number(process.env.SIDEQUEST_WORKER_HEALTH_PORT || 8679);
 }
 
 /** Kill switch: SIDEQUEST_DASHBOARD_ENABLED=false disables; unset/true enables. */
@@ -64,16 +79,52 @@ export function getSidequestDashboardInternalAuth(): { user: string; password: s
   return { user: "sidequest-proxy", password: derived };
 }
 
-export function getEngineStatus(): {
+export type EngineStatusResult = {
   status: EngineStatusState;
   restartAttempts: number;
   dashboardUrl?: string;
-} {
-  return {
-    status: engineStatus,
-    restartAttempts,
-    dashboardUrl: isSidequestDashboardEnabled() ? `${SIDEQUEST_DASHBOARD_BASE_PATH}/` : undefined,
-  };
+};
+
+async function probeWorkerHealth(): Promise<boolean> {
+  const port = getWorkerHealthPort();
+  const url = `http://127.0.0.1:${port}/health`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), HEALTH_PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Probe the dedicated worker loopback /health (not the dashboard port).
+ * Web process has no local Sidequest engine — status reflects the worker only.
+ * A failed probe is confirmed after a short delay to avoid flicker during restarts.
+ */
+export async function getEngineStatus(): Promise<EngineStatusResult> {
+  const dashboardUrl = isSidequestDashboardEnabled()
+    ? `${SIDEQUEST_DASHBOARD_BASE_PATH}/`
+    : undefined;
+
+  if (await probeWorkerHealth()) {
+    return { status: "running", restartAttempts: 0, dashboardUrl };
+  }
+
+  await sleep(healthConfirmDelayMs());
+
+  if (await probeWorkerHealth()) {
+    return { status: "running", restartAttempts: 0, dashboardUrl };
+  }
+
+  return { status: "stopped", restartAttempts: 0, dashboardUrl };
 }
 
 export type JobEnqueueOpts = {
@@ -137,6 +188,7 @@ export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<v
     },
     // Run in the host process (tsx) so job scripts can resolve extensionless TS imports.
     // Worker threads / forked engine use plain Node ESM and fail on ../../content-index, etc.
+    // Isolation from HTTP comes from a dedicated OS worker process, not Sidequest fork.
     fork: false,
     runner: "inline",
     // esbuild collapses the server into dist/index.js; stack-based script paths break
@@ -152,9 +204,12 @@ export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<v
   );
 }
 
+/**
+ * Worker-only: configure + Sidequest.start (engine + dashboard).
+ * Do not call from the Express web process.
+ */
 export async function startJobQueue(): Promise<void> {
   if (starting) return starting;
-  engineStatus = restartAttempts > 0 ? "restarting" : "starting";
   starting = (async () => {
     try {
       await configureJobQueue();
@@ -163,7 +218,6 @@ export async function startJobQueue(): Promise<void> {
       const dashboard = buildSidequestDashboardConfig();
       await Sidequest.start({ dashboard });
       restartAttempts = 0;
-      engineStatus = "running";
       log.info(
         {
           db: SIDEQUEST_DB,
@@ -175,7 +229,6 @@ export async function startJobQueue(): Promise<void> {
       );
     } catch (err) {
       log.error({ err }, "[JobQueue] Failed to start Sidequest");
-      engineStatus = "restarting";
       scheduleRestart();
       throw err;
     }
@@ -186,11 +239,9 @@ export async function startJobQueue(): Promise<void> {
 function scheduleRestart(): void {
   if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
     log.error("[JobQueue] Max restart attempts reached");
-    engineStatus = "stopped";
     return;
   }
   restartAttempts++;
-  engineStatus = "restarting";
   const delay = Math.min(60_000, 1000 * 2 ** restartAttempts);
   log.warn({ restartAttempts, delayMs: delay }, "[JobQueue] Scheduling engine restart");
   setTimeout(() => {
@@ -206,7 +257,6 @@ export async function stopJobQueue(): Promise<void> {
     log.warn({ err }, "[JobQueue] Error stopping Sidequest");
   }
   starting = null;
-  engineStatus = "stopped";
 }
 
 /** Register job class map for enqueue by type name. */
