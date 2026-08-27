@@ -1500,7 +1500,17 @@ export function registerSectionsRoutes(app: Express): void {
       if (!auth.authorized) return;
       const { contentType, folderSlug, locale, newSlug, createRedirect, enforceRedirectPolicy, author: rawAuthor } = req.body;
       const author = auth.author || (rawAuthor && typeof rawAuthor === "string" ? rawAuthor : undefined);
-      const result = await renameContentSlug({ contentType, folderSlug, locale, newSlug, createRedirect: !!createRedirect, enforceRedirectPolicy: !!enforceRedirectPolicy, author, contentRootName: getContentRootName(res) });
+      const result = await renameContentSlug({
+        contentType,
+        folderSlug,
+        locale,
+        newSlug,
+        createRedirect: !!createRedirect,
+        enforceRedirectPolicy: !!enforceRedirectPolicy,
+        author,
+        contentRootName: getContentRootName(res),
+        ci: getCI(res),
+      });
       if (!result.success) { res.status(result.statusCode).json({ error: result.error }); return; }
       res.json(result.data);
     } catch (error) {

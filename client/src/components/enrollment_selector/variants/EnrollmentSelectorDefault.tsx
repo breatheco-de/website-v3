@@ -865,7 +865,7 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
     if (typeof window === "undefined") return null;
     const qsValue = new URLSearchParams(window.location.search).get(qc.param);
     if (!qsValue) return null;
-    return qc.items.find((i) => i.value === qsValue) ?? null;
+    return qc.items.find((i) => (Array.isArray(i.value) ? i.value : [i.value]).includes(qsValue)) ?? null;
   }, [program]);
 
   const queryComponentBlock =

@@ -68,7 +68,7 @@ Live process must use `current` (systemd). Runtime sidecars (`sites.yml`, caches
 
 ### 3.1 Site content (ephemeral per release)
 
-`site_*` folders are **not** linked from `persistent/`. Each release gets real `site_*` directories (from `content_folder` in `persistent/sites.yml`). `deploy.sh` runs a **blocking** `npm run content:pull -- --required` after `npm ci` and before `npm run build` / flip, so cutover never points at an empty tree.
+`site_*` folders are **not** linked from `persistent/`. Each release gets real `site_*` directories (from `content_folder` in `persistent/sites.yml`). `deploy.sh` runs a **blocking** `npm run content:pull -- --required` after `npm ci` and before `npm run build` / flip, so cutover never points at an empty tree. After the pull it sets group `website-runtime` + setgid on those trees so runtime can write `site_*/.cache` and deploy can still delete old releases.
 
 After that pull, deploy **clears** `.bootstrap-complete` on purpose. On the post-flip restart, when the flag is absent, the app **hash-diff pulls** again (GitHub wins) so content commits that landed during `npm ci`/build are picked up. Media/canonical assets live in **GCS**; YAML/registry come from those pulls.
 
@@ -133,9 +133,12 @@ One-time (requires root/sudo). After the first successful atomic deploy:
 WorkingDirectory=/opt/website-v3/current
 EnvironmentFile=/opt/website-v3/current/.env
 ExecStart=/opt/website-v3/current/scripts/start-production.sh
+UMask=0002
 ```
 
 Keep `ReadWritePaths=/opt/website-v3` so `persistent/` remains writable.
+`UMask=0002` lets `website-runtime` create group-writable `site_*/.cache` so
+`website-deployer` (in group `website-runtime`) can prune old releases.
 
 **Sidequest (required for background jobs):** Express only enqueues; a separate unit runs the engine.
 
@@ -150,6 +153,7 @@ Type=simple
 WorkingDirectory=/opt/website-v3/current
 EnvironmentFile=/opt/website-v3/current/.env
 ExecStart=/opt/website-v3/current/scripts/start-sidequest.sh
+UMask=0002
 Restart=always
 RestartSec=5
 # Same writable root as website.service so data/sidequest.sqlite is shared
@@ -273,6 +277,7 @@ No secret values in this doc.
 
 - SSH with keys, not passwords (`PermitRootLogin no`, `PasswordAuthentication no`).
 - Deploy user (`website-deployer`): limited sudo (`systemctl` website/nginx, `nginx -t`) — not `NOPASSWD: ALL`.
+- `website-deployer` ∈ group `website-runtime` so deploy can prune `site_*/.cache` written by the app.
 - Runtime user without interactive login where applicable.
 - Emergency access: DigitalOcean Droplet Console (not SSH), not root over port 22.
 

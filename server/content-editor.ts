@@ -2583,6 +2583,8 @@ export interface RenameContentSlugInput {
   enforceRedirectPolicy?: boolean;
   author?: string;
   contentRootName?: string;
+  /** Per-site index; same pattern as editContent (`request.ci ?? contentIndex`). */
+  ci?: ContentIndex;
 }
 
 export async function renameContentSlug(
@@ -2592,7 +2594,8 @@ export async function renameContentSlug(
   oldUrl: string; newUrl: string; locale: string; redirectCreated: boolean; routed: boolean;
 }>> {
   const { contentType, folderSlug, locale, newSlug, createRedirect = false, enforceRedirectPolicy = false, author } = input;
-  const rootName = input.contentRootName ?? getDefaultContentRootName();
+  const ci = input.ci ?? contentIndex;
+  const rootName = input.contentRootName ?? ci.contentRootName ?? getDefaultContentRootName();
 
   if (!contentType || !folderSlug || !locale || !newSlug) {
     return { success: false, statusCode: 400, error: "Missing required fields: contentType, folderSlug, locale, newSlug" };
@@ -2618,9 +2621,9 @@ export async function renameContentSlug(
     readPublishedAtFromCommon,
   } = await import("./locale-url-slug.js");
 
-  const contentFolder = getFolder(contentType);
-  const resolvedFolderSlug = contentIndex.resolveBaseSlug(folderSlug, contentFolder);
-  const folderPath = path.join(process.cwd(), rootName, contentFolder, resolvedFolderSlug);
+  const contentFolder = ci.getFolderName(contentType);
+  const resolvedFolderSlug = ci.resolveBaseSlug(folderSlug, contentType);
+  const folderPath = ci.getContentFolderPath(contentType, folderSlug);
 
   if (!fs.existsSync(folderPath)) {
     return { success: false, statusCode: 404, error: `Content folder not found: ${folderSlug} (resolved: ${resolvedFolderSlug})` };
@@ -2628,7 +2631,7 @@ export async function renameContentSlug(
 
   const effectiveLocale =
     contentType === "landing"
-      ? ((contentIndex.loadCommonData("landing", resolvedFolderSlug)?.locale as string) || locale)
+      ? ((ci.loadCommonData("landing", resolvedFolderSlug)?.locale as string) || locale)
       : locale;
 
   const localeFile = [`${effectiveLocale}.yml`, `${effectiveLocale}.yaml`].find(
@@ -2640,7 +2643,7 @@ export async function renameContentSlug(
 
   const localeFilePath = path.join(folderPath, localeFile);
   const raw = fs.readFileSync(localeFilePath, "utf-8");
-  const parsed = contentIndex.safeYamlLoad(raw) as Record<string, unknown> | null;
+  const parsed = ci.safeYamlLoad(raw) as Record<string, unknown> | null;
   if (!parsed) return { success: false, statusCode: 500, error: "Failed to parse locale file" };
 
   const currentSlug = (parsed.slug as string) || folderSlug;
@@ -2648,7 +2651,7 @@ export async function renameContentSlug(
     return { success: false, statusCode: 400, error: "New slug is the same as current slug" };
   }
 
-  const commonData = contentIndex.loadCommonData(contentType, resolvedFolderSlug) || {};
+  const commonData = ci.loadCommonData(contentType, resolvedFolderSlug) || {};
   const redirectGate = assertCreateRedirectIfRequired({
     ageHours: entryAgeHours(readPublishedAtFromCommon(commonData)),
     createRedirect: !!createRedirect,
@@ -2665,7 +2668,7 @@ export async function renameContentSlug(
     entryIdentity: resolvedFolderSlug,
     locale: effectiveLocale,
     mergedPageData: mergedForUrl,
-    ci: contentIndex,
+    ci,
   });
   if (!urlCheck.ok) {
     return { success: false, statusCode: urlCheck.statusCode, error: urlCheck.error };
@@ -2677,11 +2680,11 @@ export async function renameContentSlug(
     entryIdentity: resolvedFolderSlug,
     locale: effectiveLocale,
     mergedPageData: mergedOldForUrl,
-    ci: contentIndex,
+    ci,
   });
   const oldUrl = oldUrlResult.ok
     ? oldUrlResult.url
-    : contentIndex.buildUrl(contentFolder, effectiveLocale, currentSlug);
+    : ci.buildUrl(contentType, effectiveLocale, currentSlug);
   const newUrl = urlCheck.url;
   parsed.slug = newSlug;
 
@@ -2696,8 +2699,8 @@ export async function renameContentSlug(
   const updated = safeYamlDump(parsed, { lineWidth: -1, noRefs: true });
   fs.writeFileSync(localeFilePath, updated, "utf-8");
   markFileAsModified(`${rootName}/${contentFolder}/${resolvedFolderSlug}/${localeFile}`, author);
-  contentIndex.refresh({ syncSlow: !!createRedirect });
-  const routed = contentIndex.resolveUrl(newUrl)?.slug === resolvedFolderSlug;
+  ci.refresh({ syncSlow: !!createRedirect });
+  const routed = ci.resolveUrl(newUrl)?.slug === resolvedFolderSlug;
   refreshSitemapEntry(contentType, resolvedFolderSlug, effectiveLocale);
   clearRedirectCache();
   invalidateContentCaches(contentType);

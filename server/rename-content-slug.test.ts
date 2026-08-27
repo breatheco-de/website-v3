@@ -25,11 +25,18 @@ afterEach(() => {
 });
 
 describe("renameContentSlug ownership and routing checks", () => {
-  it("refuses when new URL resolves to another entry", async () => {
-    const { root, folderSlug } = makeEntryRoot();
+  function stubIndex(folderSlug: string, root: string) {
+    const entryDir = path.join(root, getFolder("page"), folderSlug);
     vi.spyOn(contentIndex, "resolveBaseSlug").mockReturnValue(folderSlug);
+    vi.spyOn(contentIndex, "getContentFolderPath").mockReturnValue(entryDir);
+    vi.spyOn(contentIndex, "getFolderName").mockReturnValue(getFolder("page"));
     vi.spyOn(contentIndex, "loadCommonData").mockReturnValue(null);
     vi.spyOn(contentIndex, "buildUrl").mockImplementation((_ct, locale, slug) => `/${locale}/${slug}`);
+  }
+
+  it("refuses when new URL resolves to another entry", async () => {
+    const { root, folderSlug } = makeEntryRoot();
+    stubIndex(folderSlug, root);
     vi.spyOn(contentIndex, "resolveUrl").mockImplementation((url) => {
       if (url === "/es/tutoriales-interactivos") {
         return {
@@ -57,10 +64,8 @@ describe("renameContentSlug ownership and routing checks", () => {
 
   it("returns routed=true when refreshed URL resolves to the same folder", async () => {
     const { root, folderSlug } = makeEntryRoot();
+    stubIndex(folderSlug, root);
     let resolveCalls = 0;
-    vi.spyOn(contentIndex, "resolveBaseSlug").mockReturnValue(folderSlug);
-    vi.spyOn(contentIndex, "loadCommonData").mockReturnValue(null);
-    vi.spyOn(contentIndex, "buildUrl").mockImplementation((_ct, locale, slug) => `/${locale}/${slug}`);
     vi.spyOn(contentIndex, "resolveUrl").mockImplementation((url) => {
       if (url !== "/es/tutoriales-interactivos") return null;
       resolveCalls += 1;
