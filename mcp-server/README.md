@@ -36,7 +36,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, strategy, observed URL-param values, create_via |
 | `get_entry_content` | Merged entry content without meta/SEO |
 | `get_entry_seo` | SEO/meta + resolved schema.org preview + companion/CT gaps for one entry |
-| `update_content_type` | Patch `content-types.yml` (v1: `strategy` only). Cap: `content_types_manage`. Not entry ensure. |
+| `update_content_type` | Patch `content-types.yml`: `strategy` and/or one field (`field_action` + confirm). Cap: `content_types_manage`. |
 | `ensure_content_type_schema_org` | Attach seeded schema_org companions for CT `schema_org_requirements` |
 | `list_entry_seo` | SEO listing; **unfiltered = minimal sample**; pass `slugs` for full meta |
 | `create_entry` | Create YAML entry (draft-first or live shared-layout); not for DB-backed types |
@@ -80,19 +80,39 @@ Returns `strategy` / `strategy_valid` / `strategy_note`. When required fields ex
 
 ### `update_content_type`
 
-Patch allowlisted keys on `content-types.yml` via `PUT /api/content-types/:type/config`. **Requires** `content_types_manage`.
+Patch `content-types.yml` via `PUT /api/content-types/:type/config`. **Requires** `content_types_manage`.
 
-**v1 allowlist:** `strategy` only — `{ purpose, constraints? }` or `null` to clear. At least one allowlisted key required. Empty patch → `code: empty_patch`. Clear while required fields remain → API `code: missing_strategy`.
+**Modes (one per call):**
 
-**Non-effects:** does not edit entries, `fill_intent`, `insights_intent`, `seo_monitoring`, or run `ensure_content_type_schema_org`.
+| Mode | Parameters | Execute |
+|---|---|---|
+| Strategy | `strategy`: `{ purpose, constraints? }` or `null` | Immediate PUT |
+| Field patch | `field_action` (`add` \| `update` \| `remove`), `field_key`, optional `field_mapping` / `editor`, `confirm` | Preview when `confirm` omitted/false; `confirm: true` → fresh GET + merge + PUT |
+
+**Field patch rules:**
+
+- One field per call — sibling fields preserved (server-side merge).
+- Do not combine `strategy` and `field_action` in one call (`code: ambiguous_patch`).
+- Static types: `add` defaults `{ source: field_key, default: null }`. DB-backed: `field_mapping` required on add.
+- Relation `editor.source` required; CT/DB name collisions rejected.
+- `required` true \| `"attached"` needs `fill_intent` + valid type `strategy` (set strategy in a separate call first).
+- `remove` blocked while `field_key` is in `indexes` or `unique_fields` — clear in Content Type manage first.
+- Does not edit entry YAML or auto-backfill — follow `next_actions` (`update_fields`, etc.) after add.
+
+**Non-effects:** does not run `ensure_content_type_schema_org` or change `seo_monitoring`.
 
 **Parameters:**
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `contentType` | string | yes | Content type key |
-| `strategy` | object \| null | for v1 yes | Set or clear strategy |
-| `site` | string | multi-site | Domain from `list_sites` |
+| Parameter | Type | Description |
+|---|---|---|
+| `contentType` | string | Content type key |
+| `strategy` | object \| null | Set or clear strategy (mutually exclusive with `field_action`) |
+| `field_action` | add \| update \| remove | Patch one schema field |
+| `field_key` | string | Schema key |
+| `field_mapping` | string \| `{ source, default }` | Mapping for this field (add/update) |
+| `editor` | object | Editor hint for this field (add/update; partial merge on update) |
+| `confirm` | boolean | Field patches: false/omit → preview; true → execute |
+| `site` | string | Multi-site domain |
 
 ### `get_entry_content`
 

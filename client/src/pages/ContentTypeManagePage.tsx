@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Pagination,
   PaginationContent,
@@ -700,6 +701,41 @@ function ClearCacheConfirmDialog({
   );
 }
 
+const REQUIRED_FIELD_SKIP_CONFIRM_KEY = "ct-required-field-skip-confirm";
+
+type RequiredMode = false | true | "attached";
+
+function readSkipRequiredConfirm(): boolean {
+  try {
+    return localStorage.getItem(REQUIRED_FIELD_SKIP_CONFIRM_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeSkipRequiredConfirm(skip: boolean) {
+  try {
+    if (skip) localStorage.setItem(REQUIRED_FIELD_SKIP_CONFIRM_KEY, "1");
+    else localStorage.removeItem(REQUIRED_FIELD_SKIP_CONFIRM_KEY);
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function normalizeRequiredMode(value: EditorHint["required"]): RequiredMode {
+  if (value === true || value === "attached") return value;
+  return false;
+}
+
+function nextRequiredMode(current: RequiredMode, allowAttachedMode: boolean): RequiredMode {
+  if (allowAttachedMode) {
+    if (current === false) return "attached";
+    if (current === "attached") return true;
+    return false;
+  }
+  return current === false ? true : false;
+}
+
 function RequiredFieldConfirmDialog({
   open,
   onOpenChange,
@@ -710,12 +746,22 @@ function RequiredFieldConfirmDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelect: (next: false | true | "attached") => void;
+  onSelect: (next: RequiredMode, neverAskAgain: boolean) => void;
   fieldName: string | null;
-  currentRequired: false | true | "attached";
+  currentRequired: RequiredMode;
   /** Show "Required when attached" only for shared-layout content types. */
   allowAttachedMode: boolean;
 }) {
+  const [neverAskAgain, setNeverAskAgain] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setNeverAskAgain(false);
+      setShowAdvanced(false);
+    }
+  }, [open]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[520px]" data-testid="dialog-required-field-confirm">
@@ -727,7 +773,9 @@ function RequiredFieldConfirmDialog({
                 Field{" "}
                 <code className="font-mono text-foreground text-xs">{fieldName}</code>
                 {currentRequired === true
-                  ? " — currently required always (even detached)"
+                  ? allowAttachedMode
+                    ? " — currently required always (even detached)"
+                    : " — currently required always"
                   : currentRequired === "attached"
                     ? " — currently required only on template (attached)"
                     : " — currently never required"}
@@ -737,104 +785,140 @@ function RequiredFieldConfirmDialog({
             )}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3 text-sm text-muted-foreground" data-testid="fields-required-education">
+        <div className="space-y-2 text-xs text-muted-foreground" data-testid="fields-required-education">
           <p>
-            <strong className="font-medium text-foreground">Never required</strong> — drafts and live
-            entries may leave this field empty.
+            This sets whether the field must be filled before an entry can go live. Drafts can stay empty
+            either way; once live, a required field cannot be cleared until you turn the requirement off.
           </p>
-          {allowAttachedMode ? (
-            <p>
-              <strong className="font-medium text-foreground">Required only on template (attached)</strong>{" "}
-              (<code className="font-mono text-[10px]">editor.required: attached</code> — publishing and
-              live saves need a value while the entry uses the shared template. Entries with{" "}
-              <code className="font-mono text-[10px]">detached: true</code> skip this field (Fields UI
-              shows “Optional while detached”). JSON fields must also satisfy their schema.
-            </p>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
+            onClick={() => setShowAdvanced((v) => !v)}
+            data-testid="button-toggle-required-field-education"
+          >
+            {showAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+            <IconChevronDown
+              className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+            />
+          </button>
+          {showAdvanced ? (
+            <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3 text-xs">
+              <p>
+                Turning a field required also needs a type Strategy (purpose) and{" "}
+                <code className="font-mono text-[10px]">fill_intent</code> on the field — you will be asked
+                if those are missing. Live SEO still separately needs{" "}
+                <code className="font-mono bg-muted px-1 rounded">meta.page_title</code> and{" "}
+                <code className="font-mono bg-muted px-1 rounded">meta.description</code>.
+              </p>
+              <p className="text-muted-foreground">
+                Paths:{" "}
+                <code className="font-mono text-[10px]">shared/fillIntent.ts</code>,{" "}
+                <code className="font-mono text-[10px]">shared/contentTypeStrategy.ts</code>,{" "}
+                <code className="font-mono text-[10px]">shared/validateRequiredFields.ts</code>,{" "}
+                <code className="font-mono text-[10px]">server/live-entry-seo-gate.ts</code>
+              </p>
+            </div>
           ) : null}
-          <p>
-            <strong className="font-medium text-foreground">Required always (even detached)</strong>{" "}
-            <code className="font-mono text-[10px]">editor.required: true</code> — drafts may be empty;
-            publishing and live saves need a value whether attached or detached (JSON fields must also
-            satisfy their schema).
-          </p>
-          <p>
-            Live pages also always need{" "}
-            <code className="font-mono bg-muted px-1 rounded text-xs">meta.page_title</code> and{" "}
-            <code className="font-mono bg-muted px-1 rounded text-xs">meta.description</code> — separate
-            from this asterisk.
-          </p>
-          <p>
-            Marking a field required also requires{" "}
-            <code className="font-mono text-[10px]">fill_intent</code> (goal + purpose; optional
-            constraints). That is the declarative why/how for agents and Diagnostics — short Description
-            stays a UI hint only. Goal is an open tag (presets like{" "}
-            <code className="font-mono text-[10px]">geo_llm</code> /{" "}
-            <code className="font-mono text-[10px]">conversion</code> are shortcuts). Set fill intent in
-            the field settings (sliders) before or when enabling required. Schema rules like{" "}
-            <code className="font-mono text-[10px]">minItems</code> enforce structure; fill_intent does not
-            replace them.
-          </p>
-          <p>
-            The content type must also have a valid{" "}
-            <code className="font-mono text-[10px]">strategy</code> (non-empty{" "}
-            <code className="font-mono text-[10px]">purpose</code>) before any field can be required.
-            Set it with the Strategy button on this manage page — that is the type-level brief for staff
-            and agents, not the same as per-field fill_intent.
-          </p>
-          <p className="text-xs">
-            Read more:{" "}
-            <code className="font-mono text-[10px]">shared/fillIntent.ts</code>,{" "}
-            <code className="font-mono text-[10px]">shared/contentTypeStrategy.ts</code>,{" "}
-            <code className="font-mono text-[10px]">shared/validateRequiredFields.ts</code>,{" "}
-            <code className="font-mono text-[10px]">server/live-entry-seo-gate.ts</code>,{" "}
-            <code className="font-mono text-[10px]">scripts/validation/validators/required-fields.ts</code>
-            , <code className="font-mono text-[10px]">server/shared-layout-detach.ts</code>.
-          </p>
         </div>
         <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            data-testid="button-cancel-required-field"
+          <div
+            className="flex w-full rounded-md border overflow-hidden"
+            role="group"
+            aria-label="Required mode"
+            data-testid="required-mode-toggle"
           >
-            Cancel
-          </Button>
-          <Button
-            variant={currentRequired === false ? "default" : "secondary"}
-            onClick={() => onSelect(false)}
-            data-testid="button-required-mode-none"
-            className="justify-start gap-2"
-          >
-            <span className="inline-flex w-7 justify-center opacity-40" aria-hidden>
-              <Asterisk className="h-3.5 w-3.5" />
-            </span>
-            Never required
-          </Button>
-          {allowAttachedMode ? (
-            <Button
-              variant={currentRequired === "attached" ? "default" : "secondary"}
-              onClick={() => onSelect("attached")}
-              data-testid="button-required-mode-attached"
-              className="justify-start gap-2"
+            <button
+              type="button"
+              onClick={() => onSelect(false, neverAskAgain)}
+              data-testid="button-required-mode-none"
+              aria-pressed={currentRequired === false}
+              className={`flex-1 min-w-0 flex flex-col items-start gap-1 px-2.5 py-2.5 text-left transition-colors ${
+                currentRequired === false
+                  ? "bg-primary/15 text-primary font-medium"
+                  : "text-muted-foreground hover-elevate"
+              }`}
             >
-              <span className="inline-flex w-7 items-center justify-center" aria-hidden>
-                <Asterisk className="h-3.5 w-3.5" />
-                <Asterisk className="h-3.5 w-3.5 -ml-2" />
+              <span className="inline-flex items-center gap-1.5 text-xs">
+                <span className="inline-flex shrink-0 opacity-50" aria-hidden>
+                  <Asterisk className="h-3.5 w-3.5" />
+                </span>
+                Never required
               </span>
-              Required only on template (attached)
-            </Button>
-          ) : null}
-          <Button
-            variant={currentRequired === true ? "default" : "secondary"}
-            onClick={() => onSelect(true)}
-            data-testid="button-required-mode-always"
-            className="justify-start gap-2"
+              <span
+                className={`text-[10px] font-normal leading-snug ${
+                  currentRequired === false ? "text-primary/70" : "text-muted-foreground/80"
+                }`}
+              >
+                Drafts and live may leave this empty.
+              </span>
+            </button>
+            {allowAttachedMode ? (
+              <button
+                type="button"
+                onClick={() => onSelect("attached", neverAskAgain)}
+                data-testid="button-required-mode-attached"
+                aria-pressed={currentRequired === "attached"}
+                className={`flex-1 min-w-0 flex flex-col items-start gap-1 border-l px-2.5 py-2.5 text-left transition-colors ${
+                  currentRequired === "attached"
+                    ? "bg-primary/15 text-primary font-medium"
+                    : "text-muted-foreground hover-elevate"
+                }`}
+              >
+                <span className="inline-flex items-center gap-1.5 text-xs">
+                  <span className="inline-flex shrink-0" aria-hidden>
+                    <Asterisk className="h-3.5 w-3.5" />
+                  </span>
+                  Required only on template (attached)
+                </span>
+                <span
+                  className={`text-[10px] font-normal leading-snug ${
+                    currentRequired === "attached" ? "text-primary/70" : "text-muted-foreground/80"
+                  }`}
+                >
+                  Needed to publish on the shared template; skipped when detached.
+                </span>
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => onSelect(true, neverAskAgain)}
+              data-testid="button-required-mode-always"
+              aria-pressed={currentRequired === true}
+              className={`flex-1 min-w-0 flex flex-col items-start gap-1 border-l px-2.5 py-2.5 text-left transition-colors ${
+                currentRequired === true
+                  ? "bg-primary/15 text-primary font-medium"
+                  : "text-muted-foreground hover-elevate"
+              }`}
+            >
+              <span className="inline-flex items-center gap-1.5 text-xs">
+                <span className="inline-flex shrink-0 items-center" aria-hidden>
+                  <Asterisk className="h-3.5 w-3.5" />
+                  <Asterisk className="h-3.5 w-3.5 -ml-2" />
+                </span>
+                {allowAttachedMode ? "Required always (even detached)" : "Required always"}
+              </span>
+              <span
+                className={`text-[10px] font-normal leading-snug ${
+                  currentRequired === true ? "text-primary/70" : "text-muted-foreground/80"
+                }`}
+              >
+                {allowAttachedMode
+                  ? "Needed to publish whether attached or detached (drafts may still be empty)."
+                  : "Needed to publish (drafts may still be empty)."}
+              </span>
+            </button>
+          </div>
+          <label
+            className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none pt-1"
+            data-testid="label-never-ask-required-confirm"
           >
-            <span className="inline-flex w-7 justify-center" aria-hidden>
-              <Asterisk className="h-3.5 w-3.5" />
-            </span>
-            Required always (even detached)
-          </Button>
+            <Checkbox
+              checked={neverAskAgain}
+              onCheckedChange={(checked) => setNeverAskAgain(checked === true)}
+              data-testid="checkbox-never-ask-required-confirm"
+            />
+            Never ask this again — click the asterisk to cycle modes
+          </label>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -3502,6 +3586,64 @@ function FieldMappingDialog({
     }
   };
 
+  const allowAttachedRequiredMode = !!config?.single_template || !!config?.database?.slug;
+
+  const applyRequiredMode = useCallback(
+    (field: string, nextRequired: RequiredMode): boolean => {
+      if (nextRequired !== false) {
+        if (!isValidContentTypeStrategy(config?.strategy)) {
+          toast({
+            title: "Content type strategy required",
+            description:
+              "Set a type strategy (non-empty purpose) before marking fields required.",
+            variant: "destructive",
+          });
+          onRequestStrategy?.();
+          return false;
+        }
+        const cur = editorHints[field] || {};
+        if (!isValidFillIntent(cur.fill_intent)) {
+          toast({
+            title: "Fill intent required",
+            description:
+              "Set fill_intent (goal + purpose) in field settings before marking this field required.",
+            variant: "destructive",
+          });
+          setHintDialogField(field);
+          return false;
+        }
+      }
+      setEditorHints((prev) => {
+        const cur = prev[field] || {};
+        if (nextRequired === false) {
+          const { required: _r, ...rest } = cur;
+          if (Object.keys(rest).length === 0) {
+            const clone = { ...prev };
+            delete clone[field];
+            return clone;
+          }
+          return { ...prev, [field]: rest };
+        }
+        return { ...prev, [field]: { ...cur, required: nextRequired } };
+      });
+      return true;
+    },
+    [config?.strategy, editorHints, onRequestStrategy, toast],
+  );
+
+  const handleRequiredFieldClick = useCallback(
+    (field: string) => {
+      if (!readSkipRequiredConfirm()) {
+        setPendingRequiredField(field);
+        return;
+      }
+      const current = normalizeRequiredMode(editorHints[field]?.required);
+      const next = nextRequiredMode(current, allowAttachedRequiredMode);
+      applyRequiredMode(field, next);
+    },
+    [allowAttachedRequiredMode, applyRequiredMode, editorHints],
+  );
+
   const regularKeys = Object.keys(mappings).filter(
     (k) => !k.startsWith("_") && !FORBIDDEN_SCHEMA_FIELDS.has(k) && !SEO_DB_MAPPING_KEYS.has(k),
   );
@@ -3998,10 +4140,10 @@ function FieldMappingDialog({
                     overlays under <code className="font-mono">field_overrides</code>.
                   </p>
                   <p>
-                    Asterisk (<code className="font-mono">editor.required</code>): single{" "}
-                    <strong className="font-medium text-foreground">*</strong> = required for
-                    publish on all live entries; double{" "}
-                    <strong className="font-medium text-foreground">**</strong> = required only
+                    Asterisk (<code className="font-mono">editor.required</code>): double{" "}
+                    <strong className="font-medium text-foreground">**</strong> = required for
+                    publish on all live entries; single{" "}
+                    <strong className="font-medium text-foreground">*</strong> = required only
                     when the entry uses the shared template (skipped if{" "}
                     <code className="font-mono">detached: true</code>). Drafts may be empty; JSON
                     fields must satisfy their schema. Live pages also always need{" "}
@@ -4263,10 +4405,10 @@ function FieldMappingDialog({
                                       ? "text-primary"
                                       : ""
                                   }`}
-                                  onClick={() => setPendingRequiredField(key)}
+                                  onClick={() => handleRequiredFieldClick(key)}
                                   data-testid={`button-required-field-${key}`}
                                 >
-                                  {editorHints[key]?.required === "attached" ? (
+                                  {editorHints[key]?.required === true ? (
                                     <span
                                       className="inline-flex items-center"
                                       aria-hidden
@@ -4284,11 +4426,15 @@ function FieldMappingDialog({
                                 className="text-xs"
                                 data-testid={`tooltip-required-field-${key}`}
                               >
-                                {editorHints[key]?.required === "attached"
-                                  ? "** When attached"
-                                  : editorHints[key]?.required === true
-                                    ? "* Always required"
-                                    : "* Always · ** Attached"}
+                                {editorHints[key]?.required === true
+                                  ? "** Always required"
+                                  : editorHints[key]?.required === "attached"
+                                    ? "* When attached"
+                                    : readSkipRequiredConfirm()
+                                      ? "Click to cycle required mode"
+                                      : allowAttachedRequiredMode
+                                        ? "** Always · * Attached"
+                                        : "Click to set required"}
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
@@ -4637,58 +4783,19 @@ function FieldMappingDialog({
       fieldName={pendingRequiredField}
       currentRequired={
         pendingRequiredField
-          ? editorHints[pendingRequiredField]?.required === "attached"
-            ? "attached"
-            : editorHints[pendingRequiredField]?.required === true
-              ? true
-              : false
+          ? normalizeRequiredMode(editorHints[pendingRequiredField]?.required)
           : false
       }
-      allowAttachedMode={!!config?.single_template || !!config?.database?.slug}
+      allowAttachedMode={allowAttachedRequiredMode}
       onOpenChange={(next) => {
         if (!next) setPendingRequiredField(null);
       }}
-      onSelect={(nextRequired) => {
+      onSelect={(nextRequired, neverAskAgain) => {
         const field = pendingRequiredField;
         if (!field) return;
-        if (nextRequired !== false) {
-          if (!isValidContentTypeStrategy(config?.strategy)) {
-            toast({
-              title: "Content type strategy required",
-              description:
-                "Set a type strategy (non-empty purpose) before marking fields required.",
-              variant: "destructive",
-            });
-            setPendingRequiredField(null);
-            onRequestStrategy?.();
-            return;
-          }
-          const cur = editorHints[field] || {};
-          if (!isValidFillIntent(cur.fill_intent)) {
-            toast({
-              title: "Fill intent required",
-              description:
-                "Set fill_intent (goal + purpose) in field settings before marking this field required.",
-              variant: "destructive",
-            });
-            setPendingRequiredField(null);
-            setHintDialogField(field);
-            return;
-          }
+        if (applyRequiredMode(field, nextRequired) && neverAskAgain) {
+          writeSkipRequiredConfirm(true);
         }
-        setEditorHints((prev) => {
-          const cur = prev[field] || {};
-          if (nextRequired === false) {
-            const { required: _r, ...rest } = cur;
-            if (Object.keys(rest).length === 0) {
-              const clone = { ...prev };
-              delete clone[field];
-              return clone;
-            }
-            return { ...prev, [field]: rest };
-          }
-          return { ...prev, [field]: { ...cur, required: nextRequired } };
-        });
         setPendingRequiredField(null);
       }}
     />

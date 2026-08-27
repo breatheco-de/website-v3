@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Check,
   ChevronDown,
   ChevronRight,
+  ChevronsUpDown,
   Info,
   Loader2,
   Plus,
@@ -12,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -34,6 +37,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { cn } from "@/lib/utils";
+import { useContentTypesRaw, type ContentTypeApiItem } from "@/hooks/useContentTypes";
 import { collectEditorFieldTokens } from "@shared/editor-field-values";
 import { compileJsonSchema } from "@shared/json-field";
 import {
@@ -43,6 +56,215 @@ import {
   parseFillIntent,
   type EditorFillIntent,
 } from "@shared/fillIntent";
+
+type RelationSourceKind = "contentType" | "database" | "collision";
+
+type RelationSourceOption = {
+  name: string;
+  label: string;
+  kind: RelationSourceKind;
+};
+
+type DatabaseListItem = {
+  name: string;
+  label?: string;
+};
+
+function buildRelationSourceOptions(
+  contentTypes: ContentTypeApiItem[] | undefined,
+  databases: DatabaseListItem[] | undefined,
+): RelationSourceOption[] {
+  const ctNames = new Set((contentTypes ?? []).map((t) => t.name));
+  const dbNames = new Set((databases ?? []).map((d) => d.name));
+  const options: RelationSourceOption[] = [];
+
+  for (const t of contentTypes ?? []) {
+    options.push({
+      name: t.name,
+      label: t.label || t.name,
+      kind: dbNames.has(t.name) ? "collision" : "contentType",
+    });
+  }
+  for (const d of databases ?? []) {
+    if (ctNames.has(d.name)) continue;
+    options.push({
+      name: d.name,
+      label: d.label || d.name,
+      kind: "database",
+    });
+  }
+
+  return options.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function RelationSourceCombobox({
+  value,
+  onChange,
+  options,
+  loading,
+  portalContainer,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  options: RelationSourceOption[];
+  loading?: boolean;
+  portalContainer?: HTMLElement | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((o) => o.name === value);
+
+  const contentTypeOptions = options.filter((o) => o.kind === "contentType");
+  const databaseOptions = options.filter((o) => o.kind === "database");
+  const collisionOptions = options.filter((o) => o.kind === "collision");
+
+  return (
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal h-auto min-h-9 px-3 py-1.5"
+          data-testid="input-hint-relation-source"
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <span className="flex items-center gap-2 min-w-0 flex-1 text-left">
+            {value ? (
+              <>
+                <span className="font-mono text-sm truncate">{value}</span>
+                {selected ? (
+                  <Badge
+                    variant="secondary"
+                    className="shrink-0 text-[10px] px-1.5 py-0 h-4 no-default-active-elevate pointer-events-none"
+                  >
+                    {selected.kind === "contentType"
+                      ? "content type"
+                      : selected.kind === "database"
+                        ? "database"
+                        : "collision"}
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="destructive"
+                    className="shrink-0 text-[10px] px-1.5 py-0 h-4 no-default-active-elevate pointer-events-none"
+                  >
+                    unknown
+                  </Badge>
+                )}
+              </>
+            ) : (
+              <span className="text-sm text-muted-foreground truncate">
+                Select content type or database…
+              </span>
+            )}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[--radix-popover-trigger-width] p-0 z-[10003] pointer-events-auto"
+        align="start"
+        container={portalContainer}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          const input = e.currentTarget.querySelector<HTMLInputElement>("input");
+          input?.focus({ preventScroll: true });
+        }}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <Command>
+          <CommandInput
+            placeholder="Search sources…"
+            data-testid="input-hint-relation-source-search"
+          />
+          <CommandList>
+            <CommandEmpty data-testid="empty-hint-relation-source">
+              {loading ? "Loading sources…" : "No matching source."}
+            </CommandEmpty>
+            {collisionOptions.length > 0 && (
+              <CommandGroup heading="Name collisions (unusable)">
+                {collisionOptions.map((opt) => (
+                  <CommandItem
+                    key={`collision-${opt.name}`}
+                    value={`${opt.name} ${opt.label} collision`}
+                    disabled
+                    data-testid={`option-hint-relation-source-${opt.name}`}
+                  >
+                    <span className="font-mono text-sm flex-1 truncate">{opt.name}</span>
+                    <Badge
+                      variant="destructive"
+                      className="ml-2 text-[10px] px-1.5 py-0 h-4 no-default-active-elevate pointer-events-none"
+                    >
+                      collision
+                    </Badge>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            {contentTypeOptions.length > 0 && (
+              <CommandGroup heading="Content types">
+                {contentTypeOptions.map((opt) => (
+                  <CommandItem
+                    key={`ct-${opt.name}`}
+                    value={`${opt.name} ${opt.label} content type`}
+                    onSelect={() => {
+                      onChange(opt.name);
+                      setOpen(false);
+                    }}
+                    data-testid={`option-hint-relation-source-${opt.name}`}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-4 w-4 shrink-0",
+                        value === opt.name ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                    <span className="font-mono text-sm flex-1 truncate">{opt.name}</span>
+                    {opt.label !== opt.name && (
+                      <span className="text-[10px] text-muted-foreground ml-2 shrink-0 truncate max-w-[40%]">
+                        {opt.label}
+                      </span>
+                    )}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            {databaseOptions.length > 0 && (
+              <CommandGroup heading="Databases">
+                {databaseOptions.map((opt) => (
+                  <CommandItem
+                    key={`db-${opt.name}`}
+                    value={`${opt.name} ${opt.label} database`}
+                    onSelect={() => {
+                      onChange(opt.name);
+                      setOpen(false);
+                    }}
+                    data-testid={`option-hint-relation-source-${opt.name}`}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-4 w-4 shrink-0",
+                        value === opt.name ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                    <span className="font-mono text-sm flex-1 truncate">{opt.name}</span>
+                    {opt.label !== opt.name && (
+                      <span className="text-[10px] text-muted-foreground ml-2 shrink-0 truncate max-w-[40%]">
+                        {opt.label}
+                      </span>
+                    )}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export type EditorHint = {
   type?: string;
@@ -134,6 +356,7 @@ export function EditorTypeDialog({
   onClose,
   onApply,
 }: EditorTypeDialogProps) {
+  const [dialogEl, setDialogEl] = useState<HTMLDivElement | null>(null);
   const [type, setType] = useState("text");
   const [options, setOptions] = useState<{ value: string; label: string }[]>([]);
   const [newOption, setNewOption] = useState("");
@@ -156,6 +379,17 @@ export function EditorTypeDialog({
   const [showSchemaAiPrompt, setShowSchemaAiPrompt] = useState(false);
   const [schemaAiPrompt, setSchemaAiPrompt] = useState("");
   const [schemaAiGenerating, setSchemaAiGenerating] = useState(false);
+
+  const { data: contentTypesRaw, isLoading: contentTypesLoading } = useContentTypesRaw();
+  const { data: databasesRaw, isLoading: databasesLoading } = useQuery<DatabaseListItem[]>({
+    queryKey: ["/api/databases"],
+    enabled: open,
+  });
+  const relationSourceOptions = useMemo(
+    () => buildRelationSourceOptions(contentTypesRaw, databasesRaw),
+    [contentTypesRaw, databasesRaw],
+  );
+  const relationSourcesLoading = contentTypesLoading || (open && databasesLoading);
 
   useEffect(() => {
     if (!open) return;
@@ -328,6 +562,23 @@ export function EditorTypeDialog({
         setRelationError("Relation fields require a source (content type or database)");
         return;
       }
+      const matched = relationSourceOptions.find((o) => o.name === source);
+      if (matched?.kind === "collision") {
+        setRelationError(
+          `"${source}" collides across content types and databases — rename one side before using it as a source`,
+        );
+        return;
+      }
+      if (
+        !relationSourcesLoading &&
+        relationSourceOptions.length > 0 &&
+        !matched
+      ) {
+        setRelationError(
+          `"${source}" is not a known content type or database — pick one from the list`,
+        );
+        return;
+      }
       hint.source = source;
       const value = relationValue.trim();
       const label = relationLabel.trim();
@@ -361,11 +612,13 @@ export function EditorTypeDialog({
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       {/* Nested above Field Mapping / DB config dialogs (both use z-[10000]). */}
       <DialogContent
+        ref={setDialogEl}
         className="z-[10002] max-w-md max-h-[90vh] flex flex-col gap-4 overflow-hidden p-6"
         overlayClassName="z-[10002]"
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
-      >        <DialogHeader className="shrink-0">
+      >
+        <DialogHeader className="shrink-0">
           <DialogTitle>Editor Type for "{fieldName}"</DialogTitle>
           <DialogDescription>
             Choose how this field renders in the item editor.
@@ -645,16 +898,15 @@ export function EditorTypeDialog({
             <div className="space-y-2" data-testid="relation-hint-editor">
               <div className="space-y-1">
                 <Label className="text-xs">Source (required)</Label>
-                <input
-                  type="text"
+                <RelationSourceCombobox
                   value={relationSource}
-                  onChange={(e) => {
-                    setRelationSource(e.target.value);
+                  onChange={(next) => {
+                    setRelationSource(next);
                     setRelationError(null);
                   }}
-                  placeholder="content type or database name"
-                  className="w-full text-sm px-3 py-1.5 rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                  data-testid="input-hint-relation-source"
+                  options={relationSourceOptions}
+                  loading={relationSourcesLoading}
+                  portalContainer={dialogEl}
                 />
                 <p className="text-[11px] text-muted-foreground" data-testid="text-hint-relation-source-help">
                   Content-type key or private database slug that supplies picker options (same namespace as{" "}

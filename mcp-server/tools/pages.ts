@@ -42,6 +42,8 @@ import { FILL_INTENT_GOAL_PRESET_OPTIONS } from "../../shared/fillIntent.js";
 import {
   parseContentTypeStrategy,
 } from "../../shared/contentTypeStrategy.js";
+import { runContentTypeFieldPatch } from "../lib/content-type-field-mcp.js";
+import type { ContentTypeEditorHint } from "../../server/content-types.js";
 import { promoteWarnings, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
 import {
   ok,
@@ -6441,6 +6443,14 @@ export function registerPageTools(
         });
       }
 
+      next_actions.push({
+        tool: "update_content_type",
+        reason:
+          "Add/update/remove one schema field via field_action (preview then confirm:true). Requires content_types_manage.",
+        args_hint: { contentType, site, field_action: "add", field_key: "…" },
+        priority: "optional",
+      });
+
       const schema_org_requirements = Array.isArray(
         (config as { schema_org_requirements?: Array<{ schema_type: string }> }).schema_org_requirements,
       )
@@ -6508,7 +6518,13 @@ export function registerPageTools(
               "Type-level purpose/constraints for staff/agents. Context only for field fill_intent — does not replace per-field briefs. " +
               "Any editor.required true|attached requires a valid strategy (non-empty purpose). " +
               "Clear rejected while required fields remain (code: missing_strategy). " +
-              "Not insights_intent. Patch via update_content_type.",
+              "Not insights_intent. Patch via update_content_type (strategy-only call, separate from field_action).",
+            field_patch_note:
+              "Schema fields: MCP update_content_type with field_action add|update|remove (one field per call). " +
+              "Preview (omit confirm) then confirm:true after principal approval. " +
+              "Static add defaults identity mapping; DB add requires field_mapping. " +
+              "remove blocked while field is in indexes or unique_fields. " +
+              "Does not backfill entry values — use update_fields after add.",
             fill_intent_goal_presets: FILL_INTENT_GOAL_PRESET_OPTIONS.map((o) => ({
               value: o.value,
               title: o.title,
@@ -6567,15 +6583,53 @@ export function registerPageTools(
     }
   );
 
-  // update_content_type — patch allowlisted keys on content-types.yml via PUT .../config
+  const fillIntentSchema = z.object({
+    goal: z.string(),
+    purpose: z.string(),
+    constraints: z.array(z.string()).optional(),
+  });
+
+  const editorHintSchema = z.object({
+    type: z.string().optional(),
+    options: z
+      .array(z.union([z.string(), z.object({ value: z.string(), label: z.string() })]))
+      .optional(),
+    populate_options: z.boolean().optional(),
+    allow_custom_values: z.boolean().optional(),
+    split_comma_values: z.boolean().optional(),
+    cache_images: z.boolean().optional(),
+    description: z.string().optional(),
+    required: z.union([z.boolean(), z.literal("attached")]).optional(),
+    fill_intent: fillIntentSchema.optional(),
+    schema: z.record(z.unknown()).optional(),
+    source: z.string().optional(),
+    value: z.string().optional(),
+    label: z.string().optional(),
+    multiple: z.boolean().optional(),
+  });
+
+  const fieldMappingEntrySchema = z.union([
+    z.string(),
+    z.object({
+      source: z.string(),
+      default: z.union([z.string(), z.null()]),
+    }),
+  ]);
+
+  // update_content_type — patch content-types.yml (strategy and/or one field at a time)
   mcp.tool(
     "update_content_type",
-    "Patch content-types.yml for one content type via the main server config API. " +
-    "v1 allowlist: strategy only ({ purpose, constraints? } or null to clear). " +
-    "Omit keys you do not want to change; at least one allowlisted key is required. " +
-    "Does not edit entries, fill_intent, insights_intent, seo_monitoring, or run schema_org ensure. " +
-    "Clearing strategy while any editor.required true|attached remains fails with code missing_strategy. " +
-    "Requires content_types_manage. Call get_content_type_info first. " +
+    "Patch content-types.yml for one content type via the main server config API.\n\n" +
+    "Modes (one per call — do not combine strategy with field_action):\n" +
+    "• strategy — { purpose, constraints? } or null to clear.\n" +
+    "• field_action add|update|remove — one schema field at a time (GET-merge-PUT; sibling fields preserved).\n\n" +
+    "Field patches: omit confirm or confirm:false → preview (action_required: confirm_field_change). " +
+    "confirm:true → execute (fresh read before write). Preview-first recommended for human approval; confirm:true without preview is allowed.\n\n" +
+    "Static types: add defaults identity mapping { source: field_key, default: null }. DB-backed: field_mapping required on add.\n" +
+    "Relation editor requires source (content type or database slug); CT/DB name collisions rejected.\n" +
+    "required true|attached needs fill_intent + valid type strategy (separate strategy call first).\n" +
+    "remove blocked while field_key is in indexes or unique_fields — clear in Content Type manage first.\n" +
+    "Does not edit entry YAML, run backfill, or schema_org ensure. Requires content_types_manage. Call get_content_type_info first. " +
     MULTI_SITE_TOOL_BLURB,
     {
       contentType: z.string().describe("Content type key, e.g. 'blog', 'program', 'location'"),
@@ -6589,11 +6643,29 @@ export function registerPageTools(
         ])
         .optional()
         .describe(
-          "Set strategy object, or null to clear. Omit to leave unchanged. Required fields need a valid strategy.",
+          "Set strategy object, or null to clear. Omit to leave unchanged. Mutually exclusive with field_action.",
         ),
+      field_action: z
+        .enum(["add", "update", "remove"])
+        .optional()
+        .describe("Patch one field on field_mapping/editor. Mutually exclusive with strategy in the same call."),
+      field_key: z
+        .string()
+        .optional()
+        .describe("Schema field name, e.g. related_author. Required when field_action is set."),
+      field_mapping: fieldMappingEntrySchema
+        .optional()
+        .describe("Mapping entry for this field only (add/update). DB-backed add requires this."),
+      editor: editorHintSchema
+        .optional()
+        .describe("Editor hint for this field only (add/update). Partial merge on update."),
+      confirm: z
+        .boolean()
+        .optional()
+        .describe("Field patches: false/omit → preview; true → execute. Strategy patches ignore confirm."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, strategy, site }) => {
+    async ({ contentType, strategy, field_action, field_key, field_mapping, editor, confirm, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
         return siteFailResult(siteResult.error, "update_content_type", { contentType });
@@ -6608,11 +6680,40 @@ export function registerPageTools(
         return denyResponse("content_types_manage");
       }
 
-      if (strategy === undefined) {
+      const hasStrategy = strategy !== undefined;
+      const hasFieldPatch = field_action !== undefined;
+
+      if (hasStrategy && hasFieldPatch) {
         return fail(
-          "No allowlisted patch keys provided. v1 accepts strategy: { purpose, constraints? } or strategy: null.",
-          { allowlisted: ["strategy"], code: "empty_patch" },
+          "Provide strategy or field_action in one call, not both. Set strategy first if required fields need it, then patch the field.",
+          { code: "ambiguous_patch" },
         );
+      }
+      if (!hasStrategy && !hasFieldPatch) {
+        return fail(
+          "No patch keys provided. Use strategy, or field_action + field_key.",
+          { allowlisted: ["strategy", "field_action"], code: "empty_patch" },
+        );
+      }
+
+      if (hasFieldPatch) {
+        if (!field_action) {
+          return fail("field_action is required.", { code: "invalid_field_action" });
+        }
+        return runContentTypeFieldPatch({
+          contentType,
+          field_action,
+          field_key: field_key ?? "",
+          field_mapping: field_mapping as import("../lib/content-type-field-patch.js").FieldMappingEntry | undefined,
+          editor: editor as ContentTypeEditorHint | undefined,
+          confirm,
+          site,
+          domain,
+          contentPath,
+          mcpToken,
+          mainServerPort: MAIN_SERVER_PORT,
+          internalHeaders,
+        });
       }
 
       const body: Record<string, unknown> = {};
