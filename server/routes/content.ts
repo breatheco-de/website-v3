@@ -209,6 +209,7 @@ import {
   summarizeSingleTemplateLocales,
 } from "../shared-layout-sync";
 import {
+  assessTemplateEntrySource,
   enableSharedLayoutFromEntry,
   isEnablingSharedLayout,
   summarizeTemplateLocales,
@@ -2341,12 +2342,67 @@ export function registerContentRoutes(app: Express): void {
 
       const entrySlug =
         typeof req.query.entry === "string" ? req.query.entry.trim() : "";
+      const entryLocaleQuery =
+        typeof req.query.locale === "string" ? req.query.locale.trim() : "";
       let entry_locales: string[] | undefined;
+      let entry_assessment:
+        | {
+            ok: true;
+            source_locale: string;
+            section_count: number;
+            section_ids: string[];
+          }
+        | {
+            ok: false;
+            code: string;
+            error: string;
+            invalid_sections?: Array<{
+              sectionId: string | null;
+              index: number;
+              reason: string;
+            }>;
+          }
+        | undefined;
+
       if (entrySlug) {
         entry_locales = getCI(res).getAvailableLocalesOrVariants(
           type as import("@shared/schema").ContentType,
           entrySlug,
         );
+
+        const needsLocale =
+          (entry_locales?.length ?? 0) > 1 && !entryLocaleQuery;
+        if (!needsLocale) {
+          const assessed = assessTemplateEntrySource({
+            contentType: type,
+            contentRoot: getContentRoot(res),
+            templateEntrySourceSlug: entrySlug,
+            templateEntrySourceLocale: entryLocaleQuery || undefined,
+            safeYamlLoad: (r) => getCI(res).safeYamlLoad(r),
+            getAvailableLocales: (ct, slug) =>
+              getCI(res).getAvailableLocalesOrVariants(
+                ct as import("@shared/schema").ContentType,
+                slug,
+              ),
+          });
+          if (assessed.ok) {
+            entry_assessment = {
+              ok: true,
+              source_locale: assessed.sourceLocale,
+              section_count: assessed.sectionCount,
+              section_ids: assessed.sectionIds,
+            };
+          } else {
+            entry_assessment = {
+              ok: false,
+              code: assessed.code,
+              error: assessed.error,
+              ...(assessed.invalidSections
+                ? { invalid_sections: assessed.invalidSections }
+                : {}),
+            };
+          }
+        }
       }
 
       res.json({
@@ -2356,7 +2412,13 @@ export function registerContentRoutes(app: Express): void {
         template_locales: templateLocales,
         locales,
         bindings: bindingGroups,
-        ...(entry_locales ? { entry_locales, entry_slug: entrySlug } : {}),
+        ...(entry_locales
+          ? {
+              entry_locales,
+              entry_slug: entrySlug,
+              ...(entry_assessment ? { entry_assessment } : {}),
+            }
+          : {}),
       });
     } catch (err) {
       res.status(500).json({ error: String(err) });

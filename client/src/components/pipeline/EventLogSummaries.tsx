@@ -671,6 +671,17 @@ export function EventSummary({ event }: { event: PipelineContentEvent }) {
       return <EventBindingDoneSummary resource={event.resource} payload={event.payload} />;
     case "job_failed":
       return <EventJobFailedSummary resource={event.resource} payload={event.payload} />;
+    case "ai_image_gc_completed": {
+      const imageId =
+        typeof event.payload?.imageId === "string" ? event.payload.imageId : null;
+      const src = typeof event.payload?.src === "string" ? event.payload.src : null;
+      return (
+        <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
+          {imageId ? <p className="truncate font-mono">id: {imageId}</p> : null}
+          {src ? <p className="truncate font-mono">{src}</p> : null}
+        </div>
+      );
+    }
     default: {
       const fallback = summarizeResourceFallback(event.resource);
       if (!fallback) return null;

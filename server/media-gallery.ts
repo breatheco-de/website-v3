@@ -1372,7 +1372,17 @@ export class MediaGallery {
     filename: string,
     data: Buffer,
     contentType: string,
-    opts?: { alt?: string; tags?: string[] }
+    opts?: {
+      alt?: string;
+      tags?: string[];
+      origin?: "upload" | "import" | "ai";
+      ai?: {
+        generated: true;
+        model?: string;
+        prompt?: string;
+        generated_at?: string;
+      };
+    }
   ): Promise<{ id: string; src: string; alt: string; duplicate?: boolean; existingId?: string }> {
     const registry = this.getRegistry();
     if (!registry) throw new Error("Failed to load registry");
@@ -1427,11 +1437,14 @@ export class MediaGallery {
 
     const doctype = inferDoctypeFromFilename(filename);
     const alt = opts?.alt || defaultAltForDoctype(doctype, path.parse(filename).name);
+    const origin = opts?.origin ?? "upload";
     this.register(uniqueId, {
       src,
       alt,
       tags: opts?.tags || [],
       hash,
+      origin,
+      ...(opts?.ai ? { ai: opts.ai } : {}),
     });
 
     this.existenceCache.clear();
@@ -1441,7 +1454,8 @@ export class MediaGallery {
     }
 
     // AI vision auto-tag is image-only; skip videos and PDFs.
-    if (doctype === "image" && (!opts?.tags || opts.tags.length === 0)) {
+    // Skip auto-tag for AI-generated images (prompt-based alt / provenance already set).
+    if (doctype === "image" && origin !== "ai" && (!opts?.tags || opts.tags.length === 0)) {
       this.classifyInBackground(uniqueId);
     }
 

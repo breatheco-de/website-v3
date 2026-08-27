@@ -19,7 +19,7 @@ interface LLMYamlConfig {
     api_key_env?: string;
     base_url_env?: string;
   };
-  model?: string | { default: string; chat?: string; vision?: string };
+  model?: string | { default: string; chat?: string; vision?: string; image?: string };
   temperature?: number;
   max_tokens?: number;
 }
@@ -29,6 +29,7 @@ const INITIAL_BACKOFF_MS = 1000;
 export const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 export const DEFAULT_COMPLETION_MODEL = "openai/gpt-4o-mini";
 export const DEFAULT_VISION_MODEL = "openai/gpt-4o";
+export const DEFAULT_IMAGE_MODEL = "google/gemini-2.5-flash-image";
 
 /** Resolve API base URL from llm.yml env names, with OpenRouter soft-default. */
 export function resolveLLMBaseURL(baseUrlEnv: string): string | undefined {
@@ -90,6 +91,111 @@ export function resolveVisionModel(contentRoot?: string): string {
     return cfg.model.vision;
   }
   return resolveModel(cfg) || DEFAULT_VISION_MODEL;
+}
+
+/** Image generation model from llm.yml (model.image). */
+export function resolveImageModel(contentRoot?: string): string {
+  if (process.env.LLM_IMAGE_MODEL) return process.env.LLM_IMAGE_MODEL;
+  const cfg = loadYamlConfig(contentRoot);
+  if (cfg?.model && typeof cfg.model === "object" && cfg.model.image) {
+    return cfg.model.image;
+  }
+  return DEFAULT_IMAGE_MODEL;
+}
+
+export type GenerateImagesResult = {
+  model: string;
+  candidates: Array<{ b64: string; mediaType: string }>;
+};
+
+/**
+ * OpenRouter Image API: POST /images
+ * Retries once with n=1 if the provider rejects n > 1.
+ */
+export async function generateImages(opts: {
+  prompt: string;
+  n?: number;
+  aspect_ratio?: string;
+  contentRoot?: string;
+}): Promise<GenerateImagesResult> {
+  const cfg = loadYamlConfig(opts.contentRoot);
+  const apiKeyEnv = cfg?.provider?.api_key_env || "OPENROUTER_API_KEY";
+  const baseUrlEnv = cfg?.provider?.base_url_env || "OPENROUTER_BASE_URL";
+  const apiKey = resolveLLMApiKey(apiKeyEnv);
+  const baseURL = resolveLLMBaseURL(baseUrlEnv);
+
+  if (!apiKey || !baseURL) {
+    throw new Error(
+      `Image generation not configured. Set ${apiKeyEnv} (and optionally ${baseUrlEnv}) in environment.`,
+    );
+  }
+
+  const model = resolveImageModel(opts.contentRoot);
+  const requestedN = Math.min(4, Math.max(1, opts.n ?? 4));
+
+  const callOnce = async (n: number): Promise<GenerateImagesResult> => {
+    const body: Record<string, unknown> = {
+      model,
+      prompt: opts.prompt,
+      n,
+      output_format: "webp",
+    };
+    if (opts.aspect_ratio) body.aspect_ratio = opts.aspect_ratio;
+
+    const res = await fetch(`${baseURL.replace(/\/$/, "")}/images`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    const rawText = await res.text();
+    if (!res.ok) {
+      const err = new Error(
+        `OpenRouter image generation failed (${res.status}): ${rawText.slice(0, 400)}`,
+      );
+      (err as Error & { status?: number; body?: string }).status = res.status;
+      (err as Error & { status?: number; body?: string }).body = rawText;
+      throw err;
+    }
+
+    let payload: {
+      data?: Array<{ b64_json?: string; media_type?: string }>;
+    };
+    try {
+      payload = JSON.parse(rawText) as typeof payload;
+    } catch {
+      throw new Error("OpenRouter image generation returned invalid JSON");
+    }
+
+    const candidates = (payload.data ?? [])
+      .filter((d) => typeof d.b64_json === "string" && d.b64_json.length > 0)
+      .map((d) => ({
+        b64: d.b64_json as string,
+        mediaType: d.media_type || "image/webp",
+      }));
+
+    if (candidates.length === 0) {
+      throw new Error("OpenRouter returned no image candidates");
+    }
+
+    return { model, candidates };
+  };
+
+  try {
+    return await callOnce(requestedN);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const body = (err as Error & { body?: string }).body || msg;
+    if (requestedN > 1 && /n\s*>\s*1|single.?image|only support/i.test(body)) {
+      log.warn({ model, requestedN }, "[generateImages] n>1 rejected; retrying with n=1");
+      return await callOnce(1);
+    }
+    throw err;
+  }
 }
 
 export function getLLMConfig(): LLMYamlConfig {

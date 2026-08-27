@@ -971,10 +971,19 @@ function ConnectDatabaseConfirmDialog({
   templatePayload: SharedLayoutEnablePayload;
   onTemplatePayloadChange: (p: SharedLayoutEnablePayload) => void;
 }) {
+  const [sourceEligible, setSourceEligible] = useState(!needsTemplateChoice || usableTemplate);
+
+  useEffect(() => {
+    if (open) {
+      setSourceEligible(!needsTemplateChoice || usableTemplate);
+    }
+  }, [open, needsTemplateChoice, usableTemplate]);
+
   const canContinue =
     !needsTemplateChoice ||
     templatePayload.template_mode === "keep_existing" ||
     (!!templatePayload.template_entry_source_slug &&
+      sourceEligible &&
       (!usableTemplate || !!templatePayload.confirm));
 
   return (
@@ -1030,6 +1039,7 @@ function ConnectDatabaseConfirmDialog({
                 bindings={bindings}
                 value={templatePayload}
                 onChange={onTemplatePayloadChange}
+                onSourceEligibleChange={setSourceEligible}
               />
               {usableTemplate && templatePayload.template_mode === "from_entry" && (
                 <label className="flex items-start gap-2 text-xs text-foreground rounded-md border border-amber-500/40 bg-amber-500/5 p-3">

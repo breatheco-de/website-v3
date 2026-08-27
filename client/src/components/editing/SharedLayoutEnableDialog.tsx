@@ -47,6 +47,40 @@ export interface SharedLayoutEnablePayload {
   confirm?: boolean;
 }
 
+/** Staff-facing reason a picked location cannot seed the shared template. */
+export function templateEntryRejectMessage(
+  code: string | undefined,
+  invalidSections?: Array<{ sectionId: string | null; index: number }>,
+): string {
+  switch (code) {
+    case "template_entry_empty_sections":
+      return "This location has no sections to use as a template. Pick one that already has a page layout.";
+    case "template_entry_not_found":
+    case "template_entry_locale_missing":
+      return "Could not load this location. Pick another, or check that it has a live locale file.";
+    case "template_entry_source_locale_invalid":
+      return "That locale is not available for this location. Choose a different locale.";
+    case "template_entry_not_template_shaped": {
+      const names = (invalidSections || [])
+        .map((s) => s.sectionId)
+        .filter((id): id is string => !!id)
+        .slice(0, 4);
+      const which =
+        names.length > 0
+          ? ` Problem sections: ${names.join(", ")}${
+              (invalidSections?.length || 0) > 4 ? "…" : ""
+            }.`
+          : "";
+      return (
+        "This location cannot be used as a template. Its sections still have fixed text or images instead of fields that pull from each entry." +
+        which
+      );
+    }
+    default:
+      return "This location cannot be used as a template. Pick another, or update it so section content uses entry fields.";
+  }
+}
+
 interface SharedLayoutEnableDialogProps {
   open: boolean;
   onClose: () => void;
@@ -73,6 +107,7 @@ export function SharedLayoutEnableFields({
   value,
   onChange,
   disabled,
+  onSourceEligibleChange,
 }: {
   contentType: string;
   usableTemplate: boolean;
@@ -81,6 +116,8 @@ export function SharedLayoutEnableFields({
   value: SharedLayoutEnablePayload;
   onChange: (next: SharedLayoutEnablePayload) => void;
   disabled?: boolean;
+  /** false while from_entry selection is missing/invalid; true when keep_existing or entry passes. */
+  onSourceEligibleChange?: (eligible: boolean) => void;
 }) {
   const mode: SharedLayoutTemplateMode =
     value.template_mode || (usableTemplate ? "keep_existing" : "from_entry");
@@ -90,6 +127,17 @@ export function SharedLayoutEnableFields({
   >([]);
   const [entryLocales, setEntryLocales] = useState<string[]>([]);
   const [searching, setSearching] = useState(false);
+  const [entryCheck, setEntryCheck] = useState<
+    | { status: "idle" }
+    | { status: "checking" }
+    | { status: "ok" }
+    | {
+        status: "error";
+        code: string;
+        invalidSections?: Array<{ sectionId: string | null; index: number }>;
+      }
+    | { status: "need_locale" }
+  >({ status: "idle" });
 
   useEffect(() => {
     if (!usableTemplate && mode !== "from_entry") {
@@ -130,40 +178,114 @@ export function SharedLayoutEnableFields({
     const slug = value.template_entry_source_slug;
     if (!slug || mode !== "from_entry") {
       setEntryLocales([]);
+      setEntryCheck({ status: "idle" });
       return;
     }
     let cancelled = false;
+    setEntryCheck({ status: "checking" });
     (async () => {
       try {
+        const params = new URLSearchParams({ entry: slug });
+        if (value.template_entry_source_locale) {
+          params.set("locale", value.template_entry_source_locale);
+        }
         const res = await apiRequest(
           "GET",
-          `/api/content-types/${encodeURIComponent(contentType)}/shared-layout-status?entry=${encodeURIComponent(slug)}`,
+          `/api/content-types/${encodeURIComponent(contentType)}/shared-layout-status?${params}`,
         );
         const data = await res.json();
         if (cancelled) return;
         const locales = (data.entry_locales || []) as string[];
         setEntryLocales(locales);
-        if (locales.length === 1) {
+
+        if (locales.length > 1 && !value.template_entry_source_locale) {
+          setEntryCheck({ status: "need_locale" });
+          return;
+        }
+
+        if (locales.length === 1 && !value.template_entry_source_locale) {
           onChange({
             ...value,
             template_entry_source_locale: locales[0],
           });
-        } else if (
+          // Re-run will assess with locale set
+          return;
+        }
+
+        if (
           locales.length > 1 &&
           value.template_entry_source_locale &&
           !locales.includes(value.template_entry_source_locale)
         ) {
           onChange({ ...value, template_entry_source_locale: undefined });
+          setEntryCheck({ status: "need_locale" });
+          return;
+        }
+
+        const assessment = data.entry_assessment as
+          | { ok: true }
+          | {
+              ok: false;
+              code?: string;
+              invalid_sections?: Array<{ sectionId: string | null; index: number }>;
+            }
+          | undefined;
+
+        if (!assessment) {
+          setEntryCheck({ status: "need_locale" });
+          return;
+        }
+        if (assessment.ok) {
+          setEntryCheck({ status: "ok" });
+        } else {
+          setEntryCheck({
+            status: "error",
+            code: assessment.code || "template_entry_not_template_shaped",
+            invalidSections: assessment.invalid_sections,
+          });
         }
       } catch {
-        if (!cancelled) setEntryLocales([]);
+        if (!cancelled) {
+          setEntryLocales([]);
+          setEntryCheck({
+            status: "error",
+            code: "template_entry_not_found",
+          });
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value.template_entry_source_slug, mode, contentType]);
+  }, [
+    value.template_entry_source_slug,
+    value.template_entry_source_locale,
+    mode,
+    contentType,
+  ]);
+
+  useEffect(() => {
+    if (!onSourceEligibleChange) return;
+    if (mode === "keep_existing") {
+      onSourceEligibleChange(true);
+      return;
+    }
+    if (!value.template_entry_source_slug) {
+      onSourceEligibleChange(false);
+      return;
+    }
+    if (entryCheck.status === "ok") {
+      onSourceEligibleChange(true);
+      return;
+    }
+    onSourceEligibleChange(false);
+  }, [
+    mode,
+    value.template_entry_source_slug,
+    entryCheck.status,
+    onSourceEligibleChange,
+  ]);
 
   const baseLocales =
     divergences.length > 0
@@ -227,13 +349,7 @@ export function SharedLayoutEnableFields({
             </button>
           </div>
         </div>
-      ) : (
-        <p className="text-sm text-muted-foreground" data-testid="text-no-usable-template">
-          No usable shared template yet (empty or missing). Pick an entry whose sections use{" "}
-          <code className="text-[11px]">{"{{ entry.* }}"}</code> binds to seed{" "}
-          <code className="text-[11px]">template.{"{locale}"}.yml</code>.
-        </p>
-      )}
+      ) : null}
 
       {mode === "keep_existing" && (
         <div className="space-y-2">
@@ -265,7 +381,7 @@ export function SharedLayoutEnableFields({
       {mode === "from_entry" && (
         <div className="space-y-3">
           <div className="space-y-2">
-            <Label htmlFor="template-entry-search">Search entries</Label>
+            <Label htmlFor="template-entry-search">Search and choose a location</Label>
             <Input
               id="template-entry-search"
               value={entrySearch}
@@ -311,6 +427,27 @@ export function SharedLayoutEnableFields({
                 </li>
               ))}
             </ul>
+            {entryCheck.status === "checking" && (
+              <p className="text-xs text-muted-foreground" data-testid="text-entry-check-loading">
+                Checking if this location can be used as a template…
+              </p>
+            )}
+            {entryCheck.status === "error" && (
+              <div
+                className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-foreground space-y-1"
+                data-testid="text-entry-check-error"
+              >
+                <p className="font-medium text-destructive">Cannot use this location</p>
+                <p className="text-muted-foreground">
+                  {templateEntryRejectMessage(entryCheck.code, entryCheck.invalidSections)}
+                </p>
+              </div>
+            )}
+            {entryCheck.status === "ok" && (
+              <p className="text-xs text-muted-foreground" data-testid="text-entry-check-ok">
+                This location can be used as a template.
+              </p>
+            )}
           </div>
 
           {entryLocales.length > 1 && (
@@ -396,6 +533,7 @@ export function SharedLayoutEnableDialog({
     template_mode: usableTemplate ? "keep_existing" : "from_entry",
     shared_layout_base_locale: "en",
   }));
+  const [sourceEligible, setSourceEligible] = useState(true);
 
   useEffect(() => {
     if (open) {
@@ -406,13 +544,14 @@ export function SharedLayoutEnableDialog({
           divergences.find((d) => d.sectionCount > 0)?.locale ||
           "en",
       });
+      setSourceEligible(usableTemplate);
     }
   }, [open, usableTemplate, divergences]);
 
   const canSubmit =
-    payload.template_mode === "keep_existing" ||
-    (!!payload.template_entry_source_slug &&
-      (/* locale optional unless multi — enforced server-side */ true));
+    (payload.template_mode === "keep_existing" ||
+      !!payload.template_entry_source_slug) &&
+    sourceEligible;
 
   if (replacePreview) {
     return (
@@ -513,6 +652,7 @@ export function SharedLayoutEnableDialog({
           value={payload}
           onChange={setPayload}
           disabled={isLoading}
+          onSourceEligibleChange={setSourceEligible}
         />
 
         <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">

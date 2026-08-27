@@ -204,6 +204,167 @@ function relativeContentPath(contentRoot: string, absPath: string): string {
   return `${rootName}/${rel}`;
 }
 
+export type AssessTemplateEntryOk = {
+  ok: true;
+  sourceSlug: string;
+  sourceLocale: string;
+  locales: string[];
+  sectionCount: number;
+  sectionIds: string[];
+  merged: Record<string, unknown>;
+  sections: Record<string, unknown>[];
+};
+
+export type AssessTemplateEntryErr = {
+  ok: false;
+  status: number;
+  code: string;
+  error: string;
+  locales?: string[];
+  invalidSections?: SharedLayoutEnableErr["invalidSections"];
+};
+
+/**
+ * Validate a classic entry as a shared-template seed (no writes).
+ * Used by enable + shared-layout-status preview.
+ */
+export function assessTemplateEntrySource(input: {
+  contentType: string;
+  contentRoot: string;
+  templateEntrySourceSlug?: string;
+  templateEntrySourceLocale?: string;
+  safeYamlLoad: (raw: string) => Record<string, unknown> | null;
+  getAvailableLocales: (contentType: string, slug: string) => string[];
+}): AssessTemplateEntryOk | AssessTemplateEntryErr {
+  const {
+    contentType,
+    contentRoot,
+    safeYamlLoad,
+    getAvailableLocales,
+  } = input;
+  const folder = getFolder(contentType, contentRoot);
+  const typeDir = path.join(contentRoot, folder);
+
+  const slug =
+    typeof input.templateEntrySourceSlug === "string"
+      ? input.templateEntrySourceSlug.trim()
+      : "";
+  if (!slug) {
+    return {
+      ok: false,
+      status: 400,
+      code: "template_entry_source_slug_required",
+      error: "template_entry_source_slug is required when template_mode is \"from_entry\".",
+    };
+  }
+
+  const entryLocales = getAvailableLocales(contentType, slug);
+  if (entryLocales.length === 0) {
+    return {
+      ok: false,
+      status: 404,
+      code: "template_entry_not_found",
+      error: `Entry "${slug}" not found or has no live locale files under ${folder}/.`,
+    };
+  }
+
+  let sourceLocale =
+    typeof input.templateEntrySourceLocale === "string"
+      ? input.templateEntrySourceLocale.trim()
+      : "";
+  if (entryLocales.length > 1 && !sourceLocale) {
+    return {
+      ok: false,
+      status: 400,
+      code: "template_entry_source_locale_required",
+      error: `Entry "${slug}" has multiple live locales; pass template_entry_source_locale.`,
+      locales: entryLocales,
+    };
+  }
+  if (!sourceLocale) {
+    sourceLocale = entryLocales.includes("en") ? "en" : entryLocales[0];
+  }
+  if (!entryLocales.includes(sourceLocale)) {
+    return {
+      ok: false,
+      status: 400,
+      code: "template_entry_source_locale_invalid",
+      error: `Locale "${sourceLocale}" is not a live locale for "${slug}".`,
+      locales: entryLocales,
+    };
+  }
+
+  const merged = loadClassicEntryMerged(typeDir, slug, sourceLocale, safeYamlLoad);
+  if (!merged) {
+    return {
+      ok: false,
+      status: 404,
+      code: "template_entry_locale_missing",
+      error: `Could not load ${folder}/${slug}/${sourceLocale}.yml`,
+      locales: entryLocales,
+    };
+  }
+
+  const sections = Array.isArray(merged.sections)
+    ? (merged.sections as Record<string, unknown>[])
+    : [];
+  if (sections.length === 0) {
+    return {
+      ok: false,
+      status: 400,
+      code: "template_entry_empty_sections",
+      error: `Entry "${slug}" (${sourceLocale}) has no sections to use as the shared template.`,
+      locales: entryLocales,
+    };
+  }
+
+  const invalidSections: SharedLayoutEnableErr["invalidSections"] = [];
+  sections.forEach((sec, index) => {
+    if (!sec || typeof sec !== "object") {
+      invalidSections!.push({
+        sectionId: null,
+        index,
+        reason: "invalid section object",
+      });
+      return;
+    }
+    if (!sectionIsEntryBagExpressionsOnly(sec)) {
+      invalidSections!.push({
+        sectionId: canonicalSectionId(sec),
+        index,
+        reason:
+          "Content props must be exact {{ entry.* }} (or legacy {{ single.* }}) expressions, or empty",
+      });
+    }
+  });
+  if (invalidSections.length > 0) {
+    return {
+      ok: false,
+      status: 400,
+      code: "template_entry_not_template_shaped",
+      error:
+        "Source entry sections are not fully template-shaped. Bind every content prop to {{ entry.* }} before enabling shared layout.",
+      locales: entryLocales,
+      invalidSections,
+    };
+  }
+
+  const sectionIds = sections
+    .map((s) => canonicalSectionId(s))
+    .filter((id): id is string => !!id);
+
+  return {
+    ok: true,
+    sourceSlug: slug,
+    sourceLocale,
+    locales: entryLocales,
+    sectionCount: sections.length,
+    sectionIds,
+    merged,
+    sections,
+  };
+}
+
 /**
  * Run keep/from_entry bootstrap before flipping single_template.
  * Call only when shared layout is being newly enabled.
@@ -296,107 +457,26 @@ export function enableSharedLayoutFromEntry(
     };
   }
 
-  // from_entry
-  const slug =
-    typeof input.templateEntrySourceSlug === "string"
-      ? input.templateEntrySourceSlug.trim()
-      : "";
-  if (!slug) {
-    return {
-      ok: false,
-      status: 400,
-      code: "template_entry_source_slug_required",
-      error: "template_entry_source_slug is required when template_mode is \"from_entry\".",
-    };
-  }
-
-  const entryLocales = getAvailableLocales(contentType, slug);
-  if (entryLocales.length === 0) {
-    return {
-      ok: false,
-      status: 404,
-      code: "template_entry_not_found",
-      error: `Entry "${slug}" not found or has no live locale files under ${folder}/.`,
-    };
-  }
-
-  let sourceLocale =
-    typeof input.templateEntrySourceLocale === "string"
-      ? input.templateEntrySourceLocale.trim()
-      : "";
-  if (entryLocales.length > 1 && !sourceLocale) {
-    return {
-      ok: false,
-      status: 400,
-      code: "template_entry_source_locale_required",
-      error: `Entry "${slug}" has multiple live locales; pass template_entry_source_locale.`,
-      locales: entryLocales,
-    };
-  }
-  if (!sourceLocale) {
-    sourceLocale = entryLocales.includes("en") ? "en" : entryLocales[0];
-  }
-  if (!entryLocales.includes(sourceLocale)) {
-    return {
-      ok: false,
-      status: 400,
-      code: "template_entry_source_locale_invalid",
-      error: `Locale "${sourceLocale}" is not a live locale for "${slug}".`,
-      locales: entryLocales,
-    };
-  }
-
-  const merged = loadClassicEntryMerged(typeDir, slug, sourceLocale, safeYamlLoad);
-  if (!merged) {
-    return {
-      ok: false,
-      status: 404,
-      code: "template_entry_locale_missing",
-      error: `Could not load ${folder}/${slug}/${sourceLocale}.yml`,
-    };
-  }
-
-  const sections = Array.isArray(merged.sections)
-    ? (merged.sections as Record<string, unknown>[])
-    : [];
-  if (sections.length === 0) {
-    return {
-      ok: false,
-      status: 400,
-      code: "template_entry_empty_sections",
-      error: `Entry "${slug}" (${sourceLocale}) has no sections to use as the shared template.`,
-    };
-  }
-
-  const invalidSections: SharedLayoutEnableErr["invalidSections"] = [];
-  sections.forEach((sec, index) => {
-    if (!sec || typeof sec !== "object") {
-      invalidSections!.push({
-        sectionId: null,
-        index,
-        reason: "invalid section object",
-      });
-      return;
-    }
-    if (!sectionIsEntryBagExpressionsOnly(sec)) {
-      invalidSections!.push({
-        sectionId: canonicalSectionId(sec),
-        index,
-        reason:
-          "Content props must be exact {{ entry.* }} (or legacy {{ single.* }}) expressions, or empty",
-      });
-    }
+  const assessed = assessTemplateEntrySource({
+    contentType,
+    contentRoot,
+    templateEntrySourceSlug: input.templateEntrySourceSlug,
+    templateEntrySourceLocale: input.templateEntrySourceLocale,
+    safeYamlLoad,
+    getAvailableLocales,
   });
-  if (invalidSections.length > 0) {
+  if (!assessed.ok) {
     return {
       ok: false,
-      status: 400,
-      code: "template_entry_not_template_shaped",
-      error:
-        "Source entry sections are not fully template-shaped. Bind every content prop to {{ entry.* }} before enabling shared layout.",
-      invalidSections,
+      status: assessed.status,
+      code: assessed.code,
+      error: assessed.error,
+      locales: assessed.locales,
+      invalidSections: assessed.invalidSections,
     };
   }
+
+  const { sourceSlug: slug, sourceLocale, sections, merged } = assessed;
 
   const writePath = resolveTemplateLocalePath(typeDir, sourceLocale, {
     forWrite: true,
@@ -404,9 +484,6 @@ export function enableSharedLayoutFromEntry(
   });
   const pathsToOverwrite = [relativeContentPath(contentRoot, writePath)];
   if (usable && input.confirm !== true) {
-    const proposedIds = sections
-      .map((s) => canonicalSectionId(s))
-      .filter((id): id is string => !!id);
     return {
       ok: false,
       status: 409,
@@ -417,8 +494,8 @@ export function enableSharedLayoutFromEntry(
         current: summaries,
         proposed: {
           locale: sourceLocale,
-          sectionCount: sections.length,
-          sectionIds: proposedIds,
+          sectionCount: assessed.sectionCount,
+          sectionIds: assessed.sectionIds,
         },
         paths_to_overwrite: pathsToOverwrite,
         template_entry_source_slug: slug,

@@ -555,6 +555,18 @@ export const imageEntrySchema = z.object({
   source_item: z.string().optional(),
   parentId: z.string().optional(),
   quality_override: z.number().optional(),
+  /** How the asset entered the registry. Missing = legacy non-AI. */
+  origin: z.enum(["upload", "import", "ai"]).optional(),
+  ai: z
+    .object({
+      generated: z.literal(true),
+      model: z.string().optional(),
+      prompt: z.string().optional(),
+      generated_at: z.string().optional(),
+    })
+    .optional(),
+  /** ISO timestamp of last public viewport impression (AI GC grace input). */
+  last_impression_at: z.string().optional(),
 });
 
 export const tagDefinitionSchema = z.object({
