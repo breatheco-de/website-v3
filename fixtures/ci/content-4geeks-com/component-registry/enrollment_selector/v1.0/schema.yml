@@ -347,10 +347,11 @@ props:
         type: object
         required: false
         description: >-
-          Optional summary card shown above the plan picker when the page URL has ?{param}={items[].value}.
-          Independent of date-mode cohort matching on `dates`. Authors choose param (e.g. cohort) and values
-          (e.g. BC cohort ids). Checkout URLs using {qs:cohort|…} still forward the page QS — keep display
-          values and checkout ids consistent intentionally.
+          Optional summary card shown above the plan picker when the page URL has ?{param} matching
+          any items[].value (scalar or list). Independent of date-mode cohort matching on `dates`.
+          Authors choose param (e.g. cohort) and values (e.g. BC cohort ids). Checkout URLs using
+          {qs:cohort|…} still forward the page QS — keep display values and checkout ids consistent
+          intentionally.
         properties:
           param:
             type: string
@@ -367,12 +368,14 @@ props:
           items:
             type: array
             required: true
-            description: Cards keyed by querystring value; first matching value wins
+            description: Cards keyed by querystring value; first matching item wins
             items:
               value:
                 type: string
                 required: true
-                description: Value that must equal the querystring param (e.g. "1713")
+                description: >-
+                  Querystring value(s) that select this card. A single string or a list; if any listed
+                  value equals ?{param}, this item is shown (e.g. "1713" or ["1713", "1801"]).
               name:
                 type: string
                 required: true
@@ -432,7 +435,8 @@ props:
       Array of programs. A program with a "dates" key uses date-mode; one with a "plans" key uses plan-mode. Each
       program has: id, selection_card (name, duration, badge?, icon?), summary (price_label, price_amount,
       price_period?, price_sub?, rows[], cta, trust_note?), benefits[], unlocks[], either dates (static or interval) or
-      plans[], an optional addon toggle, optional query_component (card when ?{param} matches items[].value; independent
+      plans[], an optional addon toggle, optional query_component (card when ?{param} matches any
+      items[].value — scalar or list; independent
       of date cohort matching), and optional callback_label_en / callback_label_es (sent as top-level params on
       the CTA checkout URL from the current selection; plan labels override program). Plans can override summary,
       benefits, unlocks, and callback labels from the parent program. Summary rows support value_with_addon (alternative
