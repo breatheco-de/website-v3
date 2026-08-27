@@ -455,13 +455,16 @@ export function DebugBubble() {
   }, [contentInfo.slug]);
 
   useEffect(() => {
-    if (seoModalOpen) {
-      setNewSlugValue(contentInfo.slug || "");
-      setSlugCheckStatus("idle");
-      setSlugCheckReason(null);
-      setSlugRedirectPrompt(false);
-    }
-  }, [seoModalOpen, contentInfo.slug]);
+    if (!seoModalOpen) return;
+    const localeSlug = (seoData?.slug as string) || contentInfo.slug || "";
+    setNewSlugValue((prev) => {
+      if (!prev || prev === contentInfo.slug) return localeSlug;
+      return prev;
+    });
+    setSlugCheckStatus("idle");
+    setSlugCheckReason(null);
+    setSlugRedirectPrompt(false);
+  }, [seoModalOpen, seoData?.slug, contentInfo.slug]);
 
   // State for expanded folders in sitemap view
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -1218,12 +1221,12 @@ export function DebugBubble() {
       });
       setSeoModalOpen(false);
       setNewSlugValue("");
-      const isPreview = pathname.startsWith("/private/preview/");
-      if (isPreview) {
-        const search = window.location.search;
-        window.location.href = `/private/preview/${contentInfo.type}/${contentInfo.slug}${search}`;
-      } else if (result.newUrl) {
+      if (result.newUrl) {
         window.location.href = result.newUrl;
+      } else if (pathname.startsWith("/private/preview/")) {
+        const search = window.location.search;
+        const folder = result.folderSlug || contentInfo.slug;
+        window.location.href = `/private/preview/${contentInfo.type}/${folder}${search}`;
       } else {
         window.location.reload();
       }

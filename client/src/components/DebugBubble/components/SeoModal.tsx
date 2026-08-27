@@ -276,7 +276,9 @@ export function SeoModal({
               {!slugEditing || !contentInfo.type ? (
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="truncate">
-                    {contentInfo.slug ? `${contentInfo.label}: ${contentInfo.slug}` : "Page SEO settings"}
+                    {(currentLocaleSlug || contentInfo.slug)
+                      ? `${contentInfo.label}: ${currentLocaleSlug || contentInfo.slug}`
+                      : "Page SEO settings"}
                     {isVariantContext ? ` · variant ${seoVariant}` : ""}
                   </span>
                   {contentInfo.type && !slugRenameDisabled && (

@@ -129,7 +129,7 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
         (data.availableLocations as SeoLocation[]) || [],
       );
       setSeoLocationSearch("");
-      setNewSlugValue("");
+      setNewSlugValue(typeof data.slug === "string" && data.slug ? data.slug : target.slug);
       setSlugCheckStatus("idle");
       setSlugCheckReason(null);
       setSlugRedirectPrompt(false);
