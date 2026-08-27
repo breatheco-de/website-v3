@@ -11,6 +11,7 @@ import { usePageMeta } from "@/hooks/usePageMeta";
 import { useSchemaOrg } from "@/hooks/useSchemaOrg";
 import { useContentAutoRefresh } from "@/hooks/useContentAutoRefresh";
 import { useAlternateUrls } from "@/hooks/useAlternateUrls";
+import { useScrollToLocationHashWhenReady } from "@/hooks/useScrollToLocationHashWhenReady";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import LazyRender from "@/components/LazyRender";
@@ -96,6 +97,8 @@ export default function Page() {
   };
 
   useContentAutoRefresh("page", slug, locale, handleRefetch);
+
+  useScrollToLocationHashWhenReady(!!page && !isPending && !isLoading);
 
   const {
     topMenuId,

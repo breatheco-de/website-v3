@@ -9,6 +9,7 @@ import { usePageMeta } from "@/hooks/usePageMeta";
 import { useSchemaOrg } from "@/hooks/useSchemaOrg";
 import { useContentAutoRefresh } from "@/hooks/useContentAutoRefresh";
 import { useAlternateUrls } from "@/hooks/useAlternateUrls";
+import { useScrollToLocationHashWhenReady } from "@/hooks/useScrollToLocationHashWhenReady";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import LazyRender from "@/components/LazyRender";
@@ -82,6 +83,8 @@ export default function ContentTypeDetail({ type, slug, locale, urlPattern }: Co
   };
 
   useContentAutoRefresh(type, slug, effectiveLocale, handleRefetch);
+
+  useScrollToLocationHashWhenReady(!!data && !isLoading);
 
   const {
     topMenuId,

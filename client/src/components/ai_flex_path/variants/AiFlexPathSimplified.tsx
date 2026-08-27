@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { IconBookFilled } from "@tabler/icons-react";
 import { getIcon } from "@/lib/icons";
 import UniversalImage from "@/components/UniversalImage";
-import { useInternalNav } from "@/hooks/useInternalNav";
+import { InternalLink } from "@/components/InternalLink";
 import { resolveColorVar, hslColor, type ResolvedColor } from "@/components/course_selector/shared";
 import type { AiFlexPathSimplified } from "@shared/schema";
 import { buttonVariants } from "@/components/ui/button";
@@ -21,12 +21,10 @@ function SlottedCtaButton({
   btn,
   resolved,
   size = "md",
-  nav,
 }: {
   btn: CtaButton;
   resolved: ResolvedColor;
   size?: "sm" | "md";
-  nav: (e: React.MouseEvent) => void;
 }) {
   const [hov, setHov] = useState(false);
   const BtnIcon = btn.icon ? getIcon(btn.icon) : null;
@@ -62,9 +60,8 @@ function SlottedCtaButton({
   }
 
   return (
-    <a
+    <InternalLink
       href={btn.url}
-      onClick={nav}
       className={shapeClass}
       style={colorStyle}
       onMouseEnter={() => setHov(true)}
@@ -72,7 +69,7 @@ function SlottedCtaButton({
     >
       {btn.text}
       {BtnIcon && <BtnIcon size={bSize === "sm" ? 12 : 14} />}
-    </a>
+    </InternalLink>
   );
 }
 
@@ -222,7 +219,6 @@ function PathItem({
   showDetails: boolean;
   showMarkers: boolean;
 }) {
-  const nav = useInternalNav();
   const [expanded, setExpanded] = useState(false);
   const [btnHovered, setBtnHovered] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -348,7 +344,7 @@ function PathItem({
               {ctaButtons.length > 0 && (
                 <div className="md:hidden flex flex-wrap items-center gap-2 mt-2 pl-[23px]">
                   {ctaButtons.map((btn, i) => (
-                    <SlottedCtaButton key={i} btn={btn} resolved={resolved} size="sm" nav={nav} />
+                    <SlottedCtaButton key={i} btn={btn} resolved={resolved} size="sm" />
                   ))}
                 </div>
               )}
@@ -384,7 +380,7 @@ function PathItem({
                   </div>
                 )}
                 {ctaButtons.map((btn, i) => (
-                  <SlottedCtaButton key={i} btn={btn} resolved={resolved} size="sm" nav={nav} />
+                  <SlottedCtaButton key={i} btn={btn} resolved={resolved} size="sm" />
                 ))}
               </div>
             </div>
@@ -416,7 +412,6 @@ function PathItem({
 }
 
 export default function AiFlexPathSimplified({ data }: { data: AiFlexPathSimplified }) {
-  const nav = useInternalNav();
   const slotColors = data.slot_colors?.length
     ? data.slot_colors.map((s) => s.color)
     : DEFAULT_COURSE_COLORS;
@@ -531,15 +526,14 @@ export default function AiFlexPathSimplified({ data }: { data: AiFlexPathSimplif
                     )}
                     <div className="flex gap-2 flex-shrink-0">
                       {data.cta.buttons.map((btn, i) => (
-                        <a
+                        <InternalLink
                           key={i}
                           href={btn.url}
-                          onClick={nav}
                           className="rounded-[8px] px-4 py-2 md:px-[18px] md:py-[10px] text-[12px] md:text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                           style={{ background: "hsl(var(--background))", color: "hsl(var(--primary))", textDecoration: "none" }}
                         >
                           {btn.text}
-                        </a>
+                        </InternalLink>
                       ))}
                     </div>
                   </div>
@@ -548,15 +542,14 @@ export default function AiFlexPathSimplified({ data }: { data: AiFlexPathSimplif
                 <div className="flex items-center gap-4 mt-[35px]">
                   <div className="flex gap-2 flex-shrink-0">
                     {data.cta.buttons.map((btn, i) => (
-                      <a
+                      <InternalLink
                         key={i}
                         href={btn.url}
-                        onClick={nav}
                         className="rounded-[8px] px-[22px] py-[10px] text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                         style={{ background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", textDecoration: "none" }}
                       >
                         {btn.text}
-                      </a>
+                      </InternalLink>
                     ))}
                   </div>
                   <div>

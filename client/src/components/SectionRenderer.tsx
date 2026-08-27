@@ -368,8 +368,12 @@ function DeferredSection({ children }: { children: React.ReactNode }) {
       if (!targetId) return;
       const target = document.getElementById(targetId);
       if (!target) return;
+      // Wake this section when it IS the hash target (id lives on the wrapper that
+      // contains this sentinel) or when it sits above the target on the way down.
+      const isSelf = target === sentinel || target.contains(sentinel);
       const position = sentinel.compareDocumentPosition(target);
-      if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
+      const isOnTheWay = !!(position & Node.DOCUMENT_POSITION_FOLLOWING);
+      if (isSelf || isOnTheWay) {
         setIsVisible(true);
       }
     };
