@@ -503,7 +503,7 @@ export function SeoModal({
                 <p>
                   <strong>Cluster fields</strong> live under <code className="font-mono">seo:</code> (main keyword,
                   pillar path) — saved separately via <strong>Save SEO fields</strong>. Content-type schema fields are
-                  on the <strong>Fields</strong> tab (<code className="font-mono">{"{{ single.* }}"}</code>).
+                  on the <strong>Fields</strong> tab (<code className="font-mono">{"{{ entry.* }}"}</code>).
                 </p>
                 <p>
                   Each section saves independently — visibility, locations, and snippet patch{" "}

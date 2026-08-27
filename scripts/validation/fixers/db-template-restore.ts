@@ -3,7 +3,7 @@
  *
  * Scans single.en.yml templates for each DB-backed content type and
  * identifies section fields whose values are hardcoded strings instead of
- * the expected {{ single.X | <default> }} template expressions.
+ * the expected {{ entry.X | <default> }} template expressions.
  *
  * Before fix #176, the section editor incorrectly wrote hardcoded image URLs
  * into the shared template, so every blog post would show the same image.
@@ -15,7 +15,7 @@
  *   2. Its field key or an ancestor key matches a key in the content
  *      type's field_mapping (meaning it should resolve from single.*)
  *
- * Fix: replaces the hardcoded value with {{ single.<key> | <hardcoded_value> }}
+ * Fix: replaces the hardcoded value with {{ entry.<key> | <hardcoded_value> }}
  *      so each DB entry renders its own data, while the hardcoded value
  *      becomes the fallback default.
  */
@@ -98,7 +98,7 @@ function scanForHardcoded(
 }
 
 function buildSingleExpression(singleKey: string, currentValue: string): string {
-  return `{{ single.${singleKey} | ${currentValue} }}`;
+  return `{{ entry.${singleKey} | ${currentValue} }}`;
 }
 
 function detectHardcodedFields(
@@ -165,7 +165,7 @@ function applyFix(templatePath: string, fields: HardcodedField[]): void {
 export const dbTemplateRestoreFixer: Fixer = {
   name: "db-template-restore",
   description:
-    "Scans single.en.yml templates for DB-backed content types and restores hardcoded values to {{ single.X | default }} expressions",
+    "Scans single.en.yml templates for DB-backed content types and restores hardcoded values to {{ entry.X | default }} expressions",
 
   async run(ctx: FixerContext): Promise<FixerResult> {
     const dryRun = ctx.dryRun !== false;
@@ -254,7 +254,7 @@ export const dbTemplateRestoreFixer: Fixer = {
 
     return {
       ok: true,
-      message: `Restored ${fixedCount} hardcoded field(s) to {{ single.X | default }} expressions`,
+      message: `Restored ${fixedCount} hardcoded field(s) to {{ entry.X | default }} expressions`,
       details: { fixedCount, fixed: summary },
     };
   },

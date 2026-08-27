@@ -35,6 +35,7 @@ import { applySectionLayoutDefaults } from "./section-layout-defaults";
 import { isEntryDetached } from "./shared-layout-entry";
 import { applyFieldOverridesToItem, readFieldOverrides } from "./field-overrides";
 import type { TemplatePage } from "@shared/schema";
+import { ENTRY_OR_SINGLE_KEY_RE } from "@shared/entryTemplateVars";
 import { child } from "./logger";
 const log = child({ module: "database-single-loader" });
 
@@ -64,8 +65,8 @@ export function extractVariableFields(
 
 /**
  * Attach `_variableFields` / `_variableKeys` on sections that still contain
- * `{{ single.* }}` expressions (before delivery-time resolution). Needed for
- * static single_template types as well as DB-backed singles.
+ * `{{ entry.* }}` / legacy `{{ single.* }}` expressions (before delivery-time resolution).
+ * Needed for static single_template types as well as DB-backed singles.
  */
 export function attachVariableFieldsToSections(sections: unknown[]): void {
   for (const section of sections) {
@@ -74,10 +75,10 @@ export function attachVariableFieldsToSections(sections: unknown[]): void {
     if (Object.keys(variableFields).length === 0) continue;
     (section as Record<string, unknown>)._variableFields = variableFields;
     const variableKeys: Record<string, string> = {};
-    const keyRe = /\{\{\s*single\.([^|}\s]+)/;
     for (const [dotPath, expr] of Object.entries(variableFields)) {
-      const m = keyRe.exec(expr);
+      const m = ENTRY_OR_SINGLE_KEY_RE.exec(expr);
       if (m) variableKeys[dotPath] = m[1].trim();
+      ENTRY_OR_SINGLE_KEY_RE.lastIndex = 0;
     }
     if (Object.keys(variableKeys).length > 0) {
       (section as Record<string, unknown>)._variableKeys = variableKeys;

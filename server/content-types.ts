@@ -80,7 +80,7 @@ export type ContentTypeEditorHint = {
   };
   /**
    * Required when type is `json`. JSON Schema for structured values; exact
-   * `{{ single.field }}` binds can return arrays/objects at delivery.
+   * `{{ entry.field }}` binds can return arrays/objects at delivery.
    */
   schema?: Record<string, unknown>;
   /** When type is `relation`: content-type key or database slug (query-options source). */
@@ -167,14 +167,14 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     - Shorthand: { default: /landing/:slug } (same path for all locales)
 #
 # field_mapping (recommended):
-#   Keys are the content-type schema (available in Fields tab and as {{ single.* }}
+#   Keys are the content-type schema (available in Fields tab and as {{ entry.* }}
 #   for non-underscore keys). Values are auto-fill sources:
 #     identity (author: author) — same-name YAML parent key (static) or DB column
 #     { source, default } — schema key with default (default may be null)
 #     other path — remap DB column → schema key (DB-attached types only)
 #     function:… — computed; ?prefix — optional non-identity source
 #   System specials (DB identity / routing; auto-exposed on single as slug|locale|image|updated_at
-#   and _slug|_locale|_image|_updated_at — not {{ single._hreflangs }}):
+#   and _slug|_locale|_image|_updated_at — not {{ entry._hreflangs }}):
 #     _slug — entry identity for URLs / lookups
 #     _locale — language of the row
 #     _hreflangs — locale→slug map (routing only; not a template var)
@@ -183,14 +183,14 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   Forbidden as regular schema keys: "slug" (use _slug), "image" (use _image).
 #   Do not index/unique _image. unique_fields may still list "slug" (the alias).
 #   _updated_at maps source updated_at (locale YAML top-level key). Templates use
-#     {{ single.updated_at }}. Not Git/file mtime / .sync-state.json.
+#     {{ entry.updated_at }}. Not Git/file mtime / .sync-state.json.
 #   published_at — reserved editorial go-live time (not a system special). Stored in
 #     _common.yml; stamped once when the entry first goes live (create for shared-layout /
 #     non–draft-first; first draft→live publish/promote for draft-first). Never recomputed
 #     on save; cannot clear to empty. Manual override via Fields → _common.yml.
 #     Distinct from _updated_at (last content change). Not tied to YAML status: PUBLISHED.
 #
-# Template namespaces (delivery): {{ single.* }} → {{ meta.* }} → {{ param.* }} → brand/global
+# Template namespaces (delivery): {{ entry.* }} → {{ meta.* }} → {{ param.* }} → brand/global
 #   meta: SEO head block. param: URL path + querystring (path wins on conflict).
 # indexes (optional):
 #   Fields for filtering when listing entries. Works for DB and non-DB types.
@@ -226,7 +226,7 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     dirty_on_prop_change: false (when true, mapped prop value changes mark dirty)
 #     props: { componentDataKey: source } — component keys may be dotted paths (e.g. left.heading).
 #       Sources: mapped field keys, meta.<key>, or brand.<key> (same namespaces as templates).
-#       Capture loads SEO meta and expands {{ single.* }} inside it. Brand is live at capture;
+#       Capture loads SEO meta and expands {{ entry.* }} inside it. Brand is live at capture;
 #       brand.logo / brand.logo_dark registry IDs are resolved to image URLs for the screenshot.
 #       brand.logo is theme-aware (dark theme → logo_dark with light fallback); brand.logo_dark
 #       is dark-only (no light fallback) — prefer it for dark OG canvases.
@@ -255,8 +255,8 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     expand). WARNING: values that legitimately contain commas (e.g. "San Francisco, CA") will
 #     also be split. Saving a tags field may normalize CSV strings into string arrays.
 #   json: structured object/array field (CodeMirror + schema lint). schema (JSON Schema object)
-#     is REQUIRED. Empty editor → null. Exact {{ single.field }} returns the value as-is;
-#     pipe fallbacks may be JSON literals (e.g. {{ single.field | [] }}).
+#     is REQUIRED. Empty editor → null. Exact {{ entry.field }} returns the value as-is;
+#     pipe fallbacks may be JSON literals (e.g. {{ entry.field | [] }}).
 #   relation: pointer to another content type or private database (same source namespace as
 #     /api/query-options). Required: source (CT key or DB slug — must not collide across
 #     namespaces). Optional: value (default slug), label (default title/name), multiple.
@@ -442,13 +442,13 @@ export const IMAGE_ALIAS_FIELD = "image";
 /** Entry identity mapping key (system special). Runtime alias on single bag: {@link SLUG_ALIAS_FIELD}. */
 export const RESERVED_SLUG_FIELD = "_slug";
 
-/** Template key populated from `_slug` when building single / mapped entries (`{{ single.slug }}`). */
+/** Template key populated from `_slug` when building single / mapped entries (`{{ entry.slug }}`). */
 export const SLUG_ALIAS_FIELD = "slug";
 
 /** Locale mapping key (system special). Runtime alias on single bag: {@link LOCALE_ALIAS_FIELD}. */
 export const RESERVED_LOCALE_FIELD = "_locale";
 
-/** Template key populated from `_locale` (`{{ single.locale }}`). */
+/** Template key populated from `_locale` (`{{ entry.locale }}`). */
 export const LOCALE_ALIAS_FIELD = "locale";
 
 /** Routing-only — never expose on the template `single` bag. */
@@ -457,7 +457,7 @@ export const RESERVED_HREFLANGS_FIELD = "_hreflangs";
 /** Last-modified mapping key (system special). Runtime alias: {@link UPDATED_AT_ALIAS_FIELD}. */
 export const RESERVED_UPDATED_AT_FIELD = "_updated_at";
 
-/** Template / list key populated from `_updated_at` (`{{ single.updated_at }}`). */
+/** Template / list key populated from `_updated_at` (`{{ entry.updated_at }}`). */
 export const UPDATED_AT_ALIAS_FIELD = "updated_at";
 
 /**

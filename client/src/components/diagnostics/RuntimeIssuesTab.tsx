@@ -90,6 +90,8 @@ import type { ByHour, RuntimeIssueProbe } from "@shared/runtime-issues";
 import type { IgnoreRule, IgnoreRuleInput } from "@shared/runtime-issues-ignore";
 import { aggregateHitsByDay, isRuntimeIssueProbeSuccess, localePrefixFromPath } from "@shared/runtime-issues";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
+import { useContentTypes } from "@/hooks/useContentTypes";
+import { entryKeyToPageUrl } from "@/lib/entryKeyToPageUrl";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 
 interface RuntimeIssueRow {
@@ -182,6 +184,7 @@ function CmsLinksCell({
   linkIndexUpdatedAt?: string | null;
 }) {
   const [open, setOpen] = useState(false);
+  const contentTypes = useContentTypes();
   const { data, isLoading } = useQuery({
     queryKey: ["/api/admin/runtime-issues/referrers", path],
     queryFn: async () => {
@@ -189,7 +192,7 @@ function CmsLinksCell({
         `/api/admin/runtime-issues/referrers?path=${encodeURIComponent(path)}`,
         { credentials: "include" },
       );
-      if (!res.ok) throw new Error("Failed to load CMS referrers");
+      if (!res.ok) throw new Error("Failed to load internal link referrers");
       return res.json() as {
         count: number;
         entryKeys: string[];
@@ -202,7 +205,7 @@ function CmsLinksCell({
 
   if (count <= 0) {
     return (
-      <span className="opacity-60" title="No CMS links indexed — index may be stale or empty">
+      <span className="opacity-60" title="No internal links indexed — index may be stale or empty">
         —
       </span>
     );
@@ -219,26 +222,110 @@ function CmsLinksCell({
           {count} {count === 1 ? "entry" : "entries"}
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-80 text-xs" align="end">
-        <p className="font-medium text-foreground mb-1">CMS entries linking here</p>
+      <PopoverContent className="w-96 text-xs" align="end">
+        <p className="font-medium text-foreground mb-1">Pages linking here</p>
         <p className="text-muted-foreground mb-2 leading-snug">
-          Derived from CMS content. Updated{" "}
+          From published content that points at this URL. Updated{" "}
           {formatRelativeIndexAge(data?.linkIndexUpdatedAt ?? linkIndexUpdatedAt)}. Menus, app
-          routes, and external referrers not included.
+          routes, and external sites are not included.
         </p>
         {isLoading && <p className="text-muted-foreground">Loading…</p>}
         {data && data.referrers.length > 0 && (
-          <ul className="font-mono text-[11px] space-y-0.5 max-h-40 overflow-y-auto">
-            {data.referrers.map((r) => (
-              <li key={r.entryKey}>{r.entryKey}</li>
-            ))}
+          <ul className="space-y-1 max-h-64 overflow-y-auto pr-1">
+            {data.referrers.map((r) => {
+              const href = entryKeyToPageUrl(r.entryKey, contentTypes);
+              return (
+                <li
+                  key={r.entryKey}
+                  className="flex items-center gap-1.5 min-w-0"
+                  data-testid={`internal-link-referrer-${r.entryKey}`}
+                >
+                  <code className="font-mono text-[11px] truncate min-w-0 flex-1">{r.entryKey}</code>
+                  {href ? (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 text-muted-foreground hover:text-foreground"
+                      aria-label={`Open ${r.entryKey} in a new tab`}
+                      data-testid={`link-internal-referrer-open-${r.entryKey}`}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         )}
         {data && data.count > data.referrers.length && (
-          <p className="text-muted-foreground mt-1">and {data.count - data.referrers.length} more…</p>
+          <p className="text-muted-foreground mt-1">
+            and {data.count - data.referrers.length} more…
+          </p>
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+function InternalLinksColumnHeader({
+  linkIndexUpdatedAt,
+}: {
+  linkIndexUpdatedAt?: string | null;
+}) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  return (
+    <div className="inline-flex items-center justify-end gap-1 w-full">
+      <span>Internal Links</span>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex text-muted-foreground hover:text-foreground"
+            aria-label="What are Internal Links?"
+            data-testid="button-internal-links-info"
+          >
+            <IconInfoCircle className="h-3.5 w-3.5" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          className="w-80 space-y-2 text-sm"
+          data-testid="popover-internal-links-info"
+        >
+          <p className="font-medium text-foreground">What Internal Links means</p>
+          <p className="text-muted-foreground">
+            How many of your other pages link to this missing URL. Use it to see if fixing the 404
+            matters for people browsing your site. A dash does not mean nobody links here — menus and
+            code-built links are not counted.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Index updated {formatRelativeIndexAge(linkIndexUpdatedAt)}.
+          </p>
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                data-testid="button-internal-links-read-more"
+              >
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
+                />
+                Read more (advanced)
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2 space-y-1.5 text-xs text-muted-foreground">
+              <p>
+                Counts come from the outbound link index (YAML + DB body fields). Not routing truth —
+                run site diagnostics (<code className="text-[11px]">site-link-index</code>) for a full
+                refresh.
+              </p>
+            </CollapsibleContent>
+          </Collapsible>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 
@@ -647,6 +734,7 @@ export default function RuntimeIssuesTab() {
   const [listFiltersOpen, setListFiltersOpen] = useState(false);
   const [ingestionOpen, setIngestionOpen] = useState(false);
   const [ignoreRulesOpen, setIgnoreRulesOpen] = useState(false);
+  const [purgeOpen, setPurgeOpen] = useState(false);
   const [redirectFrom, setRedirectFrom] = useState<{ path: string; fingerprint: string } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [probingIds, setProbingIds] = useState<Set<string>>(new Set());
@@ -848,6 +936,7 @@ export default function RuntimeIssuesTab() {
     mutationFn: async (payload: {
       rules: IgnoreRuleInput[];
       seedPaths: string[];
+      purgeFingerprints: string[];
     }) => {
       const res = await apiFetch("/api/admin/runtime-issues/ignore", {
         method: "POST",
@@ -856,20 +945,90 @@ export default function RuntimeIssuesTab() {
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Failed to ignore paths");
-      return body as { ignored: IgnoreRule[]; removed: number };
+      return body as { ignored: IgnoreRule[]; removed: number; added: number };
     },
     onSuccess: (body) => {
       void queryClient.invalidateQueries({ queryKey: ["/api/admin/runtime-issues"] });
       setSelected(new Set());
+      let description: string;
+      if (body.removed > 0 && body.added === 0) {
+        description = `Rule already existed; ${body.removed} matching 404${body.removed === 1 ? "" : "s"} removed from the log.`;
+      } else if (body.removed > 0) {
+        description = `${body.removed} matching 404${body.removed === 1 ? "" : "s"} removed from the log.`;
+      } else {
+        description = "Ignore rules saved. No matching rows were in the log.";
+      }
       toast({
         title: "Ignored selected paths",
-        description: `${body.removed} matching 404${body.removed === 1 ? "" : "s"} removed from the log.`,
+        description,
       });
     },
     onError: (err) => {
       toast({
         title: "Ignore failed",
         description: err instanceof Error ? err.message : "Failed to ignore",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const purgeMutation = useMutation({
+    mutationFn: async (fingerprints: string[]) => {
+      const res = await apiFetch("/api/admin/runtime-issues/purge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fingerprints }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to purge paths");
+      return body as { removed: number };
+    },
+    onSuccess: (body) => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/runtime-issues"] });
+      setSelected(new Set());
+      setPurgeOpen(false);
+      toast({
+        title: "Purged selected paths",
+        description:
+          body.removed > 0
+            ? `${body.removed} matching 404${body.removed === 1 ? "" : "s"} removed from the log.`
+            : "No matching rows were in the log.",
+      });
+    },
+    onError: (err) => {
+      toast({
+        title: "Purge failed",
+        description: err instanceof Error ? err.message : "Failed to purge",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const purgeMatchingMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch("/api/admin/runtime-issues/purge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "matching_ignore_rules" }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to purge matching paths");
+      return body as { removed: number };
+    },
+    onSuccess: (body) => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/runtime-issues"] });
+      toast({
+        title: "Removed matching 404s",
+        description:
+          body.removed > 0
+            ? `${body.removed} matching 404${body.removed === 1 ? "" : "s"} removed from the log.`
+            : "No matching rows were in the log.",
+      });
+    },
+    onError: (err) => {
+      toast({
+        title: "Purge failed",
+        description: err instanceof Error ? err.message : "Failed to purge",
         variant: "destructive",
       });
     },
@@ -919,6 +1078,7 @@ export default function RuntimeIssuesTab() {
         label: rows.length === 1 ? "This path only" : `This path only: ${row.path}`,
       })),
       seedPaths: rows.map((row) => row.path),
+      purgeFingerprints: rows.map((row) => row.fingerprint),
     });
   }
 
@@ -1167,7 +1327,7 @@ export default function RuntimeIssuesTab() {
                   </li>
                   <li>
                     <code>POST /api/admin/runtime-issues/drop-scrapers</code>,{" "}
-                    <code>…/ignore</code> and{" "}
+                    <code>…/ignore</code>, <code>…/purge</code> (fingerprints or matching ignore rules), and{" "}
                     <code>…/unignore</code> (<code>seo_edit</code>)
                   </li>
                   <li>
@@ -1193,8 +1353,8 @@ export default function RuntimeIssuesTab() {
       </Card>
 
       <div className="flex flex-wrap items-center justify-between gap-3 overflow-visible">
-        <div className="flex items-center gap-3 overflow-visible">
-          <div className="relative overflow-visible">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 overflow-visible">
+          <div className="relative overflow-visible shrink-0">
             <Button
               variant="outline"
               size="sm"
@@ -1206,7 +1366,7 @@ export default function RuntimeIssuesTab() {
             </Button>
             <CornerCountBadge count={listFilterCount} testId="badge-list-filters-count" />
           </div>
-          <div className="relative overflow-visible">
+          <div className="relative overflow-visible shrink-0">
             <Button
               variant="outline"
               size="sm"
@@ -1218,17 +1378,18 @@ export default function RuntimeIssuesTab() {
             <CornerCountBadge count={ingestFilterCount} testId="badge-ingestion-filters-count" />
           </div>
           {data && (
-            <Badge variant="secondary" data-testid="badge-runtime-total">
+            <Badge variant="secondary" className="shrink-0" data-testid="badge-runtime-total">
               {filtersActive
                 ? `${sortedIssues.length} of ${issues.length} paths · ${filteredHitCount} hits`
                 : `${data.issues.length} paths · ${filteredHitCount} hits`}
             </Badge>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
+            className="shrink-0"
             onClick={downloadCsv}
             disabled={sortedIssues.length === 0}
             data-testid="button-download-runtime-issues-csv"
@@ -1239,6 +1400,7 @@ export default function RuntimeIssuesTab() {
           <Button
             variant="outline"
             size="sm"
+            className="shrink-0"
             onClick={() => refetch()}
             disabled={isFetching}
             data-testid="button-refresh-runtime-issues"
@@ -1246,7 +1408,7 @@ export default function RuntimeIssuesTab() {
             <IconRefresh className={`h-4 w-4 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <div className="relative overflow-visible">
+          <div className="relative overflow-visible shrink-0">
             <Button
               variant="outline"
               size="sm"
@@ -1260,13 +1422,20 @@ export default function RuntimeIssuesTab() {
           <Button
             variant="outline"
             size="sm"
+            className="shrink-0"
             onClick={() => setResetOpen(true)}
             data-testid="button-reset-runtime-issues"
           >
             <IconTrash className="h-4 w-4 mr-1.5" />
             Reset 404 log
           </Button>
-          <Button variant="outline" size="sm" asChild data-testid="button-runtime-redirects">
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            asChild
+            data-testid="button-runtime-redirects"
+          >
             <Link href="/private/redirects">
               <Route className="h-4 w-4 mr-1.5" />
               Redirects
@@ -1321,6 +1490,23 @@ export default function RuntimeIssuesTab() {
               Ignore selected
             </Button>
           ) : null}
+          {canIgnore ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              disabled={purgeMutation.isPending || selected.size === 0}
+              onClick={() => setPurgeOpen(true)}
+              data-testid="button-runtime-bulk-purge"
+            >
+              {purgeMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <IconTrash className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Purge selected
+            </Button>
+          ) : null}
         </div>
       )}
 
@@ -1351,16 +1537,6 @@ export default function RuntimeIssuesTab() {
       {!isError && data && data.issues.length > 0 && (
         <Card style={{ borderRadius: "0.8rem" }}>
           <CardContent className="p-0 overflow-x-auto">
-            <Alert className="m-4 mb-0 border-border/60 bg-muted/30">
-              <IconInfoCircle className="h-4 w-4" />
-              <AlertTitle className="text-sm">CMS links column</AlertTitle>
-              <AlertDescription className="text-xs text-muted-foreground">
-                Counts come from the outbound link index (YAML + DB body fields). Updated{" "}
-                {formatRelativeIndexAge(data.linkIndexUpdatedAt)}. Not routing truth — run site
-                diagnostics (<code className="text-[11px]">site-link-index</code>) for a full
-                refresh. Empty does not mean nobody links here (menus and code paths are excluded).
-              </AlertDescription>
-            </Alert>
             {sortedIssues.length === 0 ? (
               <div
                 className="p-8 text-center text-muted-foreground text-sm"
@@ -1393,8 +1569,8 @@ export default function RuntimeIssuesTab() {
                       <SortIcon col="count" sortKey={sortKey} sortDir={sortDir} />
                     </button>
                   </TableHead>
-                  <TableHead className="w-28 text-right" title="Derived from CMS YAML link index — not routing truth">
-                    CMS links
+                  <TableHead className="w-32 text-right">
+                    <InternalLinksColumnHeader linkIndexUpdatedAt={data.linkIndexUpdatedAt} />
                   </TableHead>
                   <TableHead className="w-36">
                     <button
@@ -1580,6 +1756,31 @@ export default function RuntimeIssuesTab() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={purgeOpen} onOpenChange={setPurgeOpen}>
+        <AlertDialogContent data-testid="dialog-purge-runtime-issues">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Purge selected 404s?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Removes the checked rows from this log only. Future 404s for those paths can appear again.
+              Does not add ignore rules.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-purge-runtime-issues">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                purgeMutation.mutate(Array.from(selected));
+              }}
+              disabled={purgeMutation.isPending}
+              data-testid="button-confirm-purge-runtime-issues"
+            >
+              {purgeMutation.isPending ? "Purging…" : "Purge"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <RuntimeIssueListFiltersDialog
         open={listFiltersOpen}
         onOpenChange={setListFiltersOpen}
@@ -1606,6 +1807,9 @@ export default function RuntimeIssuesTab() {
         canRemove={canIgnore}
         unignorePending={unignoreMutation.isPending}
         onRemove={(id) => unignoreMutation.mutate(id)}
+        canPurge={canIgnore}
+        purgeMatchingPending={purgeMatchingMutation.isPending}
+        onPurgeMatching={() => purgeMatchingMutation.mutate()}
       />
     </div>
   );

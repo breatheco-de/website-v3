@@ -80,7 +80,7 @@ export function isAllowlistedSectionFieldPath(fieldPath: string): boolean {
 }
 
 /**
- * True when every non-allowlisted, non-identity prop is absent or a `{{ single.* }}` expression.
+ * True when every non-allowlisted, non-identity prop is absent or a `{{ entry.* }}` expression.
  * Used to skip auto-label + auto-hide on siblings.
  */
 export function sectionIsTemplateExpressionsOnly(section: Record<string, unknown>): boolean {
@@ -282,8 +282,8 @@ export function buildMirroredLocaleSingle(
   const meta = sourceData.meta && typeof sourceData.meta === "object"
     ? JSON.parse(JSON.stringify(sourceData.meta))
     : {
-        page_title: "{{ single.title }}",
-        description: "{{ single.description }}",
+        page_title: "{{ entry.title }}",
+        description: "{{ entry.description }}",
       };
   const sourceSections = Array.isArray(sourceData.sections)
     ? (sourceData.sections as Record<string, unknown>[])
@@ -494,8 +494,8 @@ export function fanOutStructuralOpsToSiblings(opts: {
         // Create from mirrored source sections
         const mirrored = {
           meta: {
-            page_title: "{{ single.title }}",
-            description: "{{ single.description }}",
+            page_title: "{{ entry.title }}",
+            description: "{{ entry.description }}",
           },
           sections: sourceSections.map((s) => prepareSiblingMirroredSection(s, requesterId)),
         };

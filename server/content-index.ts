@@ -1156,8 +1156,8 @@ export class ContentIndex {
         } else {
           const template = [
             "meta:",
-            '  page_title: "{{ single.title }}"',
-            '  description: "{{ single.description }}"',
+            '  page_title: "{{ entry.title }}"',
+            '  description: "{{ entry.description }}"',
             "sections: []",
             "",
           ].join("\n");

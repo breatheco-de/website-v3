@@ -16,7 +16,7 @@ describe("restoreVariableFieldsForEditor", () => {
       },
       items: [{ question: "Q?", answer: "A." }],
       _variableFields: {
-        "dynamic_entries.permanent_filters.0.value": "{{ single.slug }}",
+        "dynamic_entries.permanent_filters.0.value": "{{ entry.slug }}",
       },
       _dynamic_meta: { total: 1 },
     };
@@ -26,7 +26,7 @@ describe("restoreVariableFieldsForEditor", () => {
       dynamic_entries: {
         database: "frequently_asked_questions",
         permanent_filters: [
-          { item_property_slug: "locations", value: "{{ single.slug }}" },
+          { item_property_slug: "locations", value: "{{ entry.slug }}" },
         ],
       },
     });
@@ -65,7 +65,7 @@ describe("mergeSavedSectionForLivePreview", () => {
       dynamic_entries: {
         database: "frequently_asked_questions",
         permanent_filters: [
-          { item_property_slug: "locations", value: "{{ single.slug }}" },
+          { item_property_slug: "locations", value: "{{ entry.slug }}" },
         ],
       },
     };
@@ -74,12 +74,12 @@ describe("mergeSavedSectionForLivePreview", () => {
     expect(merged.items).toEqual([{ question: "Miami Q?", answer: "A." }]);
     expect(merged._dynamic_meta).toEqual({ total: 1 });
     expect(merged._variableFields).toEqual({
-      "dynamic_entries.permanent_filters.0.value": "{{ single.slug }}",
+      "dynamic_entries.permanent_filters.0.value": "{{ entry.slug }}",
     });
     expect(
       (merged.dynamic_entries as { permanent_filters: Array<{ value: string }> })
         .permanent_filters[0].value,
-    ).toBe("{{ single.slug }}");
+    ).toBe("{{ entry.slug }}");
   });
 
   it("does not override items when the saved payload already has them", () => {
@@ -102,7 +102,7 @@ describe("mergeSavedSectionForLivePreview", () => {
       type: "list_cards",
       badge: "Guides",
       _variableFields: {
-        badge: "{{ single.category | category }}",
+        badge: "{{ entry.category | category }}",
       },
     };
     const saved = {

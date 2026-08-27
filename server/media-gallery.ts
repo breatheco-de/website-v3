@@ -4,6 +4,7 @@ import * as crypto from "crypto";
 import * as yaml from "js-yaml";
 import sharp from "sharp";
 import { escapeTemplateVars, unescapeObjectVars } from "../shared/templateVars";
+import { entryBagFieldPathFromVarName } from "@shared/entryTemplateVars";
 import type { ImageRegistry, ImageEntry } from "@shared/schema";
 import {
   MEDIA_EXTENSIONS,
@@ -656,8 +657,8 @@ export class MediaGallery {
       const contentTypesPath = path.join(this.contentDir, "content-types.yml");
       if (!fs.existsSync(contentTypesPath)) return null;
       const raw = yaml.load(fs.readFileSync(contentTypesPath, "utf8")) as Record<string, any>;
-      // variableName is like "single.image" — the field key is the part after "single."
-      const fieldKey = variableName.startsWith("single.") ? variableName.slice("single.".length) : variableName;
+      // variableName is like "entry.image" (or legacy "single.image")
+      const fieldKey = entryBagFieldPathFromVarName(variableName) ?? variableName;
       for (const [, ctDef] of Object.entries(raw)) {
         if (!ctDef || typeof ctDef !== "object") continue;
         const dbSlug = ctDef.database?.slug as string | undefined;

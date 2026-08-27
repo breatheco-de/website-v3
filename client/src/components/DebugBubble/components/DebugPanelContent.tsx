@@ -1378,7 +1378,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                     Detach copies the live shared template structure into this entry&apos;s <strong>existing</strong> locale YAML files and sets{" "}
                     <code className="text-[11px]">detached: true</code> in{" "}
                     <code className="text-[11px]">_common.yml</code>. Template variables like{" "}
-                    <code className="text-[11px]">{"{{ single.* }}"}</code> are preserved, not resolved.
+                    <code className="text-[11px]">{"{{ entry.* }}"}</code> are preserved, not resolved.
                     Paths: <code className="text-[11px]">server/shared-layout-detach.ts</code>, emptiness rules in{" "}
                     <code className="text-[11px]">shared/isEmptyLocaleContent.ts</code>.
                   </p>

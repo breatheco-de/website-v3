@@ -9,7 +9,7 @@ Use this topic before creating or restructuring entries for types with `single_t
 - **`db_backed` ≠ `single_template`.** Static blog is YAML + `single_template` and **is** creatable via MCP `create_entry`. DB-backed types are not (`create_via: null` from `get_content_type_info`).
 - **Missing slug → 404**, not an empty shared shell. Public delivery requires `{slug}/{locale}.yml` (static) or a DB row; soft-match redirects only rewrite when that slug already exists (e.g. wrong `:category`).
 
-Example (blog): body markdown is `content` on the locale file; `{{ single.content }}` is bound inside `blog/single.es.yml`. Do **not** paste a page shell (hero/breadcrumb/article) into the entry. Blog CTA copy/conversion/tags come from entry field `call_to_action` (bound in `single.*.yml`); before setting `conversion_name` or `tags`, call `explain_site` topic `component-behaviors`.
+Example (blog): body markdown is `content` on the locale file; `{{ entry.content }}` is bound inside `blog/single.es.yml`. Do **not** paste a page shell (hero/breadcrumb/article) into the entry. Blog CTA copy/conversion/tags come from entry field `call_to_action` (bound in `single.*.yml`); before setting `conversion_name` or `tags`, call `explain_site` topic `component-behaviors`.
 
 ## Playbook (create)
 

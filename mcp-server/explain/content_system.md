@@ -98,15 +98,19 @@ Content files may reference template expressions that are resolved at **delivery
 
 | Namespace | Source | Example |
 |-----------|--------|---------|
-| `{{ single.<field> }}` | Type schema / DB row / static root keys / `field_overrides` (DB); plus auto `slug`/`locale`/`image`/`updated_at` (and `_slug`/`_locale`/`_image`/`_updated_at`) | `{{ single.title }}`, `{{ single._slug }}`, `{{ single.updated_at }}` |
-| `{{ meta.<key> }}` | Page SEO block (`meta:`), after `single.*` inside meta is resolved | `{{ meta.page_title }}` |
+| `{{ entry.<field> }}` | Type schema / DB row / static root keys / `field_overrides` (DB); plus auto `slug`/`locale`/`image`/`updated_at` (and `_slug`/`_locale`/`_image`/`_updated_at`). **Preferred.** Legacy `{{ single.<field> }}` still resolves on delivery; **saves reject** new `single.*` tokens. | `{{ entry.title }}`, `{{ entry._slug }}`, `{{ entry.updated_at }}` |
+| `{{ meta.<key> }}` | Page SEO block (`meta:`), after `entry.*` inside meta is resolved | `{{ meta.page_title }}` |
 | `{{ param.<key> }}` | URL path params + querystring (path wins on conflict) | `{{ param.category }}`, `{{ param.utm }}` |
 | `{{ brand.* }}` | Protected site identity in `variables.yml` (Brand Settings) | `{{ brand.logo }}`, `{{ brand.title }}` |
 | `{{ global.* }}` / `reserved.*` | Other site variables in `variables.yml` | `{{ global.campus_phone }}` |
 
-Resolve order at page delivery: **single → meta → param**. Site vars (`brand`/`global`) stay for React `SectionRenderer` (edit mode can preserve `{{ }}`); pass `skipSiteVars: false` only for non-React consumers (menus, schema.org, SEO, entry preview). Editors keep unresolved templates on write paths.
+Resolve order at page delivery: **entry (incl. legacy single) → meta → param**. Site vars (`brand`/`global`) stay for React `SectionRenderer` (edit mode can preserve `{{ }}`); pass `skipSiteVars: false` only for non-React consumers (menus, schema.org, SEO, entry preview). Editors keep unresolved templates on write paths.
 
-**Mental model:** schema / Fields stay in `single.*`. SEO Meta tab = SEO head only (`meta.*`). Mapping remaps are for DB columns and `function:` fields. New schema fields need a default; if no entry has the key yet, warn “new field”.
+**Mental model:** `{{ entry.* }}` is the **current entry’s field bag** (`field_mapping`) — not the shared shell filename. Shared-layout shells still live in `single.{locale}.yml` (Phase 1; filename ≠ namespace). SEO Meta tab = SEO head only (`meta.*`). Mapping remaps are for DB columns and `function:` fields. New schema fields need a default; if no entry has the key yet, warn “new field”.
+
+- **`sections_owned` types** (no shared layout): bind `{{ entry.* }}` in that entry’s own `sections` / `meta`.
+- **Attached shared-layout** (`body_model: locale_fields_plus_shared_single`): bind in `single.{locale}.yml`; entry locale YAML is data-only (sections ignored).
+- **Listing `item_template`:** `{{ entry.* }}` means **each list row**, not the page entry.
 
 ### SEO clustering (per-entry + hub inventory)
 
@@ -122,6 +126,15 @@ Resolve order at page delivery: **single → meta → param**. Site vars (`brand
 - **Diagnostics:** MCP `run_entry_diagnostics` with `categories: ["seo"]` **narrows which validators run** (unlike staff Diagnostics scope chips, which only filter the issue list). `content_view` may read cached/`needs_confirm`; starting a job needs a metrics-mutating cap (`confirm: true`). `get_diagnostics_job` is metrics-mutate only. **MCP responses return a paginated `issues[]` work queue (default 50)** with `issues_offset` / `issues_limit` / `issues_next_offset` — not a full site `issuesBySlug` dump; staff Diagnostics / validation-cache still have the full set.
 - **Issue workflow (`update_issue`):** MCP agents must pass `report` on **claim** (why taking the issue; min 20 chars; optional when re-claiming to refresh your TTL) and **complete** (what changed and how; min 20 chars). Staff UI one-click claim/complete has no report. Stored on validation-cache overlay + `validation_issue_*` admin events (`payload.report`). Does not push YAML or run diagnostics.
 - **Derived link-index:** `{contentRoot}/link-index.json` stores outbound paths patched during `seo-cluster-links` runs — cache only, not authored SOT.
+
+### Search engines reads (`include_search_engines`)
+
+- **Opt-in on `get_entry_seo`:** `include_search_engines: true` (default false). Attaches `search_engines.{google,bing}` — **not** the same as `index` (seo-index topic-cluster inventory).
+- **Google:** read-only from GSC URL Inspection cache (`.cache/{site}/gsc-url-inspection.json` / GCS sync). Fields: `status`, `stale` (older than 7 days), `checkedAt`, `lastCrawlAt`, `canonical_mismatch`, `resolved`, full `record`. Does **not** call Google APIs or enqueue inspect (staff SEO/GEO → Search Console does that).
+- **Bing (phase 1):** always `configured: false`, `status: not_configured` + warning `bing_not_configured`. Phase 2 will use Bing Webmaster `GetUrlInfo` (thinner than GSC).
+- **Variants:** omit `search_engines`; warning `search_engines_skipped_variant` (live URLs only). Variants still return editable `meta`/`seo`/`schema_org` with `index: null`.
+- **Warnings:** `bing_not_configured`, `search_engines_stale` when Google cache is stale.
+- **Non-effects:** no live API, no inspect queue, no YAML/GitHub, no diagnostics job.
 
 ### Live SEO + Required for publish
 

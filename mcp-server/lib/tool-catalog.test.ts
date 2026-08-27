@@ -43,6 +43,7 @@ describe("allowedToolNames", () => {
     expect(names.has("get_entry_content")).toBe(true);
     expect(names.has("get_entry_seo")).toBe(true);
     expect(names.has("explain_site")).toBe(true);
+    expect(names.has("get_agent_changelog")).toBe(true);
     expect(names.has("list_components")).toBe(true);
     expect(names.has("create_component_section_demo")).toBe(true);
     expect(names.has("get_product_funnel")).toBe(true);

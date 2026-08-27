@@ -10,6 +10,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
+import { getLegacySingleVarWriteError } from "@shared/entryTemplateVars";
 import { coerceEditorSelectScalar } from "@shared/editor-field-values";
 import {
   getFolder,
@@ -465,6 +466,11 @@ export function writeMappedFields(
     pendingUpdates,
     config.editor as Record<string, ContentTypeEditorHint> | undefined,
   );
+
+  const legacySingleErr = getLegacySingleVarWriteError(pendingUpdates);
+  if (legacySingleErr) {
+    return { success: false, error: legacySingleErr, statusCode: 400 };
+  }
 
   const layer = resolveMappedFieldsLayerPath({
     contentType,

@@ -3,6 +3,7 @@ import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
+import { entryBagFieldPathFromVarName, getLegacySingleVarWriteError } from "@shared/entryTemplateVars";
 import { getConsentKeyError } from "@shared/consentLegacyKeys";
 import {
   wipeSectionOnDuplicate,
@@ -1284,6 +1285,11 @@ export async function editContent(request: ContentEditRequest): Promise<{
       return { success: false, error: consentErr };
     }
 
+    const legacySingleErr = getLegacySingleVarWriteError(localeData);
+    if (legacySingleErr) {
+      return { success: false, error: legacySingleErr, errorCode: "legacy_single_template_var" };
+    }
+
     // Live locale writes: require resolved meta + editor.required fields.
     // Draft variant files and shared single.*.yml template edits skip this gate.
     const writingLiveLocale =
@@ -1651,6 +1657,10 @@ function writeStructuralChangesToTemplate(opts: {
     if (consentErrStructural) {
       return { success: false, error: consentErrStructural };
     }
+    const legacySingleStructural = getLegacySingleVarWriteError(templateData);
+    if (legacySingleStructural) {
+      return { success: false, error: legacySingleStructural, errorCode: "legacy_single_template_var" };
+    }
 
     const skipIdentityIndexes = new Set<number>();
     for (const op of annotatedOps) {
@@ -1824,6 +1834,10 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
     if (consentErrEntry) {
       return { success: false, error: consentErrEntry };
     }
+    const legacySingleEntry = getLegacySingleVarWriteError(entryData);
+    if (legacySingleEntry) {
+      return { success: false, error: legacySingleEntry, errorCode: "legacy_single_template_var" };
+    }
 
     const ciGate = contentIndex;
     const commonForGate = ciGate.loadCommonData(contentType, slug) || {};
@@ -1909,6 +1923,10 @@ function writeEntryOverlayOps(opts: {
     }
     const consentErr = getConsentKeyError(entryData);
     if (consentErr) return { success: false, error: consentErr };
+    const legacySinglePerEntry = getLegacySingleVarWriteError(entryData);
+    if (legacySinglePerEntry) {
+      return { success: false, error: legacySinglePerEntry, errorCode: "legacy_single_template_var" };
+    }
     stampLocaleYamlBeforeWrite({
       data: entryData,
       previous: previousEntryData,
@@ -2141,6 +2159,10 @@ function handleSharedTemplateEdit(opts: {
       if (consentErrTemplate) {
         return { success: false, error: consentErrTemplate };
       }
+      const legacySingleTemplate = getLegacySingleVarWriteError(templateData);
+      if (legacySingleTemplate) {
+        return { success: false, error: legacySingleTemplate, errorCode: "legacy_single_template_var" };
+      }
 
       stampLocaleYamlBeforeWrite({
         data: templateData,
@@ -2224,16 +2246,14 @@ function handleSharedTemplateEdit(opts: {
 }
 
 /**
- * Parses the template variable name from an expression like `{{ single.thumbnail | default.jpg }}`.
- * Returns the field key after "single." (e.g. "thumbnail"), or null if not a `single.*` variable.
+ * Parses the template variable name from an expression like `{{ entry.thumbnail | default.jpg }}`
+ * (or legacy `{{ single.thumbnail | … }}`).
+ * Returns the field key after `entry.` / `single.`, or null if not an entry-bag variable.
  */
 function parseTemplateKey(expr: string): string | null {
   const inner = expr.replace(/^\{\{/, "").replace(/\}\}$/, "").trim();
-  const varName = inner.split("|")[0].trim(); // "single.thumbnail"
-  if (varName.startsWith("single.")) {
-    return varName.slice("single.".length);
-  }
-  return null;
+  const varName = inner.split("|")[0].trim();
+  return entryBagFieldPathFromVarName(varName);
 }
 
 interface CommonEditRequest {

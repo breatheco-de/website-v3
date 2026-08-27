@@ -4,14 +4,14 @@ import type { Validator, ValidationContext, ValidatorResult, ValidationIssue } f
 import { getAllConfigs } from "../../../server/content-types";
 import { databaseManager } from "../../../server/database";
 import { mappingSourceString, type FieldMappingValue } from "@shared/validateEditorFieldTypes";
+import { ENTRY_OR_SINGLE_VAR_PATTERN } from "@shared/entryTemplateVars";
 
 const MARKETING_CONTENT_PATH = path.join(process.cwd(), "4geeks-com");
-const SINGLE_VAR_PATTERN = /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*[^}]*?)?\s*\}\}/g;
 
 function extractSingleVarNames(content: string): string[] {
   const names: string[] = [];
   let match;
-  const re = new RegExp(SINGLE_VAR_PATTERN.source, "g");
+  const re = new RegExp(ENTRY_OR_SINGLE_VAR_PATTERN.source, "g");
   while ((match = re.exec(content)) !== null) {
     if (!names.includes(match[1])) {
       names.push(match[1]);
@@ -247,7 +247,7 @@ export const databaseSinglesValidator: Validator = {
                 warnings.push({
                   type: "warning",
                   code: "UNRESOLVED_SINGLE_VARS",
-                  message: `Template variable "{{ single.${varName} }}" in ${folder}/single.${locale}.yml has no matching field in database items`,
+                  message: `Template variable "{{ entry.${varName} }}" in ${folder}/single.${locale}.yml has no matching field in database items`,
                   file: `4geeks-com/${folder}/single.${locale}.yml`,
                   suggestion: `Available fields: ${Array.from(availableFields).slice(0, 15).join(", ")}${availableFields.size > 15 ? "..." : ""}`,
                 });

@@ -101,6 +101,7 @@ import {
   editorRequiredModes,
   bodyModelForConfig,
   createViaForConfig,
+  templateVarsNoteForBodyModel,
 } from "../lib/entry-helpers.js";
 import {
   resolveTranslateMode,
@@ -117,6 +118,7 @@ import {
   operationsFromLocalePayload,
 } from "../../server/editorial-updated-at.js";
 import { getSeoIndexEntry, SEO_INDEX_FILENAME } from "../../server/seo-index.js";
+import { buildSearchEnginesPagePayload } from "../../server/search-engines-page.js";
 import {
   collectFormSourceHitsFromNode,
   collectFormSourceHitsFromUpdates,
@@ -1175,7 +1177,8 @@ export function registerPageTools(
     "get_entry_seo",
     "Get the SEO/meta block plus structured-data preview for a page, with the identifying envelope (contentType, slug, locale, locales, urls). " +
     "Returns meta, seo (locale seo.main_keyword / pillar_path / is_pillar), include_in_clustering (derived: false only when seo.pillar_path is explicit null), " +
-    "index (live seo-index.json row; omitted for variants), " +
+    "index (live seo-index.json topic-cluster inventory row — NOT search-engine indexing; omitted for variants), " +
+    "optional search_engines when include_search_engines:true (cached Google Search Console + Bing stub; read-only, does not refresh cache or call live APIs), " +
     "validation_issues (open cached SEO-category issues), " +
     "claimed_issues (SEO issues claimed by others), " +
     "completed_issues (soft-completed SEO issues), and a rich schema_org block: " +
@@ -1185,18 +1188,28 @@ export function registerPageTools(
     "Hub inventory: list_seo_clusters / list_seo_cluster_entries / get_seo_cluster. " +
     "Toggle clustering via update_fields seo.include_in_clustering (MCP-only; requires type seo_monitoring.enabled). " +
     "Do not expect a derived JSON-LD dump on get_entry_content. Requires content_view or seo_edit. " +
-    "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
+    "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file. " +
+    "Variants skip search_engines (live URLs only); re-call without variant to read engine status.",
     {
       slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to read (e.g. 'draft-v2'). When provided, reads {variantSlug}.{locale}.yml instead of the live locale file."),
+      include_search_engines: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "If true (live reads only), attach search_engines.{google,bing} from cached inspection data. " +
+            "index remains seo-index cluster inventory. Does not call Google/Bing APIs or refresh the cache. " +
+            "Ignored for variants (warning search_engines_skipped_variant).",
+        ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, contentType, variant, site }) => {
+    async ({ slug, locale, contentType, variant, include_search_engines, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const { contentPath } = siteResult;
+      const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
         assertSafeLocale(locale);
@@ -1272,6 +1285,23 @@ export function registerPageTools(
           locale,
           result.data as Record<string, unknown>,
         );
+        const warnings: Array<{ code: string; message: string }> = [
+          {
+            code: "variant_seo_not_indexed",
+            message: "Variant seo: is not in seo-index.json until promote.",
+          },
+          {
+            code: "variant_updated_at_not_live",
+            message: "Variant updated_at does not change live sitemap lastmod until promote.",
+          },
+        ];
+        if (include_search_engines) {
+          warnings.push({
+            code: "search_engines_skipped_variant",
+            message:
+              "Search engine status applies to live URLs only; re-call get_entry_seo without variant and include_search_engines:true.",
+          });
+        }
         return {
           content: [
             {
@@ -1297,16 +1327,7 @@ export function registerPageTools(
                     contentPath,
                     result.data as Record<string, unknown>,
                   ),
-                  warnings: [
-                    {
-                      code: "variant_seo_not_indexed",
-                      message: "Variant seo: is not in seo-index.json until promote.",
-                    },
-                    {
-                      code: "variant_updated_at_not_live",
-                      message: "Variant updated_at does not change live sitemap lastmod until promote.",
-                    },
-                  ],
+                  warnings,
                 },
                 null,
                 2,
@@ -1339,7 +1360,7 @@ export function registerPageTools(
         payload.data,
       );
 
-      const seoPayload = {
+      const seoPayload: Record<string, unknown> = {
         contentType: payload.contentType,
         slug: payload.slug,
         locale: payload.locale,
@@ -1361,6 +1382,17 @@ export function registerPageTools(
           payload.data,
         ),
       };
+
+      if (include_search_engines) {
+        const engines = buildSearchEnginesPagePayload({
+          contentRoot: contentPath,
+          contentFolder,
+          domain,
+          requestedUrl: pageUrl,
+        });
+        seoPayload.search_engines = engines.search_engines;
+        seoPayload.warnings = engines.warnings;
+      }
 
       return { content: [{ type: "text", text: JSON.stringify(seoPayload, null, 2) }] };
     }
@@ -6548,6 +6580,7 @@ export function registerPageTools(
               ? "Use create_entry (YAML). Shared-layout: one locale, sections []."
               : "Database-backed — create_entry cannot create rows; use DB/admin path.",
             body_model: bodyModelForConfig(config),
+            template_vars_note: templateVarsNoteForBodyModel(bodyModelForConfig(config)),
             ecommerce: ecommerceManager.contentTypeHasEcommerce(contentType)
               ? {
                   enabled: true,

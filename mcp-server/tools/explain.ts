@@ -232,6 +232,8 @@ export function resolveDynamicTags(content: string, contentPath: string): string
   );
 }
 
+import { buildAgentChangelogPayload } from "../lib/agent-changelog.js";
+
 // ─── Tool registration ────────────────────────────────────────────────────────
 
 export function registerExplainTools(
@@ -239,6 +241,24 @@ export function registerExplainTools(
   mcpToken?: string,
   grants?: CatalogGrant[],
 ): void {
+  mcp.tool(
+    "get_agent_changelog",
+    "Returns recent MCP / agent-facing platform changes (last 6 days). " +
+      "Call near the start of a content session or when behavior looks wrong. " +
+      "Does NOT refresh the host MCP tool list — if tools look missing/stale after a deploy, " +
+      "ask the human to refresh/reconnect the MCP connector (Cursor: refresh MCP server; Claude: reconnect). " +
+      "Requires content_view.",
+    {},
+    async () => {
+      const viewDenied = await denyUnlessContentView(mcpToken, undefined, grants);
+      if (viewDenied) return viewDenied;
+      const payload = buildAgentChangelogPayload();
+      return {
+        content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+      };
+    },
+  );
+
   mcp.tool(
     "explain_site",
     "Returns architectural context about this codebase for a given topic. " +

@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { IconTrash } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   formatIgnoreRulePreview,
+  pathMatchesAnyIgnoreRule,
   pathMatchesIgnoreRule,
   type IgnoreRule,
 } from "@shared/runtime-issues-ignore";
@@ -32,6 +34,9 @@ export function RuntimeIssueIgnoreRulesDialog({
   canRemove,
   unignorePending,
   onRemove,
+  canPurge,
+  purgeMatchingPending,
+  onPurgeMatching,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -40,8 +45,17 @@ export function RuntimeIssueIgnoreRulesDialog({
   canRemove: boolean;
   unignorePending: boolean;
   onRemove: (id: string) => void;
+  canPurge?: boolean;
+  purgeMatchingPending?: boolean;
+  onPurgeMatching?: () => void;
 }) {
   const [removeId, setRemoveId] = useState<string | null>(null);
+  const [purgeMatchingOpen, setPurgeMatchingOpen] = useState(false);
+
+  const matchingPathCount = useMemo(() => {
+    if (!ignored.length) return 0;
+    return issuePaths.filter((p) => pathMatchesAnyIgnoreRule(p, ignored)).length;
+  }, [ignored, issuePaths]);
 
   return (
     <>
@@ -93,6 +107,25 @@ export function RuntimeIssueIgnoreRulesDialog({
               })}
             </ul>
           )}
+          {canPurge && ignored.length > 0 ? (
+            <DialogFooter className="flex-col items-stretch gap-2 sm:flex-col sm:items-stretch">
+              <p className="text-xs text-muted-foreground text-left">
+                Remove matching 404s from log clears rows already covered by these templates (including
+                WordPress prefixes). Does not change rules.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full sm:w-auto sm:self-start"
+                disabled={purgeMatchingPending || matchingPathCount === 0}
+                onClick={() => setPurgeMatchingOpen(true)}
+                data-testid="button-purge-matching-ignore-rules"
+              >
+                Remove matching 404s from log
+                {matchingPathCount > 0 ? ` (${matchingPathCount})` : ""}
+              </Button>
+            </DialogFooter>
+          ) : null}
         </DialogContent>
       </Dialog>
       <AlertDialog open={!!removeId} onOpenChange={(next) => !next && setRemoveId(null)}>
@@ -114,6 +147,34 @@ export function RuntimeIssueIgnoreRulesDialog({
               data-testid="button-confirm-unignore"
             >
               Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={purgeMatchingOpen} onOpenChange={setPurgeMatchingOpen}>
+        <AlertDialogContent data-testid="dialog-purge-matching-ignore-rules">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove matching 404s from log?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deletes {matchingPathCount} stored 404{matchingPathCount === 1 ? "" : "s"} that match your
+              ignore templates. Ignore rules stay in place. Future hits for those paths will not be
+              recorded.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-purge-matching-ignore-rules">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                onPurgeMatching?.();
+                setPurgeMatchingOpen(false);
+              }}
+              disabled={purgeMatchingPending}
+              data-testid="button-confirm-purge-matching-ignore-rules"
+            >
+              {purgeMatchingPending ? "Removing…" : "Remove from log"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

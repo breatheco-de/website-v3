@@ -124,7 +124,7 @@ Always reference images by `image_id` (registry ID), never by raw path. The `Uni
 
 ## Safe YAML loading
 
-Sections may contain template variables like `{{ single.title }}`. Always load section YAML through the safe loader (`safeYamlLoad` / `safeLoad`) — never raw `yaml.load()`.
+Sections may contain template variables like `{{ entry.title }}` (legacy `{{ single.title }}` still resolves on delivery; saves require `entry.*`). Always load section YAML through the safe loader (`safeYamlLoad` / `safeLoad`) — never raw `yaml.load()`. The `entry` namespace is the current entry’s field bag — not the shared shell filename `single.{locale}.yml`.
 
 ## Lead form submit routes
 

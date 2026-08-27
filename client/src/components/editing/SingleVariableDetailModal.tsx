@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
+import { entryBagFieldPathFromVarName } from "@shared/entryTemplateVars";
 
 interface SingleVariableDetailModalProps {
   open: boolean;
@@ -47,9 +48,7 @@ export function SingleVariableDetailModal({
 }: SingleVariableDetailModalProps) {
   const [expanded, setExpanded] = useState(false);
 
-  const fieldName = variableName.startsWith("single.")
-    ? variableName.slice(7)
-    : variableName;
+  const fieldName = entryBagFieldPathFromVarName(variableName) ?? variableName;
 
   const { data, isLoading } = useQuery<{
     field: string;

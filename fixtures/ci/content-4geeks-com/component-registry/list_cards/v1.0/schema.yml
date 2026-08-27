@@ -37,7 +37,7 @@ dynamic_item_fields:
   - name: url
     type: string
     required: true
-    description: Link URL for the card. Use {{ single._resolved_url }} for content types with a url_pattern.
+    description: Link URL for the card. Use {{ entry._resolved_url }} for content types with a url_pattern.
   - name: meta_left
     type: string
     description: Left-side metadata (e.g., author name)

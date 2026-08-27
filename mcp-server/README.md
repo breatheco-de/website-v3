@@ -32,8 +32,9 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 |---|---|
 | `list_sites` | Configured domains + content folders (`sites.yml`) |
 | `explain_site` | Architecture playbooks + live per-site catalogs (conversion_events, CRM tags, locales). Pass `site`. |
+| `get_agent_changelog` | Recent MCP/agent-facing changes (6-day window). Call at session start; does not refresh host tool list. |
 | `list_entries` | List YAML (non-DB) entries with slug, content type, locales, title, urls |
-| `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, strategy, observed URL-param values, create_via |
+| `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, strategy, observed URL-param values, create_via, body_model, template_vars_note |
 | `get_entry_content` | Merged entry content without meta/SEO |
 | `get_entry_seo` | SEO/meta + resolved schema.org preview + companion/CT gaps for one entry |
 | `update_content_type` | Patch `content-types.yml`: `strategy` and/or one field (`field_action` + confirm). Cap: `content_types_manage`. |

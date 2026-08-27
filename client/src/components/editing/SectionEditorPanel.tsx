@@ -573,7 +573,7 @@ export function SectionEditorPanel({
   const [activeTab, setActiveTab] = useState("code");
   const [scopeDialogOpen, setScopeDialogOpen] = useState(false);
   const [templateSaveConfirmOpen, setTemplateSaveConfirmOpen] = useState(false);
-  /** Cleared `{{ single.* }}` paths approved via the shared-template confirm. */
+  /** Cleared `{{ entry.* }}` paths approved via the shared-template confirm. */
   const [pendingClearedTemplatePaths, setPendingClearedTemplatePaths] = useState<string[]>([]);
   /** Unbound paths → static literals for shared-template save confirm. */
   const [pendingUnboundTemplateDetails, setPendingUnboundTemplateDetails] = useState<
@@ -625,7 +625,7 @@ export function SectionEditorPanel({
     if (!vf) return {} as Record<string, string>;
     const result: Record<string, string> = {};
     for (const [fieldPath, templateExpr] of Object.entries(vf)) {
-      // Parse expressions like {{ single.thumbnail }} or {{ single.thumbnail | default.jpg }}
+      // Parse expressions like {{ entry.thumbnail }} or {{ entry.thumbnail | default.jpg }}
       const match = /\{\{\s*single\.([^|}\s]+)/.exec(templateExpr);
       if (match) {
         result[fieldPath] = match[1].trim();
@@ -9718,7 +9718,7 @@ export function SectionEditorPanel({
                       Removing template bindings
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      These <code className="text-[11px]">{"{{ single.* }}"}</code> fields will be
+                      These <code className="text-[11px]">{"{{ entry.* }}"}</code> fields will be
                       removed from this locale&apos;s{" "}
                       <code className="text-[11px]">single.{locale ?? "en"}.yml</code> only
                       (sibling locales are not updated). Other bindings stay protected.

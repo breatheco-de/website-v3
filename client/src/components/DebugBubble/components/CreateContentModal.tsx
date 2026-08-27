@@ -1702,7 +1702,7 @@ export function CreateContentModal({
             <div className="space-y-1">
               <p className="font-medium text-foreground">Template variables resolved</p>
               <p>
-                <code className="text-xs bg-muted px-1 py-0.5 rounded">{"{{ single.* }}"}</code> template variables will be replaced with their actual or fallback values, hardcoded directly into the YAML content.
+                <code className="text-xs bg-muted px-1 py-0.5 rounded">{"{{ entry.* }}"}</code> template variables will be replaced with their actual or fallback values, hardcoded directly into the YAML content.
               </p>
             </div>
             <div className="space-y-1">
@@ -1720,7 +1720,7 @@ export function CreateContentModal({
             <div className="space-y-1">
               <p className="font-medium text-foreground">Listing components preserved</p>
               <p>
-                Listing components (<code className="text-xs bg-muted px-1 py-0.5 rounded">dynamic_entries</code>) and their <code className="text-xs bg-muted px-1 py-0.5 rounded">{"{{ single.* }}"}</code> template references will be preserved as-is.
+                Listing components (<code className="text-xs bg-muted px-1 py-0.5 rounded">dynamic_entries</code>) and their <code className="text-xs bg-muted px-1 py-0.5 rounded">{"{{ entry.* }}"}</code> template references will be preserved as-is.
               </p>
             </div>
           </div>
