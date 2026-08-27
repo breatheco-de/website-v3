@@ -280,7 +280,7 @@ function resolveDbItemRobots(
   return "";
 }
 
-/** Unresolved {{ }} placeholders (e.g. slug: {{ single.slug }} from _common.single.yml). */
+/** Unresolved {{ }} placeholders (e.g. slug: {{ entry.slug }} from _common.template.yml). */
 const TEMPLATE_EXPR_RE = /\{\{[\s\S]*?\}\}/;
 
 /**

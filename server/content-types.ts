@@ -104,8 +104,9 @@ export interface ContentTypeEntry {
   database?: DatabaseConfig;
   layout?: { menu?: { top?: string | null; bottom?: string | null } };
   /**
-   * When true (static types), `_common.single.yml` (+ optional `single.{locale}.yml`)
-   * is the shared section template; entry YAML id-patches sections instead of replacing them.
+   * When true (static types), `_common.template.yml` (+ optional `template.{locale}.yml`;
+   * legacy `single.*` / `_common.single.yml` still load) is the shared section template;
+   * entry YAML id-patches sections instead of replacing them.
    * DB-backed types already use this merge model via mergeSingleTemplate.
    */
   single_template?: boolean;
@@ -206,12 +207,12 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   Per-entry override: set layout.menu.top / layout.menu.bottom in _common.yml or locale files
 #
 # single_template (optional, default false):
-#   When true, static entries inherit sections from _common.single.yml (and single.{locale}.yml
-#   if present) and apply per-entry section patches by id — same model as DB-backed singles.
+#   When true, static entries inherit sections from _common.template.yml (and template.{locale}.yml
+#   if present; legacy single.* still loads) and apply per-entry section patches by id — same model as DB-backed shared templates.
 #   Set automatically when converting a DB-backed type to static.
 #
 # field_mapping — reserved / system:
-#   _slug: entry identity (aliased to single.slug at runtime)
+#   _slug: entry identity (aliased to entry.slug / legacy single.slug at runtime)
 #   _image: preview / OG image URL source (aliased to single.image at runtime)
 #   _updated_at: last content-change source (aliased to single.updated_at; default updated_at)
 #   published_at: reserved editorial go-live (authored; always ensured in field_mapping)

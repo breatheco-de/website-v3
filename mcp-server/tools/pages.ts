@@ -5896,7 +5896,7 @@ export function registerPageTools(
             {
               code: "detach_shell_owned",
               message:
-                "Entry now owns its shell. Template single.* changes no longer apply. " +
+                "Entry now owns its shell. Shared template.* changes no longer apply. " +
                 "translate_entry uses detached_sections mode. Section overlays previously used layout_target: entry — prefer entry-owned section tools now.",
             },
           ];

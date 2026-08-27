@@ -229,7 +229,7 @@ export function resolveDetachedEntryLocalePath(
 /**
  * True when a static shared-layout entry has a live `{slug}/{locale}.yml`.
  * Used by public delivery so missing slugs 404 instead of serving the empty
- * `single.*.yml` shell.
+ * `template.*.yml` shell.
  */
 export function hasStaticSharedLayoutEntryLocale(
   contentType: string,

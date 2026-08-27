@@ -2,7 +2,7 @@
  * Shared-layout structural sync helpers.
  *
  * Structured UI fans out allowlisted topology/layout across sibling
- * `single.{locale}.yml` files. Content props stay locale-local except on add
+ * `template.{locale}.yml` files (legacy `single.*` still loads). Content props stay locale-local except on add
  * (full mirror + optional `_label` + hide on siblings).
  */
 
@@ -363,7 +363,7 @@ function writeYamlFile(
 }
 
 /**
- * Fan out structural ops from a source `single.{locale}.yml` to sibling singles.
+ * Fan out structural ops from a source `template.{locale}.yml` to sibling templates.
  * Call after the source file has already been updated.
  */
 export function fanOutStructuralOpsToSiblings(opts: {

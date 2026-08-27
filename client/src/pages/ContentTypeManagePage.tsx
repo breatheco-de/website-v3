@@ -984,7 +984,7 @@ function ConnectDatabaseConfirmDialog({
             <ul className="list-disc pl-5 space-y-1">
               <li>Pick a database and map identity fields (slug, locale)</li>
               <li>Map content fields and optional indexes for filtering</li>
-              <li>Shared <code className="text-[11px]">single.*.yml</code> templates are used to render DB entries</li>
+              <li>Shared <code className="text-[11px]">template.*.yml</code> templates are used to render DB entries</li>
             </ul>
           </div>
         </div>
@@ -8580,7 +8580,7 @@ export default function ContentTypeManagePage() {
                 </ul>
                 <p className="text-destructive text-xs">
                   Existing per-entry overlay patches will be merged into full static YAML and overwritten.
-                  Shared <code className="text-[11px]">single.*.yml</code> templates will be deleted.
+                  Shared <code className="text-[11px]">template.*.yml</code> templates will be deleted.
                   Remote markdown bodies are inlined into the YAML.
                 </p>
               </div>

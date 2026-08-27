@@ -53,10 +53,10 @@ const REPO_CONTEXT = `## Repository context
 - Content root: /home/runner/workspace/4geeks-com/
 - Files use YAML format (.yml)
 - Merge chain (each level overrides the parent):
-    _common.single.yml  →  {slug}/_common.yml  →  {slug}/{locale}.yml
+    _common.template.yml  →  {slug}/_common.yml  →  {slug}/{locale}.yml
 - Editing rule: fix the most specific locale file unless the change should
   apply to all locales, in which case edit _common.yml instead.
-- Never modify _common.single.yml unless explicitly instructed.`;
+- Never modify _common.template.yml unless explicitly instructed.`;
 
 function buildSeoContextBlock(): string {
   const config = loadSeoConfig();

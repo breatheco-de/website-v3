@@ -6,6 +6,20 @@ window_days: 6
 
 entries:
   - date: "2026-08-27"
+    summary: "Agent/staff copy prefers template.* shell paths (identifiers unchanged)"
+    agent_impact:
+      - "Explain docs and promote/detach warnings say template.{locale}.yml; legacy single.* only as dual-load."
+      - "Prefer {{ entry.* }} in field_mapping education; type_single / single_template identifiers unchanged."
+      - "Refresh MCP connector if explain/warning text looks stale."
+    paths:
+      - mcp-server/explain/content_system.md
+      - mcp-server/explain/component-behaviors.md
+      - mcp-server/explain/relation-fields.md
+      - mcp-server/lib/respond.ts
+      - mcp-server/tools/pages.ts
+      - shared/entryTemplateVars.ts
+    tools_changed: true
+  - date: "2026-08-27"
     summary: "Shared shell files renamed single.* → template.* (dual-load)"
     agent_impact:
       - "Shell paths are template.{locale}.yml and _common.template.yml; legacy single.* still loads if present."

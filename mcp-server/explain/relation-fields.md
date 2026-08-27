@@ -103,6 +103,6 @@ Never write Person JSON into blog `authors` — pointers only.
 ## Author hub JSON-LD
 
 - CT `authors.schema_org_requirements: [{ schema_type: Person }]`.
-- Shared template `authors/single.{locale}.yml` leads with `schema_org` `Person` mapped from `{{ entry.* }}` fields; SSR fills `url`/`@id` from the hub page URL when missing.
+- Shared template `authors/template.{locale}.yml` leads with `schema_org` `Person` mapped from `{{ entry.* }}` fields; SSR fills `url`/`@id` from the hub page URL when missing.
 - Hub bio is `text_block` (not `article`) — **non-effect:** no Article LD from the bio.
 - BlogPosting.author Person[] still comes from relation hydration on blog articles — not from this hub `schema_org` section.

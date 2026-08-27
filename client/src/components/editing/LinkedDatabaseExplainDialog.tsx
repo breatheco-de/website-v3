@@ -67,7 +67,7 @@ export function LinkedDatabaseExplainDialog({
           </p>
           <p>
             <strong className="text-foreground">Static YAML still matters.</strong> Partial
-            overrides and the shared single template live on disk; the database supplies the entry
+            overrides and the shared template shell live on disk; the database supplies the entry
             data on top.
           </p>
 

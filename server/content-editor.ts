@@ -848,10 +848,10 @@ export async function editContent(request: ContentEditRequest): Promise<{
     // view to the per-entry local indices before applying, so we write to the
     // correct section. Template-owned sections (including layout keys like
     // maxWidth / paddingX from the X Spacing popover) must be forwarded to
-    // single.{locale}.yml — otherwise Apply writes ignored stubs into the entry
+    // template.{locale}.yml — otherwise Apply writes ignored stubs into the entry
     // file (attached merges use dataOnly and drop entry sections).
     // Detached entries own full structure (entry-only indices); never remap or
-    // forward ops to single.{locale}.yml.
+    // forward ops to template.{locale}.yml.
     const usesSharedTemplate =
       !isEntryDetached(contentType, slug, contentRoot) &&
       (ci.isDatabaseBacked(contentType) ||
@@ -897,7 +897,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
 
             if (localIdx === -1) {
               // Section lives in the shared template — collect it for a separate
-              // write to single.{locale}.yml via handleSharedTemplateEdit.
+              // write to template.{locale}.yml via handleSharedTemplateEdit.
               templateOps.push(op);
               continue;
             }
@@ -925,7 +925,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
 
             // Per-entry-only sections stay on the entry file. Everything else in the
             // attached merged view is template-owned — including layout keys from the
-            // X Spacing popover — and must hit single.{locale}.yml.
+            // X Spacing popover — and must hit template.{locale}.yml.
             if (mergedSection?._perEntrySource) {
               translated.push({
                 ...op,
@@ -945,7 +945,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
         // Forward any template-owned ops to the shared template file.
         if (templateOps.length > 0) {
           // The per-entry file is at 4geeks-com/{type}/{slug}/{locale}.yml
-          // Two levels up is 4geeks-com/{type}/ where single.{locale}.yml lives.
+          // Two levels up is 4geeks-com/{type}/ where template.{locale}.yml lives.
           const templateFilePath = resolveTemplateLocalePath(
             path.dirname(path.dirname(filePath)),
             locale,
@@ -1028,7 +1028,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
     }
 
     // Layout-only Apply (e.g. X Spacing maxWidth) on attached entries: all ops were
-    // written to single.{locale}.yml. Persist stub scrub on the entry only when
+    // written to template.{locale}.yml. Persist stub scrub on the entry only when
     // leftovers were actually removed (avoid empty writes / false redirects events).
     if (forwardedTemplateOps && resolvedOperations.length === 0) {
       if (entryOverlayScrubDirty && Array.isArray(localeData.sections)) {
@@ -1303,7 +1303,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
     }
 
     // Live locale writes: require resolved meta + editor.required fields.
-    // Draft variant files and shared template.*.yml / single.*.yml edits skip this gate.
+    // Draft variant files and shared template.*.yml (legacy single.*) edits skip this gate.
     const writingLiveLocale =
       !hasVariant &&
       !isSharedTemplateBasename(path.basename(filePath));
@@ -1571,7 +1571,7 @@ export function restoreTemplatePlaceholders(
 
 /**
  * Writes structural section changes (add/remove/swap) directly to the shared
- * `single.{locale}.yml` template file, preserving all `{{ }}` placeholder
+ * `template.{locale}.yml` template file, preserving all `{{ }}` placeholder
  * expressions. Uses safe YAML load/dump to avoid template variable corruption.
  * For shared-layout types, fans out allowlisted topology/layout to sibling singles.
  */
@@ -1620,7 +1620,7 @@ function writeStructuralChangesToTemplate(opts: {
     for (const op of annotatedOps) {
       // Always restore {{ single.* }} / {{ global.* }} from the on-disk template when
       // writing update_section — not only structural swaps. Code/Props saves omit
-      // structural:true and previously could bake resolved HTML into single.*.yml.
+      // structural:true and previously could bake resolved HTML into template.*.yml.
       if (op.action === "update_section") {
         const templateSections = Array.isArray(templateData.sections)
           ? (templateData.sections as Record<string, unknown>[])

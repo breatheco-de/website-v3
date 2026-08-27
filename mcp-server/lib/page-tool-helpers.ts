@@ -178,7 +178,7 @@ export function wrotePayload(opts: {
   };
 }
 
-/** Structural success envelope pieces for shared-layout type_single writes. */
+/** Structural success envelope pieces for shared-layout type_template writes (alias type_single). */
 export function sharedStructuralEnvelope(opts: {
   tool: string;
   contentType: string;

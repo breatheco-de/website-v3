@@ -142,7 +142,7 @@ export const contentQualityValidator: Validator = {
               : `Section at index ${i} is missing a type field (typeless leftover; it does not render)`,
             file: file.filePath,
             suggestion: overlay
-              ? "Delete this stub, or add section_id / _remove if it is an overlay patch for single.{locale}.yml"
+              ? "Delete this stub, or add section_id / _remove if it is an overlay patch for template.{locale}.yml"
               : "Delete the leftover YAML item. It does not render. Do not add a type to a fragment that duplicates a real section.",
           });
         }

@@ -2462,7 +2462,7 @@ export function registerContentRoutes(app: Express): void {
         res.status(404).json({ error: `Unknown content type: ${type}` });
         return;
       }
-      // DB-backed and static single_template shared-layout types both use single.{locale}.yml
+      // DB-backed and static single_template shared-layout types both use template.{locale}.yml
       if (!isSharedLayoutType(type, root)) {
         res.status(400).json({ error: `Content type "${type}" does not use a single template` });
         return;

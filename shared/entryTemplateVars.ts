@@ -1,6 +1,6 @@
 /**
  * Entry field bag template vars: preferred `{{ entry.* }}`, legacy `{{ single.* }}`.
- * Shared shell files remain `single.{locale}.yml` — that filename is unrelated.
+ * Shared shell files are `template.{locale}.yml` (legacy `single.*` still loads) — that filename is unrelated to this namespace.
  */
 
 /** Preferred namespace for the current entry's field_mapping bag. */

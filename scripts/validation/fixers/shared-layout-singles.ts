@@ -2,8 +2,8 @@
  * Fixer: shared-layout-singles
  *
  * For DB-backed and single_template types:
- * - Repair empty `single.{locale}.yml` stubs by mirroring a sibling with sections
- * - Strip `sections` from `_common.single.yml` and type `_common.yml` if present
+ * - Repair empty `template.{locale}.yml` stubs by mirroring a sibling with sections
+ * - Strip `sections` from `_common.template.yml` / legacy `_common.single.yml` and type `_common.yml` if present
  * - Report divergent type/version/variant across siblings as warnings (not auto-fixed)
  */
 
@@ -41,7 +41,7 @@ function safeLoad(raw: string): Record<string, unknown> | null {
 export const sharedLayoutSinglesFixer: Fixer = {
   name: "shared-layout-singles",
   description:
-    "Align empty shared-layout single.{locale}.yml stubs to a sibling template; strip sections from common files",
+    "Align empty shared-layout template.{locale}.yml stubs to a sibling template; strip sections from common files",
 
   async run(ctx: FixerContext): Promise<FixerResult> {
     const dryRun = ctx.dryRun !== false;

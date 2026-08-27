@@ -1,6 +1,6 @@
 /**
  * Detach / re-attach shared-layout entries from the type template.
- * Detach bakes live single.{locale}.yml structure into the entry (keeping {{ single.* }}).
+ * Detach bakes live template.{locale}.yml structure into the entry (keeping {{ entry.* }} / legacy {{ single.* }}).
  * Re-attach strips sections + layout and clears entry versioning (lossy for structure).
  */
 

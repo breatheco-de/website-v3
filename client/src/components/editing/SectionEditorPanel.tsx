@@ -612,7 +612,7 @@ export function SectionEditorPanel({
   const hasVariableFields = !!(section as Record<string, unknown>)._variableFields;
   const isPerEntryOverlaySection = !!(section as Record<string, unknown>)._perEntrySource;
   /**
-   * Load raw single.*.yml for shared-layout template sections only.
+   * Load raw template.*.yml for shared-layout template sections only.
    * Ordinary pages (e.g. locations) keep authored `{{ }}` via
    * restoreVariableFieldsForEditor — do not hit single-template-sections for them.
    */
@@ -660,7 +660,7 @@ export function SectionEditorPanel({
 
   const bindingQueryClient = useQueryClient();
 
-  // Shared-template variant YAML: single.{variant}.{locale}.yml (not entry ?variant= drafts).
+  // Shared-template variant YAML: template.{variant}.{locale}.yml (not entry ?variant= drafts).
   const effectiveTemplateVariant = (() => {
     if (!isSharedTemplate) return "";
     if (typeof window === "undefined") return variant ?? "";
@@ -9673,12 +9673,12 @@ export function SectionEditorPanel({
                     </>
                   ) : null}
                   . Saving will update{" "}
-                  <code className="text-xs">single.{locale ?? "en"}.yml</code> and apply these changes to all
+                  <code className="text-xs">template.{locale ?? "en"}.yml</code> and apply these changes to all
                   attached {contentType ? contentType.replace(/_/g, " ") : "content type"} entries.
                 </p>
                 <p>
                   This page uses a shared layout file (
-                  <code className="text-xs">single.{locale ?? "en"}.yml</code>
+                  <code className="text-xs">template.{locale ?? "en"}.yml</code>
                   ). Saving replaces live per-post data with fixed text for{" "}
                   <strong className="text-foreground">every</strong> page attached to this layout in
                   this language—not only the page you are viewing. To change one page only, detach
@@ -9720,7 +9720,7 @@ export function SectionEditorPanel({
                     <p className="text-xs text-muted-foreground">
                       These <code className="text-[11px]">{"{{ entry.* }}"}</code> fields will be
                       removed from this locale&apos;s{" "}
-                      <code className="text-[11px]">single.{locale ?? "en"}.yml</code> only
+                      <code className="text-[11px]">template.{locale ?? "en"}.yml</code> only
                       (sibling locales are not updated). Other bindings stay protected.
                     </p>
                     <ul className="list-disc pl-4 text-xs font-mono space-y-0.5">
