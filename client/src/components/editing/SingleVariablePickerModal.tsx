@@ -13,6 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { expandMappedFields, getPickerSample, buildPickerMappedFields } from "./expandMappedFields";
+import { formatEntryTemplateExpr, formatEntryVarName } from "@shared/entryTemplateVars";
 
 interface FieldValidationResult {
   valid: boolean;
@@ -85,7 +86,7 @@ export function SingleVariablePickerModal({
 
   const isDbBacked = !!typeConfig?.database?.slug;
   const fieldMapping = typeConfig?.field_mapping || {};
-  // Include system aliases (`slug` from `_slug`, etc.) so staff can pick {{ single.slug }}.
+  // Include system aliases (`slug` from `_slug`, etc.) so staff can pick {{ entry.slug }}.
   const mappedFields = buildPickerMappedFields(fieldMapping);
 
   const fields = expandMappedFields(mappedFields, availableProps, singleEntry);
@@ -156,8 +157,8 @@ export function SingleVariablePickerModal({
 
   const handleUseField = () => {
     if (!selectedField) return;
-    const templateSyntax = `{{ single.${selectedField} | ${inlineDefault} }}`;
-    onCreated(`single.${selectedField}`, templateSyntax);
+    const templateSyntax = formatEntryTemplateExpr(selectedField, inlineDefault);
+    onCreated(formatEntryVarName(selectedField), templateSyntax);
     setSelectedField(null);
     setSearch("");
     setValidation(null);
@@ -490,7 +491,7 @@ export function SingleVariablePickerModal({
                 Preview
               </label>
               <div className="px-3 py-2 rounded-md bg-muted font-mono text-sm" data-testid="text-single-preview">
-                {"{{ "}single.{selectedField}{" | "}{inlineDefault}{" }}"}
+                {"{{ "}entry.{selectedField}{" | "}{inlineDefault}{" }}"}
               </div>
               {selectedOption?.isObject && (
                 <p className="text-[11px] text-muted-foreground" data-testid="text-object-field-hint">

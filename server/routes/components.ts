@@ -134,6 +134,11 @@ import {
 } from "../content-types";
 import { isEntryDetached, isSharedLayoutType } from "../shared-layout-entry";
 import {
+  resolveCommonTemplatePath,
+  resolveTemplateLocalePath,
+  LIVE_SHELL_BASENAME_RE,
+} from "../shared-layout-paths";
+import {
   buildRawFileExplain,
   localeFromYamlFilename,
   rawFileRole,
@@ -921,9 +926,9 @@ export function registerComponentsRoutes(app: Express): void {
       const baseDir = path.join(contentRoot, folder);
       const isSharedLayout = isSharedLayoutType(contentType, contentRoot);
 
-      // Type-level single template: `_common.single.yml` (+ optional `single.{locale}.yml`)
-      // When variantSlug is provided, load `single.{variantSlug}.{locale}.yml` instead.
-      if (slug === "_common.single") {
+      // Type-level template shell: `_common.template.yml` (+ optional `template.{locale}.yml`)
+      // Accept legacy `_common.single` slug. When variantSlug is provided, load variant shell.
+      if (slug === "_common.single" || slug === "_common.template") {
         const variantSlug = req.query.variantSlug as string | undefined;
         const files: {
           locale?: { path: string; content: string; role?: string; locale?: string };
@@ -933,20 +938,26 @@ export function registerComponentsRoutes(app: Express): void {
         let localeFallback = false;
         let displayedLocale: string | null = null;
 
-        const singleCommonPath = path.join(baseDir, "_common.single.yml");
+        const singleCommonPath = resolveCommonTemplatePath(baseDir);
         if (fs.existsSync(singleCommonPath)) {
           files.common = {
-            path: `${contentRootName}/${folder}/_common.single.yml`,
+            path: `${contentRootName}/${folder}/${path.basename(singleCommonPath)}`,
             content: fs.readFileSync(singleCommonPath, "utf-8"),
             role: rawFileRole({ isTemplate: true, isCommon: true, variantSlug }),
           };
         }
 
         if (variantSlug) {
-          // Variant template: single.{variantSlug}.{locale}.yml
-          let singleLocalePath = path.join(baseDir, `single.${variantSlug}.${locale}.yml`);
+          // Variant template: template|single.{variantSlug}.{locale}.yml
+          let singleLocalePath = resolveTemplateLocalePath(baseDir, locale, {
+            variant: variantSlug,
+            fallbackLocale: "",
+          });
           if (!fs.existsSync(singleLocalePath)) {
-            const fallbackPath = path.join(baseDir, `single.${variantSlug}.en.yml`);
+            const fallbackPath = resolveTemplateLocalePath(baseDir, "en", {
+              variant: variantSlug,
+              fallbackLocale: "",
+            });
             if (fs.existsSync(fallbackPath)) {
               localeFallback = true;
               singleLocalePath = fallbackPath;
@@ -963,13 +974,20 @@ export function registerComponentsRoutes(app: Express): void {
             };
           }
         } else {
-          // Default template: load every `single.{locale}.yml` (not variant files)
+          // Default template: load every live shell (template.* prefer; dual-load single.*)
           const localeFiles: { path: string; content: string; locale: string; role: string }[] = [];
           if (fs.existsSync(baseDir)) {
+            const byLocale = new Map<string, string>();
             for (const name of fs.readdirSync(baseDir)) {
-              const match = name.match(/^single\.([a-z]{2,5})\.yml$/i);
+              const match = LIVE_SHELL_BASENAME_RE.exec(name);
               if (!match) continue;
               const localeCode = match[1].toLowerCase();
+              const existing = byLocale.get(localeCode);
+              if (!existing || /^template\./i.test(name)) {
+                byLocale.set(localeCode, name);
+              }
+            }
+            for (const [localeCode, name] of byLocale) {
               localeFiles.push({
                 path: `${contentRootName}/${folder}/${name}`,
                 content: fs.readFileSync(path.join(baseDir, name), "utf-8"),
@@ -1002,7 +1020,7 @@ export function registerComponentsRoutes(app: Express): void {
           contentRootName,
           folder,
           contentType,
-          slug: "_common.single",
+          slug: "_common.template",
           isTemplate: true,
           isSharedLayout,
           detached: false,
@@ -1013,7 +1031,7 @@ export function registerComponentsRoutes(app: Express): void {
           hasLocaleFile,
         });
 
-        res.json({ exists: true, files, resolvedSlug: "_common.single", context });
+        res.json({ exists: true, files, resolvedSlug: "_common.template", context });
         return;
       }
 

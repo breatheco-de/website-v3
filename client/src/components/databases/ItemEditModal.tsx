@@ -1264,7 +1264,7 @@ export function ItemEditModal({
           <div className="space-y-2" data-testid={`json-editor-${key}`}>
             <p className="text-[11px] text-muted-foreground">
               Saved as structured data, not a string. Exact{" "}
-              <code className="text-foreground">{"{{ single." + key + " }}"}</code> binds
+              <code className="text-foreground">{"{{ entry." + key + " }}"}</code> binds
               return the value as-is.
             </p>
             <div className="rounded-md border overflow-hidden min-h-[10rem]">

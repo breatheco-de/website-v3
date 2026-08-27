@@ -4,12 +4,12 @@ Use this topic before creating or restructuring entries for types with `single_t
 
 ## Mental model
 
-- **Shell** (hero, article wrapper, CTA, FAQ, breadcrumb, …) lives in `{directory}/single.{locale}.yml` (plus `_common.single.yml` defaults). It applies to **all attached** entries of that type in that locale.
+- **Shell** (hero, article wrapper, CTA, FAQ, breadcrumb, …) lives in `{directory}/template.{locale}.yml` (plus `_common.template.yml` defaults). Legacy `single.{locale}.yml` / `_common.single.yml` still load if present. New writes create `template.*` only. It applies to **all attached** entries of that type in that locale.
 - **Entry fields** live in `{directory}/{slug}/_common.yml` + `{locale}.yml` — `title`, `description`, `content`, `category`, `meta`, etc. Attached entries normally use `sections: []`.
 - **`db_backed` ≠ `single_template`.** Static blog is YAML + `single_template` and **is** creatable via MCP `create_entry`. DB-backed types are not (`create_via: null` from `get_content_type_info`).
 - **Missing slug → 404**, not an empty shared shell. Public delivery requires `{slug}/{locale}.yml` (static) or a DB row; soft-match redirects only rewrite when that slug already exists (e.g. wrong `:category`).
 
-Example (blog): body markdown is `content` on the locale file; `{{ single.content }}` is bound inside `blog/single.es.yml`. Do **not** paste a page shell (hero/breadcrumb/article) into the entry. Blog CTA copy/conversion/tags come from entry field `call_to_action` (bound in `single.*.yml`); before setting `conversion_name` or `tags`, call `explain_site` topic `component-behaviors`.
+Example (blog): body markdown is `content` on the locale file; `{{ entry.content }}` is bound inside `blog/template.es.yml`. Do **not** paste a page shell (hero/breadcrumb/article) into the entry. Blog CTA copy/conversion/tags come from entry field `call_to_action` (bound in `template.*.yml`); before setting `conversion_name` or `tags`, call `explain_site` topic `component-behaviors`.
 
 ## Playbook (create)
 
@@ -23,7 +23,7 @@ Example (blog): body markdown is `content` on the locale file; `{{ single.conten
 
 ## Custom shell
 
-Only when this entry must diverge from `single.{locale}.yml`: `set_entry_attachment` (`action: "detach"`, `confirm: true`). Bakes all existing live locales. Local section overlays without ownership change: section tools + `layout_target: "entry"`.
+Only when this entry must diverge from `template.{locale}.yml`: `set_entry_attachment` (`action: "detach"`, `confirm: true`). Bakes all existing live locales. Local section overlays without ownership change: section tools + `layout_target: "entry"`.
 
 **Reattach:** `action: "reattach"` + `confirm: true` is blocked until every **live** locale satisfies fields with `editor.required: true|attached` (including JSON schema for `call_to_action` / `faq_entries`). Failure: `reattach_missing_required_fields` + locale-qualified `missing_fields`. Fill via `update_fields`, then retry. Non-effect: does not copy CTA/FAQ from detached sections into Fields.
 

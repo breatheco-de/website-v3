@@ -23,11 +23,11 @@
         component_renderer: tags
         all_label: "All categories"
     item_template:
-      image: "{{ single.image }}"
-      title: "{{ single.title }}"
-      description: "{{ single.description }}"
-      taxonomy: "{{ single.category }}"
-      url: "{{ single._resolved_url }}"
-      meta_left: "{{ single.author }}"
-      meta_right: "{{ single.published_at | }}"
+      image: "{{ entry.image }}"
+      title: "{{ entry.title }}"
+      description: "{{ entry.description }}"
+      taxonomy: "{{ entry.category }}"
+      url: "{{ entry._resolved_url }}"
+      meta_left: "{{ entry.author }}"
+      meta_right: "{{ entry.published_at | }}"
       cta_text: "Read more"

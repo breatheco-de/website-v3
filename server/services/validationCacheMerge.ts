@@ -118,7 +118,7 @@ function filePathToEntryKey(
     if (variant === "single" || variant === "") {
       return `${contentType}/${slug}/${locale}`;
     }
-    if (variant.startsWith("single.")) {
+    if (variant.startsWith("single.") || variant.startsWith("template.")) {
       return `${contentType}/${slug}/${locale}@${variant.slice("single.".length)}`;
     }
     return `${contentType}/${slug}/${locale}@${variant}`;

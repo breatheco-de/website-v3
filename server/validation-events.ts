@@ -45,7 +45,10 @@ function parseResourceFromPath(filePath: string): {
     return { path: norm, contentType, slug };
   }
   let locale = base;
-  if (base.startsWith("single.")) locale = base.slice("single.".length);
+  if (base.startsWith("template.") || base.startsWith("single.")) {
+    const rest = base.startsWith("template.") ? base.slice("template.".length) : base.slice("single.".length);
+    locale = rest.split(".")[0] || locale;
+  }
   else if (base.includes(".")) locale = base.split(".").pop() || base;
   return { path: norm, contentType, slug, locale };
 }

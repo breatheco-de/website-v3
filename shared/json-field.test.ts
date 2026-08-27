@@ -112,19 +112,19 @@ describe("resolveSingleTemplateValue", () => {
   it("returns FAQ arrays from exact single binds", () => {
     const faqs = [{ question: "Q?", answer: "A." }];
     expect(
-      resolveSingleTemplateValue("{{ single.faq_entries | [] }}", {
+      resolveSingleTemplateValue("{{ entry.faq_entries | [] }}", {
         faq_entries: faqs,
       }),
     ).toEqual(faqs);
   });
 
   it("parses JSON pipe fallbacks when the bag misses the field", () => {
-    expect(resolveSingleTemplateValue("{{ single.faq_entries | [] }}", {})).toEqual(
+    expect(resolveSingleTemplateValue("{{ entry.faq_entries | [] }}", {})).toEqual(
       [],
     );
     expect(
       resolveSingleTemplateValue(
-        '{{ single.title | ¿Qué significa ser Full Stack? }}',
+        '{{ entry.title | ¿Qué significa ser Full Stack? }}',
         {},
       ),
     ).toBe("¿Qué significa ser Full Stack?");
@@ -132,7 +132,7 @@ describe("resolveSingleTemplateValue", () => {
 
   it("resolves exact string fields for search phrases", () => {
     expect(
-      resolveSingleTemplateValue("{{ single.title | fallback }}", {
+      resolveSingleTemplateValue("{{ entry.title | fallback }}", {
         title: "Real title",
       }),
     ).toBe("Real title");

@@ -664,8 +664,8 @@ export function EditorTypeDialog({
             {type === "json" && !lockImageType && (
               <p className="text-[11px] text-muted-foreground" data-testid="text-hint-json-howto">
                 Stores structured data (object/array), not a string. Use exact{" "}
-                <code className="text-foreground">{"{{ single.field }}"}</code> or{" "}
-                <code className="text-foreground">{"{{ single.field | [] }}"}</code> in templates.
+                <code className="text-foreground">{"{{ entry.field }}"}</code> or{" "}
+                <code className="text-foreground">{"{{ entry.field | [] }}"}</code> in templates.
                 A JSON Schema is required.
               </p>
             )}

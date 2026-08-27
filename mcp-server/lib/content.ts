@@ -335,11 +335,16 @@ export function resolveContentType(
     if (!config) return null;
     if (isDbBacked(config) && !allowShared) return null;
     if (allowShared && isSharedLayoutConfig(config)) {
-      // DB-backed / single_template: slug may be an entry or the sentinel "single"
-      if (slug === "single") {
-        const singlePath = path.join(basePath, getDirectory(hintContentType, config), `single.en.yml`);
-        const singleEs = path.join(basePath, getDirectory(hintContentType, config), `single.es.yml`);
-        if (fs.existsSync(singlePath) || fs.existsSync(singleEs)) {
+      // DB-backed / single_template: slug may be an entry or the sentinel template|single
+      if (slug === "single" || slug === "template") {
+        const typeDir = path.join(basePath, getDirectory(hintContentType, config));
+        const candidates = [
+          "template.en.yml",
+          "template.es.yml",
+          "single.en.yml",
+          "single.es.yml",
+        ];
+        if (candidates.some((n) => fs.existsSync(path.join(typeDir, n)))) {
           return { contentType: hintContentType, config };
         }
       }
@@ -355,7 +360,7 @@ export function resolveContentType(
   }
   for (const [ct, config] of Object.entries(configs)) {
     if (isDbBacked(config) && !allowShared) continue;
-    if (allowShared && slug === "single" && isSharedLayoutConfig(config)) {
+    if (allowShared && (slug === "single" || slug === "template") && isSharedLayoutConfig(config)) {
       return { contentType: ct, config };
     }
     const dir = path.join(basePath, getDirectory(ct, config), slug);

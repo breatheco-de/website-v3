@@ -6,6 +6,11 @@
  * module works in Vite client bundles and on the server.
  */
 
+import {
+  ENTRY_OR_SINGLE_VAR_PATTERN,
+  EXACT_ENTRY_OR_SINGLE_VAR_PATTERN,
+} from "./entryTemplateVars";
+
 export type JsonSchema = Record<string, unknown>;
 
 export type JsonFieldParseOk = { ok: true; value: unknown };
@@ -273,11 +278,6 @@ export function parsePipeFallback(fallback: string): unknown {
   }
 }
 
-const SINGLE_VAR_PATTERN =
-  /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}/g;
-const EXACT_SINGLE_VAR_PATTERN =
-  /^\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
-
 function getNestedBagValue(obj: Record<string, unknown>, dotPath: string): unknown {
   const parts = dotPath.split(".");
   let current: unknown = obj;
@@ -290,16 +290,17 @@ function getNestedBagValue(obj: Record<string, unknown>, dotPath: string): unkno
 }
 
 /**
- * Resolve `{{ single.* }}` tokens against a bag (exact match keeps structured
- * values like FAQ JSON arrays; inline interpolation stringifies objects).
- * Used by dynamic_entries (before resolveSingleVars) and FAQ editor preview.
+ * Resolve `{{ entry.* }}` / legacy `{{ single.* }}` tokens against a bag
+ * (exact match keeps structured values like FAQ JSON arrays; inline
+ * interpolation stringifies objects). Used by dynamic_entries (before
+ * resolveSingleVars) and FAQ editor preview.
  */
 export function resolveSingleTemplateValue(
   template: unknown,
   bag: Record<string, unknown>,
 ): unknown {
   if (typeof template === "string") {
-    const exactMatch = template.match(EXACT_SINGLE_VAR_PATTERN);
+    const exactMatch = template.match(EXACT_ENTRY_OR_SINGLE_VAR_PATTERN);
     if (exactMatch) {
       const fieldPath = exactMatch[1];
       const hasFallback = exactMatch[2] !== undefined;
@@ -310,11 +311,15 @@ export function resolveSingleTemplateValue(
       return "";
     }
 
-    if (!SINGLE_VAR_PATTERN.test(template)) return template;
-    SINGLE_VAR_PATTERN.lastIndex = 0;
+    const globalPattern = new RegExp(
+      ENTRY_OR_SINGLE_VAR_PATTERN.source,
+      ENTRY_OR_SINGLE_VAR_PATTERN.flags,
+    );
+    if (!globalPattern.test(template)) return template;
+    globalPattern.lastIndex = 0;
 
     return template.replace(
-      SINGLE_VAR_PATTERN,
+      globalPattern,
       (_match, fieldPath: string, fallback?: string) => {
         const value = getNestedBagValue(bag, fieldPath);
         if (value !== undefined && value !== null) {

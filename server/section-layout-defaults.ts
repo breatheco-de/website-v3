@@ -1,5 +1,5 @@
 /**
- * Content-type layout defaults from `_common.single.yml`.
+ * Content-type layout defaults from `_common.template.yml` (legacy `_common.single.yml`).
  * Top-level keys match section layout fields; applied onto every section
  * with fill-missing deep merge (section values win).
  */

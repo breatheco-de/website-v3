@@ -175,6 +175,11 @@ import {
 import { resolveDynamicEntries } from "../dynamic-entries";
 import { loadMergedSinglePage, mergeSingleTemplate } from "../database-single-loader";
 import { rejectAttachedStructuralEdit } from "../shared-layout-entry";
+import {
+  resolveTemplateLocalePath,
+  isTypeLayoutTarget,
+  isSharedTemplateBasename,
+} from "../shared-layout-paths";
 import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
@@ -339,8 +344,8 @@ export function registerSectionsRoutes(app: Express): void {
           const { generateSectionId } = await import("../utils/generateSectionId");
           sectionId = generateSectionId((targetSection.type as string) || "section");
 
-          const localePath = path.join(templateDir, `single.${locale}.yml`);
-          const fallbackPath = path.join(templateDir, "single.en.yml");
+          const localePath = resolveTemplateLocalePath(templateDir, locale, { fallbackLocale: "" });
+          const fallbackPath = resolveTemplateLocalePath(templateDir, "en", { fallbackLocale: "" });
           const templateFile = fs.existsSync(localePath) ? localePath : fallbackPath;
 
           if (fs.existsSync(templateFile)) {
@@ -741,8 +746,8 @@ export function registerSectionsRoutes(app: Express): void {
       }
 
       // Find and mutate the correct template YAML file
-      const localePath = path.join(templateDir, `single.${locale}.yml`);
-      const fallbackPath = path.join(templateDir, "single.en.yml");
+      const localePath = resolveTemplateLocalePath(templateDir, locale, { fallbackLocale: "" });
+      const fallbackPath = resolveTemplateLocalePath(templateDir, "en", { fallbackLocale: "" });
       const templateFile = fs.existsSync(localePath) ? localePath : fallbackPath;
 
       if (!fs.existsSync(templateFile)) {
@@ -901,8 +906,8 @@ export function registerSectionsRoutes(app: Express): void {
         const { generateSectionId } = await import("../utils/generateSectionId");
         sectionId = generateSectionId((targetSection.type as string) || "section");
 
-        const localePath = path.join(templateDir, `single.${locale}.yml`);
-        const fallbackPath = path.join(templateDir, "single.en.yml");
+        const localePath = resolveTemplateLocalePath(templateDir, locale, { fallbackLocale: "" });
+        const fallbackPath = resolveTemplateLocalePath(templateDir, "en", { fallbackLocale: "" });
         const templateFile = fs.existsSync(localePath) ? localePath : fallbackPath;
 
         if (fs.existsSync(templateFile)) {
@@ -1082,7 +1087,7 @@ export function registerSectionsRoutes(app: Express): void {
 
       const isMcpRequest = typeof req.headers["x-mcp-author"] === "string";
       const resolvedLayoutTarget =
-        layoutTarget === "entry" || layoutTarget === "type_single" ? layoutTarget : undefined;
+        layoutTarget === "entry" || isTypeLayoutTarget(layoutTarget) ? layoutTarget : undefined;
 
       const touchedSectionIndexes = new Set<number>();
       for (const op of finalOperations as Array<{ action: string; index?: number; path?: string }>) {
@@ -1209,7 +1214,7 @@ export function registerSectionsRoutes(app: Express): void {
         const normalizedLocale = normalizeLocale(locale);
 
         let syncSlow = false;
-        let wroteSharedTemplate = resolvedLayoutTarget === "type_single";
+        let wroteSharedTemplate = isTypeLayoutTarget(resolvedLayoutTarget);
         try {
           const writtenPath = ci.getContentFilePath(
             contentType,
@@ -1219,20 +1224,18 @@ export function registerSectionsRoutes(app: Express): void {
             effectiveVersion,
           );
           if (fileMentionsRedirects(writtenPath)) syncSlow = true;
-          if (path.basename(writtenPath).startsWith("single.")) {
+          if (isSharedTemplateBasename(path.basename(writtenPath))) {
             wroteSharedTemplate = true;
           }
         } catch { /* ignore */ }
-        if (resolvedLayoutTarget === "type_single") {
+        if (isTypeLayoutTarget(resolvedLayoutTarget)) {
           try {
             const folder = ci.getFolderName(contentType);
-            const singlePath = path.join(
-              getContentRoot(res),
-              folder,
-              effectiveVariant
-                ? `single.${effectiveVariant}.${normalizedLocale}.yml`
-                : `single.${normalizedLocale}.yml`,
-            );
+            const typeDir = path.join(getContentRoot(res), folder);
+            const singlePath = resolveTemplateLocalePath(typeDir, normalizedLocale, {
+              variant: effectiveVariant,
+              fallbackLocale: "",
+            });
             if (fileMentionsRedirects(singlePath)) syncSlow = true;
             wroteSharedTemplate = true;
           } catch { /* ignore */ }
@@ -1265,7 +1268,7 @@ export function registerSectionsRoutes(app: Express): void {
         }
         if (wroteSharedTemplate) {
           response.shared_template_html_cache =
-            "Shared-template save: this page (and bound pages) had path-scoped HTML cache bust. Other URLs that share single.*.yml may keep previous anonymous HTML until TTL (~5 min). Slow content-index scan is async/coalesced. See server/content-write-flush.ts, server/html-page-cache.ts, server/content-index.ts.";
+            "Shared-template save: this page (and bound pages) had path-scoped HTML cache bust. Other URLs that share template.*.yml may keep previous anonymous HTML until TTL (~5 min). Slow content-index scan is async/coalesced. See server/content-write-flush.ts, server/html-page-cache.ts, server/content-index.ts.";
         }
         if (result.warning) {
           response.warning = result.warning;

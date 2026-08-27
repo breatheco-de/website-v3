@@ -101,6 +101,7 @@ import {
   editorRequiredModes,
   bodyModelForConfig,
   createViaForConfig,
+  templateVarsNoteForBodyModel,
 } from "../lib/entry-helpers.js";
 import {
   resolveTranslateMode,
@@ -117,6 +118,7 @@ import {
   operationsFromLocalePayload,
 } from "../../server/editorial-updated-at.js";
 import { getSeoIndexEntry, SEO_INDEX_FILENAME } from "../../server/seo-index.js";
+import { buildSearchEnginesPagePayload } from "../../server/search-engines-page.js";
 import {
   collectFormSourceHitsFromNode,
   collectFormSourceHitsFromUpdates,
@@ -275,7 +277,7 @@ async function callEditSectionsApi(
     locale: string;
     variant?: string;
     operations: Record<string, unknown>[];
-    layoutTarget?: "entry" | "type_single";
+    layoutTarget?: "entry" | "type_single" | "type_template";
   },
   mcpToken?: string,
   domain?: string,
@@ -304,7 +306,7 @@ async function callEditSectionsApi(
               {
                 code: "section_index_no_create",
                 message:
-                  "Does not create sections[] slots or overlay patches. Reload indexes, or edit the template (single.{locale}.yml) with layout_target type_single. Overlay merge: server/section-merge.ts.",
+                  "Does not create sections[] slots or overlay patches. Reload indexes, or edit the template (template.{locale}.yml) with layout_target type_template. Overlay merge: server/section-merge.ts.",
               },
             ],
             next_actions: [
@@ -378,11 +380,11 @@ async function callEditSectionsApi(
 function appendSharedTemplateHtmlCacheWarning(
   warnings: McpWarning[],
   data: Record<string, unknown>,
-  layoutTarget?: "entry" | "type_single",
+  layoutTarget?: "entry" | "type_single" | "type_template",
 ): void {
   if (
     typeof data.shared_template_html_cache === "string" ||
-    layoutTarget === "type_single"
+    (layoutTarget === "type_single" || layoutTarget === "type_template")
   ) {
     if (!warnings.some((w) => w.code === SHARED_TEMPLATE_HTML_CACHE_WARNING.code)) {
       warnings.push(SHARED_TEMPLATE_HTML_CACHE_WARNING);
@@ -1175,7 +1177,8 @@ export function registerPageTools(
     "get_entry_seo",
     "Get the SEO/meta block plus structured-data preview for a page, with the identifying envelope (contentType, slug, locale, locales, urls). " +
     "Returns meta, seo (locale seo.main_keyword / pillar_path / is_pillar), include_in_clustering (derived: false only when seo.pillar_path is explicit null), " +
-    "index (live seo-index.json row; omitted for variants), " +
+    "index (live seo-index.json topic-cluster inventory row — NOT search-engine indexing; omitted for variants), " +
+    "optional search_engines when include_search_engines:true (cached Google Search Console + Bing stub; read-only, does not refresh cache or call live APIs), " +
     "validation_issues (open cached SEO-category issues), " +
     "claimed_issues (SEO issues claimed by others), " +
     "completed_issues (soft-completed SEO issues), and a rich schema_org block: " +
@@ -1185,18 +1188,28 @@ export function registerPageTools(
     "Hub inventory: list_seo_clusters / list_seo_cluster_entries / get_seo_cluster. " +
     "Toggle clustering via update_fields seo.include_in_clustering (MCP-only; requires type seo_monitoring.enabled). " +
     "Do not expect a derived JSON-LD dump on get_entry_content. Requires content_view or seo_edit. " +
-    "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
+    "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file. " +
+    "Variants skip search_engines (live URLs only); re-call without variant to read engine status.",
     {
       slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to read (e.g. 'draft-v2'). When provided, reads {variantSlug}.{locale}.yml instead of the live locale file."),
+      include_search_engines: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "If true (live reads only), attach search_engines.{google,bing} from cached inspection data. " +
+            "index remains seo-index cluster inventory. Does not call Google/Bing APIs or refresh the cache. " +
+            "Ignored for variants (warning search_engines_skipped_variant).",
+        ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, contentType, variant, site }) => {
+    async ({ slug, locale, contentType, variant, include_search_engines, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const { contentPath } = siteResult;
+      const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
         assertSafeLocale(locale);
@@ -1272,6 +1285,23 @@ export function registerPageTools(
           locale,
           result.data as Record<string, unknown>,
         );
+        const warnings: Array<{ code: string; message: string }> = [
+          {
+            code: "variant_seo_not_indexed",
+            message: "Variant seo: is not in seo-index.json until promote.",
+          },
+          {
+            code: "variant_updated_at_not_live",
+            message: "Variant updated_at does not change live sitemap lastmod until promote.",
+          },
+        ];
+        if (include_search_engines) {
+          warnings.push({
+            code: "search_engines_skipped_variant",
+            message:
+              "Search engine status applies to live URLs only; re-call get_entry_seo without variant and include_search_engines:true.",
+          });
+        }
         return {
           content: [
             {
@@ -1297,16 +1327,7 @@ export function registerPageTools(
                     contentPath,
                     result.data as Record<string, unknown>,
                   ),
-                  warnings: [
-                    {
-                      code: "variant_seo_not_indexed",
-                      message: "Variant seo: is not in seo-index.json until promote.",
-                    },
-                    {
-                      code: "variant_updated_at_not_live",
-                      message: "Variant updated_at does not change live sitemap lastmod until promote.",
-                    },
-                  ],
+                  warnings,
                 },
                 null,
                 2,
@@ -1339,7 +1360,7 @@ export function registerPageTools(
         payload.data,
       );
 
-      const seoPayload = {
+      const seoPayload: Record<string, unknown> = {
         contentType: payload.contentType,
         slug: payload.slug,
         locale: payload.locale,
@@ -1361,6 +1382,17 @@ export function registerPageTools(
           payload.data,
         ),
       };
+
+      if (include_search_engines) {
+        const engines = buildSearchEnginesPagePayload({
+          contentRoot: contentPath,
+          contentFolder,
+          domain,
+          requestedUrl: pageUrl,
+        });
+        seoPayload.search_engines = engines.search_engines;
+        seoPayload.warnings = engines.warnings;
+      }
 
       return { content: [{ type: "text", text: JSON.stringify(seoPayload, null, 2) }] };
     }
@@ -2172,14 +2204,14 @@ export function registerPageTools(
   const ALL_KNOWN_META_FIELDS = new Set([...META_COMMON_FIELDS, ...META_LOCALE_FIELDS]);
 
   const layoutTargetSchema = z
-    .enum(["auto", "entry", "type_single"])
+    .enum(["auto", "entry", "type_single", "type_template"])
     .optional()
     .default("auto")
     .describe(LAYOUT_TARGET_DESC);
   const confirmLayoutTargetSchema = z
     .boolean()
     .optional()
-    .describe('Set true after choosing layout_target "entry" or "type_single" when confirm_layout_target was required.');
+    .describe('Set true after choosing layout_target "entry" or "type_template" when confirm_layout_target was required.');
 
   function bindingPropagateSideEffects(boundUpdates: unknown): McpSideEffect[] | undefined {
     if (!Array.isArray(boundUpdates) || boundUpdates.length === 0) return undefined;
@@ -2195,7 +2227,7 @@ export function registerPageTools(
     "The only single-entry field write tool. Apply one or more field updates to one page/locale. " +
     "updates length 1 = single-field edit. May mix meta.*, safe top-level body fields, and fields under ONE sections.N.* index. " +
     "Rejects two or more distinct section indexes (split into separate calls so bindings can propagate). " +
-    "sections.N.* patches an existing slot only — missing index fails (reload, or edit single.{locale}.yml with layout_target type_single). Does not create overlay patches or grow sections[]. " +
+    "sections.N.* patches an existing slot only — missing index fails (reload, or edit template.{locale}.yml with layout_target type_template). Does not create overlay patches or grow sections[]. " +
     "field_path routing: sections.* and safe top-level → locale; seo.main_keyword|seo.pillar_path|seo.is_pillar → locale seo: (never _common.yml, no meta_target); " +
     "seo.include_in_clustering (MCP-only boolean, never YAML) expands to pillar_path/is_pillar — requires content-type seo_monitoring.enabled; " +
     "on=true needs non-empty seo.pillar_path or seo.is_pillar:true after merge; on=false → pillar_path:null + is_pillar:false; " +
@@ -2579,7 +2611,7 @@ export function registerPageTools(
         warnings.push({
           code: "section_index_no_create",
           message:
-            "sections.N.* patches an existing slot only (this file or single.{locale}.yml). Missing index fails — reload get_entry_fields or use layout_target type_single. Does not create overlay patches. Merge: server/section-merge.ts.",
+            "sections.N.* patches an existing slot only (this file or template.{locale}.yml). Missing index fails — reload get_entry_fields or use layout_target type_template. Does not create overlay patches. Merge: server/section-merge.ts.",
         });
       }
       if (variant && commonEntries.length > 0) {
@@ -3584,15 +3616,15 @@ export function registerPageTools(
             locale: data.locale,
             filePath: data.filePath,
             versioningSlug,
-            templateMode: versioningSlug === "single",
+            templateMode: versioningSlug === "single" || versioningSlug === "template",
             seededFromDraft: data.seededFromDraft === true,
           },
           {
             warnings: [...VARIANT_WARNINGS],
             side_effects: [{
               kind: "variant_isolated",
-              summary: versioningSlug === "single"
-                ? "Created template draft (shared by all attached entries); live single.*.yml unchanged"
+              summary: versioningSlug === "single" || versioningSlug === "template"
+                ? "Created template draft (shared by all attached entries); live template.*.yml unchanged"
                 : data.seededFromDraft
                   ? "Created additional draft from existing draft; still unpublished"
                   : "Created draft only; live locale YAML unchanged",
@@ -3603,10 +3635,10 @@ export function registerPageTools(
               reason: "Edit the draft with variant set; live bindings/shared-layout will not run until publish/promote + live edits.",
               args_hint: {
                 contentType,
-                slug: versioningSlug === "single" ? slug : slug,
+                slug: versioningSlug === "single" || versioningSlug === "template" ? slug : slug,
                 locale,
                 variant: data.variantSlug ?? variantSlug,
-                layout_target: versioningSlug === "single" ? "type_single" : undefined,
+                layout_target: versioningSlug === "single" || versioningSlug === "template" ? "type_template" : undefined,
               },
             }],
           },
@@ -3836,13 +3868,13 @@ export function registerPageTools(
       const config = configs[contentType];
       const sharedLayout = config ? isSharedLayoutConfig(config) : false;
       const { isEntryDetached } = await import("../../server/shared-layout-entry.js");
-      const detached = sharedLayout && slug !== "single"
+      const detached = sharedLayout && slug !== "single" && slug !== "template"
         ? isEntryDetached(contentType, slug, contentPath)
         : false;
-      const templateBlocked = slug === "single" || (sharedLayout && !detached);
+      const templateBlocked = (slug === "single" || slug === "template") || (sharedLayout && !detached);
 
       if (templateBlocked) {
-        const next_actions: NextAction[] = slug === "single"
+        const next_actions: NextAction[] = (slug === "single" || slug === "template")
           ? []
           : [
               {
@@ -3867,7 +3899,7 @@ export function registerPageTools(
             locale,
             warnings: [{
               code: "template_blast_radius",
-              message: "Converting single.{locale}.yml would unpublish that template locale for every attached entry. This tool does not convert the shared template.",
+              message: "Converting template.{locale}.yml would unpublish that template locale for every attached entry. This tool does not convert the shared template.",
             }],
             next_actions,
           },
@@ -3961,7 +3993,7 @@ export function registerPageTools(
     "Edit with variant: 'draft', then call publish_draft. Confirm with the principal before publishing.\n" +
     "All content types: exactly ONE locale per create (multi-locale create is rejected). Add translations via translate_entry.\n" +
     "Shared-layout / single_template types write that one locale live immediately. " +
-    "Put body/fields on the locale (title, description, content, … per field_mapping); sections must be [] — shell comes from single.{locale}.yml. " +
+    "Put body/fields on the locale (title, description, content, … per field_mapping); sections must be [] — shell comes from template.{locale}.yml. " +
     "Call explain_site topic shared-layout and/or get_content_type_info before creating shared-layout entries. " +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
     "locales map: locale → { meta?, sections?, …field_mapping keys }. Exactly one locale key.\n" +
@@ -3996,6 +4028,11 @@ export function registerPageTools(
         assertSafeSegment(contentType, "contentType");
       } catch (e) {
         return fail((e as Error).message);
+      }
+      if (slug === "single" || slug === "template") {
+        return fail(
+          'Slug "template" and "single" are reserved for the shared-layout shell and cannot be used as entry slugs.',
+        );
       }
 
       const localeKeys = Object.keys(locales);
@@ -4068,7 +4105,7 @@ export function registerPageTools(
               code: "shared_layout_sections_must_be_empty",
               message:
                 "Shared-layout create must use sections: [] (or omit sections). " +
-                "The shell comes from single.{locale}.yml. Put body in locale fields (e.g. content). " +
+                "The shell comes from template.{locale}.yml. Put body in locale fields (e.g. content). " +
                 "Overlays after create use section tools with layout_target.",
               contentType,
               slug,
@@ -4351,7 +4388,7 @@ export function registerPageTools(
         next_actions.push({
           tool: "get_entry_content",
           priority: "recommended",
-          reason: "Re-read merged content (fields + single.{locale}.yml shell). Prefer update_fields for locale fields — not section shell edits.",
+          reason: "Re-read merged content (fields + template.{locale}.yml shell). Prefer update_fields for locale fields — not section shell edits.",
           args_hint: { contentType, slug, locale: primaryLocale, ...siteHint },
         });
         next_actions.push({
@@ -4572,7 +4609,7 @@ export function registerPageTools(
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
-      if (pathInfo.layer === "type_single") {
+      if ((pathInfo.layer === "type_single" || pathInfo.layer === "type_template")) {
         const env = sharedStructuralEnvelope({
           tool: "add_section",
           contentType: resolved.contentType,
@@ -4776,7 +4813,7 @@ export function registerPageTools(
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
-      if (pathInfo.layer === "type_single") {
+      if ((pathInfo.layer === "type_single" || pathInfo.layer === "type_template")) {
         const env = sharedStructuralEnvelope({
           tool: "remove_section",
           contentType: resolved.contentType,
@@ -4938,7 +4975,7 @@ export function registerPageTools(
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
-      if (pathInfo.layer === "type_single") {
+      if ((pathInfo.layer === "type_single" || pathInfo.layer === "type_template")) {
         const env = sharedStructuralEnvelope({
           tool: "reorder_sections",
           contentType: resolved.contentType,
@@ -5110,7 +5147,7 @@ export function registerPageTools(
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
-      if (pathInfo.layer === "type_single") {
+      if ((pathInfo.layer === "type_single" || pathInfo.layer === "type_template")) {
         const env = sharedStructuralEnvelope({
           tool: "replace_entry_sections",
           contentType: resolved.contentType,
@@ -5177,7 +5214,7 @@ export function registerPageTools(
     "translate_entry",
     "Write translated content for a target locale. Does NOT perform AI translation — supply the translated payload.\n\n" +
     "Modes (from entry state, not a detach flag):\n" +
-    "- attached shared-layout: locale field_mapping keys + optional meta; sections omit or []. Shell stays on single.{locale}.yml.\n" +
+    "- attached shared-layout: locale field_mapping keys + optional meta; sections omit or []. Shell stays on template.{locale}.yml.\n" +
     "- detached shared-layout or classic page: non-empty sections for new/full shell (fields optional); fields-only merges preserve existing sections.\n" +
     "New target locale: always writes draft.{locale}.yml (not public). Promote/publish validates URL uniqueness.\n" +
     "Optional url_slug sets this locale's public URL segment (defaults to entry identity). Do not pass content.slug or content.url — use url_slug.\n" +
@@ -5604,7 +5641,7 @@ export function registerPageTools(
         warnings.push({
           code: "attached_shell_unchanged",
           message:
-            "Entry remains attached. Shell still comes from single.{locale}.yml; this write did not bake or detach.",
+            "Entry remains attached. Shell still comes from template.{locale}.yml; this write did not bake or detach.",
         });
       }
       if (writeAsDraft) {
@@ -5719,7 +5756,7 @@ export function registerPageTools(
   mcp.tool(
     "set_entry_attachment",
     "Change whether a shared-layout entry owns its page shell.\n\n" +
-    'action "detach": bake single.{locale}.yml into every existing live {locale}.yml and set detached: true. ' +
+    'action "detach": bake template.{locale}.yml into every existing live {locale}.yml and set detached: true. ' +
     "Does not invent missing sibling locales. Not required for field translation (use translate_entry while attached) " +
     "or local section overlays (layout_target: entry).\n\n" +
     'action "reattach": strip entry sections/layout, clear detached, delete entry versioning/variants (lossy). ' +
@@ -5803,7 +5840,7 @@ export function registerPageTools(
               action_required: "confirm_detach",
               code: "confirm_detach",
               message:
-                `Detach will bake single.{locale}.yml into these live locale files: ${liveLocales.join(", ")}. ` +
+                `Detach will bake template.{locale}.yml into these live locale files: ${liveLocales.join(", ")}. ` +
                 "Sets detached: true on _common.yml. Does not invent missing locales. " +
                 "Not needed for field translation (translate_entry while attached) or layout_target: entry overlays.",
               contentType,
@@ -5859,7 +5896,7 @@ export function registerPageTools(
             {
               code: "detach_shell_owned",
               message:
-                "Entry now owns its shell. Template single.* changes no longer apply. " +
+                "Entry now owns its shell. Shared template.* changes no longer apply. " +
                 "translate_entry uses detached_sections mode. Section overlays previously used layout_target: entry — prefer entry-owned section tools now.",
             },
           ];
@@ -5931,7 +5968,7 @@ export function registerPageTools(
             code: "confirm_reattach",
             message:
               "Reattach strips entry sections/layout, clears detached, and deletes entry versioning.yml + variant files " +
-              "(including draft.{locale}.yml). Field/mapping data on locale and _common is kept. Shell returns to single.{locale}.yml.",
+              "(including draft.{locale}.yml). Field/mapping data on locale and _common is kept. Shell returns to template.{locale}.yml.",
             contentType,
             slug,
             locale: previewLocale,
@@ -5987,7 +6024,7 @@ export function registerPageTools(
           {
             code: "reattach_shell_shared",
             message:
-              "Entry is attached again. Shell comes from single.{locale}.yml. translate_entry uses attached_fields mode.",
+              "Entry is attached again. Shell comes from template.{locale}.yml. translate_entry uses attached_fields mode.",
           },
         ];
         if (result.hadTrafficVariants) {
@@ -6548,6 +6585,7 @@ export function registerPageTools(
               ? "Use create_entry (YAML). Shared-layout: one locale, sections []."
               : "Database-backed — create_entry cannot create rows; use DB/admin path.",
             body_model: bodyModelForConfig(config),
+            template_vars_note: templateVarsNoteForBodyModel(bodyModelForConfig(config)),
             ecommerce: ecommerceManager.contentTypeHasEcommerce(contentType)
               ? {
                   enabled: true,

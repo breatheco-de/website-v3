@@ -748,7 +748,7 @@ export default function ComponentPickerModal({
           variant,
           version,
           author,
-          ...(isSharedTemplate && variant ? { layoutTarget: "type_single" } : {}),
+          ...(isSharedTemplate && variant ? { layoutTarget: "type_template" } : {}),
           operations,
         }),
       });

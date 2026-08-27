@@ -80,7 +80,7 @@ function entryLocalePath(ctx: RawFileExplainContext, locale = ctx.requestedLocal
 }
 
 function singleLivePath(ctx: RawFileExplainContext, locale = ctx.requestedLocale): string {
-  return posixJoin(prefix(ctx), `single.${locale}.yml`);
+  return posixJoin(prefix(ctx), `template.${locale}.yml`);
 }
 
 function withCode(
@@ -112,11 +112,11 @@ export function rawFileCaption(opts: {
           `This is the shared live layout for every attached ${type} in ${loc(fileLocale)}. It is not one article. Title, body, and SEO for a post live in that post’s \`_common.yml\`. Saving here changes the shell all attached ${loc(fileLocale)} ${typePlural(type)} use.`,
         advanced: withCode([
           { label: "This file", text: path },
-          { label: "Type defaults (no sections)", text: posixJoin(prefix(ctx), "_common.single.yml") },
+          { label: "Type defaults (no sections)", text: posixJoin(prefix(ctx), "_common.template.yml") },
           { label: "Article fields", text: entryCommonPath(ctx) },
           {
             label: "Non-effect",
-            text: `does not change a post’s \`_common.yml\`, other locales (\`single.{other}.yml\`), or template versions (\`single.{variant}.${fileLocale}.yml\`) until you promote`,
+            text: `does not change a post’s \`_common.yml\`, other locales (\`template.{other}.yml\`), or template versions (\`template.{variant}.${fileLocale}.yml\`) until you promote`,
           },
         ]),
       };
@@ -130,7 +130,7 @@ export function rawFileCaption(opts: {
         { label: "Article fields", text: entryCommonPath(ctx) },
         {
           label: "Non-effect",
-          text: "saving this locale does not update `single.en.yml` or any post’s `_common.yml`",
+          text: "saving this locale does not update `template.en.yml` or any post’s `_common.yml`",
         },
       ]),
     };
@@ -141,10 +141,10 @@ export function rawFileCaption(opts: {
     if (ctx.localeFallback) {
       return {
         visible:
-          `You opened ${loc(requested)}; this panel is showing ${loc(displayed)} because \`single.${variant}.${requested}.yml\` does not exist. This is still a shared template version (“${variant}”), not an article. Saving it edits the ${loc(displayed)} variant file only.`,
+          `You opened ${loc(requested)}; this panel is showing ${loc(displayed)} because \`template.${variant}.${requested}.yml\` does not exist. This is still a shared template version (“${variant}”), not an article. Saving it edits the ${loc(displayed)} variant file only.`,
         advanced: withCode([
-          { label: "Showing", text: posixJoin(prefix(ctx), `single.${variant}.${displayed}.yml`) },
-          { label: "Missing", text: posixJoin(prefix(ctx), `single.${variant}.${requested}.yml`) },
+          { label: "Showing", text: posixJoin(prefix(ctx), `template.${variant}.${displayed}.yml`) },
+          { label: "Missing", text: posixJoin(prefix(ctx), `template.${variant}.${requested}.yml`) },
           { label: `Live ${loc(requested)} template`, text: singleLivePath(ctx, requested) },
           {
             label: "Non-effect",
@@ -162,7 +162,7 @@ export function rawFileCaption(opts: {
         { label: "Article fields", text: entryCommonPath(ctx) },
         {
           label: "Non-effect",
-          text: `saving this file does not rename or overwrite live \`single.${fileLocale}.yml\` until you promote. It does not edit any post’s \`_common.yml\``,
+          text: `saving this file does not rename or overwrite live \`template.${fileLocale}.yml\` until you promote. It does not edit any post’s \`_common.yml\``,
         },
       ]),
     };
@@ -171,7 +171,7 @@ export function rawFileCaption(opts: {
   if (role === "template_common") {
     return {
       visible:
-        "This file is type-level layout defaults (menus and shared chrome). Sections in this file are ignored. The section list lives in `single.en.yml` / `single.es.yml`.",
+        "This file is type-level layout defaults (menus and shared chrome). Sections in this file are ignored. The section list lives in `template.en.yml` / `template.es.yml`.",
       advanced: withCode(
         [
           { label: "This file", text: path },
@@ -190,7 +190,7 @@ export function rawFileCaption(opts: {
     if (ctx.isSharedLayout && !ctx.detached) {
       return {
         visible:
-          `This is a locale overlay on an attached ${type}, not the full page. Heroes, article chrome, and CTAs come from \`single.${fileLocale}.yml\`. Use this file only for per-article section patches. For a wholly different layout, detach the post.`,
+          `This is a locale overlay on an attached ${type}, not the full page. Heroes, article chrome, and CTAs come from \`template.${fileLocale}.yml\`. Use this file only for per-article section patches. For a wholly different layout, detach the post.`,
         advanced: withCode(
           [
             { label: "This file", text: path },
@@ -214,7 +214,7 @@ export function rawFileCaption(opts: {
           { label: "Shared fields", text: entryCommonPath(ctx) },
           {
             label: "Non-effect",
-            text: `this page is detached, so saving here does not change \`${type}/single.${fileLocale}.yml\` or other posts`,
+            text: `this page is detached, so saving here does not change \`${type}/template.${fileLocale}.yml\` or other posts`,
           },
         ]),
       };
@@ -227,7 +227,7 @@ export function rawFileCaption(opts: {
         { label: "Shared fields", text: entryCommonPath(ctx) },
         {
           label: "Non-effect",
-          text: `there is no \`single.${fileLocale}.yml\` for this type. Saving this file does not change other ${typePlural(type)}`,
+          text: `there is no \`template.${fileLocale}.yml\` for this type. Saving this file does not change other ${typePlural(type)}`,
         },
       ]),
     };
@@ -254,7 +254,7 @@ export function rawFileCaption(opts: {
   if (ctx.isSharedLayout && !ctx.detached && !ctx.hasLocaleFile) {
     return {
       visible:
-        `This is the article’s fields (title, body, SEO) shared across locales. There is no \`${requested}.yml\` on this post — that is normal while it is attached. Layout and sections come from the shared template \`${type}/single.${requested}.yml\`, not from a per-article locale file.`,
+        `This is the article’s fields (title, body, SEO) shared across locales. There is no \`${requested}.yml\` on this post — that is normal while it is attached. Layout and sections come from the shared template \`${type}/template.${requested}.yml\`, not from a per-article locale file.`,
       advanced: withCode(
         [
           { label: "This file", text: path },
@@ -284,7 +284,7 @@ export function rawFileCaption(opts: {
           { label: "Full layout", text: singleLivePath(ctx, requested) },
           {
             label: "Non-effect",
-            text: `saving \`_common.yml\` does not change \`single.${requested}.yml\``,
+            text: `saving \`_common.yml\` does not change \`template.${requested}.yml\``,
           },
         ],
         LOADER_CODE,
@@ -302,7 +302,7 @@ export function rawFileCaption(opts: {
           { label: "Missing", text: entryLocalePath(ctx, requested) },
           {
             label: "Non-effect",
-            text: `the shared template \`single.${requested}.yml\` is not used while detached. Saving \`_common.yml\` does not create \`${requested}.yml\``,
+            text: `the shared template \`template.${requested}.yml\` is not used while detached. Saving \`_common.yml\` does not create \`${requested}.yml\``,
           },
         ],
         DRAFT_CODE,
@@ -335,7 +335,7 @@ export function rawFileCaption(opts: {
         { label: "Sibling (not loaded)", text: entryLocalePath(ctx, "en") },
         {
           label: "Non-effect",
-          text: `this is not inherited from a \`single.${requested}.yml\`. Saving \`_common.yml\` does not create \`${requested}.yml\``,
+          text: `this is not inherited from a \`template.${requested}.yml\`. Saving \`_common.yml\` does not create \`${requested}.yml\``,
         },
       ]),
     };

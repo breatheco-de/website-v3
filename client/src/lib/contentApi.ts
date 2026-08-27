@@ -9,7 +9,7 @@ export interface ContentEditRequest {
   operations: EditOperation[];
   variant?: string;
   version?: number;
-  /** "type_single" routes the save to single.{locale}.yml (or single-{variant}.{locale}.yml when variant is set) */
+  /** "type_template" (alias type_single) routes the save to template.{locale}.yml (or template.{variant}.{locale}.yml when variant is set) */
   layoutTarget?: string;
 }
 

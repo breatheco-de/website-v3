@@ -573,7 +573,7 @@ export function SectionEditorPanel({
   const [activeTab, setActiveTab] = useState("code");
   const [scopeDialogOpen, setScopeDialogOpen] = useState(false);
   const [templateSaveConfirmOpen, setTemplateSaveConfirmOpen] = useState(false);
-  /** Cleared `{{ single.* }}` paths approved via the shared-template confirm. */
+  /** Cleared `{{ entry.* }}` paths approved via the shared-template confirm. */
   const [pendingClearedTemplatePaths, setPendingClearedTemplatePaths] = useState<string[]>([]);
   /** Unbound paths → static literals for shared-template save confirm. */
   const [pendingUnboundTemplateDetails, setPendingUnboundTemplateDetails] = useState<
@@ -612,7 +612,7 @@ export function SectionEditorPanel({
   const hasVariableFields = !!(section as Record<string, unknown>)._variableFields;
   const isPerEntryOverlaySection = !!(section as Record<string, unknown>)._perEntrySource;
   /**
-   * Load raw single.*.yml for shared-layout template sections only.
+   * Load raw template.*.yml for shared-layout template sections only.
    * Ordinary pages (e.g. locations) keep authored `{{ }}` via
    * restoreVariableFieldsForEditor — do not hit single-template-sections for them.
    */
@@ -625,7 +625,7 @@ export function SectionEditorPanel({
     if (!vf) return {} as Record<string, string>;
     const result: Record<string, string> = {};
     for (const [fieldPath, templateExpr] of Object.entries(vf)) {
-      // Parse expressions like {{ single.thumbnail }} or {{ single.thumbnail | default.jpg }}
+      // Parse expressions like {{ entry.thumbnail }} or {{ entry.thumbnail | default.jpg }}
       const match = /\{\{\s*single\.([^|}\s]+)/.exec(templateExpr);
       if (match) {
         result[fieldPath] = match[1].trim();
@@ -660,7 +660,7 @@ export function SectionEditorPanel({
 
   const bindingQueryClient = useQueryClient();
 
-  // Shared-template variant YAML: single.{variant}.{locale}.yml (not entry ?variant= drafts).
+  // Shared-template variant YAML: template.{variant}.{locale}.yml (not entry ?variant= drafts).
   const effectiveTemplateVariant = (() => {
     if (!isSharedTemplate) return "";
     if (typeof window === "undefined") return variant ?? "";
@@ -2353,8 +2353,8 @@ export function SectionEditorPanel({
     }
 
     try {
-      // Shared-template A/B drafts live at single.{variant}.{locale}.yml (type_single).
-      // Entry A/B drafts (e.g. programs/ai-flex/v2.es.yml) must not use type_single —
+      // Shared-template A/B drafts live at template.{variant}.{locale}.yml (type_template).
+      // Entry A/B drafts (e.g. programs/ai-flex/v2.es.yml) must not use type_template —
       // only pass the variant name so the server writes the entry variant file.
       const _urlParams = new URLSearchParams(window.location.search);
       const forceVariant = _urlParams.get("force_variant");
@@ -2370,7 +2370,7 @@ export function SectionEditorPanel({
         locale,
         variant: effectiveVariant,
         version: writeSharedTemplateVariant ? undefined : version,
-        ...(writeSharedTemplateVariant ? { layoutTarget: "type_single" } : {}),
+        ...(writeSharedTemplateVariant ? { layoutTarget: "type_template" } : {}),
         operations: [
           {
             action: "update_section",
@@ -9673,12 +9673,12 @@ export function SectionEditorPanel({
                     </>
                   ) : null}
                   . Saving will update{" "}
-                  <code className="text-xs">single.{locale ?? "en"}.yml</code> and apply these changes to all
+                  <code className="text-xs">template.{locale ?? "en"}.yml</code> and apply these changes to all
                   attached {contentType ? contentType.replace(/_/g, " ") : "content type"} entries.
                 </p>
                 <p>
                   This page uses a shared layout file (
-                  <code className="text-xs">single.{locale ?? "en"}.yml</code>
+                  <code className="text-xs">template.{locale ?? "en"}.yml</code>
                   ). Saving replaces live per-post data with fixed text for{" "}
                   <strong className="text-foreground">every</strong> page attached to this layout in
                   this language—not only the page you are viewing. To change one page only, detach
@@ -9718,9 +9718,9 @@ export function SectionEditorPanel({
                       Removing template bindings
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      These <code className="text-[11px]">{"{{ single.* }}"}</code> fields will be
+                      These <code className="text-[11px]">{"{{ entry.* }}"}</code> fields will be
                       removed from this locale&apos;s{" "}
-                      <code className="text-[11px]">single.{locale ?? "en"}.yml</code> only
+                      <code className="text-[11px]">template.{locale ?? "en"}.yml</code> only
                       (sibling locales are not updated). Other bindings stay protected.
                     </p>
                     <ul className="list-disc pl-4 text-xs font-mono space-y-0.5">

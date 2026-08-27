@@ -3,7 +3,7 @@
  *
  * Builds the list of resolved ContentFile entries for validation by delegating
  * entirely to ContentIndex, which is the single source of truth for content
- * merging (_common.single.yml → _common.yml → locale.yml).
+ * merging (_common.template.yml → _common.yml → locale.yml; legacy _common.single.yml still loads).
  *
  * Also loads published A/B variants (allocation > 0) as separate ContentFiles
  * with `variant` set so entry-local validators score them independently.

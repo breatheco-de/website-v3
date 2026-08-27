@@ -730,7 +730,7 @@ export async function startDiagnosticsJob(
     filePaths,
   );
   if (filePaths && allTargets.length === 0) {
-    const isSharedTemplateFile = /\/(single\.[^/]+\.ya?ml|_common\.single\.ya?ml)$/i.test(
+    const isSharedTemplateFile = /\/((?:template|single)\.[^/]+\.ya?ml|_common\.(?:template|single)\.ya?ml)$/i.test(
       req.file ?? "",
     );
     if (!isSharedTemplateFile) {

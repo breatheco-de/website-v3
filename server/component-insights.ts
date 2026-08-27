@@ -307,7 +307,14 @@ function loadTemplateSections(contentType: string, contentRoot: string): {
 } {
   const folder = getFolder(contentType, contentRoot);
   const dir = path.join(contentRoot, folder);
-  const candidates = ["single.en.yml", "single.es.yml", "_common.single.yml"];
+  const candidates = [
+    "template.en.yml",
+    "template.es.yml",
+    "single.en.yml",
+    "single.es.yml",
+    "_common.template.yml",
+    "_common.single.yml",
+  ];
   for (const name of candidates) {
     const p = path.join(dir, name);
     if (!fs.existsSync(p)) continue;
@@ -315,7 +322,7 @@ function loadTemplateSections(contentType: string, contentRoot: string): {
       const data = safeYamlLoad(fs.readFileSync(p, "utf-8"));
       if (!data) continue;
       const sections = extractSections(data);
-      if (sections.length === 0 && name !== "_common.single.yml") continue;
+      if (sections.length === 0 && name !== "_common.single.yml" && name !== "_common.template.yml") continue;
       const fields = readInsightsFieldsFromYaml(data);
       if (sections.length > 0) {
         return { sections, intent: fields.intent, weight: fields.weight };
@@ -429,7 +436,7 @@ function scanInventory(
       if (template.sections.length === 0 && slugs.length === 0) continue;
 
       for (const slug of slugs) {
-        if (slug === "single") continue;
+        if (slug === "single" || slug === "template") continue;
         const detached = isEntryDetached(contentType, slug, contentRoot);
         if (detached) {
           const resolved = resolvePageSections(contentType, slug, contentDir);
@@ -465,7 +472,7 @@ function scanInventory(
         const sections = template.sections.length > 0 ? template.sections : entryFields.sections;
         if (sections.length === 0) continue;
 
-        const templateId = "single";
+        const templateId = "template";
         const cohortKey = `${contentType}::${templateId}::${intent}::${weight}`;
         let cohort = cohorts.get(cohortKey);
         if (!cohort) {

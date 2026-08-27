@@ -8,33 +8,33 @@ import {
 
 describe("parseTemplateExpression", () => {
   it("parses name and pipe fallback", () => {
-    expect(parseTemplateExpression('{{ single.category | category }}')).toEqual({
-      name: "single.category",
+    expect(parseTemplateExpression('{{ entry.category | category }}')).toEqual({
+      name: "entry.category",
       inlineFallback: "category",
-      raw: "{{ single.category | category }}",
+      raw: "{{ entry.category | category }}",
     });
   });
 
   it("parses without fallback", () => {
-    expect(parseTemplateExpression("{{ single.description }}")).toEqual({
-      name: "single.description",
+    expect(parseTemplateExpression("{{ entry.description }}")).toEqual({
+      name: "entry.description",
       inlineFallback: undefined,
-      raw: "{{ single.description }}",
+      raw: "{{ entry.description }}",
     });
   });
 });
 
 describe("getSuggestedUnbindDefault", () => {
   it("uses pipe fallback", () => {
-    expect(getSuggestedUnbindDefault('{{ single.category | category }}')).toBe("category");
+    expect(getSuggestedUnbindDefault('{{ entry.category | category }}')).toBe("category");
   });
 
   it("parses JSON pipe fallback", () => {
-    expect(getSuggestedUnbindDefault("{{ single.items | [] }}")).toEqual([]);
+    expect(getSuggestedUnbindDefault("{{ entry.items | [] }}")).toEqual([]);
   });
 
   it("returns empty for single without pipe", () => {
-    expect(getSuggestedUnbindDefault("{{ single.description }}")).toBe("");
+    expect(getSuggestedUnbindDefault("{{ entry.description }}")).toBe("");
   });
 
   it("uses global definition default", () => {
@@ -58,7 +58,7 @@ describe("formatUnbindLiteralForInsert", () => {
 
 describe("applyUnbindToFieldValue", () => {
   it("replaces only the template span in mixed strings", () => {
-    const field = "{{ single.title | Blog }} - Hub";
+    const field = "{{ entry.title | Blog }} - Hub";
     const from = field.indexOf("{{");
     const to = field.indexOf("}}") + 2;
     expect(applyUnbindToFieldValue(field, from, to, "Guides")).toBe("Guides - Hub");

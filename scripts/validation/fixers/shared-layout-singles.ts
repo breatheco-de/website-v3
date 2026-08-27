@@ -2,8 +2,8 @@
  * Fixer: shared-layout-singles
  *
  * For DB-backed and single_template types:
- * - Repair empty `single.{locale}.yml` stubs by mirroring a sibling with sections
- * - Strip `sections` from `_common.single.yml` and type `_common.yml` if present
+ * - Repair empty `template.{locale}.yml` stubs by mirroring a sibling with sections
+ * - Strip `sections` from `_common.template.yml` / legacy `_common.single.yml` and type `_common.yml` if present
  * - Report divergent type/version/variant across siblings as warnings (not auto-fixed)
  */
 
@@ -18,6 +18,11 @@ import {
   buildMirroredLocaleSingle,
   listAllSinglePaths,
 } from "../../../server/shared-layout-sync";
+import {
+  resolveCommonTemplatePath,
+  COMMON_TEMPLATE_BASENAME,
+  LEGACY_COMMON_SINGLE_BASENAME,
+} from "../../../server/shared-layout-paths";
 import { canonicalSectionId } from "../../../server/utils/sectionIdentity";
 
 function dumpYaml(data: unknown): string {
@@ -36,7 +41,7 @@ function safeLoad(raw: string): Record<string, unknown> | null {
 export const sharedLayoutSinglesFixer: Fixer = {
   name: "shared-layout-singles",
   description:
-    "Align empty shared-layout single.{locale}.yml stubs to a sibling template; strip sections from common files",
+    "Align empty shared-layout template.{locale}.yml stubs to a sibling template; strip sections from common files",
 
   async run(ctx: FixerContext): Promise<FixerResult> {
     const dryRun = ctx.dryRun !== false;
@@ -58,14 +63,30 @@ export const sharedLayoutSinglesFixer: Fixer = {
       const typeDir = path.join(root, folder);
       if (!fs.existsSync(typeDir)) continue;
 
-      const commonSingle = path.join(typeDir, "_common.single.yml");
+      const commonSingle = resolveCommonTemplatePath(typeDir);
       if (fs.existsSync(commonSingle)) {
         const data = safeLoad(fs.readFileSync(commonSingle, "utf-8"));
         if (data && "sections" in data) {
-          changes.push(`${folder}/_common.single.yml: remove sections (layout defaults only)`);
+          changes.push(`${folder}/${path.basename(commonSingle)}: remove sections (layout defaults only)`);
           if (!dryRun) {
             delete data.sections;
             fs.writeFileSync(commonSingle, dumpYaml(data) + "\n", "utf-8");
+            fixed++;
+          }
+        }
+      }
+      // Also strip legacy common if both exist
+      const legacyCommon = path.join(typeDir, LEGACY_COMMON_SINGLE_BASENAME);
+      if (
+        path.basename(commonSingle) === COMMON_TEMPLATE_BASENAME &&
+        fs.existsSync(legacyCommon)
+      ) {
+        const data = safeLoad(fs.readFileSync(legacyCommon, "utf-8"));
+        if (data && "sections" in data) {
+          changes.push(`${folder}/${LEGACY_COMMON_SINGLE_BASENAME}: remove sections (layout defaults only)`);
+          if (!dryRun) {
+            delete data.sections;
+            fs.writeFileSync(legacyCommon, dumpYaml(data) + "\n", "utf-8");
             fixed++;
           }
         }
@@ -90,7 +111,7 @@ export const sharedLayoutSinglesFixer: Fixer = {
         const sections = Array.isArray(data?.sections) ? data!.sections : [];
         if (sections.length === 0 && mirror && mirror.locale !== locale) {
           changes.push(
-            `${folder}/single.${locale}.yml: empty stub → mirror structure from ${mirror.locale}`,
+            `${folder}/${path.basename(filePath)}: empty stub → mirror structure from ${mirror.locale}`,
           );
           if (!dryRun) {
             const mirrored = buildMirroredLocaleSingle(mirror.data);

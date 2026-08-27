@@ -346,6 +346,7 @@ import {
   resolveVersioningReadSlug,
 } from "../shared-layout-entry";
 import { detachEntry, reattachEntry, getReattachSectionLossPreview, ReattachRequiredFieldsError } from "../shared-layout-detach";
+import { resolveCommonTemplatePath } from "../shared-layout-paths";
 import {
   buildLocaleUnavailablePayload,
   isEmptyDetachedLocaleEntry,
@@ -2461,7 +2462,7 @@ export function registerContentRoutes(app: Express): void {
         res.status(404).json({ error: `Unknown content type: ${type}` });
         return;
       }
-      // DB-backed and static single_template shared-layout types both use single.{locale}.yml
+      // DB-backed and static single_template shared-layout types both use template.{locale}.yml
       if (!isSharedLayoutType(type, root)) {
         res.status(400).json({ error: `Content type "${type}" does not use a single template` });
         return;
@@ -2596,7 +2597,7 @@ export function registerContentRoutes(app: Express): void {
         res.status(404).json({ error: `Content type "${name}" not found` });
         return;
       }
-      const filePath = path.join(getContentRoot(res), folder, "_common.single.yml");
+      const filePath = resolveCommonTemplatePath(path.join(getContentRoot(res), folder));
       if (!fs.existsSync(filePath)) {
         res.json({ defaults: {} });
         return;
@@ -2622,10 +2623,13 @@ export function registerContentRoutes(app: Express): void {
         res.status(400).json({ error: "Request body must be a JSON object" });
         return;
       }
-      const filePath = path.join(getContentRoot(res), folder, "_common.single.yml");
+      const filePath = resolveCommonTemplatePath(path.join(getContentRoot(res), folder), {
+        forWrite: true,
+      });
       let existing: Record<string, unknown> = {};
-      if (fs.existsSync(filePath)) {
-        const raw = fs.readFileSync(filePath, "utf-8");
+      const existingPath = resolveCommonTemplatePath(path.join(getContentRoot(res), folder));
+      if (fs.existsSync(existingPath)) {
+        const raw = fs.readFileSync(existingPath, "utf-8");
         existing = getCI(res).safeYamlLoad(raw) || {};
       }
       const { author: _authorIgnored, ...bodyWithoutAuthor } = body as Record<string, unknown>;

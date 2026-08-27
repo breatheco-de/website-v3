@@ -12,14 +12,14 @@ export const NOT_META_FIELD_COPY = {
     badge: "Not meta title",
     badgeTestId: "badge-not-meta-title",
     popoverTestId: "popover-not-meta-title",
-    singleVar: "{{ single.title }}",
+    singleVar: "{{ entry.title }}",
     metaKey: "meta.page_title",
   },
   description: {
     badge: "Not meta description",
     badgeTestId: "badge-not-meta-description",
     popoverTestId: "popover-not-meta-description",
-    singleVar: "{{ single.description }}",
+    singleVar: "{{ entry.description }}",
     metaKey: "meta.description",
   },
 } as const;

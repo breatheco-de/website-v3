@@ -1491,6 +1491,48 @@ export default function MediaGallery() {
                   >
                     <span className="text-xs">Derived</span>
                   </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="sm"
+                        className="h-8 shrink-0 gap-1.5"
+                        data-testid="button-add-gallery-media"
+                      >
+                        <Upload className="h-4 w-4" />
+                        Add media
+                        <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        data-testid="menu-add-media-image"
+                        onClick={() => {
+                          setAddMediaDoctype("image");
+                          setAddMediaOpen(true);
+                        }}
+                      >
+                        Image
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        data-testid="menu-add-media-video"
+                        onClick={() => {
+                          setAddMediaDoctype("video");
+                          setAddMediaOpen(true);
+                        }}
+                      >
+                        Video
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        data-testid="menu-add-media-pdf"
+                        onClick={() => {
+                          setAddMediaDoctype("pdf");
+                          setAddMediaOpen(true);
+                        }}
+                      >
+                        PDF
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
 
                 {doctypeExpanded && (
@@ -1576,54 +1618,10 @@ export default function MediaGallery() {
       </header>
 
       <div className="container mx-auto px-4 py-6 max-w-7xl">
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <p className="text-xs text-muted-foreground" data-testid="text-gallery-doctype-hint">
-            Holds images, videos, and PDFs. Use Type and Tags to filter; tags work the same for all media.
-            Crop and optimize apply to images only.
-          </p>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                className="shrink-0 gap-1.5"
-                data-testid="button-add-gallery-media"
-              >
-                <Upload className="h-4 w-4" />
-                Add media
-                <ChevronDown className="h-3.5 w-3.5 opacity-70" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                data-testid="menu-add-media-image"
-                onClick={() => {
-                  setAddMediaDoctype("image");
-                  setAddMediaOpen(true);
-                }}
-              >
-                Image
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                data-testid="menu-add-media-video"
-                onClick={() => {
-                  setAddMediaDoctype("video");
-                  setAddMediaOpen(true);
-                }}
-              >
-                Video
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                data-testid="menu-add-media-pdf"
-                onClick={() => {
-                  setAddMediaDoctype("pdf");
-                  setAddMediaOpen(true);
-                }}
-              >
-                PDF
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        <p className="text-xs text-muted-foreground mb-4" data-testid="text-gallery-doctype-hint">
+          Holds images, videos, and PDFs. Use Type and Tags to filter; tags work the same for all media.
+          Crop and optimize apply to images only.
+        </p>
 
         {scanResult && (
           <div className="mb-6 rounded-lg border p-4 space-y-3" data-testid="scan-results">

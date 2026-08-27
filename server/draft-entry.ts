@@ -9,8 +9,13 @@
 import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
+import {
+  VARIANT_SHELL_BASENAME_RE,
+  liveTemplateBasename,
+} from "@shared/sharedLayoutPaths";
 import { getFolder, getContentTypeConfig } from "./content-types";
 import { isSharedLayoutType, isTemplateVersioningSlug } from "./shared-layout-entry";
+import { hasLiveTemplateLocale } from "./shared-layout-paths";
 import { getDefaultContentRoot } from "./site-config";
 import { getSupportedLocales } from "./settings";
 import { markFileAsModified } from "./sync-state";
@@ -40,7 +45,7 @@ export function getEntryContentDir(
 }
 
 export function liveLocaleFileName(locale: string, templateMode = false): string {
-  return templateMode ? `single.${locale}.yml` : `${locale}.yml`;
+  return templateMode ? liveTemplateBasename(locale) : `${locale}.yml`;
 }
 
 export function hasLiveLocaleFile(
@@ -48,7 +53,8 @@ export function hasLiveLocaleFile(
   locale: string,
   templateMode = false,
 ): boolean {
-  return fs.existsSync(path.join(contentDir, liveLocaleFileName(locale, templateMode)));
+  if (templateMode) return hasLiveTemplateLocale(contentDir, locale);
+  return fs.existsSync(path.join(contentDir, liveLocaleFileName(locale, false)));
 }
 
 /** True when the entry has at least one live locale file (published). */
@@ -112,7 +118,7 @@ export function listDraftLocales(contentDir: string, templateMode = false): stri
       if (!f.endsWith(".yml") && !f.endsWith(".yaml")) continue;
       const stem = f.replace(/\.ya?ml$/, "");
       if (templateMode) {
-        const m = stem.match(/^single\.([a-z0-9-]+)\.([a-z]{2}(?:-[a-z]{2})?)$/);
+        const m = VARIANT_SHELL_BASENAME_RE.exec(f);
         if (m) found.add(m[2]);
       } else {
         const m = stem.match(/^([a-z0-9-]+)\.([a-z]{2}(?:-[a-z]{2})?)$/);
@@ -138,8 +144,8 @@ export function listVariantSlugsForLocale(
       if (!f.endsWith(".yml") && !f.endsWith(".yaml")) continue;
       const stem = f.replace(/\.ya?ml$/, "");
       if (templateMode) {
-        const m = stem.match(new RegExp(`^single\\.([a-z0-9-]+)\\.${locale}$`));
-        if (m) slugs.push(m[1]);
+        const m = VARIANT_SHELL_BASENAME_RE.exec(f);
+        if (m && m[2] === locale) slugs.push(m[1]);
       } else {
         const m = stem.match(new RegExp(`^([a-z0-9-]+)\\.${locale}$`));
         if (m) slugs.push(m[1]);
@@ -160,7 +166,7 @@ export function countVariantFiles(contentDir: string, templateMode = false): num
       if (!f.endsWith(".yml") && !f.endsWith(".yaml")) continue;
       const stem = f.replace(/\.ya?ml$/, "");
       if (templateMode) {
-        if (/^single\.[a-z0-9-]+\.[a-z]{2}(?:-[a-z]{2})?$/.test(stem)) n++;
+        if (VARIANT_SHELL_BASENAME_RE.test(f)) n++;
       } else if (/^[a-z0-9-]+\.[a-z]{2}(?:-[a-z]{2})?$/.test(stem)) {
         n++;
       }

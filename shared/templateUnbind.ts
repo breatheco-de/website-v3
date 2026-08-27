@@ -1,4 +1,7 @@
 import { parsePipeFallback } from "@shared/json-field";
+import {
+  isEntryOrSingleVarName,
+} from "@shared/entryTemplateVars";
 
 const EXACT_TEMPLATE_EXPR =
   /^\{\{\s*([^|}]+?)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
@@ -23,7 +26,6 @@ export interface ParsedTemplateExpression {
   raw: string;
 }
 
-const SINGLE_PREFIX = "single.";
 const META_PREFIX = "meta.";
 const PARAM_PREFIX = "param.";
 
@@ -86,7 +88,7 @@ export function getSuggestedUnbindDefault(
 
   const name = parsed.name;
   if (
-    name.startsWith(SINGLE_PREFIX) ||
+    isEntryOrSingleVarName(name) ||
     name.startsWith(META_PREFIX) ||
     name.startsWith(PARAM_PREFIX)
   ) {

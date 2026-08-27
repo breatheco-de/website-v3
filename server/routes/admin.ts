@@ -3375,7 +3375,7 @@ export function registerAdminRoutes(app: Express): void {
       }
       const { getReferrersForTargetPath, loadLinkIndex } = await import("../link-index");
       const site = (res.locals as { site?: { contentRoot?: string } }).site;
-      const result = getReferrersForTargetPath(pathParam, site?.contentRoot, { limit: 5 });
+      const result = getReferrersForTargetPath(pathParam, site?.contentRoot, { limit: 50 });
       const linkIndex = loadLinkIndex(site?.contentRoot);
       res.json({
         path: pathParam,
@@ -3635,12 +3635,24 @@ export function registerAdminRoutes(app: Express): void {
     const seedPaths = Array.isArray(seedRaw)
       ? seedRaw.filter((p): p is string => typeof p === "string" && p.trim().length > 0)
       : undefined;
+    const purgeRaw = req.body?.purgeFingerprints;
+    const purgeFingerprints = Array.isArray(purgeRaw)
+      ? Array.from(
+          new Set(
+            purgeRaw.filter((fp): fp is string => typeof fp === "string" && fp.trim().length > 0),
+          ),
+        )
+      : undefined;
 
     try {
       const { addIgnoreRules } = await import("../runtime-issues-store");
       const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
       const siteName = site?.contentRootName || "default";
-      const result = addIgnoreRules(siteName, rules, { contentRoot: site?.contentRoot, seedPaths });
+      const result = addIgnoreRules(siteName, rules, {
+        contentRoot: site?.contentRoot,
+        seedPaths,
+        purgeFingerprints,
+      });
       res.json(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to add ignore rules";
@@ -3679,6 +3691,52 @@ export function registerAdminRoutes(app: Express): void {
     } catch (err) {
       log.error({ err }, "Failed to remove ignore rules:");
       res.status(500).json({ error: "Failed to remove ignore rules" });
+    }
+  });
+
+  app.post("/api/admin/runtime-issues/purge", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_edit");
+    if (!auth.authorized) return;
+
+    const mode = req.body?.mode;
+    const fingerprintsRaw = req.body?.fingerprints;
+
+    try {
+      const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
+      const siteName = site?.contentRootName || "default";
+      const contentRoot = site?.contentRoot;
+
+      if (mode === "matching_ignore_rules") {
+        const { purgeIssuesMatchingIgnoreRules } = await import("../runtime-issues-store");
+        const result = purgeIssuesMatchingIgnoreRules(siteName, contentRoot);
+        res.json(result);
+        return;
+      }
+
+      if (!Array.isArray(fingerprintsRaw) || fingerprintsRaw.length === 0) {
+        res.status(400).json({
+          error: 'Provide fingerprints (string[]) or mode: "matching_ignore_rules"',
+        });
+        return;
+      }
+      const fingerprints = Array.from(
+        new Set(
+          fingerprintsRaw.filter(
+            (fp): fp is string => typeof fp === "string" && fp.trim().length > 0,
+          ),
+        ),
+      );
+      if (!fingerprints.length) {
+        res.status(400).json({ error: "fingerprints must include at least one string" });
+        return;
+      }
+
+      const { deleteRuntimeIssuesByFingerprints } = await import("../runtime-issues-store");
+      const result = deleteRuntimeIssuesByFingerprints(siteName, fingerprints, contentRoot);
+      res.json(result);
+    } catch (err) {
+      log.error({ err }, "Failed to purge runtime issues:");
+      res.status(500).json({ error: "Failed to purge runtime issues" });
     }
   });
 

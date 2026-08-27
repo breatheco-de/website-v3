@@ -1013,13 +1013,13 @@ export function VersioningView({
                     <li>
                       Live:{" "}
                       <code className="bg-muted px-1 rounded">
-                        {isTemplateVersioning ? "single.{locale}.yml" : "{locale}.yml"}
+                        {isTemplateVersioning ? "template.{locale}.yml" : "{locale}.yml"}
                       </code>
                     </li>
                     <li>
                       Extra version:{" "}
                       <code className="bg-muted px-1 rounded">
-                        {isTemplateVersioning ? "single.{variant}.{locale}.yml" : "{variant}.{locale}.yml"}
+                        {isTemplateVersioning ? "template.{variant}.{locale}.yml" : "{variant}.{locale}.yml"}
                       </code>
                     </li>
                     <li>
@@ -1423,7 +1423,7 @@ export function VersioningView({
             </DialogTitle>
             <DialogDescription>
               {isTemplateVersioning
-                ? <>A draft copy of <code className="text-xs bg-muted px-1 py-0.5 rounded">single.{createVersionLocale}.yml</code> will be created. Promote it to replace the shared template when ready.</>
+                ? <>A draft copy of <code className="text-xs bg-muted px-1 py-0.5 rounded">template.{createVersionLocale}.yml</code> will be created. Promote it to replace the shared template when ready.</>
                 : <>A new version of <strong>{contentInfo.label || contentInfo.slug}</strong> will be created but your users will not see it unless traffic is assigned to it later.</>
               }
             </DialogDescription>
@@ -1457,7 +1457,7 @@ export function VersioningView({
                 <p className="text-xs font-medium">File that will be created:</p>
                 <p className="text-xs font-mono text-muted-foreground break-all">
                   {isTemplateVersioning
-                    ? `single.${createVersionSlug}.${createVersionLocale}.yml`
+                    ? `template.${createVersionSlug}.${createVersionLocale}.yml`
                     : `${contentInfo.slug}/${createVersionSlug}.${createVersionLocale}.yml`}
                 </p>
               </div>

@@ -58,7 +58,7 @@ Picker options come from `/api/query-options?source=…` (omit locale → entrie
 | Surface | Shape |
 |--------|--------|
 | Listing / list_cards | Keep slug pointers; display via **deslugify** (`shared/relation-field.ts`) |
-| Page / SSR `{{ single.authors }}` | Hydrated object[] via `server/resolve-relations.ts` (locale + fallback) |
+| Page / SSR `{{ entry.authors }}` | Hydrated object[] via `server/resolve-relations.ts` (locale + fallback) |
 
 ## Blog + authors (4geeks)
 
@@ -68,8 +68,8 @@ Picker options come from `/api/query-options?source=…` (omit locale → entrie
 
 ```yaml
 - type: article
-  content: "{{ single.content }}"
-  authors: "{{ single.authors }}"
+  content: "{{ entry.content }}"
+  authors: "{{ entry.authors }}"
 ```
 
 Missing map → byline/LD may fall back to Organization; do not rely on silent React autoread.
@@ -103,6 +103,6 @@ Never write Person JSON into blog `authors` — pointers only.
 ## Author hub JSON-LD
 
 - CT `authors.schema_org_requirements: [{ schema_type: Person }]`.
-- Shared template `authors/single.{locale}.yml` leads with `schema_org` `Person` mapped from `{{ single.* }}` fields; SSR fills `url`/`@id` from the hub page URL when missing.
+- Shared template `authors/template.{locale}.yml` leads with `schema_org` `Person` mapped from `{{ entry.* }}` fields; SSR fills `url`/`@id` from the hub page URL when missing.
 - Hub bio is `text_block` (not `article`) — **non-effect:** no Article LD from the bio.
 - BlogPosting.author Person[] still comes from relation hydration on blog articles — not from this hub `schema_org` section.

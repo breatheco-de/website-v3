@@ -984,7 +984,7 @@ function ConnectDatabaseConfirmDialog({
             <ul className="list-disc pl-5 space-y-1">
               <li>Pick a database and map identity fields (slug, locale)</li>
               <li>Map content fields and optional indexes for filtering</li>
-              <li>Shared <code className="text-[11px]">single.*.yml</code> templates are used to render DB entries</li>
+              <li>Shared <code className="text-[11px]">template.*.yml</code> templates are used to render DB entries</li>
             </ul>
           </div>
         </div>
@@ -1095,7 +1095,7 @@ function PartialOverrideDialog({
               <div>
                 <p className="font-medium text-foreground mb-1">Database dependencies</p>
                 <ul className="list-disc pl-5 space-y-1">
-                  <li>Template fields using <code className="text-[11px]">{`{{ single.* }}`}</code> resolve from the DB row at render time</li>
+                  <li>Template fields using <code className="text-[11px]">{`{{ entry.* }}`}</code> resolve from the DB row at render time</li>
                   <li>Public URLs are resolved from the database index (<code className="text-[11px]">byUrl</code>) when the cache is loaded</li>
                   <li>
                     <code className="text-[11px]">loadDatabaseSinglePage</code> returns null without a
@@ -2733,11 +2733,11 @@ const SPECIAL_FIELD_INFO: Record<
   _slug: {
     title: "_slug — Entry identity",
     summary:
-      "System field on every content type. Points at the value that uniquely identifies each entry for URL routing and lookups. The resolved value is also available as {{ single.slug }} (alias). You cannot declare a custom field named slug.",
+      "System field on every content type. Points at the value that uniquely identifies each entry for URL routing and lookups. The resolved value is also available as {{ entry.slug }} (alias). You cannot declare a custom field named slug.",
     howItWorks: [
       "For database types, this is usually a column on each row (e.g. slug).",
       "For static types, default identity is the YAML/folder slug field.",
-      "Templates use {{ single.slug }} or {{ single._slug }} (both exposed).",
+      "Templates use {{ entry.slug }} or {{ entry._slug }} (both exposed).",
     ],
     howToSet: [
       "Map it to a string field such as slug or id (DB identity).",
@@ -2748,7 +2748,7 @@ const SPECIAL_FIELD_INFO: Record<
   _locale: {
     title: "_locale — Language of the entry",
     summary:
-      "System field on every content type. Identifies which language each entry/row belongs to. May be empty on static types when locale comes from the file name. Exposed as {{ single.locale }} and {{ single._locale }}.",
+      "System field on every content type. Identifies which language each entry/row belongs to. May be empty on static types when locale comes from the file name. Exposed as {{ entry.locale }} and {{ entry._locale }}.",
     howItWorks: [
       "Each DB row is one locale; _locale tells the system whether the row is en, es, etc.",
       "On static types, locale often comes from the filename (en.yml); mapping locale is optional.",
@@ -2768,7 +2768,7 @@ const SPECIAL_FIELD_INFO: Record<
       "Expects a dictionary: { en: \"english-slug\", es: \"spanish-slug\" }.",
       "getAlternateUrls reads this map for language switching, hreflang, and sitemap alternates.",
       "Static types keep folder / per-locale slug behavior; do not set _hreflangs there.",
-      "Do not use {{ single._hreflangs }} in templates — it is stripped from the single bag.",
+      "Do not use {{ entry._hreflangs }} in templates — it is stripped from the single bag.",
     ],
     howToSet: [
       "On DB types: map to a translations-like field or a function.",
@@ -2780,7 +2780,7 @@ const SPECIAL_FIELD_INFO: Record<
   _updated_at: {
     title: "_updated_at — Last content change",
     summary:
-      "Editorial clock for sitemap <lastmod>, {{ single.updated_at }}, Schema.org dateModified, and the manage Updated column. Last time title, meta title/description, or section copy/images changed — not Git or file mtime.",
+      "Editorial clock for sitemap <lastmod>, {{ entry.updated_at }}, Schema.org dateModified, and the manage Updated column. Last time title, meta title/description, or section copy/images changed — not Git or file mtime.",
     howItWorks: [
       "Stored as top-level updated_at on the locale or variant YAML being saved ({directory}/{slug}/{locale}.yml).",
       "Empty values resolve to published_at (first go-live on _common.yml) until this locale is saved; that save writes the seed onto the layer file.",
@@ -2796,7 +2796,7 @@ const SPECIAL_FIELD_INFO: Record<
   _image: {
     title: "_image — Preview / OG image",
     summary:
-      "System field for entry list thumbnails and Open Graph. Exposed as {{ single.image }} and {{ single._image }}. You cannot declare a custom field named image.",
+      "System field for entry list thumbnails and Open Graph. Exposed as {{ entry.image }} and {{ entry._image }}. You cannot declare a custom field named image.",
     howItWorks: [
       "Maps to a URL (or path) on the entry / database row.",
       "When empty, optional preview.component screenshots can fill the gap.",
@@ -3064,7 +3064,7 @@ function SpecialFieldInfoDialog({
           <DialogTitle className="font-mono text-base">{title}</DialogTitle>
           <DialogDescription>
             {info?.summary ??
-              "Underscore-prefixed keys are system fields used for routing and locale linking. slug/locale/image/updated_at are also exposed on {{ single.* }}; _hreflangs is routing-only."}
+              "Underscore-prefixed keys are system fields used for routing and locale linking. slug/locale/image/updated_at are also exposed on {{ entry.* }}; _hreflangs is routing-only."}
           </DialogDescription>
         </DialogHeader>
         {info ? (
@@ -3094,7 +3094,7 @@ function SpecialFieldInfoDialog({
           <p className="text-sm text-muted-foreground">
             <code className="font-mono bg-muted px-1 rounded">{fieldKey}</code> is a custom special field.
             Underscore keys are reserved for system use and are not available as{" "}
-            <code className="font-mono bg-muted px-1 rounded">{"{{ single.* }}"}</code> variables.
+            <code className="font-mono bg-muted px-1 rounded">{"{{ entry.* }}"}</code> variables.
           </p>
         ) : null}
         <DialogFooter>
@@ -3468,9 +3468,9 @@ function FieldMappingDialog({
     if (FORBIDDEN_SCHEMA_FIELDS.has(key) || key === RESERVED_IMAGE_FIELD || key.startsWith("_")) {
       toast({
         title: key === FORBIDDEN_SCHEMA_FIELD
-          ? `Use system field ${RESERVED_IMAGE_FIELD} for preview/OG (aliased to {{ single.image }})`
+          ? `Use system field ${RESERVED_IMAGE_FIELD} for preview/OG (aliased to {{ entry.image }})`
           : key === FORBIDDEN_SLUG_ALIAS
-            ? "Use system field _slug for entry identity (aliased to {{ single.slug }})"
+            ? "Use system field _slug for entry identity (aliased to {{ entry.slug }})"
             : "Reserved or system field names cannot be added here",
         variant: "destructive",
       });
@@ -4052,7 +4052,7 @@ function FieldMappingDialog({
                 <code className="font-mono bg-muted px-1 rounded text-xs">fill_intent</code>{" "}
                 (goal and purpose) and try to set the right values. Purpose is also shown as the
                 hint in the item editor. Field values then become accessible through{" "}
-                <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ single.field_name }}"}</code>{" "}
+                <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ entry.field_name }}"}</code>{" "}
                 in the entry YAML file.
               </p>
               <button
@@ -4070,7 +4070,7 @@ function FieldMappingDialog({
                 <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2 text-xs">
                   <p>
                     Declare schema fields for this type. A YAML parent key becomes{" "}
-                    <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ single.fieldName }}"}</code>{" "}
+                    <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ entry.fieldName }}"}</code>{" "}
                     when added here. New fields require a default (including <code className="font-mono text-xs">null</code>).
                     SEO head keys use the Meta tab and{" "}
                     <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ meta.* }}"}</code>.
@@ -4121,7 +4121,7 @@ function FieldMappingDialog({
                     System identity (<code className="font-mono">slug</code>,{" "}
                     <code className="font-mono">locale</code>, <code className="font-mono">image</code> and
                     underscore forms) is auto-exposed on{" "}
-                    <code className="font-mono">{"{{ single.* }}"}</code>;{" "}
+                    <code className="font-mono">{"{{ entry.* }}"}</code>;{" "}
                     <code className="font-mono">_hreflangs</code> is routing-only.{" "}
                     <code className="font-mono">_updated_at</code> is last <strong className="font-medium text-foreground">content</strong> change
                     (title, meta title/description, section copy/images) on locale YAML{" "}
@@ -4462,7 +4462,7 @@ function FieldMappingDialog({
                         {!showComputeEditor && (
                           <p className="text-[10px] text-muted-foreground ml-[7.5rem] mt-0.5 flex items-center gap-1">
                             <span>
-                              Use it as <code className="font-mono">{`{{ single.${key} }}`}</code> on any yml
+                              Use it as <code className="font-mono">{`{{ entry.${key} }}`}</code> on any yml
                             </span>
                             <TooltipProvider delayDuration={200}>
                               <Tooltip>
@@ -4470,7 +4470,7 @@ function FieldMappingDialog({
                                   <button
                                     type="button"
                                     className="inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                    aria-label={`About {{ single.${key} }}`}
+                                    aria-label={`About {{ entry.${key} }}`}
                                     data-testid={`button-single-var-info-${key}`}
                                   >
                                     <Info className="h-3 w-3" />
@@ -4481,7 +4481,7 @@ function FieldMappingDialog({
                                   className="z-[10001] max-w-[260px] text-xs"
                                 >
                                   In page or component YAML, reference this field with{" "}
-                                  <code className="font-mono">{`{{ single.${key} }}`}</code>.
+                                  <code className="font-mono">{`{{ entry.${key} }}`}</code>.
                                   The value comes from the entry&apos;s{" "}
                                   <code className="font-mono">{key}</code> property (or its default when missing).
                                   Use the Code button only if you need to remap or compute it.
@@ -6687,13 +6687,13 @@ export default function ContentTypeManagePage() {
     if (token) headers["Authorization"] = `Token ${token}`;
     try {
       const res = await fetch(
-        `/api/content/raw-file?contentType=${encodeURIComponent(contentType)}&slug=${encodeURIComponent("_common.single")}&locale=en`,
+        `/api/content/raw-file?contentType=${encodeURIComponent(contentType)}&slug=${encodeURIComponent("_common.template")}&locale=en`,
         { headers },
       );
       if (!res.ok) {
         toast({
           title: "No template found",
-          description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+          description: "This content type has no _common.template.yml (or template.*.yml / legacy single.*) yet.",
           variant: "destructive",
         });
         return;
@@ -6702,12 +6702,12 @@ export default function ContentTypeManagePage() {
       if (!data.exists) {
         toast({
           title: "No template found",
-          description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+          description: "This content type has no _common.template.yml (or template.*.yml / legacy single.*) yet.",
           variant: "destructive",
         });
         return;
       }
-      setYamlEditorInfo({ contentType, slug: "_common.single", locale: "en" });
+      setYamlEditorInfo({ contentType, slug: "_common.template", locale: "en" });
       setShowYamlEditor(true);
     } catch {
       toast({ title: "Error", description: "Failed to open the single template", variant: "destructive" });
@@ -8580,7 +8580,7 @@ export default function ContentTypeManagePage() {
                 </ul>
                 <p className="text-destructive text-xs">
                   Existing per-entry overlay patches will be merged into full static YAML and overwritten.
-                  Shared <code className="text-[11px]">single.*.yml</code> templates will be deleted.
+                  Shared <code className="text-[11px]">template.*.yml</code> templates will be deleted.
                   Remote markdown bodies are inlined into the YAML.
                 </p>
               </div>
@@ -8809,7 +8809,10 @@ export default function ContentTypeManagePage() {
             onClose={() => setShowYamlEditor(false)}
             onSaved={() => {
               setShowYamlEditor(false);
-              if (yamlEditorInfo?.slug === "_common.single") {
+              if (
+                yamlEditorInfo?.slug === "_common.template" ||
+                yamlEditorInfo?.slug === "_common.single"
+              ) {
                 queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
                 toast({ title: "Template saved" });
               } else {

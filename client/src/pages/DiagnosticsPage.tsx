@@ -60,16 +60,16 @@ function issueLayerLabel(entryKey?: string, file?: string): string | null {
   const base = (file || "").split(/[/\\]/).pop() || "";
   const isVariantPath =
     /^[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base) ||
-    /^single\.[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base);
+    /^(?:template|single)\.[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base);
   if (!isVariantPath) return null;
   const parts = base.replace(/\.ya?ml$/i, "").split(".");
   const variantSlug =
-    parts[0] === "single" && parts.length >= 3
+    (parts[0] === "single" || parts[0] === "template") && parts.length >= 3
       ? parts[1]
       : parts.length >= 2
         ? parts.slice(0, -1).join(".")
         : null;
-  if (!variantSlug || variantSlug === "single") return null;
+  if (!variantSlug || variantSlug === "single" || variantSlug === "template") return null;
   return `variant: ${variantSlug}`;
 }
 import { useDebugAuth } from "@/hooks/useDebugAuth";
