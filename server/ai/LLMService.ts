@@ -108,16 +108,57 @@ export type GenerateImagesResult = {
   candidates: Array<{ b64: string; mediaType: string }>;
 };
 
+export type GenerateImageCandidate = {
+  index: number;
+  b64: string;
+  mediaType: string;
+  model: string;
+};
+
+type OpenRouterImageError = Error & { status?: number; body?: string };
+
+/** Provider rejected n > 1 (e.g. Gemini: "n: must be exactly 1"). */
+export function isNMustBeOneRejection(body: string): boolean {
+  return /n\s*>\s*1|single.?image|only support|must be exactly\s*1|n:\s*must|n must be/i.test(
+    body,
+  );
+}
+
+/** Provider rejected aspect_ratio (mentioned in 400 body). */
+export function isUnsupportedAspectRatioRejection(body: string): boolean {
+  return /aspect_ratio/i.test(body);
+}
+
+function openRouterErrorBody(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (err as OpenRouterImageError).body || msg;
+}
+
+export class GenerateImagesCancelledError extends Error {
+  constructor() {
+    super("Image generation cancelled");
+    this.name = "GenerateImagesCancelledError";
+  }
+}
+
 /**
- * OpenRouter Image API: POST /images
- * Retries once with n=1 if the provider rejects n > 1.
+ * OpenRouter Image API with progressive candidates.
+ * - Never sends output_format.
+ * - Multi-n success: invokes onCandidate for each image from that response.
+ * - If n > 1 is rejected, runs sequential n=1 calls and emits after each.
+ * - Partial success: stops after emitting at least one when a later call fails.
+ * - aspect_ratio rejection: retries without it.
  */
-export async function generateImages(opts: {
-  prompt: string;
-  n?: number;
-  aspect_ratio?: string;
-  contentRoot?: string;
-}): Promise<GenerateImagesResult> {
+export async function generateImagesStream(
+  opts: {
+    prompt: string;
+    n?: number;
+    aspect_ratio?: string;
+    contentRoot?: string;
+    isCancelled?: () => boolean;
+  },
+  onCandidate: (c: GenerateImageCandidate) => void | Promise<void>,
+): Promise<GenerateImagesResult> {
   const cfg = loadYamlConfig(opts.contentRoot);
   const apiKeyEnv = cfg?.provider?.api_key_env || "OPENROUTER_API_KEY";
   const baseUrlEnv = cfg?.provider?.base_url_env || "OPENROUTER_BASE_URL";
@@ -132,15 +173,23 @@ export async function generateImages(opts: {
 
   const model = resolveImageModel(opts.contentRoot);
   const requestedN = Math.min(4, Math.max(1, opts.n ?? 4));
+  const checkCancelled = () => {
+    if (opts.isCancelled?.()) throw new GenerateImagesCancelledError();
+  };
 
-  const callOnce = async (n: number): Promise<GenerateImagesResult> => {
+  const callOnce = async (
+    n: number,
+    omitAspect: boolean,
+  ): Promise<GenerateImagesResult> => {
+    checkCancelled();
     const body: Record<string, unknown> = {
       model,
       prompt: opts.prompt,
       n,
-      output_format: "webp",
     };
-    if (opts.aspect_ratio) body.aspect_ratio = opts.aspect_ratio;
+    if (opts.aspect_ratio && !omitAspect) {
+      body.aspect_ratio = opts.aspect_ratio;
+    }
 
     const res = await fetch(`${baseURL.replace(/\/$/, "")}/images`, {
       method: "POST",
@@ -152,13 +201,14 @@ export async function generateImages(opts: {
       body: JSON.stringify(body),
     });
 
+    checkCancelled();
     const rawText = await res.text();
     if (!res.ok) {
       const err = new Error(
         `OpenRouter image generation failed (${res.status}): ${rawText.slice(0, 400)}`,
-      );
-      (err as Error & { status?: number; body?: string }).status = res.status;
-      (err as Error & { status?: number; body?: string }).body = rawText;
+      ) as OpenRouterImageError;
+      err.status = res.status;
+      err.body = rawText;
       throw err;
     }
 
@@ -185,17 +235,96 @@ export async function generateImages(opts: {
     return { model, candidates };
   };
 
+  const emitAll = async (
+    list: GenerateImagesResult["candidates"],
+    startIndex: number,
+  ): Promise<number> => {
+    let index = startIndex;
+    for (const c of list) {
+      checkCancelled();
+      await onCandidate({
+        index,
+        b64: c.b64,
+        mediaType: c.mediaType,
+        model,
+      });
+      index += 1;
+    }
+    return index;
+  };
+
+  const collect = async (omitAspect: boolean): Promise<GenerateImagesResult> => {
+    try {
+      const batch = await callOnce(requestedN, omitAspect);
+      await emitAll(batch.candidates, 0);
+      return batch;
+    } catch (err) {
+      if (err instanceof GenerateImagesCancelledError) throw err;
+      const body = openRouterErrorBody(err);
+      if (requestedN > 1 && isNMustBeOneRejection(body)) {
+        const nextOmit =
+          omitAspect ||
+          Boolean(opts.aspect_ratio && isUnsupportedAspectRatioRejection(body));
+        log.warn(
+          { model, requestedN, omitAspect: nextOmit },
+          "[generateImages] n>1 rejected; running sequential n=1 calls",
+        );
+        const candidates: GenerateImagesResult["candidates"] = [];
+        for (let i = 0; i < requestedN; i++) {
+          try {
+            checkCancelled();
+            const one = await callOnce(1, nextOmit);
+            await emitAll(one.candidates, candidates.length);
+            candidates.push(...one.candidates);
+          } catch (inner) {
+            if (inner instanceof GenerateImagesCancelledError) throw inner;
+            if (candidates.length > 0) {
+              log.warn(
+                {
+                  model,
+                  got: candidates.length,
+                  requestedN,
+                  error: openRouterErrorBody(inner).slice(0, 200),
+                },
+                "[generateImages] sequential n=1 partial success; returning collected",
+              );
+              return { model, candidates };
+            }
+            throw inner;
+          }
+        }
+        return { model, candidates };
+      }
+      throw err;
+    }
+  };
+
   try {
-    return await callOnce(requestedN);
+    return await collect(false);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const body = (err as Error & { body?: string }).body || msg;
-    if (requestedN > 1 && /n\s*>\s*1|single.?image|only support/i.test(body)) {
-      log.warn({ model, requestedN }, "[generateImages] n>1 rejected; retrying with n=1");
-      return await callOnce(1);
+    if (err instanceof GenerateImagesCancelledError) throw err;
+    const body = openRouterErrorBody(err);
+    if (opts.aspect_ratio && isUnsupportedAspectRatioRejection(body)) {
+      log.warn(
+        { model },
+        "[generateImages] aspect_ratio rejected; retrying without it",
+      );
+      return await collect(true);
     }
     throw err;
   }
+}
+
+/**
+ * Collecting wrapper around generateImagesStream (tests / non-streaming callers).
+ */
+export async function generateImages(opts: {
+  prompt: string;
+  n?: number;
+  aspect_ratio?: string;
+  contentRoot?: string;
+}): Promise<GenerateImagesResult> {
+  return generateImagesStream(opts, () => {});
 }
 
 export function getLLMConfig(): LLMYamlConfig {

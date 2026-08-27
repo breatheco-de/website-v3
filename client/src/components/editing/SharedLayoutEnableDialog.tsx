@@ -50,7 +50,6 @@ export interface SharedLayoutEnablePayload {
 /** Staff-facing reason a picked location cannot seed the shared template. */
 export function templateEntryRejectMessage(
   code: string | undefined,
-  invalidSections?: Array<{ sectionId: string | null; index: number }>,
 ): string {
   switch (code) {
     case "template_entry_empty_sections":
@@ -60,22 +59,8 @@ export function templateEntryRejectMessage(
       return "Could not load this location. Pick another, or check that it has a live locale file.";
     case "template_entry_source_locale_invalid":
       return "That locale is not available for this location. Choose a different locale.";
-    case "template_entry_not_template_shaped": {
-      const names = (invalidSections || [])
-        .map((s) => s.sectionId)
-        .filter((id): id is string => !!id)
-        .slice(0, 4);
-      const which =
-        names.length > 0
-          ? ` Problem sections: ${names.join(", ")}${
-              (invalidSections?.length || 0) > 4 ? "…" : ""
-            }.`
-          : "";
-      return (
-        "This location cannot be used as a template. Its sections still have fixed text or images instead of fields that pull from each entry." +
-        which
-      );
-    }
+    case "template_entry_not_template_shaped":
+      return "This location cannot be used as a template. Its sections still have fixed text or images instead of fields that pull from each entry. Make sure to include {{ entry.variable_name }} on the dynamic sections you expect for the template.";
     default:
       return "This location cannot be used as a template. Pick another, or update it so section content uses entry fields.";
   }
@@ -131,11 +116,7 @@ export function SharedLayoutEnableFields({
     | { status: "idle" }
     | { status: "checking" }
     | { status: "ok" }
-    | {
-        status: "error";
-        code: string;
-        invalidSections?: Array<{ sectionId: string | null; index: number }>;
-      }
+    | { status: "error"; code: string }
     | { status: "need_locale" }
   >({ status: "idle" });
 
@@ -152,14 +133,14 @@ export function SharedLayoutEnableFields({
     const t = setTimeout(async () => {
       setSearching(true);
       try {
-        const params = new URLSearchParams({ page: "1", limit: "15" });
-        if (q) params.set("search", q);
+        const params = new URLSearchParams({ page: "1", pageSize: "15" });
+        if (q) params.set("q", q);
         const res = await apiRequest(
           "GET",
           `/api/content-types/${encodeURIComponent(contentType)}/static-entries?${params}`,
         );
         const data = await res.json();
-        const entries = (data.entries || data.items || []) as Array<{
+        const entries = (data.results || data.entries || data.items || []) as Array<{
           slug: string;
           title?: string;
           locales?: string[];
@@ -241,7 +222,6 @@ export function SharedLayoutEnableFields({
           setEntryCheck({
             status: "error",
             code: assessment.code || "template_entry_not_template_shaped",
-            invalidSections: assessment.invalid_sections,
           });
         }
       } catch {
@@ -437,10 +417,25 @@ export function SharedLayoutEnableFields({
                 className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-foreground space-y-1"
                 data-testid="text-entry-check-error"
               >
-                <p className="font-medium text-destructive">Cannot use this location</p>
-                <p className="text-muted-foreground">
-                  {templateEntryRejectMessage(entryCheck.code, entryCheck.invalidSections)}
+                <p className="font-medium text-destructive">
+                  Cannot use{" "}
+                  {entryResults.find((e) => e.slug === value.template_entry_source_slug)?.title ||
+                    value.template_entry_source_slug ||
+                    "this location"}{" "}
+                  as a template
                 </p>
+                {entryCheck.code === "template_entry_not_template_shaped" ? (
+                  <p className="text-muted-foreground">
+                    This location cannot be used as a template. Its sections still have fixed text
+                    or images instead of fields that pull from each entry. Make sure to include{" "}
+                    <code className="text-[11px]">{"{{ entry.variable_name }}"}</code> on the
+                    dynamic sections you expect for the template.
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground">
+                    {templateEntryRejectMessage(entryCheck.code)}
+                  </p>
+                )}
               </div>
             )}
             {entryCheck.status === "ok" && (

@@ -179,6 +179,7 @@ import {
   BREATHECODE_HOST,
   extractToken,
   requireCapability,
+  resolveEventActor,
   safeYamlLoad,
   safeYamlDump,
   resolveVariantAssignment,
@@ -815,6 +816,8 @@ export function registerMediaRoutes(app: Express): void {
               model?: string;
               prompt?: string;
               generated_at?: string;
+              aspect_ratio?: string;
+              requested_by?: import("../ai/ai-image-meta").AiRequestedBy;
             }
           | undefined;
         if (req.body?.ai) {
@@ -825,6 +828,8 @@ export function registerMediaRoutes(app: Express): void {
                 generated: true,
                 model: typeof parsed.model === "string" ? parsed.model : undefined,
                 prompt: typeof parsed.prompt === "string" ? parsed.prompt : undefined,
+                aspect_ratio:
+                  typeof parsed.aspect_ratio === "string" ? parsed.aspect_ratio : undefined,
                 generated_at:
                   typeof parsed.generated_at === "string"
                     ? parsed.generated_at
@@ -835,6 +840,51 @@ export function registerMediaRoutes(app: Express): void {
           } catch {
             /* ignore bad ai json */
           }
+        }
+
+        if (origin === "ai" || ai?.generated) {
+          const actor = resolveEventActor(req);
+          let username: string | null = null;
+          if (actor.type === "ui") {
+            const token = extractToken(req);
+            if (token) {
+              try {
+                const profile = await userManager.validateToken(token);
+                if (profile.valid && profile.username) username = profile.username;
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+          const mcpAuthor = req.headers["x-mcp-author"];
+          const authorStr =
+            typeof mcpAuthor === "string" && mcpAuthor.trim() ? mcpAuthor.trim() : undefined;
+          const requested_by =
+            actor.type === "mcp"
+              ? {
+                  kind: "agent" as const,
+                  id: authorStr || actor.client,
+                  name: authorStr || actor.client || "mcp",
+                }
+              : actor.type === "system"
+                ? {
+                    kind: "system" as const,
+                    id: actor.source,
+                    name: actor.source,
+                  }
+                : {
+                    kind: "user" as const,
+                    ...(username
+                      ? { id: username, name: username }
+                      : { name: "staff" }),
+                  };
+          ai = {
+            generated: true,
+            ...(ai || {}),
+            generated_at: ai?.generated_at || new Date().toISOString(),
+            requested_by,
+          };
+          origin = origin ?? "ai";
         }
 
         const gallery = getMediaGallery(res);
@@ -894,21 +944,92 @@ export function registerMediaRoutes(app: Express): void {
         return;
       }
 
+      let cancelled = false;
+      req.on("close", () => {
+        cancelled = true;
+      });
+
+      res.writeHead(200, {
+        "Content-Type": "application/x-ndjson",
+        "Transfer-Encoding": "chunked",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+
+      const writeEvent = (event: Record<string, unknown>) => {
+        if (cancelled || res.writableEnded) return;
+        res.write(JSON.stringify(event) + "\n");
+      };
+
       try {
-        const { generateImages } = await import("../ai/LLMService");
-        const result = await generateImages({
-          prompt,
-          n,
-          aspect_ratio,
-          contentRoot,
-        });
-        res.json(result);
+        const { generateImagesStream } = await import(
+          "../ai/LLMService"
+        );
+        const result = await generateImagesStream(
+          {
+            prompt,
+            n,
+            aspect_ratio,
+            contentRoot,
+            isCancelled: () => cancelled || Boolean(req.aborted),
+          },
+          (c) => {
+            writeEvent({
+              type: "candidate",
+              index: c.index,
+              b64: c.b64,
+              mediaType: c.mediaType,
+              model: c.model,
+            });
+          },
+        );
+        writeEvent({ type: "done", model: result.model, count: result.candidates.length });
+        res.end();
       } catch (err: any) {
+        const { GenerateImagesCancelledError: Cancelled } = await import("../ai/LLMService");
+        if (err instanceof Cancelled || cancelled) {
+          if (!res.writableEnded) res.end();
+          return;
+        }
         const message = err?.message || "Image generation failed";
-        res.status(502).json({ error: message });
+        writeEvent({ type: "error", error: message });
+        res.end();
       }
     } catch (error: any) {
-      res.status(500).json({ error: error.message || "Image generation failed" });
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message || "Image generation failed" });
+      } else if (!res.writableEnded) {
+        res.write(JSON.stringify({ type: "error", error: error.message || "Image generation failed" }) + "\n");
+        res.end();
+      }
+    }
+  });
+
+  app.get("/api/image-registry/:id/ai-meta", async (req, res) => {
+    try {
+      const id = typeof req.params.id === "string" ? req.params.id : "";
+      if (!id) {
+        res.status(400).json({ error: "id is required" });
+        return;
+      }
+      const gallery = getMediaGallery(res);
+      const entry = gallery.getRegistry()?.images?.[id];
+      if (!entry) {
+        res.status(404).json({ error: "Image not found" });
+        return;
+      }
+      if (entry.origin !== "ai" && !entry.ai?.generated) {
+        res.status(404).json({ error: "Not an AI-generated image" });
+        return;
+      }
+      const meta = await gallery.readAiMetaSidecar(id);
+      if (!meta) {
+        res.status(404).json({ error: "AI meta not found" });
+        return;
+      }
+      res.json(meta);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to load AI meta" });
     }
   });
 

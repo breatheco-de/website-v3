@@ -560,13 +560,26 @@ export const imageEntrySchema = z.object({
   ai: z
     .object({
       generated: z.literal(true),
+      /** @deprecated Prefer sidecar; kept optional for legacy rows */
       model: z.string().optional(),
+      /** @deprecated Prefer sidecar; kept optional for legacy rows */
       prompt: z.string().optional(),
       generated_at: z.string().optional(),
+      requested_by: z
+        .object({
+          kind: z.enum(["user", "agent", "system"]),
+          id: z.string().optional(),
+          name: z.string().optional(),
+        })
+        .optional(),
+      /** Public URL or path of AI meta sidecar JSON (prompt/model). */
+      meta_src: z.string().optional(),
     })
     .optional(),
   /** ISO timestamp of last public viewport impression (AI GC grace input). */
   last_impression_at: z.string().optional(),
+  /** ISO timestamp when the asset was first registered (gallery Newest sort). */
+  registered_at: z.string().optional(),
 });
 
 export const tagDefinitionSchema = z.object({

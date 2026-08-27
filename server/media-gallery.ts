@@ -1127,6 +1127,8 @@ export class MediaGallery {
         focal_point: "center",
         tags: [],
         usage_count: 0,
+        origin: "import",
+        registered_at: new Date().toISOString(),
       };
     }
 
@@ -1152,6 +1154,11 @@ export class MediaGallery {
     const registry = this.getRegistry();
     if (!registry) throw new Error("Failed to load registry");
 
+    const registeredAt =
+      entry.registered_at ||
+      entry.ai?.generated_at ||
+      new Date().toISOString();
+
     (registry.images as Record<string, any>)[id] = {
       src: entry.src,
       alt: entry.alt,
@@ -1165,6 +1172,10 @@ export class MediaGallery {
       ...(entry.format ? { format: entry.format } : {}),
       ...(entry.parentId ? { parentId: entry.parentId } : {}),
       ...(entry.quality_override != null ? { quality_override: entry.quality_override } : {}),
+      ...(entry.origin ? { origin: entry.origin } : {}),
+      ...(entry.ai ? { ai: entry.ai } : {}),
+      ...(entry.last_impression_at ? { last_impression_at: entry.last_impression_at } : {}),
+      registered_at: registeredAt,
     };
 
     this.saveRegistry(registry);
@@ -1179,6 +1190,26 @@ export class MediaGallery {
       log.warn(`[MediaGallery] ${msg}`);
       errors.push(msg);
     }
+    const metaSrc = imageEntry.ai?.meta_src;
+    if (metaSrc) {
+      try {
+        await this.deleteBySrc(metaSrc);
+      } catch (err) {
+        const msg = `Failed to delete AI meta ${metaSrc}: ${err instanceof Error ? err.message : String(err)}`;
+        log.warn(`[MediaGallery] ${msg}`);
+        errors.push(msg);
+      }
+    } else if (imageEntry.origin === "ai" || imageEntry.ai?.generated) {
+      // Best-effort: sidecar next to primary even if meta_src missing
+      const derived = this.deriveAiMetaSrc(imageEntry.src);
+      if (derived) {
+        try {
+          await this.deleteBySrc(derived);
+        } catch {
+          /* ignore missing */
+        }
+      }
+    }
     if (imageEntry.srcset) {
       for (const entry of imageEntry.srcset) {
         try {
@@ -1191,6 +1222,103 @@ export class MediaGallery {
       }
     }
     return errors;
+  }
+
+  /** Public URL/path for AI meta sidecar beside the primary media src. */
+  deriveAiMetaSrc(src: string): string | null {
+    try {
+      const provider = this.getDefaultStorageProvider();
+      if (provider.name === "local") {
+        if (!src.includes(".")) return `${src}.json`;
+        return src.replace(/\.[^.\/?#]+(?=[?#]|$)/, ".json").split("?")[0];
+      }
+      const key = provider.extractKey(src);
+      if (!key) {
+        if (!src.includes(".")) return null;
+        return src.replace(/\.[^.\/?#]+(?=[?#]|$)/, ".json").split("?")[0];
+      }
+      const { aiMetaKeyFromMediaKey } = require("./ai/ai-image-meta") as typeof import("./ai/ai-image-meta");
+      const metaKey = aiMetaKeyFromMediaKey(key);
+      return provider.getPublicUrl(metaKey);
+    } catch {
+      return null;
+    }
+  }
+
+  async writeAiMetaSidecar(
+    primarySrc: string,
+    meta: import("./ai/ai-image-meta").AiMetaSidecar,
+  ): Promise<string | null> {
+    const provider = this.getDefaultStorageProvider();
+    const body = Buffer.from(JSON.stringify(meta, null, 2) + "\n", "utf8");
+    if (provider.name === "local") {
+      const metaSrc =
+        this.deriveAiMetaSrc(primarySrc) ||
+        `${primarySrc.replace(/\.[^.]+$/, "")}.json`;
+      const normalized = metaSrc.startsWith("/") ? metaSrc : `/${metaSrc}`;
+      const diskPath = path.join(process.cwd(), normalized);
+      const dir = path.dirname(diskPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(diskPath, body);
+      return normalized;
+    }
+    const key = provider.extractKey(primarySrc);
+    if (!key) return null;
+    const { aiMetaKeyFromMediaKey } = await import("./ai/ai-image-meta");
+    const metaKey = aiMetaKeyFromMediaKey(key);
+    return provider.upload(metaKey, body, "application/json");
+  }
+
+  async readAiMetaSidecar(
+    imageId: string,
+  ): Promise<import("./ai/ai-image-meta").AiMetaSidecar | null> {
+    const registry = this.getRegistry();
+    const entry = registry?.images?.[imageId];
+    if (!entry) return null;
+    const metaSrc = entry.ai?.meta_src || this.deriveAiMetaSrc(entry.src);
+    if (!metaSrc) {
+      // Legacy: prompt/model still on registry
+      if (entry.ai?.prompt || entry.ai?.model) {
+        return {
+          prompt: entry.ai.prompt || "",
+          model: entry.ai.model || "",
+          generated_at: entry.ai.generated_at,
+          requested_by: entry.ai.requested_by as import("./ai/ai-image-meta").AiRequestedBy | undefined,
+        };
+      }
+      return null;
+    }
+
+    const provider = this.getDefaultStorageProvider();
+    if (provider.name === "local") {
+      const normalized = metaSrc.startsWith("/") ? metaSrc : `/${metaSrc}`;
+      const diskPath = path.join(process.cwd(), normalized);
+      if (!fs.existsSync(diskPath)) return null;
+      try {
+        return JSON.parse(fs.readFileSync(diskPath, "utf8"));
+      } catch {
+        return null;
+      }
+    }
+
+    const siteGCS = this.getSiteGCSProvider();
+    const key = siteGCS?.extractKey(metaSrc) ?? provider.extractKey(metaSrc);
+    if (!key || !siteGCS || typeof (siteGCS as any).download !== "function") {
+      try {
+        const resp = await fetch(metaSrc);
+        if (!resp.ok) return null;
+        return (await resp.json()) as import("./ai/ai-image-meta").AiMetaSidecar;
+      } catch {
+        return null;
+      }
+    }
+    const buf = await (siteGCS as any).download(key);
+    if (!buf) return null;
+    try {
+      return JSON.parse(buf.toString("utf8"));
+    } catch {
+      return null;
+    }
   }
 
   private getSrcsetUrls(imageEntry: ImageEntry): string[] {
@@ -1378,9 +1506,12 @@ export class MediaGallery {
       origin?: "upload" | "import" | "ai";
       ai?: {
         generated: true;
-        model?: string;
-        prompt?: string;
         generated_at?: string;
+        requested_by?: import("./ai/ai-image-meta").AiRequestedBy;
+        /** Written to sidecar only — not stored on registry entry. */
+        prompt?: string;
+        model?: string;
+        aspect_ratio?: string;
       };
     }
   ): Promise<{ id: string; src: string; alt: string; duplicate?: boolean; existingId?: string }> {
@@ -1438,13 +1569,45 @@ export class MediaGallery {
     const doctype = inferDoctypeFromFilename(filename);
     const alt = opts?.alt || defaultAltForDoctype(doctype, path.parse(filename).name);
     const origin = opts?.origin ?? "upload";
+    const registeredAt = opts?.ai?.generated_at || new Date().toISOString();
+
+    let metaSrc: string | undefined;
+    if (origin === "ai" && opts?.ai) {
+      try {
+        const written = await this.writeAiMetaSidecar(src, {
+          prompt: opts.ai.prompt || "",
+          model: opts.ai.model || "",
+          generated_at: opts.ai.generated_at || registeredAt,
+          ...(opts.ai.aspect_ratio ? { aspect_ratio: opts.ai.aspect_ratio } : {}),
+          ...(opts.ai.requested_by ? { requested_by: opts.ai.requested_by } : {}),
+        });
+        if (written) metaSrc = written;
+      } catch (err) {
+        log.warn(
+          { err, id: uniqueId },
+          "[MediaGallery] Failed to write AI meta sidecar",
+        );
+      }
+    }
+
+    const hotAi =
+      origin === "ai" || opts?.ai
+        ? {
+            generated: true as const,
+            generated_at: opts?.ai?.generated_at || registeredAt,
+            ...(opts?.ai?.requested_by ? { requested_by: opts.ai.requested_by } : {}),
+            ...(metaSrc ? { meta_src: metaSrc } : {}),
+          }
+        : undefined;
+
     this.register(uniqueId, {
       src,
       alt,
       tags: opts?.tags || [],
       hash,
       origin,
-      ...(opts?.ai ? { ai: opts.ai } : {}),
+      registered_at: registeredAt,
+      ...(hotAi ? { ai: hotAi } : {}),
     });
 
     this.existenceCache.clear();
@@ -1611,6 +1774,13 @@ export class MediaGallery {
       hash,
       ...(registryFormat ? { format: registryFormat } : {}),
       usage_count: imageEntry.usage_count || 0,
+      ...(imageEntry.origin ? { origin: imageEntry.origin } : {}),
+      ...(imageEntry.ai ? { ai: imageEntry.ai } : {}),
+      ...(imageEntry.last_impression_at
+        ? { last_impression_at: imageEntry.last_impression_at }
+        : {}),
+      // Keep original register time on in-place replace
+      registered_at: imageEntry.registered_at || new Date().toISOString(),
     });
 
     this.existenceCache.clear();

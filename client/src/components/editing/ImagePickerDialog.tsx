@@ -100,7 +100,8 @@ export interface ImagePickerDialogProps {
    */
   closeOnSuccessfulUpload?: boolean;
   /**
-   * Gallery “add media” mode: only show the upload dropzone (no Browse tab / Save).
+   * Gallery “add media” mode: hide Browse (already in the gallery). Still shows
+   * Upload | Generate for images so staff can AI-create assets here.
    */
   uploadOnly?: boolean;
 }
@@ -175,12 +176,15 @@ export function ImagePickerDialog({
     hint?: string;
   }>({
     queryKey: ["/api/media/generate-images/status"],
-    enabled: open && doctype === "image" && !uploadOnly,
+    enabled: open && doctype === "image",
     staleTime: 60000,
   });
 
   const hasCloudProvider = (mediaStatus?.providers ?? []).some((p) => p !== "local");
-  const showGenerateTab = !uploadOnly && doctype === "image";
+  /** Generate is available for images even in gallery “add media” (uploadOnly) mode. */
+  const showGenerateTab = doctype === "image";
+  /** Tab bar: full Browse|Upload|Generate, or Upload|Generate when adding media. */
+  const showModeTabs = !uploadOnly || showGenerateTab;
 
   const lockedTagFilter = typeof tagFilter === "string" && tagFilter.trim() ? tagFilter.trim() : "";
   const initialDefaultFilter =
@@ -217,6 +221,8 @@ export function ImagePickerDialog({
     prompt: string;
     model?: string;
   } | null>(null);
+  const generateAbortRef = useRef<AbortController | null>(null);
+  const GENERATE_N = 4;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -408,9 +414,14 @@ export function ImagePickerDialog({
   const handleGenerate = async () => {
     const prompt = generatePrompt.trim();
     if (!prompt || generating) return;
+    generateAbortRef.current?.abort();
+    const ac = new AbortController();
+    generateAbortRef.current = ac;
     setGenerating(true);
     setAiCandidates([]);
     setPendingAi(null);
+    let modelFromStream: string | undefined;
+    let gotError: string | undefined;
     try {
       const resp = await fetch("/api/media/generate-images", {
         method: "POST",
@@ -418,43 +429,126 @@ export function ImagePickerDialog({
         body: JSON.stringify({
           prompt,
           aspect_ratio: generateAspect,
-          n: 4,
+          n: GENERATE_N,
         }),
+        signal: ac.signal,
       });
-      const data = (await resp.json().catch(() => ({}))) as {
-        error?: string;
-        hint?: string;
-        model?: string;
-        candidates?: Array<{ b64: string; mediaType: string }>;
-      };
-      if (!resp.ok) {
+
+      const contentType = resp.headers.get("content-type") || "";
+      if (!resp.ok && contentType.includes("application/json")) {
+        const data = (await resp.json().catch(() => ({}))) as {
+          error?: string;
+          hint?: string;
+        };
         throw new Error(data.error || data.hint || "Generation failed");
       }
-      const mapped = (data.candidates ?? []).map((c) => ({
-        ...c,
-        dataUrl: `data:${c.mediaType || "image/webp"};base64,${c.b64}`,
-      }));
-      setAiCandidates(mapped);
-      if (mapped.length === 1) {
+      if (!resp.ok) {
+        throw new Error(`Generation failed (${resp.status})`);
+      }
+
+      if (!contentType.includes("ndjson") && contentType.includes("application/json")) {
+        // Legacy non-stream fallback
+        const data = (await resp.json()) as {
+          model?: string;
+          candidates?: Array<{ b64: string; mediaType: string }>;
+        };
+        const mapped = (data.candidates ?? []).map((c) => ({
+          ...c,
+          dataUrl: `data:${c.mediaType || "image/webp"};base64,${c.b64}`,
+        }));
+        setAiCandidates(mapped);
+        modelFromStream = data.model;
+        if (mapped.length === 1) {
+          setPendingAi({
+            ...mapped[0],
+            prompt,
+            model: data.model,
+          });
+          setSelectedSrc(mapped[0].dataUrl);
+          setSelectedAlt(normalizePromptAlt(prompt));
+          setSelectedRegistryId(undefined);
+        }
+        return;
+      }
+
+      const reader = resp.body?.getReader();
+      if (!reader) throw new Error("No response body");
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const collected: Array<{ b64: string; mediaType: string; dataUrl: string }> = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          let event: {
+            type?: string;
+            b64?: string;
+            mediaType?: string;
+            model?: string;
+            error?: string;
+            count?: number;
+          };
+          try {
+            event = JSON.parse(trimmed);
+          } catch {
+            continue;
+          }
+          if (event.type === "candidate" && event.b64) {
+            const mediaType = event.mediaType || "image/webp";
+            const item = {
+              b64: event.b64,
+              mediaType,
+              dataUrl: `data:${mediaType};base64,${event.b64}`,
+            };
+            collected.push(item);
+            if (event.model) modelFromStream = event.model;
+            setAiCandidates([...collected]);
+          } else if (event.type === "error") {
+            gotError = event.error || "Generation failed";
+          } else if (event.type === "done" && event.model) {
+            modelFromStream = event.model;
+          }
+        }
+      }
+
+      if (gotError && collected.length === 0) {
+        throw new Error(gotError);
+      }
+      if (collected.length === 1) {
         setPendingAi({
-          ...mapped[0],
+          ...collected[0],
           prompt,
-          model: data.model,
+          model: modelFromStream,
         });
-        setSelectedSrc(mapped[0].dataUrl);
+        setSelectedSrc(collected[0].dataUrl);
         setSelectedAlt(normalizePromptAlt(prompt));
         setSelectedRegistryId(undefined);
       }
     } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       toast({
         title: "Generation failed",
         description: err instanceof Error ? err.message : "Unknown error",
         variant: "destructive",
       });
     } finally {
+      if (generateAbortRef.current === ac) generateAbortRef.current = null;
       setGenerating(false);
     }
   };
+
+  useEffect(() => {
+    if (!open) {
+      generateAbortRef.current?.abort();
+      generateAbortRef.current = null;
+    }
+  }, [open]);
 
   const handleUpload = async (files: FileList | File[]) => {
       if (!files.length) return;
@@ -500,6 +594,7 @@ export function ImagePickerDialog({
             : `Registered as "${result.id}"`,
         });
         if (closeOnSuccessfulUpload) {
+          await onSave(result.src, result.alt, result.id);
           onOpenChange(false);
           return;
         }
@@ -547,6 +642,7 @@ export function ImagePickerDialog({
             generated: true,
             model: pendingAi.model,
             prompt: pendingAi.prompt,
+            aspect_ratio: generateAspect,
             generated_at: new Date().toISOString(),
           }),
         );
@@ -821,20 +917,24 @@ export function ImagePickerDialog({
           </DialogHeader>
 
           <div className="flex-1 overflow-hidden flex flex-col gap-4 py-2">
-            {!uploadOnly && (
+            {showModeTabs && (
               <div className="flex rounded-md border overflow-visible">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className={`flex-1 rounded-none toggle-elevate ${pickerMode === "browse" ? "toggle-elevated bg-muted" : ""}`}
-                  onClick={() => setPickerMode("browse")}
-                  data-testid="button-picker-browse"
-                >
-                  <Search className="h-4 w-4 mr-1.5" />
-                  Browse
-                </Button>
-                <div className="w-px bg-border" />
+                {!uploadOnly && (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className={`flex-1 rounded-none toggle-elevate ${pickerMode === "browse" ? "toggle-elevated bg-muted" : ""}`}
+                      onClick={() => setPickerMode("browse")}
+                      data-testid="button-picker-browse"
+                    >
+                      <Search className="h-4 w-4 mr-1.5" />
+                      Browse
+                    </Button>
+                    <div className="w-px bg-border" />
+                  </>
+                )}
                 <Button
                   type="button"
                   size="sm"
@@ -1285,20 +1385,24 @@ export function ImagePickerDialog({
                         </p>
                       </CollapsibleContent>
                     </Collapsible>
-                    {generating && (
-                      <div className="grid grid-cols-2 gap-2">
-                        {[0, 1, 2, 3].map((i) => (
-                          <div
-                            key={i}
-                            className="aspect-video rounded-md bg-muted animate-pulse"
-                            data-testid={`generate-skeleton-${i}`}
-                          />
-                        ))}
-                      </div>
-                    )}
-                    {!generating && aiCandidates.length > 0 && (
+                    {(generating || aiCandidates.length > 0) && (
                       <div className="grid grid-cols-2 gap-2" data-testid="generate-results">
-                        {aiCandidates.map((c, i) => {
+                        {Array.from({
+                          length: generating
+                            ? GENERATE_N
+                            : Math.max(aiCandidates.length, 1),
+                        }).map((_, i) => {
+                          const c = aiCandidates[i];
+                          if (!c) {
+                            if (!generating) return null;
+                            return (
+                              <div
+                                key={`sk-${i}`}
+                                className="aspect-video rounded-md bg-muted animate-pulse"
+                                data-testid={`generate-skeleton-${i}`}
+                              />
+                            );
+                          }
                           const selected = pendingAi?.dataUrl === c.dataUrl;
                           return (
                             <button
@@ -1414,7 +1518,8 @@ export function ImagePickerDialog({
               </div>
             )}
 
-            {!uploadOnly && (selectedSrc || selectedDisplaySrc) && (
+            {((!uploadOnly && (selectedSrc || selectedDisplaySrc)) ||
+              (uploadOnly && pendingAi)) && (
               <div className="border-t pt-4">
                 <div className="flex gap-3">
                   <div className="w-16 h-16 rounded-md overflow-hidden bg-muted border flex-shrink-0">
@@ -1531,10 +1636,10 @@ export function ImagePickerDialog({
               >
                 Cancel
               </Button>
-              {!uploadOnly && (
+              {(!uploadOnly || pendingAi) && (
                 <Button
                   type="button"
-                  onClick={checkFamilyAndSave}
+                  onClick={() => void (uploadOnly ? handleSave() : checkFamilyAndSave())}
                   disabled={!selectedSrc || saving || bulkModal.checking}
                   data-testid="button-image-save"
                 >
@@ -1543,7 +1648,7 @@ export function ImagePickerDialog({
                   ) : (
                     <Check className="h-4 w-4 mr-2" />
                   )}
-                  Save
+                  {uploadOnly ? "Add to gallery" : "Save"}
                 </Button>
               )}
             </div>
