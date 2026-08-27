@@ -11,6 +11,18 @@ Use this topic before creating or restructuring entries for types with `single_t
 
 Example (blog): body markdown is `content` on the locale file; `{{ entry.content }}` is bound inside `blog/template.es.yml`. Do **not** paste a page shell (hero/breadcrumb/article) into the entry. Blog CTA copy/conversion/tags come from entry field `call_to_action` (bound in `template.*.yml`); before setting `conversion_name` or `tags`, call `explain_site` topic `component-behaviors`.
 
+## Playbook (enable shared layout)
+
+When a type does **not** yet use shared layout and you need to turn it on:
+
+1. `get_content_type_info` — confirm `single_template` is false and the type is not DB-only without a shell.
+2. `update_content_type` with `single_template: true` and:
+   - `template_mode: "keep_existing"` if a usable `template.{locale}.yml` (or legacy `single.*`) already has non-empty sections, **or**
+   - `template_mode: "from_entry"` + **`template_entry_source_slug`** (mandatory). Pass **`template_entry_source_locale`** only when that entry folder has more than one live locale file.
+3. Source entry sections must be fully `{{ entry.* }}`-shaped (exact binds). Legacy `{{ single.* }}` is rewritten to `{{ entry.* }}` when copied into `template.*.yml`.
+4. If a usable template already exists and you use `from_entry`, first call without `confirm` → `action_required: confirm_template_replace` with preview; re-call with `confirm: true`.
+5. Success returns `side_effects.paths` for written `template.*.yml` / `_common.template.yml` and dissolves section bindings for the type.
+
 ## Playbook (create)
 
 1. `list_sites` — if multi-site, pick a domain and pass `site` on every later call.
@@ -38,5 +50,5 @@ Only when this entry must diverge from `template.{locale}.yml`: `set_entry_attac
 
 ## Related tools
 
-- `get_content_type_info`, `create_entry`, `list_entry_seo`, `get_entry_seo`, `get_entry_content`, `update_fields`, `translate_entry`, `set_entry_attachment`, `list_sites`
+- `get_content_type_info`, `create_entry`, `update_content_type` (enable shared layout), `list_entry_seo`, `get_entry_seo`, `get_entry_content`, `update_fields`, `translate_entry`, `set_entry_attachment`, `list_sites`
 - Topic `content_system` for merge / drafts / translate + attachment loop

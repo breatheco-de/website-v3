@@ -6654,20 +6654,25 @@ export function registerPageTools(
     }),
   ]);
 
-  // update_content_type — patch content-types.yml (strategy and/or one field at a time)
+  // update_content_type — strategy, one field, or shared-layout enable/disable
   mcp.tool(
     "update_content_type",
     "Patch content-types.yml for one content type via the main server config API.\n\n" +
-    "Modes (one per call — do not combine strategy with field_action):\n" +
+    "Modes (one per call — do not combine):\n" +
     "• strategy — { purpose, constraints? } or null to clear.\n" +
-    "• field_action add|update|remove — one schema field at a time (GET-merge-PUT; sibling fields preserved).\n\n" +
+    "• field_action add|update|remove — one schema field at a time (GET-merge-PUT; sibling fields preserved).\n" +
+    "• single_template true|false — enable/disable shared layout. Enabling requires template_mode " +
+    "keep_existing|from_entry; from_entry needs template_entry_source_slug (and template_entry_source_locale " +
+    "when that entry folder has multiple live locales). Replacing a usable template.*.yml needs confirm:true " +
+    "(omit confirm first for action_required preview). Writes canonical template.{locale}.yml.\n\n" +
     "Field patches: omit confirm or confirm:false → preview (action_required: confirm_field_change). " +
     "confirm:true → execute (fresh read before write). Preview-first recommended for human approval; confirm:true without preview is allowed.\n\n" +
     "Static types: add defaults identity mapping { source: field_key, default: null }. DB-backed: field_mapping required on add.\n" +
     "Relation editor requires source (content type or database slug); CT/DB name collisions rejected.\n" +
     "required true|attached needs fill_intent + valid type strategy (separate strategy call first).\n" +
     "remove blocked while field_key is in indexes or unique_fields — clear in Content Type manage first.\n" +
-    "Does not edit entry YAML, run backfill, or schema_org ensure. Requires content_types_manage. Call get_content_type_info first. " +
+    "Does not edit entry YAML (except when from_entry bootstraps template.*.yml), run backfill, or schema_org ensure. " +
+    "Requires content_types_manage. Call get_content_type_info first. " +
     MULTI_SITE_TOOL_BLURB,
     {
       contentType: z.string().describe("Content type key, e.g. 'blog', 'program', 'location'"),
@@ -6681,12 +6686,12 @@ export function registerPageTools(
         ])
         .optional()
         .describe(
-          "Set strategy object, or null to clear. Omit to leave unchanged. Mutually exclusive with field_action.",
+          "Set strategy object, or null to clear. Omit to leave unchanged. Mutually exclusive with field_action / single_template.",
         ),
       field_action: z
         .enum(["add", "update", "remove"])
         .optional()
-        .describe("Patch one field on field_mapping/editor. Mutually exclusive with strategy in the same call."),
+        .describe("Patch one field on field_mapping/editor. Mutually exclusive with strategy / single_template."),
       field_key: z
         .string()
         .optional()
@@ -6697,13 +6702,55 @@ export function registerPageTools(
       editor: editorHintSchema
         .optional()
         .describe("Editor hint for this field only (add/update). Partial merge on update."),
+      single_template: z
+        .boolean()
+        .optional()
+        .describe(
+          "Enable (true) or disable (false) shared layout. Mutually exclusive with strategy / field_action.",
+        ),
+      template_mode: z
+        .enum(["keep_existing", "from_entry"])
+        .optional()
+        .describe(
+          "Required when single_template:true enables shared layout. keep_existing needs a usable template.*.yml; from_entry needs template_entry_source_slug.",
+        ),
+      template_entry_source_slug: z
+        .string()
+        .optional()
+        .describe("Entry folder slug whose sections seed template.{locale}.yml when template_mode is from_entry."),
+      template_entry_source_locale: z
+        .string()
+        .optional()
+        .describe(
+          "Required when the source entry has more than one live locale file. Omitted when only one locale exists.",
+        ),
+      shared_layout_base_locale: z
+        .string()
+        .optional()
+        .describe("Locale used to align sibling template shells (default: source locale or en)."),
       confirm: z
         .boolean()
         .optional()
-        .describe("Field patches: false/omit → preview; true → execute. Strategy patches ignore confirm."),
+        .describe(
+          "Field patches and template replace: false/omit → preview; true → execute. Strategy patches ignore confirm.",
+        ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, strategy, field_action, field_key, field_mapping, editor, confirm, site }) => {
+    async ({
+      contentType,
+      strategy,
+      field_action,
+      field_key,
+      field_mapping,
+      editor,
+      single_template,
+      template_mode,
+      template_entry_source_slug,
+      template_entry_source_locale,
+      shared_layout_base_locale,
+      confirm,
+      site,
+    }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
         return siteFailResult(siteResult.error, "update_content_type", { contentType });
@@ -6720,17 +6767,19 @@ export function registerPageTools(
 
       const hasStrategy = strategy !== undefined;
       const hasFieldPatch = field_action !== undefined;
+      const hasSharedToggle = single_template !== undefined;
+      const modeCount = [hasStrategy, hasFieldPatch, hasSharedToggle].filter(Boolean).length;
 
-      if (hasStrategy && hasFieldPatch) {
+      if (modeCount > 1) {
         return fail(
-          "Provide strategy or field_action in one call, not both. Set strategy first if required fields need it, then patch the field.",
+          "Provide exactly one of: strategy, field_action, or single_template in one call.",
           { code: "ambiguous_patch" },
         );
       }
-      if (!hasStrategy && !hasFieldPatch) {
+      if (modeCount === 0) {
         return fail(
-          "No patch keys provided. Use strategy, or field_action + field_key.",
-          { allowlisted: ["strategy", "field_action"], code: "empty_patch" },
+          "No patch keys provided. Use strategy, field_action + field_key, or single_template.",
+          { allowlisted: ["strategy", "field_action", "single_template"], code: "empty_patch" },
         );
       }
 
@@ -6754,6 +6803,174 @@ export function registerPageTools(
         });
       }
 
+      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      const ymlPath = `${path.basename(contentPath)}/content-types.yml`;
+
+      if (hasSharedToggle) {
+        const body: Record<string, unknown> = { single_template: !!single_template };
+        if (single_template === true) {
+          if (template_mode) body.template_mode = template_mode;
+          if (template_entry_source_slug) {
+            body.template_entry_source_slug = template_entry_source_slug;
+          }
+          if (template_entry_source_locale) {
+            body.template_entry_source_locale = template_entry_source_locale;
+          }
+          if (shared_layout_base_locale) {
+            body.shared_layout_base_locale = shared_layout_base_locale;
+          }
+          if (confirm === true) body.confirm = true;
+        }
+        try {
+          const res = await fetch(
+            `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
+            {
+              method: "PUT",
+              headers: { ...internalHeaders(mcpToken), "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            },
+          );
+          const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+          if (!res.ok) {
+            if (data.code === "confirm_template_replace" && data.preview) {
+              return actionRequired(
+                {
+                  action_required: "confirm_template_replace",
+                  message: String(
+                    data.error ?? "Confirm replacing the existing usable shared template.",
+                  ),
+                  contentType,
+                  preview: data.preview,
+                },
+                [
+                  {
+                    tool: "update_content_type",
+                    reason: "Re-call with the same args and confirm: true after principal approval",
+                    args_hint: {
+                      contentType,
+                      single_template: true,
+                      template_mode: template_mode ?? "from_entry",
+                      template_entry_source_slug,
+                      template_entry_source_locale,
+                      shared_layout_base_locale,
+                      confirm: true,
+                      site,
+                    },
+                    priority: "required",
+                  },
+                ],
+              );
+            }
+            if (data.code === "template_entry_source_locale_required") {
+              return actionRequired(
+                {
+                  action_required: "template_entry_source_locale_required",
+                  message: String(data.error ?? "Pass template_entry_source_locale."),
+                  contentType,
+                  locales: data.locales,
+                },
+                [
+                  {
+                    tool: "update_content_type",
+                    reason: "Re-call with template_entry_source_locale set to one of locales",
+                    args_hint: {
+                      contentType,
+                      single_template: true,
+                      template_mode: template_mode ?? "from_entry",
+                      template_entry_source_slug,
+                      template_entry_source_locale: Array.isArray(data.locales)
+                        ? data.locales[0]
+                        : undefined,
+                      site,
+                    },
+                    priority: "required",
+                  },
+                ],
+              );
+            }
+            return fail(String(data.error ?? data.message ?? `update failed (${res.status})`), {
+              code: data.code,
+              ...data,
+            });
+          }
+
+          const enable = data.shared_layout_enable as
+            | {
+                template_mode?: string;
+                written_paths?: string[];
+                source_slug?: string;
+                source_locale?: string;
+              }
+            | undefined;
+          const written = Array.isArray(enable?.written_paths) ? enable!.written_paths! : [];
+          const warnings: McpWarning[] = [
+            {
+              code: "attached_sections_ignored",
+              message:
+                "Attached entries ignore their YAML sections; structure comes from template.{locale}.yml.",
+            },
+            {
+              code: "sibling_copy_may_need_edit",
+              message:
+                "Sibling locale shells may still need copy work after structural align (needs-edit labels).",
+            },
+            {
+              code: "legacy_single_read_fallback",
+              message:
+                "Legacy single.*.yml on disk is read-only fallback; new writes use template.*.yml.",
+            },
+          ];
+          if (data.bindingsDissolved) {
+            warnings.push({
+              code: "bindings_dissolved",
+              message: "Section bindings for this content type were removed (incompatible with shared layout).",
+            });
+          }
+
+          return ok(
+            {
+              message:
+                single_template === false
+                  ? `Disabled shared layout on content type '${contentType}'`
+                  : `Enabled shared layout on content type '${contentType}' (${enable?.template_mode ?? template_mode ?? "unknown"})`,
+              contentType,
+              single_template: !!single_template,
+              shared_layout_enable: enable ?? null,
+              patched: ["single_template"],
+            },
+            {
+              warnings,
+              side_effects: [
+                {
+                  kind: "content_types_yml",
+                  summary: `Updated single_template on ${ymlPath}`,
+                  paths: [ymlPath],
+                },
+                ...(written.length
+                  ? [
+                      {
+                        kind: "shared_template_bootstrap",
+                        summary: "Wrote or aligned shared template shells",
+                        paths: written,
+                      } satisfies McpSideEffect,
+                    ]
+                  : []),
+              ],
+              next_actions: [
+                {
+                  tool: "get_content_type_info",
+                  reason: "Confirm single_template / create_via after enable",
+                  args_hint: { contentType, site },
+                  priority: "recommended",
+                },
+              ],
+            },
+          );
+        } catch (e) {
+          return fail(`Failed to update content type: ${(e as Error).message}`);
+        }
+      }
+
       const body: Record<string, unknown> = {};
       if (strategy === null) {
         body.strategy = null;
@@ -6768,8 +6985,6 @@ export function registerPageTools(
         body.strategy = parsed;
       }
 
-      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
-      const ymlPath = `${path.basename(contentPath)}/content-types.yml`;
       try {
         const res = await fetch(
           `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
