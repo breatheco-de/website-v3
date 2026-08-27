@@ -16,6 +16,7 @@ import { mergeSingleTemplate } from "./database-single-loader";
 import {
   isEntryDetached,
   isSharedLayoutType,
+  isTemplateVersioningSlug,
   stripStructuralOverlayKeys,
 } from "./shared-layout-entry";
 import { canonicalSectionId } from "./utils/sectionIdentity";
@@ -192,7 +193,7 @@ function isEntryVariantYaml(fileName: string): boolean {
   const base = fileName.slice(0, -4);
   if (!base.includes(".")) return false;
   // Exclude shared template names if they ever appear under an entry
-  if (base.startsWith("single.")) return false;
+  if (base.startsWith("single.") || base.startsWith("template.")) return false;
   return true;
 }
 
@@ -224,7 +225,7 @@ export function detachEntry(params: DetachEntryParams): DetachEntryResult {
   if (!isSharedLayoutType(contentType, contentRoot)) {
     throw new Error(`Content type "${contentType}" is not a shared-layout type`);
   }
-  if (!slug || slug === "single") {
+  if (!slug || isTemplateVersioningSlug(slug)) {
     throw new Error("Invalid entry slug for detach");
   }
   if (isEntryDetached(contentType, slug, contentRoot)) {
@@ -288,7 +289,7 @@ export function detachEntry(params: DetachEntryParams): DetachEntryResult {
   }
 
   if (localesWritten.length === 0) {
-    throw new Error(`No live single.{locale}.yml found for content type "${contentType}"`);
+    throw new Error(`No live template.{locale}.yml found for content type "${contentType}"`);
   }
 
   const commonPath = path.join(entryDir, "_common.yml");
@@ -336,7 +337,7 @@ export function reattachEntry(params: ReattachEntryParams): ReattachEntryResult 
   if (!isSharedLayoutType(contentType, contentRoot)) {
     throw new Error(`Content type "${contentType}" is not a shared-layout type`);
   }
-  if (!slug || slug === "single") {
+  if (!slug || isTemplateVersioningSlug(slug)) {
     throw new Error("Invalid entry slug for re-attach");
   }
   if (!isEntryDetached(contentType, slug, contentRoot)) {

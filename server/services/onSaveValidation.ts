@@ -51,7 +51,7 @@ function parseLocaleVariantFromBasename(basename: string): {
   // single.es.yml | single.draft.es.yml | es.yml | draft.es.yml
   const noExt = basename.replace(/\.ya?ml$/i, "");
   if (noExt === "_common") return null;
-  if (noExt.startsWith("single.")) {
+  if (noExt.startsWith("single.") || noExt.startsWith("template.")) {
     const rest = noExt.slice("single.".length);
     if (!rest.includes(".")) return { locale: rest };
     const parts = rest.split(".");

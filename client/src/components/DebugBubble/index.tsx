@@ -2097,10 +2097,10 @@ export function DebugBubble() {
       if (!isPreview || currentVariant !== variantSlug) {
         navigate(`/private/preview/${contentInfo.type}/${contentInfo.slug}?variant=${encodeURIComponent(variantSlug)}&locale=${locale}`);
       }
-      // Shared-layout template variants live at the type root; raw editor uses `_common.single`.
+      // Shared-layout template variants live at the type root; raw editor uses `_common.template`.
       const editorSlug =
         versioningData?.isSharedLayout && !versioningData?.detached
-          ? "_common.single"
+          ? "_common.template"
           : contentInfo.slug;
       setYamlEditorInfo({ contentType: contentInfo.type, slug: editorSlug, locale, variantSlug });
       setShowYamlEditor(true);
@@ -2116,7 +2116,7 @@ export function DebugBubble() {
       }
       const editorSlug =
         versioningData?.isSharedLayout && !versioningData?.detached
-          ? "_common.single"
+          ? "_common.template"
           : contentInfo.slug;
       setYamlEditorInfo({ contentType: contentInfo.type, slug: editorSlug, locale });
       setShowYamlEditor(true);
@@ -2146,13 +2146,13 @@ export function DebugBubble() {
       if (token) headers["Authorization"] = `Token ${token}`;
       try {
         const res = await fetch(
-          `/api/content/raw-file?contentType=${encodeURIComponent(contentInfo.type)}&slug=${encodeURIComponent("_common.single")}&locale=${encodeURIComponent(normalizeLocale(locale))}`,
+          `/api/content/raw-file?contentType=${encodeURIComponent(contentInfo.type)}&slug=${encodeURIComponent("_common.template")}&locale=${encodeURIComponent(normalizeLocale(locale))}`,
           { headers },
         );
         if (!res.ok) {
           toast({
             title: "No template found",
-            description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+            description: "This content type has no _common.template.yml (or template.*.yml / legacy single.*) yet.",
             variant: "destructive",
           });
           return;
@@ -2161,14 +2161,14 @@ export function DebugBubble() {
         if (!data.exists) {
           toast({
             title: "No template found",
-            description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+            description: "This content type has no _common.template.yml (or template.*.yml / legacy single.*) yet.",
             variant: "destructive",
           });
           return;
         }
         setYamlEditorInfo({
           contentType: contentInfo.type,
-          slug: "_common.single",
+          slug: "_common.template",
           locale: normalizeLocale(locale),
           readOnly: true,
         });

@@ -8,7 +8,7 @@ An MCP (Model Context Protocol) server that gives Claude read and write access t
 
 **Catalog by capability:** in production, `tools/list` on `/mcp` only includes tools the caller’s grants allow (`content_view` for YAML/component/explain reads). `GET /tools` is the full unauthenticated map. After a role change, refresh the MCP server in Cursor — the palette does not update mid-session. `get_current_user` returns `allowed_tools`. Handlers still `checkCap`. Dev does not filter the catalog.
 
-**Shared-layout / `single_template`:** shell lives in `single.{locale}.yml`; create with `create_entry`, locale fields (e.g. `content`), and `sections: []`. See `explain_site` topic `shared-layout`. Call `get_content_type_info` before creating when unsure (`db_backed` vs `single_template`, `create_via`).
+**Shared-layout / `single_template`:** shell lives in `template.{locale}.yml` (legacy `single.*` still loads); create with `create_entry`, locale fields (e.g. `content`), and `sections: []`. See `explain_site` topic `shared-layout`. Call `get_content_type_info` before creating when unsure (`db_backed` vs `single_template`, `create_via`).
 
 ## Mutating response envelope
 
@@ -24,7 +24,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 
 **Go-live:** successful `publish_draft` / `promote_variant` include a **required** `next_actions` for `run_entry_diagnostics` (`freshness: "hard"`, scoped `slugs`) — then poll `get_diagnostics_job`. The server does not auto-queue diagnostics on publish.
 
-**Shared layout:** use the same tools with `layout_target` (`auto` \| `entry` \| `type_single`). MCP does **not** auto-fan-out sibling `single.*.yml` files — follow `next_actions`. Live `update_fields` edits that touch exactly one `sections.N` index **do** propagate section bindings (`bound_updates`). Multi-section updates are rejected.
+**Shared layout:** use the same tools with `layout_target` (`auto` \| `entry` \| `type_template` \| `type_single`). MCP does **not** auto-fan-out sibling `template.*.yml` files — follow `next_actions`. Live `update_fields` edits that touch exactly one `sections.N` index **do** propagate section bindings (`bound_updates`). Multi-section updates are rejected.
 
 ## Tools
 

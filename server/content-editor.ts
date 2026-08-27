@@ -137,6 +137,14 @@ function identityValidateOptsForWrite(opts: {
   rejectAttachedStructuralEdit,
 } from "./shared-layout-entry";
 import {
+  isTypeLayoutTarget,
+  isSharedTemplateBasename,
+  isReservedTemplateVariantSlug,
+  resolveTemplateLocalePath,
+  liveTemplateBasename,
+  variantTemplateBasename,
+} from "./shared-layout-paths";
+import {
   applyEditorialUpdatedAtToData,
   type EditorialOp,
 } from "./editorial-updated-at";
@@ -250,8 +258,8 @@ interface ContentEditRequest {
   ci?: ContentIndex;
   /** When true, skip sibling-locale shared-layout fan-out (MCP agents sync via next_actions). */
   skipSharedLayoutFanOut?: boolean;
-  /** Force write layer for shared-layout types: type_single → single.{locale}.yml; entry → per-entry overlay. */
-  layoutTarget?: "entry" | "type_single";
+  /** Force write layer for shared-layout types: type_template → template.{locale}.yml; entry → per-entry overlay. */
+  layoutTarget?: "entry" | "type_single" | "type_template";
   /**
    * When true, skip entry-preview capture enqueue after save.
    * Only set by the bulk-meta endpoint (default false elsewhere).
@@ -624,7 +632,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
       if (request.layoutTarget === "entry" && hasSectionOps) {
         return { success: false, error: attachedStructuralErr };
       }
-      if (hasSectionOps && request.layoutTarget !== "type_single") {
+      if (hasSectionOps && !isTypeLayoutTarget(request.layoutTarget)) {
         // Per-entry file writes of sections/layout are forbidden when attached
         const onlyEntryLayer =
           request.layoutTarget === "entry" ||
@@ -653,26 +661,28 @@ export async function editContent(request: ContentEditRequest): Promise<{
           (((op as { path?: string }).path || "") === "layout" ||
             ((op as { path?: string }).path || "").startsWith("layout.")),
       );
-      if (hasLayoutWrite && request.layoutTarget !== "type_single") {
+      if (hasLayoutWrite && !isTypeLayoutTarget(request.layoutTarget)) {
         return { success: false, error: attachedStructuralErr };
       }
     }
 
-    // Forced type_single: load/write shared single.{locale}.yml or single.{variant}.{locale}.yml
-    if (request.layoutTarget === "type_single") {
+    // Forced type shell: load/write shared template.{locale}.yml (or legacy single.*) / variant
+    if (isTypeLayoutTarget(request.layoutTarget)) {
       const folder = getFolder(contentType);
       const rootPath = contentRoot
         ? (path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot))
         : path.join(process.cwd(), getDefaultContentRootName());
-      const templateFilePath = hasVariant
-        ? path.join(rootPath, folder, `single.${variant}.${locale}.yml`)
-        : path.join(rootPath, folder, `single.${locale}.yml`);
+      const typeDir = path.join(rootPath, folder);
+      const templateFilePath = resolveTemplateLocalePath(typeDir, locale, {
+        variant: hasVariant ? variant : undefined,
+        fallbackLocale: "",
+      });
       if (!fs.existsSync(templateFilePath)) {
         return {
           success: false,
           error: hasVariant
-            ? `Template variant not found: ${folder}/single.${variant}.${locale}.yml`
-            : `Shared template not found: ${folder}/single.${locale}.yml`,
+            ? `Template variant not found: ${folder}/${variantTemplateBasename(variant, locale)}`
+            : `Shared template not found: ${folder}/${liveTemplateBasename(locale)}`,
         };
       }
       const rawTemplate = fs.readFileSync(templateFilePath, "utf-8");
@@ -689,7 +699,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
         contentRoot,
         database: request.database,
         ci,
-        // Draft template variants must not fan out onto live sibling singles
+        // Draft template variants must not fan out onto live sibling shells
         skipSharedLayoutFanOut: hasVariant || request.skipSharedLayoutFanOut,
         isDraftOrVariantWrite: hasVariant,
       }),
@@ -936,9 +946,10 @@ export async function editContent(request: ContentEditRequest): Promise<{
         if (templateOps.length > 0) {
           // The per-entry file is at 4geeks-com/{type}/{slug}/{locale}.yml
           // Two levels up is 4geeks-com/{type}/ where single.{locale}.yml lives.
-          const templateFilePath = path.join(
+          const templateFilePath = resolveTemplateLocalePath(
             path.dirname(path.dirname(filePath)),
-            `single.${locale}.yml`,
+            locale,
+            { fallbackLocale: "" },
           );
           if (fs.existsSync(templateFilePath)) {
             const rawTemplate = fs.readFileSync(templateFilePath, "utf-8");
@@ -1078,9 +1089,10 @@ export async function editContent(request: ContentEditRequest): Promise<{
 
         if (!fromIsPerEntry && !toIsPerEntry) {
           // Both are template sections: forward reorder to shared template file
-          const templateFilePath = path.join(
+          const templateFilePath = resolveTemplateLocalePath(
             path.dirname(path.dirname(filePath)),
-            `single.${locale}.yml`,
+            locale,
+            { fallbackLocale: "" },
           );
 
           if (!fs.existsSync(templateFilePath)) {
@@ -1248,7 +1260,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
     // full structure. Attached overlays keep identity patches (`section_id` / `_remove`).
     if (Array.isArray(localeData.sections)) {
       const ownsFullStructure =
-        path.basename(filePath).startsWith("single.") ||
+        isSharedTemplateBasename(path.basename(filePath)) ||
         isEntryDetached(contentType, slug, contentRoot) ||
         !isSharedLayoutType(contentType, contentRoot);
       localeData.sections = (localeData.sections as unknown[]).filter((s) =>
@@ -1291,10 +1303,10 @@ export async function editContent(request: ContentEditRequest): Promise<{
     }
 
     // Live locale writes: require resolved meta + editor.required fields.
-    // Draft variant files and shared single.*.yml template edits skip this gate.
+    // Draft variant files and shared template.*.yml / single.*.yml edits skip this gate.
     const writingLiveLocale =
       !hasVariant &&
-      !path.basename(filePath).startsWith("single.");
+      !isSharedTemplateBasename(path.basename(filePath));
     if (writingLiveLocale) {
       const commonForGate = ci.loadCommonData(contentType, slug) || {};
       const mergedForGate = deepMerge(commonForGate, localeData) as Record<
@@ -2591,6 +2603,13 @@ export async function renameContentSlug(
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(newSlug)) {
     return { success: false, statusCode: 400, error: "Invalid slug format. Use lowercase letters, numbers, and hyphens only." };
   }
+  if (isReservedTemplateVariantSlug(newSlug)) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: 'Slug "template" and "single" are reserved for the shared-layout shell and cannot be used as entry slugs.',
+    };
+  }
 
   const {
     assertCreateRedirectIfRequired,
@@ -2697,7 +2716,10 @@ export async function renameContentSlug(
 function localeFromLocaleFilename(filename: string): string | null {
   const base = filename.replace(/\.ya?ml$/i, "");
   if (base === "_common") return null;
-  if (base.startsWith("single.")) return base.slice("single.".length).split(".")[0] || null;
+  const liveM = /^(?:template|single)\.([a-z]{2}(?:-[a-zA-Z]+)?)$/i.exec(base);
+  if (liveM) return liveM[1];
+  const varM = /^(?:template|single)\.([a-z0-9-]+)\.([a-z]{2}(?:-[a-zA-Z]+)?)$/i.exec(base);
+  if (varM) return varM[2];
   if (base.includes(".")) return base.split(".").pop() || null;
   return base;
 }
@@ -3006,6 +3028,16 @@ export async function createContentEntry(
   }
   if (esSlug && !slugRegex.test(esSlug)) {
     return { success: false, statusCode: 400, error: "Invalid Spanish slug format. Use lowercase letters, numbers, and hyphens only." };
+  }
+  if (
+    (enSlug && isReservedTemplateVariantSlug(enSlug)) ||
+    (esSlug && isReservedTemplateVariantSlug(esSlug))
+  ) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: 'Slug "template" and "single" are reserved for the shared-layout shell and cannot be used as entry slugs.',
+    };
   }
 
   const folderSlug = (enSlug || esSlug)!;

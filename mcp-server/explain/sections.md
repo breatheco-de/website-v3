@@ -79,7 +79,7 @@ Long-form pages often insert a CTA between two halves of an article. Use **two (
 
 ## Shared-layout content types
 
-Types with `database.slug` **or** `single_template: true` (e.g. static `blog`) render sections from shared `single.{locale}.yml` (plus optional per-entry overlays when detached). Changes to the shared single affect **all attached** entries. Per-entry YAML **does** exist for static shared-layout types (`_common.yml` + `{locale}.yml`) and holds locale fields such as `title` / `content` — not a full page shell. See `explain_site` topic `shared-layout`.
+Types with `database.slug` **or** `single_template: true` (e.g. static `blog`) render sections from shared `template.{locale}.yml` (plus optional per-entry overlays when detached; legacy `single.*` still loads). Changes to the shared template affect **all attached** entries. Per-entry YAML **does** exist for static shared-layout types (`_common.yml` + `{locale}.yml`) and holds locale fields such as `title` / `content` — not a full page shell. See `explain_site` topic `shared-layout`.
 
 ## In-page CTA / link URLs
 
@@ -124,7 +124,7 @@ Always reference images by `image_id` (registry ID), never by raw path. The `Uni
 
 ## Safe YAML loading
 
-Sections may contain template variables like `{{ entry.title }}` (legacy `{{ single.title }}` still resolves on delivery; saves require `entry.*`). Always load section YAML through the safe loader (`safeYamlLoad` / `safeLoad`) — never raw `yaml.load()`. The `entry` namespace is the current entry’s field bag — not the shared shell filename `single.{locale}.yml`.
+Sections may contain template variables like `{{ entry.title }}` (legacy `{{ single.title }}` still resolves on delivery; saves require `entry.*`). Always load section YAML through the safe loader (`safeYamlLoad` / `safeLoad`) — never raw `yaml.load()`. The `entry` namespace is the current entry’s field bag — not the shared shell filename `template.{locale}.yml`.
 
 ## Lead form submit routes
 

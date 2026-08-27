@@ -244,7 +244,7 @@ function XSpacingPresetButtons({
             className="relative"
             onClick={() => onChange(preset.value)}
             data-testid={`x-spacing-preset-${testId}-${preset.value}`}
-            title={isDefault ? "Content-type default (_common.single.yml)" : undefined}
+            title={isDefault ? "Content-type default (_common.template.yml)" : undefined}
           >
             {isDefault ? (
               <span
@@ -454,7 +454,7 @@ export function EditableSection({ children, section, index, sectionType, content
     token: string | null;
     changedFields: string[];
   } | null>(null);
-  /** Layout defaults from _common.single.yml for the content type (X spacing keys only). */
+  /** Layout defaults from _common.template.yml for the content type (X spacing keys only). */
   const [contentTypeXDefaults, setContentTypeXDefaults] = useState<ContentTypeXDefaults | null>(null);
 
   // YAML source modal state
@@ -1427,7 +1427,7 @@ export function EditableSection({ children, section, index, sectionType, content
                       className="relative"
                       onClick={() => setXMaxWidth(prev => ({ ...prev, [xSpacingBreakpoint]: preset.value }))}
                       data-testid={`x-mw-preset-${index}-${preset.value}`}
-                      title={isDefault ? "Content-type default (_common.single.yml)" : undefined}
+                      title={isDefault ? "Content-type default (_common.template.yml)" : undefined}
                     >
                       {isDefault ? (
                         <span

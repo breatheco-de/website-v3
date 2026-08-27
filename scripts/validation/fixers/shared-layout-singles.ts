@@ -18,6 +18,11 @@ import {
   buildMirroredLocaleSingle,
   listAllSinglePaths,
 } from "../../../server/shared-layout-sync";
+import {
+  resolveCommonTemplatePath,
+  COMMON_TEMPLATE_BASENAME,
+  LEGACY_COMMON_SINGLE_BASENAME,
+} from "../../../server/shared-layout-paths";
 import { canonicalSectionId } from "../../../server/utils/sectionIdentity";
 
 function dumpYaml(data: unknown): string {
@@ -58,14 +63,30 @@ export const sharedLayoutSinglesFixer: Fixer = {
       const typeDir = path.join(root, folder);
       if (!fs.existsSync(typeDir)) continue;
 
-      const commonSingle = path.join(typeDir, "_common.single.yml");
+      const commonSingle = resolveCommonTemplatePath(typeDir);
       if (fs.existsSync(commonSingle)) {
         const data = safeLoad(fs.readFileSync(commonSingle, "utf-8"));
         if (data && "sections" in data) {
-          changes.push(`${folder}/_common.single.yml: remove sections (layout defaults only)`);
+          changes.push(`${folder}/${path.basename(commonSingle)}: remove sections (layout defaults only)`);
           if (!dryRun) {
             delete data.sections;
             fs.writeFileSync(commonSingle, dumpYaml(data) + "\n", "utf-8");
+            fixed++;
+          }
+        }
+      }
+      // Also strip legacy common if both exist
+      const legacyCommon = path.join(typeDir, LEGACY_COMMON_SINGLE_BASENAME);
+      if (
+        path.basename(commonSingle) === COMMON_TEMPLATE_BASENAME &&
+        fs.existsSync(legacyCommon)
+      ) {
+        const data = safeLoad(fs.readFileSync(legacyCommon, "utf-8"));
+        if (data && "sections" in data) {
+          changes.push(`${folder}/${LEGACY_COMMON_SINGLE_BASENAME}: remove sections (layout defaults only)`);
+          if (!dryRun) {
+            delete data.sections;
+            fs.writeFileSync(legacyCommon, dumpYaml(data) + "\n", "utf-8");
             fixed++;
           }
         }
@@ -90,7 +111,7 @@ export const sharedLayoutSinglesFixer: Fixer = {
         const sections = Array.isArray(data?.sections) ? data!.sections : [];
         if (sections.length === 0 && mirror && mirror.locale !== locale) {
           changes.push(
-            `${folder}/single.${locale}.yml: empty stub → mirror structure from ${mirror.locale}`,
+            `${folder}/${path.basename(filePath)}: empty stub → mirror structure from ${mirror.locale}`,
           );
           if (!dryRun) {
             const mirrored = buildMirroredLocaleSingle(mirror.data);

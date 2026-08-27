@@ -6,11 +6,25 @@ window_days: 6
 
 entries:
   - date: "2026-08-27"
+    summary: "Shared shell files renamed single.* → template.* (dual-load)"
+    agent_impact:
+      - "Shell paths are template.{locale}.yml and _common.template.yml; legacy single.* still loads if present."
+      - "layout_target prefer type_template (alias type_single still accepted)."
+      - "Versioning slug prefer template (alias single still accepted)."
+      - "Entry slugs template and single are reserved for the shell."
+      - "get_content_type_info template_vars_note mentions template.* shells."
+    paths:
+      - mcp-server/explain/shared-layout.md
+      - mcp-server/lib/entry-helpers.ts
+      - shared/sharedLayoutPaths.ts
+      - server/shared-layout-paths.ts
+    tools_changed: true
+  - date: "2026-08-27"
     summary: "{{ entry.* }} replaces {{ single.* }} for entry field binds"
     agent_impact:
       - "Prefer {{ entry.field }} in sections/meta/templates; saves reject {{ single.* }}."
       - "Delivery still resolves legacy {{ single.* }} so missed content does not 500."
-      - "Shared shell files remain single.{locale}.yml (filename ≠ namespace)."
+      - "Shared shell files use template.{locale}.yml (filename ≠ {{ entry.* }} namespace); legacy single.* still loads."
       - "get_content_type_info returns template_vars_note keyed by body_model."
     paths:
       - mcp-server/explain/content_system.md

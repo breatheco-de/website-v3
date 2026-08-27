@@ -44,7 +44,7 @@ function isAttachedOverlayFile(
   contentRoot?: string,
 ): boolean {
   const base = path.basename(file.filePath);
-  if (base.startsWith("single.")) return false;
+  if (base.startsWith("single.") || base.startsWith("template.")) return false;
   if (!isSharedLayoutType(file.type, contentRoot)) return false;
   if (isEntryDetached(file.type, file.slug, contentRoot)) return false;
   return true;

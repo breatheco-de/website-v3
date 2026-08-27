@@ -252,7 +252,8 @@ export function templateVarsNoteForBodyModel(bodyModel: string): string {
   if (bodyModel === "locale_fields_plus_shared_single") {
     return (
       common +
-      " Attached shared-layout: put section/meta binds in single.{locale}.yml; entry locale YAML is data-only (sections ignored)."
+      " Attached shared-layout: put section/meta binds in template.{locale}.yml (legacy single.* still loads); entry locale YAML is data-only (sections ignored)." +
+      " Prefer layout_target type_template (alias type_single)."
     );
   }
   return (

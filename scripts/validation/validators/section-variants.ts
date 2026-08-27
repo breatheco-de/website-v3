@@ -142,7 +142,14 @@ export const sectionVariantsValidator: Validator = {
       for (const d of dirs) {
         if (!d.isDirectory()) continue;
         const dirPath = path.join(contentRoot, d.name);
-        for (const name of ["single.en.yml", "single.es.yml", "_common.single.yml"]) {
+        for (const name of [
+          "template.en.yml",
+          "template.es.yml",
+          "single.en.yml",
+          "single.es.yml",
+          "_common.template.yml",
+          "_common.single.yml",
+        ]) {
           const fp = path.join(dirPath, name);
           if (!fs.existsSync(fp)) continue;
           try {

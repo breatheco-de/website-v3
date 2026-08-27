@@ -180,12 +180,12 @@ sections:
     mkdirIfMissing(path.join(folderPath, "blog"));
 
     writeIfMissing(
-      path.join(folderPath, "blog", "_common.single.yml"),
+      path.join(folderPath, "blog", "_common.template.yml"),
       `slug: "{{ entry.slug }}"\ntitle: "{{ entry.title }}"\nmeta:\n  robots: index, follow\n`,
     );
 
     writeIfMissing(
-      path.join(folderPath, "blog", "single.en.yml"),
+      path.join(folderPath, "blog", "template.en.yml"),
       `meta:
   page_title: "{{ entry.title }}"
   description: "{{ entry.excerpt }}"

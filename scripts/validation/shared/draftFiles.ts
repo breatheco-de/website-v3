@@ -14,12 +14,15 @@ import type { ContentFile } from "./types";
 
 export function isVariantLayerFile(filePath: string): boolean {
   const base = filePath.split(/[/\\]/).pop() || "";
-  // Entry mode: draft.es.yml, v2.en.yml
-  if (/^[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base) && !/^single\./i.test(base)) {
+  // Entry mode: draft.es.yml, v2.en.yml (not template/single live shells)
+  if (
+    /^[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base) &&
+    !/^(?:template|single)\./i.test(base)
+  ) {
     return true;
   }
-  // Template mode: single.draft.es.yml (not single.es.yml)
-  if (/^single\.[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base)) {
+  // Template mode: template|single.{variant}.{locale}.yml (not live template|single.{locale}.yml)
+  if (/^(?:template|single)\.[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base)) {
     return true;
   }
   return false;

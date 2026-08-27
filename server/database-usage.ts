@@ -243,7 +243,7 @@ function collectContentYamlTargets(
   for (const { filePath } of listAllSinglePaths(typeDir)) {
     targets.push({ filePath });
   }
-  for (const name of ["_common.single.yml", "_common.yml"]) {
+  for (const name of ["_common.template.yml", "_common.single.yml", "_common.yml"]) {
     const p = path.join(typeDir, name);
     if (fs.existsSync(p)) targets.push({ filePath: p });
   }
@@ -259,7 +259,7 @@ function collectContentYamlTargets(
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const slug = entry.name;
-    if (slug === "single") continue;
+    if (slug === "single" || slug === "template") continue;
     const slugDir = path.join(typeDir, slug);
     for (const filePath of listYamlFilesInDir(slugDir)) {
       targets.push({ slug, filePath });

@@ -84,13 +84,13 @@ Types are declared in `content-types.yml`. Each entry specifies:
 
 Types with a `database.slug` key (or static types with `single_template: true`) use shared layout:
 
-- Structure lives in each `single.{locale}.yml` (kept structurally in sync by the structured UI).
-- `_common.single.yml` is **layout defaults only** — do not put `sections` there.
-- Empty `sections: []` stubs are invalid; new/missing locale singles should be mirrored from a sibling.
+- Structure lives in each `template.{locale}.yml` (kept structurally in sync by the structured UI; legacy `single.*` still loads).
+- `_common.template.yml` (legacy `_common.single.yml`) is layout defaults only — never sections.
+- Empty `sections: []` stubs are invalid; new/missing locale templates should be mirrored from a sibling.
 - Content props stay locale-local. Topology + `showOn*` / generic layout sync across siblings in the structured UI.
 - Changing `type` / `version` / `variant` does **not** auto-replicate — update sibling locales manually.
 - **Entry create:** exactly one live `{locale}.yml` (EN or ES — no primary special case). Gate: `createContentEntry` / MCP `create_entry`.
-- **MCP does not auto-fan-out.** After a structural edit to one locale single, follow structured `next_actions` (exact tool name + `args_hint` + blast-radius `reason`) to update sibling `single.*.yml` files yourself. Soft prose warnings alone are not enough. Use `layout_target: "type_single"` | `"entry"` (or answer `confirm_layout_target`) so writes hit the shared single vs entry overlay intentionally. Mutating tool responses always include `warnings` and `next_actions` arrays via `ok()` / `actionRequired()`.
+- **MCP does not auto-fan-out.** After a structural edit to one locale template, follow structured `next_actions` (exact tool name + `args_hint` + blast-radius `reason`) to update sibling `template.*.yml` files yourself. Soft prose warnings alone are not enough. Prefer `layout_target: "type_template"` (alias `"type_single"`) | `"entry"` (or answer `confirm_layout_target`) so writes hit the shared template vs entry overlay intentionally. Mutating tool responses always include `warnings` and `next_actions` arrays via `ok()` / `actionRequired()`.
 
 ## Template variables
 
@@ -106,10 +106,10 @@ Content files may reference template expressions that are resolved at **delivery
 
 Resolve order at page delivery: **entry (incl. legacy single) → meta → param**. Site vars (`brand`/`global`) stay for React `SectionRenderer` (edit mode can preserve `{{ }}`); pass `skipSiteVars: false` only for non-React consumers (menus, schema.org, SEO, entry preview). Editors keep unresolved templates on write paths.
 
-**Mental model:** `{{ entry.* }}` is the **current entry’s field bag** (`field_mapping`) — not the shared shell filename. Shared-layout shells still live in `single.{locale}.yml` (Phase 1; filename ≠ namespace). SEO Meta tab = SEO head only (`meta.*`). Mapping remaps are for DB columns and `function:` fields. New schema fields need a default; if no entry has the key yet, warn “new field”.
+**Mental model:** `{{ entry.* }}` is the **current entry’s field bag** (`field_mapping`) — not the shared shell filename. Shared-layout shells live in `template.{locale}.yml` (legacy `single.*` still loads; filename ≠ namespace). SEO Meta tab = SEO head only (`meta.*`). Mapping remaps are for DB columns and `function:` fields. New schema fields need a default; if no entry has the key yet, warn “new field”.
 
 - **`sections_owned` types** (no shared layout): bind `{{ entry.* }}` in that entry’s own `sections` / `meta`.
-- **Attached shared-layout** (`body_model: locale_fields_plus_shared_single`): bind in `single.{locale}.yml`; entry locale YAML is data-only (sections ignored).
+- **Attached shared-layout** (`body_model: locale_fields_plus_shared_single`): bind in `template.{locale}.yml`; entry locale YAML is data-only (sections ignored).
 - **Listing `item_template`:** `{{ entry.* }}` means **each list row**, not the page entry.
 
 ### SEO clustering (per-entry + hub inventory)

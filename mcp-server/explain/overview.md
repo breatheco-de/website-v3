@@ -4,7 +4,7 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 
 ## Core concepts
 
-- **Content types** — defined in `{content_folder}/content-types.yml`. Each type has a directory, URL pattern, and optional field mappings. **DB-backed** means `database.slug` is set (YAML create tools skip those). **Shared-layout** means `single_template: true` and/or DB — shell lives in `single.{locale}.yml`. Example: `blog` is static YAML + `single_template` (not DB-backed).
+- **Content types** — defined in `{content_folder}/content-types.yml`. Each type has a directory, URL pattern, and optional field mappings. **DB-backed** means `database.slug` is set (YAML create tools skip those). **Shared-layout** means `single_template: true` and/or DB — shell lives in `template.{locale}.yml` (legacy `single.{locale}.yml` still loads). Example: `blog` is static YAML + `single_template` (not DB-backed).
 - **Sections** — every page is a list of section objects. Each section has a `type` that maps to a React component registered in `SectionRenderer`. Sections are authored in YAML and never in code.
 - **i18n** — pages exist in one or more locales. Each locale has its own YAML file (`en.yml`, `es.yml`). Shared fields live in `_common.yml` and are deep-merged at read time.
 - **Image registry** — all images are referenced by ID from `{content_folder}/image-registry.json`. Raw paths are never hardcoded in components.

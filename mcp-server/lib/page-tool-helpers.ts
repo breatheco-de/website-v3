@@ -17,6 +17,11 @@ import {
   type LayoutTarget,
 } from "./shared-layout.js";
 import {
+  LAYOUT_TARGET_TYPE_TEMPLATE,
+  isTypeLayoutTarget,
+  liveTemplateBasename,
+} from "@shared/sharedLayoutPaths";
+import {
   ok,
   fail,
   actionRequired,
@@ -29,7 +34,7 @@ import {
 
 export const LAYOUT_TARGET_DESC =
   'For shared-layout types (DB-backed or single_template): "auto" (default) may ask confirm_layout_target; ' +
-  '"type_single" writes single.{locale}.yml (all entries); "entry" writes only this entry overlay.';
+  '"type_template" (alias "type_single") writes template.{locale}.yml (all entries); "entry" writes only this entry overlay.';
 
 export function confirmLiveEditGate(opts: {
   tool: string;
@@ -102,20 +107,20 @@ export function resolveLayoutTargetGate(opts: {
   confirm_layout_target?: boolean;
   /** When true, auto is treated as ambiguous and requires confirm. */
   requireConfirmWhenAuto: boolean;
-}): { target: "entry" | "type_single" } | { gate: McpTextResult } {
+}): { target: "entry" | "type_template" | "type_single" } | { gate: McpTextResult } {
   if (!isSharedLayoutConfig(opts.config)) {
     return { target: "entry" };
   }
   const raw = opts.layout_target ?? "auto";
-  if (raw === "entry" || raw === "type_single") {
-    return { target: raw };
+  if (raw === "entry" || isTypeLayoutTarget(raw)) {
+    return { target: raw === "entry" ? "entry" : raw };
   }
   // auto
   if (opts.confirm_layout_target && opts.requireConfirmWhenAuto) {
     // confirm without explicit target is invalid
     return {
       gate: fail(
-        'layout_target must be "entry" or "type_single" when confirm_layout_target is set',
+        'layout_target must be "entry" or "type_template" when confirm_layout_target is set',
       ),
     };
   }
@@ -132,12 +137,12 @@ export function resolveLayoutTargetGate(opts: {
           {
             tool: opts.tool,
             priority: "required",
-            reason: 'Re-call with layout_target: "type_single" or "entry".',
+            reason: 'Re-call with layout_target: "type_template" or "entry".',
             args_hint: {
               contentType: opts.contentType,
               slug: opts.slug,
               locale: opts.locale,
-              layout_target: "type_single",
+              layout_target: LAYOUT_TARGET_TYPE_TEMPLATE,
               confirm_layout_target: true,
             },
           },
@@ -154,7 +159,7 @@ export function variantWarningsIfNeeded(variant?: string): McpWarning[] {
 }
 
 export function wrotePayload(opts: {
-  layer: "entry_locale" | "type_single" | "variant";
+  layer: "entry_locale" | "type_single" | "type_template" | "variant";
   contentType: string;
   path: string;
   locale: string;
@@ -199,8 +204,8 @@ export function sharedStructuralEnvelope(opts: {
   if (siblings.length > 0) {
     side_effects.push(
       localeSiblingSyncSideEffect(
-        `Allowlisted structure must also be applied to sibling singles (${siblings
-          .map((l) => `single.${l}.yml`)
+        `Allowlisted structure must also be applied to sibling shells (${siblings
+          .map((l) => liveTemplateBasename(l))
           .join(", ")}). Do not copy marketing copy.`,
       ),
     );

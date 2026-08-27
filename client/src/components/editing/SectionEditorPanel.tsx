@@ -2353,8 +2353,8 @@ export function SectionEditorPanel({
     }
 
     try {
-      // Shared-template A/B drafts live at single.{variant}.{locale}.yml (type_single).
-      // Entry A/B drafts (e.g. programs/ai-flex/v2.es.yml) must not use type_single —
+      // Shared-template A/B drafts live at template.{variant}.{locale}.yml (type_template).
+      // Entry A/B drafts (e.g. programs/ai-flex/v2.es.yml) must not use type_template —
       // only pass the variant name so the server writes the entry variant file.
       const _urlParams = new URLSearchParams(window.location.search);
       const forceVariant = _urlParams.get("force_variant");
@@ -2370,7 +2370,7 @@ export function SectionEditorPanel({
         locale,
         variant: effectiveVariant,
         version: writeSharedTemplateVariant ? undefined : version,
-        ...(writeSharedTemplateVariant ? { layoutTarget: "type_single" } : {}),
+        ...(writeSharedTemplateVariant ? { layoutTarget: "type_template" } : {}),
         operations: [
           {
             action: "update_section",

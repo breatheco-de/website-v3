@@ -6687,13 +6687,13 @@ export default function ContentTypeManagePage() {
     if (token) headers["Authorization"] = `Token ${token}`;
     try {
       const res = await fetch(
-        `/api/content/raw-file?contentType=${encodeURIComponent(contentType)}&slug=${encodeURIComponent("_common.single")}&locale=en`,
+        `/api/content/raw-file?contentType=${encodeURIComponent(contentType)}&slug=${encodeURIComponent("_common.template")}&locale=en`,
         { headers },
       );
       if (!res.ok) {
         toast({
           title: "No template found",
-          description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+          description: "This content type has no _common.template.yml (or template.*.yml / legacy single.*) yet.",
           variant: "destructive",
         });
         return;
@@ -6702,12 +6702,12 @@ export default function ContentTypeManagePage() {
       if (!data.exists) {
         toast({
           title: "No template found",
-          description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+          description: "This content type has no _common.template.yml (or template.*.yml / legacy single.*) yet.",
           variant: "destructive",
         });
         return;
       }
-      setYamlEditorInfo({ contentType, slug: "_common.single", locale: "en" });
+      setYamlEditorInfo({ contentType, slug: "_common.template", locale: "en" });
       setShowYamlEditor(true);
     } catch {
       toast({ title: "Error", description: "Failed to open the single template", variant: "destructive" });
@@ -8809,7 +8809,10 @@ export default function ContentTypeManagePage() {
             onClose={() => setShowYamlEditor(false)}
             onSaved={() => {
               setShowYamlEditor(false);
-              if (yamlEditorInfo?.slug === "_common.single") {
+              if (
+                yamlEditorInfo?.slug === "_common.template" ||
+                yamlEditorInfo?.slug === "_common.single"
+              ) {
                 queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
                 toast({ title: "Template saved" });
               } else {

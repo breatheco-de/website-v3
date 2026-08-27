@@ -9,6 +9,12 @@
 import * as fs from "fs";
 import * as path from "path";
 import { canonicalSectionId, sectionMatchesId } from "./utils/sectionIdentity";
+import {
+  LIVE_SHELL_BASENAME_RE,
+  listSiblingLiveShellPaths,
+  listAllLiveShellPaths,
+  resolveTemplateLocalePath,
+} from "./shared-layout-paths";
 
 /** Same pattern as database-single-loader TEMPLATE_EXPR_RE (kept local to avoid circular imports). */
 const TEMPLATE_EXPR_RE = /\{\{[\s\S]*?\}\}/;
@@ -212,37 +218,29 @@ export function stripSectionLabels<T>(data: T): T {
 }
 
 /**
- * List sibling `single.*.yml` paths for a content type directory.
+ * List sibling live-shell paths for a content type directory (`template.*` prefer, legacy `single.*`).
  * Excludes the source locale file.
  */
 export function listSiblingSinglePaths(
   templateDir: string,
   sourceLocale: string,
 ): Array<{ locale: string; filePath: string }> {
-  if (!fs.existsSync(templateDir)) return [];
-  const results: Array<{ locale: string; filePath: string }> = [];
-  for (const name of fs.readdirSync(templateDir)) {
-    const m = /^single\.([a-z]{2}(?:-[a-z]+)?)\.yml$/i.exec(name);
-    if (!m) continue;
-    const locale = m[1];
-    if (locale === sourceLocale) continue;
-    results.push({ locale, filePath: path.join(templateDir, name) });
-  }
-  return results;
+  return listSiblingLiveShellPaths(templateDir, sourceLocale).map((filePath) => {
+    const name = path.basename(filePath);
+    const m = LIVE_SHELL_BASENAME_RE.exec(name);
+    return { locale: m?.[1] ?? "", filePath };
+  }).filter((r) => r.locale);
 }
 
-/** List all single locale files including source. */
+/** List all live-shell locale files including source (prefer template.* when both). */
 export function listAllSinglePaths(
   templateDir: string,
 ): Array<{ locale: string; filePath: string }> {
-  if (!fs.existsSync(templateDir)) return [];
-  const results: Array<{ locale: string; filePath: string }> = [];
-  for (const name of fs.readdirSync(templateDir)) {
-    const m = /^single\.([a-z]{2}(?:-[a-z]+)?)\.yml$/i.exec(name);
-    if (!m) continue;
-    results.push({ locale: m[1], filePath: path.join(templateDir, name) });
-  }
-  return results;
+  return listAllLiveShellPaths(templateDir).map((filePath) => {
+    const name = path.basename(filePath);
+    const m = LIVE_SHELL_BASENAME_RE.exec(name);
+    return { locale: m?.[1] ?? "", filePath };
+  }).filter((r) => r.locale);
 }
 
 /**
@@ -632,15 +630,15 @@ export function alignSiblingSinglesToBase(opts: {
   onWritten?: (filePath: string, locale: string) => void;
 }): FanOutResult {
   const { templateDir, baseLocale, safeYamlLoad, dumpYaml, requesterId, onWritten } = opts;
-  const basePath = path.join(templateDir, `single.${baseLocale}.yml`);
+  const basePath = resolveTemplateLocalePath(templateDir, baseLocale, { fallbackLocale: "" });
   const result: FanOutResult = { succeeded: [], failed: [] };
   if (!fs.existsSync(basePath)) {
-    result.failed.push({ locale: baseLocale, error: "Base single template not found" });
+    result.failed.push({ locale: baseLocale, error: "Base template shell not found" });
     return result;
   }
   const baseData = safeYamlLoad(fs.readFileSync(basePath, "utf-8"));
   if (!baseData) {
-    result.failed.push({ locale: baseLocale, error: "Could not parse base single template" });
+    result.failed.push({ locale: baseLocale, error: "Could not parse base template shell" });
     return result;
   }
   const baseSections = Array.isArray(baseData.sections)
