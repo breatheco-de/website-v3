@@ -44,6 +44,7 @@ import { unknownKeysValidator } from "./unknown-keys";
 import { relationTargetsValidator } from "./relation-targets";
 import { updatedAtValidator } from "./updated-at";
 import { urlParamLocaleValidator } from "./url-param-locale";
+import { siteLinkIndexValidator } from "./site-link-index";
 
 export const validators: Validator[] = [
   redirectValidator,
@@ -84,6 +85,7 @@ export const validators: Validator[] = [
   componentBehaviorsValidator,
   ctaTrackingValidator,
   updatedAtValidator,
+  siteLinkIndexValidator,
 ];
 
 /** @deprecated Lighthouse removed from platform diagnostics — use external tools. */

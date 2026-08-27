@@ -123,7 +123,7 @@ ${warningBlock}
 ## Rules
 1. Use this site’s MCP tools. Authenticate/OAuth if needed.
 2. Treat the Known issues list as authoritative for what to fix. Use get_entry_content / get_entry_fields to inspect YAML paths; use update_fields (and related write tools) to fix. Honor next_actions / warnings / side_effects.
-3. Before editing an issue, call update_issue with action "claim" and that issue’s id (from validation_issues). After fixing, call update_issue with action "complete". Soft-complete only — does not push YAML or run diagnostics. Claims expire after 30 minutes.
+3. Before editing an issue, call update_issue with action "claim", that issue’s id (from validation_issues), and report (why you are claiming it, min 20 chars). After fixing, call update_issue with action "complete" and report (what you changed and how, min 20 chars). Soft-complete only — does not push YAML or run diagnostics. Claims expire after 30 minutes; re-claim to refresh TTL may omit report.
 4. Do NOT call run_entry_diagnostics with confirm:true. Do NOT start or poll a new diagnostics job.
 5. Scope: this contentType + slug + locale only. No unrelated pages. No locale fan-out unless a tool next_action says so.`;
 }

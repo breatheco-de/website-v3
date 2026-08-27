@@ -51,6 +51,8 @@ function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
 import type { EditOperation } from "@shared/schema";
 import { normalizeLocale, getSupportedLocales, getDefaultLocale } from "./settings";
 import { markFileAsModified } from "./sync-state";
+import { emitContentEntryDeleted } from "./content-events";
+import { buildEntryKey } from "../scripts/validation/shared/entryKey";
 import { contentIndex, ContentIndex } from "./content-index";
 import { deepMerge } from "./utils/deepMerge";
 import { mergeSingleTemplate, extractVariableFields, TEMPLATE_EXPR_RE } from "./database-single-loader";
@@ -2672,6 +2674,63 @@ export async function renameContentSlug(
 
 // ─── deleteContentEntry ───────────────────────────────────────────────────────
 
+function localeFromLocaleFilename(filename: string): string | null {
+  const base = filename.replace(/\.ya?ml$/i, "");
+  if (base === "_common") return null;
+  if (base.startsWith("single.")) return base.slice("single.".length).split(".")[0] || null;
+  if (base.includes(".")) return base.split(".").pop() || null;
+  return base;
+}
+
+function collectEntryKeysInFolder(
+  contentType: string,
+  slug: string,
+  folderPath: string,
+  onlyLocales?: string[],
+): string[] {
+  if (!fs.existsSync(folderPath)) return [];
+  const localeFilter = onlyLocales?.length ? new Set(onlyLocales) : null;
+  const keys: string[] = [];
+  for (const file of fs.readdirSync(folderPath)) {
+    if (!file.endsWith(".yml") && !file.endsWith(".yaml")) continue;
+    if (file.startsWith("_")) continue;
+    const locale = localeFromLocaleFilename(file);
+    if (!locale || locale.includes(".")) continue;
+    if (localeFilter && !localeFilter.has(locale)) continue;
+    keys.push(buildEntryKey(contentType, slug, locale));
+  }
+  return keys;
+}
+
+function emitEntryDeletedPipelineEvent(opts: {
+  rootName: string;
+  type: string;
+  slug: string;
+  author?: string;
+  entryKeys: string[];
+  deletedPaths: string[];
+  folderRemoved: boolean;
+  localesRemoved?: string[];
+}): void {
+  if (opts.entryKeys.length === 0 && opts.deletedPaths.length === 0) return;
+  try {
+    emitContentEntryDeleted({
+      site: opts.rootName,
+      contentType: opts.type,
+      slug: opts.slug,
+      locale: opts.localesRemoved?.length === 1 ? opts.localesRemoved[0] : undefined,
+      entryKeys: opts.entryKeys,
+      deletedPaths: opts.deletedPaths,
+      folderRemoved: opts.folderRemoved,
+      localesRemoved: opts.localesRemoved,
+      author: opts.author,
+      actor: opts.author ? { type: "ui" } : { type: "system", source: "content-delete" },
+    });
+  } catch {
+    /* non-fatal */
+  }
+}
+
 export interface DeleteContentEntryInput {
   type: string;
   slug: string;
@@ -2725,18 +2784,24 @@ export async function deleteContentEntry(
 
   if (localesToDelete.length > 0) {
     const deletedFiles: string[] = [];
+    const deletedPaths: string[] = [];
+    const removedLocales: string[] = [];
     for (const locale of localesToDelete) {
       const localeFile = path.join(folderPath, `${locale}.yml`);
       if (fs.existsSync(localeFile)) {
+        const relPath = `${rootName}/${typeFolder}/${resolvedSlug}/${locale}.yml`;
         fs.unlinkSync(localeFile);
         deletedFiles.push(`${locale}.yml`);
-        markFileAsModified(`${rootName}/${typeFolder}/${resolvedSlug}/${locale}.yml`, author);
+        deletedPaths.push(relPath);
+        removedLocales.push(locale);
+        markFileAsModified(relPath, author);
       }
     }
 
     const remainingFiles = fs.readdirSync(folderPath).filter((f) => f.endsWith(".yml") && !f.startsWith("_"));
+    const folderRemoved = remainingFiles.length === 0;
 
-    if (remainingFiles.length === 0) {
+    if (folderRemoved) {
       const allFiles = fs.existsSync(folderPath) ? fs.readdirSync(folderPath) : [];
       for (const file of allFiles) {
         markFileAsModified(`${rootName}/${typeFolder}/${resolvedSlug}/${file}`, author);
@@ -2761,22 +2826,38 @@ export async function deleteContentEntry(
     contentIndex.refresh();
     invalidateContentCaches(type);
 
+    const entryKeys = removedLocales.map((loc) => buildEntryKey(type, resolvedSlug, loc));
+
+    emitEntryDeletedPipelineEvent({
+      rootName,
+      type,
+      slug: resolvedSlug,
+      author,
+      entryKeys,
+      deletedPaths,
+      folderRemoved,
+      localesRemoved: removedLocales,
+    });
+
     return {
       success: true,
       data: {
         success: true,
-        message: remainingFiles.length === 0
+        message: folderRemoved
           ? `Successfully deleted ${type}/${slug}`
           : `Deleted ${deletedFiles.join(", ")} from ${type}/${slug}`,
         deletedFiles,
-        folderRemoved: remainingFiles.length === 0,
+        folderRemoved,
       },
     };
   }
 
   // Full folder delete
-  const allFiles = fs.readdirSync(folderPath);
-  for (const file of allFiles) {
+  const entryKeysBeforeDelete = collectEntryKeysInFolder(type, resolvedSlug, folderPath);
+  const deletedPaths = fs
+    .readdirSync(folderPath)
+    .map((file) => `${rootName}/${typeFolder}/${resolvedSlug}/${file}`);
+  for (const file of fs.readdirSync(folderPath)) {
     markFileAsModified(`${rootName}/${typeFolder}/${resolvedSlug}/${file}`, author);
   }
   fs.rmSync(folderPath, { recursive: true, force: true });
@@ -2789,6 +2870,16 @@ export async function deleteContentEntry(
     const { removeSlugFromAllDependants } = await import("./utils/sectionAnchors");
     removeSlugFromAllDependants(type, resolvedSlug);
   } catch { /* non-fatal */ }
+
+  emitEntryDeletedPipelineEvent({
+    rootName,
+    type,
+    slug: resolvedSlug,
+    author,
+    entryKeys: entryKeysBeforeDelete,
+    deletedPaths,
+    folderRemoved: true,
+  });
 
   return { success: true, data: { success: true, message: `Successfully deleted ${type}/${slug}` } };
 }

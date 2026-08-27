@@ -273,6 +273,28 @@ describe("validation cache claims", () => {
     expect(listed.issues[0]?.completed?.actor).toEqual(mcpActor);
   });
 
+  it("stores report on claim and complete; re-claim preserves report", async () => {
+    const root = tempRoot();
+    roots.push(root);
+    const cache = new ValidationCacheService(root);
+    const { issueId } = seedIssue(cache, root);
+
+    const claimReport = "Will fix missing sitemap entry by updating meta redirects.";
+    await cache.claimIssue(issueId, "jane", { type: "mcp", client: "Cursor" }, claimReport);
+    expect(cache.getActiveClaim(issueId)?.report).toBe(claimReport);
+
+    const refresh = await cache.claimIssue(issueId, "jane");
+    expect(refresh.ok).toBe(true);
+    expect(cache.getActiveClaim(issueId)?.report).toBe(claimReport);
+
+    const completeReport = "Added /en/home to meta.redirects via update_fields on pages/home/en.yml.";
+    await cache.completeIssue(issueId, "jane", { type: "mcp", client: "Cursor" }, completeReport);
+    expect(cache.getCompletion(issueId)?.report).toBe(completeReport);
+
+    const listed = listCacheIssuesFromStore(cache, { entryKey: "page/home/en", includeCompleted: true });
+    expect(listed.issues[0]?.completed?.report).toBe(completeReport);
+  });
+
   it("emits validation_issue_reopened when rewrite clears completion", async () => {
     const root = tempRoot();
     roots.push(root);

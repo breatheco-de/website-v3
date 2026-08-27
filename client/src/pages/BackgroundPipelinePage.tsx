@@ -2,7 +2,6 @@ import {
   memo,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -45,18 +44,24 @@ import {
 } from "@/components/ui/alert-dialog";
 import { EntryValidationModalTrigger } from "@/components/pipeline/EntryValidationModalTrigger";
 import {
-  EventAttributionBadge,
   EventCausalityLine,
   EventDetails,
   EventSummary,
+  eventAgentReport,
   eventHasTypedDetails,
   eventValidationEntryRef,
 } from "@/components/pipeline/EventLogSummaries";
+import {
+  EventHeadline,
+  formatEventHeadline,
+  formatEventHeadlinePlain,
+} from "@/components/pipeline/formatEventHeadline";
 import {
   EventTimeline,
   jumpToLatestRange,
   type VisibleTimeRange,
 } from "@/components/pipeline/EventTimeline";
+import { AgentIcon } from "@/components/pipeline/AgentIcon";
 import {
   AGENT_FILTER_OTHER,
   AGENT_IDS,
@@ -173,6 +178,13 @@ const EVENT_META: Record<string, EventMeta> = {
       "Someone saved a content file — a page, section, or registry entry. The file was written to disk and queued for background processing.",
     icon: IconPencil,
     iconClass: "text-primary border-primary/40",
+  },
+  content_entry_deleted: {
+    label: "Entry Deleted",
+    description:
+      "A content entry or locale was removed from disk. The routing index, validation cache, and link index are being cleaned up.",
+    icon: IconTrash,
+    iconClass: "text-destructive border-destructive/40",
   },
   content_bulk_synced: {
     label: "Bulk Content Sync",
@@ -367,16 +379,6 @@ function inFlightCount(data: PipelineStatus["inFlight"]): number {
   );
 }
 
-function eventResourceLabel(ev: ContentEvent): string {
-  const r = ev.resource;
-  const ct = typeof r.contentType === "string" ? r.contentType : "";
-  const slug = typeof r.slug === "string" ? r.slug : "";
-  const locale = typeof r.locale === "string" ? r.locale : "";
-  if (ct && slug) return locale ? `${ct}/${slug} (${locale})` : `${ct}/${slug}`;
-  if (typeof r.path === "string") return r.path;
-  return "";
-}
-
 function InFlightDetailList({ data }: { data: PipelineStatus["inFlight"] }) {
   return (
     <ul className="space-y-3 text-sm" data-testid="kpi-detail-running">
@@ -432,8 +434,6 @@ function PendingEventsDetailList({
     <div className="space-y-2" data-testid="kpi-detail-waiting">
       <ul className="space-y-2 text-sm">
         {pending.map((ev) => {
-          const meta = eventMeta(ev.type);
-          const resource = eventResourceLabel(ev);
           const age = Date.now() - ev.created_at;
           return (
             <li
@@ -441,15 +441,11 @@ function PendingEventsDetailList({
               className="rounded-md border border-border bg-muted/30 px-2.5 py-2 space-y-0.5"
             >
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{meta.label}</span>
-                <span className="text-[10px] font-mono text-muted-foreground">#{ev.id}</span>
-                <span className="text-xs text-muted-foreground ml-auto">{formatMs(age)} ago</span>
+                <span className="font-medium text-sm min-w-0">
+                  <EventHeadline event={ev} />
+                </span>
+                <span className="text-xs text-muted-foreground ml-auto shrink-0">{formatMs(age)} ago</span>
               </div>
-              {resource ? (
-                <p className="text-xs text-muted-foreground font-mono truncate" title={resource}>
-                  {resource}
-                </p>
-              ) : null}
             </li>
           );
         })}
@@ -614,7 +610,7 @@ function HealthStrip({ data, site }: { data: PipelineStatus; site?: string }) {
         testId="kpi-pipeline-engine"
         education={{
           simple:
-            "Process health for the dedicated Sidequest worker (not the website process). Running means the worker is up. Stuck? means the PID is alive but the heartbeat file is stale — the event loop may be blocked. Stopped: saves still work; use Diagnostics & logs → Check again or Restart Sidequest (webmaster). Prod restart uses a flag file + systemd path unit (docs/vps.md).",
+            "Process health for the dedicated Sidequest worker (not the website process). Running means the worker is up. Stuck? means the PID is alive but the heartbeat file is stale — the event loop may be blocked. Stopped: locally start `npm run sidequest` in another terminal; in production use Diagnostics & logs → Check again or Restart Sidequest (webmaster). Prod restart uses a flag file + systemd path unit (docs/vps.md).",
           advanced:
             "Sidequest.js in server/jobs/sidequest-worker.ts; enqueue via server/jobs/queue.ts. Liveness: data/sidequest.pid + data/sidequest.heartbeat (SIDEQUEST_HEARTBEAT_STALE_MS, default 120s). APIs: GET /api/admin/sidequest/diagnostics, POST recheck/restart (webmaster), GET logs → data/logs/sidequest.log. Dashboard: POST /api/admin/sidequest/open, proxy /admin/sidequest.",
         }}
@@ -714,8 +710,8 @@ function HealthStrip({ data, site }: { data: PipelineStatus; site?: string }) {
 }
 
 const NEW_EVENT_ANIM_MS = 1000;
-const EVENT_LIST_MIN_PX = 672;
-const EVENT_LIST_BOTTOM_PAD_PX = 24;
+/** Gap below the sticky timeline when syncing page scroll to a row. */
+const STICKY_LIST_GAP_PX = 12;
 
 type EventRowProps = {
   event: ContentEvent;
@@ -740,16 +736,32 @@ const EventRow = memo(function EventRow({
   onNavigateToEvent,
   setRowRef,
 }: EventRowProps) {
-  const validationSkipped =
-    event.type === "validation_results_ready" && event.payload?.skipped === true;
+  const headline = formatEventHeadline(event);
   const meta = eventMeta(event.type);
-  const label = validationSkipped ? "Validation Skipped" : meta.label;
-  const iconClass = validationSkipped
+  const agentId = resolveAgentId(event.attribution);
+  const iconClass = headline.muted
     ? "text-muted-foreground border-border"
-    : meta.iconClass;
+    : agentId && !isFailure
+      ? "border-border"
+      : meta.iconClass;
   const Icon = isFailure ? IconAlertTriangle : meta.icon;
   const hasTypedDetails = eventHasTypedDetails(event);
   const validationEntry = eventValidationEntryRef(event);
+  const agentReport = eventAgentReport(event);
+  const agentLabel = agentId ? formatAgentLabel(agentId) : "Agent";
+
+  const avatarClass = cn(
+    "relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-card",
+    isFailure ? "text-red-400 border-red-400/40" : iconClass,
+  );
+
+  const avatarInner = isFailure ? (
+    <Icon className="h-4 w-4" />
+  ) : agentId ? (
+    <AgentIcon agentId={agentId} size="lg" />
+  ) : (
+    <Icon className="h-4 w-4" />
+  );
 
   return (
     <motion.li
@@ -768,14 +780,44 @@ const EventRow = memo(function EventRow({
       )}
       data-testid={`event-row-${event.id}`}
     >
-      <span
-        className={cn(
-          "relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-card",
-          isFailure ? "text-red-400 border-red-400/40" : iconClass,
-        )}
-      >
-        <Icon className="h-4 w-4" />
-      </span>
+      {agentReport ? (
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                avatarClass,
+                "cursor-pointer hover:ring-2 hover:ring-ring/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              )}
+              aria-label={`View report from ${agentLabel}`}
+              data-testid={`button-event-agent-report-${event.id}`}
+            >
+              {avatarInner}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            side="right"
+            align="start"
+            sideOffset={10}
+            className="w-80 border-0 bg-transparent p-0 shadow-none"
+          >
+            <div className="relative rounded-2xl rounded-tl-md border border-border bg-card px-3.5 py-3 shadow-md">
+              <div className="absolute -left-1.5 top-3 h-3 w-3 rotate-45 border-l border-b border-border bg-card" />
+              <div className="relative flex items-center gap-2 mb-1.5">
+                {agentId ? <AgentIcon agentId={agentId} size="sm" /> : null}
+                <p className="text-[11px] font-semibold text-muted-foreground">
+                  {agentLabel}
+                </p>
+              </div>
+              <p className="relative text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                {agentReport}
+              </p>
+            </div>
+          </PopoverContent>
+        </Popover>
+      ) : (
+        <span className={avatarClass}>{avatarInner}</span>
+      )}
       <div className="flex-1 min-w-0 pt-0.5">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <Popover>
@@ -783,28 +825,23 @@ const EventRow = memo(function EventRow({
               <button
                 type="button"
                 className={cn(
-                  "text-sm font-semibold text-left hover:underline decoration-dotted underline-offset-2 cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "text-sm font-semibold text-left hover:underline decoration-dotted underline-offset-2 cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-w-0",
                   isFailure && "text-red-400",
-                  validationSkipped && "text-muted-foreground",
                 )}
-                aria-label={`What is ${label}?`}
+                aria-label={`What is ${headline.technicalLabel}?`}
               >
-                {label}
+                <EventHeadline event={event} isFailure={isFailure} />
               </button>
             </PopoverTrigger>
             <PopoverContent side="bottom" align="start" className="w-80 p-3">
-              <p className="text-xs font-medium text-foreground mb-1">{label}</p>
+              <p className="text-xs font-medium text-foreground mb-1">{headline.technicalLabel}</p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                {validationSkipped
+                {headline.muted
                   ? "Validation was not re-run because the same page was already queued or validated recently (1-hour dedupe). The save still succeeded."
                   : meta.description}
               </p>
             </PopoverContent>
           </Popover>
-          {event.attribution.length > 0 ? (
-            <EventAttributionBadge attribution={event.attribution} />
-          ) : null}
-          <span className="text-[10px] font-mono text-muted-foreground">#{event.id}</span>
         </div>
         <EventCausalityLine
           event={event}
@@ -857,51 +894,50 @@ function EventLogPanel({
   const [seedingDemo, setSeedingDemo] = useState(false);
   /** Jump-to-latest / programmatic window only — pan does not round-trip through React. */
   const [rangeCommand, setRangeCommand] = useState<VisibleTimeRange | null>(null);
-  const [listHeightPx, setListHeightPx] = useState(EVENT_LIST_MIN_PX);
   const reduceMotion = useReducedMotion() ?? false;
 
-  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
   const maxSeenIdRef = useRef<number | null>(null);
   const newIdsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visibleRangeRef = useRef<VisibleTimeRange | null>(null);
   const rowElsRef = useRef(new Map<number, HTMLLIElement>());
   const dimmedIdsRef = useRef(new Set<number>());
   const rafIdRef = useRef<number | null>(null);
-  /** When true, timeline/poll sync may dim rows but must not move list scrollTop. */
+  /** When true, timeline/poll sync may dim rows but must not move page scroll. */
   const listOwnsScrollRef = useRef(false);
+  const programmaticScrollRef = useRef(false);
+  const programmaticScrollClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const filterScopedEventsRef = useRef<ContentEvent[]>([]);
 
-  /** Viewport remainder × 3 so the log is tall; page scrolls when needed. */
-  useLayoutEffect(() => {
-    const el = listScrollRef.current;
-    if (!el) return;
+  const stickyTimelineBottom = useCallback(() => {
+    const timeline = document.querySelector<HTMLElement>('[data-testid="event-timeline"]');
+    if (!timeline) return 0;
+    return timeline.getBoundingClientRect().bottom;
+  }, []);
 
-    const measure = () => {
-      const top = el.getBoundingClientRect().top;
-      const viewportRemainder = Math.floor(
-        window.innerHeight - top - EVENT_LIST_BOTTOM_PAD_PX,
+  const scrollRowIntoViewBelowSticky = useCallback(
+    (rowEl: HTMLElement, behavior: ScrollBehavior = "auto") => {
+      const gap = stickyTimelineBottom() + STICKY_LIST_GAP_PX;
+      const delta = rowEl.getBoundingClientRect().top - gap;
+      if (Math.abs(delta) < 2) return;
+      programmaticScrollRef.current = true;
+      if (programmaticScrollClearRef.current) clearTimeout(programmaticScrollClearRef.current);
+      window.scrollBy({ top: delta, behavior });
+      programmaticScrollClearRef.current = setTimeout(
+        () => {
+          programmaticScrollRef.current = false;
+          programmaticScrollClearRef.current = null;
+        },
+        behavior === "smooth" ? 450 : 50,
       );
-      const next = Math.max(EVENT_LIST_MIN_PX, viewportRemainder * 3);
-      setListHeightPx((prev) => (prev === next ? prev : next));
-    };
-
-    measure();
-    requestAnimationFrame(measure);
-    const ro = new ResizeObserver(measure);
-    ro.observe(document.documentElement);
-    if (el.parentElement) ro.observe(el.parentElement);
-    window.addEventListener("resize", measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, [events.length, loading]);
+    },
+    [stickyTimelineBottom],
+  );
 
   const syncListToRange = useCallback(() => {
     rafIdRef.current = null;
     const range = visibleRangeRef.current;
-    const scrollEl = listScrollRef.current;
-    if (!range || !scrollEl) return;
+    if (!range) return;
 
     const scoped = filterScopedEventsRef.current;
     const nextDimmed = new Set<number>();
@@ -923,7 +959,7 @@ function EventLogPanel({
     }
     dimmedIdsRef.current = nextDimmed;
 
-    // User is browsing the list — keep dimming in sync, but do not yank scrollTop.
+    // User is browsing the list — keep dimming in sync, but do not yank page scroll.
     if (listOwnsScrollRef.current) return;
 
     // Newest-first list: first event at or before the window's right edge.
@@ -937,8 +973,8 @@ function EventLogPanel({
     if (!anchor) return;
     const rowEl = rowElsRef.current.get(anchor.id);
     if (!rowEl) return;
-    scrollEl.scrollTop = rowEl.offsetTop;
-  }, []);
+    scrollRowIntoViewBelowSticky(rowEl);
+  }, [scrollRowIntoViewBelowSticky]);
 
   const scheduleSync = useCallback(() => {
     if (rafIdRef.current != null) return;
@@ -1041,6 +1077,7 @@ function EventLogPanel({
     return () => {
       if (newIdsTimerRef.current) clearTimeout(newIdsTimerRef.current);
       if (rafIdRef.current != null) cancelAnimationFrame(rafIdRef.current);
+      if (programmaticScrollClearRef.current) clearTimeout(programmaticScrollClearRef.current);
     };
   }, []);
 
@@ -1059,9 +1096,9 @@ function EventLogPanel({
     };
   }, [loadEvents]);
 
-  // List scroll takes ownership until the user scrubs the timeline or jumps to latest.
+  // List / page scroll takes ownership until the user scrubs the timeline or jumps to latest.
   useEffect(() => {
-    const el = listScrollRef.current;
+    const el = listRef.current;
     if (!el) return;
     const markOwns = () => {
       listOwnsScrollRef.current = true;
@@ -1080,15 +1117,25 @@ function EventLogPanel({
         markOwns();
       }
     };
-    el.addEventListener("wheel", markOwns, { passive: true });
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+      if (el.contains(e.target as Node)) markOwns();
+    };
+    const onScroll = () => {
+      if (programmaticScrollRef.current) return;
+      markOwns();
+    };
     el.addEventListener("pointerdown", markOwns);
     el.addEventListener("touchstart", markOwns, { passive: true });
     el.addEventListener("keydown", onKeyDown);
+    window.addEventListener("wheel", onWheel, { passive: true });
+    window.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      el.removeEventListener("wheel", markOwns);
       el.removeEventListener("pointerdown", markOwns);
       el.removeEventListener("touchstart", markOwns);
       el.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("scroll", onScroll);
     };
   }, [loading, events.length]);
 
@@ -1117,141 +1164,150 @@ function EventLogPanel({
 
   const failureIds = useMemo(() => new Set(failures.map((f) => f.id)), [failures]);
 
-  const scrollToEvent = useCallback((eventId: number) => {
-    const el = rowElsRef.current.get(eventId) ??
-      document.querySelector(`[data-testid="event-row-${eventId}"]`);
-    if (!(el instanceof HTMLElement)) return;
-    // Chip jump is intentional list navigation — keep ownership so live sync
-    // does not yank the row away after scrollIntoView settles.
-    listOwnsScrollRef.current = true;
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, []);
+  const scrollToEvent = useCallback(
+    (eventId: number) => {
+      const el = rowElsRef.current.get(eventId) ??
+        document.querySelector(`[data-testid="event-row-${eventId}"]`);
+      if (!(el instanceof HTMLElement)) return;
+      // Chip jump is intentional list navigation — keep ownership so live sync
+      // does not yank the row away after scroll settles.
+      listOwnsScrollRef.current = true;
+      scrollRowIntoViewBelowSticky(el, "smooth");
+    },
+    [scrollRowIntoViewBelowSticky],
+  );
 
   const onToggleExpand = useCallback((eventId: number) => {
     setExpanded((prev) => (prev === eventId ? null : eventId));
   }, []);
 
-  const getActivityLabel = useCallback((event: { type: string; payload?: Record<string, unknown> }) => {
-    if (event.type === "validation_results_ready" && event.payload?.skipped === true) {
-      return "Validation Skipped";
-    }
-    return eventMeta(event.type).label;
-  }, []);
+  const getActivityLabel = useCallback((event: ContentEvent) => formatEventHeadlinePlain(event), []);
 
   const activeFilterCount = (typeFilter ? 1 : 0) + (agentFilter ? 1 : 0);
 
-  return (
-    <section className="space-y-4">
-      <div className="max-w-6xl mx-auto px-6 w-full flex flex-wrap items-center gap-2">
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className="relative"
-              data-testid="button-event-filters"
-            >
-              <IconFilter className="h-4 w-4 mr-2" />
-              Filters
-              {activeFilterCount > 0 ? (
-                <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                  {activeFilterCount}
-                </span>
-              ) : null}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent side="bottom" align="start" className="w-72 space-y-3 p-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium" htmlFor="event-type-filter">
-                Event type
-              </label>
-              <select
-                id="event-type-filter"
-                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-              >
-                <option value="">All types</option>
-                {Object.entries(EVENT_META).map(([type, meta]) => (
-                  <option key={type} value={type}>
-                    {meta.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium" htmlFor="event-agent-filter">
-                Agent
-              </label>
-              <select
-                id="event-agent-filter"
-                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                value={agentFilter}
-                onChange={(e) =>
-                  setAgentFilter(e.target.value as "" | AgentId | typeof AGENT_FILTER_OTHER)
-                }
-                data-testid="select-event-agent-filter"
-              >
-                <option value="">All agents</option>
-                {AGENT_IDS.map((id) => (
-                  <option key={id} value={id}>
-                    {formatAgentLabel(id)}
-                  </option>
-                ))}
-                <option value={AGENT_FILTER_OTHER}>
-                  {formatAgentLabel(AGENT_FILTER_OTHER)}
-                </option>
-              </select>
-            </div>
-            {activeFilterCount > 0 ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full h-7 text-xs"
-                onClick={() => {
-                  setTypeFilter("");
-                  setAgentFilter("");
-                }}
-              >
-                <IconX className="h-3.5 w-3.5 mr-1" />
-                Clear filters
-              </Button>
-            ) : null}
-          </PopoverContent>
-        </Popover>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={clearing || (events.length === 0 && !loading)}
-          onClick={() => setClearLogOpen(true)}
-          data-testid="button-clear-event-log"
-        >
-          {clearing ? (
-            <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <IconTrash className="h-4 w-4 mr-2" />
-          )}
-          Clear log
-        </Button>
-        {import.meta.env.DEV ? (
+  /** Outline buttons tuned for the dark help bar; labels hide on small screens. */
+  const darkBarBtn =
+    "border-background/35 bg-transparent text-background hover:bg-background/10 hover:text-background";
+
+  const filtersToolbar = (
+    <>
+      <Popover>
+        <PopoverTrigger asChild>
           <Button
             variant="outline"
             size="sm"
-            disabled={seedingDemo || clearing}
-            onClick={() => void seedDemoEvents()}
-            data-testid="button-seed-demo-events"
-            title="Dev only: inject fake timeline events, then drip three live ones for pop-in"
+            className={cn("relative", darkBarBtn)}
+            aria-label="Filters"
+            data-testid="button-event-filters"
           >
-            {seedingDemo ? (
-              <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <IconFlask className="h-4 w-4 mr-2" />
-            )}
-            {seedingDemo ? "Seeding…" : "Seed demo"}
+            <IconFilter className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Filters</span>
+            {activeFilterCount > 0 ? (
+              <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            ) : null}
           </Button>
-        ) : null}
-      </div>
+        </PopoverTrigger>
+        <PopoverContent side="bottom" align="end" className="w-72 space-y-3 p-3">
+          <div className="space-y-1">
+            <label className="text-xs font-medium" htmlFor="event-type-filter">
+              Event type
+            </label>
+            <select
+              id="event-type-filter"
+              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+            >
+              <option value="">All types</option>
+              {Object.entries(EVENT_META).map(([type, meta]) => (
+                <option key={type} value={type}>
+                  {meta.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium" htmlFor="event-agent-filter">
+              Agent
+            </label>
+            <select
+              id="event-agent-filter"
+              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+              value={agentFilter}
+              onChange={(e) =>
+                setAgentFilter(e.target.value as "" | AgentId | typeof AGENT_FILTER_OTHER)
+              }
+              data-testid="select-event-agent-filter"
+            >
+              <option value="">All agents</option>
+              {AGENT_IDS.map((id) => (
+                <option key={id} value={id}>
+                  {formatAgentLabel(id)}
+                </option>
+              ))}
+              <option value={AGENT_FILTER_OTHER}>
+                {formatAgentLabel(AGENT_FILTER_OTHER)}
+              </option>
+            </select>
+          </div>
+          {activeFilterCount > 0 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full h-7 text-xs"
+              onClick={() => {
+                setTypeFilter("");
+                setAgentFilter("");
+              }}
+            >
+              <IconX className="h-3.5 w-3.5 mr-1" />
+              Clear filters
+            </Button>
+          ) : null}
+        </PopoverContent>
+      </Popover>
+      <Button
+        variant="outline"
+        size="sm"
+        className={darkBarBtn}
+        disabled={clearing || (events.length === 0 && !loading)}
+        onClick={() => setClearLogOpen(true)}
+        aria-label="Clear log"
+        data-testid="button-clear-event-log"
+      >
+        {clearing ? (
+          <IconLoader2 className="h-4 w-4 animate-spin sm:mr-2" />
+        ) : (
+          <IconTrash className="h-4 w-4 sm:mr-2" />
+        )}
+        <span className="hidden sm:inline">Clear log</span>
+      </Button>
+      {import.meta.env.DEV ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className={darkBarBtn}
+          disabled={seedingDemo || clearing}
+          onClick={() => void seedDemoEvents()}
+          aria-label={seedingDemo ? "Seeding demo events" : "Seed demo"}
+          data-testid="button-seed-demo-events"
+          title="Dev only: inject fake timeline events, then drip three live ones for pop-in"
+        >
+          {seedingDemo ? (
+            <IconLoader2 className="h-4 w-4 animate-spin sm:mr-2" />
+          ) : (
+            <IconFlask className="h-4 w-4 sm:mr-2" />
+          )}
+          <span className="hidden sm:inline">{seedingDemo ? "Seeding…" : "Seed demo"}</span>
+        </Button>
+      ) : null}
+    </>
+  );
 
+  return (
+    <section className="space-y-4">
       {events.length > 0 ? (
         <EventTimeline
           events={filterScopedEvents}
@@ -1265,8 +1321,15 @@ function EventLogPanel({
             setRangeCommand(jumpToLatestRange());
             scheduleSync();
           }}
+          toolbar={filtersToolbar}
         />
-      ) : null}
+      ) : (
+        <div className="sticky top-0 z-30 w-full bg-background shadow-[0_1px_0_0_hsl(var(--border))]">
+          <div className="flex flex-wrap items-center justify-end gap-2 px-6 py-2 bg-foreground text-background">
+            {filtersToolbar}
+          </div>
+        </div>
+      )}
 
       <AlertDialog open={clearLogOpen} onOpenChange={setClearLogOpen}>
         <AlertDialogContent>
@@ -1307,9 +1370,8 @@ function EventLogPanel({
           </p>
         ) : (
           <div
-            ref={listScrollRef}
-            className="event-list-scroll relative overflow-y-auto overflow-x-hidden pr-1"
-            style={{ height: listHeightPx }}
+            ref={listRef}
+            className="event-list-scroll relative overflow-x-hidden pr-1"
             data-testid="event-list-scroll"
           >
             <div className="relative">

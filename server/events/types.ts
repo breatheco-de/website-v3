@@ -1,5 +1,6 @@
 export const EVENT_TYPES = [
   "content_file_written",
+  "content_entry_deleted",
   "content_bulk_synced",
   "redirects_changed",
   "index_snapshot_ready",
@@ -26,6 +27,7 @@ export type EventTypeMeta = {
 /** Single source of truth for event roles (outbox stall, write generation, dispatcher). */
 export const EVENT_TYPE_META: Record<EventType, EventTypeMeta> = {
   content_file_written: { outbox: "dispatch", affectsWriteGeneration: true },
+  content_entry_deleted: { outbox: "dispatch", affectsWriteGeneration: true },
   content_bulk_synced: { outbox: "dispatch", affectsWriteGeneration: true },
   binding_propagation_started: { outbox: "dispatch", affectsWriteGeneration: false },
   redirects_changed: { outbox: "audit", affectsWriteGeneration: true },
@@ -54,7 +56,7 @@ export const INDEX_WRITE_EVENT_TYPES = EVENT_TYPES.filter(
 
 export type IndexWriteEventType = Extract<
   EventType,
-  "content_file_written" | "content_bulk_synced" | "redirects_changed"
+  "content_file_written" | "content_entry_deleted" | "content_bulk_synced" | "redirects_changed"
 >;
 
 export type EventResource = {

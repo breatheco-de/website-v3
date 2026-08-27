@@ -383,6 +383,40 @@ function sanitizeIssueActorModel(model: unknown): string | undefined {
   return trimmed.length > 64 ? trimmed.slice(0, 64) : trimmed;
 }
 
+export const ISSUE_REPORT_MIN_LENGTH = 20;
+export const ISSUE_REPORT_MAX_LENGTH = 2000;
+
+/** Trim and cap MCP issue claim/complete report text. */
+export function sanitizeIssueReport(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim().replace(/\s+/g, " ");
+  if (!trimmed) return undefined;
+  return trimmed.length > ISSUE_REPORT_MAX_LENGTH
+    ? trimmed.slice(0, ISSUE_REPORT_MAX_LENGTH)
+    : trimmed;
+}
+
+export function requireIssueReport(
+  raw: unknown,
+): { ok: true; report: string } | { ok: false; error: string; code: "report_required" | "report_too_short" } {
+  const report = sanitizeIssueReport(raw);
+  if (!report) {
+    return {
+      ok: false,
+      error: "report required for MCP claim/complete (min 20 chars)",
+      code: "report_required",
+    };
+  }
+  if (report.length < ISSUE_REPORT_MIN_LENGTH) {
+    return {
+      ok: false,
+      error: `report must be at least ${ISSUE_REPORT_MIN_LENGTH} characters`,
+      code: "report_too_short",
+    };
+  }
+  return { ok: true, report };
+}
+
 /**
  * Resolve actor provenance for validation issue claim/complete overlays.
  * MCP path: client from x-mcp-client (set by MCP server); model from body on MCP only.

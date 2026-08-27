@@ -104,8 +104,9 @@ export function emitValidationIssueWorkflowEvent(opts: {
   author: string;
   actor?: ValidationIssueActor;
   priorCompletion?: ValidationIssueCompletion;
+  report?: string;
 }): void {
-  const { type, site, issue, author, actor, priorCompletion } = opts;
+  const { type, site, issue, author, actor, priorCompletion, report } = opts;
   const entryKey = issueEntryKey(issue);
   const fromEntry = entryKey ? parseResourceFromEntryKey(entryKey) : {};
   const fromFile = issue.file ? parseResourceFromPath(issue.file) : { path: "" };
@@ -128,6 +129,9 @@ export function emitValidationIssueWorkflowEvent(opts: {
     payload.priorCompletedBy = priorCompletion.completedBy;
     payload.priorActor = priorCompletion.actor ?? null;
     payload.priorCompletedAt = priorCompletion.completedAt;
+  }
+  if (report) {
+    payload.report = report;
   }
   emitEvent({
     site,

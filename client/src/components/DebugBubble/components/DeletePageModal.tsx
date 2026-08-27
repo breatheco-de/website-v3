@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ChevronDown, Info } from "lucide-react";
+import { apiFetch } from "@/lib/queryClient";
 
 function urlToPath(url: string): string {
   try {
@@ -89,6 +91,32 @@ export function DeletePageModal(props: DeletePageModalProps) {
   const selectedList = Array.from(selectedLocales).sort();
   const liveUrls = publicUrls ? Object.entries(publicUrls).filter(([, url]) => url) : [];
   const livePaths = liveUrls.map(([, url]) => urlToPath(url));
+
+  const previewLocales = hasLocaleSelection ? selectedList : undefined;
+  const { data: deletePreview } = useQuery({
+    queryKey: [
+      "/api/content/delete-preview",
+      deletingPage?.contentType,
+      deletingPage?.slug,
+      previewLocales?.join(","),
+    ],
+    queryFn: async () => {
+      if (!deletingPage) return null;
+      const params = new URLSearchParams({
+        type: deletingPage.contentType,
+        slug: deletingPage.slug,
+      });
+      if (previewLocales?.length) params.set("locales", previewLocales.join(","));
+      const res = await apiFetch(`/api/content/delete-preview?${params}`);
+      if (!res.ok) return null;
+      return res.json() as {
+        referrers: Array<{ entryKey: string }>;
+        indexUpdatedAt: string | null;
+        suggestions: string[];
+      };
+    },
+    enabled: open && !!deletingPage && !isPartialOverride,
+  });
 
   const toggleLocale = (locale: string) => {
     setSelectedLocales(prev => {
@@ -181,6 +209,33 @@ export function DeletePageModal(props: DeletePageModalProps) {
               </AlertDescription>
             </Alert>
           )}
+
+          {!isPartialOverride && deletePreview && deletePreview.referrers.length > 0 && (
+            <Alert className="border-amber-500/40 bg-amber-500/5 text-foreground">
+              <Info className="h-4 w-4" />
+              <AlertTitle className="text-sm">CMS entries link here</AlertTitle>
+              <AlertDescription className="text-xs text-muted-foreground space-y-2">
+                <p>These entries may contain broken links after delete:</p>
+                <ul className="list-disc pl-4 space-y-0.5 font-mono text-[11px]">
+                  {deletePreview.referrers.slice(0, 8).map((r) => (
+                    <li key={r.entryKey}>{r.entryKey}</li>
+                  ))}
+                </ul>
+                {deletePreview.referrers.length > 8 && (
+                  <p>and {deletePreview.referrers.length - 8} more…</p>
+                )}
+                {deletePreview.suggestions[0] && <p>{deletePreview.suggestions[0]}</p>}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {!isPartialOverride && deletePreview && deletePreview.referrers.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              Referrers unknown or none indexed — run site diagnostics (
+              <span className="font-mono">site-link-index</span>) for a full link graph.
+            </p>
+          )}
+
           <label className="text-sm text-muted-foreground">
             Type <span className="font-mono font-bold text-foreground">{deletingPage?.slug}</span> to complete this action:
           </label>

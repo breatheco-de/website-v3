@@ -56,6 +56,9 @@ import {
   requireCapability,
   requireMutatingStaff,
   resolveIssueActor,
+  isMcpLoopbackRequest,
+  requireIssueReport,
+  sanitizeIssueReport,
   createValidationFixRun,
   appendValidationRunLog,
   applyFixerProgress,
@@ -818,9 +821,34 @@ export function registerValidationRoutes(app: Express): void {
       action === "claim" || action === "complete"
         ? resolveIssueActor(req, { model: req.body?.model })
         : undefined;
+
+    let report: string | undefined;
+    if (isMcpLoopbackRequest(req) && (action === "claim" || action === "complete")) {
+      if (action === "complete") {
+        const parsed = requireIssueReport(req.body?.report);
+        if (!parsed.ok) {
+          return res.status(400).json({ error: parsed.error, code: parsed.code });
+        }
+        report = parsed.report;
+      } else {
+        const existing = cache.getActiveClaim(issueId);
+        const isRefresh = existing?.claimedBy === author;
+        if (!isRefresh) {
+          const parsed = requireIssueReport(req.body?.report);
+          if (!parsed.ok) {
+            return res.status(400).json({ error: parsed.error, code: parsed.code });
+          }
+          report = parsed.report;
+        } else {
+          report = sanitizeIssueReport(req.body?.report);
+        }
+      }
+    }
+
     const result = await cache.updateIssue(issueId, action, author, {
       staffForceRelease: true,
       actor,
+      report,
     });
     if (!result.ok) {
       return res.status(result.status ?? 400).json({
@@ -841,6 +869,7 @@ export function registerValidationRoutes(app: Express): void {
           issue,
           author,
           actor,
+          report,
         });
       }
     }
@@ -863,7 +892,15 @@ export function registerValidationRoutes(app: Express): void {
     const cache = getValidationCache(res);
     const completedBy = auth.author || auth.username || "staff";
     const actor = resolveIssueActor(req, { model: req.body?.model });
-    const result = await cache.updateIssue(issueId, "complete", completedBy, { actor });
+    let report: string | undefined;
+    if (isMcpLoopbackRequest(req)) {
+      const parsed = requireIssueReport(req.body?.report);
+      if (!parsed.ok) {
+        return res.status(400).json({ error: parsed.error, code: parsed.code });
+      }
+      report = parsed.report;
+    }
+    const result = await cache.updateIssue(issueId, "complete", completedBy, { actor, report });
     if (!result.ok) {
       return res.status(result.status ?? 404).json({ error: result.error });
     }
@@ -878,6 +915,7 @@ export function registerValidationRoutes(app: Express): void {
         issue,
         author: completedBy,
         actor,
+        report,
       });
     }
     return res.json({

@@ -524,6 +524,13 @@ app.use((req, res, next) => {
           logger.error({ err, worker: "ValidationCache" }, "failed to load validation caches from GCS");
         });
 
+        const { loadLinkIndexesFromBucket } = await import("./link-index");
+        await loadLinkIndexesFromBucket(
+          [...getSiteContextMap().values()].map((ctx) => ({ contentRoot: ctx.contentRoot })),
+        ).catch((err) => {
+          logger.error({ err, worker: "LinkIndex" }, "failed to load link indexes from GCS");
+        });
+
         const { ValidationService } = await import("../scripts/validation/service");
         const { applyValidationRunToCache } = await import("./services/validationCachePostProcess");
         for (const ctx of getSiteContextMap().values()) {
@@ -601,10 +608,19 @@ app.use((req, res, next) => {
       if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
         for (const ctx of getSiteContextMap().values()) {
           if (!filePath.startsWith(ctx.contentRootName + "/")) continue;
-          try {
-            ctx.contentIndex.upsertEntry(filePath);
-          } catch {
-            /* non-fatal */
+          const abs = path.isAbsolute(filePath)
+            ? filePath
+            : path.join(process.cwd(), filePath);
+          const fileExists = fs.existsSync(abs);
+          if (fileExists) {
+            try {
+              ctx.contentIndex.upsertEntry(filePath);
+            } catch {
+              /* non-fatal */
+            }
+          }
+          if (!fileExists) {
+            break;
           }
           const resolvedActor =
             actor ?? (author ? { type: "ui" as const } : { type: "system" as const, source: "content-pipeline" });

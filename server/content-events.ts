@@ -69,17 +69,51 @@ export function emitContentFileWritten(
   });
 }
 
+export function emitContentEntryDeleted(opts: {
+  site: string;
+  contentType: string;
+  slug: string;
+  locale?: string;
+  entryKeys: string[];
+  deletedPaths: string[];
+  folderRemoved: boolean;
+  localesRemoved?: string[];
+  author?: string;
+  actor?: EventActor;
+}): EmitResult {
+  return emitEvent({
+    site: opts.site,
+    type: "content_entry_deleted",
+    resource: {
+      contentType: opts.contentType,
+      slug: opts.slug,
+      ...(opts.locale ? { locale: opts.locale } : {}),
+    },
+    attribution: singleAttribution(opts.author, opts.actor),
+    payload: {
+      entryKeys: opts.entryKeys,
+      deletedPaths: opts.deletedPaths,
+      folderRemoved: opts.folderRemoved,
+      ...(opts.localesRemoved?.length ? { localesRemoved: opts.localesRemoved } : {}),
+    },
+  });
+}
+
 export function emitContentBulkSynced(
   site: string,
   files: string[],
-  opts?: { author?: string; actor?: EventActor },
+  opts?: { author?: string; actor?: EventActor; deletedPaths?: string[] },
 ): EmitResult {
   const author = opts?.author ?? "github-pull";
   const actor = opts?.actor ?? { type: "system" as const, source: "github-pull" };
   return emitEvent({
     site,
     type: "content_bulk_synced",
-    payload: { files, count: files.length },
+    payload: {
+      files,
+      count: files.length,
+      ...(opts?.deletedPaths?.length ? { deletedPaths: opts.deletedPaths } : {}),
+    },
     attribution: singleAttribution(author, actor),
   });
 }

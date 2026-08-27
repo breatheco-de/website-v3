@@ -3184,6 +3184,16 @@ export async function bootstrapContentFromRemote(opts?: {
     });
     writeBootstrapCompleteFlag(opts?.contentRoot);
     await refreshContentAfterBootstrapPull(contentFolder, pulled + pruneResult.deleted);
+    if (pulledFiles.length > 0 || pruneResult.deletedFiles.length > 0) {
+      try {
+        const { emitContentBulkSynced } = await import("./content-events");
+        emitContentBulkSynced(contentFolder, pulledFiles, {
+          deletedPaths: pruneResult.deletedFiles,
+        });
+      } catch {
+        /* non-fatal */
+      }
+    }
     logSync(
       'AUTO-PULL',
       `Bootstrap: tarball pulled=${pulled} deleted=${pruneResult.deleted} — sync state updated to ${headSha.slice(0, 7)}`,

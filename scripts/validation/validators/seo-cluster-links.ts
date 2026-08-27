@@ -10,7 +10,6 @@ import { isSeoMonitoringEnabled } from "../../../server/seo-monitoring";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
 import {
   CLUSTER_LINK_ANCHOR_ONLY_HINT,
-  collectInternalPathsFromData,
 } from "../../../server/cluster-hub-links";
 import {
   checkHubOutboundLinks,
@@ -18,7 +17,6 @@ import {
   HUB_MISSING_MEMBER_LINKS,
   MEMBER_MISSING_HUB_LINK,
 } from "../../../server/seo-cluster-link-check";
-import { patchLinkIndexOutbound } from "../../../server/link-index";
 
 export const seoClusterLinksValidator: Validator = {
   name: "seo-cluster-links",
@@ -49,15 +47,6 @@ export const seoClusterLinksValidator: Validator = {
       const pageData = (file.entryFields && typeof file.entryFields === "object"
         ? { ...file.entryFields, seo: file.seo ?? (file.entryFields as { seo?: unknown }).seo }
         : { seo: file.seo }) as Record<string, unknown>;
-
-      const fromData = collectInternalPathsFromData(pageData);
-      if (fromData.length) {
-        try {
-          patchLinkIndexOutbound(id, fromData, contentRoot);
-        } catch {
-          /* index write is best-effort */
-        }
-      }
 
       const isPillar = seo.is_pillar === true || row?.is_pillar === true;
 

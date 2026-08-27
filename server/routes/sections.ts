@@ -1679,6 +1679,34 @@ export function registerSectionsRoutes(app: Express): void {
     }
   });
 
+  app.get("/api/content/delete-preview", async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "content_delete_entry", String(req.query.type || ""));
+      if (!auth.authorized) return;
+      const type = String(req.query.type || "");
+      const slug = String(req.query.slug || "");
+      const localesRaw = String(req.query.locales || "");
+      const locales = localesRaw
+        ? localesRaw.split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined;
+      if (!type || !slug) {
+        res.status(400).json({ error: "type and slug query params are required" });
+        return;
+      }
+      const { getDeleteReferrersPreview } = await import("../link-delete-preview");
+      const preview = getDeleteReferrersPreview({
+        contentType: type,
+        slug,
+        locales,
+        contentRoot: getContentRoot(res),
+      });
+      res.json({ success: true, ...preview });
+    } catch (error) {
+      log.error({ err: error }, "Content delete preview error:");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.post("/api/content/delete", async (req, res) => {
     try {
       const auth = await requireCapability(req, res, "content_delete_entry", req.body.type || undefined);
@@ -1743,10 +1771,26 @@ export function registerSectionsRoutes(app: Express): void {
             };
 
       if (!confirm) {
+        const { getDeleteReferrersPreview } = await import("../link-delete-preview");
+        const linkPreviewBySlug: Record<
+          string,
+          Awaited<ReturnType<typeof getDeleteReferrersPreview>>
+        > = {};
+        for (const slug of slugs) {
+          linkPreviewBySlug[slug] = getDeleteReferrersPreview({
+            contentType,
+            slug,
+            contentRoot: getContentRoot(res),
+            limit: 15,
+          });
+        }
         res.json({
           success: true,
           action_required: "confirm_delete",
-          preview,
+          preview: {
+            ...preview,
+            link_preview_by_slug: linkPreviewBySlug,
+          },
           message:
             preview.needs_reassignment.length > 0
               ? "Some posts would lose their last author — provide reassignments (defaults to org author) and confirm:true"

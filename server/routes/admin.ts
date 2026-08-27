@@ -3363,18 +3363,60 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
+  app.get("/api/admin/runtime-issues/referrers", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+
+    try {
+      const pathParam = String(req.query.path || "");
+      if (!pathParam) {
+        res.status(400).json({ error: "path query param is required" });
+        return;
+      }
+      const { getReferrersForTargetPath, loadLinkIndex } = await import("../link-index");
+      const site = (res.locals as { site?: { contentRoot?: string } }).site;
+      const result = getReferrersForTargetPath(pathParam, site?.contentRoot, { limit: 5 });
+      const linkIndex = loadLinkIndex(site?.contentRoot);
+      res.json({
+        path: pathParam,
+        count: result.count,
+        entryKeys: result.referrers.map((r) => r.entryKey),
+        referrers: result.referrers,
+        linkIndexUpdatedAt: linkIndex.updated_at ?? result.updatedAt,
+      });
+    } catch (err) {
+      log.error({ err }, "Failed to list runtime issue referrers:");
+      res.status(500).json({ error: "Failed to list referrers" });
+    }
+  });
+
   app.get("/api/admin/runtime-issues", async (req, res) => {
     const auth = await requireCapability(req, res, "metrics_view");
     if (!auth.authorized) return;
 
     try {
       const { listRuntimeIssues } = await import("../runtime-issues-store");
+      const {
+        loadLinkIndex,
+        invertLinkIndex,
+        normalizeReferrerTargetPath,
+      } = await import("../link-index");
       const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
       const siteName = site?.contentRootName || "default";
       const data = listRuntimeIssues(siteName, {
         contentRoot: site?.contentRoot,
       });
-      res.json(data);
+      const linkIndex = loadLinkIndex(site?.contentRoot);
+      const inverted = invertLinkIndex(linkIndex.outbound);
+      const issues = data.issues.map((issue) => ({
+        ...issue,
+        cmsReferrerCount: (inverted.get(normalizeReferrerTargetPath(issue.path)) ?? []).length,
+      }));
+      res.json({
+        ...data,
+        issues,
+        linkIndexUpdatedAt: linkIndex.updated_at ?? null,
+      });
     } catch (err) {
       log.error({ err }, "Failed to list runtime issues:");
       res.status(500).json({ error: "Failed to list runtime issues" });

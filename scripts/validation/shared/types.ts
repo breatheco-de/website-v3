@@ -102,6 +102,8 @@ export interface ValidationIssueCompletion {
   completedBy: string;
   completedAt: string;
   actor?: ValidationIssueActor;
+  /** MCP agent summary: what was changed and how. */
+  report?: string;
 }
 
 /** In-progress claim overlay — keyed by StoredValidationIssue.id; TTL-based. */
@@ -110,6 +112,8 @@ export interface ValidationIssueClaim {
   claimedAt: string;
   expiresAt: string;
   actor?: ValidationIssueActor;
+  /** MCP agent rationale for claiming this issue. */
+  report?: string;
 }
 
 export interface EntryRunMeta {

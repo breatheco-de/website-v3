@@ -15,6 +15,15 @@ import {
 import { markFileAsModified } from "../sync-state";
 import { enqueueJob } from "./queue";
 import { child } from "../logger";
+import {
+  queueLinkIndexSet,
+  flushLinkIndexPending,
+} from "../link-index";
+import {
+  collectOutboundPathsFromData,
+  entryIdFromContentFile,
+} from "../link-extract";
+import { createPublicUrlResolver } from "../redirects";
 
 const log = child({ module: "job-applier" });
 
@@ -186,6 +195,28 @@ async function applyPendingSnapshots(
 
     if (updatedFiles.length > 0) {
       const locale = (event.payload.locale as string) || "en";
+      const publicUrls = createPublicUrlResolver(ci);
+      for (const bound of updatedFiles) {
+        const [boundType, boundSlug] = bound.split("/");
+        if (!boundType || !boundSlug) continue;
+        try {
+          const merged = ci.loadMergedContent(boundType, boundSlug, locale);
+          if (merged.data) {
+            const paths = collectOutboundPathsFromData(
+              merged.data as Record<string, unknown>,
+              locale,
+              publicUrls,
+            );
+            queueLinkIndexSet(
+              entryIdFromContentFile(boundType, boundSlug, locale),
+              paths,
+              contentRoot,
+            );
+          }
+        } catch {
+          /* non-fatal */
+        }
+      }
       const htmlPaths: string[] = [];
       for (const bound of updatedFiles) {
         const [boundType, boundSlug] = bound.split("/");
@@ -211,6 +242,8 @@ async function applyPendingSnapshots(
       "[Applier] binding_propagation_done side-effects applied",
     );
   }
+
+  void flushLinkIndexPending(contentRoot);
 }
 
 export function stopJobApplier(): void {

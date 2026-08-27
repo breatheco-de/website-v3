@@ -14,6 +14,7 @@ import { enqueueJob } from "../jobs/queue";
 import { getSiteContextMap } from "../site-manager";
 import { buildEntryKey } from "../../scripts/validation/shared/entryKey";
 import { setPendingValidationWriteId } from "../pipeline-state";
+import { queueLinkIndexRemove, entryKeysFromDeletedPaths } from "../link-index";
 import { child } from "../logger";
 
 const log = child({ module: "event-dispatcher" });
@@ -53,6 +54,15 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
         },
         { uniqueKey: `index:${event.site}`, uniqueWithArgs: false },
       );
+      if (event.type === "content_bulk_synced") {
+        const deletedPaths = (event.payload.deletedPaths as string[] | undefined) ?? [];
+        if (deletedPaths.length > 0) {
+          const keys = entryKeysFromDeletedPaths(deletedPaths);
+          if (keys.length > 0) {
+            queueLinkIndexRemove(keys, ctx.contentRoot);
+          }
+        }
+      }
       if (event.type === "content_file_written") {
         const entryKey = entryKeyFromEvent(event);
         if (entryKey) {
@@ -97,6 +107,30 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
           "sync_state_flush",
           { site: event.site, contentRoot: ctx.contentRoot },
           { uniqueKey: `sync:${event.site}`, delayMs: 500 },
+        );
+      }
+      break;
+    }
+    case "content_entry_deleted": {
+      await enqueueJob(
+        "index_refresh",
+        {
+          site: event.site,
+          contentRoot: ctx.contentRoot,
+          generation: event.id,
+        },
+        { uniqueKey: `index:${event.site}`, uniqueWithArgs: false },
+      );
+      const entryKeys = (event.payload.entryKeys as string[] | undefined) ?? [];
+      if (entryKeys.length > 0) {
+        await enqueueJob(
+          "entry_delete_cleanup",
+          {
+            site: event.site,
+            contentRoot: ctx.contentRoot,
+            entryKeys,
+          },
+          { uniqueKey: `delete-cleanup:${event.site}:${entryKeys.join(",")}` },
         );
       }
       break;

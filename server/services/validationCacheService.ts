@@ -55,12 +55,14 @@ export function claimToApiRow(claim: ValidationIssueClaim): {
   at: string;
   expiresAt: string;
   actor?: ValidationIssueActor;
+  report?: string;
 } {
   return {
     by: claim.claimedBy,
     at: claim.claimedAt,
     expiresAt: claim.expiresAt,
     ...(claim.actor ? { actor: claim.actor } : {}),
+    ...(claim.report ? { report: claim.report } : {}),
   };
 }
 
@@ -68,11 +70,13 @@ export function completionToApiRow(completion: ValidationIssueCompletion): {
   by: string;
   at: string;
   actor?: ValidationIssueActor;
+  report?: string;
 } {
   return {
     by: completion.completedBy,
     at: completion.completedAt,
     ...(completion.actor ? { actor: completion.actor } : {}),
+    ...(completion.report ? { report: completion.report } : {}),
   };
 }
 
@@ -396,6 +400,7 @@ export class ValidationCacheService {
   private buildClaim(
     claimedBy: string,
     actor?: ValidationIssueActor,
+    report?: string,
     nowMs: number = Date.now(),
   ): ValidationIssueClaim {
     return {
@@ -403,6 +408,7 @@ export class ValidationCacheService {
       claimedAt: new Date(nowMs).toISOString(),
       expiresAt: new Date(nowMs + CLAIM_TTL_MS).toISOString(),
       ...(actor ? { actor } : {}),
+      ...(report ? { report } : {}),
     };
   }
 
@@ -414,6 +420,7 @@ export class ValidationCacheService {
     issueId: string,
     completedBy: string,
     actor?: ValidationIssueActor,
+    report?: string,
   ): Promise<{ ok: true; completion: ValidationIssueCompletion } | { ok: false; error: string }> {
     if (!this.issues[issueId]) {
       return { ok: false, error: `Unknown issue id: ${issueId}` };
@@ -422,6 +429,7 @@ export class ValidationCacheService {
       completedBy,
       completedAt: new Date().toISOString(),
       ...(actor ? { actor } : {}),
+      ...(report ? { report } : {}),
     };
     this.completions[issueId] = completion;
     delete this.claims[issueId];
@@ -447,6 +455,7 @@ export class ValidationCacheService {
     issueId: string,
     claimedBy: string,
     actor?: ValidationIssueActor,
+    report?: string,
   ): Promise<
     | { ok: true; claim: ValidationIssueClaim }
     | { ok: false; error: string; code?: string; claimedBy?: string }
@@ -463,7 +472,9 @@ export class ValidationCacheService {
         claimedBy: existing.claimedBy,
       };
     }
-    const claim = this.buildClaim(claimedBy, actor);
+    const claimReport =
+      report ?? (existing?.claimedBy === claimedBy ? existing.report : undefined);
+    const claim = this.buildClaim(claimedBy, actor, claimReport);
     this.claims[issueId] = claim;
     await this.flush();
     return { ok: true, claim };
@@ -502,20 +513,27 @@ export class ValidationCacheService {
     issueId: string,
     action: CacheIssueUpdateAction,
     author: string,
-    options?: { staffForceRelease?: boolean; actor?: ValidationIssueActor },
+    options?: { staffForceRelease?: boolean; actor?: ValidationIssueActor; report?: string },
   ): Promise<
     | {
         ok: true;
         action: CacheIssueUpdateAction;
-        completed?: { by: string; at: string; actor?: ValidationIssueActor } | null;
-        claimed?: { by: string; at: string; expiresAt: string; actor?: ValidationIssueActor } | null;
+        completed?: { by: string; at: string; actor?: ValidationIssueActor; report?: string } | null;
+        claimed?: {
+          by: string;
+          at: string;
+          expiresAt: string;
+          actor?: ValidationIssueActor;
+          report?: string;
+        } | null;
       }
     | { ok: false; error: string; code?: string; status?: number; claimedBy?: string }
   > {
     const actor = options?.actor;
+    const report = options?.report;
     switch (action) {
       case "claim": {
-        const r = await this.claimIssue(issueId, author, actor);
+        const r = await this.claimIssue(issueId, author, actor, report);
         if (!r.ok) {
           return {
             ok: false,
@@ -547,7 +565,7 @@ export class ValidationCacheService {
         return { ok: true, action, claimed: null };
       }
       case "complete": {
-        const r = await this.completeIssue(issueId, author, actor);
+        const r = await this.completeIssue(issueId, author, actor, report);
         if (!r.ok) return { ok: false, error: r.error, status: 404 };
         return {
           ok: true,
@@ -1238,8 +1256,8 @@ export type CacheIssueListRow = {
   lastFullRunAt?: string;
   suggestion?: string;
   file?: string;
-  completed?: { by: string; at: string; actor?: ValidationIssueActor };
-  claimed?: { by: string; at: string; expiresAt: string; actor?: ValidationIssueActor };
+  completed?: { by: string; at: string; actor?: ValidationIssueActor; report?: string };
+  claimed?: { by: string; at: string; expiresAt: string; actor?: ValidationIssueActor; report?: string };
 };
 
 export type CacheIssueFacets = {

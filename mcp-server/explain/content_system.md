@@ -120,6 +120,7 @@ Resolve order at page delivery: **single → meta → param**. Site vars (`brand
 - **Inventory (MCP sync):** `list_seo_clusters`, `list_seo_cluster_entries` (buckets: unclustered / partiallySet / brokenRefs / emptyHubs / clustered), `get_seo_cluster`. Rows include `sibling_locales` — loop locales yourself (no write fan-out). Trust inventory/`seo-index` immediately after `update_fields`; diagnostics cache may lag.
 - **Bidirectional in-body links:** validator `seo-cluster-links` (SEO category). Hub must `<a href>` (or url field / markdown link) to members; members must link back to the hub. Non-anchor UI does not count. Codes: `HUB_MISSING_MEMBER_LINKS`, `MEMBER_MISSING_HUB_LINK`. **Publish/promote hard-fails** on those codes; live micro-saves do not.
 - **Diagnostics:** MCP `run_entry_diagnostics` with `categories: ["seo"]` **narrows which validators run** (unlike staff Diagnostics scope chips, which only filter the issue list). `content_view` may read cached/`needs_confirm`; starting a job needs a metrics-mutating cap (`confirm: true`). `get_diagnostics_job` is metrics-mutate only. **MCP responses return a paginated `issues[]` work queue (default 50)** with `issues_offset` / `issues_limit` / `issues_next_offset` — not a full site `issuesBySlug` dump; staff Diagnostics / validation-cache still have the full set.
+- **Issue workflow (`update_issue`):** MCP agents must pass `report` on **claim** (why taking the issue; min 20 chars; optional when re-claiming to refresh your TTL) and **complete** (what changed and how; min 20 chars). Staff UI one-click claim/complete has no report. Stored on validation-cache overlay + `validation_issue_*` admin events (`payload.report`). Does not push YAML or run diagnostics.
 - **Derived link-index:** `{contentRoot}/link-index.json` stores outbound paths patched during `seo-cluster-links` runs — cache only, not authored SOT.
 
 ### Live SEO + Required for publish
@@ -188,3 +189,26 @@ Express **enqueues only** (never `Sidequest.start()`). Worker liveness for pipel
 **Pipeline SQLite migrations (staff):** Deploy runs a dry-run migration check on DB copies before flip (`ensure:pipeline-db --dry-run` in `scripts/deploy.sh`). Live schema apply happens once at server restart. Monitor deploy via GitHub Actions → **Deploy to VPS** job log — not this dashboard. Post-deploy engine stopped: check Actions log for dry-run failure or Settings → Server for failed restart.
 
 **Pipeline SQLite migrations (agents):** `warnings`: deploy dry-run validates migrations on DB copies; live apply at boot on `data/<site>/app.db`; dry-run failure blocks deploy flip. `non_effects`: no YAML/content GitHub/Postgres changes; pipeline SQLite not backed up to GCS; no in-app deploy status API. `next_actions`: deploy/migration failure → staff checks GitHub Actions Deploy to VPS log or VPS `.deploy-state/<sha>.log`; engine issues → `/private/background-pipeline`.
+
+## Delete events + link index (agents)
+
+**`content_entry_deleted`** — emitted when an entry folder or locale YAML is removed (UI delete, MCP `delete_entries`, versioning last-draft removal). **Does not** emit `content_file_written` when the file no longer exists on disk.
+
+- **side_effects:** `index_refresh`; `entry_delete_cleanup` (validation cache `clearEntryKey` per removed `entryKey`, link-index `remove` ops); coalesced link-index flush; GCS upload of `{contentRoot}/link-index.json` in production (`{site}/sync/link-index.json`).
+- **non_effects:** Does not strip hrefs from other entries' YAML; does not enqueue `on_save_validation` for the deleted entry.
+
+**`delete_entries` preview** (without `confirm:true`): includes `preview.link_preview_by_slug[slug].referrers[]`, `suggestions[]` (redirect / update sources), and top-level `referrers[]` / `suggestions[]` in MCP responses. Informational only — delete is not blocked.
+
+**Link index (`link-index.json`):**
+
+- Local path: `{contentRoot}/link-index.json` (derived; **not** content GitHub).
+- Production persistence: GCS `{site}/sync/link-index.json` (see `shared/gcsKeys.ts` → `SYNC_FILENAMES.linkIndex`); hydrated on boot with validation cache.
+- Keys: `type/slug/locale` (same as entry diagnostics key, no variant).
+- Values: sorted unique **outbound** public paths per entry; invert in memory for referrers / delete preview / Runtime 404 CMS links column.
+- **updated_by:** `on_save_validation` / `content-quality` (`queueLinkIndexSet`, including `[]` when all links removed); `binding_propagation_done` applier (sibling YAML); `entry_delete_cleanup` / bulk sync `deletedPaths` (`queueLinkIndexRemove`); full rebuild via site validator `site-link-index` (diagnostics).
+- Coalesced pending ops (`.cache/link-index-pending.json`) + debounced flush (~800ms); rebuild clears buffer and wins over in-flight ops.
+- DB-backed types: mapped string fields (e.g. `body`, `description`) scanned on save (scoped row) and on full `site-link-index` rebuild — background only, not on public request path.
+- **warnings:** Menus, React-hardcoded hrefs, and external referrers are **not** indexed in v1.
+- **next_actions:** Stale or empty referrers → `run_entry_diagnostics` with `validators: ["site-link-index"]`.
+
+Staff: delete confirm modal and Runtime 404 **CMS links** column show derived referrer counts with index age disclaimer; run Site Diagnostics for full link graph refresh.

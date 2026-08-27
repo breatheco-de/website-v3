@@ -108,6 +108,7 @@ interface RuntimeIssueRow {
   byHour?: ByHour;
   count30?: number;
   lastProbe?: RuntimeIssueProbe;
+  cmsReferrerCount?: number;
 }
 
 interface RuntimeIssuesResponse {
@@ -117,6 +118,7 @@ interface RuntimeIssuesResponse {
   issues: RuntimeIssueRow[];
   ignored?: IgnoreRule[];
   dropScrapers?: boolean;
+  linkIndexUpdatedAt?: string | null;
 }
 
 function formatTs(ts: number) {
@@ -156,6 +158,88 @@ function referrerFullUrl(referrer: string): string {
   const trimmed = referrer.trim();
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   return fullPublicUrl(publicPathHref(trimmed));
+}
+
+function formatRelativeIndexAge(iso: string | null | undefined): string {
+  if (!iso) return "unknown";
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return "unknown";
+  const mins = Math.round((Date.now() - ts) / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+
+function CmsLinksCell({
+  path,
+  count,
+  linkIndexUpdatedAt,
+}: {
+  path: string;
+  count: number;
+  linkIndexUpdatedAt?: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/admin/runtime-issues/referrers", path],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/admin/runtime-issues/referrers?path=${encodeURIComponent(path)}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) throw new Error("Failed to load CMS referrers");
+      return res.json() as {
+        count: number;
+        entryKeys: string[];
+        referrers: Array<{ entryKey: string }>;
+        linkIndexUpdatedAt: string | null;
+      };
+    },
+    enabled: open && count > 0,
+  });
+
+  if (count <= 0) {
+    return (
+      <span className="opacity-60" title="No CMS links indexed — index may be stale or empty">
+        —
+      </span>
+    );
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+          data-testid={`cms-links-${path}`}
+        >
+          {count} {count === 1 ? "entry" : "entries"}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 text-xs" align="end">
+        <p className="font-medium text-foreground mb-1">CMS entries linking here</p>
+        <p className="text-muted-foreground mb-2 leading-snug">
+          Derived from CMS content. Updated{" "}
+          {formatRelativeIndexAge(data?.linkIndexUpdatedAt ?? linkIndexUpdatedAt)}. Menus, app
+          routes, and external referrers not included.
+        </p>
+        {isLoading && <p className="text-muted-foreground">Loading…</p>}
+        {data && data.referrers.length > 0 && (
+          <ul className="font-mono text-[11px] space-y-0.5 max-h-40 overflow-y-auto">
+            {data.referrers.map((r) => (
+              <li key={r.entryKey}>{r.entryKey}</li>
+            ))}
+          </ul>
+        )}
+        {data && data.count > data.referrers.length && (
+          <p className="text-muted-foreground mt-1">and {data.count - data.referrers.length} more…</p>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function useCopyToast() {
@@ -1267,6 +1351,16 @@ export default function RuntimeIssuesTab() {
       {!isError && data && data.issues.length > 0 && (
         <Card style={{ borderRadius: "0.8rem" }}>
           <CardContent className="p-0 overflow-x-auto">
+            <Alert className="m-4 mb-0 border-border/60 bg-muted/30">
+              <IconInfoCircle className="h-4 w-4" />
+              <AlertTitle className="text-sm">CMS links column</AlertTitle>
+              <AlertDescription className="text-xs text-muted-foreground">
+                Counts come from the outbound link index (YAML + DB body fields). Updated{" "}
+                {formatRelativeIndexAge(data.linkIndexUpdatedAt)}. Not routing truth — run site
+                diagnostics (<code className="text-[11px]">site-link-index</code>) for a full
+                refresh. Empty does not mean nobody links here (menus and code paths are excluded).
+              </AlertDescription>
+            </Alert>
             {sortedIssues.length === 0 ? (
               <div
                 className="p-8 text-center text-muted-foreground text-sm"
@@ -1298,6 +1392,9 @@ export default function RuntimeIssuesTab() {
                       Count
                       <SortIcon col="count" sortKey={sortKey} sortDir={sortDir} />
                     </button>
+                  </TableHead>
+                  <TableHead className="w-28 text-right" title="Derived from CMS YAML link index — not routing truth">
+                    CMS links
                   </TableHead>
                   <TableHead className="w-36">
                     <button
@@ -1361,6 +1458,13 @@ export default function RuntimeIssuesTab() {
                     </TableCell>
                     <TableCell className="w-24 text-right font-medium whitespace-nowrap">
                       {issue.count}
+                    </TableCell>
+                    <TableCell className="w-28 text-right text-xs text-muted-foreground whitespace-nowrap">
+                      <CmsLinksCell
+                        path={issue.path}
+                        count={issue.cmsReferrerCount ?? 0}
+                        linkIndexUpdatedAt={data?.linkIndexUpdatedAt}
+                      />
                     </TableCell>
                     <TableCell className="w-36 text-xs text-muted-foreground whitespace-nowrap">
                       {formatTs(issue.lastSeen)}

@@ -10,6 +10,7 @@ import {
 /** Dispatch types handled in server/events/dispatcher.ts switch. */
 const DISPATCHER_HANDLED_TYPES = new Set([
   "content_file_written",
+  "content_entry_deleted",
   "content_bulk_synced",
   "binding_propagation_started",
 ]);

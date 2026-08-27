@@ -632,10 +632,12 @@ interface MappedValidationIssue {
   completedBy?: string;
   completedAt?: string;
   completedActor?: ValidationIssueActorRef;
+  completedReport?: string;
   claimedBy?: string;
   claimedAt?: string;
   expiresAt?: string;
   claimedActor?: ValidationIssueActorRef;
+  claimReport?: string;
 }
 
 type CachedValidationIssuesSplit = {
@@ -677,8 +679,8 @@ function getCachedValidationIssues(
         validator?: string;
       }>;
       indexes?: { byUrl?: Record<string, string>; byEntry?: Record<string, string[]> };
-      completions?: Record<string, { completedBy: string; completedAt: string; actor?: ValidationIssueActorRef }>;
-      claims?: Record<string, { claimedBy: string; claimedAt: string; expiresAt: string; actor?: ValidationIssueActorRef }>;
+      completions?: Record<string, { completedBy: string; completedAt: string; actor?: ValidationIssueActorRef; report?: string }>;
+      claims?: Record<string, { claimedBy: string; claimedAt: string; expiresAt: string; actor?: ValidationIssueActorRef; report?: string }>;
     };
 
     const completions = cache.completions ?? {};
@@ -708,6 +710,7 @@ function getCachedValidationIssues(
                 completedBy: completion.completedBy,
                 completedAt: completion.completedAt,
                 ...(completion.actor ? { completedActor: completion.actor } : {}),
+                ...(completion.report ? { completedReport: completion.report } : {}),
               }
             : {}),
           ...(claimActive
@@ -716,6 +719,7 @@ function getCachedValidationIssues(
                 claimedAt: claimActive.claimedAt,
                 expiresAt: claimActive.expiresAt,
                 ...(claimActive.actor ? { claimedActor: claimActive.actor } : {}),
+                ...(claimActive.report ? { claimReport: claimActive.report } : {}),
               }
             : {}),
         });
@@ -1366,6 +1370,8 @@ export function registerPageTools(
     "Claim, release, soft-complete, or reopen a validation issue by stable issue_id from get_entry_content / get_entry_seo. " +
     "Actions: claim (30m TTL, refresh if you already own it; fails if another author holds an active claim), " +
     "release (drop your claim or staff release), complete (hide from open lists; also clears claim), uncomplete (reopen). " +
+    "MCP-only: claim requires report (why you are taking this issue; optional when refreshing your own claim). " +
+    "complete requires report (what you changed and how; min 20 chars). " +
     "Does NOT delete the issue row, push YAML/GitHub, or run diagnostics. " +
     "A later validator cache write that rewrites the same id clears complete but keeps an active claim; may emit validation_issue_reopened in admin events. " +
     "Requires content_edit_text or seo_edit. Pass issue_id only (no update-by-code). Optional model (best-effort, self-reported).",
@@ -1379,8 +1385,14 @@ export function registerPageTools(
         .string()
         .optional()
         .describe("Optional LLM model name (best-effort; stored in actor.model on claim/complete)"),
+      report: z
+        .string()
+        .optional()
+        .describe(
+          "Required for claim (first claim) and complete. claim: why you are taking this issue. complete: what you changed and how (min 20 chars). Optional when re-claiming to refresh your TTL.",
+        ),
     },
-    async ({ issue_id, action, site, model }) => {
+    async ({ issue_id, action, site, model, report }) => {
       const canMutate =
         !mcpToken ||
         !grants ||
@@ -1392,6 +1404,33 @@ export function registerPageTools(
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
+
+      const trimmedReport = typeof report === "string" ? report.trim() : "";
+      if (action === "complete") {
+        if (trimmedReport.length < 20) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "report_required",
+              code: "report_required",
+              message:
+                "complete requires report: explain what you changed and how you fixed this issue (min 20 characters).",
+            },
+            [],
+          );
+        }
+      } else if (action === "claim" && trimmedReport.length > 0 && trimmedReport.length < 20) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "report_required",
+            code: "report_too_short",
+            message: "claim report must be at least 20 characters when provided.",
+          },
+          [],
+        );
+      }
+
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       try {
         const res = await fetch(
@@ -1403,13 +1442,26 @@ export function registerPageTools(
               issueId: issue_id,
               action,
               ...(model ? { model } : {}),
+              ...(trimmedReport ? { report: trimmedReport } : {}),
             }),
           },
         );
         const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
         if (!res.ok) {
+          const code = typeof data.code === "string" ? data.code : "update_issue_failed";
+          if (code === "report_required" || code === "report_too_short") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "report_required",
+                code,
+                message: String(data.error ?? "report required for MCP claim/complete"),
+              },
+              [],
+            );
+          }
           return fail(String(data.error ?? `update_issue failed (${res.status})`), {
-            code: typeof data.code === "string" ? data.code : "update_issue_failed",
+            code,
             status: res.status,
             claimedBy: data.claimedBy,
           });
@@ -1430,6 +1482,11 @@ export function registerPageTools(
             message: "Claims expire after 30 minutes. Same author can re-claim to refresh.",
           },
           {
+            code: "mcp_report_required",
+            message:
+              "MCP claim (first) and complete require report (min 20 chars). Stored on validation-cache overlay and validation_issue_* admin events.",
+          },
+          {
             code: "actor_client_from_oauth",
             message:
               "actor.client comes from the MCP OAuth client registry (not overridable). actor.model is best-effort when you pass model.",
@@ -1444,6 +1501,7 @@ export function registerPageTools(
           {
             issue_id,
             action,
+            report: trimmedReport || null,
             completed: data.completed ?? null,
             claimed: data.claimed ?? null,
             message: `Issue ${action} applied.`,
@@ -6143,13 +6201,48 @@ export function registerPageTools(
           });
         }
         if (confirm !== true) {
+          const previewObj = data.preview as Record<string, unknown> | undefined;
+          const linkBySlug = previewObj?.link_preview_by_slug as
+            | Record<
+                string,
+                {
+                  referrers?: Array<{ entryKey: string }>;
+                  suggestions?: string[];
+                  indexUpdatedAt?: string | null;
+                }
+              >
+            | undefined;
+          const referrersFlat: Array<{ slug: string; entryKey: string }> = [];
+          const suggestions: string[] = [];
+          if (linkBySlug) {
+            for (const [slug, lp] of Object.entries(linkBySlug)) {
+              for (const ref of lp.referrers ?? []) {
+                referrersFlat.push({ slug, entryKey: ref.entryKey });
+              }
+              for (const s of lp.suggestions ?? []) {
+                if (!suggestions.includes(s)) suggestions.push(s);
+              }
+            }
+          }
           return actionRequired(
             {
               success: false,
               action_required: "confirm_delete",
               message: (data.message as string) || "Pass confirm:true to delete",
               preview: data.preview,
+              referrers: referrersFlat,
+              suggestions,
               tool: "delete_entries",
+              ...(referrersFlat.length > 0
+                ? {
+                    warnings: [
+                      {
+                        code: "delete_referrer_links",
+                        message: `${referrersFlat.length} CMS entry link(s) may break after delete — update sources or add redirects.`,
+                      },
+                    ],
+                  }
+                : {}),
             },
             [
               {
@@ -6170,6 +6263,16 @@ export function registerPageTools(
                 args_hint: { topic: "relation-fields" },
                 priority: "recommended",
               },
+              ...(referrersFlat.length > 0
+                ? [
+                    {
+                      tool: "run_entry_diagnostics" as const,
+                      reason: "Refresh link index after fixing survivor hrefs",
+                      args_hint: { scope: "site", validators: ["site-link-index"] },
+                      priority: "recommended" as const,
+                    },
+                  ]
+                : []),
             ],
           );
         }
