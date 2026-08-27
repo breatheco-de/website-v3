@@ -190,6 +190,8 @@ import {
   BREATHECODE_HOST,
   extractToken,
   requireCapability,
+  requireStaffSession,
+  isMcpLoopbackRequest,
   safeYamlLoad,
   safeYamlDump,
   resolveVariantAssignment,
@@ -221,6 +223,12 @@ import {
   FixerItemStatus,
   markContentFileModified,
 } from "./_helpers";
+import {
+  DEMO_HASH_RE,
+  createDemo,
+  parseAndValidateDemoYaml,
+  readDemo,
+} from "../component-section-demos";
 import { child } from "../logger";
 const log = child({ module: "routes/components" });
 
@@ -237,6 +245,100 @@ function getContentRootName(res: Response): string {
 }
 
 export function registerComponentsRoutes(app: Express): void {
+
+  // Disposable single-section demos (MCP create → /private/demo/:hash preview).
+  // GET is public (hash is the secret). POST requires MCP loopback or staff.
+  app.get("/api/component-section-demos/:hash", (req, res) => {
+    const { hash } = req.params;
+    if (!DEMO_HASH_RE.test(hash)) {
+      res.status(400).json({ error: "Invalid demo hash" });
+      return;
+    }
+    const demo = readDemo(hash);
+    if (!demo) {
+      res.status(404).json({ error: "Demo not found" });
+      return;
+    }
+    res.json({
+      hash,
+      componentType: demo.component_type,
+      version: demo.version,
+      createdAt: demo.created_at,
+      section: demo.section,
+    });
+  });
+
+  app.post("/api/component-section-demos", async (req, res) => {
+    try {
+      if (!isMcpLoopbackRequest(req)) {
+        const staff = await requireStaffSession(req, res);
+        if (!staff.authorized) return;
+      }
+
+      const componentType =
+        typeof req.body?.componentType === "string" ? req.body.componentType.trim() : "";
+      const version =
+        typeof req.body?.version === "string" ? req.body.version.trim() : undefined;
+      const yamlText =
+        typeof req.body?.yaml === "string"
+          ? req.body.yaml
+          : typeof req.body?.yamlText === "string"
+            ? req.body.yamlText
+            : "";
+
+      if (!componentType) {
+        res.status(400).json({ error: "componentType is required" });
+        return;
+      }
+      if (!yamlText.trim()) {
+        res.status(400).json({ error: "yaml is required" });
+        return;
+      }
+
+      const contentFolder = getContentRootName(res);
+      const validated = parseAndValidateDemoYaml({
+        yamlText,
+        componentType,
+        version,
+        contentFolder,
+      });
+      if (!validated.ok) {
+        res.status(400).json({
+          error: validated.error.message,
+          property_path: validated.error.property_path,
+          details: validated.error.details,
+        });
+        return;
+      }
+
+      let created: ReturnType<typeof createDemo>;
+      try {
+        created = createDemo({
+          componentType,
+          version: validated.version,
+          section: validated.section,
+        });
+      } catch (e) {
+        const message = (e as Error).message;
+        if (message.includes("SITE_URL")) {
+          res.status(500).json({ error: message });
+          return;
+        }
+        throw e;
+      }
+
+      res.status(201).json({
+        hash: created.hash,
+        preview_url: created.previewUrl,
+        path: created.relativePath,
+        componentType,
+        version: validated.version,
+      });
+    } catch (error) {
+      log.error({ err: error }, "Failed to create component section demo");
+      res.status(500).json({ error: "Failed to create component section demo" });
+    }
+  });
 
   // Schema.org API endpoints
   app.get("/api/schema", (req, res) => {

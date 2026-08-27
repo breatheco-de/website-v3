@@ -48,7 +48,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `run_entry_diagnostics` | Async diagnostics job; cached/completed returns paginated `issues[]` work queue (default 50), not full site dump |
 | `get_diagnostics_job` | Poll diagnostics job; `issues_offset` / `issues_limit` page the issue list only |
 | `get_section_bindings` | Binding-group membership |
-| `list_components` / `get_component_schema` / `get_component_variant` | Component registry |
+| `list_components` / `get_component_schema` / `get_component_variant` / `create_component_section_demo` | Component registry + disposable section demos |
 | `list_databases` / `list_database_items` / `get_database_item` | Local private DB discovery + read (global `index`) |
 | `add_database_item` / `add_database_items` / `update_database_item` / `update_database_items` / `delete_database_item` | Local YAML item CRUD (FAQ database etc.; bulk max 40, best-effort) |
 | `reindex_database` | Vector reindex after item writes (`databases_manage`) |
@@ -259,6 +259,25 @@ Gets the field definitions (`variant_props`) and a worked YAML example for a spe
 ```
 
 **Returns:** `{ componentType, variant, variant_props: { <field definitions> }, example: "<worked YAML string>" }`
+
+---
+
+### `create_component_section_demo`
+
+Creates a disposable single-section preview for humans. Pass use-case-specific YAML for exactly one section; the tool validates it, stores it under `.cache/component-section-demos/{hash}.yml`, and returns a production `preview_url` at `/private/demo/{hash}`.
+
+The hash is the only access control (no staff login). Demos are wiped on every production redeploy and are **not** a page publish.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `componentType` | string | yes | Component type name, e.g. `graduates_stats` |
+| `yaml` | string | yes | YAML for exactly one section (or a one-element array / `{ sections: [one] }`) |
+| `version` | string | no | Registry version folder, e.g. `v1.0` |
+| `site` | string | no | Site domain when multiple sites are configured |
+
+**Returns:** `{ hash, preview_url, path, componentType, version }` plus warnings (not a publish; world-readable with URL; wiped on redeploy; single section only).
 
 ---
 

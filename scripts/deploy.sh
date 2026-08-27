@@ -267,6 +267,12 @@ for name in sites.yml data .cache .local .multisite-user-store.json .qdrant-init
   link_persistent "$name"
 done
 
+# Ephemeral MCP section demos (hash-gated previews). Wipe on every redeploy so
+# links die with the release flip; .cache itself is persistent across releases.
+echo "[deploy] wiping component section demos"
+rm -rf "$PERSISTENT/.cache/component-section-demos"
+mkdir -p "$PERSISTENT/.cache/component-section-demos"
+
 ensure_release_site_dirs
 
 # Bump version.json in the release only (not committed to git). Read the live

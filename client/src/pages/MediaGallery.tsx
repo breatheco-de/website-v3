@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {AlertTriangle, ArrowLeft, Check, CheckCheck, ChevronDown, Cloud, Copy, Eye, FileText, Film, Folder, Image, Layers, Link as LinkIcon, ListChecks, Loader2, MoreHorizontal, Replace, Search, Settings, Square, SquareCheck, Stethoscope, Tags, Terminal, Trash2, Wand2, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, Check, CheckCheck, ChevronDown, Cloud, Copy, Eye, FileText, Film, Folder, Image, Layers, Link as LinkIcon, ListChecks, Loader2, MoreHorizontal, Replace, Search, Settings, Square, SquareCheck, Stethoscope, Tags, Terminal, Trash2, Upload, Wand2, Wrench, X} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,7 @@ import {
   acceptAttrForDoctype,
   inferDoctypeFromSrc,
 } from "@shared/media-doctype";
+import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
@@ -422,6 +423,8 @@ export default function MediaGallery() {
   const [redundantResult, setRedundantResult] = useState<{ resolved: number; errors: string[] } | null>(null);
   const [redundantVisible, setRedundantVisible] = useState(10);
   const [detailImageId, setDetailImageId] = useState<string | null>(null);
+  const [addMediaOpen, setAddMediaOpen] = useState(false);
+  const [addMediaDoctype, setAddMediaDoctype] = useState<MediaDoctype>("image");
   const [scriptsOpen, setScriptsOpen] = useState(false);
   const [scriptMigrateFrom, setScriptMigrateFrom] = useState("local");
   const [scriptMigrateTo, setScriptMigrateTo] = useState("gcs");
@@ -1573,10 +1576,54 @@ export default function MediaGallery() {
       </header>
 
       <div className="container mx-auto px-4 py-6 max-w-7xl">
-        <p className="text-xs text-muted-foreground mb-4" data-testid="text-gallery-doctype-hint">
-          Holds images, videos, and PDFs. Use Type and Tags to filter; tags work the same for all media.
-          Crop and optimize apply to images only.
-        </p>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <p className="text-xs text-muted-foreground" data-testid="text-gallery-doctype-hint">
+            Holds images, videos, and PDFs. Use Type and Tags to filter; tags work the same for all media.
+            Crop and optimize apply to images only.
+          </p>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                className="shrink-0 gap-1.5"
+                data-testid="button-add-gallery-media"
+              >
+                <Upload className="h-4 w-4" />
+                Add media
+                <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                data-testid="menu-add-media-image"
+                onClick={() => {
+                  setAddMediaDoctype("image");
+                  setAddMediaOpen(true);
+                }}
+              >
+                Image
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="menu-add-media-video"
+                onClick={() => {
+                  setAddMediaDoctype("video");
+                  setAddMediaOpen(true);
+                }}
+              >
+                Video
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="menu-add-media-pdf"
+                onClick={() => {
+                  setAddMediaDoctype("pdf");
+                  setAddMediaOpen(true);
+                }}
+              >
+                PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
 
         {scanResult && (
           <div className="mb-6 rounded-lg border p-4 space-y-3" data-testid="scan-results">
@@ -3741,6 +3788,23 @@ export default function MediaGallery() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <ImagePickerDialog
+        open={addMediaOpen}
+        onOpenChange={setAddMediaOpen}
+        title={
+          addMediaDoctype === "video"
+            ? "Add video"
+            : addMediaDoctype === "pdf"
+              ? "Add PDF"
+              : "Add image"
+        }
+        doctype={addMediaDoctype}
+        initialMode="upload"
+        uploadOnly
+        closeOnSuccessfulUpload
+        onSave={async () => {}}
+      />
 
       <RunQueueSidebar
         open={runQueueOpen}

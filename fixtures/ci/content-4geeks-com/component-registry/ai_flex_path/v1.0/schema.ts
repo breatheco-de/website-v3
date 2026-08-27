@@ -104,3 +104,53 @@ export const aiFlexPathSimplifiedSchema = z.object({
 });
 
 export type AiFlexPathSimplified = z.infer<typeof aiFlexPathSimplifiedSchema>;
+
+/**
+ * Section wrappers (type + variant) for registry sync / showcase.
+ * React variants still consume the data schemas above via `{ data: AiFlexPath* }`.
+ */
+export const componentMeta = {
+  displayName: "AI Flex Path",
+  description:
+    "Interactive learning-path builder: pick or rearrange courses, see skills/tools, and CTA into enrollment.",
+};
+
+export const aiFlexPathDefaultSectionSchema = aiFlexPathDefaultSchema.extend({
+  type: z.literal("ai_flex_path"),
+  version: z.string().optional(),
+  variant: z.literal("default").optional(),
+});
+
+export const aiFlexPathDragAndDropSectionSchema = aiFlexPathDragAndDropSchema.extend({
+  type: z.literal("ai_flex_path"),
+  version: z.string().optional(),
+  variant: z.literal("drag_and_drop"),
+});
+
+export const aiFlexPathCourseColorSelectorSectionSchema =
+  aiFlexPathCourseColorSelectorSchema.extend({
+    type: z.literal("ai_flex_path"),
+    version: z.string().optional(),
+    variant: z.literal("course_color_selector"),
+  });
+
+export const aiFlexPathSimplifiedSectionSchema = aiFlexPathSimplifiedSchema.extend({
+  type: z.literal("ai_flex_path"),
+  version: z.string().optional(),
+  variant: z.literal("simplified"),
+});
+
+export const aiFlexPathSectionSchema = z.union([
+  aiFlexPathDefaultSectionSchema,
+  aiFlexPathDragAndDropSectionSchema,
+  aiFlexPathCourseColorSelectorSectionSchema,
+  aiFlexPathSimplifiedSectionSchema,
+]);
+
+export type AiFlexPathDefaultSection = z.infer<typeof aiFlexPathDefaultSectionSchema>;
+export type AiFlexPathDragAndDropSection = z.infer<typeof aiFlexPathDragAndDropSectionSchema>;
+export type AiFlexPathCourseColorSelectorSection = z.infer<
+  typeof aiFlexPathCourseColorSelectorSectionSchema
+>;
+export type AiFlexPathSimplifiedSection = z.infer<typeof aiFlexPathSimplifiedSectionSchema>;
+export type AiFlexPathSection = z.infer<typeof aiFlexPathSectionSchema>;

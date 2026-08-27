@@ -36,6 +36,7 @@ export const TOOL_GATES: Record<string, ToolGate> = {
   get_component_schema: { kind: "anyCap", caps: ["content_view"] },
   get_component_variant: { kind: "anyCap", caps: ["content_view"] },
   get_component_usage: { kind: "anyCap", caps: ["content_view"] },
+  create_component_section_demo: { kind: "anyCap", caps: ["content_view"] },
   explain_site: { kind: "anyCap", caps: ["content_view"] },
 
   get_entry_seo: { kind: "anyCap", caps: ["content_view", "seo_edit"] },

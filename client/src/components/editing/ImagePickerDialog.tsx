@@ -84,6 +84,17 @@ export interface ImagePickerDialogProps {
    * Restrict browse/upload to this media type. Defaults to `"image"` (current behavior).
    */
   doctype?: MediaDoctype;
+  /** Tab shown when the dialog opens. Defaults to `"browse"`. */
+  initialMode?: "browse" | "upload";
+  /**
+   * When true, close the dialog after a successful upload (gallery “add media” flow).
+   * Field pickers leave this unset so upload selects the file and waits for Save.
+   */
+  closeOnSuccessfulUpload?: boolean;
+  /**
+   * Gallery “add media” mode: only show the upload dropzone (no Browse tab / Save).
+   */
+  uploadOnly?: boolean;
 }
 
 const DOCTYPE_TITLES: Record<MediaDoctype, string> = {
@@ -121,11 +132,15 @@ export function ImagePickerDialog({
   renderPreset,
   renderedSize,
   doctype = "image",
+  initialMode = "browse",
+  closeOnSuccessfulUpload = false,
+  uploadOnly = false,
 }: ImagePickerDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const resolvedTitle = title ?? DOCTYPE_TITLES[doctype];
   const allowCrop = doctype === "image";
+  const effectiveInitialMode = uploadOnly ? "upload" : initialMode;
 
   const { data: imageRegistry } = useQuery<ImageRegistry>({
     queryKey: ["/api/image-registry"],
@@ -152,7 +167,7 @@ export function ImagePickerDialog({
     typeof defaultTagFilter === "string" && defaultTagFilter.trim() ? defaultTagFilter.trim() : "";
   const tagFilterSelectable = !lockedTagFilter;
 
-  const [pickerMode, setPickerMode] = useState<"browse" | "upload">("browse");
+  const [pickerMode, setPickerMode] = useState<"browse" | "upload">(effectiveInitialMode);
   const [search, setSearch] = useState("");
   const [searchExpanded, setSearchExpanded] = useState(false);
   const [tagsExpanded, setTagsExpanded] = useState(false);
@@ -254,14 +269,14 @@ export function ImagePickerDialog({
       setSearch("");
       setSearchExpanded(false);
       setTagsExpanded(false);
-      setPickerMode("browse");
+      setPickerMode(effectiveInitialMode);
       const initial = lockedTagFilter || initialDefaultFilter;
       setActiveTagFilters(initial ? [initial] : []);
     } else {
       setOpenPanelId(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialSrc, initialAlt, lockedTagFilter, initialDefaultFilter]);
+  }, [open, initialSrc, initialAlt, lockedTagFilter, initialDefaultFilter, effectiveInitialMode]);
 
   useEffect(() => {
     setVisibleCount(48);
@@ -384,10 +399,6 @@ export function ImagePickerDialog({
           existingId?: string;
         };
         await queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
-        setSelectedSrc(result.src);
-        setSelectedAlt(result.alt);
-        setSelectedRegistryId(result.id);
-        setPickerMode("browse");
         const noun = doctype === "pdf" ? "PDF" : doctype === "video" ? "Video" : "Image";
         toast({
           title: result.duplicate ? `${noun} already exists` : `${noun} uploaded`,
@@ -395,6 +406,14 @@ export function ImagePickerDialog({
             ? `Already registered as "${result.existingId}". Using the existing one.`
             : `Registered as "${result.id}"`,
         });
+        if (closeOnSuccessfulUpload) {
+          onOpenChange(false);
+          return;
+        }
+        setSelectedSrc(result.src);
+        setSelectedAlt(result.alt);
+        setSelectedRegistryId(result.id);
+        setPickerMode("browse");
       } catch (err: unknown) {
         toast({
           title: "Upload failed",
@@ -645,33 +664,35 @@ export function ImagePickerDialog({
           </DialogHeader>
 
           <div className="flex-1 overflow-hidden flex flex-col gap-4 py-2">
-            <div className="flex rounded-md border overflow-visible">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className={`flex-1 rounded-none toggle-elevate ${pickerMode === "browse" ? "toggle-elevated bg-muted" : ""}`}
-                onClick={() => setPickerMode("browse")}
-                data-testid="button-picker-browse"
-              >
-                <Search className="h-4 w-4 mr-1.5" />
-                Browse
-              </Button>
-              <div className="w-px bg-border" />
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className={`flex-1 rounded-none toggle-elevate ${pickerMode === "upload" ? "toggle-elevated bg-muted" : ""}`}
-                onClick={() => setPickerMode("upload")}
-                data-testid="button-picker-upload"
-              >
-                <Upload className="h-4 w-4 mr-1.5" />
-                Upload
-              </Button>
-            </div>
+            {!uploadOnly && (
+              <div className="flex rounded-md border overflow-visible">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className={`flex-1 rounded-none toggle-elevate ${pickerMode === "browse" ? "toggle-elevated bg-muted" : ""}`}
+                  onClick={() => setPickerMode("browse")}
+                  data-testid="button-picker-browse"
+                >
+                  <Search className="h-4 w-4 mr-1.5" />
+                  Browse
+                </Button>
+                <div className="w-px bg-border" />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className={`flex-1 rounded-none toggle-elevate ${pickerMode === "upload" ? "toggle-elevated bg-muted" : ""}`}
+                  onClick={() => setPickerMode("upload")}
+                  data-testid="button-picker-upload"
+                >
+                  <Upload className="h-4 w-4 mr-1.5" />
+                  Upload
+                </Button>
+              </div>
+            )}
 
-            {pickerMode === "browse" ? (
+            {pickerMode === "browse" && !uploadOnly ? (
               <>
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
@@ -1057,7 +1078,7 @@ export function ImagePickerDialog({
               </div>
             )}
 
-            {(selectedSrc || selectedDisplaySrc) && (
+            {!uploadOnly && (selectedSrc || selectedDisplaySrc) && (
               <div className="border-t pt-4">
                 <div className="flex gap-3">
                   <div className="w-16 h-16 rounded-md overflow-hidden bg-muted border flex-shrink-0">
@@ -1134,7 +1155,7 @@ export function ImagePickerDialog({
 
           <DialogFooter className="flex-row gap-2 sm:justify-between">
             <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
-              {onRemove ? (
+              {!uploadOnly && onRemove ? (
                 <Button
                   type="button"
                   variant="destructive"
@@ -1145,7 +1166,8 @@ export function ImagePickerDialog({
                   Remove
                 </Button>
               ) : null}
-              {ensureTagsOnSave &&
+              {!uploadOnly &&
+                ensureTagsOnSave &&
                 ensureTagsOnSave.length > 0 &&
                 selectedSrc &&
                 selectedRegistryId && (
@@ -1173,19 +1195,21 @@ export function ImagePickerDialog({
               >
                 Cancel
               </Button>
-              <Button
-                type="button"
-                onClick={checkFamilyAndSave}
-                disabled={!selectedSrc || saving || bulkModal.checking}
-                data-testid="button-image-save"
-              >
-                {saving || bulkModal.checking ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Check className="h-4 w-4 mr-2" />
-                )}
-                Save
-              </Button>
+              {!uploadOnly && (
+                <Button
+                  type="button"
+                  onClick={checkFamilyAndSave}
+                  disabled={!selectedSrc || saving || bulkModal.checking}
+                  data-testid="button-image-save"
+                >
+                  {saving || bulkModal.checking ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Check className="h-4 w-4 mr-2" />
+                  )}
+                  Save
+                </Button>
+              )}
             </div>
           </DialogFooter>
         </DialogContent>
