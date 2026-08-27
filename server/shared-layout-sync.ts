@@ -658,11 +658,16 @@ export function alignSiblingSinglesToBase(opts: {
       const existingSections = Array.isArray(data.sections)
         ? (data.sections as Record<string, unknown>[])
         : [];
+      // Always write canonical template.{locale}.yml (never create new single.*)
+      const writePath = resolveTemplateLocalePath(templateDir, locale, {
+        forWrite: true,
+        fallbackLocale: "",
+      });
 
       if (existingSections.length === 0) {
         const mirrored = buildMirroredLocaleSingle(baseData, requesterId);
         if (data.meta) mirrored.meta = data.meta;
-        writeYamlFile(filePath, mirrored, dumpYaml);
+        writeYamlFile(writePath, mirrored, dumpYaml);
       } else {
         const byId = new Map<string, Record<string, unknown>>();
         for (const s of existingSections) {
@@ -693,9 +698,9 @@ export function alignSiblingSinglesToBase(opts: {
           next.push(leftover);
         }
         data.sections = next;
-        writeYamlFile(filePath, data, dumpYaml);
+        writeYamlFile(writePath, data, dumpYaml);
       }
-      onWritten?.(filePath, locale);
+      onWritten?.(writePath, locale);
       result.succeeded.push(locale);
     } catch (err) {
       result.failed.push({

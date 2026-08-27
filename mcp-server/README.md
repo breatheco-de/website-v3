@@ -37,7 +37,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, strategy, observed URL-param values, create_via, body_model, template_vars_note |
 | `get_entry_content` | Merged entry content without meta/SEO |
 | `get_entry_seo` | SEO/meta + resolved schema.org preview + companion/CT gaps for one entry |
-| `update_content_type` | Patch `content-types.yml`: `strategy` and/or one field (`field_action` + confirm). Cap: `content_types_manage`. |
+| `update_content_type` | Patch `content-types.yml`: `strategy`, one field (`field_action` + confirm), or shared layout (`single_template` + `template_mode`). Cap: `content_types_manage`. |
 | `ensure_content_type_schema_org` | Attach seeded schema_org companions for CT `schema_org_requirements` |
 | `list_entry_seo` | SEO listing; **unfiltered = minimal sample**; pass `slugs` for full meta |
 | `create_entry` | Create YAML entry (draft-first or live shared-layout); not for DB-backed types |
@@ -89,16 +89,19 @@ Patch `content-types.yml` via `PUT /api/content-types/:type/config`. **Requires*
 |---|---|---|
 | Strategy | `strategy`: `{ purpose, constraints? }` or `null` | Immediate PUT |
 | Field patch | `field_action` (`add` \| `update` \| `remove`), `field_key`, optional `field_mapping` / `editor`, `confirm` | Preview when `confirm` omitted/false; `confirm: true` → fresh GET + merge + PUT |
+| Shared layout | `single_template` true\|false; when enabling: `template_mode` (`keep_existing` \| `from_entry`), optional `template_entry_source_slug` / `template_entry_source_locale` / `shared_layout_base_locale` / `confirm` | Server gate; replace preview via `action_required: confirm_template_replace` |
 
 **Field patch rules:**
 
 - One field per call — sibling fields preserved (server-side merge).
-- Do not combine `strategy` and `field_action` in one call (`code: ambiguous_patch`).
+- Do not combine `strategy`, `field_action`, and `single_template` in one call (`code: ambiguous_patch`).
 - Static types: `add` defaults `{ source: field_key, default: null }`. DB-backed: `field_mapping` required on add.
 - Relation `editor.source` required; CT/DB name collisions rejected.
 - `required` true \| `"attached"` needs `fill_intent` + valid type `strategy` (set strategy in a separate call first).
 - `remove` blocked while `field_key` is in `indexes` or `unique_fields` — clear in Content Type manage first.
 - Does not edit entry YAML or auto-backfill — follow `next_actions` (`update_fields`, etc.) after add.
+
+**Shared layout enable:** writes canonical `template.{locale}.yml` (never new `single.*`). Source entry must be fully `{{ entry.* }}`-shaped. See `explain_site` topic `shared-layout`.
 
 **Non-effects:** does not run `ensure_content_type_schema_org` or change `seo_monitoring`.
 
@@ -107,12 +110,17 @@ Patch `content-types.yml` via `PUT /api/content-types/:type/config`. **Requires*
 | Parameter | Type | Description |
 |---|---|---|
 | `contentType` | string | Content type key |
-| `strategy` | object \| null | Set or clear strategy (mutually exclusive with `field_action`) |
+| `strategy` | object \| null | Set or clear strategy (mutually exclusive with other modes) |
 | `field_action` | add \| update \| remove | Patch one schema field |
 | `field_key` | string | Schema key |
 | `field_mapping` | string \| `{ source, default }` | Mapping for this field (add/update) |
 | `editor` | object | Editor hint for this field (add/update; partial merge on update) |
-| `confirm` | boolean | Field patches: false/omit → preview; true → execute |
+| `single_template` | boolean | Enable/disable shared layout |
+| `template_mode` | keep_existing \| from_entry | Required when enabling |
+| `template_entry_source_slug` | string | Entry to seed shell when `from_entry` |
+| `template_entry_source_locale` | string | When source entry has multiple live locales |
+| `shared_layout_base_locale` | string | Sibling align base |
+| `confirm` | boolean | Field patches / template replace: false/omit → preview; true → execute |
 | `site` | string | Multi-site domain |
 
 ### `get_entry_content`

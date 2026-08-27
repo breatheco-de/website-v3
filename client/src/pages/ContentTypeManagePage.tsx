@@ -66,7 +66,11 @@ import {
 } from "@/components/editing/SeoContextPickerDialog";
 import type { SeoModalTab } from "@/components/DebugBubble/components/SeoModal";
 import { SharedLayoutExplainDialog } from "@/components/editing/SharedLayoutExplainDialog";
-import { SharedLayoutEnableDialog } from "@/components/editing/SharedLayoutEnableDialog";
+import {
+  SharedLayoutEnableDialog,
+  type SharedLayoutEnablePayload,
+  SharedLayoutEnableFields,
+} from "@/components/editing/SharedLayoutEnableDialog";
 import { LinkedDatabaseExplainDialog } from "@/components/editing/LinkedDatabaseExplainDialog";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
 import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
@@ -929,17 +933,59 @@ function ConnectDatabaseConfirmDialog({
   open,
   onOpenChange,
   onConfirm,
+  contentType,
   contentTypeLabel,
   staticCount,
   alreadyConnected,
+  needsTemplateChoice,
+  usableTemplate,
+  divergences,
+  bindings,
+  templatePayload,
+  onTemplatePayloadChange,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
+  contentType: string;
   contentTypeLabel: string;
   staticCount: number;
   alreadyConnected: boolean;
+  needsTemplateChoice: boolean;
+  usableTemplate: boolean;
+  divergences: Array<{
+    locale: string;
+    sectionCount: number;
+    sectionIds: string[];
+    basename?: string;
+    naming?: "template" | "single";
+  }>;
+  bindings: Array<{
+    id: string;
+    name?: string;
+    component: string;
+    locale: string;
+    memberCount: number;
+    members: Array<{ contentType: string; slug: string; sectionId: string }>;
+  }>;
+  templatePayload: SharedLayoutEnablePayload;
+  onTemplatePayloadChange: (p: SharedLayoutEnablePayload) => void;
 }) {
+  const [sourceEligible, setSourceEligible] = useState(!needsTemplateChoice || usableTemplate);
+
+  useEffect(() => {
+    if (open) {
+      setSourceEligible(!needsTemplateChoice || usableTemplate);
+    }
+  }, [open, needsTemplateChoice, usableTemplate]);
+
+  const canContinue =
+    !needsTemplateChoice ||
+    templatePayload.template_mode === "keep_existing" ||
+    (!!templatePayload.template_entry_source_slug &&
+      sourceEligible &&
+      (!usableTemplate || !!templatePayload.confirm));
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[560px] max-h-[85vh] flex flex-col overflow-hidden" data-testid="dialog-connect-database-confirm">
@@ -979,12 +1025,53 @@ function ConnectDatabaseConfirmDialog({
               </ul>
             </div>
           )}
+          {needsTemplateChoice && (
+            <div className="space-y-2">
+              <p className="font-medium text-foreground">Shared template</p>
+              <p className="text-xs">
+                Linking a database turns shared layout on. Choose whether to keep an existing{" "}
+                <code className="text-[11px]">template.*.yml</code> shell or seed one from an entry.
+              </p>
+              <SharedLayoutEnableFields
+                contentType={contentType}
+                usableTemplate={usableTemplate}
+                divergences={divergences}
+                bindings={bindings}
+                value={templatePayload}
+                onChange={onTemplatePayloadChange}
+                onSourceEligibleChange={setSourceEligible}
+              />
+              {usableTemplate && templatePayload.template_mode === "from_entry" && (
+                <label className="flex items-start gap-2 text-xs text-foreground rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={!!templatePayload.confirm}
+                    onChange={(e) =>
+                      onTemplatePayloadChange({
+                        ...templatePayload,
+                        confirm: e.target.checked,
+                      })
+                    }
+                    data-testid="checkbox-confirm-template-replace"
+                  />
+                  <span>
+                    I understand this overwrites the existing shared template for every attached
+                    entry of this type.
+                  </span>
+                </label>
+              )}
+            </div>
+          )}
           <div>
             <p className="font-medium text-foreground mb-1">What happens next</p>
             <ul className="list-disc pl-5 space-y-1">
               <li>Pick a database and map identity fields (slug, locale)</li>
               <li>Map content fields and optional indexes for filtering</li>
-              <li>Shared <code className="text-[11px]">template.*.yml</code> templates are used to render DB entries</li>
+              <li>
+                Shared <code className="text-[11px]">template.*.yml</code> templates are used to render
+                DB entries
+              </li>
             </ul>
           </div>
         </div>
@@ -997,6 +1084,7 @@ function ConnectDatabaseConfirmDialog({
             Cancel
           </Button>
           <Button
+            disabled={!canContinue}
             onClick={() => {
               onOpenChange(false);
               onConfirm();
@@ -1157,10 +1245,13 @@ function DataSourceDialog({
   open,
   onOpenChange,
   contentType,
+  sharedLayoutEnablePayload,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   contentType: string;
+  /** When newly linking DB and shared layout was off — pass enable gate fields. */
+  sharedLayoutEnablePayload?: SharedLayoutEnablePayload | null;
 }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
@@ -1416,13 +1507,29 @@ function DataSourceDialog({
         }
       }
 
-      const payload = {
+      const payload: Record<string, unknown> = {
         field_mapping: Object.keys(fullMapping).length > 0 ? fullMapping : undefined,
         indexes: stripLocaleIndexFields(indexedFields),
         database: {
           slug: selectedDb,
         },
       };
+
+      const wasDbBacked = !!config?.database?.slug;
+      if (!wasDbBacked && sharedLayoutEnablePayload) {
+        payload.template_mode = sharedLayoutEnablePayload.template_mode;
+        if (sharedLayoutEnablePayload.shared_layout_base_locale) {
+          payload.shared_layout_base_locale = sharedLayoutEnablePayload.shared_layout_base_locale;
+        }
+        if (sharedLayoutEnablePayload.template_entry_source_slug) {
+          payload.template_entry_source_slug = sharedLayoutEnablePayload.template_entry_source_slug;
+        }
+        if (sharedLayoutEnablePayload.template_entry_source_locale) {
+          payload.template_entry_source_locale =
+            sharedLayoutEnablePayload.template_entry_source_locale;
+        }
+        if (sharedLayoutEnablePayload.confirm) payload.confirm = true;
+      }
 
       const res = await fetch(`/api/content-types/${contentType}/config`, {
         method: "PUT",
@@ -1434,6 +1541,15 @@ function DataSourceDialog({
       try { data = await res.json(); } catch { /* non-JSON */ }
 
       if (!res.ok) {
+        if (data.code === "confirm_template_replace" && data.preview) {
+          toast({
+            title: "Confirm template replace",
+            description:
+              "Re-save with confirm after reviewing the overwrite preview in the connect dialog.",
+            variant: "destructive",
+          });
+          return;
+        }
         toast({ title: (data.error as string) || "Failed to save configuration", variant: "destructive" });
         return;
       }
@@ -6146,10 +6262,47 @@ export default function ContentTypeManagePage() {
   const [explainSharedLayoutOpen, setExplainSharedLayoutOpen] = useState(false);
   const [explainLinkedDatabaseOpen, setExplainLinkedDatabaseOpen] = useState(false);
   const [enableSharedLayoutOpen, setEnableSharedLayoutOpen] = useState(false);
+  const [sharedLayoutUsableTemplate, setSharedLayoutUsableTemplate] = useState(false);
   const [sharedLayoutDivergences, setSharedLayoutDivergences] = useState<
-    Array<{ locale: string; sectionCount: number; sectionIds: string[] }>
+    Array<{
+      locale: string;
+      sectionCount: number;
+      sectionIds: string[];
+      basename?: string;
+      naming?: "template" | "single";
+    }>
   >([]);
   const [sharedLayoutBindings, setSharedLayoutBindings] = useState<
+    Array<{
+      id: string;
+      name?: string;
+      component: string;
+      locale: string;
+      memberCount: number;
+      members: Array<{ contentType: string; slug: string; sectionId: string }>;
+    }>
+  >([]);
+  const [sharedLayoutReplacePreview, setSharedLayoutReplacePreview] = useState<{
+    current: Array<{ locale: string; sectionCount: number; sectionIds: string[] }>;
+    proposed: { locale: string; sectionCount: number; sectionIds: string[] };
+    paths_to_overwrite: string[];
+  } | null>(null);
+  const [pendingEnablePayload, setPendingEnablePayload] =
+    useState<SharedLayoutEnablePayload | null>(null);
+  /** Template choice when connecting a database (B1). */
+  const [dbConnectTemplatePayload, setDbConnectTemplatePayload] =
+    useState<SharedLayoutEnablePayload | null>(null);
+  const [dbConnectUsableTemplate, setDbConnectUsableTemplate] = useState(false);
+  const [dbConnectDivergences, setDbConnectDivergences] = useState<
+    Array<{
+      locale: string;
+      sectionCount: number;
+      sectionIds: string[];
+      basename?: string;
+      naming?: "template" | "single";
+    }>
+  >([]);
+  const [dbConnectBindings, setDbConnectBindings] = useState<
     Array<{
       id: string;
       name?: string;
@@ -6167,34 +6320,74 @@ export default function ContentTypeManagePage() {
   });
   const linkedDbLabel =
     (dbSlug && databasesForLabel?.find((d) => d.name === dbSlug)?.label) || dbSlug || null;
-  const applySingleTemplateToggle = async (checked: boolean, baseLocale?: string) => {
+  const applySingleTemplateToggle = async (
+    checked: boolean,
+    enablePayload?: SharedLayoutEnablePayload,
+  ) => {
     setSingleTemplateSaving(true);
     try {
-      const res = await apiRequest("PUT", `/api/content-types/${contentType}/config`, {
-        single_template: checked,
-        ...(checked && baseLocale ? { shared_layout_base_locale: baseLocale } : {}),
-      });
+      const body: Record<string, unknown> = { single_template: checked };
+      if (checked && enablePayload) {
+        body.template_mode = enablePayload.template_mode;
+        if (enablePayload.shared_layout_base_locale) {
+          body.shared_layout_base_locale = enablePayload.shared_layout_base_locale;
+        }
+        if (enablePayload.template_entry_source_slug) {
+          body.template_entry_source_slug = enablePayload.template_entry_source_slug;
+        }
+        if (enablePayload.template_entry_source_locale) {
+          body.template_entry_source_locale = enablePayload.template_entry_source_locale;
+        }
+        if (enablePayload.confirm) body.confirm = true;
+      }
+      const res = await apiRequest("PUT", `/api/content-types/${contentType}/config`, body);
       const result = await res.json().catch(() => ({}));
       await queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/content-types"] });
       const dissolvedCount = result?.bindingsDissolved?.count ?? 0;
       toast({
-        title: checked ? "Single template on" : "Single template off",
+        title: checked ? "Shared template on" : "Shared template off",
         description: checked
           ? dissolvedCount > 0
-            ? `Shared layout enabled. Removed ${dissolvedCount} section binding${dissolvedCount === 1 ? "" : "s"}. Sibling locale singles were aligned to your base locale.`
-            : "All entries share one layout. Sibling locale singles were aligned to your base locale."
+            ? `Shared layout enabled. Removed ${dissolvedCount} section binding${dissolvedCount === 1 ? "" : "s"}.`
+            : "All entries share one layout from template.{locale}.yml."
           : "Each entry keeps its own full layout. Cross-locale sync is off.",
       });
+      setEnableSharedLayoutOpen(false);
+      setSharedLayoutReplacePreview(null);
+      setPendingEnablePayload(null);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const jsonMatch = msg.match(/^\d+:\s*(\{[\s\S]*\})$/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1]) as {
+            code?: string;
+            preview?: typeof sharedLayoutReplacePreview;
+            error?: string;
+          };
+          if (parsed.code === "confirm_template_replace" && parsed.preview) {
+            setPendingEnablePayload(enablePayload || null);
+            setSharedLayoutReplacePreview(parsed.preview);
+            return;
+          }
+          toast({
+            title: "Failed to update shared template",
+            description: parsed.error || msg,
+            variant: "destructive",
+          });
+          return;
+        } catch {
+          /* fall through */
+        }
+      }
       toast({
-        title: "Failed to update single template",
-        description: err instanceof Error ? err.message : String(err),
+        title: "Failed to update shared template",
+        description: msg,
         variant: "destructive",
       });
     } finally {
       setSingleTemplateSaving(false);
-      setEnableSharedLayoutOpen(false);
     }
   };
 
@@ -6232,17 +6425,47 @@ export default function ContentTypeManagePage() {
       await applySingleTemplateToggle(false);
       return;
     }
-    // Enabling: show divergence / base-locale modal (and bindings warning if any)
     try {
       const res = await apiRequest("GET", `/api/content-types/${contentType}/shared-layout-status`);
       const data = await res.json();
-      setSharedLayoutDivergences(data.locales ?? []);
+      setSharedLayoutUsableTemplate(!!data.usable_template);
+      setSharedLayoutDivergences(data.template_locales ?? data.locales ?? []);
       setSharedLayoutBindings(data.bindings ?? []);
     } catch {
+      setSharedLayoutUsableTemplate(false);
       setSharedLayoutDivergences([]);
       setSharedLayoutBindings([]);
     }
+    setSharedLayoutReplacePreview(null);
     setEnableSharedLayoutOpen(true);
+  };
+
+  const openConnectDatabase = async () => {
+    const needsChoice = !hasDb && !singleTemplateEnabled;
+    if (needsChoice) {
+      try {
+        const res = await apiRequest(
+          "GET",
+          `/api/content-types/${contentType}/shared-layout-status`,
+        );
+        const data = await res.json();
+        setDbConnectUsableTemplate(!!data.usable_template);
+        setDbConnectDivergences(data.template_locales ?? data.locales ?? []);
+        setDbConnectBindings(data.bindings ?? []);
+        setDbConnectTemplatePayload({
+          template_mode: data.usable_template ? "keep_existing" : "from_entry",
+          shared_layout_base_locale: "en",
+        });
+      } catch {
+        setDbConnectUsableTemplate(false);
+        setDbConnectDivergences([]);
+        setDbConnectBindings([]);
+        setDbConnectTemplatePayload({ template_mode: "from_entry" });
+      }
+    } else {
+      setDbConnectTemplatePayload(null);
+    }
+    setConnectDbConfirmOpen(true);
   };
 
   const staticEntryCount =
@@ -7032,7 +7255,7 @@ export default function ContentTypeManagePage() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem
-                    onClick={() => setConnectDbConfirmOpen(true)}
+                    onClick={() => void openConnectDatabase()}
                     data-testid="button-manage-connection"
                   >
                     <Database className="h-4 w-4 mr-2" />
@@ -8013,7 +8236,7 @@ export default function ContentTypeManagePage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setConnectDbConfirmOpen(true)}
+                    onClick={() => void openConnectDatabase()}
                     data-testid="button-link-database"
                   >
                     <Database className="h-4 w-4 mr-1" />
@@ -8697,11 +8920,29 @@ export default function ContentTypeManagePage() {
         open={connectDbConfirmOpen}
         onOpenChange={setConnectDbConfirmOpen}
         onConfirm={() => setDsDialogOpen(true)}
+        contentType={contentType}
         contentTypeLabel={label}
         staticCount={typeof staticEntryCount === "number" ? staticEntryCount : staticEntriesData?.total ?? staticEntriesData?.count ?? 0}
         alreadyConnected={hasDb}
+        needsTemplateChoice={!hasDb && !singleTemplateEnabled}
+        usableTemplate={dbConnectUsableTemplate}
+        divergences={dbConnectDivergences}
+        bindings={dbConnectBindings}
+        templatePayload={
+          dbConnectTemplatePayload || {
+            template_mode: dbConnectUsableTemplate ? "keep_existing" : "from_entry",
+          }
+        }
+        onTemplatePayloadChange={(p) => setDbConnectTemplatePayload(p)}
       />
-      <DataSourceDialog open={dsDialogOpen} onOpenChange={setDsDialogOpen} contentType={contentType} />
+      <DataSourceDialog
+        open={dsDialogOpen}
+        onOpenChange={setDsDialogOpen}
+        contentType={contentType}
+        sharedLayoutEnablePayload={
+          !hasDb && !singleTemplateEnabled ? dbConnectTemplatePayload : null
+        }
+      />
       <FieldMappingDialog
         open={mappingDialogOpen}
         onOpenChange={setMappingDialogOpen}
@@ -8735,16 +8976,26 @@ export default function ContentTypeManagePage() {
       />
       <SharedLayoutEnableDialog
         open={enableSharedLayoutOpen}
-        onClose={() => setEnableSharedLayoutOpen(false)}
-        onConfirm={(baseLocale) => applySingleTemplateToggle(true, baseLocale)}
-        locales={
-          sharedLayoutDivergences.length > 0
-            ? sharedLayoutDivergences.map((d) => d.locale)
-            : ["en", "es"]
-        }
+        onClose={() => {
+          setEnableSharedLayoutOpen(false);
+          setSharedLayoutReplacePreview(null);
+          setPendingEnablePayload(null);
+        }}
+        onConfirm={async (payload) => {
+          const merged = payload.confirm && pendingEnablePayload
+            ? { ...pendingEnablePayload, confirm: true }
+            : payload;
+          await applySingleTemplateToggle(true, merged);
+        }}
+        contentType={contentType}
+        usableTemplate={sharedLayoutUsableTemplate}
         divergences={sharedLayoutDivergences}
         bindings={sharedLayoutBindings}
         isLoading={singleTemplateSaving}
+        replacePreview={sharedLayoutReplacePreview}
+        onClearReplacePreview={() => {
+          setSharedLayoutReplacePreview(null);
+        }}
       />
       <DeletePageModal
         open={deleteModalOpen}

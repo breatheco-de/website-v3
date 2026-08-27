@@ -580,6 +580,17 @@ app.use((req, res, next) => {
     registerAllJobs();
     const siteNames = [...getSiteContextMap().values()].map((c) => c.contentRootName);
     try {
+      const { configureImpressionFlush } = require("./media-impressions") as typeof import("./media-impressions");
+      configureImpressionFlush((contentRootName) => {
+        for (const ctx of getSiteContextMap().values()) {
+          if (ctx.contentRootName === contentRootName) return ctx.mediaGallery;
+        }
+        return null;
+      });
+    } catch (err) {
+      logger.warn({ err }, "[impressions] failed to configure flush");
+    }
+    try {
       ensurePipelineDbForSites(siteNames);
     } catch (err) {
       logger.error({ err, worker: "PipelineDb" }, "failed to apply pipeline SQLite migrations");

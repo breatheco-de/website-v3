@@ -175,6 +175,59 @@ export function UniversalImage({
   const showEditChrome = isEditMode && !isCaptureMode;
   const { toast } = useToast();
 
+  // Non-blocking AI impression beacon (public pages only).
+  useEffect(() => {
+    if (showEditChrome || isCaptureMode) return;
+    const registryId = id?.trim();
+    if (!registryId || registryId.startsWith("/") || registryId.startsWith("http") || registryId.startsWith("data:")) {
+      return;
+    }
+    const entry = registry?.images?.[registryId];
+    if (!entry || (entry.origin !== "ai" && !entry.ai?.generated)) return;
+
+    const el = imgRef.current;
+    if (!el) return;
+
+    let sent = false;
+    const send = () => {
+      if (sent) return;
+      sent = true;
+      const body = JSON.stringify({ id: registryId });
+      try {
+        if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+          const blob = new Blob([body], { type: "application/json" });
+          navigator.sendBeacon("/api/media/impression", blob);
+        } else {
+          void fetch("/api/media/impression", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body,
+            keepalive: true,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    if (typeof IntersectionObserver === "undefined") {
+      send();
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          send();
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.01 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [id, registry, showEditChrome, isCaptureMode, isLoaded]);
+
   const [pathname] = useLocation();
   const contentTypesMap = useContentTypes();
   const detectedContent = useMemo(

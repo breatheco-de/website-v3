@@ -19,7 +19,6 @@ export type LucideIconLoader = () => Promise<{ default: LucideIconComponent }>;
 /** Kebab-case Lucide slug → per-icon dynamic import (Vite code-splits each). */
 export const curatedLucideImports: Record<string, LucideIconLoader> = {
   "arrow-right": () => import("lucide-react/dist/esm/icons/arrow-right.js"),
-  "award": () => import("lucide-react/dist/esm/icons/award.js"),
   "bar-chart-2": () => import("lucide-react/dist/esm/icons/bar-chart-2.js"),
   "bolt": () => import("lucide-react/dist/esm/icons/bolt.js"),
   "book": () => import("lucide-react/dist/esm/icons/book.js"),

@@ -256,6 +256,13 @@ const EVENT_META: Record<string, EventMeta> = {
     icon: IconAlertTriangle,
     iconClass: "text-red-400 border-red-400/40",
   },
+  ai_image_gc_completed: {
+    label: "AI Image Cleanup",
+    description:
+      "An unused AI-generated image past the grace window was removed from the gallery and storage.",
+    icon: IconActivity,
+    iconClass: "text-muted-foreground border-border",
+  },
 };
 
 function eventMeta(type: string): EventMeta {

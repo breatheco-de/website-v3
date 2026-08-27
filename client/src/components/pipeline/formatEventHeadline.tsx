@@ -114,6 +114,7 @@ const TECHNICAL_LABELS: Record<string, string> = {
   binding_propagation_started: "Shared Section Sync Started",
   binding_propagation_done: "Shared Section Sync Done",
   job_failed: "Job Failed",
+  ai_image_gc_completed: "AI Image Cleanup",
 };
 
 function technicalLabelFor(event: Pick<PipelineContentEvent, "type" | "payload">): string {
@@ -234,6 +235,18 @@ function sentenceParts(
         ...withActor(
           systemActor,
           jobType ? ` job failed (${jobType})` : " job failed",
+        ),
+        muted: false,
+      };
+    }
+    case "ai_image_gc_completed": {
+      const imageId = strField(event.payload, "imageId");
+      return {
+        ...withActor(
+          systemActor,
+          imageId
+            ? ` removed unused AI image (${imageId})`
+            : " removed an unused AI image",
         ),
         muted: false,
       };

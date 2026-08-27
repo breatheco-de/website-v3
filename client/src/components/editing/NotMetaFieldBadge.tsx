@@ -75,7 +75,7 @@ export function NotMetaFieldBadge({
           </p>
           <p>
             On blog/shared-layout types it may feed meta when{" "}
-            <code className="font-mono">single.{"{locale}"}.yml</code> uses{" "}
+            <code className="font-mono">template.{"{locale}"}.yml</code> uses{" "}
             <code className="font-mono">
               {copy.metaKey}: &quot;{copy.singleVar}&quot;
             </code>

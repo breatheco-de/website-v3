@@ -8,8 +8,6 @@ import {
 } from "../shared/imageRegistrySrc";
 import { mediaGallery } from "../../../server/media-gallery";
 
-const REGISTRY_PATH = path.join(process.cwd(), "4geeks-com", "image-registry.json");
-
 interface ImageRegistryEntry {
   src: string;
   alt: string;
@@ -20,6 +18,14 @@ interface ImageRegistryEntry {
   source_url?: string;
   source_item?: string;
   srcset?: Array<{ url: string; w: number }>;
+  origin?: "upload" | "import" | "ai";
+  ai?: {
+    generated: true;
+    model?: string;
+    prompt?: string;
+    generated_at?: string;
+  };
+  last_impression_at?: string;
 }
 
 interface ImageRegistry {
@@ -38,18 +44,26 @@ export const imagesValidator: Validator = {
     const startTime = Date.now();
     const errors: ValidationIssue[] = [];
     const warnings: ValidationIssue[] = [];
+    const contentRoot =
+      typeof _context?.contentRoot === "string" && _context.contentRoot
+        ? _context.contentRoot
+        : path.join(process.cwd(), "4geeks-com");
+    const contentRootName = path.isAbsolute(contentRoot)
+      ? path.relative(process.cwd(), contentRoot) || path.basename(contentRoot)
+      : contentRoot;
+    const registryPath = path.join(contentRoot, "image-registry.json");
 
     let registry: ImageRegistry;
     try {
-      const rawContent = fs.readFileSync(REGISTRY_PATH, "utf-8");
+      const rawContent = fs.readFileSync(registryPath, "utf-8");
       registry = JSON.parse(rawContent) as ImageRegistry;
     } catch (err) {
       errors.push({
         type: "error",
         code: "REGISTRY_LOAD_ERROR",
         message: `Failed to load image registry: ${err instanceof Error ? err.message : String(err)}`,
-        file: REGISTRY_PATH,
-        suggestion: "Ensure 4geeks-com/image-registry.json exists and is valid JSON",
+        file: registryPath,
+        suggestion: "Ensure image-registry.json exists and is valid JSON",
       });
 
       return {
@@ -121,7 +135,7 @@ export const imagesValidator: Validator = {
             type: "error",
             code: "IMAGE_SRC_FILE_MISSING",
             message: `Image file not found on disk: ${entry.src}`,
-            file: REGISTRY_PATH,
+            file: registryPath,
             suggestion: `Check that the file exists at ${srcPath} or update the registry entry for "${id}"`,
             fix: {
               type: "api",
@@ -138,7 +152,7 @@ export const imagesValidator: Validator = {
           type: "error",
           code: "IMAGE_ALT_MISSING",
           message: `Image "${id}" has no alt text`,
-          file: REGISTRY_PATH,
+          file: registryPath,
           suggestion: "Add descriptive alt text for accessibility",
         });
       } else if (entry.alt.match(/todo/i)) {
@@ -147,14 +161,16 @@ export const imagesValidator: Validator = {
           type: "warning",
           code: "IMAGE_ALT_PLACEHOLDER",
           message: `Image "${id}" has placeholder alt text: "${entry.alt}"`,
-          file: REGISTRY_PATH,
+          file: registryPath,
           suggestion: "Replace TODO placeholder with actual descriptive alt text",
         });
       }
     }
 
     let orphanedEntries = 0;
+    let aiUnusedEntries = 0;
     let externalSourceSkipped = 0;
+    const { isAiOrigin, isAiImagePastGrace } = await import("../../../shared/ai-image-gc");
     for (const [id, entry] of Object.entries(images)) {
       if (entry.source_url || entry.source_item) {
         externalSourceSkipped++;
@@ -166,13 +182,45 @@ export const imagesValidator: Validator = {
       const srcsetUrls = Array.isArray(entry.srcset) ? entry.srcset.map((s) => s.url) : [];
       const usage = mediaGallery.getUsage(id, entry.src, srcsetUrls);
       const isUsed = usage.length > 0 || resolvedReferencedIds.has(id);
+
+      if (isAiOrigin(entry)) {
+        if (!isUsed && isAiImagePastGrace(entry)) {
+          aiUnusedEntries++;
+          warnings.push({
+            type: "warning",
+            code: "AI_UNUSED_REGISTRY_ENTRY",
+            message: `AI-generated image "${id}" is unused past the grace window and can be removed`,
+            file: registryPath,
+            suggestion:
+              "Unused AI images are cleaned by the background pipeline; run the fixer to remove now",
+            fix: {
+              type: "api",
+              label: "Remove unused AI images",
+              fixerName: "ai-unused-images-cleanup",
+            },
+          });
+          try {
+            const { enqueueAiImageGc } = await import("../../../server/jobs/ai-image-gc-shared");
+            await enqueueAiImageGc({
+              site: contentRootName,
+              contentRoot,
+              imageId: id,
+              delayMs: 0,
+            });
+          } catch {
+            /* enqueue is best-effort during validation */
+          }
+        }
+        continue; // never also emit ORPHANED_REGISTRY_ENTRY for AI
+      }
+
       if (!isUsed) {
         orphanedEntries++;
         warnings.push({
           type: "warning",
           code: "ORPHANED_REGISTRY_ENTRY",
           message: `Registry image "${id}" is not referenced by any content file`,
-          file: REGISTRY_PATH,
+          file: registryPath,
           suggestion: "Consider removing unused registry entries or adding references in content",
           fix: {
             type: "api",
@@ -198,6 +246,7 @@ export const imagesValidator: Validator = {
         missingFromDisk,
         placeholderAlts,
         orphanedEntries,
+        aiUnusedEntries,
         externalSourceSkipped,
       },
     };

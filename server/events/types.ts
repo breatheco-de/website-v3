@@ -11,6 +11,7 @@ export const EVENT_TYPES = [
   "binding_propagation_started",
   "binding_propagation_done",
   "job_failed",
+  "ai_image_gc_completed",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -38,6 +39,7 @@ export const EVENT_TYPE_META: Record<EventType, EventTypeMeta> = {
   validation_issue_reopened: { outbox: "audit", affectsWriteGeneration: false },
   binding_propagation_done: { outbox: "audit", affectsWriteGeneration: false },
   job_failed: { outbox: "audit", affectsWriteGeneration: false },
+  ai_image_gc_completed: { outbox: "audit", affectsWriteGeneration: false },
 };
 
 export function isOutboxDispatchable(type: EventType): boolean {
