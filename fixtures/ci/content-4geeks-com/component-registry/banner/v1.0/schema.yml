@@ -3,12 +3,12 @@ version: "1.0"
 component: Banner
 file: client/src/components/Banner.tsx
 description: >-
-  A centered banner layout with optional avatars on top border, title, description, and CTA button. Supports different
-  background styles including gradient.
+  A centered banner layout with optional avatars on top border, title, description, and CTA button.
+  The inner card always uses the blue brand gradient.
 when_to_use: |
   Use as a mid-page or end-of-page call-to-action that needs visual emphasis beyond a plain
-  cta_banner. The optional avatar cluster adds social proof ("join these people"). The gradient
-  background option makes it stand out between neutral content sections.
+  cta_banner. The optional avatar cluster adds social proof ("join these people"). The blue
+  gradient card stands out between neutral content sections.
 image_sizes:
   default.avatars: 36px
 variants:
