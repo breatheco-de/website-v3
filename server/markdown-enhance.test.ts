@@ -67,3 +67,11 @@ describe("mermaid blocks become geekchart figures", () => {
     expect(html).toContain("<pre");
   });
 });
+
+describe("mermaid fence options", () => {
+  it("passes speed=N from the fence line through to the chart", async () => {
+    const md = "```mermaid speed=0.5\nflowchart LR\n  A[Prompt] --> B[Answer]\n```";
+    const html = await enhanceMarkdownToHtml(md);
+    expect(html).toContain('data-gc-speed="0.5"');
+  });
+});

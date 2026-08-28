@@ -62,6 +62,7 @@ const sanitizeSchema = {
       "className",
       "dataLanguage",
       "dataTheme",
+      "dataMeta",
       ["className", /^language-/],
       ["className", /^line$/],
     ],
@@ -222,6 +223,19 @@ function collectText(node: ElementContent): string {
  * media query shows the one that fits. */
 const ARTICLE_COLUMN_PX = { desktop: 612, phone: 358 };
 
+/** Carry a fenced block's info string (```mermaid speed=0.7) into the HTML as
+ * `data-meta`, so it survives rehype-raw and sanitize where `node.data` does
+ * not. Sanitize allows it on `code` (schema below). */
+function remarkFenceMeta() {
+  return (tree: import("mdast").Root) => {
+    visit(tree, "code", (node: import("mdast").Code) => {
+      if (!node.meta) return;
+      const data = (node.data ??= {}) as { hProperties?: Record<string, unknown> };
+      data.hProperties = { ...(data.hProperties ?? {}), dataMeta: node.meta };
+    });
+  };
+}
+
 function rehypeGeekchart() {
   return async (tree: Root) => {
     const jobs: Array<Promise<void>> = [];
@@ -236,12 +250,17 @@ function rehypeGeekchart() {
       if (!classes.includes("language-mermaid")) return;
       const source = collectText(code).trim();
       if (!source) return;
+      // Writer-facing knobs on the fence line: ```mermaid speed=0.7
+      // (remark keeps the info string after the language as `data.meta`).
+      const meta = String(code.properties?.dataMeta ?? "");
+      const speedMatch = /\bspeed=([0-9]*\.?[0-9]+)/.exec(meta);
+      const speed = speedMatch ? Number(speedMatch[1]) : undefined;
       const host = parent as Parents;
       const at = index;
       jobs.push(
         (async () => {
           try {
-            const html = (await renderToHtml(source, { display: ARTICLE_COLUMN_PX })).replace(/\n\s*\n/g, "\n");
+            const html = (await renderToHtml(source, { display: ARTICLE_COLUMN_PX, ...(speed ? { speed } : {}) })).replace(/\n\s*\n/g, "\n");
             host.children[at] = {
               type: "raw",
               value: `<figure class="geekchart">${html}</figure>`,
@@ -263,6 +282,7 @@ async function buildProcessor() {
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkMath, remarkMathOptions)
+    .use(remarkFenceMeta)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
     .use(rehypeKatex, rehypeKatexOptions)
