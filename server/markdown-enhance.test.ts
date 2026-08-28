@@ -47,3 +47,23 @@ describe("enhanceMarkdownToHtml math", () => {
     expect(html.startsWith(ARTICLE_HTML_MARKER)).toBe(true);
   });
 });
+
+describe("mermaid blocks become geekchart figures", () => {
+  it("replaces a ```mermaid block with an inline animated SVG and no blank lines", async () => {
+    const md = "Intro\n\n```mermaid\nflowchart LR\n  A[Prompt] --> B[Model] --> C[Answer]\n```\n\nOutro";
+    const html = await enhanceMarkdownToHtml(md);
+    expect(html.startsWith(ARTICLE_HTML_MARKER)).toBe(true);
+    expect(html).toContain('<figure class="geekchart">');
+    expect(html).toContain("<svg");
+    expect(html).not.toContain("language-mermaid");
+    const figure = html.slice(html.indexOf("<figure"), html.indexOf("</figure>"));
+    expect(figure).not.toMatch(/\n\s*\n/);
+  });
+
+  it("leaves an unparseable chart as a code block", async () => {
+    const md = "```mermaid\nthis is not a diagram\n```";
+    const html = await enhanceMarkdownToHtml(md);
+    expect(html).not.toContain('<figure class="geekchart">');
+    expect(html).toContain("<pre");
+  });
+});

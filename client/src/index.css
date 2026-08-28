@@ -1104,3 +1104,26 @@
     transition: none;
   }
 }
+/* Charts drawn by geekchart from ```mermaid blocks (server/markdown-enhance.ts).
+   The SVG reads these variables with dark fallbacks baked in; only the light
+   palette needs declaring here. */
+.geekchart {
+  margin: 2rem 0;
+}
+.geekchart > div {
+  display: flex;
+  justify-content: center;
+}
+.geekchart svg {
+  max-width: 100%;
+  height: auto;
+}
+html:not(.dark) .geekchart {
+  --gc-bg: #ffffff;
+  --gc-ink: #17202a;
+  --gc-quiet: #5a6672;
+  --gc-edge: #9aa5b1;
+  --gc-surface: #eef2f6;
+  --gc-path: #0075e0;
+  --gc-accent: #0096d6;
+}

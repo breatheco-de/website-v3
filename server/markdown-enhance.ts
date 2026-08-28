@@ -17,6 +17,7 @@ import rehypePrettyCode from "rehype-pretty-code";
 import rehypeStringify from "rehype-stringify";
 import type { Root, Element, ElementContent, Text, Parents } from "hast";
 import { visit } from "unist-util-visit";
+import { renderToHtml } from "geekchart/server";
 import {
   normalizeMathDelimiters,
   remarkMathOptions,
@@ -34,7 +35,7 @@ const ALERT_TYPES = new Set(["NOTE", "TIP", "WARNING", "IMPORTANT"]);
 const enhanceCache = new Map<string, { html: string; fetched_at: number }>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Bump when enhance output shape changes so in-memory cache cannot serve stale HTML. */
-const ENHANCE_PIPELINE_VERSION = "v2-katex-html-only";
+const ENHANCE_PIPELINE_VERSION = "v4-geekchart-display";
 
 const prettyCodeOptions = {
   theme: { light: "github-light", dark: "github-dark-dimmed" },
@@ -205,6 +206,54 @@ function collectText(node: ElementContent): string {
   return "";
 }
 
+/**
+ * Replace every ```mermaid code block with an animated SVG chart drawn on the
+ * server by geekchart (no browser involved). Runs after sanitize, before
+ * rehype-pretty-code, so the block is never syntax-highlighted as code.
+ *
+ * The chart arrives as one HTML block with no blank lines: the client feeds
+ * this HTML back through react-markdown, which would end an HTML block at the
+ * first blank line. A chart that fails to render is left as the original
+ * code block and logged, so a bad diagram never breaks the article.
+ */
+/** Width of the article column in CSS px (`.prose` in ArticleDefault): the
+ * chart is laid out to fit it so its text stays legible (DESIGN 1.1/3.1). */
+const ARTICLE_COLUMN_PX = 612;
+
+function rehypeGeekchart() {
+  return async (tree: Root) => {
+    const jobs: Array<Promise<void>> = [];
+    visit(tree, "element", (node: Element, index, parent) => {
+      if (node.tagName !== "pre" || !parent || index === undefined) return;
+      const code = node.children.find(
+        (c): c is Element => c.type === "element" && c.tagName === "code",
+      );
+      if (!code) return;
+      const cls = code.properties?.className;
+      const classes = Array.isArray(cls) ? cls.map(String) : typeof cls === "string" ? [cls] : [];
+      if (!classes.includes("language-mermaid")) return;
+      const source = collectText(code).trim();
+      if (!source) return;
+      const host = parent as Parents;
+      const at = index;
+      jobs.push(
+        (async () => {
+          try {
+            const html = (await renderToHtml(source, { display: ARTICLE_COLUMN_PX })).replace(/\n\s*\n/g, "\n");
+            host.children[at] = {
+              type: "raw",
+              value: `<figure class="geekchart">${html}</figure>`,
+            } as unknown as ElementContent;
+          } catch (err) {
+            log.warn({ err }, "[MarkdownEnhance] mermaid chart failed to render; leaving code block");
+          }
+        })(),
+      );
+    });
+    await Promise.all(jobs);
+  };
+}
+
 let processorPromise: ReturnType<typeof buildProcessor> | null = null;
 
 async function buildProcessor() {
@@ -217,10 +266,11 @@ async function buildProcessor() {
     .use(rehypeKatex, rehypeKatexOptions)
     .use(rehypeSanitize, sanitizeSchema as Parameters<typeof rehypeSanitize>[0])
     .use(rehypeSlug)
+    .use(rehypeGeekchart)
     .use(rehypePrettyCode, prettyCodeOptions)
     .use(rehypeUnwrapInlinePrettyCode)
     .use(rehypeGithubAlerts)
-    .use(rehypeStringify);
+    .use(rehypeStringify, { allowDangerousHtml: true });
 }
 
 async function getProcessor() {
