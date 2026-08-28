@@ -23,6 +23,16 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useSyncOptional } from "@/contexts/SyncContext";
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -224,6 +234,7 @@ export function DebugBubble() {
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
   const [pendingChangesLoading, setPendingChangesLoading] = useState(false);
   const [commitModalOpen, setCommitModalOpen] = useState(false);
+  const [dismissConfirmOpen, setDismissConfirmOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
   const [isCommitting, setIsCommitting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -2299,13 +2310,13 @@ export function DebugBubble() {
             <button
               type="button"
               className="absolute -top-1.5 -right-1.5 z-20 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow hover:text-foreground hover:bg-muted transition-colors"
-              title="Hide staff tools (does not log out). Add ?debug=true to show again."
-              aria-label="Hide staff tools without logging out. Add ?debug=true to show again."
+              title="Hide staff tools"
+              aria-label="Hide staff tools"
               data-testid="button-debug-dismiss"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                dismissDebugUi();
+                setDismissConfirmOpen(true);
               }}
               onPointerDown={(e) => {
                 e.preventDefault();
@@ -2653,6 +2664,35 @@ export function DebugBubble() {
         }}
         target={managedSeoModalTarget}
       />
+      <AlertDialog open={dismissConfirmOpen} onOpenChange={setDismissConfirmOpen}>
+        <AlertDialogContent data-testid="dialog-dismiss-debug-ui">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hide staff tools?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  This only hides the tools bubble on the page. You stay signed in, and nothing else changes.
+                </p>
+                <p>
+                  To bring the tools back later, open the address bar at the top of your browser, add{" "}
+                  <span className="font-medium text-foreground">?debug=true</span> to the end of the page
+                  address, and press Enter. For example:{" "}
+                  <span className="font-medium text-foreground">yoursite.com/us/?debug=true</span>
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-dismiss-debug-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-dismiss-debug-confirm"
+              onClick={() => dismissDebugUi()}
+            >
+              Hide tools
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {showYamlEditor && yamlEditorInfo && (
         <Suspense fallback={null}>
           <RawFileEditorPanel
