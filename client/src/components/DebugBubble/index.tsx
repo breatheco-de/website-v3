@@ -131,7 +131,7 @@ export function DebugBubble() {
     window.location.pathname.startsWith("/private/entry-preview-frame/")
   );
   
-  const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, clearToken, checkSession } = useDebugAuth();
+  const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, clearToken, dismissDebugUi, checkSession } = useDebugAuth();
   const { criticalAlerts } = useSystemAlerts();
   const { showCritical: githubConnectCritical, needsConnect: githubConnectRequired } =
     useGitHubUserConnection();
@@ -1647,8 +1647,8 @@ export function DebugBubble() {
   };
 
   // Only show bubble if debug mode is active
-  // In dev: always active
-  // In production: requires ?debug=true in URL
+  // In dev: always active (unless dismissed / ?debug=false)
+  // In production: staff session, debug_mode flag, or ?debug=true
   if (!isDebugMode) {
     return null;
   }
@@ -2296,6 +2296,24 @@ export function DebugBubble() {
             >
               {open ? <X className="h-5 w-5" /> : <Bug className="h-5 w-5" />}
             </Button>
+            <button
+              type="button"
+              className="absolute -top-1.5 -right-1.5 z-20 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow hover:text-foreground hover:bg-muted transition-colors"
+              title="Hide staff tools (does not log out). Add ?debug=true to show again."
+              aria-label="Hide staff tools without logging out. Add ?debug=true to show again."
+              data-testid="button-debug-dismiss"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dismissDebugUi();
+              }}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+            >
+              <X className="h-3 w-3" />
+            </button>
             {/* Show "Commit" indicator when there are local changes that need uploading - only when logged in */}
             {hasCommitIndicator && (
               <button
