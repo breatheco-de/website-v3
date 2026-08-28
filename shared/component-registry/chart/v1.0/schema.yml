@@ -1,0 +1,23 @@
+name: Chart
+version: "1.0"
+component: Chart
+file: client/src/components/chart/variants/ChartDefault.tsx
+description: An animated mermaid diagram, drawn server-side into a designed SVG.
+when_to_use: |
+  Use to place a diagram — a flowchart, sequence, or similar mermaid chart — as its
+  own section on any page. The mermaid source is the same syntax used in a
+  ```mermaid fence inside an `article` body; this section renders it standalone,
+  with an optional caption underneath.
+props:
+  source:
+    type: string
+    required: true
+    description: Mermaid diagram source (e.g. "flowchart LR\n  A --> B")
+  caption:
+    type: string
+    required: false
+    description: Optional caption shown below the chart
+  speed:
+    type: number
+    required: false
+    description: "Animation speed multiplier: 0.5 is half speed, 2 is double. Default 1."

@@ -3,6 +3,7 @@ import {
   ARTICLE_HTML_MARKER,
   enhanceMarkdownToHtml,
   clearMarkdownEnhanceCache,
+  enhanceArticleSectionsInPage,
 } from "./markdown-enhance";
 
 describe("enhanceMarkdownToHtml math", () => {
@@ -73,5 +74,40 @@ describe("mermaid fence options", () => {
     const md = "```mermaid speed=0.5\nflowchart LR\n  A[Prompt] --> B[Answer]\n```";
     const html = await enhanceMarkdownToHtml(md);
     expect(html).toContain('data-gc-speed="0.5"');
+  });
+});
+
+describe("chart sections get server-rendered html", () => {
+  it("sets html to an inline svg for a chart section", async () => {
+    const pageData = {
+      sections: [
+        {
+          type: "chart",
+          source: "flowchart LR\n  A[Prompt] --> B[Answer]",
+          caption: "How it works",
+        },
+      ],
+    };
+    await enhanceArticleSectionsInPage(pageData);
+    const section = pageData.sections[0] as { html?: string };
+    expect(section.html).toContain("<svg");
+  });
+
+  it("passes speed through to the chart render", async () => {
+    const pageData = {
+      sections: [{ type: "chart", source: "flowchart LR\n  A --> B", speed: 0.5 }],
+    };
+    await enhanceArticleSectionsInPage(pageData);
+    const section = pageData.sections[0] as { html?: string };
+    expect(section.html).toContain('data-gc-speed="0.5"');
+  });
+
+  it("leaves html empty and does not throw when the source cannot be drawn", async () => {
+    const pageData = {
+      sections: [{ type: "chart", source: "this is not a diagram" }],
+    };
+    await expect(enhanceArticleSectionsInPage(pageData)).resolves.toBeUndefined();
+    const section = pageData.sections[0] as { html?: string };
+    expect(section.html).toBe("");
   });
 });

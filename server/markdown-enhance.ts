@@ -328,7 +328,31 @@ export async function enhanceMarkdownToHtml(markdown: string): Promise<string> {
   }
 }
 
-/** Walk page sections and enhance any `type: article` content strings. */
+/**
+ * Render a `chart` section's mermaid `source` into `html` via geekchart, the
+ * same renderer `rehypeGeekchart` above uses for ```mermaid fences inside an
+ * article body. A `chart` section is not markdown — its `source` is bare
+ * mermaid — so it goes straight to `renderToHtml`, not through the markdown
+ * pipeline. Sized for the article column (DESIGN 1.1/1.6/3.1), same as an
+ * in-article chart. Failure leaves `html` empty and logs; it never throws,
+ * so one bad diagram never breaks the page it's on.
+ */
+async function enhanceChartSection(section: Record<string, unknown>): Promise<void> {
+  const source = typeof section.source === "string" ? section.source.trim() : "";
+  section.html = "";
+  if (!source) return;
+  const speed = typeof section.speed === "number" ? section.speed : undefined;
+  try {
+    section.html = await renderToHtml(source, {
+      display: ARTICLE_COLUMN_PX,
+      ...(speed ? { speed } : {}),
+    });
+  } catch (err) {
+    log.warn({ err }, "[MarkdownEnhance] chart section failed to render; leaving html empty");
+  }
+}
+
+/** Walk page sections and enhance `type: article` content and `type: chart` source. */
 export async function enhanceArticleSectionsInPage(
   pageData: Record<string, unknown>,
 ): Promise<void> {
@@ -339,6 +363,10 @@ export async function enhanceArticleSectionsInPage(
     sections.map(async (section) => {
       if (!section || typeof section !== "object") return;
       const s = section as Record<string, unknown>;
+      if (s.type === "chart") {
+        await enhanceChartSection(s);
+        return;
+      }
       if (s.type !== "article") return;
       if (typeof s.content !== "string" || !s.content.trim()) return;
       s.content = await enhanceMarkdownToHtml(s.content);
