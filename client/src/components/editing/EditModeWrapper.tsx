@@ -12,6 +12,7 @@ import { navigate } from "wouter/use-browser-location";
 import { useLocation, useSearch } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -20,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { IconCrown, IconGitFork, IconX } from "@tabler/icons-react";
+import { IconCopy, IconCrown, IconGitFork, IconShare, IconX } from "@tabler/icons-react";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useContentTypes, useContentTypesRaw } from "@/hooks/useContentTypes";
@@ -29,6 +30,11 @@ import {
   versioningContentSlug,
 } from "@/lib/sharedLayoutEntry";
 import { detectContentInfo } from "@/components/DebugBubble/utils/debugHelpers";
+import { SolveWithAiAgentDropdown } from "@/components/DebugBubble/SolveWithAiAgentDropdown";
+import { buildDraftFeedbackAiPrompt, type SolveWithAiAgentId } from "@/components/DebugBubble/solveWithAiPrompt";
+import { McpRequiredForAiModal } from "@/components/mcp/McpRequiredForAiModal";
+import type { McpSetupTabId } from "@/components/mcp/mcpUrlHelpers";
+import { buildContentUrlFromPattern } from "@/lib/locale";
 import { cn } from "@/lib/utils";
 import type { Section } from "@shared/schema";
 
@@ -91,7 +97,14 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
     versioningSlug: string | null;
   } | null>(null);
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
+  const [shareDraftOpen, setShareDraftOpen] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [mcpRequiredForAiOpen, setMcpRequiredForAiOpen] = useState(false);
+  const [mcpRequiredSetupTab, setMcpRequiredSetupTab] = useState<McpSetupTabId>("cursor");
+  const [mcpRequiredAgentId, setMcpRequiredAgentId] = useState<SolveWithAiAgentId>("copy-prompt");
+  const [mcpRequiredAgentLabel, setMcpRequiredAgentLabel] = useState("AI Agent");
+  const [mcpRequiredPrompt, setMcpRequiredPrompt] = useState("");
+  const [mcpRequiredPrefillPrefix, setMcpRequiredPrefillPrefix] = useState<string | undefined>();
 
   // Derive the active variant from the URL (?variant=xxx on private preview routes)
   const searchParams = useMemo(() => new URLSearchParams(searchString), [searchString]);
@@ -101,6 +114,41 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
     () => detectContentInfo(pathname, contentTypesMap),
     [pathname, contentTypesMap],
   );
+
+  const draftShareUrl = useMemo(() => {
+    if (!contentInfo.type || !contentInfo.slug || !activeVariantFromUrl) return "";
+    const pattern = contentTypesMap?.[contentInfo.type]?.url_pattern;
+    const path = buildContentUrlFromPattern(pattern, contentInfo.slug, urlLocale);
+    const qs = new URLSearchParams({ force_variant: activeVariantFromUrl });
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `${origin}${path}?${qs.toString()}`;
+  }, [activeVariantFromUrl, contentInfo.slug, contentInfo.type, contentTypesMap, urlLocale]);
+
+  const draftFeedbackPrompt = useMemo(() => {
+    if (!contentInfo.type || !contentInfo.slug || !activeVariantFromUrl || !draftShareUrl) {
+      return "";
+    }
+    return buildDraftFeedbackAiPrompt({
+      shareUrl: draftShareUrl,
+      contentType: contentInfo.type,
+      slug: contentInfo.slug,
+      locale: urlLocale,
+      variant: activeVariantFromUrl,
+    });
+  }, [
+    activeVariantFromUrl,
+    contentInfo.slug,
+    contentInfo.type,
+    draftShareUrl,
+    urlLocale,
+  ]);
+
+  const handleCopyDraftShareUrl = useCallback(() => {
+    if (!draftShareUrl) return;
+    void navigator.clipboard.writeText(draftShareUrl).then(() => {
+      toast({ title: "Link copied", description: "Share it with colleagues for feedback." });
+    });
+  }, [draftShareUrl, toast]);
 
   useEffect(() => {
     if (!activeVariantFromUrl || !editMode?.isEditMode || !contentInfo.type || !contentInfo.slug) {
@@ -369,16 +417,28 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
               ) : null}
             </span>
             {variantTraffic?.isDraft && (
-              <Button
-                size="sm"
-                variant="destructive"
-                className="h-6 px-2 text-xs ml-1"
-                onClick={() => setPublishConfirmOpen(true)}
-                data-testid="button-publish-draft-badge"
-              >
-                <IconCrown className="h-3 w-3" />
-                Publish
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 px-2 text-xs ml-1 border-destructive/30 text-destructive hover:bg-destructive/10"
+                  onClick={() => setShareDraftOpen(true)}
+                  data-testid="button-share-draft-badge"
+                >
+                  <IconShare className="h-3 w-3" />
+                  Get Feedback
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-6 px-2 text-xs ml-1"
+                  onClick={() => setPublishConfirmOpen(true)}
+                  data-testid="button-publish-draft-badge"
+                >
+                  <IconCrown className="h-3 w-3" />
+                  Publish
+                </Button>
+              </>
             )}
           </Badge>
         </div>
@@ -427,6 +487,73 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={shareDraftOpen} onOpenChange={setShareDraftOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <IconShare className="h-5 w-5 shrink-0" aria-hidden />
+              Share your draft
+            </DialogTitle>
+            <DialogDescription>
+              Send this link to colleagues so they can review the page in their browser. They do not
+              need edit access — anyone with the link sees this draft only. The live site stays
+              unchanged until you publish.
+            </DialogDescription>
+          </DialogHeader>
+          {draftShareUrl && (
+            <div className="flex items-center gap-2">
+              <Input
+                readOnly
+                value={draftShareUrl}
+                className="font-mono text-xs"
+                data-testid="input-share-draft-url"
+              />
+              <Button
+                size="icon"
+                variant="outline"
+                onClick={handleCopyDraftShareUrl}
+                data-testid="button-copy-share-draft-url"
+                aria-label="Copy link"
+              >
+                <IconCopy className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+          <DialogFooter className="sm:justify-end gap-2 flex-wrap">
+            <SolveWithAiAgentDropdown
+              label="Get feedback from AI Agent"
+              prompt={draftFeedbackPrompt}
+              disabled={!draftFeedbackPrompt}
+              testId="share-draft-ai-agent"
+              onAgentSelect={({ agentId, setupTab, label, prompt, prefillUrlPrefix }) => {
+                setShareDraftOpen(false);
+                setMcpRequiredAgentId(agentId);
+                setMcpRequiredSetupTab(setupTab);
+                setMcpRequiredAgentLabel(label);
+                setMcpRequiredPrompt(prompt);
+                setMcpRequiredPrefillPrefix(prefillUrlPrefix);
+                setMcpRequiredForAiOpen(true);
+              }}
+            />
+            <Button
+              variant="outline"
+              onClick={() => setShareDraftOpen(false)}
+              data-testid="button-close-share-draft-modal"
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <McpRequiredForAiModal
+        open={mcpRequiredForAiOpen}
+        onOpenChange={setMcpRequiredForAiOpen}
+        defaultTab={mcpRequiredSetupTab}
+        agentId={mcpRequiredAgentId}
+        agentLabel={mcpRequiredAgentLabel}
+        prompt={mcpRequiredPrompt}
+        prefillUrlPrefix={mcpRequiredPrefillPrefix}
+      />
       {pendingEdit && (
         <FirstEditPromptModal
           isOpen={modalOpen}

@@ -3,7 +3,8 @@ import { Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { IS_SERVER } from "@/lib/initialData";
 import { useTranslation } from "react-i18next";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
+import { apiFetch } from "@/lib/queryClient";
 import { SectionRenderer } from "@/components/SectionRenderer";
 import { usePageMeta } from "@/hooks/usePageMeta";
 import { useSchemaOrg } from "@/hooks/useSchemaOrg";
@@ -33,15 +34,25 @@ interface ContentTypeDetailProps {
 export default function ContentTypeDetail({ type, slug, locale, urlPattern }: ContentTypeDetailProps) {
   const { i18n } = useTranslation();
   const [currentLocation, setLocation] = useLocation();
+  const searchString = useSearch();
+  const forceVariant =
+    new URLSearchParams(searchString).get("force_variant") ??
+    new URLSearchParams(searchString).get("variant") ??
+    undefined;
   const isNonLocalized = locale === "default";
   const requestLocale = isNonLocalized ? undefined : ((locale || (i18n.language as string) || "en"));
   const apiPath = getApiPath(type);
 
   const { data, isLoading, error, refetch } = useQuery<Record<string, unknown>>({
-    queryKey: [apiPath, slug, requestLocale ?? "auto"],
+    queryKey: forceVariant
+      ? [apiPath, slug, requestLocale ?? "auto", forceVariant]
+      : [apiPath, slug, requestLocale ?? "auto"],
     queryFn: async () => {
-      const params = requestLocale ? `?locale=${requestLocale}` : "";
-      const response = await fetch(`${apiPath}/${slug}${params}`);
+      const qs = new URLSearchParams();
+      if (requestLocale) qs.set("locale", requestLocale);
+      if (forceVariant) qs.set("force_variant", forceVariant);
+      const query = qs.toString();
+      const response = await apiFetch(`${apiPath}/${slug}${query ? `?${query}` : ""}`);
       if (!response.ok) {
         throw new Error(`${type} not found`);
       }
@@ -67,11 +78,14 @@ export default function ContentTypeDetail({ type, slug, locale, urlPattern }: Co
     if (data?.slug && data.slug !== slug && urlPattern) {
       const pattern = urlPattern[effectiveLocale] || urlPattern["default"] || urlPattern["en"];
       if (pattern) {
-        const correctUrl = pattern.replace(":slug", String(data.slug));
+        let correctUrl = pattern.replace(":slug", String(data.slug));
+        if (searchString) {
+          correctUrl += correctUrl.includes("?") ? `&${searchString}` : `?${searchString}`;
+        }
         setLocation(correctUrl, { replace: true });
       }
     }
-  }, [data?.slug, slug, effectiveLocale, urlPattern, setLocation]);
+  }, [data?.slug, slug, effectiveLocale, urlPattern, searchString, setLocation]);
 
   const alternates = useAlternateUrls(currentLocation);
   const metaWithAlternates = data?.meta ? { ...(data.meta as object), alternates } : undefined;
@@ -104,6 +118,11 @@ export default function ContentTypeDetail({ type, slug, locale, urlPattern }: Co
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
+  }
+
+  // force_variant URLs skip SSR initial data; avoid hydration mismatch (see initial-data-middleware).
+  if (IS_SERVER && !data && !error) {
+    return null;
   }
 
   if (error || !data) {
@@ -153,6 +172,7 @@ export default function ContentTypeDetail({ type, slug, locale, urlPattern }: Co
           contentType={type}
           slug={slug}
           locale={effectiveLocale}
+          variant={forceVariant}
           programSlug={type === "program" ? slug : undefined}
           singleEntry={data.singleEntry as Record<string, unknown> | undefined}
           meta={data.meta as Record<string, unknown> | undefined}

@@ -134,3 +134,29 @@ export function buildSolveWithAiPrefillUrl(
 ): string {
   return `${prefillUrlPrefix}${encodeURIComponent(prompt)}`;
 }
+
+export function buildDraftFeedbackAiPrompt(opts: {
+  shareUrl: string;
+  contentType: string;
+  slug: string;
+  locale: string;
+  variant: string;
+}): string {
+  const mcpUrl = typeof window !== "undefined" ? getMcpServerUrl() : "/mcp";
+
+  return `Review this unpublished draft page and give actionable feedback using the 4Geeks CMS MCP server.
+
+## Draft preview
+- Share link (open in browser): ${opts.shareUrl}
+- contentType: ${opts.contentType}
+- slug: ${opts.slug}
+- locale: ${opts.locale}
+- variant: ${opts.variant}
+- MCP server: ${mcpUrl}
+
+## What I need
+1. Read the draft via MCP (get_entry_content) and/or the share link above.
+2. Comment on clarity, conversion, accuracy, and missing content — especially eligibility, how to apply, and sourced outcomes.
+3. Do NOT publish, allocate traffic, or edit YAML unless I ask.
+4. Scope: this entry only (${opts.contentType}/${opts.slug}, locale ${opts.locale}, variant ${opts.variant}).`;
+}

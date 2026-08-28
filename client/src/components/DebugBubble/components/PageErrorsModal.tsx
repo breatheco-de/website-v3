@@ -43,16 +43,11 @@ import {
   IconLock,
   IconLockOpen,
   IconRefresh,
-  IconSparkles,
   IconUser,
 } from "@tabler/icons-react";
 import * as Flags from "country-flag-icons/react/3x2";
-import {
-  SOLVE_WITH_AI_MENU,
-  buildSolveWithAiPrompt,
-  type SolveWithAiAgentId,
-} from "../solveWithAiPrompt";
-import { SolveWithAiAgentIcon } from "../SolveWithAiAgentIcon";
+import { buildSolveWithAiPrompt, type SolveWithAiAgentId } from "../solveWithAiPrompt";
+import { SolveWithAiAgentDropdown } from "../SolveWithAiAgentDropdown";
 import type { McpSetupTabId } from "@/components/mcp/mcpUrlHelpers";
 
 /** Validators that make sense for a single page (entry-local only). */
@@ -601,12 +596,10 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   const [isRunningValidation, setIsRunningValidation] = useState(false);
   const [activeTab, setActiveTab] = useState<"errors" | "warnings" | "crawlers">("errors");
   const [openPageMenuOpen, setOpenPageMenuOpen] = useState(false);
-  const [solveMenuOpen, setSolveMenuOpen] = useState(false);
   const [completedErrorsOpen, setCompletedErrorsOpen] = useState(false);
   const [completedWarningsOpen, setCompletedWarningsOpen] = useState(false);
   const [togglingIssueId, setTogglingIssueId] = useState<string | null>(null);
   const openPageMenuRef = useRef<HTMLDivElement>(null);
-  const solveMenuRef = useRef<HTMLDivElement>(null);
   const formatSitePath = useFormatSitePath();
   const queryClient = useQueryClient();
   const { hasCapability } = useDebugAuth();
@@ -620,6 +613,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   const completedErrors = allErrors.filter((i) => i.completed);
   const completedWarnings = allWarnings.filter((i) => i.completed);
   const canSolveWithAi = Boolean(pageDiagnostics && (errors.length > 0 || warnings.length > 0));
+  const solvePrompt = pageDiagnostics ? buildSolveWithAiPrompt(pageDiagnostics) : "";
   const openPageUrl = pageUrl ?? pageDiagnostics?.url;
   const inspectLookupUrl = openPageUrl || "";
 
@@ -727,7 +721,6 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   useEffect(() => {
     if (!open) {
       setOpenPageMenuOpen(false);
-      setSolveMenuOpen(false);
     }
   }, [open]);
 
@@ -741,24 +734,6 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [openPageMenuOpen]);
-
-  useEffect(() => {
-    if (!solveMenuOpen) return;
-    function onDown(e: MouseEvent) {
-      if (solveMenuRef.current && !solveMenuRef.current.contains(e.target as Node)) {
-        setSolveMenuOpen(false);
-      }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setSolveMenuOpen(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [solveMenuOpen]);
 
   useEffect(() => {
     if (!open || !pageDiagnostics) return;
@@ -793,34 +768,6 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
       }
     } catch {}
     setIsRunningValidation(false);
-  }
-
-  async function handleSolveMenuSelect(agentId: SolveWithAiAgentId) {
-    if (!pageDiagnostics) return;
-    const item = SOLVE_WITH_AI_MENU.find((m) => m.id === agentId);
-    if (!item) return;
-    setSolveMenuOpen(false);
-    const prompt = buildSolveWithAiPrompt(pageDiagnostics);
-    try {
-      await navigator.clipboard.writeText(prompt);
-      toast({
-        title: "Prompt copied",
-        description: "Connect MCP in the next dialog, then confirm to open your AI agent.",
-      });
-    } catch {
-      toast({
-        title: "Could not copy prompt",
-        description: "Allow clipboard access, or copy again from the confirmation dialog.",
-        variant: "destructive",
-      });
-    }
-    onSolveWithAi?.({
-      agentId: item.id,
-      setupTab: item.setupTab,
-      prompt,
-      label: item.label,
-      prefillUrlPrefix: item.prefillUrlPrefix,
-    });
   }
 
   const unpublishedVariant =
@@ -1229,41 +1176,12 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
               )}
             </Button>
           )}
-          <div ref={solveMenuRef} className="relative">
-            <Button
-              type="button"
-              variant="default"
-              disabled={!canSolveWithAi}
-              aria-haspopup="menu"
-              aria-expanded={solveMenuOpen}
-              onClick={() => setSolveMenuOpen((prev) => !prev)}
-              data-testid="button-solve-with-ai-agent"
-            >
-              <IconSparkles className="h-4 w-4" />
-              Solve with AI Agent
-              <IconChevronDown className="h-4 w-4 opacity-70" />
-            </Button>
-            {solveMenuOpen && (
-              <div
-                role="menu"
-                className="absolute bottom-full right-0 z-50 mb-1 w-48 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-              >
-                {SOLVE_WITH_AI_MENU.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="menuitem"
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] hover-elevate"
-                    onClick={() => void handleSolveMenuSelect(item.id)}
-                    data-testid={`menu-solve-ai-${item.id}`}
-                  >
-                    <SolveWithAiAgentIcon agentId={item.id} />
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <SolveWithAiAgentDropdown
+            label="Solve with AI Agent"
+            prompt={solvePrompt}
+            disabled={!canSolveWithAi}
+            onAgentSelect={(payload) => onSolveWithAi?.(payload)}
+          />
           <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-close-page-errors">
             Close
           </Button>
