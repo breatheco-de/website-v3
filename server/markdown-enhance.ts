@@ -35,7 +35,7 @@ const ALERT_TYPES = new Set(["NOTE", "TIP", "WARNING", "IMPORTANT"]);
 const enhanceCache = new Map<string, { html: string; fetched_at: number }>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Bump when enhance output shape changes so in-memory cache cannot serve stale HTML. */
-const ENHANCE_PIPELINE_VERSION = "v4-geekchart-display";
+const ENHANCE_PIPELINE_VERSION = "v5-geekchart-phone";
 
 const prettyCodeOptions = {
   theme: { light: "github-light", dark: "github-dark-dimmed" },
@@ -216,9 +216,11 @@ function collectText(node: ElementContent): string {
  * first blank line. A chart that fails to render is left as the original
  * code block and logged, so a bad diagram never breaks the article.
  */
-/** Width of the article column in CSS px (`.prose` in ArticleDefault): the
- * chart is laid out to fit it so its text stays legible (DESIGN 1.1/3.1). */
-const ARTICLE_COLUMN_PX = 612;
+/** Width of the article column in CSS px (`.prose` in ArticleDefault) on a
+ * desktop and on a phone: the chart is laid out for each so its text stays
+ * legible at full size (DESIGN 1.1/1.6/3.1); the HTML carries both and a
+ * media query shows the one that fits. */
+const ARTICLE_COLUMN_PX = { desktop: 612, phone: 358 };
 
 function rehypeGeekchart() {
   return async (tree: Root) => {
