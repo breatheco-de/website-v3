@@ -400,6 +400,7 @@ import {
   ValidationFixRunLogEntry,
   FixerItemStatus,
 } from "./_helpers";
+import { api } from "../rate-limit/api.js";
 import { resolveRelationsOnEntry } from "../resolve-relations";
 import { child } from "../logger";
 const log = child({ module: "routes/content" });
@@ -3811,7 +3812,11 @@ export function registerContentRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/content-types/:type/entry-previews/enqueue", async (req, res) => {
+  api.post(
+    app,
+    "/api/content-types/:type/entry-previews/enqueue",
+    { rate: "expensiveCapture" },
+    async (req, res) => {
     try {
       const { type } = req.params;
       const auth = await requireCapability(req, res, "content_edit_media", type);

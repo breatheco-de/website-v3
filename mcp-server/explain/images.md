@@ -80,10 +80,12 @@ Tool: **`get_or_set_image_to_gallery`**. Pass **exactly one** of `image_id`, `ur
 |---|---|---|
 | `image_id` | `content_view` | Returns the full registry entry. No writes. |
 | `prompt` | `media_upload` | OpenRouter image gen with **n=1**, immediately registers as `origin=ai` (no confirm). Enqueues AI unused-image GC. |
-| `url` | `media_upload` | **Under development** — returns `action_required: under_development`. Cloudflare Images import later; do not expect a fetch. |
+| `url` | `content_view` | Read-only lookup: matches `entry.src` or `entry.source_url`. On miss returns `url_not_in_gallery` (import still under development). |
 
 **Non-effects:** does not set entry/section `image_id` in YAML (use `update_fields` after). Does not run `regenerate_entry_previews`. Does not touch Brand / schema-org.
 
 **AI GC:** unused AI gallery assets may be removed after ~48h grace (last public impression, else `ai.generated_at`). Attach to live content soon if you need to keep the asset.
+
+**Rate limits:** `prompt` calls `POST /api/media/generate-images` (`expensiveAi` policy). On limit the MCP tool returns `code: rate_limited` and `retry_after_sec` — do not retry in a loop. Failed generation (502/503) does not consume quota.
 
 Optional: `alt`, `tags`, `aspect_ratio` (prompt), `site`.

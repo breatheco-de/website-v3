@@ -6,6 +6,16 @@ window_days: 6
 
 entries:
   - date: "2026-08-27"
+    summary: "get_or_set_image_to_gallery url mode: registry lookup by src/source_url"
+    agent_impact:
+      - "url now resolves existing gallery entries (matches entry.src or source_url); requires content_view only."
+      - "Unknown URLs return url_not_in_gallery — remote import still under development; use prompt or image_id."
+      - "Refresh MCP connector if tool descriptions look stale."
+    paths:
+      - mcp-server/tools/media.ts
+      - mcp-server/explain/images.md
+    tools_changed: true
+  - date: "2026-08-27"
     summary: "New get_or_set_image_to_gallery MCP tool (lookup + AI generate)"
     agent_impact:
       - "image_id returns gallery entry; prompt generates n=1 and registers origin=ai immediately (no confirm)."

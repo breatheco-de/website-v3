@@ -7,6 +7,7 @@
     "check:sites": "tsx scripts/check-sites.ts",
     "check:sites-yml": "tsx scripts/check-sites-yml.ts",
     "check:registry": "tsx scripts/check-registry.ts",
+    "check:api-rate": "tsx scripts/check-api-rate-policy.ts",
     "content:pull": "tsx scripts/content-pull.ts",
     "ensure:registry": "tsx scripts/ensure-registry.ts",
     "schema:sync": "tsx scripts/schema-sync/sync-schemas.ts",

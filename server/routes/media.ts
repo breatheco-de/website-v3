@@ -210,6 +210,8 @@ import {
   ValidationFixRunLogEntry,
   FixerItemStatus,
 } from "./_helpers";
+import { api } from "../rate-limit/api.js";
+import { markRateLimitNoCharge, markRateLimitSuccess } from "../rate-limit/limiter.js";
 import { child } from "../logger";
 const log = child({ module: "routes/media" });
 
@@ -917,7 +919,7 @@ export function registerMediaRoutes(app: Express): void {
     },
   );
 
-  app.post("/api/media/generate-images", async (req, res) => {
+  api.post(app, "/api/media/generate-images", { rate: "expensiveAi" }, async (req, res) => {
     try {
       const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
       if (!prompt) {
@@ -984,14 +986,21 @@ export function registerMediaRoutes(app: Express): void {
           },
         );
         writeEvent({ type: "done", model: result.model, count: result.candidates.length });
+        if (result.candidates.length > 0) {
+          markRateLimitSuccess(res);
+        } else {
+          markRateLimitNoCharge(res);
+        }
         res.end();
       } catch (err: any) {
         const { GenerateImagesCancelledError: Cancelled } = await import("../ai/LLMService");
         if (err instanceof Cancelled || cancelled) {
+          markRateLimitNoCharge(res);
           if (!res.writableEnded) res.end();
           return;
         }
         const message = err?.message || "Image generation failed";
+        markRateLimitNoCharge(res);
         writeEvent({ type: "error", error: message });
         res.end();
       }

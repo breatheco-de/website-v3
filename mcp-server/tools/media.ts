@@ -22,6 +22,10 @@ import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
 import { AI_IMAGE_GC_GRACE_MS, normalizePromptAlt } from "../../shared/ai-image-gc.js";
 import type { ImageEntry } from "../../shared/schema.js";
+import {
+  buildRegistrySrcToIdMap,
+  resolveRegistryReference,
+} from "../../scripts/validation/shared/imageRegistrySrc.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
@@ -34,7 +38,7 @@ function internalHeaders(mcpToken?: string, omitJsonContentType = false): Record
   if (INTERNAL_SECRET) {
     headers.Authorization = `Bearer ${INTERNAL_SECRET}`;
     const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
-    if (username) headers["x-mcp-author"] = username;
+    headers["x-mcp-author"] = username || "mcp";
   } else if (mcpToken) {
     const username = getTokenUsername(mcpToken);
     if (username) headers["x-mcp-author"] = username;
@@ -91,11 +95,121 @@ function loadRegistryImages(
   }
 }
 
+/** Registry id for a gallery URL: matches entry.src (incl. full URLs) or source_url. */
+export function findGalleryImageByUrl(
+  url: string,
+  images: Record<string, ImageEntry>,
+): string | null {
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+
+  const srcToId = buildRegistrySrcToIdMap(images);
+  const bySrc = resolveRegistryReference(trimmed, images, srcToId);
+  if (bySrc) return bySrc;
+
+  for (const [id, entry] of Object.entries(images)) {
+    if (typeof entry.source_url === "string" && entry.source_url.trim() === trimmed) {
+      return id;
+    }
+  }
+  return null;
+}
+
 function extFromMediaType(mediaType: string): string {
   if (mediaType.includes("png")) return "png";
   if (mediaType.includes("jpeg") || mediaType.includes("jpg")) return "jpg";
   if (mediaType.includes("gif")) return "gif";
   return "webp";
+}
+
+async function parseGenerateImagesResponse(
+  genRes: Response,
+): Promise<
+  | { ok: true; model?: string; candidates: Array<{ b64: string; mediaType: string }> }
+  | { ok: false; status: number; code?: string; error?: string; hint?: string; retry_after_sec?: number }
+> {
+  if (genRes.status === 429) {
+    const data = (await genRes.json().catch(() => ({}))) as {
+      code?: string;
+      error?: string;
+      retry_after_sec?: number;
+    };
+    return {
+      ok: false,
+      status: 429,
+      code: data.code || "rate_limited",
+      error: data.error || "Image generation rate limit exceeded",
+      retry_after_sec: data.retry_after_sec,
+    };
+  }
+
+  const contentType = genRes.headers.get("content-type") || "";
+  if (!genRes.ok && contentType.includes("application/json")) {
+    const data = (await genRes.json().catch(() => ({}))) as {
+      error?: string;
+      hint?: string;
+      code?: string;
+      model?: string;
+    };
+    return {
+      ok: false,
+      status: genRes.status,
+      code: data.code,
+      error: data.error || data.hint,
+      hint: data.hint,
+    };
+  }
+  if (!genRes.ok) {
+    return {
+      ok: false,
+      status: genRes.status,
+      error: `Image generation failed (${genRes.status})`,
+    };
+  }
+
+  if (contentType.includes("ndjson")) {
+    const text = await genRes.text();
+    const candidates: Array<{ b64: string; mediaType: string }> = [];
+    let model: string | undefined;
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const event = JSON.parse(trimmed) as {
+          type?: string;
+          b64?: string;
+          mediaType?: string;
+          model?: string;
+          error?: string;
+        };
+        if (event.type === "candidate" && event.b64) {
+          candidates.push({
+            b64: event.b64,
+            mediaType: event.mediaType || "image/webp",
+          });
+          if (event.model) model = event.model;
+        } else if (event.type === "done") {
+          if (event.model) model = event.model;
+        } else if (event.type === "error") {
+          return {
+            ok: false,
+            status: 502,
+            code: "image_generation_failed",
+            error: event.error || "Image generation failed",
+          };
+        }
+      } catch {
+        /* skip bad lines */
+      }
+    }
+    return { ok: true, model, candidates };
+  }
+
+  const data = (await genRes.json().catch(() => ({}))) as {
+    model?: string;
+    candidates?: Array<{ b64: string; mediaType: string }>;
+  };
+  return { ok: true, model: data.model, candidates: data.candidates ?? [] };
 }
 
 const NO_YAML_ATTACH: McpWarning = {
@@ -195,13 +309,39 @@ export async function handleGetOrSetImageToGallery(
   }
 
   if (source === "url") {
-    if (mcpToken && !(await checkCap(mcpToken, "media_upload"))) {
-      return denyResponse("media_upload");
+    const viewDenied = await denyUnlessContentView(mcpToken, undefined, grants);
+    if (viewDenied) return viewDenied;
+
+    const url = args.url!.trim();
+    const images = loadRegistryImages(contentPath);
+    if (!images) {
+      return fail(`image-registry.json not found or unreadable under ${contentFolder}`, {
+        code: "registry_missing",
+        path: registryRelativePath(contentFolder),
+      });
     }
+
+    const matchedId = findGalleryImageByUrl(url, images);
+    if (matchedId) {
+      const entry = images[matchedId];
+      return ok(
+        {
+          mode: "url",
+          image_id: matchedId,
+          image: { id: matchedId, ...entry },
+          message: `Found gallery image "${matchedId}" matching URL.`,
+        },
+        {
+          warnings: [],
+          next_actions: [],
+        },
+      );
+    }
+
     const next_actions: NextAction[] = [
       {
         tool: "get_or_set_image_to_gallery",
-        reason: "Generate an image instead, or look up an existing gallery id",
+        reason: "Generate an image instead",
         args_hint: {
           prompt: "describe the image you need",
           ...(args.site ? { site: args.site } : {}),
@@ -221,11 +361,11 @@ export async function handleGetOrSetImageToGallery(
     return actionRequired(
       {
         success: false,
-        action_required: "under_development",
-        code: "under_development",
+        action_required: "url_not_in_gallery",
+        code: "url_not_in_gallery",
         message:
-          "URL import into the gallery is under development (Cloudflare Images bridge). Use prompt to generate, or image_id to look up an existing asset.",
-        url: args.url!.trim(),
+          "No gallery entry matches this URL. URL import is under development (Cloudflare Images bridge) — use prompt to generate, or image_id to look up an existing asset.",
+        url,
       },
       next_actions,
     );
@@ -255,27 +395,25 @@ export async function handleGetOrSetImageToGallery(
     });
   }
 
-  const genData = (await genRes.json().catch(() => ({}))) as {
-    error?: string;
-    hint?: string;
-    code?: string;
-    model?: string;
-    candidates?: Array<{ b64: string; mediaType: string }>;
-  };
-
-  if (!genRes.ok) {
-    return fail(genData.error || genData.hint || `Image generation failed (${genRes.status})`, {
-      code: genData.code || "image_generation_failed",
-      hint: genData.hint,
-      model: genData.model,
+  const parsed = await parseGenerateImagesResponse(genRes);
+  if (!parsed.ok) {
+    if (parsed.status === 429) {
+      return fail(parsed.error || "Image generation rate limit exceeded", {
+        code: parsed.code || "rate_limited",
+        retry_after_sec: parsed.retry_after_sec,
+      });
+    }
+    return fail(parsed.error || parsed.hint || `Image generation failed (${parsed.status})`, {
+      code: parsed.code || "image_generation_failed",
+      hint: parsed.hint,
     });
   }
 
-  const candidate = genData.candidates?.[0];
+  const candidate = parsed.candidates[0];
   if (!candidate?.b64) {
     return fail("Image generation returned no candidates.", {
       code: "no_candidates",
-      model: genData.model,
+      model: parsed.model,
     });
   }
 
@@ -298,7 +436,7 @@ export async function handleGetOrSetImageToGallery(
     "ai",
     JSON.stringify({
       generated: true,
-      model: genData.model,
+      model: parsed.model,
       prompt,
       generated_at: generatedAt,
     }),
@@ -381,7 +519,7 @@ export async function handleGetOrSetImageToGallery(
       src: uploadData.src,
       alt: uploadData.alt ?? alt,
       duplicate: !!uploadData.duplicate,
-      model: genData.model ?? null,
+      model: parsed.model ?? null,
       message: uploadData.duplicate
         ? `Generated image matched existing gallery asset "${imageId}".`
         : `Generated and registered gallery image "${imageId}".`,
@@ -398,9 +536,9 @@ export function registerMediaTools(
   mcp.tool(
     "get_or_set_image_to_gallery",
     "Resolve or create a media-gallery image. Pass exactly one of: image_id (return registry entry), " +
-      "prompt (OpenRouter image gen n=1, immediately registers as origin=ai — no confirm), " +
-      "or url (UNDER DEVELOPMENT — returns under_development; Cloudflare Images import later). " +
-      "Does not write entry YAML image_id fields. Requires content_view for image_id; media_upload for prompt/url. " +
+      "url (read-only lookup by src or source_url; import on miss is under development), " +
+      "or prompt (OpenRouter image gen n=1, immediately registers as origin=ai — no confirm). " +
+      "Does not write entry YAML image_id fields. Requires content_view for image_id/url lookup; media_upload for prompt. " +
       "AI unused images may be GC'd after grace if never attached to live content.",
     {
       image_id: z
@@ -411,7 +549,7 @@ export function registerMediaTools(
         .string()
         .optional()
         .describe(
-          "Public image URL to import — NOT IMPLEMENTED YET (returns under_development)",
+          "Public or registry URL to look up (matches entry src or source_url). Import on miss is not available yet.",
         ),
       prompt: z
         .string()

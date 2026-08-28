@@ -5,6 +5,7 @@ import path from "path";
 import {
   countGallerySources,
   pickGallerySource,
+  findGalleryImageByUrl,
   handleGetOrSetImageToGallery,
 } from "./media";
 import {
@@ -27,6 +28,45 @@ describe("countGallerySources / pickGallerySource", () => {
 
   it("detects multiple sources", () => {
     expect(countGallerySources({ prompt: "x", url: "https://x.test/a.png" })).toBe(2);
+  });
+});
+
+describe("findGalleryImageByUrl", () => {
+  const images = {
+    "hero-local": {
+      src: "/site/images/hero.webp",
+      alt: "Hero",
+    },
+    "external-queued": {
+      src: "",
+      alt: "External",
+      source_url: "https://partner.example/photo.jpg",
+    },
+    "cdn-hosted": {
+      src: "https://cdn.example/assets/logo.png",
+      alt: "Logo",
+    },
+  };
+
+  it("matches source_url", () => {
+    expect(findGalleryImageByUrl("https://partner.example/photo.jpg", images)).toBe(
+      "external-queued",
+    );
+  });
+
+  it("matches src full URL", () => {
+    expect(findGalleryImageByUrl("https://cdn.example/assets/logo.png", images)).toBe(
+      "cdn-hosted",
+    );
+  });
+
+  it("matches local src with slash normalization", () => {
+    expect(findGalleryImageByUrl("site/images/hero.webp", images)).toBe("hero-local");
+    expect(findGalleryImageByUrl("/site/images/hero.webp", images)).toBe("hero-local");
+  });
+
+  it("returns null when no match", () => {
+    expect(findGalleryImageByUrl("https://unknown.example/nope.jpg", images)).toBeNull();
   });
 });
 
@@ -55,6 +95,11 @@ describe("handleGetOrSetImageToGallery", () => {
             src: "/.tmp-mcp-gallery-test/images/hero.webp",
             alt: "Hero test",
             tags: ["hero"],
+          },
+          "external-test": {
+            src: "",
+            alt: "External test",
+            source_url: "https://partner.example/photo.jpg",
           },
         },
       }),
@@ -117,15 +162,29 @@ describe("handleGetOrSetImageToGallery", () => {
     expect(body.code).toBe("image_not_found");
   });
 
-  it("returns under_development for url", async () => {
+  it("returns registry entry for url matching source_url", async () => {
     const result = await handleGetOrSetImageToGallery(
       { url: "https://partner.example/photo.jpg", site: "test.example.com" },
       { mcpToken: undefined },
     );
     expect(result.isError).toBeUndefined();
     const body = parseResult(result);
-    expect(body.action_required).toBe("under_development");
-    expect(body.code).toBe("under_development");
+    expect(body.success).toBe(true);
+    expect(body.mode).toBe("url");
+    expect(body.image_id).toBe("external-test");
+    expect((body.image as { alt: string }).alt).toBe("External test");
+    expect(body.next_actions).toEqual([]);
+  });
+
+  it("returns url_not_in_gallery when url has no registry match", async () => {
+    const result = await handleGetOrSetImageToGallery(
+      { url: "https://unknown.example/missing.jpg", site: "test.example.com" },
+      { mcpToken: undefined },
+    );
+    expect(result.isError).toBeUndefined();
+    const body = parseResult(result);
+    expect(body.action_required).toBe("url_not_in_gallery");
+    expect(body.code).toBe("url_not_in_gallery");
     expect(Array.isArray(body.next_actions)).toBe(true);
   });
 
@@ -196,5 +255,28 @@ describe("handleGetOrSetImageToGallery", () => {
     expect(result.isError).toBe(true);
     const body = parseResult(result);
     expect(body.code).toBe("image_generation_not_configured");
+  });
+
+  it("prompt path returns rate_limited when generate-images returns 429", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          error: "Too many image generations",
+          code: "rate_limited",
+          policy: "expensiveAi",
+          retry_after_sec: 3600,
+        }),
+        { status: 429, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const result = await handleGetOrSetImageToGallery(
+      { prompt: "anything", site: "test.example.com" },
+      { mcpToken: undefined, fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    expect(result.isError).toBe(true);
+    const body = parseResult(result);
+    expect(body.code).toBe("rate_limited");
+    expect(body.retry_after_sec).toBe(3600);
   });
 });
