@@ -113,18 +113,23 @@ function dispatchScrollToSection(targetId: string): void {
   window.dispatchEvent(new CustomEvent("scrollToSection", { detail: { targetId } }));
 }
 
-/** Same-page hash: wake deferred sections, then one smooth scroll (or open modal). */
-function activateHashTarget(id: string, mergedSearch: string): void {
-  history.replaceState(null, "", `${window.location.pathname}${mergedSearch}#${id}`);
+/**
+ * Same-page hash: wake deferred sections, then one smooth scroll (or open modal).
+ * Modals must assign `location.hash` without a prior `replaceState` that includes `#id`
+ * — otherwise hashchange never fires and eager modals stay closed.
+ */
+export function activateHashTarget(id: string, mergedSearch: string): void {
   const el = document.getElementById(id);
   if (el?.dataset.sectionType === "modal") {
     dispatchScrollToSection(id);
-    // Force hashchange so ModalDefault opens after DeferredSection mounts.
+    const path = window.location.pathname;
+    if (mergedSearch !== window.location.search) {
+      history.replaceState(null, "", `${path}${mergedSearch}`);
+    }
     window.location.hash = id;
     return;
   }
-  // Node usually exists on same-page; helper does wake + one smooth scroll.
-  // If missing, it waits once (cross-page edge) then still scrolls once.
+  history.replaceState(null, "", `${window.location.pathname}${mergedSearch}#${id}`);
   scrollToSectionWhenReady(id);
 }
 
