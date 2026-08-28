@@ -2307,24 +2307,26 @@ export function DebugBubble() {
             >
               {open ? <X className="h-5 w-5" /> : <Bug className="h-5 w-5" />}
             </Button>
-            <button
-              type="button"
-              className="absolute -top-1.5 -right-1.5 z-20 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow hover:text-foreground hover:bg-muted transition-colors"
-              title="Hide staff tools"
-              aria-label="Hide staff tools"
-              data-testid="button-debug-dismiss"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setDismissConfirmOpen(true);
-              }}
-              onPointerDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-            >
-              <X className="h-3 w-3" />
-            </button>
+            {!open && (
+              <button
+                type="button"
+                className="absolute -top-1.5 -right-1.5 z-20 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow hover:text-foreground hover:bg-muted transition-colors"
+                title="Hide staff tools"
+                aria-label="Hide staff tools"
+                data-testid="button-debug-dismiss"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDismissConfirmOpen(true);
+                }}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
             {/* Show "Commit" indicator when there are local changes that need uploading - only when logged in */}
             {hasCommitIndicator && (
               <button
@@ -2674,10 +2676,15 @@ export function DebugBubble() {
                   This only hides the tools bubble on the page. You stay signed in, and nothing else changes.
                 </p>
                 <p>
-                  To bring the tools back later, open the address bar at the top of your browser, add{" "}
-                  <span className="font-medium text-foreground">?debug=true</span> to the end of the page
-                  address, and press Enter. For example:{" "}
-                  <span className="font-medium text-foreground">yoursite.com/us/?debug=true</span>
+                  To bring the tools back later, open the address bar at the top of your browser, go to the home
+                  page, add{" "}
+                  <span className="font-medium text-foreground">?debug=true</span> to the end of the address,
+                  and press Enter. For example:{" "}
+                  <span className="font-medium text-foreground">
+                    {(siteInfo?.domain?.replace(/^https?:\/\//, "") ||
+                      (typeof window !== "undefined" ? window.location.host : "example.com")) +
+                      "/?debug=true"}
+                  </span>
                 </p>
               </div>
             </AlertDialogDescription>
