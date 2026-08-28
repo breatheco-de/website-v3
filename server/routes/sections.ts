@@ -220,6 +220,11 @@ import {
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
+  beginMcpContentWrite,
+  runWithContentWriteContextAsync,
+  enterContentWriteContext,
+  resolveAgentSessionId,
+  resolveEventActor,
 } from "./_helpers";
 import { child } from "../logger";
 const log = child({ module: "routes/sections" });
@@ -1044,6 +1049,12 @@ export function registerSectionsRoutes(app: Express): void {
       // Use server-resolved author from identity; fall back to client-provided value
       const authorName = auth.author || (requestAuthor && typeof requestAuthor === "string" ? requestAuthor : undefined);
 
+      const writeGate = beginMcpContentWrite(req, req.body?.report);
+      if (!writeGate.ok) {
+        res.status(400).json({ error: writeGate.error, code: writeGate.code });
+        return;
+      }
+
       if (!contentType || !slug || !locale) {
         res.status(400).json({
           error: "Missing required fields: contentType, slug, locale",
@@ -1118,20 +1129,22 @@ export function registerSectionsRoutes(app: Express): void {
         }
       }
 
-      const result = await editContent({
-        contentType,
-        slug,
-        locale,
-        operations: finalOperations,
-        variant: effectiveVariant,
-        version: effectiveVersion,
-        author: authorName,
-        contentRoot: getContentRoot(res),
-        database: (res.locals.site as import("../site-manager").SiteContext)?.database,
-        ci: getCI(res),
-        skipSharedLayoutFanOut: isMcpRequest,
-        layoutTarget: resolvedLayoutTarget,
-      });
+      const result = await runWithContentWriteContextAsync(writeGate.ctx, () =>
+        editContent({
+          contentType,
+          slug,
+          locale,
+          operations: finalOperations,
+          variant: effectiveVariant,
+          version: effectiveVersion,
+          author: authorName,
+          contentRoot: getContentRoot(res),
+          database: (res.locals.site as import("../site-manager").SiteContext)?.database,
+          ci: getCI(res),
+          skipSharedLayoutFanOut: isMcpRequest,
+          layoutTarget: resolvedLayoutTarget,
+        }),
+      );
 
       if (result.success) {
         // Propagate to bound sections on live single-section updates (update_section
@@ -1190,6 +1203,8 @@ export function registerSectionsRoutes(app: Express): void {
                     holder: bindingHolder,
                     token: acquired.lease.token,
                     author: authorName,
+                    actor: resolveEventActor(req),
+                    agent_session_id: resolveAgentSessionId(req),
                   });
                 } else {
                   bindingWarnings = [
@@ -1438,6 +1453,13 @@ export function registerSectionsRoutes(app: Express): void {
       const auth = await requireCapability(req, res, "content_edit_text", req.body.contentType || undefined);
       if (!auth.authorized) return;
 
+      const writeGate = beginMcpContentWrite(req, req.body?.report);
+      if (!writeGate.ok) {
+        res.status(400).json({ error: writeGate.error, code: writeGate.code });
+        return;
+      }
+      enterContentWriteContext(writeGate.ctx);
+
       const { contentType, slug, operations, author: requestAuthor } = req.body;
 
       if (
@@ -1654,6 +1676,11 @@ export function registerSectionsRoutes(app: Express): void {
     try {
       const auth = await requireCapability(req, res, "content_create_entry", req.body.type || undefined);
       if (!auth.authorized) return;
+      const writeGate = beginMcpContentWrite(req, req.body?.report);
+      if (!writeGate.ok) {
+        res.status(400).json({ error: writeGate.error, code: writeGate.code });
+        return;
+      }
       const { type, slugEn, slugEs, title, sourceUrl, sourceSlug, sourceType, changeContentType, author: rawAuthor, skipLocales: rawSkipLocales, uniqueFieldValues: rawUniqueFieldValues, localeTitles: rawLocaleTitles } = req.body;
       const author = auth.author || (rawAuthor && typeof rawAuthor === "string" ? rawAuthor : undefined);
       const skipLocales: string[] = Array.isArray(rawSkipLocales) ? rawSkipLocales.filter((l: unknown) => typeof l === "string") : [];
@@ -1675,15 +1702,17 @@ export function registerSectionsRoutes(app: Express): void {
           : {};
       const localeTitles: Record<string, string> = rawLocaleTitles && typeof rawLocaleTitles === "object"
         ? Object.fromEntries(Object.entries(rawLocaleTitles).filter(([, v]) => typeof v === "string")) : {};
-      const result = await createContentEntry({
-        type, title, sourceUrl,
-        sourceSlug: typeof sourceSlug === "string" ? sourceSlug : undefined,
-        sourceType: typeof sourceType === "string" ? sourceType : undefined,
-        changeContentType: !!changeContentType,
-        slugEn: slugEn || req.body.slug, slugEs: slugEs || req.body.slug,
-        skipLocales, uniqueFieldValues, urlParamValues, localeTitles, author,
-        contentRootName: getContentRootName(res),
-      });
+      const result = await runWithContentWriteContextAsync(writeGate.ctx, () =>
+        createContentEntry({
+          type, title, sourceUrl,
+          sourceSlug: typeof sourceSlug === "string" ? sourceSlug : undefined,
+          sourceType: typeof sourceType === "string" ? sourceType : undefined,
+          changeContentType: !!changeContentType,
+          slugEn: slugEn || req.body.slug, slugEs: slugEs || req.body.slug,
+          skipLocales, uniqueFieldValues, urlParamValues, localeTitles, author,
+          contentRootName: getContentRootName(res),
+        }),
+      );
       if (!result.success) { res.status(result.statusCode).json({ error: result.error }); return; }
       res.json(result.data);
     } catch (error) {
@@ -1756,6 +1785,14 @@ export function registerSectionsRoutes(app: Express): void {
         ? (req.body.slugs as unknown[]).map(String).filter(Boolean)
         : [];
       const confirm = req.body?.confirm === true;
+      const writeGate = confirm
+        ? beginMcpContentWrite(req, req.body?.report)
+        : { ok: true as const, ctx: {} };
+      if (!writeGate.ok) {
+        res.status(400).json({ error: writeGate.error, code: writeGate.code });
+        return;
+      }
+      if (confirm) enterContentWriteContext(writeGate.ctx);
       const author = auth.author || (typeof req.body?.author === "string" ? req.body.author : undefined);
       const reassignments =
         req.body?.reassignments && typeof req.body.reassignments === "object"

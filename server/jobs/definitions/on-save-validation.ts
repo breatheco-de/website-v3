@@ -90,6 +90,7 @@ export function emitValidationSettled(
     type: "validation_results_ready",
     triggeredByEventId: primary?.id,
     attribution: primary?.attribution ?? [],
+    agent_session_id: primary?.agent_session_id,
     resource: { ...resource, path: primary?.resource.path },
     payload: { entryKey, ...payload },
   });
@@ -102,6 +103,7 @@ export function emitValidationSettled(
       type: "validation_results_ready",
       triggeredByEventId: w.id,
       attribution: w.attribution,
+      agent_session_id: w.agent_session_id,
       resource: { ...resource, path: w.resource.path },
       payload: {
         entryKey,

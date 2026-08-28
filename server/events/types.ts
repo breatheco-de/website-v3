@@ -12,6 +12,9 @@ export const EVENT_TYPES = [
   "binding_propagation_done",
   "job_failed",
   "ai_image_gc_completed",
+  "agent_session_started",
+  "agent_session_note",
+  "agent_session_summarized",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -40,6 +43,9 @@ export const EVENT_TYPE_META: Record<EventType, EventTypeMeta> = {
   binding_propagation_done: { outbox: "audit", affectsWriteGeneration: false },
   job_failed: { outbox: "audit", affectsWriteGeneration: false },
   ai_image_gc_completed: { outbox: "audit", affectsWriteGeneration: false },
+  agent_session_started: { outbox: "audit", affectsWriteGeneration: false },
+  agent_session_note: { outbox: "audit", affectsWriteGeneration: false },
+  agent_session_summarized: { outbox: "audit", affectsWriteGeneration: false },
 };
 
 export function isOutboxDispatchable(type: EventType): boolean {
@@ -89,6 +95,7 @@ export type ContentEvent = {
   payload: Record<string, unknown>;
   triggeredByEventId?: number;
   triggeredByEventIds?: number[];
+  agent_session_id?: string;
   published: boolean;
   created_at: number;
 };
@@ -102,6 +109,7 @@ export type EmitEventOpts = {
   payload?: Record<string, unknown>;
   triggeredByEventId?: number;
   triggeredByEventIds?: number[];
+  agent_session_id?: string;
 };
 
 export function singleAttribution(author?: string, actor?: EventActor): EventAttribution[] {

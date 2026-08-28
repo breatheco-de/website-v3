@@ -26,10 +26,14 @@ import {
   IconLink,
   IconLoader2,
   IconLock,
+  IconMessage,
+  IconNotes,
   IconPencil,
+  IconPlayerPlay,
   IconRefresh,
   IconRotateClockwise,
   IconRoute,
+  IconSparkles,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
@@ -124,9 +128,64 @@ type ContentEvent = {
   payload: Record<string, unknown>;
   triggeredByEventId?: number;
   triggeredByEventIds?: number[];
+  agent_session_id?: string;
   published: boolean;
   created_at: number;
 };
+
+type AgentSessionSummary = {
+  agent_session_id: string;
+  started_at: number;
+  ended_at: number;
+  event_count: number;
+  write_count: number;
+  issue_complete_count: number;
+};
+
+type AgentSessionDetail = {
+  summary: AgentSessionSummary;
+  files: string[];
+  reports: Array<{ type: string; report: string; created_at: number; event_id: number }>;
+  headline: string | null;
+  attribution: ContentEvent["attribution"];
+};
+
+const SESSION_UNSCOPED = "__unscoped__";
+
+type EventKindChip = {
+  id: string;
+  label: string;
+  types: string[];
+  icon: typeof IconActivity;
+};
+
+const EVENT_KIND_CHIPS: EventKindChip[] = [
+  { id: "writes", label: "Writes", types: ["content_file_written", "redirects_changed"], icon: IconPencil },
+  { id: "deletes", label: "Deletes", types: ["content_entry_deleted"], icon: IconTrash },
+  { id: "claims", label: "Claims", types: ["validation_issue_claimed"], icon: IconClipboardText },
+  { id: "completes", label: "Completes", types: ["validation_issue_completed"], icon: IconCircleCheck },
+  {
+    id: "session",
+    label: "Session",
+    types: ["agent_session_started", "agent_session_note", "agent_session_summarized"],
+    icon: IconSparkles,
+  },
+  {
+    id: "background",
+    label: "Background",
+    types: [
+      "index_snapshot_ready",
+      "validation_results_ready",
+      "binding_propagation_started",
+      "binding_propagation_done",
+      "content_bulk_synced",
+      "job_failed",
+      "ai_image_gc_completed",
+      "validation_issue_reopened",
+    ],
+    icon: IconActivity,
+  },
+];
 
 type EventsResponse = {
   events: ContentEvent[];
@@ -262,6 +321,27 @@ const EVENT_META: Record<string, EventMeta> = {
       "An unused AI-generated image past the grace window was removed from the gallery and storage.",
     icon: IconActivity,
     iconClass: "text-muted-foreground border-border",
+  },
+  agent_session_started: {
+    label: "Agent Session Started",
+    description:
+      "An MCP agent started a session so staff can group later writes and issue work under one run.",
+    icon: IconPlayerPlay,
+    iconClass: "text-sky-400 border-sky-400/40",
+  },
+  agent_session_note: {
+    label: "Agent Session Note",
+    description:
+      "An MCP agent left a mid-run note (report) on this session.",
+    icon: IconNotes,
+    iconClass: "text-sky-400 border-sky-400/40",
+  },
+  agent_session_summarized: {
+    label: "Agent Session Summarized",
+    description:
+      "An MCP agent summarized the run. The session banner prefers this text when present.",
+    icon: IconMessage,
+    iconClass: "text-sky-400 border-sky-400/40",
   },
 };
 
@@ -813,7 +893,9 @@ const EventRow = memo(function EventRow({
               <div className="relative flex items-center gap-2 mb-1.5">
                 {agentId ? <AgentIcon agentId={agentId} size="sm" /> : null}
                 <p className="text-[11px] font-semibold text-muted-foreground">
-                  {agentLabel}
+                  {event.type.startsWith("agent_session_")
+                    ? "Agent note"
+                    : `${agentLabel} report`}
                 </p>
               </div>
               <p className="relative text-sm text-foreground whitespace-pre-wrap leading-relaxed">
@@ -856,6 +938,11 @@ const EventRow = memo(function EventRow({
           onNavigateToEvent={onNavigateToEvent}
         />
         <EventSummary event={event} />
+        {event.agent_session_id ? (
+          <p className="text-[10px] font-mono text-muted-foreground mt-0.5 truncate" title={event.agent_session_id}>
+            session {event.agent_session_id.slice(0, 8)}…
+          </p>
+        ) : null}
         {isExpanded && !validationEntry ? <EventDetails event={event} /> : null}
       </div>
       <div className="shrink-0 text-right pt-0.5">
@@ -891,8 +978,12 @@ function EventLogPanel({
   failures: ContentEvent[];
 }) {
   const [typeFilter, setTypeFilter] = useState("");
+  const [kindChips, setKindChips] = useState<ReadonlySet<string>>(new Set());
+  const [sessionFilter, setSessionFilter] = useState("");
   const [agentFilter, setAgentFilter] = useState<"" | AgentId | typeof AGENT_FILTER_OTHER>("");
   const [events, setEvents] = useState<ContentEvent[]>([]);
+  const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
+  const [sessionDetail, setSessionDetail] = useState<AgentSessionDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [newIds, setNewIds] = useState<ReadonlySet<number>>(new Set());
@@ -1006,6 +1097,8 @@ function EventLogPanel({
     try {
       const params = new URLSearchParams({ site, limit: String(EVENT_LOG_FETCH_LIMIT) });
       if (typeFilter) params.set("type", typeFilter);
+      if (sessionFilter === SESSION_UNSCOPED) params.set("unscoped", "1");
+      else if (sessionFilter) params.set("agentSessionId", sessionFilter);
       const res = await apiFetch(`/api/admin/events?${params}`);
       if (!res.ok) return;
       const data = (await res.json()) as EventsResponse;
@@ -1031,7 +1124,30 @@ function EventLogPanel({
     } finally {
       setLoading(false);
     }
-  }, [site, typeFilter]);
+  }, [site, typeFilter, sessionFilter]);
+
+  const loadSessions = useCallback(async () => {
+    const res = await apiFetch(`/api/admin/agent-sessions?site=${encodeURIComponent(site)}&limit=30`);
+    if (!res.ok) return;
+    const data = (await res.json()) as { sessions?: AgentSessionSummary[] };
+    setSessions(data.sessions ?? []);
+  }, [site]);
+
+  const loadSessionDetail = useCallback(async () => {
+    if (!sessionFilter || sessionFilter === SESSION_UNSCOPED) {
+      setSessionDetail(null);
+      return;
+    }
+    const res = await apiFetch(
+      `/api/admin/agent-sessions/${encodeURIComponent(sessionFilter)}?site=${encodeURIComponent(site)}`,
+    );
+    if (!res.ok) {
+      setSessionDetail(null);
+      return;
+    }
+    const data = (await res.json()) as AgentSessionDetail;
+    setSessionDetail(data);
+  }, [site, sessionFilter]);
 
   const clearLog = useCallback(async () => {
     setClearing(true);
@@ -1090,18 +1206,28 @@ function EventLogPanel({
 
   useEffect(() => {
     void loadEvents();
+    void loadSessions();
+    void loadSessionDetail();
     const onVisibility = () => {
-      if (!document.hidden) void loadEvents();
+      if (!document.hidden) {
+        void loadEvents();
+        void loadSessions();
+        void loadSessionDetail();
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
     const id = setInterval(() => {
-      if (!document.hidden) void loadEvents();
+      if (!document.hidden) {
+        void loadEvents();
+        void loadSessions();
+        void loadSessionDetail();
+      }
     }, 5000);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       clearInterval(id);
     };
-  }, [loadEvents]);
+  }, [loadEvents, loadSessions, loadSessionDetail]);
 
   // List / page scroll takes ownership until the user scrubs the timeline or jumps to latest.
   useEffect(() => {
@@ -1150,15 +1276,25 @@ function EventLogPanel({
     listOwnsScrollRef.current = false;
   }, []);
 
-  /** Type filter is server-side; agent filter applies to timeline + list. */
+  /** Type/session filters are server-side; agent + kind chips apply to timeline + list. */
   const filterScopedEvents = useMemo(() => {
-    if (!agentFilter) return events;
-    return events.filter((e) => {
+    let next = events;
+    if (kindChips.size > 0) {
+      const allowed = new Set<string>();
+      for (const chip of EVENT_KIND_CHIPS) {
+        if (kindChips.has(chip.id)) {
+          for (const t of chip.types) allowed.add(t);
+        }
+      }
+      next = next.filter((e) => allowed.has(e.type));
+    }
+    if (!agentFilter) return next;
+    return next.filter((e) => {
       const agentId = resolveAgentId(e.attribution);
       if (agentFilter === AGENT_FILTER_OTHER) return agentId == null;
       return agentId === agentFilter;
     });
-  }, [events, agentFilter]);
+  }, [events, agentFilter, kindChips]);
 
   filterScopedEventsRef.current = filterScopedEvents;
 
@@ -1190,7 +1326,20 @@ function EventLogPanel({
 
   const getActivityLabel = useCallback((event: ContentEvent) => formatEventHeadlinePlain(event), []);
 
-  const activeFilterCount = (typeFilter ? 1 : 0) + (agentFilter ? 1 : 0);
+  const activeFilterCount =
+    (typeFilter ? 1 : 0) +
+    (agentFilter ? 1 : 0) +
+    (sessionFilter ? 1 : 0) +
+    kindChips.size;
+
+  const toggleKindChip = useCallback((id: string) => {
+    setKindChips((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   /** Outline buttons tuned for the dark help bar; labels hide on small screens. */
   const darkBarBtn =
@@ -1216,10 +1365,60 @@ function EventLogPanel({
             ) : null}
           </Button>
         </PopoverTrigger>
-        <PopoverContent side="bottom" align="end" className="w-72 space-y-3 p-3">
+        <PopoverContent side="bottom" align="end" className="w-80 space-y-3 p-3">
+          <div className="space-y-1">
+            <label className="text-xs font-medium" htmlFor="event-session-filter">
+              Agent session
+            </label>
+            <select
+              id="event-session-filter"
+              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+              value={sessionFilter}
+              onChange={(e) => setSessionFilter(e.target.value)}
+              data-testid="select-event-session-filter"
+            >
+              <option value="">All sessions</option>
+              <option value={SESSION_UNSCOPED}>Unscoped (no session)</option>
+              {sessions.map((s) => {
+                const short = s.agent_session_id.slice(0, 8);
+                return (
+                  <option key={s.agent_session_id} value={s.agent_session_id}>
+                    {short}… · {s.write_count} write{s.write_count === 1 ? "" : "s"} ·{" "}
+                    {formatRelative(s.ended_at)}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium">Kind</p>
+            <div className="flex flex-wrap gap-1.5">
+              {EVENT_KIND_CHIPS.map((chip) => {
+                const active = kindChips.has(chip.id);
+                const ChipIcon = chip.icon;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => toggleKindChip(chip.id)}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors",
+                      active
+                        ? "border-primary bg-primary/15 text-foreground"
+                        : "border-border bg-background text-muted-foreground hover:text-foreground",
+                    )}
+                    data-testid={`chip-event-kind-${chip.id}`}
+                  >
+                    <ChipIcon className="h-3 w-3" />
+                    {chip.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <div className="space-y-1">
             <label className="text-xs font-medium" htmlFor="event-type-filter">
-              Event type
+              Exact event type
             </label>
             <select
               id="event-type-filter"
@@ -1267,6 +1466,8 @@ function EventLogPanel({
               onClick={() => {
                 setTypeFilter("");
                 setAgentFilter("");
+                setSessionFilter("");
+                setKindChips(new Set());
               }}
             >
               <IconX className="h-3.5 w-3.5 mr-1" />
@@ -1343,9 +1544,9 @@ function EventLogPanel({
           <AlertDialogHeader>
             <AlertDialogTitle>Clear event log?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes every background event for this site from the log. Saves and
-              pipeline work are not undone — only the diary entries disappear. New events will
-              still appear as work happens.
+              This removes every background event for this site from the log, including agent
+              session history. Saves and pipeline work are not undone — only the diary entries
+              disappear. New events will still appear as work happens.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1365,7 +1566,87 @@ function EventLogPanel({
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="max-w-6xl mx-auto px-6 w-full pb-6">
+      <div className="max-w-6xl mx-auto px-6 w-full pb-6 space-y-4">
+        <details className="rounded-md border border-border bg-card/40 px-3 py-2 text-sm">
+          <summary className="cursor-pointer font-medium text-foreground">
+            About this log
+          </summary>
+          <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+            This log is the diary of site changes and agent runs. Filter by agent session and by
+            kind (writes, claims, completes, session notes). Selecting a session shows a short
+            summary built from those events.
+          </p>
+          <details className="mt-2">
+            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+              Read more (advanced)
+            </summary>
+            <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed border-l-2 border-border pl-2">
+              MCP agent_session start/note/summarize are normal audit events. Writes and issues carry
+              report (min 80). Session id is optional — Unscoped means no session. Bulk sync is never
+              session-tagged. Clearing the log clears session history too. Retention is about 7 days.
+            </p>
+          </details>
+        </details>
+
+        {sessionDetail && sessionFilter && sessionFilter !== SESSION_UNSCOPED ? (
+          <div
+            className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 space-y-2"
+            data-testid="agent-session-banner"
+          >
+            <div className="flex flex-wrap items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-sky-400/40 bg-card text-sky-400">
+                <IconSparkles className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  <p className="text-sm font-semibold text-foreground">Agent session</p>
+                  <p className="text-[11px] font-mono text-muted-foreground">
+                    {sessionDetail.summary.agent_session_id.slice(0, 8)}…
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {formatMs(Math.max(0, sessionDetail.summary.ended_at - sessionDetail.summary.started_at))} ·{" "}
+                    {formatRelative(sessionDetail.summary.ended_at)}
+                  </p>
+                </div>
+                {sessionDetail.headline ? (
+                  <p className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed line-clamp-4">
+                    {sessionDetail.headline}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No summarize yet — summary is built from writes and issue reports below.
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <Badge variant="secondary" className="text-[10px] font-normal">
+                    {sessionDetail.summary.write_count} write
+                    {sessionDetail.summary.write_count === 1 ? "" : "s"}
+                  </Badge>
+                  <Badge variant="secondary" className="text-[10px] font-normal">
+                    {sessionDetail.summary.issue_complete_count} issue
+                    {sessionDetail.summary.issue_complete_count === 1 ? "" : "s"} fixed
+                  </Badge>
+                  {sessionDetail.files.slice(0, 6).map((f) => (
+                    <Badge
+                      key={f}
+                      variant="outline"
+                      className="text-[10px] font-mono font-normal max-w-[14rem] truncate"
+                      title={f}
+                    >
+                      {f.split("/").slice(-2).join("/")}
+                    </Badge>
+                  ))}
+                  {sessionDetail.files.length > 6 ? (
+                    <Badge variant="outline" className="text-[10px] font-normal">
+                      +{sessionDetail.files.length - 6} files
+                    </Badge>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {loading && events.length === 0 ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <IconLoader2 className="h-4 w-4 animate-spin" />
@@ -1446,11 +1727,9 @@ export default function BackgroundPipelinePage() {
               ) : null}
             </h1>
             <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-              Agents are why this site feels instant. When you save, you&apos;re done — your page
-              updates right away while AI agents quietly finish the rest: refreshing search and lists,
-              checking content quality, syncing shared sections across pages, and pushing updates to
-              GitHub. That&apos;s how the experience stays accurate and polished for visitors —
-              usually within seconds.
+              Agents are why this site feels instant. When you save, you&apos;re done — background
+              work finishes the rest. Use the event log below to filter by agent session and kind, and
+              open a session for a short summary built from those events.
             </p>
           </div>
           <Button

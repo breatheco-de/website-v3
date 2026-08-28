@@ -115,6 +115,9 @@ const TECHNICAL_LABELS: Record<string, string> = {
   binding_propagation_done: "Shared Section Sync Done",
   job_failed: "Job Failed",
   ai_image_gc_completed: "AI Image Cleanup",
+  agent_session_started: "Agent Session Started",
+  agent_session_note: "Agent Session Note",
+  agent_session_summarized: "Agent Session Summarized",
 };
 
 function technicalLabelFor(event: Pick<PipelineContentEvent, "type" | "payload">): string {
@@ -229,6 +232,12 @@ function sentenceParts(
         ? { ...withActor(actor, " finished syncing"), entry, muted: false }
         : { ...withActor(actor, " finished syncing a shared section"), muted: false };
     }
+    case "agent_session_started":
+      return { ...withActor(actor, " started an agent session"), muted: false };
+    case "agent_session_note":
+      return { ...withActor(actor, " left a session note"), muted: false };
+    case "agent_session_summarized":
+      return { ...withActor(actor, " summarized an agent session"), muted: false };
     case "job_failed": {
       const jobType = strField(event.payload, "jobType") ?? strField(event.payload, "job");
       return {

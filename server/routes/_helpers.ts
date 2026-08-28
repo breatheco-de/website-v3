@@ -30,6 +30,11 @@ import {
   refreshSitemapEntriesForContentKey,
 } from "../sitemap";
 import { markFileAsModified } from "../sync-state";
+import {
+  runWithContentWriteContextAsync,
+  enterContentWriteContext,
+  type ContentWriteContext,
+} from "../write-context";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager } from "../database";
@@ -383,10 +388,10 @@ function sanitizeIssueActorModel(model: unknown): string | undefined {
   return trimmed.length > 64 ? trimmed.slice(0, 64) : trimmed;
 }
 
-export const ISSUE_REPORT_MIN_LENGTH = 20;
+export const ISSUE_REPORT_MIN_LENGTH = 80;
 export const ISSUE_REPORT_MAX_LENGTH = 2000;
 
-/** Trim and cap MCP issue claim/complete report text. */
+/** Trim and cap MCP report text (writes, issue claim/complete, session note/summarize). */
 export function sanitizeIssueReport(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
   const trimmed = raw.trim().replace(/\s+/g, " ");
@@ -403,7 +408,7 @@ export function requireIssueReport(
   if (!report) {
     return {
       ok: false,
-      error: "report required for MCP claim/complete (min 20 chars)",
+      error: `report required (min ${ISSUE_REPORT_MIN_LENGTH} characters)`,
       code: "report_required",
     };
   }
@@ -416,6 +421,58 @@ export function requireIssueReport(
   }
   return { ok: true, report };
 }
+
+/** MCP agent session id from x-mcp-agent-session (loopback only — never trust browser). */
+export function resolveAgentSessionId(req: Request): string | undefined {
+  if (!isMcpLoopbackRequest(req)) return undefined;
+  const raw = req.headers["x-mcp-agent-session"];
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > 128) return undefined;
+  return trimmed;
+}
+
+/**
+ * For MCP loopback content mutates: require report in body.
+ * Staff UI returns ok without a report.
+ */
+export function requireMcpWriteReport(
+  req: Request,
+  raw: unknown,
+):
+  | { ok: true; report?: string }
+  | { ok: false; error: string; code: "report_required" | "report_too_short" } {
+  if (!isMcpLoopbackRequest(req)) return { ok: true };
+  return requireIssueReport(raw);
+}
+
+/**
+ * Build write context for an MCP loopback mutate (session + report + actor).
+ * Returns error payload when MCP report is missing/short; staff UI always ok.
+ */
+export function beginMcpContentWrite(
+  req: Request,
+  reportRaw: unknown,
+):
+  | { ok: true; ctx: ContentWriteContext }
+  | { ok: false; error: string; code: "report_required" | "report_too_short" } {
+  if (!isMcpLoopbackRequest(req)) {
+    return { ok: true, ctx: {} };
+  }
+  const parsed = requireIssueReport(reportRaw);
+  if (!parsed.ok) return parsed;
+  return {
+    ok: true,
+    ctx: {
+      agentSessionId: resolveAgentSessionId(req),
+      report: parsed.report,
+      actor: resolveEventActor(req),
+    },
+  };
+}
+
+export { runWithContentWriteContextAsync, enterContentWriteContext };
+
 
 /**
  * Resolve actor provenance for validation issue claim/complete overlays.
@@ -475,15 +532,25 @@ export function markContentFileModified(
     req?: Request;
     contentRoot?: string;
     allowedExceptions?: Set<string>;
+    agentSessionId?: string;
+    report?: string;
   },
 ): void {
   const actor = opts.actor ?? (opts.req ? resolveEventActor(opts.req) : undefined);
+  const agentSessionId =
+    opts.agentSessionId ?? (opts.req ? resolveAgentSessionId(opts.req) : undefined);
+  const report =
+    opts.report ??
+    (opts.req && isMcpLoopbackRequest(opts.req)
+      ? sanitizeIssueReport((opts.req.body as { report?: unknown } | undefined)?.report)
+      : undefined);
   markFileAsModified(
     filePath,
     opts.author,
     opts.allowedExceptions,
     opts.contentRoot,
     actor,
+    { agentSessionId, report },
   );
 }
 

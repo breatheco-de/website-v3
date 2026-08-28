@@ -70,6 +70,7 @@ import {
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
+  resolveAgentSessionId,
 } from "./_helpers";
 import {
   emitValidationIssueWorkflowEvent,
@@ -870,6 +871,7 @@ export function registerValidationRoutes(app: Express): void {
           author,
           actor,
           report,
+          agent_session_id: resolveAgentSessionId(req),
         });
       }
     }
@@ -916,6 +918,7 @@ export function registerValidationRoutes(app: Express): void {
         author: completedBy,
         actor,
         report,
+          agent_session_id: resolveAgentSessionId(req),
       });
     }
     return res.json({

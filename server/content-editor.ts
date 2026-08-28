@@ -53,6 +53,7 @@ import type { EditOperation } from "@shared/schema";
 import { normalizeLocale, getSupportedLocales, getDefaultLocale } from "./settings";
 import { markFileAsModified } from "./sync-state";
 import { emitContentEntryDeleted } from "./content-events";
+import { getContentWriteContext } from "./write-context";
 import { buildEntryKey } from "../scripts/validation/shared/entryKey";
 import { contentIndex, ContentIndex } from "./content-index";
 import { deepMerge } from "./utils/deepMerge";
@@ -2759,6 +2760,7 @@ function emitEntryDeletedPipelineEvent(opts: {
 }): void {
   if (opts.entryKeys.length === 0 && opts.deletedPaths.length === 0) return;
   try {
+    const writeCtx = getContentWriteContext();
     emitContentEntryDeleted({
       site: opts.rootName,
       contentType: opts.type,
@@ -2769,7 +2771,9 @@ function emitEntryDeletedPipelineEvent(opts: {
       folderRemoved: opts.folderRemoved,
       localesRemoved: opts.localesRemoved,
       author: opts.author,
-      actor: opts.author ? { type: "ui" } : { type: "system", source: "content-delete" },
+      actor: writeCtx?.actor ?? (opts.author ? { type: "ui" } : { type: "system", source: "content-delete" }),
+      agent_session_id: writeCtx?.agentSessionId,
+      report: writeCtx?.report,
     });
   } catch {
     /* non-fatal */

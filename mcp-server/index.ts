@@ -23,6 +23,7 @@ import {
   getTokenUsername,
   createPendingAuth,
   consumePendingAuth,
+  peekPendingAuth,
   validateBreathecodeToken,
   updateClientBreathecodeUser,
   registerBreathecodeToken,
@@ -33,7 +34,12 @@ import {
   TOKEN_EXPIRES_IN,
 } from "./lib/oauth.js";
 import { warnMcpBucketParity } from "./lib/bucket-parity.js";
-import { fetchCallerGrants } from "./lib/auth.js";
+import {
+  fetchCallerGrants,
+  fetchRoleContext,
+  fetchRoleInfo,
+  runInMcpSession,
+} from "./lib/auth.js";
 import {
   IDENTITY_TOOLS,
   allowedToolNames,
@@ -95,20 +101,97 @@ function getBase(): string {
   );
 }
 
+function parseRoleIdFromResource(resource: string | undefined): string | undefined {
+  if (!resource) return undefined;
+  try {
+    const u = new URL(resource);
+    const m = u.pathname.match(/\/mcp\/role\/([a-z0-9_-]+)/i);
+    return m?.[1]?.toLowerCase();
+  } catch {
+    const m = resource.match(/\/mcp\/role\/([a-z0-9_-]+)/i);
+    return m?.[1]?.toLowerCase();
+  }
+}
+
+function isValidRoleId(roleId: string): boolean {
+  return /^[a-z][a-z0-9_-]*$/.test(roleId);
+}
+
 function renderAuthorizePage(opts: {
   nonce: string;
   clientId: string;
   redirectUri: string;
   error?: string;
+  roleId?: string;
+  roleLabel?: string;
+  roleDescription?: string;
+  allowedTools?: string[];
+  /** When set, only that auth method step is shown. */
+  authStep?: "choose" | "token" | "login";
 }): string {
   const base = getBase();
   const breathecodeLoginUrl = `https://breathecode.herokuapp.com/v1/auth/view/login?url=${encodeURIComponent(
     `${base}/oauth/callback?nonce=${opts.nonce}`,
   )}`;
+  const step = opts.authStep || "choose";
 
   const errorHtml = opts.error
     ? `<div class="error">${escapeHtml(opts.error)}</div>`
     : "";
+
+  let roleHtml = "";
+  if (opts.roleId) {
+    const tools = opts.allowedTools ?? [];
+    const toolList =
+      tools.length > 0
+        ? `<ul class="tools">${tools.map((t) => `<li><code>${escapeHtml(t)}</code></li>`).join("")}</ul>`
+        : `<p class="muted">Only identity tools (or none beyond auth) for this role.</p>`;
+    roleHtml = `
+  <div class="card role-card">
+    <h2>Role connector: ${escapeHtml(opts.roleLabel || opts.roleId)}</h2>
+    <p class="muted"><code>/mcp/role/${escapeHtml(opts.roleId)}</code></p>
+    ${
+      opts.roleDescription
+        ? `<p class="desc">${escapeHtml(opts.roleDescription)}</p>`
+        : ""
+    }
+    <p class="tools-heading">Tools this connector exposes (${tools.length})</p>
+    ${toolList}
+  </div>`;
+  }
+
+  const chooseHtml = `
+  <div class="card">
+    <h2>How do you want to verify?</h2>
+    <p class="muted">Choose one method. You can go back and pick the other if needed.</p>
+    <form method="GET" action="/oauth/authorize/step" class="stack">
+      <input type="hidden" name="nonce" value="${escapeHtml(opts.nonce)}">
+      <button type="submit" name="method" value="login">Log in with Breathecode</button>
+      <button type="submit" name="method" value="token" class="secondary">Paste Breathecode token</button>
+    </form>
+  </div>`;
+
+  const tokenHtml = `
+  <div class="card">
+    <h2>Paste your Breathecode token</h2>
+    <form method="POST" action="/oauth/authorize">
+      <input type="hidden" name="nonce" value="${escapeHtml(opts.nonce)}">
+      <label for="token">Breathecode API token</label>
+      <input type="text" id="token" name="token" placeholder="Paste your token here" autocomplete="off" required>
+      <button type="submit">Verify &amp; Authorize</button>
+    </form>
+    <a class="back" href="/oauth/authorize/step?nonce=${encodeURIComponent(opts.nonce)}&amp;method=choose">← Choose a different method</a>
+  </div>`;
+
+  const loginHtml = `
+  <div class="card">
+    <h2>Log in with Breathecode</h2>
+    <a class="login-link" href="${escapeHtml(breathecodeLoginUrl)}">Continue to Breathecode login</a>
+    <a class="back" href="/oauth/authorize/step?nonce=${encodeURIComponent(opts.nonce)}&amp;method=choose">← Choose a different method</a>
+  </div>`;
+
+  const bodyCard =
+    step === "token" ? tokenHtml : step === "login" ? loginHtml : chooseHtml;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -118,52 +201,41 @@ function renderAuthorizePage(opts: {
   <title>Authorize MCP Access</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 80px auto; padding: 0 1rem; color: #1a1a1a; }
+    body { font-family: system-ui, sans-serif; max-width: 520px; margin: 80px auto; padding: 0 1rem; color: #1a1a1a; }
     h1 { font-size: 1.4rem; margin-bottom: 0.4rem; }
     .subtitle { color: #555; margin-bottom: 1.5rem; font-size: 0.95rem; }
     .card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 1.5rem; background: #fafafa; margin-bottom: 1rem; }
     .card h2 { font-size: 1rem; margin: 0 0 0.75rem; }
+    .muted { color: #666; font-size: 0.9rem; margin: 0.35rem 0; }
+    .desc { font-size: 0.95rem; line-height: 1.45; margin: 0.75rem 0; }
+    .tools-heading { font-size: 0.85rem; font-weight: 600; margin: 0.75rem 0 0.35rem; }
+    ul.tools { margin: 0; padding-left: 1.1rem; max-height: 180px; overflow: auto; font-size: 0.8rem; }
+    ul.tools code { font-size: 0.75rem; }
     label { display: block; font-size: 0.9rem; color: #444; margin-bottom: 0.3rem; }
     input[type="text"] {
       width: 100%; padding: 0.5rem 0.7rem; border: 1px solid #ccc; border-radius: 6px;
       font-size: 0.95rem; margin-bottom: 0.75rem; font-family: monospace;
     }
     input[type="text"]:focus { outline: none; border-color: #5046e5; box-shadow: 0 0 0 2px rgba(80,70,229,0.15); }
-    button {
-      background: #5046e5; color: #fff; border: none; border-radius: 6px;
-      padding: 0.6rem 1.4rem; font-size: 1rem; cursor: pointer;
+    button, .login-link {
+      display: block; width: 100%; text-align: center; background: #5046e5; color: #fff; border: none; border-radius: 6px;
+      padding: 0.65rem 1.4rem; font-size: 1rem; cursor: pointer; text-decoration: none; font-weight: 500; margin-top: 0.5rem;
     }
-    button:hover { background: #3d35c4; }
-    .divider { text-align: center; color: #aaa; font-size: 0.85rem; margin: 0.25rem 0; }
-    .login-link {
-      display: block; text-align: center; background: #f0f0f0; border: 1px solid #ddd;
-      border-radius: 6px; padding: 0.65rem 1.4rem; font-size: 0.95rem; color: #1a1a1a;
-      text-decoration: none; font-weight: 500;
-    }
-    .login-link:hover { background: #e4e4e4; }
+    button:hover, .login-link:hover { background: #3d35c4; }
+    button.secondary { background: #f0f0f0; color: #1a1a1a; border: 1px solid #ddd; }
+    button.secondary:hover { background: #e4e4e4; }
+    .stack { display: flex; flex-direction: column; gap: 0.5rem; }
     .error { background: #fff0f0; border: 1px solid #f5c6c6; color: #c0392b; border-radius: 6px; padding: 0.65rem 1rem; margin-bottom: 1rem; font-size: 0.9rem; }
-    .cancel { display: block; text-align: center; margin-top: 0.75rem; color: #888; font-size: 0.85rem; text-decoration: none; }
-    .cancel:hover { color: #555; }
+    .cancel, .back { display: block; text-align: center; margin-top: 0.75rem; color: #888; font-size: 0.85rem; text-decoration: none; }
+    .cancel:hover, .back:hover { color: #555; }
   </style>
 </head>
 <body>
   <h1>Authorize MCP Access</h1>
   <p class="subtitle">Verify your Breathecode identity to grant MCP server access.</p>
   ${errorHtml}
-  <div class="card">
-    <h2>Option 1 — Paste your Breathecode token</h2>
-    <form method="POST" action="/oauth/authorize">
-      <input type="hidden" name="nonce" value="${escapeHtml(opts.nonce)}">
-      <label for="token">Breathecode API token</label>
-      <input type="text" id="token" name="token" placeholder="Paste your token here" autocomplete="off" required>
-      <button type="submit">Verify &amp; Authorize</button>
-    </form>
-  </div>
-  <div class="divider">or</div>
-  <div class="card">
-    <h2>Option 2 — Log in with Breathecode</h2>
-    <a class="login-link" href="${escapeHtml(breathecodeLoginUrl)}">Log in on Breathecode</a>
-  </div>
+  ${roleHtml}
+  ${bodyCard}
   <a class="cancel" href="${escapeHtml(opts.redirectUri)}?error=access_denied">Cancel</a>
 </body>
 </html>`;
@@ -174,13 +246,31 @@ function renderAuthorizePage(opts: {
 async function createMcpServer(
   mcpAuthor?: string,
   mcpToken?: string,
-  opts?: { filterCatalog?: boolean },
+  opts?: {
+    filterCatalog?: boolean;
+    activeRoleId?: string;
+    roleLabel?: string;
+    roleDescription?: string;
+    roleGrants?: CatalogGrant[];
+  },
 ): Promise<McpServer> {
-  const mcp = new McpServer({ name: "content-pages", version: "1.0.0" });
+  const serverName = opts?.activeRoleId
+    ? `content-pages-${opts.activeRoleId}`
+    : "content-pages";
+  const instructions = opts?.roleDescription?.trim()
+    ? opts.roleDescription.trim()
+    : undefined;
+  const mcp = new McpServer(
+    { name: serverName, version: "1.0.0" },
+    instructions ? { instructions } : undefined,
+  );
   let grants: CatalogGrant[] | undefined;
   let allowed: Set<string> | null = null;
 
-  if (opts?.filterCatalog && mcpToken) {
+  if (opts?.activeRoleId && opts.roleGrants) {
+    grants = opts.roleGrants;
+    allowed = new Set(allowedToolNames(opts.roleGrants));
+  } else if (opts?.filterCatalog && mcpToken) {
     const fetched = await fetchCallerGrants(mcpToken);
     if (!fetched) {
       grants = [];
@@ -195,7 +285,11 @@ async function createMcpServer(
   registerPageTools(mcp, mcpAuthor, mcpToken, grants);
   registerSeoClusterTools(mcp, mcpToken, grants);
   registerComponentTools(mcp, mcpToken, grants);
-  registerUserTools(mcp, mcpToken, grants);
+  registerUserTools(mcp, mcpToken, grants, {
+    activeRoleId: opts?.activeRoleId,
+    roleDescription: opts?.roleDescription,
+    roleLabel: opts?.roleLabel,
+  });
   registerExplainTools(mcp, mcpToken, grants);
   registerEcommerceTools(mcp, mcpToken, grants);
   registerDatabaseTools(mcp, mcpToken);
@@ -256,11 +350,16 @@ async function authMiddleware(
     return;
   }
 
+  const roleMatch = req.path.match(/^\/mcp\/role\/([a-z0-9_-]+)$/i);
+  const mcpRole = roleMatch?.[1]?.toLowerCase();
   res.status(401).json({
     error:
       "Unauthorized. This is an MCP endpoint — connect via an MCP client (Cursor, Claude, etc.) that completes the OAuth flow. Do not open /mcp directly in a browser.",
     auth: "oauth",
-    authorize_hint: "/oauth/authorize",
+    authorize_hint: mcpRole
+      ? `/oauth/authorize?mcp_role=${encodeURIComponent(mcpRole)}`
+      : "/oauth/authorize",
+    ...(mcpRole ? { mcp_role: mcpRole } : {}),
   });
 }
 
@@ -355,8 +454,8 @@ app.post("/oauth/register", (req, res) => {
   });
 });
 
-app.get("/oauth/authorize", (req, res) => {
-  const { client_id, redirect_uri, response_type, state } = req.query as Record<
+app.get("/oauth/authorize", async (req, res) => {
+  const { client_id, redirect_uri, response_type, state, mcp_role, resource } = req.query as Record<
     string,
     string
   >;
@@ -384,10 +483,73 @@ app.get("/oauth/authorize", (req, res) => {
     return;
   }
 
-  const nonce = createPendingAuth(client_id, redirect_uri, state);
+  const roleIdRaw = (mcp_role || parseRoleIdFromResource(resource) || "").toLowerCase();
+  const roleId = roleIdRaw && isValidRoleId(roleIdRaw) ? roleIdRaw : undefined;
+  let roleMeta: Awaited<ReturnType<typeof fetchRoleInfo>> = null;
+  if (roleId) {
+    roleMeta = await fetchRoleInfo(roleId);
+    if (!roleMeta) {
+      res.status(404).json({
+        error: "invalid_request",
+        error_description: `Unknown MCP role '${roleId}'`,
+      });
+      return;
+    }
+  }
+
+  const nonce = createPendingAuth(client_id, redirect_uri, state, roleId);
 
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(renderAuthorizePage({ nonce, clientId: client_id, redirectUri: redirect_uri }));
+  res.send(
+    renderAuthorizePage({
+      nonce,
+      clientId: client_id,
+      redirectUri: redirect_uri,
+      authStep: "choose",
+      roleId: roleMeta?.roleId,
+      roleLabel: roleMeta?.label,
+      roleDescription: roleMeta?.description,
+      allowedTools: roleMeta?.allowedTools,
+    }),
+  );
+});
+
+app.get("/oauth/authorize/step", async (req, res) => {
+  const { nonce, method } = req.query as Record<string, string>;
+  if (!nonce) {
+    res.status(400).json({ error: "invalid_request", error_description: "nonce is required" });
+    return;
+  }
+  const pending = peekPendingAuth(nonce);
+  if (!pending) {
+    res.status(400).json({
+      error: "invalid_request",
+      error_description: "Invalid or expired session. Please start the authorization flow again.",
+    });
+    return;
+  }
+
+  let roleMeta: Awaited<ReturnType<typeof fetchRoleInfo>> = null;
+  if (pending.roleId) {
+    roleMeta = await fetchRoleInfo(pending.roleId);
+  }
+
+  const authStep =
+    method === "token" || method === "login" || method === "choose" ? method : "choose";
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(
+    renderAuthorizePage({
+      nonce,
+      clientId: pending.clientId,
+      redirectUri: pending.redirectUri,
+      authStep,
+      roleId: roleMeta?.roleId ?? pending.roleId,
+      roleLabel: roleMeta?.label,
+      roleDescription: roleMeta?.description,
+      allowedTools: roleMeta?.allowedTools,
+    }),
+  );
 });
 
 app.post("/oauth/authorize", async (req, res) => {
@@ -404,29 +566,55 @@ app.post("/oauth/authorize", async (req, res) => {
     return;
   }
 
-  if (!token || !token.trim()) {
-    const freshNonce = createPendingAuth(pending.clientId, pending.redirectUri, pending.state);
+  const roleMeta = pending.roleId ? await fetchRoleInfo(pending.roleId) : null;
+
+  async function reRender(error: string, authStep: "choose" | "token" | "login" = "token") {
+    const freshNonce = createPendingAuth(
+      pending!.clientId,
+      pending!.redirectUri,
+      pending!.state,
+      pending!.roleId,
+    );
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.send(renderAuthorizePage({
-      nonce: freshNonce,
-      clientId: pending.clientId,
-      redirectUri: pending.redirectUri,
-      error: "Please paste your Breathecode token.",
-    }));
+    res.send(
+      renderAuthorizePage({
+        nonce: freshNonce,
+        clientId: pending!.clientId,
+        redirectUri: pending!.redirectUri,
+        error,
+        authStep,
+        roleId: roleMeta?.roleId ?? pending!.roleId,
+        roleLabel: roleMeta?.label,
+        roleDescription: roleMeta?.description,
+        allowedTools: roleMeta?.allowedTools,
+      }),
+    );
+  }
+
+  if (!token || !token.trim()) {
+    await reRender("Please paste your Breathecode token.", "token");
     return;
   }
 
   const validation = await validateBreathecodeToken(token.trim());
   if (!validation.valid) {
-    const freshNonce = createPendingAuth(pending.clientId, pending.redirectUri, pending.state);
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.send(renderAuthorizePage({
-      nonce: freshNonce,
-      clientId: pending.clientId,
-      redirectUri: pending.redirectUri,
-      error: validation.error || "Token validation failed. Please check your token and try again.",
-    }));
+    await reRender(
+      validation.error || "Token validation failed. Please check your token and try again.",
+      "token",
+    );
     return;
+  }
+
+  if (pending.roleId && validation.username) {
+    const ctx = await fetchRoleContext(validation.username, pending.roleId);
+    if (!ctx.ok) {
+      await reRender(
+        ctx.error ||
+          `You are not assigned the role '${pending.roleId}'. Ask an administrator to assign it before using this connector.`,
+        "choose",
+      );
+      return;
+    }
   }
 
   updateClientBreathecodeUser(
@@ -488,6 +676,16 @@ app.get("/oauth/callback", async (req, res) => {
     return;
   }
 
+  if (pending.roleId && validation.username) {
+    const ctx = await fetchRoleContext(validation.username, pending.roleId);
+    if (!ctx.ok) {
+      console.warn("[MCP] OAuth callback: role membership failed —", ctx.error);
+      redirectUrl.searchParams.set("error", "access_denied");
+      res.redirect(redirectUrl.toString());
+      return;
+    }
+  }
+
   updateClientBreathecodeUser(
     pending.clientId,
     validation.userId ?? 0,
@@ -540,20 +738,63 @@ app.post("/oauth/token", (req, res) => {
 
 // ─── MCP endpoint ─────────────────────────────────────────────────────────────
 
-app.all("/mcp", authMiddleware, async (req, res) => {
+async function handleMcpRequest(
+  req: express.Request,
+  res: express.Response,
+  activeRoleId?: string,
+): Promise<void> {
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
   });
-  // Derive the authenticated Breathecode username from the bearer token or x-api-key.
-  // authMiddleware has already validated the credential and registered Breathecode
-  // direct tokens via registerBreathecodeToken(), so getTokenUsername() works for both
-  // OAuth access tokens and Breathecode tokens regardless of which header was used.
-  // Falls back to undefined (tools will label commits as "mcp-agent [MCP]").
   const authHeader = (req.headers["authorization"] as string | undefined) || "";
   const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
   const apiKeyToken = (req.headers["x-api-key"] as string | undefined) || "";
   const credentialToken = bearerToken || apiKeyToken;
-  const resolvedUsername = credentialToken ? getTokenUsername(credentialToken) ?? undefined : undefined;
+  const resolvedUsername = credentialToken
+    ? getTokenUsername(credentialToken) ?? undefined
+    : undefined;
+
+  if (activeRoleId) {
+    if (!resolvedUsername) {
+      res.status(401).json({
+        error: "Unauthorized. Complete OAuth before using a role-scoped MCP connector.",
+        auth: "oauth",
+        authorize_hint: `/oauth/authorize?mcp_role=${encodeURIComponent(activeRoleId)}`,
+        mcp_role: activeRoleId,
+      });
+      return;
+    }
+    const ctx = await fetchRoleContext(resolvedUsername, activeRoleId);
+    if (!ctx.ok) {
+      res.status(ctx.status === 404 ? 404 : 403).json({
+        error: ctx.error,
+        mcp_role: activeRoleId,
+      });
+      return;
+    }
+
+    await runInMcpSession({ roleId: activeRoleId }, async () => {
+      const mcp = await createMcpServer(resolvedUsername, credentialToken || undefined, {
+        filterCatalog: true,
+        activeRoleId,
+        roleLabel: ctx.data.label,
+        roleDescription: ctx.data.description,
+        roleGrants: ctx.data.capabilities,
+      });
+      try {
+        await mcp.connect(transport);
+        await transport.handleRequest(req, res, req.body);
+        res.on("finish", () => mcp.close());
+      } catch (err) {
+        console.error("[MCP] Request error:", err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Internal server error" });
+        }
+      }
+    });
+    return;
+  }
+
   const mcp = await createMcpServer(resolvedUsername, credentialToken || undefined, {
     filterCatalog: process.env.NODE_ENV === "production",
   });
@@ -567,6 +808,19 @@ app.all("/mcp", authMiddleware, async (req, res) => {
       res.status(500).json({ error: "Internal server error" });
     }
   }
+}
+
+app.all("/mcp", authMiddleware, async (req, res) => {
+  await handleMcpRequest(req, res);
+});
+
+app.all("/mcp/role/:roleId", authMiddleware, async (req, res) => {
+  const roleId = String(req.params.roleId || "").toLowerCase();
+  if (!isValidRoleId(roleId)) {
+    res.status(404).json({ error: `Invalid or unknown role id '${req.params.roleId}'` });
+    return;
+  }
+  await handleMcpRequest(req, res, roleId);
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────

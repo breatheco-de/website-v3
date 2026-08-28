@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { PageDiagnostics } from "../types";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
@@ -877,31 +878,31 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
               className="w-full"
             >
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <TabsList className="h-9" data-testid="tabs-page-errors">
-                  <TabsTrigger value="errors" data-testid="tab-errors" className="gap-1.5">
+                <ToggleButtonBarList data-testid="tabs-page-errors">
+                  <ToggleButtonBarTrigger value="errors" data-testid="tab-errors" className="gap-1.5">
                     Errors
                     <TabCountBadge
                       count={errors.length}
                       variant="error"
                       testId="text-modal-error-count"
                     />
-                  </TabsTrigger>
-                  <TabsTrigger value="warnings" data-testid="tab-warnings" className="gap-1.5">
+                  </ToggleButtonBarTrigger>
+                  <ToggleButtonBarTrigger value="warnings" data-testid="tab-warnings" className="gap-1.5">
                     Warnings
                     <TabCountBadge
                       count={warnings.length}
                       variant="warning"
                       testId="text-modal-warning-count"
                     />
-                  </TabsTrigger>
-                  <TabsTrigger value="crawlers" data-testid="tab-crawlers" className="gap-1.5">
+                  </ToggleButtonBarTrigger>
+                  <ToggleButtonBarTrigger value="crawlers" data-testid="tab-crawlers" className="gap-1.5">
                     Crawlers
                     <TabCountBadge
                       crawlerState={crawlerBadge}
                       testId="text-modal-crawler-error-count"
                     />
-                  </TabsTrigger>
-                </TabsList>
+                  </ToggleButtonBarTrigger>
+                </ToggleButtonBarList>
                 <div className="flex items-center gap-2">
                   {activeTab === "crawlers" ? (
                     <Button

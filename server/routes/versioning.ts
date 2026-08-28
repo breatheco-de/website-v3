@@ -237,6 +237,9 @@ import {
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
+  beginMcpContentWrite,
+  runWithContentWriteContextAsync,
+  enterContentWriteContext,
 } from "./_helpers";
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
@@ -718,6 +721,13 @@ export function registerVersioningRoutes(app: Express): void {
     const auth = await requireCapability(req, res, "content_promote_variant", contentType);
     if (!auth.authorized) return;
 
+    const writeGate = beginMcpContentWrite(req, req.body?.report);
+    if (!writeGate.ok) {
+      res.status(400).json({ error: writeGate.error, code: writeGate.code });
+      return;
+    }
+    enterContentWriteContext(writeGate.ctx);
+
     const resolved = resolveWritableVersioningSlug(contentType, contentSlug, getContentRoot(res));
     if (!resolved.ok) {
       res.status(resolved.status).json({ error: resolved.error });
@@ -897,6 +907,13 @@ export function registerVersioningRoutes(app: Express): void {
 
     const auth = await requireCapability(req, res, "content_promote_variant", contentType);
     if (!auth.authorized) return;
+
+    const writeGate = beginMcpContentWrite(req, req.body?.report);
+    if (!writeGate.ok) {
+      res.status(400).json({ error: writeGate.error, code: writeGate.code });
+      return;
+    }
+    enterContentWriteContext(writeGate.ctx);
 
     const resolved = resolveWritableVersioningSlug(contentType, contentSlug, getContentRoot(res));
     if (!resolved.ok) {

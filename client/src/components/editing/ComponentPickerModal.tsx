@@ -30,7 +30,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useContentTypes, useContentTypesRaw, getFolderFromType } from "@/hooks/useContentTypes";
@@ -986,14 +987,14 @@ export default function ComponentPickerModal({
               className="flex-1 flex flex-col overflow-hidden min-h-0"
             >
               <div className="px-4 pt-3 pb-2 flex-shrink-0 flex items-center gap-4 flex-wrap">
-                <TabsList className="flex-shrink-0">
-                  <TabsTrigger value="suggested" data-testid="tab-suggested-components">
+                <ToggleButtonBarList className="flex-shrink-0">
+                  <ToggleButtonBarTrigger value="suggested" data-testid="tab-suggested-components">
                     Suggested
-                  </TabsTrigger>
-                  <TabsTrigger value="all" data-testid="tab-all-components">
+                  </ToggleButtonBarTrigger>
+                  <ToggleButtonBarTrigger value="all" data-testid="tab-all-components">
                     All Components
-                  </TabsTrigger>
-                </TabsList>
+                  </ToggleButtonBarTrigger>
+                </ToggleButtonBarList>
               </div>
 
               {/* Suggested Tab */}

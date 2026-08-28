@@ -91,7 +91,8 @@ export function isBuiltInRole(roleId: string): boolean {
 
 const BUILT_IN_WEBMASTER_ROLE: RoleDefinition = {
   label: "Webmaster",
-  description: "Full platform access",
+  description:
+    "Full CMS access: content, SEO, media, types, databases, users, and diagnostics. Use when no narrower role fits. Prefer a focused /mcp/role/… connector when one exists.",
   capabilities: [
     { name: "users_manage" },
     { name: "theme_edit" },
@@ -121,14 +122,14 @@ const BUILT_IN_WEBMASTER_ROLE: RoleDefinition = {
 const BUILT_IN_METRICS_VIEWER_ROLE: RoleDefinition = {
   label: "Metrics Viewer",
   description:
-    "Read-only access to diagnostics, runtime issues, component insights, error log, conversions, and tracking. Cannot start jobs, apply fixers, or change settings.",
+    "Read-only metrics and diagnostics (issues, insights, error log, conversions, tracking). Cannot start jobs, fix issues, or edit content or SEO.",
   capabilities: [{ name: "metrics_view" }],
 };
 
 const BUILT_IN_CONTENT_VIEWER_ROLE: RoleDefinition = {
   label: "Content Viewer",
   description:
-    "Read-only MCP access to YAML entries, type contracts, component schemas, and architecture playbooks. Cannot write content, run diagnostics jobs, or manage FAQ databases.",
+    "Read-only content and playbooks (YAML entries, type contracts, component schemas). Cannot write entries, SEO, redirects, or run mutating diagnostics.",
   capabilities: [{ name: "content_view", contentTypes: "*" }],
 };
 
@@ -591,18 +592,11 @@ export function getUserRoles(username: string, email?: string): string[] {
   return findUserEntry(username, email)?.user.roles ?? [];
 }
 
-/**
- * Check if a user has a specific capability, optionally scoped to a content type.
- */
-export function hasCapability(
-  username: string,
+function grantAllowsCap(
+  grant: CapabilityGrant | undefined,
   capName: CapabilityName,
-  contentType?: string
+  contentType?: string,
 ): boolean {
-  if (hasWebmasterRole(username)) return true;
-
-  const caps = getEffectiveCapabilities(username);
-  const grant = caps.find((g) => g.name === capName);
   if (!grant) return false;
 
   if (SCOPED_CAPABILITIES.includes(capName as ScopedCapability)) {
@@ -619,6 +613,51 @@ export function hasCapability(
   }
 
   return true;
+}
+
+/**
+ * Check if a user has a specific capability, optionally scoped to a content type.
+ */
+export function hasCapability(
+  username: string,
+  capName: CapabilityName,
+  contentType?: string
+): boolean {
+  if (hasWebmasterRole(username)) return true;
+
+  const caps = getEffectiveCapabilities(username);
+  return grantAllowsCap(
+    caps.find((g) => g.name === capName),
+    capName,
+    contentType,
+  );
+}
+
+/** Whether the user is assigned the given role id. */
+export function userHasRole(username: string, roleId: string, email?: string): boolean {
+  return getUserRoles(username, email).includes(roleId);
+}
+
+/**
+ * Capability check against a single role's grants only (no webmaster bypass).
+ * Returns false if the user is not assigned the role or the role does not exist.
+ */
+export function hasCapabilityInRole(
+  username: string,
+  roleId: string,
+  capName: CapabilityName,
+  contentType?: string,
+  email?: string,
+): boolean {
+  if (!userHasRole(username, roleId, email)) return false;
+  ensureLoaded();
+  const role = state.roles[roleId];
+  if (!role) return false;
+  return grantAllowsCap(
+    role.capabilities.find((g) => g.name === capName),
+    capName,
+    contentType,
+  );
 }
 
 export function getAllUsers(): UserRecord[] {

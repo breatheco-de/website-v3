@@ -40,6 +40,14 @@ export class IndexRefreshJob extends Job {
     const parentWrites = getWriteEventsBetween(site, prevCovered, generation);
     const triggeredByEventIds = parentWrites.map((w) => w.id);
     const attribution = unionAttribution(...parentWrites.map((w) => w.attribution));
+    const sessionIds = [
+      ...new Set(
+        parentWrites
+          .map((w) => w.agent_session_id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0),
+      ),
+    ];
+    const agent_session_id = sessionIds.length === 1 ? sessionIds[0] : undefined;
 
     const snapshot = ci.exportSnapshot(generation);
     const entryCount = ci.getStats().total;
@@ -53,6 +61,7 @@ export class IndexRefreshJob extends Job {
       type: "index_snapshot_ready",
       triggeredByEventIds,
       attribution,
+      agent_session_id,
       payload: { generation, snapshotPath, entryCount },
     });
 

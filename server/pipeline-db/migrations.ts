@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import type { PipelineMigration } from "./types";
 import { indexExists, tableExists, tableHasColumn } from "./types";
 
-export const PIPELINE_SCHEMA_VERSION = 6;
+export const PIPELINE_SCHEMA_VERSION = 7;
 
 export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
   {
@@ -118,6 +118,20 @@ export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
       `);
     },
   },
+  {
+    version: 7,
+    name: "events_agent_session",
+    up(db) {
+      if (!tableExists(db, "events")) return;
+      if (!tableHasColumn(db, "events", "agent_session_id")) {
+        db.exec("ALTER TABLE events ADD COLUMN agent_session_id TEXT");
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_events_agent_session
+        ON events(site, agent_session_id, created_at);
+      `);
+    },
+  },
 ];
 
 /** Conservative legacy baseline when pipeline_schema_version is missing. */
@@ -130,7 +144,20 @@ export function detectLegacyBaseline(db: Database.Database): number {
   const hasPipelineState = tableExists(db, "pipeline_state");
   const hasLeases = tableExists(db, "leases");
   const hasTriggerIndex = indexExists(db, "idx_events_triggered_by");
+  const hasAgentSession = tableHasColumn(db, "events", "agent_session_id");
+  const hasAgentSessionIndex = indexExists(db, "idx_events_agent_session");
 
+  if (
+    hasAgentSession &&
+    hasAgentSessionIndex &&
+    hasLeases &&
+    hasPipelineState &&
+    hasTriggers &&
+    hasAttribution &&
+    hasTriggerIndex
+  ) {
+    return 7;
+  }
   if (hasLeases && hasPipelineState && hasTriggers && hasAttribution && hasTriggerIndex) {
     return 6;
   }

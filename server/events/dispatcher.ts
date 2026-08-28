@@ -90,6 +90,7 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
               type: "validation_results_ready",
               triggeredByEventId: event.id,
               attribution: event.attribution,
+              agent_session_id: event.agent_session_id,
               resource: { contentType, slug, locale, path: event.resource.path },
               payload: {
                 entryKey,

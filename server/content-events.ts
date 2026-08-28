@@ -57,7 +57,13 @@ function parseResourceFromPath(filePath: string): {
 
 export function emitContentFileWritten(
   filePath: string,
-  opts?: { author?: string; actor?: EventActor; cause?: string },
+  opts?: {
+    author?: string;
+    actor?: EventActor;
+    cause?: string;
+    agent_session_id?: string;
+    report?: string;
+  },
 ): EmitResult | null {
   const site = resolveSiteFromPath(filePath);
   if (!site) return null;
@@ -68,7 +74,11 @@ export function emitContentFileWritten(
     resource,
     attribution: singleAttribution(opts?.author, opts?.actor),
     cause: opts?.cause,
-    payload: { path: resource.path },
+    agent_session_id: opts?.agent_session_id,
+    payload: {
+      path: resource.path,
+      ...(opts?.report ? { report: opts.report } : {}),
+    },
   });
 }
 
@@ -83,6 +93,8 @@ export function emitContentEntryDeleted(opts: {
   localesRemoved?: string[];
   author?: string;
   actor?: EventActor;
+  agent_session_id?: string;
+  report?: string;
 }): EmitResult {
   return emitEvent({
     site: opts.site,
@@ -93,11 +105,13 @@ export function emitContentEntryDeleted(opts: {
       ...(opts.locale ? { locale: opts.locale } : {}),
     },
     attribution: singleAttribution(opts.author, opts.actor),
+    agent_session_id: opts.agent_session_id,
     payload: {
       entryKeys: opts.entryKeys,
       deletedPaths: opts.deletedPaths,
       folderRemoved: opts.folderRemoved,
       ...(opts.localesRemoved?.length ? { localesRemoved: opts.localesRemoved } : {}),
+      ...(opts.report ? { report: opts.report } : {}),
     },
   });
 }
@@ -123,7 +137,7 @@ export function emitContentBulkSynced(
 
 export function emitRedirectsChanged(
   filePath: string,
-  opts?: { author?: string; actor?: EventActor },
+  opts?: { author?: string; actor?: EventActor; agent_session_id?: string; report?: string },
 ): EmitResult | null {
   const site = resolveSiteFromPath(filePath);
   if (!site) return null;
@@ -132,7 +146,11 @@ export function emitRedirectsChanged(
     type: "redirects_changed",
     resource: parseResourceFromPath(filePath),
     attribution: singleAttribution(opts?.author, opts?.actor),
-    payload: { path: filePath },
+    agent_session_id: opts?.agent_session_id,
+    payload: {
+      path: filePath,
+      ...(opts?.report ? { report: opts.report } : {}),
+    },
   });
 }
 
@@ -147,12 +165,14 @@ export function emitBindingPropagationStarted(opts: {
   token: number;
   author?: string;
   actor?: EventActor;
+  agent_session_id?: string;
 }): EmitResult {
   return emitEvent({
     site: opts.site,
     type: "binding_propagation_started",
     resource: { groupId: opts.groupId, locale: opts.locale },
     attribution: singleAttribution(opts.author, opts.actor),
+    agent_session_id: opts.agent_session_id,
     payload: {
       groupId: opts.groupId,
       locale: opts.locale,

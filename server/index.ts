@@ -614,7 +614,7 @@ app.use((req, res, next) => {
     /** Previous YAML bodies for redirects_changed gating (in-process seed). */
     const lastYamlContentByPath = new Map<string, string>();
     addFileModifiedListener((evt) => {
-      const { filePath, author, actor, contentChanged, content } = evt;
+      const { filePath, author, actor, contentChanged, content, agentSessionId, report } = evt;
       scheduleSectionVariantsRefreshForFile(filePath);
       if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
         for (const ctx of getSiteContextMap().values()) {
@@ -635,10 +635,15 @@ app.use((req, res, next) => {
           }
           const resolvedActor =
             actor ?? (author ? { type: "ui" as const } : { type: "system" as const, source: "content-pipeline" });
-          emitContentFileWritten(filePath, { author, actor: resolvedActor });
+          emitContentFileWritten(filePath, {
+            author,
+            actor: resolvedActor,
+            agent_session_id: agentSessionId,
+            report,
+          });
 
           if (contentChanged) {
-            const abs = path.isAbsolute(filePath)
+            const absPath = path.isAbsolute(filePath)
               ? filePath
               : path.join(process.cwd(), filePath);
             const next =
@@ -646,7 +651,7 @@ app.use((req, res, next) => {
                 ? content
                 : (() => {
                     try {
-                      return fs.readFileSync(abs, "utf-8");
+                      return fs.readFileSync(absPath, "utf-8");
                     } catch {
                       return "";
                     }
@@ -658,7 +663,12 @@ app.use((req, res, next) => {
                 isCustomRedirectsFile: isCustomRedirects,
               })
             ) {
-              emitRedirectsChanged(filePath, { author, actor: resolvedActor });
+              emitRedirectsChanged(filePath, {
+                author,
+                actor: resolvedActor,
+                agent_session_id: agentSessionId,
+                report,
+              });
             }
             lastYamlContentByPath.set(filePath, next);
           }

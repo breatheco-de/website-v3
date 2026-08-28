@@ -5,6 +5,32 @@
 window_days: 6
 
 entries:
+  - date: "2026-08-28"
+    summary: "Agent sessions + required report on MCP content mutates"
+    agent_impact:
+      - "Call agent_session start → pass agent_session_id on mutates; note/summarize emit pipeline audit events."
+      - "Content mutates require report (min 80). Missing session → agent_session_unscoped warning (staff Unscoped bucket)."
+      - "update_issue claim (first) report = why/plan; complete report = what/how (min 80). Own claim TTL refresh may omit report."
+      - "Staff Background Pipeline filters by session/kind; session banner is a template rollup from events (no LLM)."
+    paths:
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/loopback.ts
+      - server/events/event-store.ts
+      - server/pipeline-db/migrations.ts
+      - client/src/pages/BackgroundPipelinePage.tsx
+    tools_changed: true
+  - date: "2026-08-28"
+    summary: "Role-scoped MCP connectors at /mcp/role/:roleId"
+    agent_impact:
+      - "Use /mcp for all of the caller's roles, or /mcp/role/{roleId} for one assigned CMS role only (strict membership)."
+      - "get_current_user returns active_role, role_label, role_description, and allowed_tools for this connector session."
+      - "Ask the human to reconnect/refresh the MCP connector if tools look missing or stale after a role or deploy change."
+    paths:
+      - mcp-server/index.ts
+      - mcp-server/lib/auth.ts
+      - mcp-server/tools/user.ts
+      - shared/mcp-tool-catalog.ts
+    tools_changed: true
   - date: "2026-08-27"
     summary: "get_or_set_image_to_gallery url mode: registry lookup by src/source_url"
     agent_impact:

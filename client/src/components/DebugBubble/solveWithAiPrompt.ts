@@ -122,10 +122,11 @@ ${warningBlock}
 
 ## Rules
 1. Use this site’s MCP tools. Authenticate/OAuth if needed.
-2. Treat the Known issues list as authoritative for what to fix. Use get_entry_content / get_entry_fields to inspect YAML paths; use update_fields (and related write tools) to fix. Honor next_actions / warnings / side_effects.
-3. Before editing an issue, call update_issue with action "claim", that issue’s id (from validation_issues), and report (why you are claiming it, min 20 chars). After fixing, call update_issue with action "complete" and report (what you changed and how, min 20 chars). Soft-complete only — does not push YAML or run diagnostics. Claims expire after 30 minutes; re-claim to refresh TTL may omit report.
-4. Do NOT call run_entry_diagnostics with confirm:true. Do NOT start or poll a new diagnostics job.
-5. Scope: this contentType + slug + locale only. No unrelated pages. No locale fan-out unless a tool next_action says so.`;
+2. Call agent_session with action "start", then pass the returned agent_session_id on every mutate. End with agent_session summarize (report min 80) when done.
+3. Treat the Known issues list as authoritative for what to fix. Use get_entry_content / get_entry_fields to inspect YAML paths; use update_fields (and related write tools) to fix — every content mutate needs report (min 80 chars: what/why for this change). Honor next_actions / warnings / side_effects.
+4. Before editing an issue, call update_issue with action "claim", that issue’s id (from validation_issues), and report (why you are claiming it + plan, min 80 chars). After fixing, call update_issue with action "complete" and report (what you changed and how, min 80 chars). Soft-complete only — does not push YAML or run diagnostics. Claims expire after 30 minutes; re-claim to refresh TTL may omit report.
+5. Do NOT call run_entry_diagnostics with confirm:true. Do NOT start or poll a new diagnostics job.
+6. Scope: this contentType + slug + locale only. No unrelated pages. No locale fan-out unless a tool next_action says so.`;
 }
 
 export function buildSolveWithAiPrefillUrl(

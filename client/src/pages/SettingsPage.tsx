@@ -28,7 +28,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -580,32 +581,32 @@ export default function SettingsPage() {
             window.history.replaceState({}, "", url.pathname + url.search);
           }}
         >
-          <TabsList className="flex w-full flex-wrap h-auto gap-1">
-            <TabsTrigger value="locales" data-testid="tab-locales">
-              <IconLanguage className="h-4 w-4 mr-1.5" />
+          <ToggleButtonBarList className="flex w-full" data-testid="tabs-settings">
+            <ToggleButtonBarTrigger value="locales" data-testid="tab-locales" className="gap-1.5">
+              <IconLanguage className="h-3.5 w-3.5" />
               Locales
-            </TabsTrigger>
-            <TabsTrigger value="migrations" data-testid="tab-migrations">
-              <IconCode className="h-4 w-4 mr-1.5" />
+            </ToggleButtonBarTrigger>
+            <ToggleButtonBarTrigger value="migrations" data-testid="tab-migrations" className="gap-1.5">
+              <IconCode className="h-3.5 w-3.5" />
               Migrations
-            </TabsTrigger>
-            <TabsTrigger value="brand" data-testid="tab-brand">
-              <IconPhoto className="h-4 w-4 mr-1.5" />
+            </ToggleButtonBarTrigger>
+            <ToggleButtonBarTrigger value="brand" data-testid="tab-brand" className="gap-1.5">
+              <IconPhoto className="h-3.5 w-3.5" />
               Brand
-            </TabsTrigger>
-            <TabsTrigger value="robots" data-testid="tab-robots">
-              <IconRobot className="h-4 w-4 mr-1.5" />
+            </ToggleButtonBarTrigger>
+            <ToggleButtonBarTrigger value="robots" data-testid="tab-robots" className="gap-1.5">
+              <IconRobot className="h-3.5 w-3.5" />
               Robots
-            </TabsTrigger>
-            <TabsTrigger value="legal" data-testid="tab-legal">
-              <IconScale className="h-4 w-4 mr-1.5" />
+            </ToggleButtonBarTrigger>
+            <ToggleButtonBarTrigger value="legal" data-testid="tab-legal" className="gap-1.5">
+              <IconScale className="h-3.5 w-3.5" />
               Legal
-            </TabsTrigger>
-            <TabsTrigger value="server" data-testid="tab-server">
-              <IconServer className="h-4 w-4 mr-1.5" />
+            </ToggleButtonBarTrigger>
+            <ToggleButtonBarTrigger value="server" data-testid="tab-server" className="gap-1.5">
+              <IconServer className="h-3.5 w-3.5" />
               Server
-            </TabsTrigger>
-          </TabsList>
+            </ToggleButtonBarTrigger>
+          </ToggleButtonBarList>
 
           <TabsContent value="locales" className="mt-4">
             <Card>

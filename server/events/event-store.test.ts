@@ -18,6 +18,8 @@ import {
   markEventsPublished,
   listEvents,
   clearAllEvents,
+  listAgentSessions,
+  getAgentSessionDetail,
 } from "./event-store";
 import { singleAttribution } from "./types";
 
@@ -204,4 +206,74 @@ describe("event-store", () => {
     expect(deleted).toBe(2);
     expect(listEvents({ site, limit: 10 }).length).toBe(0);
   });
+
+  it("stores and filters agent_session_id; unscopedOnly", () => {
+    const site = `${TEST_SITE}-sess-${Date.now()}`;
+    emitEvent({
+      site,
+      type: "content_file_written",
+      agent_session_id: "sess-a",
+      payload: { report: "x".repeat(80), path: "a.yml" },
+    });
+    emitEvent({ site, type: "content_file_written", payload: { path: "b.yml" } });
+    expect(listEvents({ site, agentSessionId: "sess-a", limit: 10 })).toHaveLength(1);
+    expect(listEvents({ site, unscopedOnly: true, limit: 10 })).toHaveLength(1);
+  });
+
+  it("auto-publishes agent_session audit events", () => {
+    const site = `${TEST_SITE}-sess-audit-${Date.now()}`;
+    const started = emitEvent({
+      site,
+      type: "agent_session_started",
+      agent_session_id: "sess-b",
+      payload: { label: "test" },
+    });
+    expect(started.published).toBe(true);
+    expect(getUnpublishedCount(site)).toBe(0);
+  });
+
+  it("listAgentSessions and getAgentSessionDetail rollup from events", () => {
+    const site = `${TEST_SITE}-sess-list-${Date.now()}`;
+    const sid = "sess-c";
+    emitEvent({
+      site,
+      type: "agent_session_started",
+      agent_session_id: sid,
+      payload: {},
+    });
+    emitEvent({
+      site,
+      type: "content_file_written",
+      agent_session_id: sid,
+      payload: { report: "r".repeat(80), path: "site_x/pages/foo/en.yml" },
+    });
+    emitEvent({
+      site,
+      type: "validation_issue_completed",
+      agent_session_id: sid,
+      payload: { report: "fixed ".padEnd(80, "x"), entryKey: "page/foo/en" },
+    });
+    emitEvent({
+      site,
+      type: "agent_session_summarized",
+      agent_session_id: sid,
+      payload: { report: "summary ".padEnd(80, "y") },
+    });
+    // bulk sync must not appear as a session write even if somehow tagged — we never tag it
+    emitEvent({ site, type: "content_bulk_synced", payload: { count: 3 } });
+
+    const sessions = listAgentSessions(site, { limit: 10 });
+    expect(sessions.some((s) => s.agent_session_id === sid)).toBe(true);
+    const row = sessions.find((s) => s.agent_session_id === sid)!;
+    expect(row.write_count).toBe(1);
+    expect(row.issue_complete_count).toBe(1);
+
+    const detail = getAgentSessionDetail(site, sid);
+    expect(detail).not.toBeNull();
+    expect(detail!.summary.write_count).toBe(1);
+    expect(detail!.summary.issue_complete_count).toBe(1);
+    expect(detail!.files.some((f) => f.includes("en.yml"))).toBe(true);
+    expect(detail!.headline?.startsWith("summary")).toBe(true);
+  });
+
 });

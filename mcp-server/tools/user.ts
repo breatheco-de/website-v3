@@ -23,12 +23,13 @@ export function registerUserTools(
   mcp: McpServer,
   mcpToken?: string,
   grants?: CatalogGrant[],
+  opts?: { activeRoleId?: string; roleDescription?: string; roleLabel?: string },
 ): void {
   mcp.tool(
     "get_current_user",
     "Return the identity, roles, effective capabilities, and allowed_tools of the authenticated MCP caller. " +
       "Useful for agents that need to understand who they are acting as and what operations they are permitted to perform. " +
-      "Returns: username, firstName, lastName, email, roles, capabilities, allowed_tools (MCP tool names visible for this caller). " +
+      "Returns: username, firstName, lastName, email, roles, capabilities, allowed_tools, active_role (null on /mcp; role id on /mcp/role/:id), role_description. " +
       "Note: metrics_view is read-only (diagnostics/insights/error log/conversions/tracking); it does not authorize content edits or job runs. " +
       "content_view authorizes YAML/component/explain reads only. Cursor's tool list updates on MCP reconnect/refresh after a role change.",
     {},
@@ -61,10 +62,19 @@ export function registerUserTools(
         }
 
         const profile = (await res.json()) as { capabilities?: CatalogGrant[] } & Record<string, unknown>;
-        const capGrants = Array.isArray(profile.capabilities) ? profile.capabilities : (grants ?? []);
+        const capGrants = Array.isArray(grants)
+          ? grants
+          : Array.isArray(profile.capabilities)
+            ? profile.capabilities
+            : [];
         const payload = {
           ...profile,
+          // Session grants win when role-scoped (do not re-expand to all user roles).
+          capabilities: capGrants,
           allowed_tools: allowedToolNames(capGrants),
+          active_role: opts?.activeRoleId ?? null,
+          role_label: opts?.roleLabel ?? null,
+          role_description: opts?.roleDescription ?? null,
         };
         return {
           content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],

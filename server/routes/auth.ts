@@ -167,6 +167,7 @@ import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
 import type { CapabilityName } from "../user-store";
+import { allowedToolNames } from "@shared/mcp-tool-catalog";
 
 
 import {
@@ -222,7 +223,7 @@ function resolveAuthUrl(pathOrUrl: string, host: string): string {
 
 export function registerAuthRoutes(app: Express): void {
   app.get("/api/auth/check-capability", async (req, res) => {
-    const { cap, contentType, username } = req.query as Record<string, string>;
+    const { cap, contentType, username, role } = req.query as Record<string, string>;
 
     if (!cap) {
       res.status(400).json({ error: "cap query parameter is required" });
@@ -230,7 +231,9 @@ export function registerAuthRoutes(app: Express): void {
     }
 
     const isDevelopment = process.env.NODE_ENV !== "production";
-    if (isDevelopment) {
+    // Role-scoped checks always evaluate against the role (even in development).
+    // Unscoped checks keep the legacy "allow all" behaviour in development.
+    if (isDevelopment && !role) {
       res.json({ allowed: true });
       return;
     }
@@ -263,6 +266,37 @@ export function registerAuthRoutes(app: Express): void {
       resolvedUsername = profile.username;
     }
 
+    if (role) {
+      const roleDef = userStore.getRole(role);
+      if (!roleDef) {
+        res.status(404).json({ error: `Unknown role '${role}'`, allowed: false });
+        return;
+      }
+      if (!userStore.userHasRole(resolvedUsername, role)) {
+        res.status(403).json({
+          error: `Forbidden: you are not assigned the role '${role}'`,
+          allowed: false,
+        });
+        return;
+      }
+      const allowed = userStore.hasCapabilityInRole(
+        resolvedUsername,
+        role,
+        cap as CapabilityName,
+        contentType || undefined,
+      );
+      if (!allowed) {
+        const scopeMsg = contentType ? ` for content type '${contentType}'` : "";
+        res.status(403).json({
+          error: `Forbidden: capability '${cap}' required${scopeMsg} within role '${role}'`,
+          allowed: false,
+        });
+        return;
+      }
+      res.json({ allowed: true });
+      return;
+    }
+
     const allowed = userStore.hasCapability(resolvedUsername, cap as CapabilityName, contentType || undefined);
     if (!allowed) {
       const scopeMsg = contentType ? ` for content type '${contentType}'` : "";
@@ -271,6 +305,84 @@ export function registerAuthRoutes(app: Express): void {
     }
 
     res.json({ allowed: true });
+  });
+
+  /** Role metadata for OAuth consent (no membership check). Internal secret auth. */
+  app.get("/api/auth/mcp-role-info", async (req, res) => {
+    const { role } = req.query as Record<string, string>;
+    if (!role) {
+      res.status(400).json({ error: "role query parameter is required" });
+      return;
+    }
+
+    const authHeader = req.headers.authorization || "";
+    const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const mcpApiKey = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY;
+    const isDevelopment = process.env.NODE_ENV !== "production";
+    if (!isDevelopment) {
+      if (!mcpApiKey || bearerToken !== mcpApiKey) {
+        res.status(401).json({ error: "Authorization required" });
+        return;
+      }
+    }
+
+    const roleDef = userStore.getRole(role);
+    if (!roleDef) {
+      res.status(404).json({ error: `Unknown role '${role}'` });
+      return;
+    }
+
+    res.json({
+      roleId: role,
+      label: roleDef.label,
+      description: roleDef.description ?? "",
+      capabilities: roleDef.capabilities,
+      allowedTools: allowedToolNames(roleDef.capabilities ?? []),
+    });
+  });
+
+  /** Role-scoped MCP session context: membership + caps. Internal secret auth. */
+  app.get("/api/auth/mcp-role-context", async (req, res) => {
+    const { username, role } = req.query as Record<string, string>;
+    if (!role) {
+      res.status(400).json({ error: "role query parameter is required" });
+      return;
+    }
+    if (!username) {
+      res.status(400).json({ error: "username query parameter is required" });
+      return;
+    }
+
+    const authHeader = req.headers.authorization || "";
+    const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const mcpApiKey = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY;
+    const isDevelopment = process.env.NODE_ENV !== "production";
+    if (!isDevelopment) {
+      if (!mcpApiKey || bearerToken !== mcpApiKey) {
+        res.status(401).json({ error: "Authorization required" });
+        return;
+      }
+    }
+
+    const roleDef = userStore.getRole(role);
+    if (!roleDef) {
+      res.status(404).json({ error: `Unknown role '${role}'` });
+      return;
+    }
+    if (!userStore.userHasRole(username, role)) {
+      res.status(403).json({
+        error: `You are not assigned the role '${role}'. Ask an administrator to assign it before using this connector.`,
+      });
+      return;
+    }
+
+    res.json({
+      roleId: role,
+      label: roleDef.label,
+      description: roleDef.description ?? "",
+      capabilities: roleDef.capabilities,
+      allowedTools: allowedToolNames(roleDef.capabilities ?? []),
+    });
   });
 
   app.post("/api/debug/validate-token", async (req, res) => {

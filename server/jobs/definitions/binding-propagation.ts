@@ -62,6 +62,7 @@ export class BindingPropagationJob extends Job {
       resource: { groupId: payload.groupId, locale: payload.locale },
       triggeredByEventId: payload.startedEventId,
       attribution: started?.attribution ?? [],
+      agent_session_id: started?.agent_session_id,
       payload: {
         updatedFiles: result.updatedFiles,
         updatedPaths: result.updatedPaths,

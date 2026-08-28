@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
@@ -42,7 +43,8 @@ import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager, DatabaseManager } from "../database";
 import { collectSystemAlerts, recheckDatabaseHealth } from "../system-alerts";
-import { listEvents, clearAllEvents, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents, type EventType } from "../events/event-store";
+import { listEvents, clearAllEvents, listAgentSessions, getAgentSessionDetail, emitEvent, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents, type EventType } from "../events/event-store";
+import { singleAttribution } from "../events/types";
 import { seedDemoPipelineEvents } from "../events/seed-demo";
 import { listActiveLeases } from "../leases";
 import { getLastAppliedSnapshot } from "../jobs/applier";
@@ -250,6 +252,10 @@ import {
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
+  isMcpLoopbackRequest,
+  requireIssueReport,
+  resolveAgentSessionId,
+  resolveEventActor,
 } from "./_helpers";
 import { child } from "../logger";
 import { sqlite } from "../db";
@@ -606,14 +612,147 @@ export function registerAdminRoutes(app: Express): void {
     const cause = req.query.cause as string | undefined;
     const before = req.query.before ? Number(req.query.before) : undefined;
     const triggeredBy = req.query.triggeredBy ? Number(req.query.triggeredBy) : undefined;
+    const agentSessionId =
+      typeof req.query.agentSessionId === "string" && req.query.agentSessionId.trim()
+        ? req.query.agentSessionId.trim()
+        : undefined;
+    const unscopedOnly = req.query.unscoped === "1" || req.query.unscoped === "true";
     const limit = req.query.limit ? Number(req.query.limit) : 50;
 
-    const events = listEvents({ site, type, since, cause, before, triggeredBy, limit });
+    const events = listEvents({
+      site,
+      type,
+      since,
+      cause,
+      before,
+      triggeredBy,
+      agentSessionId,
+      unscopedOnly: !agentSessionId && unscopedOnly,
+      limit,
+    });
     res.json({
       events,
       unpublishedTotal: getUnpublishedCount(site),
       education:
-        "Saves return immediately; indexing, validation, bound-section sync and GitHub sync run in the background and report here.",
+        "This log is the diary of site changes and agent runs. Filter by agent session and by kind. Selecting a session shows a short summary built from those events.",
+    });
+  });
+
+  app.get("/api/admin/agent-sessions", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+    const site = (req.query.site as string) || res.locals.site?.contentRootName;
+    if (!site) {
+      res.status(400).json({ error: "Missing site" });
+      return;
+    }
+    const since = req.query.since ? Number(req.query.since) : undefined;
+    const limit = req.query.limit ? Number(req.query.limit) : 20;
+    const sessions = listAgentSessions(site, { since, limit });
+    res.json({ sessions });
+  });
+
+  app.get("/api/admin/agent-sessions/:agentSessionId", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+    const site = (req.query.site as string) || res.locals.site?.contentRootName;
+    if (!site) {
+      res.status(400).json({ error: "Missing site" });
+      return;
+    }
+    const agentSessionId = String(req.params.agentSessionId || "").trim();
+    if (!agentSessionId) {
+      res.status(400).json({ error: "Missing agentSessionId" });
+      return;
+    }
+    const detail = getAgentSessionDetail(site, agentSessionId);
+    if (!detail) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+    res.json(detail);
+  });
+
+  /** MCP loopback: emit agent_session_started | note | summarized audit events. */
+  app.post("/api/admin/agent-sessions/checkpoint", async (req, res) => {
+    if (!isMcpLoopbackRequest(req)) {
+      res.status(403).json({ error: "MCP loopback only" });
+      return;
+    }
+    const site =
+      (typeof req.body?.site === "string" && req.body.site) ||
+      res.locals.site?.contentRootName;
+    if (!site) {
+      res.status(400).json({ error: "Missing site" });
+      return;
+    }
+    const action = req.body?.action as string | undefined;
+    if (action !== "start" && action !== "note" && action !== "summarize") {
+      res.status(400).json({ error: "action must be start | note | summarize" });
+      return;
+    }
+    const author =
+      (typeof req.headers["x-mcp-author"] === "string" && req.headers["x-mcp-author"]) ||
+      "mcp";
+    const actor = resolveEventActor(req, { model: req.body?.model });
+
+    if (action === "start") {
+      const agent_session_id =
+        (typeof req.body?.agent_session_id === "string" && req.body.agent_session_id.trim()) ||
+        randomUUID();
+      const label =
+        typeof req.body?.label === "string" && req.body.label.trim()
+          ? req.body.label.trim().slice(0, 200)
+          : undefined;
+      const event = emitEvent({
+        site,
+        type: "agent_session_started",
+        agent_session_id,
+        attribution: singleAttribution(author, actor),
+        payload: { ...(label ? { label } : {}) },
+      });
+      return res.json({
+        success: true,
+        action: "start",
+        agent_session_id,
+        event_id: event.id,
+      });
+    }
+
+    const agent_session_id =
+      (typeof req.body?.agent_session_id === "string" && req.body.agent_session_id.trim()) ||
+      resolveAgentSessionId(req);
+    if (!agent_session_id) {
+      return res.status(400).json({
+        error: "agent_session_id required for note/summarize",
+        code: "session_required",
+      });
+    }
+    const existing = listEvents({ site, agentSessionId: agent_session_id, limit: 1 });
+    if (existing.length === 0) {
+      return res.status(404).json({
+        error: "Unknown agent_session_id — call agent_session start first",
+        code: "session_unknown",
+        action_required: "start",
+      });
+    }
+    const parsed = requireIssueReport(req.body?.report);
+    if (!parsed.ok) {
+      return res.status(400).json({ error: parsed.error, code: parsed.code });
+    }
+    const type = action === "note" ? "agent_session_note" : "agent_session_summarized";
+    const event = emitEvent({
+      site,
+      type,
+      agent_session_id,
+      attribution: singleAttribution(author, actor),
+      payload: { report: parsed.report },
+    });
+    return res.json({
+      success: true,
+      action,
+      agent_session_id,
+      event_id: event.id,
     });
   });
 
@@ -3031,12 +3170,24 @@ export function registerAdminRoutes(app: Express): void {
         res.status(400).json({ error: "Role id must be lowercase letters, numbers, hyphens, or underscores" });
         return;
       }
+      if (userStore.getRole(id)) {
+        res.status(400).json({ error: `Role id "${id}" is already taken` });
+        return;
+      }
+      const desc = typeof description === "string" ? description.trim() : "";
+      if (!desc) {
+        res.status(400).json({
+          error:
+            "Description for AI agents is required. Agents use it to choose which MCP connector (/mcp/role/…) to use and what they should do.",
+        });
+        return;
+      }
       const capCheck = validateRoleCapabilities(capabilities, res);
       if (!capCheck.ok) {
         res.status(400).json({ error: capCheck.error });
         return;
       }
-      userStore.setRole(id, { label, description: description || undefined, capabilities: capCheck.valid! });
+      userStore.setRole(id, { label, description: desc, capabilities: capCheck.valid! });
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create role";
@@ -3050,9 +3201,23 @@ export function registerAdminRoutes(app: Express): void {
       const auth = await requireCapability(req, res, "users_manage");
       if (!auth.authorized) return;
       const { roleId } = req.params;
+      if (userStore.isBuiltInRole(roleId)) {
+        res.status(400).json({
+          error: `The built-in ${roleId} role is managed in code and cannot be updated from the admin UI.`,
+        });
+        return;
+      }
       const { label, description, capabilities } = req.body;
       if (!label || !Array.isArray(capabilities)) {
         res.status(400).json({ error: "Missing required fields: label, capabilities" });
+        return;
+      }
+      const desc = typeof description === "string" ? description.trim() : "";
+      if (!desc) {
+        res.status(400).json({
+          error:
+            "Description for AI agents is required. Agents use it to choose which MCP connector (/mcp/role/…) to use and what they should do.",
+        });
         return;
       }
       const capCheck = validateRoleCapabilities(capabilities, res);
@@ -3061,7 +3226,7 @@ export function registerAdminRoutes(app: Express): void {
         return;
       }
       // create-or-update semantics: PUT creates if not exists, updates if exists
-      userStore.setRole(roleId, { label, description: description || undefined, capabilities: capCheck.valid! });
+      userStore.setRole(roleId, { label, description: desc, capabilities: capCheck.valid! });
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update role";
@@ -3217,6 +3382,7 @@ export function registerAdminRoutes(app: Express): void {
       .map(([id, role]) => ({
         id,
         label: role.label,
+        description: role.description ?? "",
         allowedTools: allowedToolNames(role.capabilities ?? []),
       }))
       .sort((a, b) => a.label.localeCompare(b.label));

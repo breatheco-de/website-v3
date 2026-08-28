@@ -6,7 +6,8 @@ import { BindingConfirmDialog } from "./BindingConfirmDialog";
 import { getIcon } from "@/lib/icons";
 import { isActivelySelling } from "@/lib/ecommerceProductMap";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -2823,7 +2824,7 @@ export function SectionEditorPanel({
         onValueChange={setActiveTab}
         className="flex-1 flex flex-col min-h-0"
       >
-        <TabsList
+        <ToggleButtonBarList
           className={`mx-4 mt-2 grid w-auto ${
             editorTabCount === 4
               ? "grid-cols-4"
@@ -2832,39 +2833,39 @@ export function SectionEditorPanel({
                 : "grid-cols-2"
           }`}
         >
-          <TabsTrigger value="code" className="gap-1.5" data-testid="tab-code">
-            <Code className="h-4 w-4" />
+          <ToggleButtonBarTrigger value="code" className="gap-1.5" data-testid="tab-code">
+            <Code className="h-3.5 w-3.5" />
             Code
-          </TabsTrigger>
-          <TabsTrigger
+          </ToggleButtonBarTrigger>
+          <ToggleButtonBarTrigger
             value="props"
             className="gap-1.5"
             data-testid="tab-props"
           >
-            <Settings className="h-4 w-4" />
+            <Settings className="h-3.5 w-3.5" />
             Props
-          </TabsTrigger>
+          </ToggleButtonBarTrigger>
           {showFormsTab && (
-            <TabsTrigger
+            <ToggleButtonBarTrigger
               value="conversion"
               className="gap-1.5"
               data-testid="tab-forms"
             >
-              <IconTargetArrow className="h-4 w-4" />
+              <IconTargetArrow className="h-3.5 w-3.5" />
               Forms
-            </TabsTrigger>
+            </ToggleButtonBarTrigger>
           )}
           {showEcommerceTab && (
-            <TabsTrigger
+            <ToggleButtonBarTrigger
               value="ecommerce"
               className="gap-1.5"
               data-testid="tab-ecommerce"
             >
-              <IconShoppingCart className="h-4 w-4" />
+              <IconShoppingCart className="h-3.5 w-3.5" />
               Ecommerce
-            </TabsTrigger>
+            </ToggleButtonBarTrigger>
           )}
-        </TabsList>
+        </ToggleButtonBarList>
 
         <TabsContent
           value="code"

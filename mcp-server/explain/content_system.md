@@ -225,3 +225,12 @@ Express **enqueues only** (never `Sidequest.start()`). Worker liveness for pipel
 - **next_actions:** Stale or empty referrers → `run_entry_diagnostics` with `validators: ["site-link-index"]`.
 
 Staff: delete confirm modal and Runtime 404 **CMS links** column show derived referrer counts with index age disclaimer; run Site Diagnostics for full link graph refresh.
+
+
+## Agent sessions and reports
+
+- Start with `agent_session` (`start`) → pass `agent_session_id` on every content mutate (header `x-mcp-agent-session` via loopback).
+- Every high-impact content mutate requires `report` (min 80 characters): what changed and why for this write.
+- `update_issue` claim (first): `report` = why you are claiming + plan (min 80). Own TTL refresh may omit. Complete: `report` = what you changed and how (min 80).
+- Prefer one `summarize` at the end; staff also see an auto banner from write/issue events on Background Pipeline.
+- Omit `agent_session_id` → warning `agent_session_unscoped` (staff **Unscoped**). Bulk sync never gets a session id.

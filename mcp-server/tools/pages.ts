@@ -37,6 +37,7 @@ import {
   type DiagnosticsIssueQueueResult,
 } from "../lib/diagnostics-issue-queue.js";
 import { getTokenUsername, getTokenClientName } from "../lib/oauth.js";
+import { buildLoopbackHeaders, missingSessionWarning } from "../lib/loopback.js";
 import { buildEditorSystemHints } from "../../shared/editorSystemHints.js";
 import { FILL_INTENT_GOAL_PRESET_OPTIONS } from "../../shared/fillIntent.js";
 import {
@@ -220,21 +221,11 @@ function schemaOrgOverrideWarningsFromFieldUpdates(
  * Always sets x-mcp-author when MCP_SERVER_SECRET is set so the main server
  * skips shared-layout locale fan-out (agent owns sibling sync via next_actions).
  */
-function internalHeaders(mcpToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (MCP_SERVER_SECRET) {
-    headers["Authorization"] = `Bearer ${MCP_SERVER_SECRET}`;
-    const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
-    headers["x-mcp-author"] = username || "mcp";
-    const clientName = mcpToken ? getTokenClientName(mcpToken) : undefined;
-    if (clientName) headers["x-mcp-client"] = clientName;
-  } else if (mcpToken) {
-    const username = getTokenUsername(mcpToken);
-    if (username) headers["x-mcp-author"] = username;
-    const clientName = getTokenClientName(mcpToken);
-    if (clientName) headers["x-mcp-client"] = clientName;
-  }
-  return headers;
+function internalHeaders(
+  mcpToken?: string,
+  opts?: { agentSessionId?: string; omitJsonContentType?: boolean },
+): Record<string, string> {
+  return buildLoopbackHeaders(mcpToken, opts);
 }
 
 /**
@@ -278,6 +269,8 @@ async function callEditSectionsApi(
     variant?: string;
     operations: Record<string, unknown>[];
     layoutTarget?: "entry" | "type_single" | "type_template";
+    report?: string;
+    agent_session_id?: string;
   },
   mcpToken?: string,
   domain?: string,
@@ -286,7 +279,7 @@ async function callEditSectionsApi(
     const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/edit-sections${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
     const res = await fetch(url, {
       method: "POST",
-      headers: internalHeaders(mcpToken),
+      headers: internalHeaders(mcpToken, { agentSessionId: params.agent_session_id }),
       body: JSON.stringify({
         contentType: params.contentType,
         slug: params.slug,
@@ -294,6 +287,7 @@ async function callEditSectionsApi(
         operations: params.operations,
         ...(params.variant ? { variant: params.variant } : {}),
         ...(params.layoutTarget ? { layoutTarget: params.layoutTarget } : {}),
+        ...(params.report ? { report: params.report } : {}),
       }),
     });
     const data = await res.json() as Record<string, unknown>;
@@ -397,7 +391,13 @@ function appendSharedTemplateHtmlCacheWarning(
  * Returns an error response on failure, or null on success.
  */
 async function callEditCommonApi(
-  params: { contentType: string; slug: string; operations: Record<string, unknown>[] },
+  params: {
+    contentType: string;
+    slug: string;
+    operations: Record<string, unknown>[];
+    report?: string;
+    agent_session_id?: string;
+  },
   mcpToken?: string,
   domain?: string
 ): Promise<McpTextResult | null> {
@@ -405,11 +405,12 @@ async function callEditCommonApi(
     const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/edit-common${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
     const res = await fetch(url, {
       method: "POST",
-      headers: internalHeaders(mcpToken),
+      headers: internalHeaders(mcpToken, { agentSessionId: params.agent_session_id }),
       body: JSON.stringify({
         contentType: params.contentType,
         slug: params.slug,
         operations: params.operations,
+        ...(params.report ? { report: params.report } : {}),
       }),
     });
     const data = await res.json() as Record<string, unknown>;
@@ -950,6 +951,128 @@ export function registerPageTools(
     }
   );
 
+
+  // agent_session — start/note/summarize (pipeline audit events)
+  mcp.tool(
+    "agent_session",
+    "Start, note, or summarize an agent content session for staff monitoring on Background Pipeline. " +
+    "start returns agent_session_id — pass it on mutating tools. " +
+    "note/summarize require agent_session_id + report (min 80 chars). " +
+    "summarize closes the run for the staff banner (last summarize wins). " +
+    "Does not write YAML. Prefer write/issue report for per-change notes; use summarize once at end.",
+    {
+      action: z.enum(["start", "note", "summarize"]).describe("start | note | summarize"),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Required for note/summarize. From start."),
+      label: z.string().optional().describe("Optional short label on start (e.g. Fix blog SEO batch)"),
+      report: z
+        .string()
+        .optional()
+        .describe(
+          "Required for note/summarize (min 80 chars). Mid-run progress or end-of-run summary.",
+        ),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+      model: z.string().optional().describe("Optional LLM model name for attribution"),
+    },
+    async ({ action, agent_session_id, label, report, site, model }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
+      const { domain } = siteResult;
+      try {
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/admin/agent-sessions/checkpoint${
+          domain ? `?__site=${encodeURIComponent(domain)}` : ""
+        }`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: internalHeaders(mcpToken, {
+            agentSessionId: agent_session_id,
+          }),
+          body: JSON.stringify({
+            action,
+            site: siteResult.contentFolder,
+            ...(agent_session_id ? { agent_session_id } : {}),
+            ...(label ? { label } : {}),
+            ...(report ? { report } : {}),
+            ...(model ? { model } : {}),
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        if (!res.ok) {
+          const code = typeof data.code === "string" ? data.code : "agent_session_failed";
+          if (code === "session_unknown" || data.action_required === "start") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "start",
+                code: "session_unknown",
+                message: String(data.error ?? "Unknown agent_session_id — call start first"),
+              },
+              [
+                {
+                  tool: "agent_session",
+                  reason: "Start a session, then retry note/summarize with the returned agent_session_id.",
+                  priority: "required",
+                  args_hint: { action: "start" },
+                },
+              ],
+            );
+          }
+          if (code === "report_required" || code === "report_too_short") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "report_required",
+                code,
+                message: String(data.error ?? "report required (min 80 characters)"),
+              },
+              [],
+            );
+          }
+          return fail(String(data.error ?? `agent_session failed (${res.status})`), { code });
+        }
+        const sid = String(data.agent_session_id ?? agent_session_id ?? "");
+        return ok(
+          {
+            action,
+            agent_session_id: sid,
+            event_id: data.event_id ?? null,
+            message:
+              action === "start"
+                ? "Session started. Pass agent_session_id on mutating tools; call summarize when done."
+                : action === "summarize"
+                  ? "Session summarized for staff banner."
+                  : "Session note recorded.",
+          },
+          {
+            warnings: [],
+            side_effects: [
+              {
+                kind: "pipeline_event",
+                summary: `Emitted agent_session_${action === "start" ? "started" : action === "note" ? "note" : "summarized"}`,
+              },
+            ],
+            next_actions:
+              action === "start"
+                ? [
+                    {
+                      tool: "update_fields",
+                      reason: "Pass agent_session_id + report on content mutates.",
+                      priority: "recommended",
+                      args_hint: { agent_session_id: sid },
+                    },
+                  ]
+                : [],
+          },
+        );
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+    },
+  );
+
+
   // list_entries
   mcp.tool(
     "list_entries",
@@ -1404,8 +1527,10 @@ export function registerPageTools(
     "Claim, release, soft-complete, or reopen a validation issue by stable issue_id from get_entry_content / get_entry_seo. " +
     "Actions: claim (30m TTL, refresh if you already own it; fails if another author holds an active claim), " +
     "release (drop your claim or staff release), complete (hide from open lists; also clears claim), uncomplete (reopen). " +
-    "MCP-only: claim requires report (why you are taking this issue; optional when refreshing your own claim). " +
-    "complete requires report (what you changed and how; min 20 chars). " +
+    "MCP-only: claim requires report (why you are taking this issue + what you plan to change; min 80 chars; optional when refreshing your own claim). " +
+    "complete requires report (what you changed and how, with paths/fields; min 80 chars). " +
+    "Example claim: \"SEO title empty on blog/foo/en — will set meta.page_title from H1 and re-check.\" " +
+    "Example complete: \"Set meta.page_title in site_…/blog/foo/en.yml to match H1; left description unchanged.\" " +
     "Does NOT delete the issue row, push YAML/GitHub, or run diagnostics. " +
     "A later validator cache write that rewrites the same id clears complete but keeps an active claim; may emit validation_issue_reopened in admin events. " +
     "Requires content_edit_text or seo_edit. Pass issue_id only (no update-by-code). Optional model (best-effort, self-reported).",
@@ -1423,10 +1548,14 @@ export function registerPageTools(
         .string()
         .optional()
         .describe(
-          "Required for claim (first claim) and complete. claim: why you are taking this issue. complete: what you changed and how (min 20 chars). Optional when re-claiming to refresh your TTL.",
+          "Required for first claim and complete (min 80 chars). claim: why you are taking this + planned change (entry/fields). complete: what you changed and where (paths/fields). Optional when re-claiming to refresh your TTL.",
         ),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start — groups claim/complete under the same run."),
     },
-    async ({ issue_id, action, site, model, report }) => {
+    async ({ issue_id, action, site, model, report, agent_session_id }) => {
       const canMutate =
         !mcpToken ||
         !grants ||
@@ -1441,25 +1570,25 @@ export function registerPageTools(
 
       const trimmedReport = typeof report === "string" ? report.trim() : "";
       if (action === "complete") {
-        if (trimmedReport.length < 20) {
+        if (trimmedReport.length < 80) {
           return actionRequired(
             {
               success: false,
               action_required: "report_required",
               code: "report_required",
               message:
-                "complete requires report: explain what you changed and how you fixed this issue (min 20 characters).",
+                "complete requires report: explain what you changed and how you fixed this issue (min 80 characters).",
             },
             [],
           );
         }
-      } else if (action === "claim" && trimmedReport.length > 0 && trimmedReport.length < 20) {
+      } else if (action === "claim" && trimmedReport.length > 0 && trimmedReport.length < 80) {
         return actionRequired(
           {
             success: false,
             action_required: "report_required",
             code: "report_too_short",
-            message: "claim report must be at least 20 characters when provided.",
+            message: "claim report must be at least 80 characters when provided.",
           },
           [],
         );
@@ -1471,7 +1600,7 @@ export function registerPageTools(
           `http://localhost:${MAIN_SERVER_PORT}/api/validation/cache-issues/update${q}`,
           {
             method: "POST",
-            headers: internalHeaders(mcpToken),
+            headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
             body: JSON.stringify({
               issueId: issue_id,
               action,
@@ -1518,7 +1647,7 @@ export function registerPageTools(
           {
             code: "mcp_report_required",
             message:
-              "MCP claim (first) and complete require report (min 20 chars). Stored on validation-cache overlay and validation_issue_* admin events.",
+              "MCP claim (first) and complete require report (min 80 chars). Stored on validation-cache overlay and validation_issue_* admin events.",
           },
           {
             code: "actor_client_from_oauth",
@@ -2262,12 +2391,33 @@ export function registerPageTools(
       create_redirect: z.boolean().optional().describe(
         "When renaming live slug (field_path slug): required if published_at is >= 24h ago. Adds old URL to meta.redirects.",
       ),
+      report: z
+        .string()
+        .describe(
+          "Required (min 80 chars): why this write / what you are changing (paths/fields). Example: \"Updating meta.page_title and hero headline on blog/foo/en for Q3 SEO.\"",
+        ),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start — groups this write for staff monitoring."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, updates: inputUpdates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, confirm_new_values, create_redirect, site }) => {
+    async ({ slug, locale, updates: inputUpdates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, confirm_new_values, create_redirect, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
+      const trimmedReport = typeof report === "string" ? report.trim() : "";
+      if (trimmedReport.length < 80) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "report_required",
+            code: trimmedReport ? "report_too_short" : "report_required",
+            message: "report required (min 80 characters): explain what you are changing and why.",
+          },
+          [],
+        );
+      }
       try {
         assertSafeSegment(slug, "slug");
         assertSafeLocale(locale);
@@ -2606,6 +2756,10 @@ export function registerPageTools(
         ...variantWarningsIfNeeded(variant),
         ...clusterToggleWarnings,
       ];
+      {
+        const sessWarn = missingSessionWarning(agent_session_id);
+        if (sessWarn) warnings.push(sessWarn);
+      }
       let renameResult: Record<string, unknown> | null = null;
       if (touchesSections) {
         warnings.push({
@@ -2625,7 +2779,16 @@ export function registerPageTools(
       if (localeEntries.length > 0) {
         const ops = localeEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
         const apiResult = await callEditSectionsApi(
-          { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations: ops },
+          {
+            contentType: resolved.contentType,
+            slug,
+            locale,
+            variant,
+            layoutTarget,
+            operations: ops,
+            report: trimmedReport,
+            agent_session_id,
+          },
           mcpToken,
           domain,
         );
@@ -2638,7 +2801,13 @@ export function registerPageTools(
       if (commonEntries.length > 0) {
         const ops = commonEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
         const apiErr = await callEditCommonApi(
-          { contentType: resolved.contentType, slug, operations: ops },
+          {
+            contentType: resolved.contentType,
+            slug,
+            operations: ops,
+            report: trimmedReport,
+            agent_session_id,
+          },
           mcpToken,
           domain,
         );
@@ -3663,11 +3832,31 @@ export function registerPageTools(
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
       slug: z.string().describe("Page slug"),
       variantSlug: z.string().default("draft").describe("Draft variant to publish, e.g. 'draft'"),
+      report: z
+        .string()
+        .describe("Required (min 80 chars): why this change / what you are doing."),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, variantSlug, site }) => {
+    async ({ contentType, slug, variantSlug, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
+
+      const trimmedReport = typeof report === "string" ? report.trim() : "";
+      if (trimmedReport.length < 80) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "report_required",
+            code: trimmedReport ? "report_too_short" : "report_required",
+            message: "report required (min 80 characters).",
+          },
+          [],
+        );
+      }
       const { domain } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
@@ -3689,8 +3878,8 @@ export function registerPageTools(
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/publish${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken),
-          body: JSON.stringify({ variantSlug }),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          body: JSON.stringify({ variantSlug, report: trimmedReport }),
         });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
@@ -3721,6 +3910,9 @@ export function registerPageTools(
           },
           {
             warnings: [
+              ...(missingSessionWarning(agent_session_id)
+                ? [missingSessionWarning(agent_session_id)!]
+                : []),
               {
                 code: "page_now_live",
                 message: "Page is live for the listed locales and will appear in the sitemap. Confirm with the user before publishing in the future.",
@@ -3761,11 +3953,31 @@ export function registerPageTools(
       slug: z.string().describe("Page slug"),
       variantSlug: z.string().describe("Slug of the variant to promote, e.g. 'draft-v2'"),
       locale: z.string().default("en").describe("Locale of the variant to promote, e.g. 'en' or 'es'"),
+      report: z
+        .string()
+        .describe("Required (min 80 chars): why this change / what you are doing."),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, variantSlug, locale, site }) => {
+    async ({ contentType, slug, variantSlug, locale, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
+
+      const trimmedReport = typeof report === "string" ? report.trim() : "";
+      if (trimmedReport.length < 80) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "report_required",
+            code: trimmedReport ? "report_too_short" : "report_required",
+            message: "report required (min 80 characters).",
+          },
+          [],
+        );
+      }
       const { contentPath, domain } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
@@ -3793,7 +4005,8 @@ export function registerPageTools(
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/promote/${encodeURIComponent(variantSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          body: JSON.stringify({ report: trimmedReport }),
         });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
@@ -3824,10 +4037,15 @@ export function registerPageTools(
             }]
           : [];
         next_actions.push(diagnosticsAfterGoLiveNextAction(slug, site));
-        return ok(
-          { message: `Variant '${variantSlug}' promoted to live for ${contentType}/${slug} (${locale})` },
-          { warnings: promoteWarnings(sharedLayout), next_actions },
-        );
+        {
+          const promoteWarns = promoteWarnings(sharedLayout);
+          const sessWarn = missingSessionWarning(agent_session_id);
+          if (sessWarn) promoteWarns.unshift(sessWarn);
+          return ok(
+            { message: `Variant '${variantSlug}' promoted to live for ${contentType}/${slug} (${locale})` },
+            { warnings: promoteWarns, next_actions },
+          );
+        }
       } catch (e) {
         return fail(`Failed to promote variant: ${(e as Error).message}`);
       }
@@ -4015,12 +4233,31 @@ export function registerPageTools(
       confirm_new_values: z.boolean().optional().describe(
         "Set true only after the principal (human or orchestrator/reviewer) approved inventing a new URL-param/select value not in observed peers.",
       ),
+      report: z
+        .string()
+        .describe("Required (min 80 chars): why this change / what you are doing."),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, common, locales, confirm_new_values, site }) => {
+    async ({ contentType, slug, common, locales, confirm_new_values, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
         return siteFailResult(siteResult.error, "create_entry", { contentType, slug, common, locales, confirm_new_values });
+      }
+      const trimmedReport = typeof report === "string" ? report.trim() : "";
+      if (trimmedReport.length < 80) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "report_required",
+            code: trimmedReport ? "report_too_short" : "report_required",
+            message: "report required (min 80 characters).",
+          },
+          [],
+        );
       }
       const { contentPath, contentFolder, domain } = siteResult;
       try {
@@ -4290,7 +4527,7 @@ export function registerPageTools(
 
       const commonData: Record<string, unknown> = { slug, ...commonRecord };
       fs.writeFileSync(path.join(pageDir, "_common.yml"), safeDump(commonData), "utf-8");
-      notifyMcpContentWrite(path.join(pageDir, "_common.yml"), mcpWriteAuthor(mcpToken));
+      notifyMcpContentWrite(path.join(pageDir, "_common.yml"), mcpWriteAuthor(mcpToken), { agent_session_id, report: trimmedReport });
 
       const createdLocales: string[] = [];
       const createdFiles: string[] = ["_common.yml"];
@@ -4311,7 +4548,7 @@ export function registerPageTools(
         });
         const fileName = draftFirst ? `${draftVariant}.${loc}.yml` : `${loc}.yml`;
         fs.writeFileSync(path.join(pageDir, fileName), safeDump(localeData), "utf-8");
-        notifyMcpContentWrite(path.join(pageDir, fileName), mcpWriteAuthor(mcpToken));
+        notifyMcpContentWrite(path.join(pageDir, fileName), mcpWriteAuthor(mcpToken), { agent_session_id, report: trimmedReport });
         createdLocales.push(loc);
         createdFiles.push(fileName);
       }
@@ -4336,6 +4573,10 @@ export function registerPageTools(
       }
 
       const warnings: McpWarning[] = [];
+      {
+        const sessWarn = missingSessionWarning(agent_session_id);
+        if (sessWarn) warnings.push(sessWarn);
+      }
       const ghWarning = githubCommitWarning(commitResult);
       if (ghWarning) warnings.push(ghWarning);
       const side_effects: McpSideEffect[] = [];
@@ -6208,9 +6449,18 @@ export function registerPageTools(
         .record(z.array(z.string()))
         .optional()
         .describe("When last author would be cleared: blogSlug → replacement author slug[]"),
+      report: z
+        .string()
+        .describe("Required (min 80 chars): why this change / what you are doing."),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slugs, confirm, reassignments, site }) => {
+    async ({ contentType, slugs, confirm, reassignments, report, agent_session_id, site }) => {
+      const trimmedReport = typeof report === "string" ? report.trim() : "";
+
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
         return siteFailResult(siteResult.error, "delete_entries", { contentType, slugs });
@@ -6223,14 +6473,30 @@ export function registerPageTools(
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/delete-entries${
           domain ? `?__site=${encodeURIComponent(domain)}` : ""
         }`;
+        if (confirm === true) {
+          const trimmedReport = typeof report === "string" ? report.trim() : "";
+          if (trimmedReport.length < 80) {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "report_required",
+                code: trimmedReport ? "report_too_short" : "report_required",
+                message: "report required (min 80 characters) when confirm:true.",
+              },
+              [],
+            );
+          }
+        }
+        const trimmedReport = typeof report === "string" ? report.trim() : "";
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
           body: JSON.stringify({
             contentType,
             slugs,
             confirm: confirm === true,
             reassignments,
+            ...(trimmedReport ? { report: trimmedReport } : {}),
           }),
         });
         const data = (await res.json()) as Record<string, unknown>;
@@ -6324,6 +6590,9 @@ export function registerPageTools(
           },
           {
             warnings: [
+              ...(missingSessionWarning(agent_session_id)
+                ? [missingSessionWarning(agent_session_id)!]
+                : []),
               {
                 code: "best_effort_bulk",
                 message: "Best-effort bulk: check results[] per slug.",

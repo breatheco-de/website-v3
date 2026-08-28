@@ -88,7 +88,8 @@ const REGISTRY = [
     name: "seo_edit",
     label: "Edit SEO",
     scoped: false,
-    description: "Update meta titles, descriptions, redirects, and other SEO settings.",
+    description:
+      "Update meta titles, descriptions, redirects, and other SEO settings; list and manage SEO topic clusters.",
   },
   {
     name: "content_types_manage",

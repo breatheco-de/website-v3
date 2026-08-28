@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { RefreshCw, BarChart2, ArrowUp, ArrowDown, ArrowUpDown, X } from "lucide-react";
 import type { ComponentInsightsData, ComponentPairing, ComponentSequence } from "@shared/schema";
 import ComponentGraph from "@/components/ComponentGraph";
@@ -443,10 +444,10 @@ function ComponentInsightsPageInner() {
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="flex-wrap h-auto gap-1">
+        <ToggleButtonBarList>
           <Popover>
             <PopoverTrigger asChild>
-              <TabsTrigger value="__global__" data-testid="tab-global" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none">
+              <ToggleButtonBarTrigger value="__global__" data-testid="tab-global">
                 Global
                 <Badge
                   variant="secondary"
@@ -454,7 +455,7 @@ function ComponentInsightsPageInner() {
                 >
                   {data.global.pageCount}
                 </Badge>
-              </TabsTrigger>
+              </ToggleButtonBarTrigger>
             </PopoverTrigger>
             <PopoverContent side="bottom" sideOffset={6} className="max-w-xs text-xs leading-relaxed p-3">
               All pages combined, regardless of intent.
@@ -467,7 +468,7 @@ function ComponentInsightsPageInner() {
             return (
               <Popover key={intentId}>
                 <PopoverTrigger asChild>
-                  <TabsTrigger value={intentId} data-testid={`tab-${intentId}`} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none">
+                  <ToggleButtonBarTrigger value={intentId} data-testid={`tab-${intentId}`}>
                     {intentId}
                     <Badge
                       variant="secondary"
@@ -475,7 +476,7 @@ function ComponentInsightsPageInner() {
                     >
                       {pageCount}
                     </Badge>
-                  </TabsTrigger>
+                  </ToggleButtonBarTrigger>
                 </PopoverTrigger>
                 {intentDef && (
                   <PopoverContent side="bottom" sideOffset={6} className="max-w-xs text-xs leading-relaxed p-3">
@@ -485,7 +486,7 @@ function ComponentInsightsPageInner() {
               </Popover>
             );
           })}
-        </TabsList>
+        </ToggleButtonBarList>
 
         {allIntents.map((tab) => {
           const tabCluster = getCluster(tab);

@@ -6,7 +6,9 @@ An MCP (Model Context Protocol) server that gives Claude read and write access t
 
 **Multi-site:** call `list_sites` first when more than one domain exists, then pass `site` (the user-named domain from `sites.yml`) on every tool. Never assume the first `sites.yml` entry; matching is case-insensitive.
 
-**Catalog by capability:** in production, `tools/list` on `/mcp` only includes tools the caller’s grants allow (`content_view` for YAML/component/explain reads). `GET /tools` is the full unauthenticated map. After a role change, refresh the MCP server in Cursor — the palette does not update mid-session. `get_current_user` returns `allowed_tools`. Handlers still `checkCap`. Dev does not filter the catalog.
+**Catalog by capability:** in production, `tools/list` on `/mcp` only includes tools the caller’s grants allow (`content_view` for YAML/component/explain reads). `GET /tools` is the full unauthenticated map. After a role change, refresh the MCP server in Cursor — the palette does not update mid-session. `get_current_user` returns `allowed_tools`. Handlers still `checkCap`. Dev does not filter the catalog on plain `/mcp`.
+
+**Role-scoped connectors:** use `/mcp/role/:roleId` (e.g. `/mcp/role/seo_manager`) for a focused tool list. The caller must be **assigned** that CMS role (strict). Catalog and capability checks use that role’s capabilities only. Unknown role → 404; not assigned → 403. Multi-role paths are not supported — use plain `/mcp` for the union of all your roles. OAuth consent shows the role description and tool list; pass `mcp_role` (or a `resource` URL containing `/mcp/role/…`) into `/oauth/authorize`. `get_current_user` returns `active_role`, `role_label`, and `role_description`. Reconnect the host after role or tool-list changes.
 
 **Shared-layout / `single_template`:** shell lives in `template.{locale}.yml` (legacy `single.*` still loads); create with `create_entry`, locale fields (e.g. `content`), and `sections: []`. See `explain_site` topic `shared-layout`. Call `get_content_type_info` before creating when unsure (`db_backed` vs `single_template`, `create_via`).
 

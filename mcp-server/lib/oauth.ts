@@ -169,6 +169,8 @@ interface PendingAuth {
   clientId: string;
   redirectUri: string;
   state?: string;
+  /** Optional MCP role connector id (`/mcp/role/:roleId`). */
+  roleId?: string;
   expiresAt: number;
 }
 
@@ -185,6 +187,7 @@ export function createPendingAuth(
   clientId: string,
   redirectUri: string,
   state?: string,
+  roleId?: string,
 ): string {
   purgeExpiredPendingAuths();
   const nonce = crypto.randomBytes(24).toString("hex");
@@ -192,6 +195,7 @@ export function createPendingAuth(
     clientId,
     redirectUri,
     state,
+    roleId: roleId || undefined,
     expiresAt: Date.now() + PENDING_TTL_MS,
   });
   return nonce;
@@ -202,6 +206,18 @@ export function consumePendingAuth(nonce: string): PendingAuth | null {
   if (!entry) return null;
   pendingAuths.delete(nonce);
   if (entry.expiresAt < Date.now()) return null;
+  return entry;
+}
+
+/** Read pending auth without consuming (for consent step navigation). */
+export function peekPendingAuth(nonce: string): PendingAuth | null {
+  purgeExpiredPendingAuths();
+  const entry = pendingAuths.get(nonce);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) {
+    pendingAuths.delete(nonce);
+    return null;
+  }
   return entry;
 }
 

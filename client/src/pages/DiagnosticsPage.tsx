@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import {
   Dialog,
   DialogContent,
@@ -2438,14 +2439,14 @@ export default function DiagnosticsPage() {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <TabsList data-testid="tabs-diagnostics" className="flex flex-wrap h-auto gap-1">
+                  <ToggleButtonBarList data-testid="tabs-diagnostics" className="flex">
                     {DIAGNOSTICS_TABS.map((t) => (
-                      <TabsTrigger key={t.id} value={t.id} data-testid={`tab-${t.id}`} className="gap-1.5">
+                      <ToggleButtonBarTrigger key={t.id} value={t.id} data-testid={`tab-${t.id}`} className="gap-1.5">
                         <t.Icon className="h-3.5 w-3.5" />
                         {t.label}
-                      </TabsTrigger>
+                      </ToggleButtonBarTrigger>
                     ))}
-                  </TabsList>
+                  </ToggleButtonBarList>
                 )}
               </div>
             </div>

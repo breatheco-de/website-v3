@@ -13,7 +13,8 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -2989,10 +2990,10 @@ export default function SeoGeoPage() {
                 </h1>
               </div>
             </div>
-            <TabsList data-testid="tabs-seo-geo">
-              <TabsTrigger value="seo" data-testid="tab-seo">SEO</TabsTrigger>
-              <TabsTrigger value="geo" data-testid="tab-geo">GEO</TabsTrigger>
-            </TabsList>
+            <ToggleButtonBarList data-testid="tabs-seo-geo">
+              <ToggleButtonBarTrigger value="seo" data-testid="tab-seo">SEO</ToggleButtonBarTrigger>
+              <ToggleButtonBarTrigger value="geo" data-testid="tab-geo">GEO</ToggleButtonBarTrigger>
+            </ToggleButtonBarList>
           </div>
 
           <TabsContent value="seo">

@@ -29,6 +29,7 @@ export type PipelineContentEvent = {
   payload: Record<string, unknown>;
   triggeredByEventId?: number;
   triggeredByEventIds?: number[];
+  agent_session_id?: string;
   published: boolean;
   created_at: number;
 };
@@ -682,6 +683,22 @@ export function EventSummary({ event }: { event: PipelineContentEvent }) {
         </div>
       );
     }
+    case "agent_session_started": {
+      const label = typeof event.payload?.label === "string" ? event.payload.label.trim() : "";
+      return label ? (
+        <p className="text-xs text-muted-foreground mt-0.5 truncate">{label}</p>
+      ) : null;
+    }
+    case "agent_session_note":
+    case "agent_session_summarized": {
+      const report = eventAgentReport(event);
+      if (!report) return null;
+      return (
+        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 whitespace-pre-wrap">
+          {report}
+        </p>
+      );
+    }
     default: {
       const fallback = summarizeResourceFallback(event.resource);
       if (!fallback) return null;
@@ -963,6 +980,11 @@ export function EventDetails({ event }: { event: PipelineContentEvent }) {
         className="mt-2 space-y-2 rounded-md border border-border bg-muted/20 p-2"
         data-testid={`event-payload-${event.id}`}
       >
+        {event.agent_session_id ? (
+          <p className="text-xs font-mono text-muted-foreground break-all">
+            agent_session_id: {event.agent_session_id}
+          </p>
+        ) : null}
         <EventAttributionDetails attribution={event.attribution} />
         {event.triggeredByEventIds && event.triggeredByEventIds.length > 0 ? (
           <ParentWriteIdsList ids={event.triggeredByEventIds} />
@@ -978,6 +1000,11 @@ export function EventDetails({ event }: { event: PipelineContentEvent }) {
       data-testid={`event-payload-${event.id}`}
     >
       <TypedEventBody event={event} />
+      {event.agent_session_id ? (
+        <p className="text-xs font-mono text-muted-foreground break-all">
+          agent_session_id: {event.agent_session_id}
+        </p>
+      ) : null}
       <EventAttributionDetails attribution={event.attribution} />
       <RawPayloadSection event={event} />
     </div>

@@ -93,6 +93,23 @@ interface RoleFormState {
   capabilities: Record<string, CapabilityFormState>;
 }
 
+/** Slugify a role label into a valid role id (`^[a-z][a-z0-9_-]*$`). */
+function slugifyRoleId(label: string): string {
+  const raw = label
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!raw) return "";
+  if (/^[a-z]/.test(raw)) return raw;
+  return `r_${raw}`;
+}
+
+function isValidRoleIdFormat(id: string): boolean {
+  return /^[a-z][a-z0-9_-]*$/.test(id);
+}
+
 const CONTENT_MUTATE_SET = new Set<string>(CONTENT_MUTATE_CAPABILITIES);
 
 function parseScopeList(raw: string): string[] {
@@ -247,10 +264,18 @@ function CapabilityFields({
   caps: Record<string, CapabilityFormState>;
   onChange: (updated: Record<string, CapabilityFormState>) => void;
 }) {
+  let previousScopedEnabled: string | null = null;
+
   return (
     <div className="space-y-2 pt-1">
       {CAPABILITY_REGISTRY.map((cap) => {
         const state = caps[cap.name] ?? { enabled: false, contentTypes: "" };
+        const syncFromName =
+          cap.scoped && state.enabled ? previousScopedEnabled : null;
+        if (cap.scoped && state.enabled) {
+          previousScopedEnabled = cap.name;
+        }
+
         return (
           <div key={cap.name} className="space-y-1">
             <div className="flex items-center gap-2">
@@ -275,13 +300,35 @@ function CapabilityFields({
               )}
             </div>
             {cap.scoped && state.enabled && (
-              <div className="ml-6">
-                <ContentTypeSelector
-                  value={state.contentTypes}
-                  onChange={(v) =>
-                    onChange(withAutoContentView(caps, cap.name, { ...state, contentTypes: v }))
-                  }
-                />
+              <div className="ml-6 flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <ContentTypeSelector
+                    value={state.contentTypes}
+                    onChange={(v) =>
+                      onChange(withAutoContentView(caps, cap.name, { ...state, contentTypes: v }))
+                    }
+                  />
+                </div>
+                {syncFromName && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs h-7 shrink-0 px-2"
+                    onClick={() => {
+                      const from = caps[syncFromName] ?? { enabled: false, contentTypes: "" };
+                      onChange(
+                        withAutoContentView(caps, cap.name, {
+                          ...state,
+                          contentTypes: from.contentTypes,
+                        }),
+                      );
+                    }}
+                    data-testid={`button-sync-ct-${cap.name}`}
+                  >
+                    {"<- Match with above cap."}
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -300,6 +347,9 @@ function RolesTab() {
   });
 
   const [newRoleForm, setNewRoleForm] = useState<RoleFormState | null>(null);
+  /** When true, label changes no longer overwrite the id (user edited id manually). */
+  const [newRoleIdTouched, setNewRoleIdTouched] = useState(false);
+  const [debouncedNewRoleId, setDebouncedNewRoleId] = useState("");
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
   const [editRoleForm, setEditRoleForm] = useState<Omit<RoleFormState, "id"> | null>(null);
   const [deletingRoleId, setDeletingRoleId] = useState<string | null>(null);
@@ -307,8 +357,30 @@ function RolesTab() {
 
   const roles = rolesData ? Object.entries(rolesData) : [];
 
+  useEffect(() => {
+    if (!newRoleForm) {
+      setDebouncedNewRoleId("");
+      return;
+    }
+    const id = newRoleForm.id;
+    const t = setTimeout(() => setDebouncedNewRoleId(id), 400);
+    return () => clearTimeout(t);
+  }, [newRoleForm?.id, newRoleForm]);
+
+  const newRoleIdStatus: "empty" | "typing" | "invalid" | "taken" | "available" = (() => {
+    if (!newRoleForm) return "empty";
+    const id = newRoleForm.id.trim();
+    if (!id) return "empty";
+    if (id !== debouncedNewRoleId) return "typing";
+    if (!isValidRoleIdFormat(id)) return "invalid";
+    if (rolesData && id in rolesData) return "taken";
+    return "available";
+  })();
+
   function startNewRole() {
     setNewRoleForm({ id: "", label: "", description: "", capabilities: {} });
+    setNewRoleIdTouched(false);
+    setDebouncedNewRoleId("");
     setEditingRoleId(null);
     setEditRoleForm(null);
   }
@@ -321,6 +393,7 @@ function RolesTab() {
       capabilities: capMapFromGrants(role.capabilities),
     });
     setNewRoleForm(null);
+    setNewRoleIdTouched(false);
   }
 
   async function saveNewRole() {
@@ -329,12 +402,37 @@ function RolesTab() {
       toast({ title: "Required fields missing", description: "Role ID and label are required", variant: "destructive" });
       return;
     }
+    if (!isValidRoleIdFormat(newRoleForm.id)) {
+      toast({
+        title: "Invalid role ID",
+        description: "ID must start with a letter and use only lowercase letters, numbers, hyphens, or underscores.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (rolesData && newRoleForm.id in rolesData) {
+      toast({
+        title: "Role ID already taken",
+        description: `A role with id "${newRoleForm.id}" already exists. Choose a different id.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!newRoleForm.description.trim()) {
+      toast({
+        title: "Description for AI agents is required",
+        description:
+          "Agents use this text to choose which MCP connector (/mcp/role/…) to use and what they should do.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSaving(true);
     try {
       const res = await apiRequest("POST", "/api/admin/roles", {
         id: newRoleForm.id,
         label: newRoleForm.label,
-        description: newRoleForm.description || undefined,
+        description: newRoleForm.description.trim(),
         capabilities: capGrantsFromFormState(newRoleForm.capabilities),
       });
       if (!res.ok) {
@@ -343,6 +441,7 @@ function RolesTab() {
       }
       queryClient.invalidateQueries({ queryKey: ["/api/admin/roles"] });
       setNewRoleForm(null);
+      setNewRoleIdTouched(false);
       toast({ title: "Role created" });
     } catch (err: any) {
       toast({ title: "Failed to save role", description: err.message, variant: "destructive" });
@@ -357,11 +456,20 @@ function RolesTab() {
       toast({ title: "Label is required", variant: "destructive" });
       return;
     }
+    if (!editRoleForm.description.trim()) {
+      toast({
+        title: "Description for AI agents is required",
+        description:
+          "Agents use this text to choose which MCP connector (/mcp/role/…) to use and what they should do.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSaving(true);
     try {
       const res = await apiRequest("PUT", `/api/admin/roles/${editingRoleId}`, {
         label: editRoleForm.label,
-        description: editRoleForm.description || undefined,
+        description: editRoleForm.description.trim(),
         capabilities: capGrantsFromFormState(editRoleForm.capabilities),
       });
       if (!res.ok) {
@@ -428,32 +536,83 @@ function RolesTab() {
           <CardContent className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">ID</label>
-                <Input
-                  placeholder="editor"
-                  value={newRoleForm.id}
-                  onChange={(e) => setNewRoleForm({ ...newRoleForm, id: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") })}
-                  data-testid="input-new-role-id"
-                />
-              </div>
-              <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Label</label>
                 <Input
                   placeholder="Content Editor"
                   value={newRoleForm.label}
-                  onChange={(e) => setNewRoleForm({ ...newRoleForm, label: e.target.value })}
+                  onChange={(e) => {
+                    const label = e.target.value;
+                    setNewRoleForm((prev) => {
+                      if (!prev) return prev;
+                      return {
+                        ...prev,
+                        label,
+                        id: newRoleIdTouched ? prev.id : slugifyRoleId(label),
+                      };
+                    });
+                  }}
                   data-testid="input-new-role-label"
                 />
               </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">ID</label>
+                <div className="relative">
+                  <Input
+                    placeholder="content_editor"
+                    value={newRoleForm.id}
+                    onChange={(e) => {
+                      setNewRoleIdTouched(true);
+                      setNewRoleForm({
+                        ...newRoleForm,
+                        id: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""),
+                      });
+                    }}
+                    className="pr-9"
+                    aria-invalid={
+                      newRoleIdStatus === "taken" || newRoleIdStatus === "invalid"
+                        ? true
+                        : undefined
+                    }
+                    data-testid="input-new-role-id"
+                  />
+                  <span
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                    data-testid="status-new-role-id"
+                    aria-live="polite"
+                  >
+                    {newRoleIdStatus === "typing" && (
+                      <IconLoader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    )}
+                    {newRoleIdStatus === "available" && (
+                      <IconCheck className="h-4 w-4 text-status-online" />
+                    )}
+                    {(newRoleIdStatus === "taken" || newRoleIdStatus === "invalid") && (
+                      <IconX className="h-4 w-4 text-destructive" />
+                    )}
+                  </span>
+                </div>
+                {newRoleIdStatus === "taken" && (
+                  <p className="text-xs text-destructive">This role ID is already taken.</p>
+                )}
+                {newRoleIdStatus === "invalid" && (
+                  <p className="text-xs text-destructive">
+                    Must start with a letter; use lowercase letters, numbers, hyphens, or underscores.
+                  </p>
+                )}
+              </div>
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Description (optional)</label>
+              <label className="text-xs font-medium text-muted-foreground">Description for AI agents</label>
               <Input
-                placeholder="Can edit text content"
+                placeholder="SEO only: meta, clusters, redirects. Do not edit page sections or structure."
                 value={newRoleForm.description}
                 onChange={(e) => setNewRoleForm({ ...newRoleForm, description: e.target.value })}
                 data-testid="input-new-role-description"
               />
+              <p className="text-xs text-muted-foreground">
+                Required. Used for MCP connectors at <code className="font-mono text-[11px] bg-muted px-1 rounded">/mcp/role/…</code>.
+                Agents read this to decide which connector to use — say what this role should and should not do.
+              </p>
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Capabilities</label>
@@ -466,7 +625,18 @@ function RolesTab() {
               />
             </div>
             <div className="flex justify-end pt-1">
-              <Button size="sm" onClick={saveNewRole} disabled={saving} data-testid="button-save-new-role">
+              <Button
+                size="sm"
+                onClick={saveNewRole}
+                disabled={
+                  saving ||
+                  newRoleIdStatus === "taken" ||
+                  newRoleIdStatus === "invalid" ||
+                  newRoleIdStatus === "empty" ||
+                  newRoleIdStatus === "typing"
+                }
+                data-testid="button-save-new-role"
+              >
                 {saving ? <IconLoader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <IconDeviceFloppy className="h-4 w-4 mr-1.5" />}
                 Save role
               </Button>
@@ -581,13 +751,18 @@ function RolesTab() {
                 ) : isEditing && editRoleForm ? (
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-muted-foreground">Description (optional)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Description for AI agents</label>
                       <Input
-                        placeholder="Role description"
+                        placeholder="SEO only: meta, clusters, redirects. Do not edit page sections or structure."
                         value={editRoleForm.description}
                         onChange={(e) => setEditRoleForm({ ...editRoleForm, description: e.target.value })}
                         data-testid={`input-edit-role-desc-${roleId}`}
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Required. Used for MCP connectors at{" "}
+                        <code className="font-mono text-[11px] bg-muted px-1 rounded">/mcp/role/…</code>.
+                        Agents read this to decide which connector to use.
+                      </p>
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-muted-foreground">Capabilities</label>
@@ -602,8 +777,17 @@ function RolesTab() {
                   </div>
                 ) : (
                   <>
-                    {role.description && (
+                    {role.description ? (
                       <p className="text-xs text-muted-foreground mb-2">{role.description}</p>
+                    ) : (
+                      <p className="text-xs text-destructive mb-2">
+                        Missing description for AI agents — edit this role before using /mcp/role/{roleId}.
+                      </p>
+                    )}
+                    {isBuiltIn && (
+                      <p className="text-[11px] text-muted-foreground mb-2">
+                        Description is managed in code and cannot be edited here.
+                      </p>
                     )}
                     {roleId === "content_viewer" && (
                       <>

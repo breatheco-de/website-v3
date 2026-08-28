@@ -108,6 +108,7 @@ export function emitValidationIssueWorkflowEvent(opts: {
   actor?: ValidationIssueActor;
   priorCompletion?: ValidationIssueCompletion;
   report?: string;
+  agent_session_id?: string;
 }): void {
   const { type, site, issue, author, actor, priorCompletion, report } = opts;
   const entryKey = issueEntryKey(issue);
@@ -141,6 +142,7 @@ export function emitValidationIssueWorkflowEvent(opts: {
     type: type as EventType,
     resource,
     attribution: singleAttribution(author, actor),
+    agent_session_id: opts.agent_session_id,
     payload,
   });
 }
