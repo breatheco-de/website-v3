@@ -1,6 +1,6 @@
 /**
  * MCP tools for CMS redirects: test_redirect (read) and update_redirect (add|delete|move).
- * Cap: seo_edit (Webmaster / custom SEO roles; not Metrics Viewer).
+ * Caps: test_redirect → read_redirects; update_redirect → edit_redirects.
  */
 
 import fs from "fs";
@@ -153,9 +153,9 @@ function mutateWarnings(opts: { wroteCustom: boolean; regex?: boolean }): McpWar
         "Slug-scoped run_entry_diagnostics does not re-run the redirects validator. This write queued the redirects validation job itself. Verify with test_redirect on the same URL.",
     },
     {
-      code: "cap_seo_edit",
+      code: "cap_edit_redirects",
       message:
-        "Both test_redirect and update_redirect require seo_edit (Webmaster / custom SEO roles). Metrics Viewer (metrics_view only) cannot use these tools.",
+        "update_redirect requires edit_redirects; test_redirect requires read_redirects. Metrics Viewer (metrics_view only) cannot use these tools.",
     },
   ];
   if (opts.regex) {
@@ -199,15 +199,15 @@ function testNextActions(data: InspectPayload): NextAction[] {
 export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
   mcp.tool(
     "test_redirect",
-    "Inspect one public URL against CMS redirects (seo_edit). Two stores: dest-locale {directory}/{slug}/{locale}.yml meta.redirects and site_<name>/custom-redirects.yml. First-match winner only; extra claims in conflicts[] (duplicate_from | regex_shadowed | overwrites_content). Inspect only — use update_redirect to change a rule. Does not dump the catalog. live_content = contentIndex.isKnownUrl only; locale-home aliases (/ , /en, /es, /us) are never live (301 to canonical homes).",
+    "Inspect one public URL against CMS redirects (read_redirects). Two stores: dest-locale {directory}/{slug}/{locale}.yml meta.redirects and site_<name>/custom-redirects.yml. First-match winner only; extra claims in conflicts[] (duplicate_from | regex_shadowed | overwrites_content). Inspect only — use update_redirect to change a rule. Does not dump the catalog. live_content = contentIndex.isKnownUrl only; locale-home aliases (/ , /en, /es, /us) are never live (301 to canonical homes).",
     {
       url: z.string().describe("Public path or full URL to test, e.g. /us or /en/blog/foo"),
       locale: z.string().optional().describe("Request locale for multi-locale redirect targets (default en)"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ url, locale, site }) => {
-      if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) {
-        return denyResponse("seo_edit");
+      if (mcpToken && !(await checkCap(mcpToken, "read_redirects"))) {
+        return denyResponse("read_redirects");
       }
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error, "test_redirect", { url, locale });
@@ -222,7 +222,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
         const warnings: McpWarning[] = [
           {
             code: "inspect_only",
-            message: "Inspect only — use update_redirect to change a rule. Cap: seo_edit.",
+            message: "Inspect only — use update_redirect to change a rule. Cap: read_redirects.",
           },
         ];
         if (conflicts.length) {
@@ -269,7 +269,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
 
   mcp.tool(
     "update_redirect",
-    "Call test_redirect first. One rule per call. Mutate CMS redirects (seo_edit — Webmaster / custom SEO roles; not Metrics Viewer). action add | delete | move. Two stores: dest-locale meta.redirects (never _common.yml / all_languages) or site_<name>/custom-redirects.yml. before_from and action: move fail on page YAML (custom file only). Live routing only — variant is refused. Stacked confirms: one action_required listing every missing flag (confirm_overwrite_content and/or confirm_live_edit); overwrite confirm does not imply live confirm. Write flushes redirect cache, queues redirects validation (slug-scoped run_entry_diagnostics does not). Regex allowed; omit before_from on add = append.",
+    "Call test_redirect first. One rule per call. Mutate CMS redirects (edit_redirects — Webmaster / custom roles with this cap; not Metrics Viewer). action add | delete | move. Two stores: dest-locale meta.redirects (never _common.yml / all_languages) or site_<name>/custom-redirects.yml. before_from and action: move fail on page YAML (custom file only). Live routing only — variant is refused. Stacked confirms: one action_required listing every missing flag (confirm_overwrite_content and/or confirm_live_edit); overwrite confirm does not imply live confirm. Write flushes redirect cache, queues redirects validation (slug-scoped run_entry_diagnostics does not). Regex allowed; omit before_from on add = append.",
     {
       action: z.enum(["add", "delete", "move"]).describe("add: create one rule; delete: remove by from+source; move: splice custom-redirects.yml above before_from"),
       from: z.string().optional().describe("Source path or regex (required for every action)"),
@@ -285,8 +285,8 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async (args) => {
-      if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) {
-        return denyResponse("seo_edit");
+      if (mcpToken && !(await checkCap(mcpToken, "edit_redirects"))) {
+        return denyResponse("edit_redirects");
       }
       const siteResult = resolveSiteContext(args.site);
       if (!siteResult.ok) {

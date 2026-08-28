@@ -1389,7 +1389,7 @@ export function registerSettingsRoutes(app: Express): void {
   });
 
   app.get("/api/settings/entry-preview", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const contentRoot = getContentRoot(res);
@@ -1431,7 +1431,7 @@ export function registerSettingsRoutes(app: Express): void {
   });
 
   app.put("/api/settings/entry-preview", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const schema = z.object({
@@ -1474,7 +1474,7 @@ export function registerSettingsRoutes(app: Express): void {
    * - example: https://example.com (validates API token / Browser Rendering only)
    */
   app.post("/api/settings/entry-preview/test-screenshot", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const contentRoot = getContentRoot(res);
@@ -1566,7 +1566,7 @@ export function registerSettingsRoutes(app: Express): void {
   });
 
   app.put("/api/settings/search-console", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const schema = z.object({

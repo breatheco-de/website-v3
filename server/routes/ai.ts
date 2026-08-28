@@ -206,6 +206,7 @@ import {
   FixerItemStatus,
 } from "./_helpers";
 import { child } from "../logger";
+import { api } from "../rate-limit/api.js";
 const log = child({ module: "routes/ai" });
 
 
@@ -507,6 +508,50 @@ export function registerAiRoutes(app: Express): void {
       log.error("Error generating JSON schema:", error?.message || error);
       const message = error?.message || "Failed to generate JSON schema";
       res.status(500).json({ error: message });
+    }
+  });
+
+  api.post(app, "/api/ai/generate-role-description", { rate: "expensiveAi" }, async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "users_manage");
+      if (!auth.authorized) return;
+
+      const { generateRoleDescription } = await import("../ai/generateRoleDescription");
+
+      const { id, label, capabilities } = req.body;
+
+      if (!label || typeof label !== "string" || !label.trim()) {
+        res.status(400).json({ error: "label must be a non-empty string" });
+        return;
+      }
+      if (!Array.isArray(capabilities) || capabilities.length === 0) {
+        res.status(400).json({ error: "capabilities must be a non-empty array" });
+        return;
+      }
+
+      const result = await generateRoleDescription({
+        id: typeof id === "string" && id.trim() ? id.trim() : undefined,
+        label: label.trim(),
+        capabilities,
+      });
+      res.json(result);
+    } catch (error: any) {
+      log.error("Error generating role description:", error?.message || error);
+      const message = error?.message || "Failed to generate role description";
+      const status =
+        message.includes("must be") ||
+        message.includes("Unknown capability") ||
+        message.includes("non-empty")
+          ? 400
+          : message.includes("Empty response from LLM") ||
+              message.includes("LLM refused")
+            ? 502
+            : 500;
+      const clientMessage =
+        message.includes("Empty response from LLM")
+          ? "The AI model returned no text. Reasoning models often need a chat model (e.g. gpt-4o-mini) in AI settings — try again or switch models."
+          : message;
+      res.status(status).json({ error: clientMessage });
     }
   });
 

@@ -491,7 +491,7 @@ function RuntimeIssuePathMenu({
   path: string;
   hostname?: string;
   fingerprint: string;
-  onAddRedirect: (path: string, fingerprint: string) => void;
+  onAddRedirect?: (path: string, fingerprint: string) => void;
   onIgnore?: (fingerprint: string) => void;
 }) {
   const copy = useCopyToast();
@@ -535,14 +535,16 @@ function RuntimeIssuePathMenu({
           <LinkIcon className="h-4 w-4" />
           Copy relative path
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={() => onAddRedirect(path, fingerprint)}
-          data-testid={`menu-runtime-issue-add-redirect-${fingerprint}`}
-        >
-          <Route className="h-4 w-4" />
-          Add redirect
-        </DropdownMenuItem>
+        {onAddRedirect || onIgnore ? <DropdownMenuSeparator /> : null}
+        {onAddRedirect ? (
+          <DropdownMenuItem
+            onClick={() => onAddRedirect(path, fingerprint)}
+            data-testid={`menu-runtime-issue-add-redirect-${fingerprint}`}
+          >
+            <Route className="h-4 w-4" />
+            Add redirect
+          </DropdownMenuItem>
+        ) : null}
         {onIgnore ? (
           <DropdownMenuItem
             onClick={() => onIgnore(fingerprint)}
@@ -741,7 +743,8 @@ export default function RuntimeIssuesTab() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { hasCapability } = useDebugAuth();
-  const canIgnore = hasCapability("seo_edit");
+  const canIgnore = hasCapability("seo_settings");
+  const canEditRedirects = hasCapability("edit_redirects");
 
   const view = useMemo(() => parseRuntimeIssueSearch(searchString), [searchString]);
   const { filters, sortKey, sortDir, page } = view;
@@ -1328,7 +1331,7 @@ export default function RuntimeIssuesTab() {
                   <li>
                     <code>POST /api/admin/runtime-issues/drop-scrapers</code>,{" "}
                     <code>…/ignore</code>, <code>…/purge</code> (fingerprints or matching ignore rules), and{" "}
-                    <code>…/unignore</code> (<code>seo_edit</code>)
+                    <code>…/unignore</code> (<code>seo_settings</code>)
                   </li>
                   <li>
                     <code>server/runtime-issues-probe.ts</code> — index walk + HTTP follow; destination check
@@ -1603,7 +1606,11 @@ export default function RuntimeIssuesTab() {
                             path={issue.path}
                             hostname={issue.hostname}
                             fingerprint={issue.fingerprint}
-                            onAddRedirect={(path, fingerprint) => setRedirectFrom({ path, fingerprint })}
+                            onAddRedirect={
+                              canEditRedirects
+                                ? (path, fingerprint) => setRedirectFrom({ path, fingerprint })
+                                : undefined
+                            }
                             onIgnore={
                               canIgnore && !ignoreMutation.isPending
                                 ? (fingerprint) => ignoreExactPaths([fingerprint])

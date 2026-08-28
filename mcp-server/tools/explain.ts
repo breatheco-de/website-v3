@@ -49,7 +49,7 @@ const TOPIC_DESC: Record<string, string> = {
   "lead-forms":
     "catalog source content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling",
   redirects:
-    "CMS 301/302: two stores, first-match, test_redirect + update_redirect (seo_edit), before_from custom-only",
+    "CMS 301/302: two stores, first-match, test_redirect (read_redirects) + update_redirect (edit_redirects), before_from custom-only",
 };
 
 type TagResolver = (contentPath: string) => string;
@@ -275,7 +275,7 @@ export function registerExplainTools(
       "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example), " +
       "'relation-fields' (relation editor, authors CT, listing vs hydrate, delete_entries reassign), " +
       "'lead-forms' (catalog source.content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling), " +
-      "'redirects' (CMS 301/302, two stores, test_redirect + update_redirect, seo_edit, first-match). " +
+      "'redirects' (CMS 301/302, two stores, test_redirect / read_redirects, update_redirect / edit_redirects, first-match). " +
       "Requires content_view. " +
       "Calling an unknown topic returns a clear error listing the valid options. " +
       "Multi-site: always pass site. If unsure, call list_sites first.",

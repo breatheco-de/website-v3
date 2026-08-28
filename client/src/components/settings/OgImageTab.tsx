@@ -78,7 +78,7 @@ function configuredBadge(ok: boolean, okLabel: string, missingLabel: string, tes
 export function OgImageTab() {
   const { toast } = useToast();
   const { hasCapability, isValidated } = useDebugAuth();
-  const canEdit = hasCapability("seo_edit");
+  const canEdit = hasCapability("seo_settings");
 
   const { data, isLoading } = useQuery<EntryPreviewSettingsResponse>({
     queryKey: ["/api/settings/entry-preview"],
@@ -335,7 +335,7 @@ export function OgImageTab() {
           {!canEdit && (
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <IconInfoCircle className="h-3.5 w-3.5" />
-              You need the seo_edit capability to change rate limits.
+              You need the seo_settings capability to change rate limits.
             </p>
           )}
         </CardContent>
@@ -512,7 +512,7 @@ export function OgImageTab() {
           {!canEdit && (
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <IconInfoCircle className="h-3.5 w-3.5" />
-              You need the seo_edit capability to run the test screenshot.
+              You need the seo_settings capability to run the test screenshot.
             </p>
           )}
         </CardContent>

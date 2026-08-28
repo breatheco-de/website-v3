@@ -56,7 +56,7 @@ Routes are also used to generate the sitemap automatically. Every page with a va
 
 ## Redirects (301/302)
 
-CMS redirects are a separate first-match layer on top of URL patterns. Two stores: `{directory}/{slug}/{locale}.yml` `meta.redirects` (dest locale only) and `site_<name>/custom-redirects.yml`. Inspect with `test_redirect`; mutate with `update_redirect` (`seo_edit`). See `explain_site` topic `redirects`.
+CMS redirects are a separate first-match layer on top of URL patterns. Two stores: `{directory}/{slug}/{locale}.yml` `meta.redirects` (dest locale only) and `site_<name>/custom-redirects.yml`. Inspect with `test_redirect` (`read_redirects`); mutate with `update_redirect` (`edit_redirects`). See `explain_site` topic `redirects`.
 
 ## DB-backed vs static slugs
 

@@ -462,7 +462,7 @@ export function registerSeoRoutes(app: Express): void {
 
   app.post("/api/debug/gsc-inspection", async (req, res) => {
     try {
-      const auth = await requireCapability(req, res, "seo_edit");
+      const auth = await requireCapability(req, res, "seo_settings");
       if (!auth.authorized) return;
 
       const contentRoot = getContentRoot(res);
@@ -509,7 +509,7 @@ export function registerSeoRoutes(app: Express): void {
 
   app.post("/api/debug/gsc-inspection/cancel", async (req, res) => {
     try {
-      const auth = await requireCapability(req, res, "seo_edit");
+      const auth = await requireCapability(req, res, "seo_settings");
       if (!auth.authorized) return;
 
       const result = cancelGscInspects();
@@ -538,7 +538,7 @@ export function registerSeoRoutes(app: Express): void {
         return;
       }
 
-      const auth = await requireCapability(req, res, "seo_edit");
+      const auth = await requireCapability(req, res, "seo_settings");
       if (!auth.authorized) return;
 
       const contentRootName = getContentRootName(res);
@@ -568,7 +568,7 @@ export function registerSeoRoutes(app: Express): void {
 
   app.post("/api/debug/gsc-inspection/enqueue", async (req, res) => {
     try {
-      const auth = await requireCapability(req, res, "seo_edit");
+      const auth = await requireCapability(req, res, "seo_settings");
       if (!auth.authorized) return;
 
       const contentRoot = getContentRoot(res);

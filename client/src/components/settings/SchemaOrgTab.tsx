@@ -56,7 +56,7 @@ export interface SchemaOrgEditorResponse {
 export function SchemaOrgTab() {
   const { toast } = useToast();
   const { hasCapability, isValidated } = useDebugAuth();
-  const canEdit = hasCapability("seo_edit");
+  const canEdit = hasCapability("seo_settings");
 
   const { data, isLoading } = useQuery<SchemaOrgEditorResponse>({
     queryKey: ["/api/admin/schema-org"],

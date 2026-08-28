@@ -103,6 +103,54 @@ export function resolveImageModel(contentRoot?: string): string {
   return DEFAULT_IMAGE_MODEL;
 }
 
+type CompletionMessage = {
+  content?: unknown;
+  refusal?: string | null;
+  reasoning?: string | null;
+};
+
+/**
+ * Normalize OpenAI / OpenRouter message content (string, part array, or empty).
+ */
+export function extractCompletionText(
+  message: CompletionMessage | null | undefined,
+): string | null {
+  if (!message) return null;
+
+  if (typeof message.refusal === "string" && message.refusal.trim()) {
+    throw new Error(`LLM refused: ${message.refusal.trim()}`);
+  }
+
+  const { content } = message;
+
+  if (typeof content === "string") {
+    const trimmed = content.trim();
+    return trimmed || null;
+  }
+
+  if (Array.isArray(content)) {
+    const parts = content
+      .map((part: unknown) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object") {
+          const p = part as { type?: string; text?: string };
+          if (
+            (p.type === "text" || p.type === "output_text") &&
+            typeof p.text === "string"
+          ) {
+            return p.text;
+          }
+        }
+        return "";
+      })
+      .filter(Boolean);
+    const joined = parts.join("\n").trim();
+    return joined || null;
+  }
+
+  return null;
+}
+
 export type GenerateImagesResult = {
   model: string;
   candidates: Array<{ b64: string; mediaType: string }>;
@@ -397,7 +445,7 @@ export class LLMService implements ILLMClient {
   async complete(prompt: string, options?: LLMOptions): Promise<string> {
     const model = options?.model || this.defaultModel;
     const temperature = options?.temperature ?? this.defaultTemperature;
-    const maxTokens = options?.maxTokens || this.defaultMaxTokens;
+    let maxTokens = options?.maxTokens || this.defaultMaxTokens;
 
     let lastError: Error | null = null;
     let backoffMs = INITIAL_BACKOFF_MS;
@@ -418,26 +466,38 @@ export class LLMService implements ILLMClient {
           max_tokens: maxTokens,
         });
 
-        const content = response.choices[0]?.message?.content;
-        if (!content) {
-          throw new Error("Empty response from LLM");
+        const choice = response.choices[0];
+        const text = extractCompletionText(choice?.message);
+        if (!text) {
+          const finishReason = choice?.finish_reason ?? "unknown";
+          throw new Error(`Empty response from LLM (finish_reason=${finishReason})`);
         }
 
-        return content.trim();
+        return text;
       } catch (error) {
         lastError = error as Error;
         const errorMessage = lastError.message || "";
 
-        if (
+        const retryable =
           errorMessage.includes("rate_limit") ||
           errorMessage.includes("429") ||
           errorMessage.includes("timeout") ||
           errorMessage.includes("network") ||
-          errorMessage.includes("ECONNRESET")
-        ) {
-          log.warn(
-            `LLM error (attempt ${attempt}/${MAX_RETRIES}), retrying in ${backoffMs}ms...`,
-          );
+          errorMessage.includes("ECONNRESET") ||
+          errorMessage.includes("Empty response from LLM");
+
+        if (retryable && attempt < MAX_RETRIES) {
+          if (errorMessage.includes("Empty response from LLM")) {
+            maxTokens = Math.min(Math.max(maxTokens * 2, 1024), 4096);
+            log.warn(
+              { model, maxTokens, attempt },
+              "LLM returned empty content; retrying with higher max_tokens",
+            );
+          } else {
+            log.warn(
+              `LLM error (attempt ${attempt}/${MAX_RETRIES}), retrying in ${backoffMs}ms...`,
+            );
+          }
           await this.sleep(backoffMs);
           backoffMs *= 2;
           continue;

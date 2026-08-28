@@ -6,6 +6,38 @@ window_days: 6
 
 entries:
   - date: "2026-08-28"
+    summary: "SEO capabilities split: scoped seo_edit + read/edit_redirects + seo_settings"
+    agent_impact:
+      - "seo_edit is scoped by content type (page meta only). Custom roles with old seo_edit were expanded to also grant read_redirects, edit_redirects, and seo_settings."
+      - "test_redirect → read_redirects; update_redirect → edit_redirects; ensure_content_type_schema_org → seo_settings. SEO listings union content_view + seo_edit scopes."
+      - "reset_entry_field removed — use update_fields updates[] with reset:true (no value/meta_target) or update_entry_field reset:true. Reconnect MCP if tools/list looks stale."
+    paths:
+      - shared/capabilities.ts
+      - shared/mcp-tool-catalog.ts
+      - server/user-store.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/tools/redirects.ts
+    tools_changed: true
+  - date: "2026-08-28"
+    summary: "Fold reset_entry_field into update_fields / update_entry_field"
+    agent_impact:
+      - "reset_entry_field removed — use update_fields updates[] with reset:true (no value/meta_target) or update_entry_field reset:true."
+      - "update_fields may mix set and reset items; reset-only returns after field-reset without set-write."
+      - "Refresh/reconnect MCP connector — tool list changed (reset_entry_field gone)."
+    paths:
+      - mcp-server/tools/pages.ts
+    tools_changed: true
+  - date: "2026-08-28"
+    summary: "Redirect MCP tools use read_redirects / edit_redirects (not seo_edit)"
+    agent_impact:
+      - "test_redirect requires read_redirects; update_redirect requires edit_redirects (denyResponse matches)."
+      - "seo_edit alone no longer reveals redirect tools in tools/list — reconnect if caps look stale."
+    paths:
+      - mcp-server/tools/redirects.ts
+      - mcp-server/explain/redirects.md
+      - shared/mcp-tool-catalog.ts
+    tools_changed: false
+  - date: "2026-08-28"
     summary: "Agent sessions + required report on MCP content mutates"
     agent_impact:
       - "Call agent_session start → pass agent_session_id on mutates; note/summarize emit pipeline audit events."

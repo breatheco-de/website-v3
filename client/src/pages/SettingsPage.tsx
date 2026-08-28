@@ -180,7 +180,7 @@ export default function SettingsPage() {
     return null;
   }
 
-  const canEditSeo = hasCapability("seo_edit");
+  const canEditSeo = hasCapability("seo_settings");
 
   interface LegalSettings {
     legal_terms_url: string;

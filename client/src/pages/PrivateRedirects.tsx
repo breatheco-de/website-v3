@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense, type ReactNode, type CSSProperties } from "react";
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronRight, CircleCheck, ExternalLink, FileText, GripVertical, Info, Pencil, Plus, Route, Search, ShieldCheck, TestTube, Trash2, Wrench, X } from "lucide-react";
-import { getDebugUserName } from "@/hooks/useDebugAuth";
+import { getDebugUserName, useDebugAuth } from "@/hooks/useDebugAuth";
 import { useQuery } from "@tanstack/react-query";
 import {
   Card,
@@ -226,6 +226,8 @@ function removeFromFileLabel(
 
 export default function PrivateRedirects() {
   const formatPath = useFormatSitePath();
+  const { hasCapability } = useDebugAuth();
+  const canEditRedirects = hasCapability("edit_redirects");
   const [search, setSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [showYamlEditor, setShowYamlEditor] = useState(false);
@@ -734,6 +736,8 @@ export default function PrivateRedirects() {
                 variant="default"
                 size="sm"
                 onClick={() => setShowAddDialog(true)}
+                disabled={!canEditRedirects}
+                title={!canEditRedirects ? "You need the edit_redirects capability" : undefined}
                 data-testid="button-add-redirect"
               >
                 <Plus className="h-3.5 w-3.5 mr-1" />

@@ -604,7 +604,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   const formatSitePath = useFormatSitePath();
   const queryClient = useQueryClient();
   const { hasCapability } = useDebugAuth();
-  const canInspect = hasCapability("seo_edit");
+  const canInspect = hasCapability("seo_settings");
   const { toast } = useToast();
 
   const allErrors = pageDiagnostics?.issues?.filter((i) => i.type === "error") ?? [];

@@ -176,7 +176,7 @@ export async function denyUnlessContentViewOrSeo(
   if (!mcpToken) return null;
   if (contentType) {
     if (await checkCap(mcpToken, "content_view", contentType)) return null;
-    if (await checkCap(mcpToken, "seo_edit")) return null;
+    if (await checkCap(mcpToken, "seo_edit", contentType)) return null;
     return denyResponse("content_view|seo_edit", contentType);
   }
   if (grants) {

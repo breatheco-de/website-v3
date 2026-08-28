@@ -98,7 +98,10 @@ const BUILT_IN_WEBMASTER_ROLE: RoleDefinition = {
     { name: "theme_edit" },
     { name: "media_upload" },
     { name: "media_delete" },
-    { name: "seo_edit" },
+    { name: "seo_edit", contentTypes: "*" },
+    { name: "read_redirects" },
+    { name: "edit_redirects" },
+    { name: "seo_settings" },
     { name: "content_types_manage" },
     { name: "databases_manage" },
     { name: "components_manage" },
@@ -168,6 +171,9 @@ function unionContentTypeScopes(
 /**
  * Add content_view to custom editor roles that have mutate caps but no view grant.
  * Built-in roles are skipped (synced from code). Returns true if any role changed.
+ *
+ * Triggers on CONTENT_MUTATE_CAPABILITIES (incl. scoped seo_edit) or edit_redirects.
+ * edit_redirects alone → content_view with "*".
  */
 export function ensureContentViewOnEditorRoles(
   roles: Record<string, RoleDefinition>,
@@ -177,14 +183,51 @@ export function ensureContentViewOnEditorRoles(
     if (isBuiltInRole(roleId)) continue;
     if (!role?.capabilities) continue;
     if (role.capabilities.some((g) => g.name === "content_view")) continue;
+
     const mutateGrants = role.capabilities.filter((g) =>
       (CONTENT_MUTATE_CAPABILITIES as readonly string[]).includes(g.name),
     );
-    if (mutateGrants.length === 0) continue;
+    const hasEditRedirects = role.capabilities.some((g) => g.name === "edit_redirects");
+    if (mutateGrants.length === 0 && !hasEditRedirects) continue;
+
+    const contentTypes =
+      mutateGrants.length > 0 ? unionContentTypeScopes(mutateGrants) : ("*" as const);
+
     role.capabilities = [
-      { name: "content_view", contentTypes: unionContentTypeScopes(mutateGrants) },
+      { name: "content_view", contentTypes },
       ...role.capabilities,
     ];
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * Expand legacy global seo_edit on custom roles to the split caps.
+ * Preserves existing seo_edit grant; fills missing contentTypes with "*".
+ * Returns true if changed.
+ */
+export function migrateSeoEditSplit(roles: Record<string, RoleDefinition>): boolean {
+  let changed = false;
+  for (const [roleId, role] of Object.entries(roles)) {
+    if (isBuiltInRole(roleId)) continue;
+    if (!role?.capabilities) continue;
+    const seoGrant = role.capabilities.find((g) => g.name === "seo_edit");
+    if (!seoGrant) continue;
+
+    if (seoGrant.contentTypes === undefined) {
+      seoGrant.contentTypes = "*";
+      changed = true;
+    }
+
+    const names = new Set(role.capabilities.map((g) => g.name));
+    const toAdd: CapabilityGrant[] = [];
+    if (!names.has("read_redirects")) toAdd.push({ name: "read_redirects" });
+    if (!names.has("edit_redirects")) toAdd.push({ name: "edit_redirects" });
+    if (!names.has("seo_settings")) toAdd.push({ name: "seo_settings" });
+    if (toAdd.length === 0) continue;
+
+    role.capabilities = [...role.capabilities, ...toAdd];
     changed = true;
   }
   return changed;
@@ -199,6 +242,9 @@ function finishLoad(persist: "local" | "all"): void {
   syncBuiltInRoles();
   if (!state.users) state.users = {};
   backfillMissingUserIds();
+  if (migrateSeoEditSplit(state.roles)) {
+    log.info("[UserStore] Migrated custom roles: expanded seo_edit to redirect + settings caps");
+  }
   if (ensureContentViewOnEditorRoles(state.roles)) {
     log.info("[UserStore] Migrated custom roles: added content_view from editor capabilities");
   }

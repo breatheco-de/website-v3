@@ -1348,8 +1348,6 @@ export function registerSectionsRoutes(app: Express): void {
   app.post("/api/content/bulk-update-meta", async (req, res) => {
     try {
       req.body = decodeHtmlValues(req.body);
-      const auth = await requireCapability(req, res, "seo_edit");
-      if (!auth.authorized) return;
 
       const {
         slugs,
@@ -1360,6 +1358,14 @@ export function registerSectionsRoutes(app: Express): void {
         confirm_live_edit,
         author: requestAuthor,
       } = req.body;
+
+      if (typeof contentType !== "string" || !contentType.trim()) {
+        res.status(400).json({ error: "contentType is required" });
+        return;
+      }
+
+      const auth = await requireCapability(req, res, "seo_edit", contentType.trim());
+      if (!auth.authorized) return;
 
       if (!Array.isArray(slugs) || slugs.length === 0) {
         res.status(400).json({ error: "slugs must be a non-empty array" });
@@ -1400,7 +1406,7 @@ export function registerSectionsRoutes(app: Express): void {
         slugs,
         locale,
         updates,
-        contentType: typeof contentType === "string" ? contentType : undefined,
+        contentType: contentType.trim(),
         variant: typeof variant === "string" ? variant : undefined,
         confirm_live_edit: !!confirm_live_edit,
         author: authorName,

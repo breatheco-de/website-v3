@@ -18,6 +18,7 @@ import {
   IconAlertCircle,
   IconKey,
   IconInfoCircle,
+  IconSparkles,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
@@ -28,6 +29,16 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useDebugAuth, getDebugUserName } from "@/hooks/useDebugAuth";
@@ -111,6 +122,8 @@ function isValidRoleIdFormat(id: string): boolean {
 }
 
 const CONTENT_MUTATE_SET = new Set<string>(CONTENT_MUTATE_CAPABILITIES);
+/** Global caps that should also auto-enable content_view (all types). */
+const AUTO_VIEW_GLOBAL = new Set<string>(["edit_redirects"]);
 
 function parseScopeList(raw: string): string[] {
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
@@ -128,13 +141,19 @@ function withAutoContentView(
   nextState: CapabilityFormState,
 ): Record<string, CapabilityFormState> {
   const updated = { ...caps, [changedName]: nextState };
-  if (!CONTENT_MUTATE_SET.has(changedName) || !nextState.enabled) return updated;
+  if (!nextState.enabled) return updated;
+
+  const isScopedMutate = CONTENT_MUTATE_SET.has(changedName);
+  const isEditRedirects = AUTO_VIEW_GLOBAL.has(changedName);
+  if (!isScopedMutate && !isEditRedirects) return updated;
+
   const view = updated.content_view ?? { enabled: false, contentTypes: "" };
+  const incomingScope = isEditRedirects ? "" : nextState.contentTypes;
   updated.content_view = {
     enabled: true,
     contentTypes: view.enabled
-      ? mergeContentTypeScopes(view.contentTypes, nextState.contentTypes)
-      : nextState.contentTypes,
+      ? mergeContentTypeScopes(view.contentTypes, incomingScope)
+      : incomingScope,
   };
   return updated;
 }
@@ -338,6 +357,78 @@ function CapabilityFields({
   );
 }
 
+function RoleAgentDescriptionField({
+  description,
+  onDescriptionChange,
+  onGenerateClick,
+  generating,
+  inputTestId,
+  generateTestId,
+  helperExtra,
+}: {
+  description: string;
+  onDescriptionChange: (value: string) => void;
+  onGenerateClick: () => void;
+  generating: boolean;
+  inputTestId: string;
+  generateTestId: string;
+  helperExtra?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-xs font-medium text-muted-foreground">Description for AI agents</label>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              disabled={generating}
+              onClick={onGenerateClick}
+              data-testid={generateTestId}
+              aria-label="Generate description for AI agents"
+            >
+              {generating ? (
+                <IconLoader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <IconSparkles className="h-4 w-4" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-center">
+            Draft a short description agents use to pick this MCP connector over similar roles. You can edit before
+            saving.
+          </TooltipContent>
+        </Tooltip>
+      </div>
+      <Input
+        placeholder="SEO only: meta, clusters, redirects. Do not edit page sections or structure."
+        value={description}
+        onChange={(e) => onDescriptionChange(e.target.value)}
+        data-testid={inputTestId}
+      />
+      <p className="text-xs text-muted-foreground">
+        Required. Used for MCP connectors at{" "}
+        <code className="font-mono text-[11px] bg-muted px-1 rounded">/mcp/role/…</code>. Agents read this to decide
+        which connector to use{helperExtra ? ` — ${helperExtra}` : "."}
+      </p>
+    </div>
+  );
+}
+
+function parseApiErrorMessage(message: string, fallback: string): string {
+  const jsonMatch = message.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return message || fallback;
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as { error?: string };
+    return parsed.error?.trim() || message || fallback;
+  } catch {
+    return message || fallback;
+  }
+}
+
 function RolesTab() {
   const { toast } = useToast();
   const { isValidated } = useDebugAuth();
@@ -354,6 +445,11 @@ function RolesTab() {
   const [editRoleForm, setEditRoleForm] = useState<Omit<RoleFormState, "id"> | null>(null);
   const [deletingRoleId, setDeletingRoleId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [generatingRoleDescription, setGeneratingRoleDescription] = useState(false);
+  const [confirmGenerateDescription, setConfirmGenerateDescription] = useState<{
+    target: "new" | "edit";
+    roleId?: string;
+  } | null>(null);
 
   const roles = rolesData ? Object.entries(rolesData) : [];
 
@@ -503,6 +599,81 @@ function RolesTab() {
     }
   }
 
+  function requestGenerateRoleDescription(target: "new" | "edit", roleId?: string) {
+    const form = target === "new" ? newRoleForm : editRoleForm;
+    if (!form) return;
+
+    const caps = capGrantsFromFormState(form.capabilities);
+    if (caps.length === 0) {
+      toast({
+        title: "Select at least one capability first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (form.description.trim()) {
+      setConfirmGenerateDescription({ target, roleId });
+      return;
+    }
+
+    void runGenerateRoleDescription(target, roleId);
+  }
+
+  async function runGenerateRoleDescription(target: "new" | "edit", roleId?: string) {
+    const form = target === "new" ? newRoleForm : editRoleForm;
+    if (!form) return;
+
+    const caps = capGrantsFromFormState(form.capabilities);
+    if (caps.length === 0) return;
+
+    if (!form.label.trim()) {
+      toast({
+        title: "Role label is required",
+        description: "Enter a label before generating a description.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setGeneratingRoleDescription(true);
+    try {
+      const res = await apiRequest("POST", "/api/ai/generate-role-description", {
+        id:
+          target === "edit"
+            ? roleId
+            : newRoleForm?.id.trim()
+              ? newRoleForm.id.trim()
+              : undefined,
+        label: form.label.trim(),
+        capabilities: caps,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to generate description");
+      }
+
+      if (target === "new" && newRoleForm) {
+        setNewRoleForm({ ...newRoleForm, description: data.description });
+      } else if (target === "edit" && editRoleForm) {
+        setEditRoleForm({ ...editRoleForm, description: data.description });
+      }
+      toast({ title: "Description generated" });
+    } catch (err: any) {
+      toast({
+        title: "Failed to generate description",
+        description: parseApiErrorMessage(
+          err?.message ?? "",
+          "Failed to generate description",
+        ),
+        variant: "destructive",
+      });
+    } finally {
+      setGeneratingRoleDescription(false);
+      setConfirmGenerateDescription(null);
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -601,19 +772,15 @@ function RolesTab() {
                 )}
               </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Description for AI agents</label>
-              <Input
-                placeholder="SEO only: meta, clusters, redirects. Do not edit page sections or structure."
-                value={newRoleForm.description}
-                onChange={(e) => setNewRoleForm({ ...newRoleForm, description: e.target.value })}
-                data-testid="input-new-role-description"
-              />
-              <p className="text-xs text-muted-foreground">
-                Required. Used for MCP connectors at <code className="font-mono text-[11px] bg-muted px-1 rounded">/mcp/role/…</code>.
-                Agents read this to decide which connector to use — say what this role should and should not do.
-              </p>
-            </div>
+            <RoleAgentDescriptionField
+              description={newRoleForm.description}
+              onDescriptionChange={(description) => setNewRoleForm({ ...newRoleForm, description })}
+              onGenerateClick={() => requestGenerateRoleDescription("new")}
+              generating={generatingRoleDescription}
+              inputTestId="input-new-role-description"
+              generateTestId="button-generate-role-description"
+              helperExtra="say what this role should and should not do"
+            />
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Capabilities</label>
               <p className="text-xs text-muted-foreground">
@@ -750,20 +917,16 @@ function RolesTab() {
                   </div>
                 ) : isEditing && editRoleForm ? (
                   <div className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-muted-foreground">Description for AI agents</label>
-                      <Input
-                        placeholder="SEO only: meta, clusters, redirects. Do not edit page sections or structure."
-                        value={editRoleForm.description}
-                        onChange={(e) => setEditRoleForm({ ...editRoleForm, description: e.target.value })}
-                        data-testid={`input-edit-role-desc-${roleId}`}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Required. Used for MCP connectors at{" "}
-                        <code className="font-mono text-[11px] bg-muted px-1 rounded">/mcp/role/…</code>.
-                        Agents read this to decide which connector to use.
-                      </p>
-                    </div>
+                    <RoleAgentDescriptionField
+                      description={editRoleForm.description}
+                      onDescriptionChange={(description) =>
+                        setEditRoleForm({ ...editRoleForm, description })
+                      }
+                      onGenerateClick={() => requestGenerateRoleDescription("edit", roleId)}
+                      generating={generatingRoleDescription}
+                      inputTestId={`input-edit-role-desc-${roleId}`}
+                      generateTestId={`button-generate-role-description-${roleId}`}
+                    />
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-muted-foreground">Capabilities</label>
                       <p className="text-xs text-muted-foreground">
@@ -806,7 +969,8 @@ function RolesTab() {
                               MCP <code className="font-mono">tools/list</code> is filtered in production from this grant.
                             </p>
                             <p>
-                              Does not include <code className="font-mono">seo_edit</code> (redirects), FAQ item CRUD,
+                              Does not include <code className="font-mono">seo_edit</code>,{" "}
+                              <code className="font-mono">edit_redirects</code>, FAQ item CRUD,
                               or starting diagnostics jobs. After assigning this role, refresh the MCP server in Cursor.
                             </p>
                             <p>
@@ -860,6 +1024,44 @@ function RolesTab() {
           );
         })}
       </div>
+
+      <AlertDialog
+        open={!!confirmGenerateDescription}
+        onOpenChange={(open) => !open && setConfirmGenerateDescription(null)}
+      >
+        <AlertDialogContent data-testid="dialog-replace-role-description">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace description?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Generated text will overwrite the current description. You can still edit before saving the role.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={generatingRoleDescription}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={generatingRoleDescription}
+              onClick={(e) => {
+                e.preventDefault();
+                if (confirmGenerateDescription) {
+                  void runGenerateRoleDescription(
+                    confirmGenerateDescription.target,
+                    confirmGenerateDescription.roleId,
+                  );
+                }
+              }}
+            >
+              {generatingRoleDescription ? (
+                <>
+                  <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generating…
+                </>
+              ) : (
+                "Replace"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

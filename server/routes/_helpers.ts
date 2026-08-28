@@ -219,10 +219,12 @@ export async function requireCapability(
     undefined;
 
   const isDevelopment = process.env.NODE_ENV !== "production";
+  const enforceCapsInDev = process.env.ENFORCE_CAPS_IN_DEV === "1";
   const token = extractToken(req);
 
-  if (isDevelopment) {
+  if (isDevelopment && !enforceCapsInDev) {
     // In dev mode, resolve username from token if present, but always allow
+    // (set ENFORCE_CAPS_IN_DEV=1 to exercise production-like capability checks).
     if (token) {
       try {
         const profile = await userManager.validateToken(token);
@@ -323,9 +325,10 @@ export async function requireMutatingStaff(
   res: Response,
 ): Promise<{ authorized: boolean; token: string | null; username: string | null; author: string | null }> {
   const isDevelopment = process.env.NODE_ENV !== "production";
+  const enforceCapsInDev = process.env.ENFORCE_CAPS_IN_DEV === "1";
   const token = extractToken(req);
 
-  if (isDevelopment) {
+  if (isDevelopment && !enforceCapsInDev) {
     if (token) {
       try {
         const profile = await userManager.validateToken(token);

@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext, createElement, type ReactNode } from "react";
 import { setAuthToken } from "@/lib/sessionHeaders";
-import { VIEW_ONLY_CAPABILITIES, type CapabilityName } from "@shared/capabilities";
+import { VIEW_ONLY_CAPABILITIES, SCOPED_CAPABILITIES, type CapabilityName } from "@shared/capabilities";
 
 const DEBUG_SESSION_KEY = "debug_validated";
 const DEBUG_SESSION_EXPIRY_KEY = "debug_validated_expiry";
@@ -225,10 +225,15 @@ function grantHasCapability(
 ): boolean {
   const grant = capabilities.find((g) => g.name === capabilityName);
   if (!grant) return false;
-  if (!contentType || grant.contentTypes === undefined) return true;
-  if (grant.contentTypes === "*") return true;
-  if (Array.isArray(grant.contentTypes)) return grant.contentTypes.includes(contentType);
-  return false;
+  const isScoped = (SCOPED_CAPABILITIES as readonly string[]).includes(capabilityName);
+  if (isScoped) {
+    // Match server grantAllowsCap: missing contentType only allows "*" grants.
+    if (!contentType) return grant.contentTypes === "*";
+    if (grant.contentTypes === "*") return true;
+    if (Array.isArray(grant.contentTypes)) return grant.contentTypes.includes(contentType);
+    return false;
+  }
+  return true;
 }
 
 export function DebugAuthProvider({ children }: { children: ReactNode }) {

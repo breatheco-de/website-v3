@@ -1764,7 +1764,7 @@ export function registerContentRoutes(app: Express): void {
   app.post("/api/content-types/:type/schema-org-ensure", async (req, res) => {
     try {
       const { type } = req.params;
-      const auth = await requireCapability(req, res, "content_edit_structure", type);
+      const auth = await requireCapability(req, res, "seo_settings");
       if (!auth.authorized) return;
 
       const config = getContentTypeConfig(type, ctRoot(res));
@@ -4304,7 +4304,12 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
 
-      if (isKnownSeoFieldPath(field) || field === "seo.pillar") {
+      const isSeoField = isKnownSeoFieldPath(field) || field === "seo.pillar";
+      const resetCap = isSeoField ? "seo_edit" : "content_edit_text";
+      const auth = await requireCapability(req, res, resetCap, type);
+      if (!auth.authorized) return;
+
+      if (isSeoField) {
         const fieldPath = field === "seo.pillar" ? "seo.pillar_path" : field;
         let dbItem: Record<string, unknown> | null = null;
         const dbName = config.database?.slug;

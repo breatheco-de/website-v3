@@ -56,8 +56,8 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `add_database_item` / `add_database_items` / `update_database_item` / `update_database_items` / `delete_database_item` | Local YAML item CRUD (FAQ database etc.; bulk max 40, best-effort) |
 | `reindex_database` | Vector reindex after item writes (`databases_manage`) |
 | `get_product_funnel` / `update_product_funnel` | Product conversion funnels |
-| `test_redirect` | Inspect one URL: first-match winner + conflicts (`seo_edit`) |
-| `update_redirect` | Add / delete / move one CMS redirect (`seo_edit`; call `test_redirect` first) |
+| `test_redirect` | Inspect one URL: first-match winner + conflicts (`read_redirects`) |
+| `update_redirect` | Add / delete / move one CMS redirect (`edit_redirects`; call `test_redirect` first) |
 
 See `explain_site` topic `local_databases` before FAQ database mutations.
 

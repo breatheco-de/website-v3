@@ -961,7 +961,7 @@ export function registerAdminRoutes(app: Express): void {
   // Clear sitemap cache (requires token validation)
   app.post("/api/debug/clear-sitemap-cache", async (req, res) => {
     try {
-      const auth = await requireCapability(req, res, "seo_edit");
+      const auth = await requireCapability(req, res, "seo_settings");
       if (!auth.authorized) return;
 
       const result = clearSitemapCache();
@@ -1044,7 +1044,9 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // Get active redirects (for debug tools)
-  app.get("/api/debug/redirects", (req, res) => {
+  app.get("/api/debug/redirects", async (req, res) => {
+    const auth = await requireCapability(req, res, "read_redirects");
+    if (!auth.authorized) return;
     const ci = getCI(res);
     const siteEntries = getFreshRedirectEntries(ci);
     const redirects = siteEntries.map((e) => ({
@@ -1058,7 +1060,9 @@ export function registerAdminRoutes(app: Express): void {
     res.json({ count: redirects.length, redirects });
   });
 
-  app.get("/api/debug/redirects/yml", (_req, res) => {
+  app.get("/api/debug/redirects/yml", async (req, res) => {
+    const auth = await requireCapability(req, res, "read_redirects");
+    if (!auth.authorized) return;
     try {
       const relativePath = `${getContentRootName(res)}/custom-redirects.yml`;
       const customFilePath = path.join(getContentRoot(res), "custom-redirects.yml");
@@ -1079,7 +1083,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/debug/redirects/yml", (req, res) => {
+  app.put("/api/debug/redirects/yml", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const { content, author } = req.body as {
         content?: string;
@@ -1194,7 +1200,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/debug/redirects/locale-urls", (req, res) => {
+  app.get("/api/debug/redirects/locale-urls", async (req, res) => {
+    const auth = await requireCapability(req, res, "read_redirects");
+    if (!auth.authorized) return;
     try {
       const url = req.query.url as string;
       if (!url) {
@@ -1219,7 +1227,9 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // Add a new redirect (for debug tools)
-  app.post("/api/debug/redirects", (req, res) => {
+  app.post("/api/debug/redirects", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const {
         from,
@@ -1439,7 +1449,9 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // Delete a redirect (for debug tools)
-  app.delete("/api/debug/redirects", (req, res) => {
+  app.delete("/api/debug/redirects", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const { from, source, author } = req.body;
       const authorName = author && typeof author === "string" ? author : undefined;
@@ -1597,7 +1609,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.patch("/api/debug/redirects/reorder", (req, res) => {
+  app.patch("/api/debug/redirects/reorder", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const { redirects, author } = req.body;
       const authorName = author && typeof author === "string" ? author : undefined;
@@ -1662,7 +1676,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.patch("/api/debug/redirects/move", (req, res) => {
+  app.patch("/api/debug/redirects/move", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const { from, before_from: beforeFrom, author } = req.body;
       const authorName = author && typeof author === "string" ? author : undefined;
@@ -1701,6 +1717,8 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/debug/redirects/test", async (req, res) => {
+    const auth = await requireCapability(req, res, "read_redirects");
+    if (!auth.authorized) return;
     const url = req.query.url as string;
     if (!url) {
       res.status(400).json({ error: "Missing 'url' query parameter" });
@@ -1732,7 +1750,9 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // Update a custom regex redirect's from/to (inline editor)
-  app.patch("/api/debug/redirects", (req, res) => {
+  app.patch("/api/debug/redirects", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const { from, newFrom, newTo, author } = req.body;
       const authorName = author && typeof author === "string" ? author : undefined;
@@ -1832,7 +1852,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.patch("/api/debug/redirects/priority", (req, res) => {
+  app.patch("/api/debug/redirects/priority", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const { from, priority, author } = req.body;
       const authorName = author && typeof author === "string" ? author : undefined;
@@ -1898,7 +1920,9 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // Clear redirect cache (for debug tools) — also rescan so disk and tester agree
-  app.post("/api/debug/clear-redirect-cache", (req, res) => {
+  app.post("/api/debug/clear-redirect-cache", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       getCI(res).scan();
     } catch (err) {
@@ -1909,7 +1933,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/admin/brand-settings", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const schemaPath = path.join(getContentRoot(res), "schema-org.yml");
@@ -1965,7 +1989,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.put("/api/admin/brand-settings", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const {
@@ -2109,7 +2133,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/admin/schema-org", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const cr = getContentRoot(res);
@@ -2120,7 +2144,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.put("/api/admin/schema-org", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const cr = getContentRoot(res);
@@ -2135,7 +2159,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/admin/schema-org/yml", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const cr = getContentRoot(res);
@@ -2152,7 +2176,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.put("/api/admin/schema-org/yml", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const cr = getContentRoot(res);
@@ -3778,7 +3802,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.post("/api/admin/runtime-issues/ignore", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
 
     const raw = req.body?.rules;
@@ -3832,7 +3856,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.post("/api/admin/runtime-issues/unignore", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
 
     const raw = req.body?.ids;
@@ -3861,7 +3885,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.post("/api/admin/runtime-issues/purge", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
 
     const mode = req.body?.mode;

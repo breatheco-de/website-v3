@@ -2354,6 +2354,8 @@ export function registerPageTools(
   mcp.tool(
     "update_fields",
     "The only single-entry field write tool. Apply one or more field updates to one page/locale. " +
+    "Each updates[] item is set-mode (value) or reset-mode (reset:true, no value/meta_target). " +
+    "reset:true clears the override via the field-reset API (inherit lower layer). " +
     "updates length 1 = single-field edit. May mix meta.*, safe top-level body fields, and fields under ONE sections.N.* index. " +
     "Rejects two or more distinct section indexes (split into separate calls so bindings can propagate). " +
     "sections.N.* patches an existing slot only — missing index fails (reload, or edit template.{locale}.yml with layout_target type_template). Does not create overlay patches or grow sections[]. " +
@@ -2375,11 +2377,14 @@ export function registerPageTools(
         field_path: z.string().describe(
           "Dot path: sections.0.title, meta.description, seo.main_keyword, seo.include_in_clustering, title, …",
         ),
-        value: z.unknown().describe("New value"),
+        value: z.unknown().optional().describe("New value (required unless reset:true)"),
+        reset: z.boolean().optional().describe(
+          "When true, clear this field (inherit lower layer). Do not send value or meta_target on this item.",
+        ),
         meta_target: z.enum(["locale", "common"]).optional().describe(
           "Required for unknown meta.* keys. Known meta auto-routes.",
         ),
-      })).min(1).describe("Field updates (min 1). At most one distinct sections.N index."),
+      })).min(1).describe("Field updates (min 1). At most one distinct sections.N index. Each item is set (value) or reset (reset:true)."),
       contentType: z.string().optional().describe("Content type hint. Omit to auto-detect."),
       variant: z.string().optional().describe("Variant slug to write locale fields to."),
       confirm_live_edit: z.boolean().optional().describe("Confirm live overwrite when versioning.yml exists and variant is omitted."),
@@ -2539,21 +2544,37 @@ export function registerPageTools(
         if (isSeoPath(u.field_path) && u.meta_target) {
           return fail("seo.* always writes the locale file; do not pass meta_target.");
         }
-        if (!u.field_path.startsWith("meta.")) continue;
+        if (!u.field_path.startsWith("meta.") || u.reset === true) continue;
         const key = u.field_path.slice(5).split(".")[0];
         if (!ALL_KNOWN_META_FIELDS.has(key) && !u.meta_target) {
           return fail(`Unknown meta field '${key}' requires meta_target: "locale" | "common"`);
         }
       }
 
-      const needsSeo = updates.some((u) => u.field_path.startsWith("meta.") || isSeoPath(u.field_path));
-      const needsContent = updates.some((u) => !u.field_path.startsWith("meta.") && !isSeoPath(u.field_path));
+      for (const u of updates) {
+        if (u.reset === true) {
+          if (u.value !== undefined || u.meta_target !== undefined) {
+            return fail(
+              `Reset item for '${u.field_path}' must not include value or meta_target (reset:true clears the field).`,
+            );
+          }
+        } else if (u.value === undefined) {
+          return fail(`value is required for '${u.field_path}' unless reset:true`);
+        }
+      }
+
+      const resetUpdates = updates.filter((u) => u.reset === true);
+      const setUpdates = updates.filter((u) => u.reset !== true);
+
       const liveSlugUpdate = !variant
-        ? updates.find((u) => u.field_path === "slug" && typeof u.value === "string")
+        ? setUpdates.find((u) => u.field_path === "slug" && typeof u.value === "string")
         : undefined;
       if (mcpToken) {
-        if (needsSeo && !(await checkCap(mcpToken, "seo_edit"))) {
-          return denyResponse("seo_edit");
+        const allForCap = updates; // both reset and set
+        const needsSeo = allForCap.some((u) => u.field_path.startsWith("meta.") || isSeoPath(u.field_path));
+        const needsContent = allForCap.some((u) => !u.field_path.startsWith("meta.") && !isSeoPath(u.field_path));
+        if (needsSeo && !(await checkCap(mcpToken, "seo_edit", resolved.contentType))) {
+          return denyResponse("seo_edit", resolved.contentType);
         }
         if (needsContent && !(await checkCap(mcpToken, "content_edit_text", resolved.contentType))) {
           return denyResponse("content_edit_text", resolved.contentType);
@@ -2574,6 +2595,91 @@ export function registerPageTools(
         extraArgsHint: { updates: inputUpdates, layout_target, confirm_layout_target },
       });
       if (liveGate) return liveGate;
+
+      if (resetUpdates.length > 0) {
+        const ct = resolved.contentType;
+        const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+        const resetResults: Array<{
+          field_path: string;
+          noop: boolean;
+          path?: string;
+          storage?: string;
+        }> = [];
+        for (const u of resetUpdates) {
+          try {
+            const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
+            const res = await fetch(url, {
+              method: "POST",
+              headers: internalHeaders(mcpToken),
+              body: JSON.stringify({ field: u.field_path, locale, variant: variant || undefined }),
+            });
+            const data = await res.json() as {
+              error?: string;
+              noop?: boolean;
+              path?: string;
+              storage?: string;
+            };
+            if (!res.ok) {
+              return fail(data.error || `field-reset failed for '${u.field_path}': ${res.status}`);
+            }
+            resetResults.push({
+              field_path: u.field_path,
+              noop: !!data.noop,
+              ...(data.path ? { path: data.path } : {}),
+              ...(data.storage ? { storage: data.storage } : {}),
+            });
+          } catch (e) {
+            return fail(`field-reset failed for '${u.field_path}': ${(e as Error).message}`);
+          }
+        }
+
+        if (setUpdates.length === 0) {
+          const hasSeo = resetUpdates.some(
+            (u) => u.field_path.startsWith("meta.") || isSeoPath(u.field_path),
+          );
+          const hasContent = resetUpdates.some(
+            (u) => !u.field_path.startsWith("meta.") && !isSeoPath(u.field_path),
+          );
+          const next_actions: NextAction[] = [];
+          if (hasContent) {
+            next_actions.push({
+              tool: "get_entry_fields",
+              reason: "Confirm provenance after reset",
+              args_hint: {
+                slug,
+                contentType: ct,
+                locale,
+                ...(variant ? { variant } : {}),
+                ...(site ? { site } : {}),
+              },
+              priority: "recommended",
+            });
+          }
+          if (hasSeo) {
+            next_actions.push({
+              tool: "get_entry_seo",
+              reason: "Confirm SEO/meta after reset",
+              args_hint: {
+                slug,
+                contentType: ct,
+                locale,
+                ...(variant ? { variant } : {}),
+                ...(site ? { site } : {}),
+              },
+              priority: "recommended",
+            });
+          }
+          return ok(
+            {
+              message: `Reset ${resetResults.length} field(s) on ${ct}/${slug}`,
+              resets: resetResults,
+            },
+            { warnings: [], next_actions },
+          );
+        }
+
+        updates = setUpdates;
+      }
 
       const touchesSections = updates.some((u) => u.field_path.startsWith("sections."));
       const layoutGate = resolveLayoutTargetGate({
@@ -2615,7 +2721,7 @@ export function registerPageTools(
         contentRoot: contentPath,
         updates: updates.map((u) => ({
           field_path: u.field_path,
-          value: u.value,
+          value: u.value as unknown,
           ...(u.meta_target ? { meta_target: u.meta_target } : {}),
         })),
         currentSeo,
@@ -3014,7 +3120,7 @@ export function registerPageTools(
     "For one entry (or meta+body/section together) use update_fields instead.\n\n" +
     "Server coalesces cache/sitemap/CI/redirect flush once after the batch; skips entry-preview capture. " +
     "Per-slug live-gate failures continue the batch; fix circular traps with update_fields.\n\n" +
-    "Max 50 unique slugs. Duplicate slugs rejected.\n\n" +
+    "Max 50 unique slugs. Duplicate slugs rejected. contentType is required (all slugs must belong to that type).\n\n" +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
     "IMPORTANT — versioning: pass confirm_live_edit: true when any slug has versioning.yml and you intend live edits.",
     {
@@ -3025,7 +3131,7 @@ export function registerPageTools(
         value: z.unknown().describe("New value"),
         meta_target: z.enum(["locale", "common"]).optional().describe("Required for unknown meta keys"),
       })).min(1).describe("Meta updates applied identically to every slug"),
-      contentType: z.string().optional().describe("Optional type hint when auto-detect is ambiguous"),
+      contentType: z.string().describe("Content type for all slugs (required; cross-type batches are rejected)"),
       variant: z.string().optional().describe("Optional variant for locale-routed meta (common meta ignores variant)"),
       confirm_live_edit: z.boolean().optional().describe("Confirm live overwrite for versioned slugs"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
@@ -3036,7 +3142,7 @@ export function registerPageTools(
       const { domain } = siteResult;
       try {
         assertSafeLocale(locale);
-        if (contentType) assertSafeSegment(contentType, "contentType");
+        assertSafeSegment(contentType, "contentType");
         if (variant) assertSafeSegment(variant, "variant");
         for (const s of slugs) assertSafeSegment(s, "slug");
       } catch (e) {
@@ -3056,8 +3162,8 @@ export function registerPageTools(
         }
       }
 
-      if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) {
-        return denyResponse("seo_edit");
+      if (mcpToken && !(await checkCap(mcpToken, "seo_edit", contentType))) {
+        return denyResponse("seo_edit", contentType);
       }
 
       try {
@@ -3075,7 +3181,7 @@ export function registerPageTools(
               value: u.value,
               ...(u.meta_target ? { meta_target: u.meta_target } : {}),
             })),
-            ...(contentType ? { contentType } : {}),
+            contentType,
             ...(variant ? { variant } : {}),
             ...(confirm_live_edit ? { confirm_live_edit: true } : {}),
           }),
@@ -3167,19 +3273,23 @@ export function registerPageTools(
   // update_entry_field — DB override OR CT mapped fields (one level per call)
   mcp.tool(
     "update_entry_field",
-    "Set one mapping field at exactly one level. " +
+    "Set or reset one mapping field at exactly one level. " +
+    "Set-mode: pass value. Reset-mode: reset:true (no value) clears the override via field-reset (inherit lower layer). " +
     "Precedence: ct_override > db_override > original (DB types). " +
     "level=content_type → PUT .../field-overrides (URL name is historical): " +
     "static types write a top-level root key on the layer YAML file; DB-backed types write the field_overrides bag. " +
     "Optional variant targets {variant}.{locale}.yml (must exist; missing file fails — no live fallback). " +
     "All-draft entries without variant auto-resolve to draft.{locale}.yml when no live file exists. " +
     "level=database → db/{dbSlug}/overrides.json (listings + pages; all locales). " +
-    "Never both levels in one call. Inspect with get_entry_fields first. Not for SEO meta.* (use update_fields or update_meta_fields).",
+    "Never both levels in one call. Inspect with get_entry_fields first. Not for SEO meta.* / seo.* (use update_fields).",
     {
       slug: z.string().describe("Entry slug"),
       contentType: z.string().optional().describe("Content type hint. Omit to auto-detect."),
       field: z.string().describe("Mapping field name, e.g. 'title' or 'author_name'"),
-      value: z.unknown().describe("New value for the field"),
+      value: z.unknown().optional().describe("New value (required unless reset:true)"),
+      reset: z.boolean().optional().describe(
+        "When true, clear this field (inherit lower layer). Do not send value.",
+      ),
       level: z.enum(["database", "content_type"]).describe(
         "database = overrides.json. content_type = mapped field on locale/variant YAML (static: root key; DB: field_overrides bag)."
       ),
@@ -3192,7 +3302,7 @@ export function registerPageTools(
         ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, contentType, field, value, level, locale, variant, site }) => {
+    async ({ slug, contentType, field, value, reset, level, locale, variant, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
@@ -3215,8 +3325,20 @@ export function registerPageTools(
           "purchasable is a computed system field (from _ecommerce.yml). Do not write it. Edit the sidecar or use get_product_funnel / update_product_funnel.",
         );
       }
-      if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) {
-        return denyResponse("seo_edit");
+      if (isKnownSeoFieldPath(field) || field === `${SEO_YAML_KEY}.pillar`) {
+        return fail(
+          `SEO field '${field}' is not supported by update_entry_field. Use update_fields with value or reset:true.`,
+        );
+      }
+      if (reset === true) {
+        if (value !== undefined) {
+          return fail("reset:true must not include value");
+        }
+      } else if (value === undefined) {
+        return fail("value is required unless reset:true");
+      }
+      if (mcpToken && !(await checkCap(mcpToken, "content_edit_text", resolved.contentType))) {
+        return denyResponse("content_edit_text", resolved.contentType);
       }
 
       const ct = resolved.contentType;
@@ -3232,6 +3354,78 @@ export function registerPageTools(
       };
 
       try {
+        if (reset === true) {
+          const layerFile = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
+          const dbPath = `db/${dbSlug || "<database>"}/overrides.json`;
+          const ctPath = `${ctDir}/${slug}/${layerFile}`;
+          const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: internalHeaders(mcpToken),
+            body: JSON.stringify({ field, locale, variant: variant || undefined }),
+          });
+          const data = await res.json() as {
+            error?: string;
+            storage?: string;
+            path?: string;
+            noop?: boolean;
+            message?: string;
+          };
+          if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
+          const writtenPath = data.path || ctPath;
+          const storage = data.storage || (isStatic ? "root_key" : "field_overrides");
+          if (isStatic) {
+            return ok(
+              {
+                message: data.noop
+                  ? `No-op reset for ${ct}/${slug}.${field} (key not on layer; may live only on _common.yml)`
+                  : `Reset static ${ct}/${slug}.${field} on ${writtenPath}`,
+                storage,
+                path: writtenPath,
+                noop: !!data.noop,
+              },
+              {
+                warnings: [
+                  {
+                    code: data.noop ? "static_reset_noop" : "static_reset_layer_only",
+                    message: data.noop
+                      ? `Key absent on ${writtenPath}; reset does not rewrite _common.yml.`
+                      : `Deleted root key on ${writtenPath} only. Does not touch _common.yml.`,
+                  },
+                ],
+                side_effects: data.noop
+                  ? [{ kind: "other", summary: `storage=${storage}; noop` }]
+                  : [
+                      { kind: "wrote_file", summary: `${writtenPath}#${field}` },
+                      { kind: "other", summary: `storage=${storage}` },
+                    ],
+                next_actions: [getHint],
+              },
+            );
+          }
+          return ok(
+            { message: `Reset ${ct}/${slug}.${field} → cleared ${dbPath} + ${writtenPath}#field_overrides` },
+            {
+              warnings: [
+                {
+                  code: "reset_clears_both_layers",
+                  message: `Cleared DB override (${dbPath}) and CT field_overrides on ${writtenPath} for this field. Baseline restored.`,
+                },
+              ],
+              side_effects: [
+                { kind: "wrote_file", summary: dbPath },
+                { kind: "wrote_file", summary: `${writtenPath}#field_overrides` },
+                { kind: "cache", summary: "Database item cache / listings may refresh for this slug" },
+                { kind: "other", summary: `storage=${storage}` },
+              ],
+              next_actions: [{
+                ...getHint,
+                reason: "Confirm provenance is original after reset",
+              }],
+            },
+          );
+        }
+
         if (level === "database") {
           const relPath = `db/${dbSlug || "<database>"}/overrides.json`;
           const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/db-overrides/${encodeURIComponent(slug)}${q}`;
@@ -3344,7 +3538,7 @@ export function registerPageTools(
     "Static types: values come from root keys on the layer file (entry_default); leftover field_overrides bags are still applied until migrated. " +
     "DB types: ct_override = field_overrides bag; db_override = overrides.json. " +
     "Includes MCP-only seo.include_in_clustering (boolean; never YAML) when the type has seo fields — writable only if seo_monitoring.enabled. " +
-    "Optional variant reads {variant}.{locale}.yml. Use before update_entry_field / reset_entry_field. Requires content_view.",
+    "Optional variant reads {variant}.{locale}.yml. Use before update_fields / update_entry_field (value or reset:true). Requires content_view.",
     {
       slug: z.string(),
       contentType: z.string().optional(),
@@ -3506,120 +3700,6 @@ export function registerPageTools(
             { warnings: [], next_actions: [] },
           );
         }
-      } catch (e) {
-        return fail((e as Error).message);
-      }
-    },
-  );
-
-  mcp.tool(
-    "reset_entry_field",
-    "Reset a mapping field. " +
-    "DB-backed: clears overrides.json and CT field_overrides for that field. " +
-    "Static: deletes the root key only if present on this layer file (no-op when value comes only from _common.yml). " +
-    "Optional variant targets that layer. API path remains field-reset.",
-    {
-      slug: z.string(),
-      contentType: z.string().optional(),
-      field: z.string(),
-      locale: z.string().default("en"),
-      variant: z.string().optional().describe("Optional variant layer to reset"),
-      site: z.string().optional().describe(SITE_PARAM_DESC),
-    },
-    async ({ slug, contentType, field, locale, variant, site }) => {
-      const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const { domain } = siteResult;
-      try {
-        if (variant) assertSafeSegment(variant, "variant");
-      } catch (e) {
-        return fail((e as Error).message);
-      }
-      const resolved = resolveContentType(slug, contentType, siteResult.contentPath, { allowSharedLayout: true });
-      if (!resolved) return fail(`Page not found for slug '${slug}'`);
-      if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) return denyResponse("seo_edit");
-      const ct = resolved.contentType;
-      const ctDir = getDirectory(ct, resolved.config);
-      const dbSlug = resolved.config.database?.slug as string | undefined;
-      const isStatic = !dbSlug;
-      const layerFile = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
-      const dbPath = `db/${dbSlug || "<database>"}/overrides.json`;
-      const ctPath = `${ctDir}/${slug}/${layerFile}`;
-      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
-      try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
-        const res = await fetch(url, {
-          method: "POST",
-          headers: internalHeaders(mcpToken),
-          body: JSON.stringify({ field, locale, variant: variant || undefined }),
-        });
-        const data = await res.json() as {
-          error?: string;
-          storage?: string;
-          path?: string;
-          noop?: boolean;
-          message?: string;
-        };
-        if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
-        const writtenPath = data.path || ctPath;
-        const storage = data.storage || (isStatic ? "root_key" : "field_overrides");
-        if (isStatic) {
-          return ok(
-            {
-              message: data.noop
-                ? `No-op reset for ${ct}/${slug}.${field} (key not on layer; may live only on _common.yml)`
-                : `Reset static ${ct}/${slug}.${field} on ${writtenPath}`,
-              storage,
-              path: writtenPath,
-              noop: !!data.noop,
-            },
-            {
-              warnings: [
-                {
-                  code: data.noop ? "static_reset_noop" : "static_reset_layer_only",
-                  message: data.noop
-                    ? `Key absent on ${writtenPath}; reset does not rewrite _common.yml.`
-                    : `Deleted root key on ${writtenPath} only. Does not touch _common.yml.`,
-                },
-              ],
-              side_effects: data.noop
-                ? [{ kind: "other", summary: `storage=${storage}; noop` }]
-                : [
-                    { kind: "wrote_file", summary: `${writtenPath}#${field}` },
-                    { kind: "other", summary: `storage=${storage}` },
-                  ],
-              next_actions: [{
-                tool: "get_entry_fields",
-                reason: "Confirm provenance after reset",
-                args_hint: { slug, contentType: ct, locale, ...(variant ? { variant } : {}) },
-                priority: "recommended",
-              }],
-            },
-          );
-        }
-        return ok(
-          { message: `Reset ${ct}/${slug}.${field} → cleared ${dbPath} + ${writtenPath}#field_overrides` },
-          {
-            warnings: [
-              {
-                code: "reset_clears_both_layers",
-                message: `Cleared DB override (${dbPath}) and CT field_overrides on ${writtenPath} for this field. Baseline restored.`,
-              },
-            ],
-            side_effects: [
-              { kind: "wrote_file", summary: dbPath },
-              { kind: "wrote_file", summary: `${writtenPath}#field_overrides` },
-              { kind: "cache", summary: "Database item cache / listings may refresh for this slug" },
-              { kind: "other", summary: `storage=${storage}` },
-            ],
-            next_actions: [{
-              tool: "get_entry_fields",
-              reason: "Confirm provenance is original after reset",
-              args_hint: { slug, contentType: ct, locale, ...(variant ? { variant } : {}) },
-              priority: "recommended",
-            }],
-          },
-        );
       } catch (e) {
         return fail((e as Error).message);
       }
@@ -7328,7 +7408,7 @@ export function registerPageTools(
     "ensure_content_type_schema_org",
     "Ensure every entry of a content type has a leading schema_org section for the given schema_type " +
     "(e.g. location → LocalBusiness). Seeds missing entries from legacy catalog or miami-usa/madrid-spain templates. " +
-    "Call get_content_type_info first to see coverage. Requires content_edit_structure. " +
+    "Call get_content_type_info first to see coverage. Requires seo_settings. " +
     MULTI_SITE_TOOL_BLURB,
     {
       contentType: z.string().describe("Content type key, e.g. 'location'"),
@@ -7350,8 +7430,8 @@ export function registerPageTools(
       } catch (e) {
         return fail((e as Error).message);
       }
-      if (mcpToken && !(await checkCap(mcpToken, "content_edit_structure", contentType))) {
-        return denyResponse("content_edit_structure", contentType);
+      if (mcpToken && !(await checkCap(mcpToken, "seo_settings"))) {
+        return denyResponse("seo_settings");
       }
 
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
@@ -7459,7 +7539,7 @@ export function registerPageTools(
         const configs = loadContentTypes(contentPath);
         const results: Array<Record<string, unknown>> = [];
 
-        const allowedTypes = grants ? visibleContentTypes(grants, { seoUnlocksAll: true }) : null;
+        const allowedTypes = grants ? visibleContentTypes(grants, { unionSeoEdit: true }) : null;
         let typesToQuery = contentType
           ? (configs[contentType] ? [contentType] : [])
           : Object.keys(configs);
