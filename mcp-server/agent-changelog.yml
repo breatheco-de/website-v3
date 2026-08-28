@@ -6,6 +6,17 @@ window_days: 6
 
 entries:
   - date: "2026-08-27"
+    summary: "New get_or_set_image_to_gallery MCP tool (lookup + AI generate)"
+    agent_impact:
+      - "image_id returns gallery entry; prompt generates n=1 and registers origin=ai immediately (no confirm)."
+      - "url returns under_development (Cloudflare Images import later) — use prompt or image_id."
+      - "Does not attach image_id to YAML; AI unused assets may GC after grace — call update_fields soon."
+    paths:
+      - mcp-server/tools/media.ts
+      - mcp-server/explain/images.md
+      - shared/mcp-tool-catalog.ts
+    tools_changed: true
+  - date: "2026-08-27"
     summary: "Agent/staff copy prefers template.* shell paths (identifiers unchanged)"
     agent_impact:
       - "Explain docs and promote/detach warnings say template.{locale}.yml; legacy single.* only as dual-load."

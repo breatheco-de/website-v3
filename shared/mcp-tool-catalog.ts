@@ -65,6 +65,10 @@ export const TOOL_GATES: Record<string, ToolGate> = {
   delete_entries: { kind: "anyCap", caps: ["content_delete_entry"] },
   translate_entry: { kind: "anyCap", caps: ["content_edit_text"] },
   regenerate_entry_previews: { kind: "anyCap", caps: ["content_edit_media"] },
+  get_or_set_image_to_gallery: {
+    kind: "anyCap",
+    caps: ["media_upload", "content_view"],
+  },
 
   create_variant: { kind: "anyCap", caps: ["content_create_variant"] },
   publish_draft: { kind: "anyCap", caps: ["content_promote_variant"] },

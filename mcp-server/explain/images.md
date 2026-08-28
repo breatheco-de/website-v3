@@ -71,3 +71,19 @@ Staff can replace an existing gallery asset via Media Gallery → card menu → 
 - Returns **409** when the file bytes already belong to another ID — use that existing ID instead
 - Regenerates srcsets in the background; does **not** cascade crop/resize children (`parentId`) — those must be re-cropped or replaced manually
 - May rewrite YAML `src` paths only when the stored file path changes (e.g. `.png` → `.webp`)
+
+## Agents (MCP)
+
+Tool: **`get_or_set_image_to_gallery`**. Pass **exactly one** of `image_id`, `url`, or `prompt`.
+
+| Source | Cap | Behavior |
+|---|---|---|
+| `image_id` | `content_view` | Returns the full registry entry. No writes. |
+| `prompt` | `media_upload` | OpenRouter image gen with **n=1**, immediately registers as `origin=ai` (no confirm). Enqueues AI unused-image GC. |
+| `url` | `media_upload` | **Under development** — returns `action_required: under_development`. Cloudflare Images import later; do not expect a fetch. |
+
+**Non-effects:** does not set entry/section `image_id` in YAML (use `update_fields` after). Does not run `regenerate_entry_previews`. Does not touch Brand / schema-org.
+
+**AI GC:** unused AI gallery assets may be removed after ~48h grace (last public impression, else `ai.generated_at`). Attach to live content soon if you need to keep the asset.
+
+Optional: `alt`, `tags`, `aspect_ratio` (prompt), `site`.
