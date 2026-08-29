@@ -60,7 +60,7 @@ describe("findTemplateSpans", () => {
     const doc = `url: /en/blog?taxonomy={{ entry.category | category }}\n`;
     const spans = findTemplateSpans(doc);
     expect(spans).toHaveLength(1);
-    expect(spans[0].name).toBe("single.category");
+    expect(spans[0].name).toBe("entry.category");
     expect(doc.slice(spans[0].from, spans[0].to)).toBe(
       "{{ entry.category | category }}",
     );

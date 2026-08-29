@@ -18,6 +18,7 @@ vi.mock("./content-types", () => ({
     },
   }),
   getFolder: () => "landings",
+  getAllDirectories: () => ["landings", "pages", "blog"],
 }));
 vi.mock("./shared-layout-entry", () => ({
   isEntryDetached: () => false,

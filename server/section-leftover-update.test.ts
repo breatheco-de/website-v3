@@ -65,16 +65,16 @@ function writeBlogSite() {
     "utf-8",
   );
   fs.writeFileSync(
-    path.join(contentRoot, "blog", "single.en.yml"),
+    path.join(contentRoot, "blog", "template.en.yml"),
     `meta:
-  page_title: "{{ single.title }}"
+  page_title: "{{ entry.title }}"
 sections:
   - type: hero
     section_id: hero-1
-    title: "{{ single.title }}"
+    title: "{{ entry.title }}"
   - type: article
     section_id: article-1
-    content: "{{ single.content }}"
+    content: "{{ entry.content }}"
 `,
     "utf-8",
   );
@@ -152,11 +152,11 @@ describe("update_field missing section index", () => {
 
     const entryRaw = fs.readFileSync(path.join(contentRoot, "blog", "demo-post", "en.yml"), "utf-8");
     expect(entryRaw).not.toMatch(/sections:/);
-    const singleRaw = fs.readFileSync(path.join(contentRoot, "blog", "single.en.yml"), "utf-8");
-    expect(singleRaw).not.toMatch(/title: nope/);
+    const templateRaw = fs.readFileSync(path.join(contentRoot, "blog", "template.en.yml"), "utf-8");
+    expect(templateRaw).not.toMatch(/title: nope/);
   });
 
-  it("still writes a template-owned field to single.en.yml when the section exists", async () => {
+  it("still writes a template-owned field to template.en.yml when the section exists", async () => {
     writeBlogSite();
     resetRegistry(contentRoot);
     const ci = new ContentIndex(contentRoot);
@@ -177,8 +177,8 @@ describe("update_field missing section index", () => {
     });
 
     expect(result.success, result.error).toBe(true);
-    const singleRaw = fs.readFileSync(path.join(contentRoot, "blog", "single.en.yml"), "utf-8");
-    expect(singleRaw).toMatch(/maxWidth:[\s\S]*desktop:\s*sm/);
+    const templateRaw = fs.readFileSync(path.join(contentRoot, "blog", "template.en.yml"), "utf-8");
+    expect(templateRaw).toMatch(/maxWidth:[\s\S]*desktop:\s*sm/);
     const entryRaw = fs.readFileSync(path.join(contentRoot, "blog", "demo-post", "en.yml"), "utf-8");
     expect(entryRaw).not.toMatch(/maxWidth:/);
   });
