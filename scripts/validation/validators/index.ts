@@ -14,6 +14,7 @@ import { componentsValidator } from "./components";
 import { backgroundsValidator } from "./backgrounds";
 import { faqsValidator } from "./faqs";
 import { seoDepthValidator } from "./seo-depth";
+import { seoDuplicatesValidator } from "./seo-duplicates";
 import { schemaCompletenessValidator } from "./schema-completeness";
 import { imagesValidator } from "./images";
 import { contentQualityValidator } from "./content-quality";
@@ -57,6 +58,7 @@ export const validators: Validator[] = [
   backgroundsValidator,
   faqsValidator,
   seoDepthValidator,
+  seoDuplicatesValidator,
   schemaCompletenessValidator,
   schemaOrgCompanionsValidator,
   imagesValidator,
@@ -135,6 +137,7 @@ export {
   backgroundsValidator,
   faqsValidator,
   seoDepthValidator,
+  seoDuplicatesValidator,
   schemaCompletenessValidator,
   imagesValidator,
   contentQualityValidator,

@@ -653,7 +653,7 @@ interface MappedValidationIssue {
     by: string;
     claimedBy?: string;
     at: string;
-    reason: "released" | "ttl_expired";
+    reason: "released" | "ttl_expired" | "complete_rejected_still_open";
     report?: string;
     claimedAt?: string;
     claimReport?: string;
@@ -665,6 +665,7 @@ type CachedValidationIssuesSplit = {
   open: MappedValidationIssue[];
   claimed: MappedValidationIssue[];
   completed: MappedValidationIssue[];
+  validation_pending: boolean;
 };
 
 /**
@@ -678,7 +679,12 @@ function getCachedValidationIssues(
   contentPath?: string,
   viewerAuthor?: string,
 ): CachedValidationIssuesSplit {
-  const empty: CachedValidationIssuesSplit = { open: [], claimed: [], completed: [] };
+  const empty: CachedValidationIssuesSplit = {
+    open: [],
+    claimed: [],
+    completed: [],
+    validation_pending: false,
+  };
   const cachePath = contentPath
     ? path.join(contentPath, "validation-cache.json")
     : VALIDATION_CACHE_PATH;
@@ -700,6 +706,7 @@ function getCachedValidationIssues(
         validator?: string;
       }>;
       indexes?: { byUrl?: Record<string, string>; byEntry?: Record<string, string[]> };
+      runMeta?: { byEntry?: Record<string, { dirty?: boolean }> };
       completions?: Record<string, { completedBy: string; completedAt: string; actor?: ValidationIssueActorRef; report?: string }>;
       claims?: Record<string, { claimedBy: string; claimedAt: string; expiresAt: string; actor?: ValidationIssueActorRef; report?: string }>;
       attempts?: Record<
@@ -708,7 +715,7 @@ function getCachedValidationIssues(
           by: string;
           claimedBy?: string;
           at: string;
-          reason: "released" | "ttl_expired";
+          reason: "released" | "ttl_expired" | "complete_rejected_still_open";
           report?: string;
           claimedAt?: string;
           claimReport?: string;
@@ -721,9 +728,11 @@ function getCachedValidationIssues(
     const claims = cache.claims ?? {};
     const attemptsMap = cache.attempts ?? {};
     const now = Date.now();
+    let validation_pending = false;
     let all: MappedValidationIssue[] = [];
     if (cache.issues && cache.indexes) {
       const entryKey = cache.indexes.byUrl?.[url];
+      validation_pending = Boolean(entryKey && cache.runMeta?.byEntry?.[entryKey]?.dirty);
       const ids = entryKey ? cache.indexes.byEntry?.[entryKey] ?? [] : [];
       for (const id of ids) {
         const issue = cache.issues[id];
@@ -805,7 +814,7 @@ function getCachedValidationIssues(
       }
       open.push(issue);
     }
-    return { open, claimed, completed };
+    return { open, claimed, completed, validation_pending };
   } catch {
     return empty;
   }
@@ -1262,6 +1271,7 @@ export function registerPageTools(
     "validation_issues (open cached validation issues — incomplete and unclaimed, or claimed by you; each with id, code, message, severity, category; may include prior_attempts from earlier releases/TTL). " +
     "claimed_issues (active claims by other authors). " +
     "completed_issues (soft-completed for audit; use update_issue). " +
+    "validation_pending (true when an on-save revalidation is still debouncing after a recent write — open lists may lag). " +
     "validation_issues, claimed_issues, and completed_issues are always present (empty arrays if none). " +
     "Merges _common.yml with the locale file. contentType is optional — omit it and the server will auto-detect it from the slug. " +
     "Use get_entry_seo to fetch only the SEO/meta fields. Requires content_view. " +
@@ -1300,7 +1310,7 @@ export function registerPageTools(
         const { meta: _meta, ...dataWithoutMeta } = result.data;
         const merged = { ...dataWithoutMeta } as Record<string, unknown>;
         applyPurchasableToRecord(merged, resolved.contentType, slug);
-        return { content: [{ type: "text", text: JSON.stringify({ contentType: resolved.contentType, slug, locale, variant, ...merged, validation_issues: [], claimed_issues: [], completed_issues: [] }, null, 2) }] };
+        return { content: [{ type: "text", text: JSON.stringify({ contentType: resolved.contentType, slug, locale, variant, ...merged, validation_issues: [], claimed_issues: [], completed_issues: [], validation_pending: false }, null, 2) }] };
       }
 
       const payload = resolvePagePayload(slug, locale, contentType, contentPath);
@@ -1322,9 +1332,9 @@ export function registerPageTools(
             contentPath,
             _mcpAuthor || mcpViewerAuthor(mcpToken),
           )
-        : { open: [], claimed: [], completed: [] };
+        : { open: [], claimed: [], completed: [], validation_pending: false };
 
-      return { content: [{ type: "text", text: JSON.stringify({ ...envelope, ...merged, validation_issues: split.open, claimed_issues: split.claimed, completed_issues: split.completed }, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ ...envelope, ...merged, validation_issues: split.open, claimed_issues: split.claimed, completed_issues: split.completed, validation_pending: split.validation_pending }, null, 2) }] };
     }
   );
 
@@ -1507,7 +1517,7 @@ export function registerPageTools(
             contentPath,
             _mcpAuthor || mcpViewerAuthor(mcpToken),
           )
-        : { open: [], claimed: [], completed: [] };
+        : { open: [], claimed: [], completed: [], validation_pending: false };
 
       const schema_org = await buildSchemaOrgBlock(
         payload.contentType,
@@ -1530,6 +1540,7 @@ export function registerPageTools(
         validation_issues: split.open,
         claimed_issues: split.claimed,
         completed_issues: split.completed,
+        validation_pending: split.validation_pending,
         ...resolvedUpdatedAtFields(
           payload.contentType,
           payload.slug,
@@ -1557,10 +1568,12 @@ export function registerPageTools(
   // update_issue
   mcp.tool(
     "update_issue",
-    "Claim, release, soft-complete, or reopen a validation issue by stable issue_id from get_entry_content / get_entry_seo. " +
+    "Claim, release, verify-complete, or reopen a validation issue by stable issue_id from get_entry_content / get_entry_seo. " +
     "Actions: claim (30m TTL, refresh if you already own it; fails if another author holds an active claim), " +
     "release (drop your claim or staff release — requires report min 80 when an active claim exists; idempotent no-op if already unclaimed), " +
-    "complete (hide from open lists; also clears claim), uncomplete (reopen). " +
+    "complete (re-validates the entry — or seo-duplicates for DUPLICATE_* — then soft-completes only if the issue_id is gone; " +
+    "also lists auto_completed_ids for sibling issues on that entry cleared by the same revalidation; refuses with complete_rejected_still_open + prior_attempts if still failing), " +
+    "uncomplete (reopen). " +
     "MCP-only: claim requires report (why you are taking this issue + what you plan to change; min 80 chars; optional when refreshing your own claim). " +
     "complete requires report (what you changed and how; include plain new values for copy you set — not JSON/YAML; min 80 chars). " +
     "release requires report when releasing an active claim (what you tried + why stopping; stored as prior_attempts for the next agent). " +
@@ -1568,7 +1581,7 @@ export function registerPageTools(
     "Example claim: \"SEO title empty on blog/foo/en — will set meta.page_title from H1 and re-check.\" " +
     AGENT_REPORT_ISSUE_COMPLETE_EXAMPLE + " " +
     "Example release: \"Tried updating meta.page_title; validator still fails because sitemap entry missing — need redirects change.\" " +
-    "Does NOT delete the issue row, push YAML/GitHub, or run diagnostics. " +
+    "Does NOT push YAML/GitHub. complete runs entry-local (or seo-duplicates) revalidation before overlay. " +
     "A later validator cache write that rewrites the same id clears complete but keeps an active claim and prior_attempts; may emit validation_issue_reopened in admin events. " +
     "Requires content_edit_text or seo_edit. Pass issue_id only (no update-by-code). Optional model (best-effort, self-reported).",
     {
@@ -1686,9 +1699,9 @@ export function registerPageTools(
               "Updates this environment's validation-cache claims/completions/attempts only — does not push YAML, sync GitHub, or update other environments.",
           },
           {
-            code: "no_diagnostics_run",
+            code: "complete_revalidates",
             message:
-              "Does not run diagnostics. complete is cleared if a later cache write rewrites this issue_id; claims and prior_attempts survive rewrite until TTL/release/complete (attempts until issue id removed).",
+              "complete re-runs entry-local validators (or seo-duplicates for DUPLICATE_TITLE/DESCRIPTION) before soft-complete. Refuses with complete_rejected_still_open if the issue still reproduces; records prior_attempts. Returns auto_completed_ids for siblings on the same entry cleared by that revalidation.",
           },
           {
             code: "claim_ttl_30m",
@@ -1719,6 +1732,7 @@ export function registerPageTools(
             completed: data.completed ?? null,
             claimed: data.claimed ?? null,
             attempt: data.attempt ?? null,
+            auto_completed_ids: data.auto_completed_ids ?? [],
             message: `Issue ${action} applied.`,
           },
           {
@@ -1882,22 +1896,23 @@ export function registerPageTools(
   mcp.tool(
     "run_entry_diagnostics",
     "Start or read page diagnostics against the unified validation-cache issue store. Does NOT wait for validators to finish. " +
-    "Returns status 'cached' (issues work queue from validation-cache when fresh), 'needs_confirm' (re-call with confirm:true), or 'queued'/'running' with job_id. " +
+    "Returns status 'cached' (issues work queue from validation-cache when fresh), 'needs_confirm' (full-site only — re-call with confirm:true), or 'queued'/'running' with job_id. " +
     "On cached: returns issues[] (default 50, errors first, diversified by code) with issues_offset/issues_limit pagination for the issue list only — not a full site dump. " +
     "MCP: categories (e.g. ['seo']) narrow which validators RUN when validators are omitted (staff Diagnostics scope chips are view-only and unchanged). " +
-    "content_view/seo_edit may READ cached or needs_confirm responses; only a metrics-mutating staff cap may start a job (confirm:true that queues). " +
-    "When a NEW job would start (freshness hard, or stale under max_age), confirm:true is required — metrics-capable agents may set the flag after reading the gate. " +
+    "content_view/seo_edit may READ cached or needs_confirm responses; only a metrics-mutating staff cap may start a job. " +
+    "Slug- or URL-scoped hard/max_age jobs that would start do NOT require confirm:true (escape hatch after edits). Full-site / unscoped jobs still need confirm:true. " +
     "Same-scope reuse of an in-flight job and pure 'cached' responses skip confirm. " +
     "When queued/running: wait retry_after_seconds then call get_diagnostics_job — do NOT re-call this tool to poll. " +
     "freshness 'max_age' (default) recomputes only URLs whose lastFullRunAt is older than max_age_seconds (default 86400); " +
-    "'hard' forces a recompute. Optional slugs scopes the run to entry-local validators only (never cross-entry like redirects — avoids false all-clear). " +
+    "'hard' forces a recompute. Optional slugs scopes the run to entry-local validators only (never cross-entry like redirects/seo-duplicates — avoids false all-clear). " +
     "side_effects: job runs in a forked worker process; replace-by-validator merge into validation-cache.json on disk " +
     "(parent reloads cache when the job completes; clears obsolete codes for ran validators in scope). " +
     "Concurrent start while another job holds the site returns busy (no queue). On-save entry-local writes are deferred while the lock is held. " +
-    "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap; fixing meta does not clear REDIRECT_CONFLICT; " +
+    "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap/seo-duplicates; fixing meta does not clear REDIRECT_CONFLICT or DUPLICATE_TITLE; " +
     "does not change staff Diagnostics HTTP payloads. Mid-run get_diagnostics_job may return a partial issues work queue. Authoritative after completed. " +
-    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs + confirm:true (metrics mutate). " +
-    "In-app content saves also debounce entry-local validation; redirect-config changes queue redirects separately.",
+    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs (no confirm needed when scoped). " +
+    "In-app / MCP content writes debounce entry-local validation for 1 minute; redirect-config changes queue redirects separately. " +
+    "When get_entry_* returns validation_pending:true, cache may lag until that debounce settles.",
     {
       slugs: z.array(z.string()).optional().describe("Optional page slugs to scope. Omit for all YAML-backed pages."),
       categories: z
@@ -1908,7 +1923,7 @@ export function registerPageTools(
         ),
       freshness: z.enum(["hard", "max_age"]).optional().describe("max_age (default) uses lastFullRunAt; hard always recomputes."),
       max_age_seconds: z.number().optional().describe("TTL for max_age freshness (default 86400). Ignored when freshness is hard."),
-      confirm: z.boolean().optional().describe("Set true to start a new diagnostics job after needs_confirm. Requires metrics-mutating cap. Not required for cached or same-scope reuse."),
+      confirm: z.boolean().optional().describe("Required only for full-site / unscoped jobs after needs_confirm. Slug-scoped starts skip confirm. Requires metrics-mutating cap to start any job."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
       ...diagnosticsIssueListParams,
     },

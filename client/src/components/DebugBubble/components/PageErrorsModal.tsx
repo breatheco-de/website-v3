@@ -528,7 +528,7 @@ function IssueCard({
                   title={
                     isCompleted
                       ? "Mark as open"
-                      : "Mark as fixed — hides until the next cache write"
+                      : "Mark as fixed — re-checks live content for this page; refuses if still failing"
                   }
                   disabled={togglePending}
                   onClick={(e) => {

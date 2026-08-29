@@ -24,6 +24,7 @@ const RUN_CLASS_BY_NAME: Record<string, ValidatorRunClass> = {
   "source-name-collisions": "cross-entry",
   "relation-targets": "cross-entry",
   "site-link-index": "cross-entry",
+  "seo-duplicates": "cross-entry",
   images: "media",
   "image-tags": "media",
   "image-optimization": "media",

@@ -16,12 +16,13 @@ import type { ContentIndex } from "../content-index";
 import type { ValidationCacheService } from "./validationCacheService";
 import { startDiagnosticsJob, isDiagnosticsRunning } from "./diagnosticsJobService";
 import { getVersioningManager } from "../versioning";
+import { ON_SAVE_VALIDATION_DEBOUNCE_MS } from "./onSaveValidationScheduler";
 import { child } from "../logger";
 
 const log = child({ module: "onSaveValidation" });
 
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const DEBOUNCE_MS = 1500;
+const DEBOUNCE_MS = ON_SAVE_VALIDATION_DEBOUNCE_MS;
 
 export type OnSaveValidationArgs = {
   contentRoot: string;
