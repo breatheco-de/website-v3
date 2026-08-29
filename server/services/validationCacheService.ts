@@ -19,6 +19,7 @@ import type {
   ValidationCacheIndexes,
   ValidationIssue,
   ValidationIssueActor,
+  ValidationIssueAttempt,
   ValidationIssueClaim,
   ValidationIssueCompletion,
   ValidatorResult,
@@ -41,7 +42,8 @@ import {
   issueToStored,
   pageEntryFromStored,
 } from "./validationCacheMerge";
-import { emitValidationIssueWorkflowEvent } from "../validation-events";
+import { emitValidationIssueWorkflowEvent, resolveSiteForIssue } from "../validation-events";
+import { resolveValidationIssueMaxAttempts } from "../ai/validationIssuesConfig";
 
 const log = child({ module: "validationCacheService" });
 
@@ -80,6 +82,10 @@ export function completionToApiRow(completion: ValidationIssueCompletion): {
   };
 }
 
+export function attemptToApiRow(attempt: ValidationIssueAttempt): ValidationIssueAttempt {
+  return { ...attempt };
+}
+
 export type CacheIssueUpdateAction = "claim" | "release" | "complete" | "uncomplete";
 
 function emptyIndexes(): ValidationCacheIndexes {
@@ -101,6 +107,7 @@ function emptyCache(): ValidationCacheFileV5 {
     runMeta: { byEntry: {}, byScope: {} },
     completions: {},
     claims: {},
+    attempts: {},
     databases: {},
   };
 }
@@ -216,6 +223,7 @@ function migrateV4ToV5(v4: {
     runMeta: { byEntry: runMetaByEntry, byScope: {} },
     completions: {},
     claims: {},
+    attempts: {},
     databases: v4.databases ?? {},
   };
 }
@@ -235,6 +243,7 @@ function migrateCache(parsed: ValidationCacheFile): ValidationCacheFileV5 {
       runMeta: v5.runMeta ?? { byEntry: {}, byScope: {} },
       completions: v5.completions ?? {},
       claims: v5.claims ?? {},
+      attempts: v5.attempts ?? {},
       databases: v5.databases ?? {},
     };
   }
@@ -295,16 +304,19 @@ export class ValidationCacheService {
   > = {};
   private completions: Record<string, ValidationIssueCompletion> = {};
   private claims: Record<string, ValidationIssueClaim> = {};
+  private attempts: Record<string, ValidationIssueAttempt[]> = {};
   private dbMap: Map<string, DatabaseCacheEntry> = new Map();
   private lastFullRunAt: string | null = null;
   private lastSiteWideRunAt: string | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
   private cacheFile: string;
+  private contentRoot: string;
   private contentFolder: string;
   /** When true, flush writes local file only (diagnostics worker; parent owns GCS). */
   private skipGcsUpload = false;
 
   constructor(contentRoot: string) {
+    this.contentRoot = contentRoot;
     this.cacheFile = path.join(contentRoot, "validation-cache.json");
     this.contentFolder = path.relative(process.cwd(), contentRoot);
     this.loadFromDisk();
@@ -337,6 +349,7 @@ export class ValidationCacheService {
     this.runMetaByScope = { ...(data.runMeta?.byScope ?? {}) };
     this.completions = { ...(data.completions ?? {}) };
     this.claims = { ...(data.claims ?? {}) };
+    this.attempts = { ...(data.attempts ?? {}) };
     this.dbMap = new Map(Object.entries(data.databases ?? {}));
     this.gcOrphanOverlays();
   }
@@ -353,15 +366,87 @@ export class ValidationCacheService {
     }
   }
 
+  private dropAttempts(ids: Iterable<string>): void {
+    for (const id of ids) {
+      delete this.attempts[id];
+    }
+  }
+
+  private maxAttemptsCap(): number {
+    return resolveValidationIssueMaxAttempts(this.contentRoot);
+  }
+
+  private recordAttempt(issueId: string, attempt: ValidationIssueAttempt): void {
+    const prev = this.attempts[issueId] ?? [];
+    this.attempts[issueId] = [attempt, ...prev].slice(0, this.maxAttemptsCap());
+  }
+
+  private emitReleasedEvent(
+    issueId: string,
+    attempt: ValidationIssueAttempt,
+    agent_session_id?: string,
+  ): void {
+    const issue = this.issues[issueId];
+    if (!issue) return;
+    const site = resolveSiteForIssue(issue, this.contentFolder) ?? this.contentFolder;
+    if (!site?.startsWith("site_")) return;
+    emitValidationIssueWorkflowEvent({
+      type: "validation_issue_released",
+      site,
+      issue,
+      author: attempt.by,
+      actor: attempt.actor,
+      agent_session_id,
+      attempt,
+    });
+  }
+
+  /** Expire claim → record ttl_expired attempt (+ optional event), then delete claim. */
+  private expireClaim(
+    issueId: string,
+    claim: ValidationIssueClaim,
+    opts?: { emit?: boolean },
+  ): void {
+    const existing = this.attempts[issueId] ?? [];
+    const already =
+      existing[0]?.reason === "ttl_expired" &&
+      existing[0]?.claimedAt === claim.claimedAt &&
+      existing[0]?.claimedBy === claim.claimedBy;
+    if (!already) {
+      const attempt: ValidationIssueAttempt = {
+        by: claim.claimedBy,
+        claimedBy: claim.claimedBy,
+        at: new Date().toISOString(),
+        reason: "ttl_expired",
+        ...(claim.actor ? { actor: claim.actor } : {}),
+        claimedAt: claim.claimedAt,
+        ...(claim.report ? { claimReport: claim.report } : {}),
+      };
+      this.recordAttempt(issueId, attempt);
+      if (opts?.emit !== false) {
+        this.emitReleasedEvent(issueId, attempt);
+      }
+    }
+    delete this.claims[issueId];
+  }
+
   /** Drop overlay records whose issue id is gone, and expired claims. */
-  private gcOrphanOverlays(): void {
+  private gcOrphanOverlays(opts?: { emitTtl?: boolean }): void {
     for (const id of Object.keys(this.completions)) {
       if (!this.issues[id]) delete this.completions[id];
     }
+    for (const id of Object.keys(this.attempts)) {
+      if (!this.issues[id]) delete this.attempts[id];
+    }
     const now = Date.now();
     for (const [id, claim] of Object.entries(this.claims)) {
-      if (!this.issues[id] || new Date(claim.expiresAt).getTime() <= now) {
+      if (!this.issues[id]) {
         delete this.claims[id];
+        continue;
+      }
+      if (new Date(claim.expiresAt).getTime() <= now) {
+        // On disk load, record without re-emitting; live GC/getActiveClaim emits.
+        this.expireClaim(id, claim, { emit: opts?.emitTtl === true });
       }
     }
   }
@@ -378,16 +463,20 @@ export class ValidationCacheService {
     return { ...this.completions };
   }
 
+  getAttempts(issueId: string): ValidationIssueAttempt[] {
+    return [...(this.attempts[issueId] ?? [])];
+  }
+
   getIssueById(issueId: string): StoredValidationIssue | undefined {
     return this.issues[issueId];
   }
 
-  /** Active (non-expired) claim, or undefined. Expired rows are GC'd. */
+  /** Active (non-expired) claim, or undefined. Expired rows are recorded + GC'd. */
   getActiveClaim(issueId: string, nowMs: number = Date.now()): ValidationIssueClaim | undefined {
     const claim = this.claims[issueId];
     if (!claim) return undefined;
     if (new Date(claim.expiresAt).getTime() <= nowMs) {
-      delete this.claims[issueId];
+      this.expireClaim(issueId, claim);
       return undefined;
     }
     return claim;
@@ -482,12 +571,22 @@ export class ValidationCacheService {
 
   /**
    * Release a claim. `force` allows staff to clear another author's claim.
+   * With an active claim, `report` is required and an attempt is recorded.
+   * With no active claim: idempotent success, no new attempt.
    */
   async releaseIssue(
     issueId: string,
     author: string,
-    options?: { force?: boolean },
-  ): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
+    options?: {
+      force?: boolean;
+      report?: string;
+      actor?: ValidationIssueActor;
+      agent_session_id?: string;
+    },
+  ): Promise<
+    | { ok: true; attempt: ValidationIssueAttempt | null }
+    | { ok: false; error: string; code?: string }
+  > {
     if (!this.issues[issueId] && !this.claims[issueId]) {
       return { ok: false, error: `Unknown issue id: ${issueId}` };
     }
@@ -495,7 +594,7 @@ export class ValidationCacheService {
     if (!existing) {
       delete this.claims[issueId];
       await this.flush();
-      return { ok: true };
+      return { ok: true, attempt: null };
     }
     if (existing.claimedBy !== author && !options?.force) {
       return {
@@ -504,16 +603,42 @@ export class ValidationCacheService {
         code: "claim_not_owned",
       };
     }
+    const report = options?.report?.trim();
+    if (!report || report.length < 80) {
+      return {
+        ok: false,
+        error: "release requires report (min 80 characters): what you tried and why you are stopping",
+        code: "report_required",
+      };
+    }
+    const attempt: ValidationIssueAttempt = {
+      by: author,
+      claimedBy: existing.claimedBy,
+      at: new Date().toISOString(),
+      reason: "released",
+      report,
+      claimedAt: existing.claimedAt,
+      ...(existing.report ? { claimReport: existing.report } : {}),
+      ...(options?.actor ? { actor: options.actor } : existing.actor ? { actor: existing.actor } : {}),
+      ...(options?.agent_session_id ? { agent_session_id: options.agent_session_id } : {}),
+    };
+    this.recordAttempt(issueId, attempt);
     delete this.claims[issueId];
+    this.emitReleasedEvent(issueId, attempt, options?.agent_session_id);
     await this.flush();
-    return { ok: true };
+    return { ok: true, attempt };
   }
 
   async updateIssue(
     issueId: string,
     action: CacheIssueUpdateAction,
     author: string,
-    options?: { staffForceRelease?: boolean; actor?: ValidationIssueActor; report?: string },
+    options?: {
+      staffForceRelease?: boolean;
+      actor?: ValidationIssueActor;
+      report?: string;
+      agent_session_id?: string;
+    },
   ): Promise<
     | {
         ok: true;
@@ -526,6 +651,7 @@ export class ValidationCacheService {
           actor?: ValidationIssueActor;
           report?: string;
         } | null;
+        attempt?: ValidationIssueAttempt | null;
       }
     | { ok: false; error: string; code?: string; status?: number; claimedBy?: string }
   > {
@@ -553,16 +679,20 @@ export class ValidationCacheService {
       case "release": {
         const r = await this.releaseIssue(issueId, author, {
           force: options?.staffForceRelease === true,
+          report,
+          actor,
+          agent_session_id: options?.agent_session_id,
         });
         if (!r.ok) {
           return {
             ok: false,
             error: r.error,
             code: r.code,
-            status: r.code === "claim_not_owned" ? 403 : 404,
+            status:
+              r.code === "claim_not_owned" ? 403 : r.code === "report_required" ? 400 : 404,
           };
         }
-        return { ok: true, action, claimed: null };
+        return { ok: true, action, claimed: null, attempt: r.attempt };
       }
       case "complete": {
         const r = await this.completeIssue(issueId, author, actor, report);
@@ -752,6 +882,7 @@ export class ValidationCacheService {
     const ids = [...(this.indexes.byEntry[entryKey] ?? [])];
     this.dropCompletions(ids);
     this.dropClaims(ids);
+    this.dropAttempts(ids);
     for (const id of ids) {
       delete this.issues[id];
     }
@@ -882,7 +1013,7 @@ export class ValidationCacheService {
     }
 
     this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
-    this.gcOrphanOverlays();
+    this.gcOrphanOverlays({ emitTtl: true });
     this.lastFullRunAt = nowIso;
     if (options.markSiteWide) {
       this.lastSiteWideRunAt = nowIso;
@@ -963,6 +1094,7 @@ export class ValidationCacheService {
     const existingIds = [...(this.indexes.byEntry[entryKey] ?? [])];
     this.dropCompletions(existingIds);
     this.dropClaims(existingIds);
+    this.dropAttempts(existingIds);
     for (const id of existingIds) delete this.issues[id];
 
     const nowIso = entry.lastRunAt || new Date().toISOString();
@@ -1044,6 +1176,7 @@ export class ValidationCacheService {
     );
     this.dropCompletions(toDelete.map((i) => i.id));
     this.dropClaims(toDelete.map((i) => i.id));
+    this.dropAttempts(toDelete.map((i) => i.id));
     for (const issue of toDelete) delete this.issues[issue.id];
     if (toDelete.length > 0) {
       this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
@@ -1059,6 +1192,7 @@ export class ValidationCacheService {
     );
     this.dropCompletions(toDelete.map((i) => i.id));
     this.dropClaims(toDelete.map((i) => i.id));
+    this.dropAttempts(toDelete.map((i) => i.id));
     for (const issue of toDelete) delete this.issues[issue.id];
     if (toDelete.length > 0) {
       this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
@@ -1076,6 +1210,7 @@ export class ValidationCacheService {
     this.runMetaByScope = {};
     this.completions = {};
     this.claims = {};
+    this.attempts = {};
     this.dbMap = new Map();
     this.lastFullRunAt = null;
     this.lastSiteWideRunAt = null;
@@ -1094,6 +1229,7 @@ export class ValidationCacheService {
     );
     this.dropCompletions(toDelete.map((i) => i.id));
     this.dropClaims(toDelete.map((i) => i.id));
+    this.dropAttempts(toDelete.map((i) => i.id));
     for (const issue of toDelete) delete this.issues[issue.id];
 
     for (const meta of Object.values(this.runMetaByEntry)) {
@@ -1145,6 +1281,7 @@ export class ValidationCacheService {
       },
       completions: this.completions,
       claims: this.claims,
+      attempts: this.attempts,
       pages,
       databases: Object.fromEntries(this.dbMap.entries()),
     };
@@ -1258,6 +1395,7 @@ export type CacheIssueListRow = {
   file?: string;
   completed?: { by: string; at: string; actor?: ValidationIssueActor; report?: string };
   claimed?: { by: string; at: string; expiresAt: string; actor?: ValidationIssueActor; report?: string };
+  attempts?: ValidationIssueAttempt[];
 };
 
 export type CacheIssueFacets = {
@@ -1360,6 +1498,8 @@ export function listCacheIssuesFromStore(
     const completed = completion ? completionToApiRow(completion) : undefined;
     const claim = cache.getActiveClaim(issue.id);
     const claimed = claim ? claimToApiRow(claim) : undefined;
+    const attemptList = cache.getAttempts(issue.id);
+    const attempts = attemptList.length > 0 ? attemptList.map(attemptToApiRow) : undefined;
     const entryTargets = issue.targets.filter((t) => t.type === "entry") as Array<{
       type: "entry";
       entryKey: string;
@@ -1379,6 +1519,7 @@ export function listCacheIssuesFromStore(
         file: issue.file,
         completed,
         claimed,
+        attempts,
       });
       continue;
     }
@@ -1397,6 +1538,7 @@ export function listCacheIssuesFromStore(
         file: issue.file,
         completed,
         claimed,
+        attempts,
       });
     }
   }

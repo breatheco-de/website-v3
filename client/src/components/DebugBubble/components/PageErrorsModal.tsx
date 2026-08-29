@@ -10,6 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
@@ -396,7 +398,8 @@ function IssueCard({
       issue.file ||
       cacheBuiltAt ||
       issue.completed ||
-      issue.claimed,
+      issue.claimed ||
+      (issue.attempts && issue.attempts.length > 0),
   );
 
   return (
@@ -574,6 +577,22 @@ function IssueCard({
                   Cache built at {new Date(cacheBuiltAt).toLocaleString()}
                 </div>
               )}
+              {issue.attempts && issue.attempts.length > 0 && !isCompleted && (
+                <div className="text-xs text-muted-foreground space-y-1 pt-1 border-t border-border/50">
+                  <div className="font-medium text-foreground">
+                    Tried {issue.attempts.length}×
+                  </div>
+                  {issue.attempts.slice(0, 3).map((a, i) => (
+                    <div key={`${a.at}-${i}`}>
+                      {a.reason === "ttl_expired"
+                        ? `Claim expired (30m) — ${formatIssueActorLine(a.by, a.actor)}`
+                        : `Released by ${formatIssueActorLine(a.by, a.actor)}`}
+                      {a.claimedBy && a.claimedBy !== a.by ? ` (held by ${a.claimedBy})` : ""}
+                      {a.report ? `: ${a.report}` : ""}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </CollapsibleContent>
         )}
@@ -600,6 +619,8 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   const [completedErrorsOpen, setCompletedErrorsOpen] = useState(false);
   const [completedWarningsOpen, setCompletedWarningsOpen] = useState(false);
   const [togglingIssueId, setTogglingIssueId] = useState<string | null>(null);
+  const [releaseTarget, setReleaseTarget] = useState<PageIssue | null>(null);
+  const [releaseReport, setReleaseReport] = useState("");
   const openPageMenuRef = useRef<HTMLDivElement>(null);
   const formatSitePath = useFormatSitePath();
   const queryClient = useQueryClient();
@@ -621,7 +642,13 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   const handleUpdateIssue = async (
     issue: PageIssue,
     action: "claim" | "release" | "complete" | "uncomplete",
+    report?: string,
   ) => {
+    if (action === "release" && report === undefined) {
+      setReleaseTarget(issue);
+      setReleaseReport("");
+      return;
+    }
     if (!issue.id) {
       toast({
         title: "Cannot update issue",
@@ -640,12 +667,18 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
           ...getSessionHeaders(),
           ...(token ? { Authorization: `Token ${token}` } : {}),
         },
-        body: JSON.stringify({ issueId: issue.id, action }),
+        body: JSON.stringify({
+          issueId: issue.id,
+          action,
+          ...(report ? { report } : {}),
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(typeof body.error === "string" ? body.error : "Update failed");
       }
+      setReleaseTarget(null);
+      setReleaseReport("");
       await onRefreshDiagnostics?.();
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-issues"] });
@@ -775,7 +808,8 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
     pageDiagnostics?.validationSkippedReason === "unpublished_variant";
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 flex-wrap">
@@ -1188,6 +1222,66 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
           </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(releaseTarget)}
+        onOpenChange={(next) => {
+          if (!next) {
+            setReleaseTarget(null);
+            setReleaseReport("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Release claim</DialogTitle>
+            <DialogDescription>
+              Note what you tried and why you are stopping. The next agent or teammate will see this
+              on the issue.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="release-report">What went wrong (min 80 characters)</Label>
+            <Textarea
+              id="release-report"
+              value={releaseReport}
+              onChange={(e) => setReleaseReport(e.target.value)}
+              rows={4}
+              placeholder="Tried X… still failing because Y…"
+              data-testid="textarea-release-report"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              {releaseReport.trim().length}/80
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setReleaseTarget(null);
+                setReleaseReport("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={releaseReport.trim().length < 80 || !releaseTarget}
+              onClick={() => {
+                if (!releaseTarget) return;
+                void handleUpdateIssue(releaseTarget, "release", releaseReport.trim());
+              }}
+              data-testid="button-confirm-release"
+            >
+              {togglingIssueId === releaseTarget?.id ? (
+                <IconLoader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Release"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

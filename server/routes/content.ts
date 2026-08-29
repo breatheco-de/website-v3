@@ -34,6 +34,7 @@ import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { SECTION_LAYOUT_DEFAULT_KEYS } from "../section-layout-defaults";
 import { databaseManager, DatabaseManager, getCachedDatabaseEntryCount } from "../database";
+import { TESTIMONIALS_DATABASE } from "@shared/testimonials-listing";
 
 function getDB(res: import("express").Response): DatabaseManager {
   return (res.locals.site as import("../site-manager").SiteContext)?.database ?? databaseManager;
@@ -4799,9 +4800,30 @@ Important: Only include mappings where you are confident the field exists. Use d
     }
   });
 
-  app.get("/api/testimonials/:locale", (req, res) => {
+  /**
+   * Compat shim. Testimonials sections now resolve through `dynamic_entries` over
+   * the `testimonials` database, so this reads the same merged bank and filters by
+   * locale. Kept only for staff pickers that still ask per locale; remove once
+   * nothing calls it. Falls back to the deprecated flat `testimonials/{locale}.yml`
+   * on content roots that have not been migrated yet.
+   */
+  app.get("/api/testimonials/:locale", async (req, res) => {
     const { locale } = req.params;
     const normalizedLocale = normalizeLocale(locale);
+
+    if (getDB(res).exists(TESTIMONIALS_DATABASE)) {
+      try {
+        const { items } = await getDB(res).fetchItems(TESTIMONIALS_DATABASE);
+        const testimonials = items.filter(
+          (item) => String((item as Record<string, unknown>).locale ?? "") === normalizedLocale,
+        );
+        res.json({ testimonials, source: `db/${TESTIMONIALS_DATABASE}` });
+        return;
+      } catch (error) {
+        log.error({ err: error }, "Error loading testimonials from database:");
+        // fall through to the flat bank so staff UIs keep working
+      }
+    }
 
     const testimonialsPath = path.join(
       getContentRoot(res),
@@ -4817,7 +4839,7 @@ Important: Only include mappings where you are confident the field exists. Use d
     try {
       const content = fs.readFileSync(testimonialsPath, "utf8");
       const data = safeYamlLoad(content) as unknown[];
-      res.json({ testimonials: data || [] });
+      res.json({ testimonials: data || [], source: "flat-yaml" });
     } catch (error) {
       log.error({ err: error }, "Error loading testimonials:");
       res.status(500).json({ error: "Failed to load testimonials" });

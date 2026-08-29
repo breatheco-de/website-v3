@@ -15,7 +15,7 @@ const listClassName =
   "inline-flex h-auto flex-wrap items-center justify-start gap-0.5 rounded-md border border-muted-foreground/20 bg-muted/40 p-0.5 text-muted-foreground";
 
 const triggerClassName =
-  "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-2 py-1 text-xs font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none";
+  "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-2 py-1.5 text-xs font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none";
 
 const ToggleButtonBarList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,

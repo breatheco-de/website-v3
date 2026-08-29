@@ -223,3 +223,61 @@ export const logoItemSchema = z.object({
 });
 
 export type LogoItem = z.infer<typeof logoItemSchema>;
+
+/**
+ * Testimonial bank row — shared by the three testimonials listings.
+ *
+ * Same shape whether the row came from the `testimonials` database or from a
+ * section's `hardcoded_entries`. Passthrough so layout-only extras (slide
+ * country/status/achievement, carousel outcome) validate without adding DB
+ * columns for them.
+ */
+export const testimonialBankRowSchema = z
+  .object({
+    student_name: z.string(),
+    student_thumb: z.string().optional(),
+    student_video: z.string().optional(),
+    excerpt: z.string().optional(),
+    full_text: z.string().optional(),
+    content: z.string().optional(),
+    related_features: z.array(z.string()).optional(),
+    priority: z.number().optional(),
+    rating: z.number().optional(),
+    linkedin_url: z.string().optional(),
+    role: z.string().optional(),
+    company: z.string().optional(),
+    featured: z.boolean().optional(),
+  })
+  .passthrough();
+
+export type TestimonialBankRow = z.infer<typeof testimonialBankRowSchema>;
+
+/** Keep in sync with shared/schema permanentFilterSchema / userFilterSchema. */
+const listingPermanentFilterSchema = z.object({
+  item_property_slug: z.string(),
+  value: z.unknown(),
+});
+
+const listingUserFilterSchema = z.object({
+  item_property_slug: z.string(),
+  component_renderer: z.enum(["text-input", "dropdown", "tags"]),
+  default_value: z.unknown().optional(),
+  all_label: z.string().optional(),
+  split_comma_values: z.boolean().optional(),
+});
+
+/** Listing query for testimonials sections — resolved server-side into `items`. */
+export const testimonialsDynamicEntriesSchema = z.object({
+  content_type: z.string().optional(),
+  database: z.string().optional(),
+  limit: z.number().optional(),
+  sort: z.string().optional(),
+  search: z.string().optional(),
+  item_template: z.record(z.string(), z.unknown()).optional(),
+  hardcoded_entries: z.array(testimonialBankRowSchema).optional(),
+  permanent_filters: z.array(listingPermanentFilterSchema).optional(),
+  user_filters: z.array(listingUserFilterSchema).optional(),
+  ignored_entries: z.array(z.string()).optional(),
+});
+
+export type TestimonialsDynamicEntries = z.infer<typeof testimonialsDynamicEntriesSchema>;

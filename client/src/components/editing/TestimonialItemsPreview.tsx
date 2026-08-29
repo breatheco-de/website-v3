@@ -1,219 +1,340 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, Star } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { IconTrash } from "@tabler/icons-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { ColorPicker } from "@/components/ui/color-picker";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  isAnonymousTestimonial,
+  testimonialText,
+  type TestimonialBankRow,
+  type TestimonialEditorItem,
+} from "@shared/testimonials-listing";
 
-interface BankTestimonial {
-  student_name: string;
-  student_thumb?: string;
-  student_video?: string;
-  excerpt?: string;
-  full_text?: string;
-  content?: string;
-  short_content?: string;
-  related_features?: string[];
-  priority?: number;
-  rating?: number;
+/** Editor-friendly shape for a manually added testimonial (this section only). */
+export type HardcodedTestimonialItem = TestimonialEditorItem;
+
+type DisplaySource = "hardcoded" | "db";
+
+type DisplayItem = {
+  key: string;
+  name: string;
   role?: string;
   company?: string;
-}
+  rating?: number;
+  text: string;
+  avatar?: string;
+  source: DisplaySource;
+  featured?: boolean;
+};
 
 interface TestimonialItemsPreviewProps {
-  relatedFeatures: string[];
-  itemStyles?: Record<string, { box_color?: string; name_color?: string; comment_color?: string }>;
+  /** Manually added rows, read live from this section's YAML. */
+  hardcodedItems?: HardcodedTestimonialItem[];
+  onHardcodedItemsChange?: (items: HardcodedTestimonialItem[]) => void;
+  /**
+   * Rows the server resolved for this section (manually added first, then bank).
+   * Bank rows are taken from here so the list matches what the page renders.
+   */
+  resolvedItems?: TestimonialBankRow[];
+  /** Leading resolved rows that came from hardcoded_entries when the page rendered. */
+  resolvedHardcodedCount?: number;
+  hasTopics?: boolean;
+  hasSearch?: boolean;
   locale: string;
-  onUpdateItemStyle?: (studentName: string, prop: string, value: string) => void;
-  readOnly?: boolean;
-}
-
-const ANONYMOUS_NAMES = ["anonymous", "anonimous", "anónimo", "anonimo", "anon"];
-
-function isAnonymous(name: string): boolean {
-  return ANONYMOUS_NAMES.includes(name.trim().toLowerCase());
-}
-
-function isValidTestimonial(t: BankTestimonial): boolean {
-  if (isAnonymous(t.student_name)) return false;
-  const hasText = !!(t.excerpt || t.short_content || t.content || t.full_text);
-  return hasText;
 }
 
 function getInitials(name: string): string {
   return name
     .split(" ")
-    .map(n => n[0])
+    .map((n) => n[0])
     .join("")
     .toUpperCase()
     .slice(0, 2);
 }
 
+function hardcodedKey(item: HardcodedTestimonialItem, index: number): string {
+  const base = item.name.trim().toLowerCase() || "unnamed";
+  return `hardcoded:${base}:${index}`;
+}
+
 export function TestimonialItemsPreview({
-  relatedFeatures,
-  itemStyles = {},
+  hardcodedItems = [],
+  onHardcodedItemsChange,
+  resolvedItems = [],
+  resolvedHardcodedCount = 0,
+  hasTopics = false,
+  hasSearch = false,
   locale,
-  onUpdateItemStyle,
-  readOnly = false,
 }: TestimonialItemsPreviewProps) {
-  const { data: bankData, isLoading } = useQuery<{ testimonials: BankTestimonial[] }>({
-    queryKey: ["/api/testimonials", locale],
-    staleTime: 5 * 60 * 1000,
-  });
+  const isSpanish = locale === "es";
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    index: number;
+    name: string;
+  } | null>(null);
 
-  const filteredItems = (() => {
-    const all = (bankData?.testimonials ?? []).filter(isValidTestimonial);
-    if (relatedFeatures.length === 0) {
-      return all.slice(0, 30);
-    }
-    return all
-      .filter((t) => {
-        const features = t.related_features || [];
-        return relatedFeatures.some((f) => features.includes(f));
-      })
-      .sort((a, b) => {
-        const aPriority5 = (a.priority ?? 0) >= 5 ? 1 : 0;
-        const bPriority5 = (b.priority ?? 0) >= 5 ? 1 : 0;
-        if (bPriority5 !== aPriority5) return bPriority5 - aPriority5;
-        const aHasVideo = a.student_video ? 1 : 0;
-        const bHasVideo = b.student_video ? 1 : 0;
-        if (bHasVideo !== aHasVideo) return bHasVideo - aHasVideo;
-        const aHasThumb = a.student_thumb ? 1 : 0;
-        const bHasThumb = b.student_thumb ? 1 : 0;
-        if (bHasThumb !== aHasThumb) return bHasThumb - aHasThumb;
-        return (b.priority ?? 0) - (a.priority ?? 0);
-      })
-      .slice(0, 30);
-  })();
+  const bankItems: DisplayItem[] = useMemo(
+    () =>
+      resolvedItems
+        .slice(resolvedHardcodedCount)
+        .filter((row) => !isAnonymousTestimonial(row.student_name))
+        .map((row, index) => ({
+          key: `db:${row.student_name ?? ""}:${index}`,
+          name: row.student_name ?? "",
+          role: row.role,
+          company: row.company,
+          rating: row.rating,
+          text: testimonialText(row),
+          avatar: row.student_thumb,
+          source: "db" as const,
+          featured: row.featured,
+        })),
+    [resolvedItems, resolvedHardcodedCount],
+  );
 
-  if (isLoading) {
-    return (
-      <div className="space-y-2">
-        <Label className="text-sm font-medium">Items ({0})</Label>
-        <div className="animate-pulse space-y-2">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-12 bg-muted rounded-md" />
-          ))}
-        </div>
-      </div>
+  const hardcodedDisplay: DisplayItem[] = useMemo(
+    () =>
+      hardcodedItems.map((item, index) => ({
+        key: hardcodedKey(item, index),
+        name: item.name,
+        role: item.role,
+        company: item.company,
+        rating: item.rating,
+        text: item.comment,
+        avatar: item.avatar,
+        source: "hardcoded" as const,
+      })),
+    [hardcodedItems],
+  );
+
+  const displayedItems = useMemo(
+    () => [...hardcodedDisplay, ...bankItems],
+    [hardcodedDisplay, bankItems],
+  );
+
+  const hardcodedCount = hardcodedDisplay.length;
+  const dbCount = bankItems.length;
+  const canDeleteHardcoded = !!onHardcodedItemsChange;
+
+  const confirmDelete = () => {
+    if (!deleteConfirm || !onHardcodedItemsChange) return;
+    onHardcodedItemsChange(
+      hardcodedItems.filter((_, i) => i !== deleteConfirm.index),
     );
-  }
+    setDeleteConfirm(null);
+  };
 
-  if (filteredItems.length === 0) {
+  if (displayedItems.length === 0) {
+    const emptyCopy = (() => {
+      if (hasTopics || hasSearch) {
+        return isSpanish
+          ? "Nada del banco coincide todavía. Guarda para volver a consultar el banco, o ajusta los topics y la búsqueda."
+          : "Nothing from the bank matches yet. Save to re-query the bank, or adjust topics and search.";
+      }
+      return isSpanish
+        ? "Sin testimonios. Elige topics (o una búsqueda) para traer gente del banco, o agrega uno manualmente."
+        : "No testimonials yet. Pick topics (or a search phrase) to pull people from the bank, or add one manually.";
+    })();
     return (
       <div className="space-y-2">
         <Label className="text-sm font-medium">Items (0)</Label>
-        <p className="text-xs text-muted-foreground">
-          {locale === "es"
-            ? "No se encontraron testimonios para los topics seleccionados."
-            : "No testimonials found for the selected topics."}
-        </p>
+        <p className="text-xs text-muted-foreground">{emptyCopy}</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-2">
-      <Label className="text-sm font-medium">Items ({filteredItems.length})</Label>
-      <div className="space-y-1 max-h-[400px] overflow-y-auto">
-        {filteredItems.map((item) => (
-          <TestimonialItemRow
-            key={item.student_name}
-            item={item}
-            style={itemStyles[item.student_name]}
-            locale={locale}
-            onUpdateStyle={(prop, value) => onUpdateItemStyle?.(item.student_name, prop, value)}
-            readOnly={readOnly}
-          />
-        ))}
+      <Label className="text-sm font-medium flex items-center gap-1.5 flex-wrap">
+        Items ({displayedItems.length})
+        {hardcodedCount > 0 && (
+          <Badge variant="secondary" className="text-[10px] font-normal">
+            {hardcodedCount} manually added
+          </Badge>
+        )}
+        {dbCount > 0 && (
+          <Badge variant="outline" className="text-[10px] font-normal">
+            {dbCount} DB
+          </Badge>
+        )}
+      </Label>
+      <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+        {displayedItems.map((item) => {
+          const hardcodedIndex =
+            item.source === "hardcoded"
+              ? hardcodedItems.findIndex(
+                  (h, i) => hardcodedKey(h, i) === item.key,
+                )
+              : -1;
+          return (
+            <TestimonialItemRow
+              key={item.key}
+              item={item}
+              onDelete={
+                item.source === "hardcoded" && canDeleteHardcoded && hardcodedIndex >= 0
+                  ? () =>
+                      setDeleteConfirm({
+                        index: hardcodedIndex,
+                        name: item.name,
+                      })
+                  : undefined
+              }
+            />
+          );
+        })}
       </div>
+
+      {deleteConfirm && (
+        <Dialog
+          open
+          onOpenChange={(v) => {
+            if (!v) setDeleteConfirm(null);
+          }}
+        >
+          <DialogContent className="max-w-sm z-[10002]">
+            <DialogHeader>
+              <DialogTitle>
+                {isSpanish
+                  ? "¿Quitar testimonio local?"
+                  : "Remove local testimonial?"}
+              </DialogTitle>
+              <DialogDescription>
+                {isSpanish
+                  ? "Se elimina de esta sección. El banco centralizado no se afecta."
+                  : "This removes it from this section's content. The centralized bank is not affected."}
+              </DialogDescription>
+            </DialogHeader>
+            <p className="text-xs text-muted-foreground border rounded-md p-2 line-clamp-3">
+              {deleteConfirm.name}
+            </p>
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDeleteConfirm(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={confirmDelete}
+                data-testid="button-confirm-delete-hardcoded-testimonial"
+              >
+                Remove
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
 
 interface TestimonialItemRowProps {
-  item: BankTestimonial;
-  style?: { box_color?: string; name_color?: string; comment_color?: string };
-  locale: string;
-  onUpdateStyle: (prop: string, value: string) => void;
-  readOnly?: boolean;
+  item: DisplayItem;
+  onDelete?: () => void;
 }
 
-function TestimonialItemRow({ item, style, locale, onUpdateStyle, readOnly = false }: TestimonialItemRowProps) {
+function TestimonialItemRow({ item, onDelete }: TestimonialItemRowProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const text = item.excerpt || item.short_content || item.content || item.full_text || "";
-  const hasCustomStyle = !readOnly && (style?.box_color || style?.name_color || style?.comment_color);
+  const isHardcoded = item.source === "hardcoded";
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <CollapsibleTrigger className="w-full" asChild>
-        <button
-          type="button"
-          className="flex items-center gap-2 w-full p-2 rounded-md bg-muted/50 hover:bg-muted/80 transition-colors text-left"
-          data-testid={`testimonial-item-${item.student_name}`}
-        >
-          <Avatar className="w-7 h-7 flex-shrink-0">
-            {item.student_thumb && <AvatarImage src={item.student_thumb} alt={item.student_name} />}
-            <AvatarFallback className="bg-foreground/10 text-foreground/70 text-[10px] font-semibold">
-              {getInitials(item.student_name)}
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-foreground truncate">{item.student_name}</p>
-            <p className="text-[10px] text-muted-foreground truncate">
-              {item.role || ""}
-              {item.company ? ` - ${item.company}` : ""}
-            </p>
-          </div>
-          <div className="flex items-center gap-1 flex-shrink-0">
-            {item.rating && (
-              <div className="flex items-center gap-0.5">
-                <Star className="fill-current w-3 h-3 text-yellow-500" />
-                <span className="text-[10px] text-muted-foreground">{item.rating}</span>
+      <div
+        className={`border rounded-lg ${isHardcoded ? "bg-secondary" : "bg-muted/50"}`}
+      >
+        <div className="flex items-center gap-1 pr-1">
+          <CollapsibleTrigger className="flex-1 min-w-0" asChild>
+            <button
+              type="button"
+              className="flex items-center gap-2 w-full p-2 rounded-md hover:bg-muted/80 transition-colors text-left"
+              data-testid={`testimonial-item-${item.key}`}
+            >
+              <Avatar className="w-7 h-7 flex-shrink-0">
+                {item.avatar && (
+                  <AvatarImage src={item.avatar} alt={item.name} />
+                )}
+                <AvatarFallback className="bg-foreground/10 text-foreground/70 text-[10px] font-semibold">
+                  {getInitials(item.name || "?")}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-foreground truncate">
+                  {item.name}
+                  <Badge
+                    variant="outline"
+                    className="text-[9px] px-1 py-0 ml-1.5 text-muted-foreground align-middle no-default-hover-elevate no-default-active-elevate"
+                  >
+                    {isHardcoded ? "manually added" : "DB"}
+                  </Badge>
+                  {item.featured && (
+                    <Badge
+                      variant="outline"
+                      className="text-[9px] px-1 py-0 ml-1 text-muted-foreground align-middle no-default-hover-elevate no-default-active-elevate"
+                    >
+                      featured
+                    </Badge>
+                  )}
+                </p>
+                <p className="text-[10px] text-muted-foreground truncate">
+                  {item.role || ""}
+                  {item.company ? ` - ${item.company}` : ""}
+                </p>
               </div>
-            )}
-            {hasCustomStyle && (
-              <div className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />
-            )}
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`}
-            />
-          </div>
-        </button>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="pl-11 pr-2 py-2 space-y-3">
-          {text && (
-            <p className="text-[11px] text-muted-foreground line-clamp-3 italic">&ldquo;{text}&rdquo;</p>
-          )}
-          {!readOnly && (
-            <div className="space-y-2">
-              <ColorPicker
-                value={style?.box_color || ""}
-                onChange={(value) => onUpdateStyle("box_color", value)}
-                type="background"
-                label={locale === "es" ? "Fondo" : "Background"}
-                testIdPrefix={`testimonial-${item.student_name}-box`}
-              />
-              <ColorPicker
-                value={style?.name_color || ""}
-                onChange={(value) => onUpdateStyle("name_color", value)}
-                type="text"
-                label={locale === "es" ? "Color de nombre" : "Name color"}
-                testIdPrefix={`testimonial-${item.student_name}-name`}
-              />
-              <ColorPicker
-                value={style?.comment_color || ""}
-                onChange={(value) => onUpdateStyle("comment_color", value)}
-                type="text"
-                label={locale === "es" ? "Color de texto" : "Text color"}
-                testIdPrefix={`testimonial-${item.student_name}-comment`}
-              />
-            </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {item.rating != null && item.rating > 0 && (
+                  <div className="flex items-center gap-0.5">
+                    <Star className="fill-current w-3 h-3 text-yellow-500" />
+                    <span className="text-[10px] text-muted-foreground">
+                      {item.rating}
+                    </span>
+                  </div>
+                )}
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`}
+                />
+              </div>
+            </button>
+          </CollapsibleTrigger>
+          {onDelete && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              data-testid={`button-testimonial-item-delete-${item.key}`}
+              title="Delete"
+            >
+              <IconTrash className="h-3.5 w-3.5" />
+            </Button>
           )}
         </div>
-      </CollapsibleContent>
+        <CollapsibleContent>
+          <div className="pl-11 pr-2 pb-2 space-y-3">
+            {item.text && (
+              <p className="text-[11px] text-muted-foreground line-clamp-3 italic">
+                &ldquo;{item.text}&rdquo;
+              </p>
+            )}
+          </div>
+        </CollapsibleContent>
+      </div>
     </Collapsible>
   );
 }

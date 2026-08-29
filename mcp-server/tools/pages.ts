@@ -38,6 +38,12 @@ import {
 } from "../lib/diagnostics-issue-queue.js";
 import { getTokenUsername, getTokenClientName } from "../lib/oauth.js";
 import { buildLoopbackHeaders, missingSessionWarning } from "../lib/loopback.js";
+import {
+  AGENT_REPORT_ISSUE_COMPLETE_EXAMPLE,
+  AGENT_REPORT_ISSUE_DESC,
+  AGENT_REPORT_MUTATE_DESC,
+  AGENT_REPORT_SESSION_DESC,
+} from "../lib/agent-report.js";
 import { buildEditorSystemHints } from "../../shared/editorSystemHints.js";
 import { FILL_INTENT_GOAL_PRESET_OPTIONS } from "../../shared/fillIntent.js";
 import {
@@ -643,6 +649,16 @@ interface MappedValidationIssue {
   expiresAt?: string;
   claimedActor?: ValidationIssueActorRef;
   claimReport?: string;
+  prior_attempts?: Array<{
+    by: string;
+    claimedBy?: string;
+    at: string;
+    reason: "released" | "ttl_expired";
+    report?: string;
+    claimedAt?: string;
+    claimReport?: string;
+    actor?: ValidationIssueActorRef;
+  }>;
 }
 
 type CachedValidationIssuesSplit = {
@@ -686,10 +702,24 @@ function getCachedValidationIssues(
       indexes?: { byUrl?: Record<string, string>; byEntry?: Record<string, string[]> };
       completions?: Record<string, { completedBy: string; completedAt: string; actor?: ValidationIssueActorRef; report?: string }>;
       claims?: Record<string, { claimedBy: string; claimedAt: string; expiresAt: string; actor?: ValidationIssueActorRef; report?: string }>;
+      attempts?: Record<
+        string,
+        Array<{
+          by: string;
+          claimedBy?: string;
+          at: string;
+          reason: "released" | "ttl_expired";
+          report?: string;
+          claimedAt?: string;
+          claimReport?: string;
+          actor?: ValidationIssueActorRef;
+        }>
+      >;
     };
 
     const completions = cache.completions ?? {};
     const claims = cache.claims ?? {};
+    const attemptsMap = cache.attempts ?? {};
     const now = Date.now();
     let all: MappedValidationIssue[] = [];
     if (cache.issues && cache.indexes) {
@@ -702,6 +732,7 @@ function getCachedValidationIssues(
         const claim = claims[id];
         const claimActive =
           claim && new Date(claim.expiresAt).getTime() > now ? claim : undefined;
+        const priorAttempts = attemptsMap[id];
         all.push({
           id,
           code: issue.code,
@@ -726,6 +757,9 @@ function getCachedValidationIssues(
                 ...(claimActive.actor ? { claimedActor: claimActive.actor } : {}),
                 ...(claimActive.report ? { claimReport: claimActive.report } : {}),
               }
+            : {}),
+          ...(priorAttempts && priorAttempts.length > 0
+            ? { prior_attempts: priorAttempts }
             : {}),
         });
       }
@@ -959,6 +993,7 @@ export function registerPageTools(
     "start returns agent_session_id — pass it on mutating tools. " +
     "note/summarize require agent_session_id + report (min 80 chars). " +
     "summarize closes the run for the staff banner (last summarize wins). " +
+    "Reports are staff-readable: for copy you set, list plain values (Title: …); no JSON/YAML dumps. " +
     "Does not write YAML. Prefer write/issue report for per-change notes; use summarize once at end.",
     {
       action: z.enum(["start", "note", "summarize"]).describe("start | note | summarize"),
@@ -970,9 +1005,7 @@ export function registerPageTools(
       report: z
         .string()
         .optional()
-        .describe(
-          "Required for note/summarize (min 80 chars). Mid-run progress or end-of-run summary.",
-        ),
+        .describe(AGENT_REPORT_SESSION_DESC),
       site: z.string().optional().describe(SITE_PARAM_DESC),
       model: z.string().optional().describe("Optional LLM model name for attribution"),
     },
@@ -1226,7 +1259,7 @@ export function registerPageTools(
     "get_entry_content",
     "Get the merged content of a page (sections, title, and all other top-level YAML keys) without the meta/SEO block. " +
     "Also returns locales (all available locale codes for this page), urls (per-locale resolved paths), and " +
-    "validation_issues (open cached validation issues — incomplete and unclaimed, or claimed by you; each with id, code, message, severity, category). " +
+    "validation_issues (open cached validation issues — incomplete and unclaimed, or claimed by you; each with id, code, message, severity, category; may include prior_attempts from earlier releases/TTL). " +
     "claimed_issues (active claims by other authors). " +
     "completed_issues (soft-completed for audit; use update_issue). " +
     "validation_issues, claimed_issues, and completed_issues are always present (empty arrays if none). " +
@@ -1526,13 +1559,17 @@ export function registerPageTools(
     "update_issue",
     "Claim, release, soft-complete, or reopen a validation issue by stable issue_id from get_entry_content / get_entry_seo. " +
     "Actions: claim (30m TTL, refresh if you already own it; fails if another author holds an active claim), " +
-    "release (drop your claim or staff release), complete (hide from open lists; also clears claim), uncomplete (reopen). " +
+    "release (drop your claim or staff release — requires report min 80 when an active claim exists; idempotent no-op if already unclaimed), " +
+    "complete (hide from open lists; also clears claim), uncomplete (reopen). " +
     "MCP-only: claim requires report (why you are taking this issue + what you plan to change; min 80 chars; optional when refreshing your own claim). " +
-    "complete requires report (what you changed and how, with paths/fields; min 80 chars). " +
+    "complete requires report (what you changed and how; include plain new values for copy you set — not JSON/YAML; min 80 chars). " +
+    "release requires report when releasing an active claim (what you tried + why stopping; stored as prior_attempts for the next agent). " +
+    "Read prior_attempts on validation_issues before reclaiming. " +
     "Example claim: \"SEO title empty on blog/foo/en — will set meta.page_title from H1 and re-check.\" " +
-    "Example complete: \"Set meta.page_title in site_…/blog/foo/en.yml to match H1; left description unchanged.\" " +
+    AGENT_REPORT_ISSUE_COMPLETE_EXAMPLE + " " +
+    "Example release: \"Tried updating meta.page_title; validator still fails because sitemap entry missing — need redirects change.\" " +
     "Does NOT delete the issue row, push YAML/GitHub, or run diagnostics. " +
-    "A later validator cache write that rewrites the same id clears complete but keeps an active claim; may emit validation_issue_reopened in admin events. " +
+    "A later validator cache write that rewrites the same id clears complete but keeps an active claim and prior_attempts; may emit validation_issue_reopened in admin events. " +
     "Requires content_edit_text or seo_edit. Pass issue_id only (no update-by-code). Optional model (best-effort, self-reported).",
     {
       issue_id: z.string().describe("Stable issue id from validation_issues[].id"),
@@ -1543,17 +1580,15 @@ export function registerPageTools(
       model: z
         .string()
         .optional()
-        .describe("Optional LLM model name (best-effort; stored in actor.model on claim/complete)"),
+        .describe("Optional LLM model name (best-effort; stored in actor.model on claim/complete/release)"),
       report: z
         .string()
         .optional()
-        .describe(
-          "Required for first claim and complete (min 80 chars). claim: why you are taking this + planned change (entry/fields). complete: what you changed and where (paths/fields). Optional when re-claiming to refresh your TTL.",
-        ),
+        .describe(AGENT_REPORT_ISSUE_DESC),
       agent_session_id: z
         .string()
         .optional()
-        .describe("Optional. From agent_session start — groups claim/complete under the same run."),
+        .describe("Optional. From agent_session start — groups claim/complete/release under the same run."),
     },
     async ({ issue_id, action, site, model, report, agent_session_id }) => {
       const canMutate =
@@ -1577,7 +1612,19 @@ export function registerPageTools(
               action_required: "report_required",
               code: "report_required",
               message:
-                "complete requires report: explain what you changed and how you fixed this issue (min 80 characters).",
+                "complete requires report: explain what you changed and how you fixed this issue (min 80 characters). Include plain new values for copy you set.",
+            },
+            [],
+          );
+        }
+      } else if (action === "release") {
+        if (trimmedReport.length > 0 && trimmedReport.length < 80) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "report_required",
+              code: "report_too_short",
+              message: "release report must be at least 80 characters when provided.",
             },
             [],
           );
@@ -1618,7 +1665,10 @@ export function registerPageTools(
                 success: false,
                 action_required: "report_required",
                 code,
-                message: String(data.error ?? "report required for MCP claim/complete"),
+                message: String(
+                  data.error ??
+                    "report required for MCP claim/complete/release (min 80 characters when releasing an active claim)",
+                ),
               },
               [],
             );
@@ -1633,21 +1683,22 @@ export function registerPageTools(
           {
             code: "overlay_env_local",
             message:
-              "Updates this environment's validation-cache claims/completions only — does not push YAML, sync GitHub, or update other environments.",
+              "Updates this environment's validation-cache claims/completions/attempts only — does not push YAML, sync GitHub, or update other environments.",
           },
           {
             code: "no_diagnostics_run",
             message:
-              "Does not run diagnostics. complete is cleared if a later cache write rewrites this issue_id; claims survive rewrite until TTL/release/complete.",
+              "Does not run diagnostics. complete is cleared if a later cache write rewrites this issue_id; claims and prior_attempts survive rewrite until TTL/release/complete (attempts until issue id removed).",
           },
           {
             code: "claim_ttl_30m",
-            message: "Claims expire after 30 minutes. Same author can re-claim to refresh.",
+            message:
+              "Claims expire after 30 minutes (records ttl_expired prior_attempt). Same author can re-claim to refresh.",
           },
           {
             code: "mcp_report_required",
             message:
-              "MCP claim (first) and complete require report (min 80 chars). Stored on validation-cache overlay and validation_issue_* admin events.",
+              "MCP claim (first), complete, and release (active claim) require report (min 80 chars). Release stores prior_attempts for the next agent.",
           },
           {
             code: "actor_client_from_oauth",
@@ -1657,7 +1708,7 @@ export function registerPageTools(
           {
             code: "validation_issue_events",
             message:
-              "claim/complete emit validation_issue_* admin events. Diagnostics may emit validation_issue_reopened when a completed id resurfaces.",
+              "claim/complete/release emit validation_issue_* admin events. TTL expiry also emits validation_issue_released.",
           },
         ];
         return ok(
@@ -1667,6 +1718,7 @@ export function registerPageTools(
             report: trimmedReport || null,
             completed: data.completed ?? null,
             claimed: data.claimed ?? null,
+            attempt: data.attempt ?? null,
             message: `Issue ${action} applied.`,
           },
           {
@@ -2398,9 +2450,7 @@ export function registerPageTools(
       ),
       report: z
         .string()
-        .describe(
-          "Required (min 80 chars): why this write / what you are changing (paths/fields). Example: \"Updating meta.page_title and hero headline on blog/foo/en for Q3 SEO.\"",
-        ),
+        .describe(AGENT_REPORT_MUTATE_DESC),
       agent_session_id: z
         .string()
         .optional()
@@ -2418,7 +2468,9 @@ export function registerPageTools(
             success: false,
             action_required: "report_required",
             code: trimmedReport ? "report_too_short" : "report_required",
-            message: "report required (min 80 characters): explain what you are changing and why.",
+            message:
+              "report required (min 80 characters): explain what you are changing and why. " +
+              "For copy you set, list plain values (Title: …); do not paste JSON/YAML.",
           },
           [],
         );
@@ -3914,7 +3966,7 @@ export function registerPageTools(
       variantSlug: z.string().default("draft").describe("Draft variant to publish, e.g. 'draft'"),
       report: z
         .string()
-        .describe("Required (min 80 chars): why this change / what you are doing."),
+        .describe(AGENT_REPORT_MUTATE_DESC),
       agent_session_id: z
         .string()
         .optional()
@@ -4035,7 +4087,7 @@ export function registerPageTools(
       locale: z.string().default("en").describe("Locale of the variant to promote, e.g. 'en' or 'es'"),
       report: z
         .string()
-        .describe("Required (min 80 chars): why this change / what you are doing."),
+        .describe(AGENT_REPORT_MUTATE_DESC),
       agent_session_id: z
         .string()
         .optional()
@@ -4315,7 +4367,7 @@ export function registerPageTools(
       ),
       report: z
         .string()
-        .describe("Required (min 80 chars): why this change / what you are doing."),
+        .describe(AGENT_REPORT_MUTATE_DESC),
       agent_session_id: z
         .string()
         .optional()
@@ -6531,7 +6583,7 @@ export function registerPageTools(
         .describe("When last author would be cleared: blogSlug → replacement author slug[]"),
       report: z
         .string()
-        .describe("Required (min 80 chars): why this change / what you are doing."),
+        .describe(AGENT_REPORT_MUTATE_DESC),
       agent_session_id: z
         .string()
         .optional()

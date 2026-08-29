@@ -26,10 +26,15 @@ describe("formatSitePath", () => {
     expect(formatSitePath("/tmp/validation-reports/report-x.json")).toBe("report-x.json");
   });
 
-  it("falls back to filename for marketing-content paths", () => {
+  it("strips legacy marketing-content root like other site folders", () => {
     expect(
       formatSitePath("marketing-content/component-registry/hero/v1.0/schema.ts"),
-    ).toBe("schema.ts");
+    ).toBe("component-registry/hero/v1.0/schema.ts");
+    expect(
+      formatSitePath(
+        "/home/runner/workspace/marketing-content/programs/ai-engineering/en.yml",
+      ),
+    ).toBe("programs/ai-engineering/en.yml");
   });
 
   it("handles Windows backslashes", () => {
@@ -60,6 +65,30 @@ describe("formatSitePathsInText", () => {
     expect(formatSitePathsInText(message)).toBe(
       'Redirect conflict: "/landing/ai-engineering-program-ad" is claimed by both ' +
         '"landings/xx/es.yml" and "landings/yy/en.yml"',
+    );
+  });
+
+  it("keeps sibling locale files distinct for legacy marketing-content paths", () => {
+    const message =
+      'Redirect conflict: "/bootcamp/ai-engineering" is claimed by both ' +
+      '"/home/runner/workspace/marketing-content/programs/ai-engineering-devs/en.yml" and ' +
+      '"/home/runner/workspace/marketing-content/programs/ai-engineering/en.yml"';
+    expect(formatSitePathsInText(message)).toBe(
+      'Redirect conflict: "/bootcamp/ai-engineering" is claimed by both ' +
+        '"programs/ai-engineering-devs/en.yml" and ' +
+        '"programs/ai-engineering/en.yml"',
+    );
+  });
+
+  it("preserves (live) suffix on redirect claimant labels", () => {
+    const message =
+      'Redirect conflict: "/bootcamp/ai" is claimed by both ' +
+      '"programs/ai-engineering/en.yml (live)" and ' +
+      '"site_4geeks-com/programs/ai-engineering-devs/en.yml (live)"';
+    expect(formatSitePathsInText(message)).toBe(
+      'Redirect conflict: "/bootcamp/ai" is claimed by both ' +
+        '"programs/ai-engineering/en.yml (live)" and ' +
+        '"programs/ai-engineering-devs/en.yml (live)"',
     );
   });
 

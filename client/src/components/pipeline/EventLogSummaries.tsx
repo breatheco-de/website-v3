@@ -93,6 +93,7 @@ const TYPED_DETAIL_TYPES = new Set([
   "validation_issue_claimed",
   "validation_issue_completed",
   "validation_issue_reopened",
+  "validation_issue_released",
   "validation_results_ready",
 ]);
 
@@ -208,7 +209,8 @@ export function eventValidationEntryRef(
   if (
     event.type === "validation_issue_claimed" ||
     event.type === "validation_issue_completed" ||
-    event.type === "validation_issue_reopened"
+    event.type === "validation_issue_reopened" ||
+    event.type === "validation_issue_released"
   ) {
     return { entryKey, pageUrl: strField(event.payload, "url") };
   }
@@ -512,6 +514,13 @@ function EventValidationIssueSummary({
     );
   } else if (type === "validation_issue_claimed") {
     outcome = <p className="text-xs text-muted-foreground">In progress</p>;
+  } else if (type === "validation_issue_released") {
+    const reason = strField(payload, "reason");
+    outcome = (
+      <p className="text-xs text-amber-400/90">
+        {reason === "ttl_expired" ? "Claim expired (30m)" : "Claim released"}
+      </p>
+    );
   }
 
   return (
@@ -657,6 +666,7 @@ export function EventSummary({ event }: { event: PipelineContentEvent }) {
     case "validation_issue_claimed":
     case "validation_issue_completed":
     case "validation_issue_reopened":
+    case "validation_issue_released":
       return (
         <EventValidationIssueSummary
           type={event.type}
@@ -890,6 +900,18 @@ function ValidationIssueDetails({
     });
   }
 
+  if (event.type === "validation_issue_released") {
+    fields.push({ label: "Reason", value: strField(payload, "reason") });
+    fields.push({ label: "Claimed by", value: strField(payload, "claimedBy") });
+    fields.push({ label: "Claimed at", value: strField(payload, "claimedAt") });
+    fields.push({ label: "Claim report", value: strField(payload, "claimReport") });
+  }
+
+  const report = strField(payload, "report");
+  if (report) {
+    fields.push({ label: "Report", value: report });
+  }
+
   return (
     <div className="space-y-2">
       <dl className="grid gap-1.5 text-xs">
@@ -942,6 +964,7 @@ function TypedEventBody({ event }: { event: PipelineContentEvent }) {
     case "validation_issue_claimed":
     case "validation_issue_completed":
     case "validation_issue_reopened":
+    case "validation_issue_released":
       return <ValidationIssueDetails event={event} />;
     case "validation_results_ready": {
       const parsed = parseValidationPayload(event.payload);

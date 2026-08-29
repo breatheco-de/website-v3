@@ -1,10 +1,11 @@
 /**
- * Admin events for validation issue workflow overlays (claim / complete / reopen).
+ * Admin events for validation issue workflow overlays (claim / complete / reopen / release).
  */
 
 import type {
   StoredValidationIssue,
   ValidationIssueActor,
+  ValidationIssueAttempt,
   ValidationIssueCompletion,
 } from "../scripts/validation/shared/types";
 import { emitEvent } from "./events/event-store";
@@ -14,7 +15,8 @@ import { singleAttribution } from "./events/types";
 export type ValidationIssueWorkflowEventType =
   | "validation_issue_claimed"
   | "validation_issue_completed"
-  | "validation_issue_reopened";
+  | "validation_issue_reopened"
+  | "validation_issue_released";
 
 function parseResourceFromPath(filePath: string): {
   path: string;
@@ -109,8 +111,10 @@ export function emitValidationIssueWorkflowEvent(opts: {
   priorCompletion?: ValidationIssueCompletion;
   report?: string;
   agent_session_id?: string;
+  /** Present for validation_issue_released */
+  attempt?: ValidationIssueAttempt;
 }): void {
-  const { type, site, issue, author, actor, priorCompletion, report } = opts;
+  const { type, site, issue, author, actor, priorCompletion, report, attempt } = opts;
   const entryKey = issueEntryKey(issue);
   const fromEntry = entryKey ? parseResourceFromEntryKey(entryKey) : {};
   const fromFile = issue.file ? parseResourceFromPath(issue.file) : { path: "" };
@@ -134,7 +138,14 @@ export function emitValidationIssueWorkflowEvent(opts: {
     payload.priorActor = priorCompletion.actor ?? null;
     payload.priorCompletedAt = priorCompletion.completedAt;
   }
-  if (report) {
+  if (type === "validation_issue_released" && attempt) {
+    payload.reason = attempt.reason;
+    payload.by = attempt.by;
+    payload.claimedBy = attempt.claimedBy ?? null;
+    payload.claimedAt = attempt.claimedAt ?? null;
+    payload.claimReport = attempt.claimReport ?? null;
+    if (attempt.report) payload.report = attempt.report;
+  } else if (report) {
     payload.report = report;
   }
   emitEvent({

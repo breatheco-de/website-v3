@@ -11,15 +11,16 @@ describe("parseGlobalHealthSearch", () => {
     expect(parseGlobalHealthSearch("?")).toEqual(GLOBAL_HEALTH_VIEW_DEFAULTS);
   });
 
-  it("parses kpi, path, scope, and validators", () => {
+  it("parses kpi, path, scope, validators, and tried", () => {
     const view = parseGlobalHealthSearch(
-      "kpi=errors&path=/en/home&scope=seo,components&validators=meta,seo-depth",
+      "kpi=errors&path=/en/home&scope=seo,components&validators=meta,seo-depth&tried=1",
     );
     expect(view).toEqual({
       kpi: "errors",
       path: "/en/home",
       scope: ["seo", "components"],
       validators: ["meta", "seo-depth"],
+      priorAttempts: true,
     });
   });
 
@@ -48,12 +49,14 @@ describe("serializeGlobalHealthSearch", () => {
       path: "/es/blog",
       scope: ["seo"],
       validators: ["seo-depth"],
+      priorAttempts: true,
     });
     const params = new URLSearchParams(qs);
     expect(params.get("kpi")).toBe("warnings");
     expect(params.get("path")).toBe("/es/blog");
     expect(params.get("scope")).toBe("seo");
     expect(params.get("validators")).toBe("seo-depth");
+    expect(params.get("tried")).toBe("1");
   });
 
   it("preserves unknown existing params", () => {
@@ -65,7 +68,7 @@ describe("serializeGlobalHealthSearch", () => {
 
   it("round-trips", () => {
     const view = parseGlobalHealthSearch(
-      "kpi=coverage&path=/x&scope=forms,bindings&validators=section-variants",
+      "kpi=coverage&path=/x&scope=forms,bindings&validators=section-variants&tried=1",
     );
     expect(parseGlobalHealthSearch(serializeGlobalHealthSearch(view))).toEqual(view);
   });

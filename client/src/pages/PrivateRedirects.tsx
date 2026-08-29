@@ -212,12 +212,18 @@ function removeFromFileLabel(
   index: number,
   formatPath: (filePath: string) => string,
 ): string {
-  const basenames = files.map((f) => formatPath(f).split("/").pop() || f);
-  const name = basenames[index] || "file";
-  const duplicateCount = basenames.filter((b) => b === name).length;
+  // formatPath may return spaced segments ("a / b / en.yml"); compare on real path basenames.
+  const displayPaths = files.map((f) => formatPath(f).split(" / ").join("/"));
+  const basenames = displayPaths.map((p) => p.split("/").pop() || p);
+  const name = (basenames[index] || "file").trim();
+  const full = displayPaths[index] || name;
+  if (full.includes("/")) {
+    return `Remove from ${full.split("/").join(" / ")}`;
+  }
+  const duplicateCount = basenames.filter((b) => b.trim() === name).length;
   if (duplicateCount > 1) {
     const ordinalIndex =
-      basenames.slice(0, index + 1).filter((b) => b === name).length - 1;
+      basenames.slice(0, index + 1).filter((b) => b.trim() === name).length - 1;
     const ordinal = FILE_ORDINALS[ordinalIndex] || `${ordinalIndex + 1}th`;
     return `Remove from ${ordinal} ${name}`;
   }

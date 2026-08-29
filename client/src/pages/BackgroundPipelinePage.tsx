@@ -162,7 +162,7 @@ type EventKindChip = {
 const EVENT_KIND_CHIPS: EventKindChip[] = [
   { id: "writes", label: "Writes", types: ["content_file_written", "redirects_changed"], icon: IconPencil },
   { id: "deletes", label: "Deletes", types: ["content_entry_deleted"], icon: IconTrash },
-  { id: "claims", label: "Claims", types: ["validation_issue_claimed"], icon: IconClipboardText },
+  { id: "claims", label: "Claims", types: ["validation_issue_claimed", "validation_issue_released"], icon: IconClipboardText },
   { id: "completes", label: "Completes", types: ["validation_issue_completed"], icon: IconCircleCheck },
   {
     id: "session",
@@ -279,6 +279,13 @@ const EVENT_META: Record<string, EventMeta> = {
       "Someone marked a validation issue as in progress — they're working on fixing it.",
     icon: IconClipboardText,
     iconClass: "text-amber-400 border-amber-400/40",
+  },
+  validation_issue_released: {
+    label: "Validation Issue Released",
+    description:
+      "A claim was released (with a report of what went wrong) or expired after 30 minutes.",
+    icon: IconClipboardText,
+    iconClass: "text-orange-400 border-orange-400/40",
   },
   validation_issue_completed: {
     label: "Validation Issue Completed",
@@ -1582,7 +1589,8 @@ function EventLogPanel({
             </summary>
             <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed border-l-2 border-border pl-2">
               MCP agent_session start/note/summarize are normal audit events. Writes and issues carry
-              report (min 80). Session id is optional — Unscoped means no session. Bulk sync is never
+              report (min 80) — for copy edits, agents should list plain values (Title: …), not JSON
+              dumps. Session id is optional — Unscoped means no session. Bulk sync is never
               session-tagged. Clearing the log clears session history too. Retention is about 7 days.
             </p>
           </details>

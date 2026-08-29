@@ -111,6 +111,7 @@ const TECHNICAL_LABELS: Record<string, string> = {
   validation_issue_claimed: "Validation Issue Claimed",
   validation_issue_completed: "Validation Issue Completed",
   validation_issue_reopened: "Validation Issue Reopened",
+  validation_issue_released: "Validation Issue Released",
   binding_propagation_started: "Shared Section Sync Started",
   binding_propagation_done: "Shared Section Sync Done",
   job_failed: "Job Failed",
@@ -210,6 +211,25 @@ function sentenceParts(
       return entry
         ? { ...withActor(actor, " reopened an issue on your"), entry, muted: false }
         : { ...withActor(actor, " reopened a validation issue"), muted: false };
+    case "validation_issue_released": {
+      const reason =
+        typeof event.payload?.reason === "string" ? event.payload.reason : "";
+      const verb =
+        reason === "ttl_expired"
+          ? " let a claim expire on"
+          : " stopped working on an issue on";
+      return entry
+        ? { ...withActor(actor, verb), entry, muted: false }
+        : {
+            ...withActor(
+              actor,
+              reason === "ttl_expired"
+                ? " let a validation claim expire"
+                : " released a validation claim",
+            ),
+            muted: false,
+          };
+    }
     case "binding_propagation_started":
       return entry
         ? { ...withActor(actor, " started syncing"), entry, muted: false }

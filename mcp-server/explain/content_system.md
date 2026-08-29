@@ -143,7 +143,7 @@ Resolve order at page delivery: **entry (incl. legacy single) → meta → param
 - **`editor.<field>.required: attached`**: same satisfaction rules **only** when the entry is on a shared-layout type and **not** `detached: true`. Detached entries skip these fields (Fields UI: “Optional while detached”). On non–shared-layout types, `attached` behaves like `true`. Diagnostics code: `REQUIRED_ATTACHED_FIELD_EMPTY`. `get_content_type_info.editor_required_modes` exposes `false | true | attached` per field.
 - **Reattach gate:** `set_entry_attachment` / `POST .../reattach` fails with `code: reattach_missing_required_fields` if **any live** locale is missing/invalid attached-required fields (`missing_fields` like `es.call_to_action.conversion_name`). Draft/variant files ignored. Does not seed CTA/FAQ/content from detached sections.
 - **Fields diagnostics (batch, does not write or block HTTP save):**
-  - `editor-field-types` — `editor.type` / json schema / relation shape vs live `entryFields`. Codes: `EDITOR_TYPE_UNKNOWN`, `EDITOR_JSON_SCHEMA_MISSING`, `EDITOR_RELATION_SOURCE_MISSING`, `EDITOR_TYPE_MISSING`, `EDITOR_ORPHAN_HINT`, `FIELD_TYPE_MISMATCH`, `FIELD_JSON_INVALID`, `FIELD_JSON_STORED_AS_STRING`, `FIELD_RELATION_INVALID`. Skips empty values and `{{ }}`. Numeric string `"42"` is a valid number. Image/pdf = string shape only (`images` owns broken assets).
+  - `editor-field-types` — `editor.type` / json schema / relation shape vs live `entryFields`. Codes: `EDITOR_TYPE_UNKNOWN`, `EDITOR_JSON_SCHEMA_MISSING`, `EDITOR_RELATION_SOURCE_MISSING`, `EDITOR_TYPE_MISSING`, `EDITOR_ORPHAN_HINT`, `FIELD_TYPE_MISMATCH`, `FIELD_JSON_INVALID`, `FIELD_JSON_STORED_AS_STRING`, `FIELD_RELATION_INVALID`. Skips empty values and `{{ }}`. Numeric string `"42"` is a valid number. Image/pdf = string shape only (`images` owns broken assets). Select is a string; with `editor.multiple: true` also accepts `string[]`.
   - `unknown-keys` — extra YAML/Fields keys not in `field_mapping` or structural allowlist (`meta`, `sections`, …). Code: `UNKNOWN_FIELD_KEY` (warning).
   - `relation-targets` — relation pointer slugs exist in `editor.source` (cross-entry; **not** on single-page save). Code: `FIELD_RELATION_TARGET_MISSING`.
   - Split: emptiness → `required-fields`; mapping source path → `field-mappings`; asset 404 → `images`.
@@ -231,6 +231,7 @@ Staff: delete confirm modal and Runtime 404 **CMS links** column show derived re
 
 - Start with `agent_session` (`start`) → pass `agent_session_id` on every content mutate (header `x-mcp-agent-session` via loopback).
 - Every high-impact content mutate requires `report` (min 80 characters): what changed and why for this write.
-- `update_issue` claim (first): `report` = why you are claiming + plan (min 80). Own TTL refresh may omit. Complete: `report` = what you changed and how (min 80).
+- **Staff-readable values:** when you set copy or structured text (titles, subtitles, CTA, success messages, blurbs), list the **plain new values** inline (`Title: …; Subtitle: …`). Do not paste JSON/YAML dumps or only name tools/field paths.
+- `update_issue` claim (first): `report` = why you are claiming + plan (min 80). Own TTL refresh may omit. Complete: `report` = what you changed and how, including plain values for copy you set (min 80).
 - Prefer one `summarize` at the end; staff also see an auto banner from write/issue events on Background Pipeline.
 - Omit `agent_session_id` → warning `agent_session_unscoped` (staff **Unscoped**). Bulk sync never gets a session id.

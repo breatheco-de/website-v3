@@ -819,12 +819,21 @@ export function registerValidationRoutes(app: Express): void {
     const cache = getValidationCache(res);
     const author = auth.author || auth.username || "staff";
     const actor =
-      action === "claim" || action === "complete"
+      action === "claim" || action === "complete" || action === "release"
         ? resolveIssueActor(req, { model: req.body?.model })
         : undefined;
 
     let report: string | undefined;
-    if (isMcpLoopbackRequest(req) && (action === "claim" || action === "complete")) {
+    if (action === "release") {
+      const existing = cache.getActiveClaim(issueId);
+      if (existing) {
+        const parsed = requireIssueReport(req.body?.report);
+        if (!parsed.ok) {
+          return res.status(400).json({ error: parsed.error, code: parsed.code });
+        }
+        report = parsed.report;
+      }
+    } else if (isMcpLoopbackRequest(req) && (action === "claim" || action === "complete")) {
       if (action === "complete") {
         const parsed = requireIssueReport(req.body?.report);
         if (!parsed.ok) {
@@ -846,10 +855,12 @@ export function registerValidationRoutes(app: Express): void {
       }
     }
 
+    const agent_session_id = resolveAgentSessionId(req);
     const result = await cache.updateIssue(issueId, action, author, {
       staffForceRelease: true,
       actor,
       report,
+      agent_session_id,
     });
     if (!result.ok) {
       return res.status(result.status ?? 400).json({
@@ -871,7 +882,7 @@ export function registerValidationRoutes(app: Express): void {
           author,
           actor,
           report,
-          agent_session_id: resolveAgentSessionId(req),
+          agent_session_id,
         });
       }
     }
@@ -881,6 +892,7 @@ export function registerValidationRoutes(app: Express): void {
       action: result.action,
       completed: result.completed ?? null,
       claimed: result.claimed ?? null,
+      attempt: "attempt" in result ? result.attempt ?? null : null,
     });
   });
 
@@ -1499,6 +1511,7 @@ export function registerValidationRoutes(app: Express): void {
       const issues = storedIssues.map((s) => {
         const completion = cache.getCompletion(s.id);
         const claim = cache.getActiveClaim(s.id);
+        const attempts = cache.getAttempts(s.id);
         return {
           id: s.id,
           type: s.severity === "error" ? "error" : s.severity === "info" ? "info" : "warning",
@@ -1511,6 +1524,7 @@ export function registerValidationRoutes(app: Express): void {
           validationCacheBuiltAt: s.lastRunAt,
           completed: completion ? completionToApiRow(completion) : null,
           claimed: claim ? claimToApiRow(claim) : null,
+          attempts: attempts.length > 0 ? attempts : undefined,
         };
       });
 

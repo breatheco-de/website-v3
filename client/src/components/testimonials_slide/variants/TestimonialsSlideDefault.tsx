@@ -3,9 +3,12 @@ import { Flag } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
 import UniversalImage from "@/components/UniversalImage";
+import {
+  isValidForSlide,
+  testimonialText,
+  type TestimonialBankRow,
+} from "@shared/testimonials-listing";
 
 export interface TestimonialsSlideTestimonial {
   name: string;
@@ -24,65 +27,30 @@ export interface TestimonialsSlideData {
   title: string;
   description: string;
   background?: string;
-  testimonials?: TestimonialsSlideTestimonial[];
-  items?: BankTestimonial[];
-  related_features?: string[];
-  limit?: number;
+  /** Runtime-resolved bank rows from dynamic_entries. */
+  items?: TestimonialBankRow[];
+  hardcoded_entries?: TestimonialBankRow[];
+  dynamic_entries?: { hardcoded_entries?: TestimonialBankRow[] };
 }
 
 interface TestimonialsSlideProps {
   data: TestimonialsSlideData;
 }
 
-interface BankTestimonial {
-  student_name: string;
-  student_thumb?: string;
-  student_video?: string;
-  excerpt?: string;
-  full_text?: string;
-  content?: string;
-  short_content?: string;
-  related_features?: string[];
-  priority?: number;
-  role?: string;
-  company?: string;
-}
-
-const ANONYMOUS_NAMES_SLIDE = ["anonymous", "anonimous", "anónimo", "anonimo", "anon"];
-
-function isValidBankForSlide(t: BankTestimonial): boolean {
-  if (ANONYMOUS_NAMES_SLIDE.includes(t.student_name.trim().toLowerCase())) return false;
-  if (t.student_video) return false;
-  const hasText = !!(t.excerpt || t.short_content || t.content || t.full_text);
-  return hasText && !!t.student_thumb;
-}
-
-function mapBankToSlideItem(t: BankTestimonial): TestimonialsSlideTestimonial {
+/**
+ * Bank rows only carry core fields. Manually-added rows may also carry the
+ * slide-only extras (country, status, achievement) authored on the section.
+ */
+function mapBankRowToSlideItem(row: TestimonialBankRow): TestimonialsSlideTestimonial {
   return {
-    name: t.student_name,
-    img: t.student_thumb || "",
-    contributor: t.company || t.role || "",
-    description: t.excerpt || t.short_content || t.content || t.full_text || "",
-    country: { name: "", iso: "" },
+    name: row.student_name || "",
+    img: row.student_thumb || "",
+    contributor: row.company || row.role || "",
+    description: testimonialText(row),
+    country: { name: row.country?.name || "", iso: row.country?.iso || "" },
+    ...(row.status ? { status: row.status } : {}),
+    ...(row.achievement ? { achievement: row.achievement } : {}),
   };
-}
-
-function sortBankForSlide(testimonials: BankTestimonial[], relatedFeatures?: string[]): BankTestimonial[] {
-  return [...testimonials].sort((a, b) => {
-    const aPriority5 = (a.priority ?? 0) >= 5 ? 1 : 0;
-    const bPriority5 = (b.priority ?? 0) >= 5 ? 1 : 0;
-    if (bPriority5 !== aPriority5) return bPriority5 - aPriority5;
-
-    if (relatedFeatures && relatedFeatures.length > 0) {
-      const aFeatures = a.related_features || [];
-      const bFeatures = b.related_features || [];
-      const aMatchCount = relatedFeatures.filter((f) => aFeatures.includes(f)).length;
-      const bMatchCount = relatedFeatures.filter((f) => bFeatures.includes(f)).length;
-      if (bMatchCount !== aMatchCount) return bMatchCount - aMatchCount;
-    }
-
-    return (b.priority ?? 0) - (a.priority ?? 0);
-  });
 }
 
 type CardSize = "small" | "medium" | "large";
@@ -316,20 +284,20 @@ const sizeConfig: Record<CardSize, { lineClamp: string; minHeight: string }> = {
 function MasonryCard({ 
   testimonial, 
   size = "medium",
-  yamlIndex,
-  serverIndex,
+  hardcodedIndex,
 }: { 
   testimonial: TestimonialsSlideTestimonial; 
   size?: CardSize;
-  yamlIndex?: number;
-  serverIndex?: number;
+  hardcodedIndex?: number;
 }) {
   const config = sizeConfig[size];
-  const fieldContext = serverIndex !== undefined
-    ? { arrayPath: "items", index: serverIndex, srcField: "student_thumb" }
-    : yamlIndex !== undefined
-      ? { arrayPath: "testimonials", index: yamlIndex, srcField: "img" }
-      : undefined;
+  const fieldContext = hardcodedIndex !== undefined
+    ? {
+        arrayPath: "dynamic_entries.hardcoded_entries",
+        index: hardcodedIndex,
+        srcField: "student_thumb",
+      }
+    : undefined;
   
   return (
     <div 
@@ -377,13 +345,16 @@ function MasonryCard({
 }
 
 interface MasonryColumn {
-  cards: { testimonial: TestimonialsSlideTestimonial; size: CardSize; yamlIndex?: number; serverIndex?: number }[];
+  cards: { testimonial: TestimonialsSlideTestimonial; size: CardSize; hardcodedIndex?: number }[];
 }
 
+/**
+ * Resolved items put manually-added rows first, so the first `editableCount`
+ * cards map back to `dynamic_entries.hardcoded_entries` for inline editing.
+ */
 function createMasonryColumns(
   testimonials: TestimonialsSlideTestimonial[],
-  includeYamlIndices: boolean = false,
-  includeServerIndices: boolean = false,
+  editableCount: number = 0,
 ): MasonryColumn[] {
   const twoCardPatterns: CardSize[][] = [
     ["large", "small"],
@@ -403,24 +374,21 @@ function createMasonryColumns(
     column.cards.push({
       testimonial: testimonials[i],
       size: pattern[0],
-      yamlIndex: includeYamlIndices ? i : undefined,
-      serverIndex: includeServerIndices ? i : undefined,
+      hardcodedIndex: i < editableCount ? i : undefined,
     });
     
     if (i + 1 < testimonials.length) {
       column.cards.push({
         testimonial: testimonials[i + 1],
         size: pattern[1],
-        yamlIndex: includeYamlIndices ? i + 1 : undefined,
-        serverIndex: includeServerIndices ? i + 1 : undefined,
+        hardcodedIndex: i + 1 < editableCount ? i + 1 : undefined,
       });
     } else if (columns.length > 0) {
       const lastColumn = columns[columns.length - 1];
       lastColumn.cards.push({
         testimonial: testimonials[i],
         size: "medium",
-        yamlIndex: includeYamlIndices ? i : undefined,
-        serverIndex: includeServerIndices ? i : undefined,
+        hardcodedIndex: i < editableCount ? i : undefined,
       });
       continue;
     }
@@ -439,8 +407,7 @@ function MasonryColumnComponent({ column }: { column: MasonryColumn }) {
           key={index} 
           testimonial={card.testimonial} 
           size={card.size}
-          yamlIndex={card.yamlIndex}
-          serverIndex={card.serverIndex}
+          hardcodedIndex={card.hardcodedIndex}
         />
       ))}
     </div>
@@ -450,40 +417,18 @@ function MasonryColumnComponent({ column }: { column: MasonryColumn }) {
 export default function TestimonialsSlide({ data }: TestimonialsSlideProps) {
   const [location] = useLocation();
   const isSpanish = location.startsWith("/es/") || location === "/es";
-  const { i18n } = useTranslation();
-  const locale = i18n.language?.startsWith("es") ? "es" : "en";
   const [isPlaying, setIsPlaying] = useState(true);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const resumeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const relatedFeatures = data.related_features || [];
-  const limitVal = Math.min(data.limit || 20, 30);
-  const hasServerItems = !!(data.items && data.items.length > 0);
-  const useBankData = !hasServerItems && relatedFeatures.length > 0;
-
-  const { data: bankData } = useQuery<{ testimonials: BankTestimonial[] }>({
-    queryKey: ["/api/testimonials", locale],
-    staleTime: 5 * 60 * 1000,
-    enabled: useBankData,
-  });
-
-  const serverItems: TestimonialsSlideTestimonial[] = (() => {
-    if (!hasServerItems) return [];
-    const valid = (data.items || []).filter(isValidBankForSlide);
-    const sorted = sortBankForSlide(valid, relatedFeatures);
-    return sorted.slice(0, limitVal).map(mapBankToSlideItem);
-  })();
-
-  const bankItems: TestimonialsSlideTestimonial[] = (() => {
-    if (!useBankData || !bankData?.testimonials) return [];
-    const valid = bankData.testimonials.filter(isValidBankForSlide);
-    const filtered = valid.filter((t) => {
-      const features = t.related_features || [];
-      return relatedFeatures.some((f) => features.includes(f));
-    });
-    const sorted = sortBankForSlide(filtered, relatedFeatures);
-    return sorted.slice(0, limitVal).map(mapBankToSlideItem);
-  })();
+  // `items` is resolved server-side from dynamic_entries: manually-added rows
+  // first, then bank matches, already capped at dynamic_entries.limit.
+  const hardcodedCount =
+    data.dynamic_entries?.hardcoded_entries?.length ?? data.hardcoded_entries?.length ?? 0;
+  const serverRows = (data.items ?? [])
+    .map((row, index) => ({ row, isHardcoded: index < hardcodedCount }))
+    .filter(({ row }) => isValidForSlide(row));
+  const serverItems = serverRows.map(({ row }) => mapBankRowToSlideItem(row));
   
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -520,15 +465,11 @@ export default function TestimonialsSlide({ data }: TestimonialsSlideProps) {
   };
 
   const defaultFallback = isSpanish ? DEFAULT_TESTIMONIALS_ES : DEFAULT_TESTIMONIALS;
-  const hasYamlTestimonials = !!(data.testimonials && data.testimonials.length > 0);
-  const hardcodedTestimonials = hasYamlTestimonials ? data.testimonials! : defaultFallback;
-  const useYamlIndices = hasYamlTestimonials && !hasServerItems && !(useBankData && bankItems.length > 0);
-  const testimonials = hasServerItems
-    ? serverItems
-    : useBankData && bankItems.length > 0
-      ? bankItems
-      : hardcodedTestimonials;
-  const masonryColumns = createMasonryColumns(testimonials, useYamlIndices, hasServerItems);
+  const testimonials = serverItems.length > 0 ? serverItems : defaultFallback;
+  // Only manually-added rows are authored, so only they get an editable image path.
+  const editableCount =
+    serverItems.length > 0 ? serverRows.filter((r) => r.isHardcoded).length : 0;
+  const masonryColumns = createMasonryColumns(testimonials, editableCount);
 
   return (
     <section 

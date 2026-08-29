@@ -279,6 +279,16 @@ type CachedIssueRow = {
     at: string;
     actor?: { type: "ui" | "mcp"; client?: string; model?: string };
   };
+  attempts?: Array<{
+    by: string;
+    claimedBy?: string;
+    at: string;
+    reason: "released" | "ttl_expired";
+    report?: string;
+    claimedAt?: string;
+    claimReport?: string;
+    actor?: { type: "ui" | "mcp"; client?: string; model?: string };
+  }>;
 };
 
 type JobStartResponse = {
@@ -725,7 +735,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const [pathname, setLocation] = useLocation();
   const searchString = useSearch();
   const view = useMemo(() => parseGlobalHealthSearch(searchString), [searchString]);
-  const { kpi: activeKpiTab, path: pagePathFilter, scope: categoryFilters, validators: validatorFilters } =
+  const { kpi: activeKpiTab, path: pagePathFilter, scope: categoryFilters, validators: validatorFilters, priorAttempts: priorAttemptsFilter } =
     view;
 
   const writeView = useCallback(
@@ -1279,6 +1289,11 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       !validatorFilters.includes(issue.validator || "unknown")
     ) {
       return false;
+    }
+    if (priorAttemptsFilter) {
+      // Open issues only (1C): soft-completed rows do not match this filter.
+      if (issue.completed) return false;
+      if (!issue.attempts || issue.attempts.length === 0) return false;
     }
     if (pagePathFilter) {
       const want = normalizeIssuePath(pagePathFilter);
@@ -2031,6 +2046,15 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                   </PopoverContent>
                 </Popover>
               )}
+              <Button
+                variant={priorAttemptsFilter ? "default" : "outline"}
+                size="sm"
+                className="toggle-elevate"
+                onClick={() => patchView({ priorAttempts: !priorAttemptsFilter })}
+                data-testid="button-filter-prior-attempts"
+              >
+                Has prior attempts
+              </Button>
             </div>
           </div>
         </div>
@@ -2153,6 +2177,27 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                           completed {formatIssueActorLine(issue.completed.by, issue.completed.actor)}
                         </span>
                       )}
+                      {!issue.completed &&
+                        issue.attempts &&
+                        issue.attempts.length > 0 && (
+                          <span
+                            className="text-muted-foreground text-[10px]"
+                            data-testid="badge-issue-prior-attempts"
+                            title={
+                              issue.attempts[0]?.reason === "ttl_expired"
+                                ? "Last claim expired (30m)"
+                                : issue.attempts[0]?.report || "Prior attempt"
+                            }
+                          >
+                            tried {issue.attempts.length}×
+                            {issue.attempts[0]
+                              ? ` · ${formatIssueActorLine(
+                                  issue.attempts[0].by,
+                                  issue.attempts[0].actor,
+                                )}`
+                              : ""}
+                          </span>
+                        )}
                       {issue.url ? (
                         <RecheckIssueButton
                           url={issue.url}
@@ -2202,6 +2247,29 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                         formatSitePath={formatSitePath}
                       />
                     )}
+                    {!issue.completed &&
+                      issue.attempts &&
+                      issue.attempts.length > 0 && (
+                        <details className="mt-1 text-[10px] text-muted-foreground" data-testid="details-prior-attempts">
+                          <summary className="cursor-pointer hover:text-foreground">
+                            What went wrong ({issue.attempts.length})
+                          </summary>
+                          <ul className="mt-1 space-y-1 pl-3 list-disc">
+                            {issue.attempts.map((a, ai) => (
+                              <li key={`${a.at}-${ai}`}>
+                                {a.reason === "ttl_expired"
+                                  ? "Claim expired (30m)"
+                                  : "Released"}{" "}
+                                · {formatIssueActorLine(a.by, a.actor)}
+                                {a.claimedBy && a.claimedBy !== a.by
+                                  ? ` (held by ${a.claimedBy})`
+                                  : ""}
+                                {a.report ? ` — ${a.report}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
                     {issue.url && <div className="text-muted-foreground">{issue.url}</div>}
                     {issue.file && (
                       <div className="text-muted-foreground font-mono truncate" title={issue.file}>

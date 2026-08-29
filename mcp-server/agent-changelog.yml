@@ -6,6 +6,29 @@ window_days: 6
 
 entries:
   - date: "2026-08-28"
+    summary: "Agent reports must list plain copy values (not JSON dumps)"
+    agent_impact:
+      - "Mutate / issue / session report params: when you set titles, CTA copy, success messages, etc., list plain values (Title: …; Subtitle: …)."
+      - "Do not paste JSON/YAML or only name tools/fields in staff-facing reports."
+      - "Reconnect MCP if tool descriptions look stale."
+    paths:
+      - mcp-server/lib/agent-report.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/content_system.md
+      - client/src/components/DebugBubble/solveWithAiPrompt.ts
+    tools_changed: true
+  - date: "2026-08-28"
+    summary: "update_issue release requires report; prior_attempts on validation issues"
+    agent_impact:
+      - "release of an active claim requires report (min 80): what you tried and why stopping. Idempotent if already unclaimed."
+      - "get_entry_content / get_entry_seo validation_issues include prior_attempts (who, when, reason released|ttl_expired, reports)."
+      - "Read prior_attempts before reclaiming. Reconnect MCP if tool descriptions look stale."
+    paths:
+      - mcp-server/tools/pages.ts
+      - server/services/validationCacheService.ts
+      - scripts/validation/shared/types.ts
+    tools_changed: true
+  - date: "2026-08-28"
     summary: "SEO capabilities split: scoped seo_edit + read/edit_redirects + seo_settings"
     agent_impact:
       - "seo_edit is scoped by content type (page meta only). Custom roles with old seo_edit were expanded to also grant read_redirects, edit_redirects, and seo_settings."

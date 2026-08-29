@@ -98,4 +98,34 @@ describe("validation-events", () => {
       priorActor: { type: "mcp", client: "Cursor" },
     });
   });
+
+  it("emitValidationIssueWorkflowEvent writes released attempt payload", () => {
+    const issue = sampleIssue();
+    const attempt = {
+      by: "staff",
+      claimedBy: "agent-a",
+      at: "2026-08-28T00:00:00.000Z",
+      reason: "released" as const,
+      report: "Tried updating title; still failing sitemap — handing off.",
+      claimedAt: "2026-08-28T00:00:00.000Z",
+      claimReport: "Will fix sitemap",
+      actor: { type: "ui" as const },
+    };
+    emitValidationIssueWorkflowEvent({
+      type: "validation_issue_released",
+      site: TEST_SITE,
+      issue,
+      author: "staff",
+      actor: attempt.actor,
+      attempt,
+    });
+    const listed = listEvents({ site: TEST_SITE, type: "validation_issue_released", limit: 5 });
+    expect(listed[0]?.payload).toMatchObject({
+      reason: "released",
+      by: "staff",
+      claimedBy: "agent-a",
+      report: attempt.report,
+      claimReport: "Will fix sitemap",
+    });
+  });
 });

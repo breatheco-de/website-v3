@@ -13,7 +13,12 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugUserName } from "@/hooks/useDebugAuth";
-import { formatSitePathSpaced, toContentFileRef } from "@shared/formatSitePath";
+import {
+  formatSitePath,
+  formatSitePathSpaced,
+  isContentFilePath,
+  toContentFileRef,
+} from "@shared/formatSitePath";
 
 export interface RedirectConflictInfo {
   redirectUrl: string;
@@ -39,8 +44,73 @@ export interface ValidatorIssue {
   fix?: FixHint;
 }
 
-const CONTENT_FILE_IN_MESSAGE_RE =
-  /"([^"]*(?:site_[^/]+|4geeks-com|content)\/[^"]+\.ya?ml)"/g;
+/** Legacy messages embedded absolute/site-prefixed paths ending in .yml". */
+const LEGACY_CONTENT_FILE_IN_MESSAGE_RE =
+  /"([^"]*(?:site_[^/]+|4geeks-com|content|marketing-content)\/[^"]+\.ya?ml)"/g;
+
+/** Strip optional " (live)" suffix from redirect validator claimant labels. */
+export function stripLiveRedirectLabel(raw: string): string {
+  return raw.replace(/\s*\(live\)\s*$/i, "").trim();
+}
+
+function normalizeClaimantRef(rawPath: string): string | null {
+  const stripped = stripLiveRedirectLabel(rawPath);
+  if (!stripped || !isContentFilePath(stripped)) return null;
+  return toContentFileRef(stripped);
+}
+
+/** Dedupe by display path (after site folder); prefer site_-prefixed refs for API deletes. */
+function pushUniqueFile(files: string[], rawPath: string): void {
+  const ref = normalizeClaimantRef(rawPath);
+  if (!ref) return;
+  const display = formatSitePath(ref);
+  const existingIdx = files.findIndex((f) => formatSitePath(f) === display);
+  if (existingIdx < 0) {
+    files.push(ref);
+    return;
+  }
+  const existing = files[existingIdx]!;
+  // Prefer cwd-relative path that still includes the site folder prefix.
+  const refHasSite = /(?:^|\/)(?:site_[^/]+|4geeks-com|content|marketing-content)\//.test(ref);
+  const existingHasSite = /(?:^|\/)(?:site_[^/]+|4geeks-com|content|marketing-content)\//.test(existing);
+  if (refHasSite && !existingHasSite) {
+    files[existingIdx] = ref;
+  }
+}
+
+/** Collect claimant file paths from a REDIRECT_CONFLICT / REDIRECT_OVERLAP message. */
+export function extractRedirectClaimantPaths(message: string): string[] {
+  const files: string[] = [];
+
+  const claimed = message.match(/claimed by both "([^"]+)" and "([^"]+)"/);
+  if (claimed) {
+    pushUniqueFile(files, claimed[1]!);
+    pushUniqueFile(files, claimed[2]!);
+  }
+
+  const existsInBoth = message.match(/exists in both "([^"]+)" and "([^"]+)"/);
+  if (existsInBoth) {
+    pushUniqueFile(files, existsInBoth[1]!);
+    pushUniqueFile(files, existsInBoth[2]!);
+  }
+
+  const conflicts = message.match(/conflicts with "([^"]+)"/);
+  if (conflicts) {
+    pushUniqueFile(files, conflicts[1]!);
+  }
+
+  // Older absolute / site-prefixed messages (no " (live)" suffix).
+  if (files.length === 0) {
+    const legacy = message.match(LEGACY_CONTENT_FILE_IN_MESSAGE_RE);
+    if (legacy) {
+      for (const m of legacy) {
+        pushUniqueFile(files, m.replace(/"/g, ""));
+      }
+    }
+  }
+
+  return files;
+}
 
 export function parseRedirectConflict(issue: ValidatorIssue): RedirectConflictInfo | null {
   const codes = ["REDIRECT_CONFLICT", "REDIRECT_OVERLAP", "SELF_REDIRECT", "REDIRECT_OVERWRITES_CONTENT"];
@@ -50,32 +120,27 @@ export function parseRedirectConflict(issue: ValidatorIssue): RedirectConflictIn
   const files: string[] = [];
 
   if (issue.code === "REDIRECT_CONFLICT" || issue.code === "REDIRECT_OVERLAP") {
-    const urlMatch = issue.message.match(/"([^"]+)"/);
-    if (urlMatch) redirectUrl = urlMatch[1];
-    const fileMatches = issue.message.match(CONTENT_FILE_IN_MESSAGE_RE);
-    if (fileMatches) {
-      for (const m of fileMatches) {
-        files.push(toContentFileRef(m.replace(/"/g, "")));
-      }
+    const urlMatch = issue.message.match(/"(\/[^"]*)"/);
+    if (urlMatch) redirectUrl = urlMatch[1]!;
+    for (const f of extractRedirectClaimantPaths(issue.message)) {
+      if (!files.includes(f)) files.push(f);
     }
-    if (issue.file && !files.includes(toContentFileRef(issue.file))) {
-      files.push(toContentFileRef(issue.file));
-    }
-    if (issue.code === "REDIRECT_OVERLAP" && !files.some(f => f.includes("_common.yml"))) {
-      const localeFile = files.find(f => !f.includes("_common.yml"));
+    if (issue.file) pushUniqueFile(files, issue.file);
+    if (issue.code === "REDIRECT_OVERLAP" && !files.some((f) => f.includes("_common.yml"))) {
+      const localeFile = files.find((f) => !f.includes("_common.yml"));
       if (localeFile) {
         const dir = localeFile.substring(0, localeFile.lastIndexOf("/"));
-        files.unshift(`${dir}/_common.yml`);
+        if (dir) files.unshift(`${dir}/_common.yml`);
       }
     }
   } else if (issue.code === "SELF_REDIRECT") {
-    const urlMatch = issue.message.match(/"([^"]+)"/);
-    if (urlMatch) redirectUrl = urlMatch[1];
-    if (issue.file) files.push(toContentFileRef(issue.file));
+    const urlMatch = issue.message.match(/"(\/[^"]*)"/);
+    if (urlMatch) redirectUrl = urlMatch[1]!;
+    if (issue.file) pushUniqueFile(files, issue.file);
   } else if (issue.code === "REDIRECT_OVERWRITES_CONTENT") {
-    const urlMatch = issue.message.match(/"([^"]+)"/);
-    if (urlMatch) redirectUrl = urlMatch[1];
-    if (issue.file) files.push(toContentFileRef(issue.file));
+    const urlMatch = issue.message.match(/"(\/[^"]*)"/);
+    if (urlMatch) redirectUrl = urlMatch[1]!;
+    if (issue.file) pushUniqueFile(files, issue.file);
   }
 
   if (!redirectUrl) return null;
@@ -93,7 +158,28 @@ function getConflictTitle(code: string): string {
 }
 
 function formatFilePath(f: string): string {
-  return formatSitePathSpaced(f);
+  return formatSitePathSpaced(stripLiveRedirectLabel(f));
+}
+
+/** "Keep in …" label; uses full site-relative path so sibling en.yml files stay distinct. */
+export function keepInFileLabel(files: string[], index: number): string {
+  const formatted = files.map((f) => formatSitePath(stripLiveRedirectLabel(f)));
+  const path = formatted[index] || "file";
+  const basenames = formatted.map((p) => p.split("/").pop() || p);
+  const base = basenames[index] || "file";
+  const duplicateCount = basenames.filter((b) => b === base).length;
+  // Prefer the full relative path whenever it has more than the basename.
+  if (path.includes("/")) {
+    return `Keep in ${path.split("/").join(" / ")}`;
+  }
+  if (duplicateCount > 1) {
+    const ordinalIndex =
+      basenames.slice(0, index + 1).filter((b) => b === base).length - 1;
+    const ordinals = ["first", "second", "third", "fourth", "fifth"];
+    const ordinal = ordinals[ordinalIndex] || `${ordinalIndex + 1}th`;
+    return `Keep in ${ordinal} ${base}`;
+  }
+  return `Keep in ${path}`;
 }
 
 function getConflictDescription(info: RedirectConflictInfo): string {
@@ -203,8 +289,6 @@ export function RedirectConflictResolverModal({
   const isConflict = conflict.code === "REDIRECT_CONFLICT";
   const isOverlap = conflict.code === "REDIRECT_OVERLAP";
 
-  const formatFileName = formatFilePath;
-
   const commonFile = conflict.files.find(f => f.includes("_common.yml"));
   const localeFiles = conflict.files.filter(f => !f.includes("_common.yml"));
 
@@ -237,14 +321,15 @@ export function RedirectConflictResolverModal({
                       : "Remove this redirect so the page remains accessible:"}
                   </p>
                   <Button
-                    className="w-full justify-start gap-2"
+                    className="w-full h-auto min-h-9 justify-start gap-2 py-2"
                     variant="outline"
                     onClick={() => setPendingAction({ fileToRemove: conflict.files[0], keepFile: "" })}
                     disabled={resolving}
                     data-testid="button-resolve-remove"
+                    title={formatFilePath(conflict.files[0])}
                   >
                     <X className="h-4 w-4 text-destructive flex-shrink-0" />
-                    <span className="truncate text-left">Remove from {formatFileName(conflict.files[0])}</span>
+                    <span className="min-w-0 text-left break-all">Remove from {formatFilePath(conflict.files[0])}</span>
                   </Button>
                 </div>
               )}
@@ -252,21 +337,23 @@ export function RedirectConflictResolverModal({
               {isConflict && conflict.files.length >= 2 && (
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">Choose which file should keep this redirect:</p>
-                  {conflict.files.map((file) => {
+                  {conflict.files.map((file, index) => {
                     const otherFile = conflict.files.find(f => f !== file);
+                    const label = keepInFileLabel(conflict.files, index);
                     return (
                       <Button
-                        key={file}
-                        className="w-full justify-start gap-2"
+                        key={`${file}-${index}`}
+                        className="w-full h-auto min-h-9 justify-start gap-2 py-2"
                         variant="outline"
                         onClick={() => {
                           if (otherFile) setPendingAction({ fileToRemove: otherFile, keepFile: file });
                         }}
                         disabled={resolving}
-                        data-testid={`button-keep-${file}`}
+                        data-testid={`button-keep-${index}`}
+                        title={formatFilePath(file)}
                       >
                         <Check className="h-4 w-4 text-chart-3 flex-shrink-0" />
-                        <span className="truncate text-left">Keep in {formatFileName(file)}</span>
+                        <span className="min-w-0 text-left break-all">{label}</span>
                       </Button>
                     );
                   })}
@@ -278,7 +365,7 @@ export function RedirectConflictResolverModal({
                   <p className="text-sm text-muted-foreground">Where should this redirect live?</p>
                   {commonFile && (
                     <Button
-                      className="w-full justify-start gap-2"
+                      className="w-full h-auto min-h-9 justify-start gap-2 py-2"
                       variant="outline"
                       onClick={() => {
                         if (localeFiles.length > 0) setPendingAction({ fileToRemove: localeFiles[0], keepFile: commonFile });
@@ -287,22 +374,25 @@ export function RedirectConflictResolverModal({
                       data-testid="button-keep-common"
                     >
                       <Check className="h-4 w-4 text-chart-3 flex-shrink-0" />
-                      <span className="truncate text-left">Keep in _common.yml (all languages)</span>
+                      <span className="min-w-0 text-left break-all">Keep in _common.yml (all languages)</span>
                     </Button>
                   )}
-                  {localeFiles.map((file) => (
+                  {localeFiles.map((file, localeIndex) => (
                     <Button
-                      key={file}
-                      className="w-full justify-start gap-2"
+                      key={`${file}-${localeIndex}`}
+                      className="w-full h-auto min-h-9 justify-start gap-2 py-2"
                       variant="outline"
                       onClick={() => {
                         if (commonFile) setPendingAction({ fileToRemove: commonFile, keepFile: file });
                       }}
                       disabled={resolving || !commonFile}
-                      data-testid={`button-keep-locale-${file}`}
+                      data-testid={`button-keep-locale-${localeIndex}`}
+                      title={formatFilePath(file)}
                     >
                       <Check className="h-4 w-4 text-chart-3 flex-shrink-0" />
-                      <span className="truncate text-left">Keep in {formatFileName(file)} only</span>
+                      <span className="min-w-0 text-left break-all">
+                        {keepInFileLabel(localeFiles, localeIndex)} only
+                      </span>
                     </Button>
                   ))}
                 </div>

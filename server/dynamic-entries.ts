@@ -5,6 +5,14 @@ import { queryEntries, type QueryFilter, applyFilters, applyMatchCountSort } fro
 import { child } from "./logger";
 import { resolveSingleTemplateValue } from "@shared/json-field";
 import { applyIgnoredEntries, faqItemKey } from "@shared/faq-listing";
+import {
+  TESTIMONIALS_DATABASE,
+  TESTIMONIALS_LIMIT_DEFAULTS,
+  normalizeTestimonialsListing,
+  testimonialItemKey,
+  testimonialsValidityFilter,
+  type TestimonialsSectionType,
+} from "@shared/testimonials-listing";
 
 export { faqItemKey, applyIgnoredEntries } from "@shared/faq-listing";
 
@@ -195,7 +203,10 @@ export async function resolveDynamicEntries(
       continue;
     }
 
-    const sec = section as Record<string, unknown>;
+    // Straggler safety net: testimonials sections the bulk YAML migration missed
+    // still resolve, because their legacy root fields fold into dynamic_entries here.
+    const rawSec = section as Record<string, unknown>;
+    const sec = normalizeTestimonialsListing(rawSec) ?? rawSec;
     const dynamicEntries = sec.dynamic_entries as
       | (DynamicEntriesConfig & {
           item_template?: Record<string, unknown>;
@@ -229,6 +240,24 @@ export async function resolveDynamicEntries(
       const hasIgnored =
         Array.isArray(dynamicEntries.ignored_entries) &&
         dynamicEntries.ignored_entries.length > 0;
+      // Testimonials rows have no question — they are identified by person.
+      const isTestimonials = dynamicEntries.database === TESTIMONIALS_DATABASE;
+      const contentKey = isTestimonials
+        ? (item: Record<string, unknown>) => testimonialItemKey(item.student_name)
+        : undefined;
+      /**
+       * Testimonials layouts cannot render every bank row (anonymous people, video
+       * rows in the carousel, photo-less rows in the slide). Those rows have to go
+       * before the limit slice: the highest-priority rows are all video, so slicing
+       * first and filtering in the renderer would leave a carousel empty.
+       */
+      const sectionType = String(sec.type ?? "") as TestimonialsSectionType;
+      const renderableFilter =
+        isTestimonials && sectionType in TESTIMONIALS_LIMIT_DEFAULTS
+          ? testimonialsValidityFilter(sectionType)
+          : undefined;
+      const keepRenderable = (rows: Record<string, unknown>[]) =>
+        renderableFilter ? rows.filter((row) => renderableFilter(row)) : rows;
 
       // Resolve {{ single.* }} in filter values against the page's singleEntry
       // before querying (resolveSingleVars runs too late for listing filters).
@@ -264,7 +293,9 @@ export async function resolveDynamicEntries(
         });
 
         let searchHits = applyFilters(searchResult.items, filters);
-        searchHits = applyIgnoredEntries(searchHits, dynamicEntries.ignored_entries);
+        searchHits = keepRenderable(
+          applyIgnoredEntries(searchHits, dynamicEntries.ignored_entries, contentKey),
+        );
 
         // Filter-only pool for 1B backfill (and when search ∩ filters is short)
         const filterOnlyResult = await queryEntries(
@@ -278,7 +309,13 @@ export async function resolveDynamicEntries(
           { db, contentIndex: ci, contentRoot: contentRoot ?? ci.contentRoot },
         );
         const filterOnly = applyMatchCountSort(
-          applyIgnoredEntries(filterOnlyResult.items, dynamicEntries.ignored_entries),
+          keepRenderable(
+            applyIgnoredEntries(
+              filterOnlyResult.items,
+              dynamicEntries.ignored_entries,
+              contentKey,
+            ),
+          ),
           filters,
           dynamicEntries.sort,
         );
@@ -290,13 +327,15 @@ export async function resolveDynamicEntries(
           (item) => {
             const slug = item.slug ?? item.id;
             if (slug !== undefined && slug !== null && String(slug)) return `slug:${String(slug)}`;
+            if (contentKey) return `k:${contentKey(item)}`;
             return `q:${faqItemKey(String(item.question ?? ""))}`;
           },
         );
       } else {
-        // When ignored_entries exist, fetch without limit so FAQ ignores apply before slicing.
+        // When rows can be dropped after the query (FAQ ignores, testimonials
+        // layout validity), fetch without a limit so the slice happens last.
         const queryLimit =
-          !hasIgnored && limit != null
+          !hasIgnored && !renderableFilter && limit != null
             ? Math.max(0, limit - hardcodedCount)
             : undefined;
 
@@ -317,8 +356,10 @@ export async function resolveDynamicEntries(
 
         items = result.items;
 
-        if (hasIgnored) {
-          items = applyIgnoredEntries(items, dynamicEntries.ignored_entries);
+        if (hasIgnored || renderableFilter) {
+          items = keepRenderable(
+            applyIgnoredEntries(items, dynamicEntries.ignored_entries, contentKey),
+          );
           if (limit != null) {
             items = items.slice(0, Math.max(0, limit - hardcodedCount));
           }
