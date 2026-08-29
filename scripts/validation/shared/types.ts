@@ -127,7 +127,7 @@ export interface ValidationIssueAttempt {
   claimedBy?: string;
   at: string;
   actor?: ValidationIssueActor;
-  reason: "released" | "ttl_expired";
+  reason: "released" | "ttl_expired" | "complete_rejected_still_open";
   /** Required when reason === "released" (what went wrong / why stopping). */
   report?: string;
   claimedAt?: string;

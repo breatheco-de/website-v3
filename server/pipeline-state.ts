@@ -52,7 +52,8 @@ function pendingValidationKey(entryKey: string): string {
 
 /**
  * Stash the content_file_written id for an on_save_validation job.
- * Kept out of Sidequest job args so hour-uniqueness stays per entryKey.
+ * Kept out of Sidequest job args so the 1-min debounce scheduler can update
+ * the latest write id while coalescing bursts for the same entryKey.
  * Same SQLite file is visible to the Sidequest jobs bundle.
  */
 export function setPendingValidationWriteId(

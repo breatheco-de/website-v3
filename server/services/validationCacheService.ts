@@ -467,6 +467,37 @@ export class ValidationCacheService {
     return [...(this.attempts[issueId] ?? [])];
   }
 
+  /**
+   * Record a refused complete (issue still open after revalidation) for forensics.
+   * Does not soft-complete or clear the claim.
+   */
+  recordCompleteRejectedAttempt(
+    issueId: string,
+    args: {
+      by: string;
+      claimedBy?: string;
+      actor?: ValidationIssueActor;
+      report?: string;
+      claimedAt?: string;
+      claimReport?: string;
+      agent_session_id?: string;
+    },
+  ): ValidationIssueAttempt {
+    const attempt: ValidationIssueAttempt = {
+      by: args.by,
+      claimedBy: args.claimedBy,
+      at: new Date().toISOString(),
+      reason: "complete_rejected_still_open",
+      ...(args.actor ? { actor: args.actor } : {}),
+      ...(args.report ? { report: args.report } : {}),
+      ...(args.claimedAt ? { claimedAt: args.claimedAt } : {}),
+      ...(args.claimReport ? { claimReport: args.claimReport } : {}),
+      ...(args.agent_session_id ? { agent_session_id: args.agent_session_id } : {}),
+    };
+    this.recordAttempt(issueId, attempt);
+    return attempt;
+  }
+
   getIssueById(issueId: string): StoredValidationIssue | undefined {
     return this.issues[issueId];
   }

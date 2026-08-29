@@ -15,6 +15,7 @@ import {
 } from "../services/validationCacheMerge";
 import { buildUrlCoveragePage } from "../services/validationCoverage";
 import { applyValidationRunToCache } from "../services/validationCachePostProcess";
+import { verifiedCompleteIssue } from "../services/verifiedCompleteIssue";
 import {
   DIAGNOSTICS_SKIP_FOR_PER_PAGE,
   getDiagnosticsJob,
@@ -856,6 +857,58 @@ export function registerValidationRoutes(app: Express): void {
     }
 
     const agent_session_id = resolveAgentSessionId(req);
+    if (action === "complete") {
+      const issueBefore = cache.getIssueById(issueId);
+      const verified = await verifiedCompleteIssue({
+        cache,
+        ci: getCI(res),
+        contentRoot: getContentRoot(res),
+        issueId,
+        author,
+        actor,
+        report,
+        agent_session_id,
+      });
+      if (!verified.ok) {
+        return res.status(verified.status).json({
+          error: verified.error,
+          code: verified.code,
+          attempt: verified.attempt ?? null,
+          issue: verified.issue
+            ? {
+                id: verified.issue.id,
+                code: verified.issue.code,
+                message: verified.issue.message,
+                severity: verified.issue.severity,
+              }
+            : undefined,
+        });
+      }
+      const site =
+        (res.locals.site as { contentRootName?: string } | undefined)?.contentRootName ??
+        cache.getSiteFolder();
+      if (issueBefore && resolveSiteForIssue(issueBefore, site)) {
+        emitValidationIssueWorkflowEvent({
+          type: "validation_issue_completed",
+          site: resolveSiteForIssue(issueBefore, site)!,
+          issue: issueBefore,
+          author,
+          actor,
+          report,
+          agent_session_id,
+        });
+      }
+      return res.json({
+        success: true,
+        issueId,
+        action: "complete",
+        completed: verified.completed,
+        claimed: null,
+        attempt: null,
+        auto_completed_ids: verified.auto_completed_ids,
+      });
+    }
+
     const result = await cache.updateIssue(issueId, action, author, {
       staffForceRelease: true,
       actor,
@@ -869,14 +922,14 @@ export function registerValidationRoutes(app: Express): void {
         claimedBy: result.claimedBy,
       });
     }
-    if (action === "claim" || action === "complete") {
+    if (action === "claim") {
       const issue = cache.getIssueById(issueId);
       const site =
         (res.locals.site as { contentRootName?: string } | undefined)?.contentRootName ??
         cache.getSiteFolder();
       if (issue && resolveSiteForIssue(issue, site)) {
         emitValidationIssueWorkflowEvent({
-          type: action === "claim" ? "validation_issue_claimed" : "validation_issue_completed",
+          type: "validation_issue_claimed",
           site: resolveSiteForIssue(issue, site)!,
           issue,
           author,
@@ -914,29 +967,53 @@ export function registerValidationRoutes(app: Express): void {
       }
       report = parsed.report;
     }
-    const result = await cache.updateIssue(issueId, "complete", completedBy, { actor, report });
-    if (!result.ok) {
-      return res.status(result.status ?? 404).json({ error: result.error });
+    const agent_session_id = resolveAgentSessionId(req);
+    const verified = await verifiedCompleteIssue({
+      cache,
+      ci: getCI(res),
+      contentRoot: getContentRoot(res),
+      issueId,
+      author: completedBy,
+      actor,
+      report,
+      agent_session_id,
+    });
+    if (!verified.ok) {
+      return res.status(verified.status).json({
+        error: verified.error,
+        code: verified.code,
+        attempt: verified.attempt ?? null,
+        issue: verified.issue
+          ? {
+              id: verified.issue.id,
+              code: verified.issue.code,
+              message: verified.issue.message,
+              severity: verified.issue.severity,
+            }
+          : undefined,
+      });
     }
     const issue = cache.getIssueById(issueId);
     const site =
       (res.locals.site as { contentRootName?: string } | undefined)?.contentRootName ??
       cache.getSiteFolder();
-    if (issue && resolveSiteForIssue(issue, site)) {
+    const siteName = issue ? resolveSiteForIssue(issue, site) : site;
+    if (siteName && issue) {
       emitValidationIssueWorkflowEvent({
         type: "validation_issue_completed",
-        site: resolveSiteForIssue(issue, site)!,
+        site: siteName,
         issue,
         author: completedBy,
         actor,
         report,
-          agent_session_id: resolveAgentSessionId(req),
+        agent_session_id,
       });
     }
     return res.json({
       success: true,
       issueId,
-      completed: result.completed,
+      completed: verified.completed,
+      auto_completed_ids: verified.auto_completed_ids,
     });
   });
 

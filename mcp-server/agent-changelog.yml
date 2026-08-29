@@ -5,6 +5,18 @@
 window_days: 6
 
 entries:
+  - date: "2026-08-29"
+    summary: "Validation cache staleness: verified complete, 1-min on-save debounce, scoped diagnostics without confirm"
+    agent_impact:
+      - "update_issue complete re-validates the entry (seo-duplicates for DUPLICATE_*); refuses with complete_rejected_still_open + prior_attempts if still failing; returns auto_completed_ids for cleared siblings."
+      - "get_entry_content / get_entry_seo include validation_pending when on-save revalidation is still debouncing (1 min after writes)."
+      - "run_entry_diagnostics with slugs/urls no longer needs confirm:true; full-site still does. seo-duplicates is cross-entry (not cleared by slug-scoped runs)."
+    paths:
+      - mcp-server/tools/pages.ts
+      - server/services/verifiedCompleteIssue.ts
+      - server/services/onSaveValidationScheduler.ts
+      - scripts/validation/validators/seo-duplicates.ts
+    tools_changed: true
   - date: "2026-08-28"
     summary: "Agent reports must list plain copy values (not JSON dumps)"
     agent_impact:

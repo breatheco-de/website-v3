@@ -220,17 +220,18 @@ export function buildFieldPatchWarnings(
     });
   }
 
+  const existingEditor = config.editor?.[input.field_key.trim()];
   const mergedHint =
     input.action === "remove"
       ? null
       : input.editor ??
-        (config.editor?.[input.field_key.trim()]
-          ? { ...config.editor[input.field_key.trim()], ...input.editor }
+        (existingEditor
+          ? { ...existingEditor, ...(input.editor ?? {}) }
           : input.editor);
 
   const afterHint =
-    input.action === "update" && config.editor?.[input.field_key.trim()]
-      ? { ...config.editor[input.field_key.trim()], ...input.editor }
+    input.action === "update" && existingEditor
+      ? { ...existingEditor, ...(input.editor ?? {}) }
       : input.editor ?? null;
 
   const hint = afterHint ?? mergedHint;

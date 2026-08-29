@@ -3,7 +3,6 @@
  */
 
 import {
-  emitEvent,
   getUnpublishedEvents,
   markEventsPublished,
   setDispatcherWake,
@@ -14,6 +13,7 @@ import { enqueueJob } from "../jobs/queue";
 import { getSiteContextMap } from "../site-manager";
 import { buildEntryKey } from "../../scripts/validation/shared/entryKey";
 import { setPendingValidationWriteId } from "../pipeline-state";
+import { scheduleOnSaveValidationJob } from "../services/onSaveValidationScheduler";
 import { queueLinkIndexRemove, entryKeysFromDeletedPaths } from "../link-index";
 import { child } from "../logger";
 
@@ -67,41 +67,20 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
         const entryKey = entryKeyFromEvent(event);
         if (entryKey) {
           const { contentType, slug, locale } = event.resource;
-          // Stash write id in shared SQLite (not Sidequest args) so hour-uniqueness
-          // stays per entryKey while ready still closes this exact write.
+          // Stash latest write id; job settles this (and sibling open writes) when it runs.
           setPendingValidationWriteId(event.site, entryKey, event.id);
-          const validationEnqueue = await enqueueJob(
-            "on_save_validation",
-            {
+          // Mark dirty immediately so agents see validation_pending during the 1-min debounce.
+          ctx.validationCache.markEntryDirty(entryKey);
+          void ctx.validationCache.flush();
+          if (contentType && slug && locale) {
+            scheduleOnSaveValidationJob({
               site: event.site,
               contentRoot: ctx.contentRoot,
               entryKey,
               contentType,
               slug,
               locale,
-            },
-            { uniqueKey: `validation:${entryKey}`, delayMs: 1500 },
-          );
-          // Close the pipeline "validation in flight" row when Sidequest dedupes
-          // (same entryKey within the uniqueness window) — otherwise the UI spins forever.
-          if (validationEnqueue.deduped && contentType && slug && locale) {
-            emitEvent({
-              site: event.site,
-              type: "validation_results_ready",
-              triggeredByEventId: event.id,
-              attribution: event.attribution,
-              agent_session_id: event.agent_session_id,
-              resource: { contentType, slug, locale, path: event.resource.path },
-              payload: {
-                entryKey,
-                skipped: true,
-                reason: "deduped_within_hour",
-              },
             });
-            log.info(
-              { site: event.site, entryKey, writeEventId: event.id },
-              "[Dispatcher] on_save_validation deduped — emitted skipped validation_results_ready",
-            );
           }
         }
         await enqueueJob(

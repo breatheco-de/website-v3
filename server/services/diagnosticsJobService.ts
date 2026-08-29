@@ -833,14 +833,15 @@ export async function startDiagnosticsJob(
     };
   }
 
-  // Real job would start — require confirm (HTTP/MCP). In-process callers omit confirm.
-  if (req.confirm !== true) {
-    const scoped = !!(
-      (scopedSlugs && scopedSlugs.length > 0) ||
-      (scopedUrls && scopedUrls.length > 0) ||
-      validatorOnly
-    );
-    return buildNeedsConfirmResult(req.contentRoot, scoped);
+  // Real job would start — require confirm for full-site / unscoped runs only.
+  // Slug- or URL-scoped (and shared-template validator_only) jobs skip confirm.
+  const scoped = !!(
+    (scopedSlugs && scopedSlugs.length > 0) ||
+    (scopedUrls && scopedUrls.length > 0) ||
+    validatorOnly
+  );
+  if (req.confirm !== true && !scoped) {
+    return buildNeedsConfirmResult(req.contentRoot, false);
   }
 
   const jobId = `diag-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
