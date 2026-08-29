@@ -186,11 +186,13 @@ export async function denyUnlessContentViewOrSeo(
   return null;
 }
 
+import type { McpTextResult } from "./respond.js";
+
 /**
  * Return the standard MCP error shape for a capability denial.
  * Keeps individual tool handlers concise.
  */
-export function denyResponse(cap: string, contentType?: string) {
+export function denyResponse(cap: string, contentType?: string): McpTextResult {
   const scopeMsg = contentType ? ` for content type '${contentType}'` : "";
   return {
     content: [

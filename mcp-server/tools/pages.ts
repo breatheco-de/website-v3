@@ -4997,7 +4997,7 @@ export function registerPageTools(
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
-      if ((pathInfo.layer === "type_single" || pathInfo.layer === "type_template")) {
+      if (pathInfo.layer === "type_template") {
         const env = sharedStructuralEnvelope({
           tool: "add_section",
           contentType: resolved.contentType,
@@ -5201,7 +5201,7 @@ export function registerPageTools(
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
-      if ((pathInfo.layer === "type_single" || pathInfo.layer === "type_template")) {
+      if (pathInfo.layer === "type_template") {
         const env = sharedStructuralEnvelope({
           tool: "remove_section",
           contentType: resolved.contentType,
@@ -5363,7 +5363,7 @@ export function registerPageTools(
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
-      if ((pathInfo.layer === "type_single" || pathInfo.layer === "type_template")) {
+      if (pathInfo.layer === "type_template") {
         const env = sharedStructuralEnvelope({
           tool: "reorder_sections",
           contentType: resolved.contentType,
@@ -5535,7 +5535,7 @@ export function registerPageTools(
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
-      if ((pathInfo.layer === "type_single" || pathInfo.layer === "type_template")) {
+      if (pathInfo.layer === "type_template") {
         const env = sharedStructuralEnvelope({
           tool: "replace_entry_sections",
           contentType: resolved.contentType,
