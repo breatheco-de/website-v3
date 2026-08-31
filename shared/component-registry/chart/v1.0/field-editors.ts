@@ -1,7 +1,7 @@
 /**
  * Field Editor Configuration for Chart Component
  *
- * source, caption, and speed are plain scalar fields with no special
+ * source, caption, and duration are plain scalar fields with no special
  * picker — the generated Props UI (text area / number input) is enough.
  */
 

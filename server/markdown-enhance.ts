@@ -253,6 +253,11 @@ function rehypeGeekchart() {
       // Writer-facing knobs on the fence line: ```mermaid speed=0.7
       // (remark keeps the info string after the language as `data.meta`).
       const meta = String(code.properties?.dataMeta ?? "");
+      // ```mermaid duration=6 — how long the build animation takes, in
+      // seconds (the renderer derives its pace from it). speed=N (a bare
+      // multiplier) is still accepted; duration wins when both appear.
+      const durationMatch = /\bduration=([0-9]*\.?[0-9]+)/.exec(meta);
+      const duration = durationMatch ? Number(durationMatch[1]) : undefined;
       const speedMatch = /\bspeed=([0-9]*\.?[0-9]+)/.exec(meta);
       const speed = speedMatch ? Number(speedMatch[1]) : undefined;
       const host = parent as Parents;
@@ -260,7 +265,7 @@ function rehypeGeekchart() {
       jobs.push(
         (async () => {
           try {
-            const html = (await renderToHtml(source, { display: ARTICLE_COLUMN_PX, ...(speed ? { speed } : {}) })).replace(/\n\s*\n/g, "\n");
+            const html = (await renderToHtml(source, { display: ARTICLE_COLUMN_PX, ...(duration ? { duration } : speed ? { speed } : {}) })).replace(/\n\s*\n/g, "\n");
             host.children[at] = {
               type: "raw",
               value: `<figure class="geekchart">${html}</figure>`,
@@ -341,11 +346,11 @@ async function enhanceChartSection(section: Record<string, unknown>): Promise<vo
   const source = typeof section.source === "string" ? section.source.trim() : "";
   section.html = "";
   if (!source) return;
-  const speed = typeof section.speed === "number" ? section.speed : undefined;
+  const duration = typeof section.duration === "number" ? section.duration : undefined;
   try {
     section.html = await renderToHtml(source, {
       display: ARTICLE_COLUMN_PX,
-      ...(speed ? { speed } : {}),
+      ...(duration ? { duration } : {}),
     });
   } catch (err) {
     log.warn({ err }, "[MarkdownEnhance] chart section failed to render; leaving html empty");

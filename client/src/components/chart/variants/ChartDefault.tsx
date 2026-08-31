@@ -32,7 +32,7 @@ export function ChartDefault({ data }: ChartProps) {
   const body = html ? (
     <div dangerouslySetInnerHTML={{ __html: html }} />
   ) : data.source ? (
-    <Geekchart source={data.source} play="once" speed={data.speed ?? undefined} />
+    <Geekchart source={data.source} play="once" duration={data.duration ?? undefined} />
   ) : null;
   if (!body) return null;
 

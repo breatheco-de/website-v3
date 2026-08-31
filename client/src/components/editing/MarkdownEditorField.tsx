@@ -47,6 +47,14 @@ function isMermaidCodeNode(node: HastElement | undefined): boolean {
 }
 
 /** Same `speed=N` fence-meta parsing as server/markdown-enhance.ts's rehypeGeekchart. */
+/** duration=6 on the fence: how long the build animation takes, in seconds
+ * (server/markdown-enhance.ts reads the same); speed=N still works. */
+function durationFromMeta(node: HastElement | undefined): number | undefined {
+  const meta = String((node?.data as { meta?: string } | undefined)?.meta ?? "");
+  const match = /\bduration=([0-9]*\.?[0-9]+)/.exec(meta);
+  return match ? Number(match[1]) : undefined;
+}
+
 function speedFromMeta(node: HastElement | undefined): number | undefined {
   const meta = String((node?.data as { meta?: string } | undefined)?.meta ?? "");
   const match = /\bspeed=([0-9]*\.?[0-9]+)/.exec(meta);
@@ -60,7 +68,7 @@ function speedFromMeta(node: HastElement | undefined): number | undefined {
  * that a chart will be "about N screens tall on a phone" (DESIGN 1.7)
  * before it is published.
  */
-function ChartPreview({ source, speed }: { source: string; speed?: number }) {
+function ChartPreview({ source, speed, duration }: { source: string; speed?: number; duration?: number }) {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [phoneWarnings, setPhoneWarnings] = useState<string[]>([]);
   const all = [...warnings, ...phoneWarnings];
@@ -69,7 +77,8 @@ function ChartPreview({ source, speed }: { source: string; speed?: number }) {
       <Geekchart
         source={source}
         play="once"
-        speed={speed}
+        speed={duration ? undefined : speed}
+        duration={duration}
         display={612}
         onRender={(info) => setWarnings(info.warnings)}
       />
@@ -467,7 +476,7 @@ function MarkdownEditorModal({
                       code: ({ className, children, node, ...props }) => {
                         if (isMermaidCodeNode(node)) {
                           const source = collectHastText(node).trim();
-                          return <ChartPreview source={source} speed={speedFromMeta(node)} />;
+                          return <ChartPreview source={source} speed={speedFromMeta(node)} duration={durationFromMeta(node)} />;
                         }
                         return (
                           <code className={className} {...props}>

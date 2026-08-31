@@ -17,7 +17,7 @@ props:
     type: string
     required: false
     description: Optional caption shown below the chart
-  speed:
+  duration:
     type: number
     required: false
-    description: "Animation speed multiplier: 0.5 is half speed, 2 is double. Default 1."
+    description: "How long the build animation takes, in seconds (e.g. 6). Left empty, the chart plays at its designed pace."

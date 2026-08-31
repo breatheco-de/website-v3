@@ -13,13 +13,13 @@ export const chartSectionSchema = z.object({
   version: z.string().optional(),
   source: z.string().min(1).describe("Mermaid diagram source (e.g. 'flowchart LR\\n  A --> B')"),
   caption: z.string().optional().describe("Optional caption shown below the chart"),
-  speed: z
+  duration: z
     .number()
     .min(0.25)
     .max(4)
     .optional()
     .default(1)
-    .describe("Animation speed multiplier: 0.5 is half speed, 2 is double. Default 1."),
+    .describe("How long the build animation takes, in seconds (e.g. 6). Left empty, the chart plays at its designed pace."),
 });
 
 export type ChartSection = z.infer<typeof chartSectionSchema>;

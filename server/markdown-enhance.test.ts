@@ -93,13 +93,15 @@ describe("chart sections get server-rendered html", () => {
     expect(section.html).toContain("<svg");
   });
 
-  it("passes speed through to the chart render", async () => {
+  it("passes duration (seconds) through to the chart render", async () => {
     const pageData = {
-      sections: [{ type: "chart", source: "flowchart LR\n  A --> B", speed: 0.5 }],
+      sections: [{ type: "chart", source: "flowchart LR\n  A --> B", duration: 60 }],
     };
     await enhanceArticleSectionsInPage(pageData);
     const section = pageData.sections[0] as { html?: string };
-    expect(section.html).toContain('data-gc-speed="0.5"');
+    // 60s is far beyond the natural cycle, so the derived multiplier clamps
+    // low and the svg carries a data-gc-speed well under 1.
+    expect(section.html).toMatch(/data-gc-speed="0\.\d+"/);
   });
 
   it("leaves html empty and does not throw when the source cannot be drawn", async () => {
