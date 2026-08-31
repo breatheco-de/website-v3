@@ -13,6 +13,11 @@ import {
   type InternalLinkHit,
 } from "../../../server/link-extract";
 import { queueLinkIndexSet } from "../../../server/link-index";
+import {
+  collectOutboundRelationTargets,
+  relationEntryKey,
+} from "../../../server/relation-extract";
+import { queueRelationIndexSet } from "../../../server/relation-index";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
 import * as path from "path";
 
@@ -185,6 +190,20 @@ export const contentQualityValidator: Validator = {
         queueLinkIndexSet(
           entryIdFromContentFile(file.type, file.slug, locale),
           outboundPaths,
+          contentRoot,
+        );
+      } catch {
+        /* derived index is best-effort */
+      }
+
+      try {
+        const targets = collectOutboundRelationTargets(mergedForEmpty, {
+          contentType: file.type,
+          contentRoot,
+        });
+        queueRelationIndexSet(
+          relationEntryKey(file.type, file.slug),
+          targets,
           contentRoot,
         );
       } catch {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconSchool,
@@ -92,6 +92,333 @@ const PRODUCT_MODES = [
   { value: "list" as const, label: "Specific" },
 ];
 
+export type FunnelProductsMode = "omit" | "all" | "list";
+
+export type FunnelFieldsFormProps = {
+  stage: string;
+  onStageChange: (stage: string) => void;
+  stageEditing: boolean;
+  onStageEditingChange: (editing: boolean) => void;
+  productsMode: FunnelProductsMode;
+  onProductsModeChange: (mode: FunnelProductsMode) => void;
+  selectedProductSlugs: string[];
+  onSelectedProductSlugsChange: (slugs: string[]) => void;
+  productOptions: ProductOption[];
+  portalContainer?: HTMLElement | null;
+  /** Extra education / context above the form controls */
+  education?: ReactNode;
+  /** Hide store membership section */
+  hideStoreMembership?: boolean;
+  storeMembership?: { productSlug: string; stage: string }[];
+  warnings?: { code: string; message: string; ids?: string[] }[];
+  isProgram?: boolean;
+  relativePathHint?: string;
+  footer?: ReactNode;
+};
+
+export function FunnelFieldsForm({
+  stage,
+  onStageChange,
+  stageEditing,
+  onStageEditingChange,
+  productsMode,
+  onProductsModeChange,
+  selectedProductSlugs,
+  onSelectedProductSlugsChange,
+  productOptions,
+  portalContainer,
+  education,
+  hideStoreMembership,
+  storeMembership,
+  warnings,
+  isProgram,
+  relativePathHint,
+  footer,
+}: FunnelFieldsFormProps) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [addProductOpen, setAddProductOpen] = useState(false);
+  const [addProductKey, setAddProductKey] = useState(0);
+
+  const productBySlug = new Map(productOptions.map((p) => [p.content_slug, p]));
+  const unselectedProducts = productOptions.filter(
+    (p) => !selectedProductSlugs.includes(p.content_slug),
+  );
+
+  const toggleProductSlug = (slug: string) => {
+    onSelectedProductSlugsChange(
+      selectedProductSlugs.includes(slug)
+        ? selectedProductSlugs.filter((x) => x !== slug)
+        : [...selectedProductSlugs, slug],
+    );
+  };
+
+  const addProductSlug = (slug: string) => {
+    if (!selectedProductSlugs.includes(slug)) {
+      onSelectedProductSlugsChange([...selectedProductSlugs, slug]);
+    }
+    setAddProductOpen(false);
+    setAddProductKey((k) => k + 1);
+  };
+
+  return (
+    <div className="space-y-4 py-2" data-testid="funnel-tab-content">
+      {education ?? (
+        <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm text-muted-foreground">
+          <p className="text-foreground font-medium flex items-center gap-1.5">
+            <Info className="h-4 w-4 shrink-0" />
+            How funnel fields work
+          </p>
+          <p>
+            <strong>Stage</strong> is why this URL exists in the buyer journey.{" "}
+            <strong>Products</strong> are which purchasable SKUs this page supports (
+            <code className="text-xs bg-muted px-1 rounded">all</code> = every active product).
+            Tracking, Store journeys, and SEO diagnostics all read{" "}
+            <code className="text-xs bg-muted px-1 rounded">_common.yml</code> — not section widgets
+            or landing <code className="text-xs bg-muted px-1 rounded">single.programs</code>.
+          </p>
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+            <CollapsibleTrigger className="flex items-center gap-1 text-xs text-foreground hover:text-foreground/80">
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
+              />
+              Read more (advanced)
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2 text-xs space-y-1 font-mono">
+              <p>{relativePathHint ?? `{type}/{slug}/_common.yml`}</p>
+              <p>shared/funnel.ts · shared/resolveProductScope.ts</p>
+              <p>GET /api/ecommerce/funnel/:slug · GET /api/seo/overview</p>
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
+      )}
+
+      {isProgram && (
+        <p className="text-xs text-muted-foreground rounded-md border px-3 py-2">
+          Program pages always include this slug in effective products, even when{" "}
+          <code className="text-[10px]">funnel.products</code> is empty.
+        </p>
+      )}
+
+      {(warnings ?? []).map((w) => (
+        <div
+          key={w.code}
+          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs flex gap-2"
+          data-testid={`funnel-warning-${w.code}`}
+        >
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+          <span>
+            {w.message}
+            {w.ids?.length ? ` (${w.ids.join(", ")})` : ""}
+          </span>
+        </div>
+      ))}
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <Label>Stage</Label>
+          {stage && !stageEditing && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={() => onStageEditingChange(true)}
+              aria-label="Change funnel stage"
+              data-testid="button-edit-funnel-stage"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+        <div
+          className={cn(
+            "grid gap-2",
+            stage && !stageEditing ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2",
+          )}
+          role="group"
+          aria-label="Funnel stage"
+          data-testid="funnel-stage-bar"
+        >
+          {STAGE_OPTIONS.filter((option) => stageEditing || !stage || stage === option.value).map(
+            (option) => {
+              const selected = stage === option.value;
+              const StageIcon = option.icon;
+              const taper = FUNNEL_STAGE_TAPER[option.value];
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    if (selected) {
+                      onStageChange("");
+                      onStageEditingChange(true);
+                      return;
+                    }
+                    onStageChange(option.value);
+                    onStageEditingChange(false);
+                  }}
+                  className={cn(
+                    "text-left rounded-md border p-3 transition-colors hover-elevate",
+                    FUNNEL_STAGE_TONE[taper],
+                    selected && "ring-2 ring-offset-1 ring-offset-background",
+                    selected && FUNNEL_STAGE_SELECTED_RING[taper],
+                  )}
+                  data-testid={`button-funnel-stage-${option.value}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <StageIcon
+                      className={cn(
+                        "h-4 w-4 shrink-0 mt-0.5",
+                        FUNNEL_STAGE_ICON_TONE[taper],
+                      )}
+                    />
+                    <div className="min-w-0">
+                      <span className="text-sm font-medium">{option.label}</span>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+                        {option.description}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              );
+            },
+          )}
+        </div>
+        {!stage && (
+          <p className="text-[11px] text-muted-foreground">
+            No stage selected — shows as Unknown in diagnostics.
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label>Products</Label>
+        <div
+          className="flex rounded-md border overflow-hidden"
+          role="group"
+          aria-label="Products scope"
+          data-testid="funnel-products-mode-bar"
+        >
+          {PRODUCT_MODES.map((mode, i) => (
+            <Button
+              key={mode.value}
+              type="button"
+              size="sm"
+              variant="ghost"
+              className={cn(
+                "flex-1 rounded-none h-9 toggle-elevate",
+                i > 0 && "border-l",
+                productsMode === mode.value && "toggle-elevated bg-muted",
+              )}
+              onClick={() => onProductsModeChange(mode.value)}
+              data-testid={`button-funnel-products-mode-${mode.value}`}
+            >
+              {mode.label}
+            </Button>
+          ))}
+        </div>
+        {productsMode === "list" && (
+          <div className="rounded-md border p-3">
+            <div className="flex flex-wrap gap-1.5" data-testid="funnel-products-tag-cloud">
+              {selectedProductSlugs.map((slug) => {
+                const product = productBySlug.get(slug);
+                return (
+                  <button
+                    key={slug}
+                    type="button"
+                    onClick={() => toggleProductSlug(slug)}
+                    className="inline-flex"
+                    data-testid={`funnel-product-${slug}`}
+                  >
+                    <Badge variant="default" className="gap-1">
+                      <Check className="h-3 w-3" />
+                      {product?.name || slug}
+                    </Badge>
+                  </button>
+                );
+              })}
+              {unselectedProducts.length > 0 ? (
+                <Popover open={addProductOpen} onOpenChange={setAddProductOpen} modal={false}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      role="combobox"
+                      aria-expanded={addProductOpen}
+                      className="inline-flex h-6 items-center gap-1 rounded-md border border-dashed px-2.5 text-xs text-muted-foreground shadow-none hover-elevate"
+                      data-testid="select-funnel-product-add"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add more +
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-64 p-0 z-[10001] pointer-events-auto"
+                    align="start"
+                    container={portalContainer}
+                    onCloseAutoFocus={(e) => e.preventDefault()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    <Command key={addProductKey}>
+                      <CommandInput
+                        placeholder="Search products…"
+                        data-testid="input-funnel-product-search"
+                      />
+                      <CommandList>
+                        <CommandEmpty>No products found.</CommandEmpty>
+                        <CommandGroup>
+                          {unselectedProducts.map((p) => (
+                            <CommandItem
+                              key={p.content_slug}
+                              value={`${p.name} ${p.content_slug}`}
+                              onSelect={() => addProductSlug(p.content_slug)}
+                              data-testid={`option-funnel-product-${p.content_slug}`}
+                            >
+                              <span className="flex-1 truncate">{p.name || p.content_slug}</span>
+                              <span className="text-[10px] text-muted-foreground font-mono ml-2 shrink-0">
+                                {p.content_slug}
+                              </span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              ) : selectedProductSlugs.length === 0 ? (
+                <Badge variant="outline" className="text-muted-foreground font-normal">
+                  No active purchasable products
+                </Badge>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {!hideStoreMembership && storeMembership && storeMembership.length > 0 && (
+        <div className="space-y-2">
+          <Label>Store product journeys</Label>
+          <ul className="text-xs space-y-1">
+            {storeMembership.map((m) => (
+              <li key={m.productSlug}>
+                <Link
+                  href={`/private/store/product/${m.productSlug}`}
+                  className="text-primary hover:underline inline-flex items-center gap-1"
+                >
+                  {m.productSlug}
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+                <span className="text-muted-foreground"> · {STAGE_LABELS[m.stage] ?? m.stage}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {footer}
+    </div>
+  );
+}
+
 export function FunnelTab({
   contentInfo,
   contentTypeLabel,
@@ -99,17 +426,13 @@ export function FunnelTab({
 }: {
   contentInfo: ContentInfo;
   contentTypeLabel?: string;
-  /** Portal target when nested inside a Dialog (avoids Radix pointer-events trap). */
   portalContainer?: HTMLElement | null;
 }) {
   const queryClient = useQueryClient();
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [stage, setStage] = useState<string>("");
   const [stageEditing, setStageEditing] = useState(false);
-  const [productsMode, setProductsMode] = useState<"omit" | "all" | "list">("omit");
+  const [productsMode, setProductsMode] = useState<FunnelProductsMode>("omit");
   const [selectedSlugs, setSelectedSlugs] = useState<string[]>([]);
-  const [addProductOpen, setAddProductOpen] = useState(false);
-  const [addProductKey, setAddProductKey] = useState(0);
 
   const hasEntry = !!contentInfo.type && !!contentInfo.slug;
 
@@ -192,22 +515,6 @@ export function FunnelTab({
   const productOptions = (productMap?.products ?? []).filter(
     (p) => p.actively_selling !== false,
   );
-  const productBySlug = new Map(productOptions.map((p) => [p.content_slug, p]));
-  const unselectedProducts = productOptions.filter(
-    (p) => !selectedSlugs.includes(p.content_slug),
-  );
-
-  const toggleProductSlug = (slug: string) => {
-    setSelectedSlugs((prev) =>
-      prev.includes(slug) ? prev.filter((x) => x !== slug) : [...prev, slug],
-    );
-  };
-
-  const addProductSlug = (slug: string) => {
-    setSelectedSlugs((prev) => (prev.includes(slug) ? prev : [...prev, slug]));
-    setAddProductOpen(false);
-    setAddProductKey((k) => k + 1);
-  };
 
   const handleSave = () => {
     const body: { stage?: string | null; products?: string[] | "all" | null } = {};
@@ -227,277 +534,44 @@ export function FunnelTab({
       (productsMode === "omit" && data.funnel.products !== undefined));
 
   return (
-    <div className="space-y-4 py-2" data-testid="funnel-tab-content">
-      <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm text-muted-foreground">
-        <p className="text-foreground font-medium flex items-center gap-1.5">
-          <Info className="h-4 w-4 shrink-0" />
-          How funnel fields work
-        </p>
-        <p>
-          <strong>Stage</strong> is why this URL exists in the buyer journey.{" "}
-          <strong>Products</strong> are which purchasable SKUs this page supports (
-          <code className="text-xs bg-muted px-1 rounded">all</code> = every active product).
-          Tracking, Store journeys, and SEO diagnostics all read{" "}
-          <code className="text-xs bg-muted px-1 rounded">_common.yml</code> — not section widgets
-          or landing <code className="text-xs bg-muted px-1 rounded">single.programs</code>.
-        </p>
-        <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-          <CollapsibleTrigger className="flex items-center gap-1 text-xs text-foreground hover:text-foreground/80">
-            <ChevronDown
-              className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
-            />
-            Read more (advanced)
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-2 text-xs space-y-1 font-mono">
-            <p>{data?.relativePath ?? `{type}/{slug}/_common.yml`}</p>
-            <p>shared/funnel.ts · shared/resolveProductScope.ts</p>
-            <p>GET /api/ecommerce/funnel/:slug · GET /api/seo/overview</p>
-          </CollapsibleContent>
-        </Collapsible>
-      </div>
-
-      {isProgram && (
-        <p className="text-xs text-muted-foreground rounded-md border px-3 py-2">
-          Program pages always include this slug in effective products, even when{" "}
-          <code className="text-[10px]">funnel.products</code> is empty.
-        </p>
-      )}
-
-      {(data?.warnings ?? []).map((w) => (
-        <div
-          key={w.code}
-          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs flex gap-2"
-          data-testid={`funnel-warning-${w.code}`}
-        >
-          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
-          <span>
-            {w.message}
-            {w.ids?.length ? ` (${w.ids.join(", ")})` : ""}
-          </span>
-        </div>
-      ))}
-
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <Label>Stage</Label>
-          {stage && !stageEditing && (
+    <FunnelFieldsForm
+      stage={stage}
+      onStageChange={setStage}
+      stageEditing={stageEditing}
+      onStageEditingChange={setStageEditing}
+      productsMode={productsMode}
+      onProductsModeChange={setProductsMode}
+      selectedProductSlugs={selectedSlugs}
+      onSelectedProductSlugsChange={setSelectedSlugs}
+      productOptions={productOptions}
+      portalContainer={portalContainer}
+      isProgram={isProgram}
+      warnings={data?.warnings}
+      storeMembership={data?.storeMembership}
+      relativePathHint={data?.relativePath}
+      footer={
+        <>
+          <div className="flex justify-end gap-2 pt-2">
+            {saveMutation.isError && (
+              <p className="text-xs text-destructive flex-1 self-center">
+                {(saveMutation.error as Error)?.message}
+              </p>
+            )}
             <Button
               type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0"
-              onClick={() => setStageEditing(true)}
-              aria-label="Change funnel stage"
-              data-testid="button-edit-funnel-stage"
+              disabled={!dirty || saveMutation.isPending}
+              onClick={handleSave}
+              data-testid="button-save-funnel"
             >
-              <Pencil className="h-3.5 w-3.5" />
+              {saveMutation.isPending ? "Saving…" : "Save funnel"}
             </Button>
-          )}
-        </div>
-        <div
-          className={cn(
-            "grid gap-2",
-            stage && !stageEditing ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2",
-          )}
-          role="group"
-          aria-label="Funnel stage"
-          data-testid="funnel-stage-bar"
-        >
-          {STAGE_OPTIONS.filter((option) => stageEditing || !stage || stage === option.value).map(
-            (option) => {
-              const selected = stage === option.value;
-              const StageIcon = option.icon;
-              const taper = FUNNEL_STAGE_TAPER[option.value];
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => {
-                    if (selected) {
-                      setStage("");
-                      setStageEditing(true);
-                      return;
-                    }
-                    setStage(option.value);
-                    setStageEditing(false);
-                  }}
-                  className={cn(
-                    "text-left rounded-md border p-3 transition-colors hover-elevate",
-                    FUNNEL_STAGE_TONE[taper],
-                    selected && "ring-2 ring-offset-1 ring-offset-background",
-                    selected && FUNNEL_STAGE_SELECTED_RING[taper],
-                  )}
-                  data-testid={`button-funnel-stage-${option.value}`}
-                >
-                  <div className="flex items-start gap-2">
-                    <StageIcon
-                      className={cn(
-                        "h-4 w-4 shrink-0 mt-0.5",
-                        FUNNEL_STAGE_ICON_TONE[taper],
-                      )}
-                    />
-                    <div className="min-w-0">
-                      <span className="text-sm font-medium">{option.label}</span>
-                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
-                        {option.description}
-                      </p>
-                    </div>
-                  </div>
-                </button>
-              );
-            },
-          )}
-        </div>
-        {!stage && (
-          <p className="text-[11px] text-muted-foreground">
-            No stage selected — shows as Unknown in diagnostics.
-          </p>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <Label>Products</Label>
-        <div
-          className="flex rounded-md border overflow-hidden"
-          role="group"
-          aria-label="Products scope"
-          data-testid="funnel-products-mode-bar"
-        >
-          {PRODUCT_MODES.map((mode, i) => (
-            <Button
-              key={mode.value}
-              type="button"
-              size="sm"
-              variant="ghost"
-              className={cn(
-                "flex-1 rounded-none h-9 toggle-elevate",
-                i > 0 && "border-l",
-                productsMode === mode.value && "toggle-elevated bg-muted",
-              )}
-              onClick={() => setProductsMode(mode.value)}
-              data-testid={`button-funnel-products-mode-${mode.value}`}
-            >
-              {mode.label}
-            </Button>
-          ))}
-        </div>
-        {productsMode === "list" && (
-          <div className="rounded-md border p-3">
-            <div className="flex flex-wrap gap-1.5" data-testid="funnel-products-tag-cloud">
-              {selectedSlugs.map((slug) => {
-                const product = productBySlug.get(slug);
-                return (
-                  <button
-                    key={slug}
-                    type="button"
-                    onClick={() => toggleProductSlug(slug)}
-                    className="inline-flex"
-                    data-testid={`funnel-product-${slug}`}
-                  >
-                    <Badge variant="default" className="gap-1">
-                      <Check className="h-3 w-3" />
-                      {product?.name || slug}
-                    </Badge>
-                  </button>
-                );
-              })}
-              {unselectedProducts.length > 0 ? (
-                <Popover open={addProductOpen} onOpenChange={setAddProductOpen} modal={false}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      role="combobox"
-                      aria-expanded={addProductOpen}
-                      className="inline-flex h-6 items-center gap-1 rounded-md border border-dashed px-2.5 text-xs text-muted-foreground shadow-none hover-elevate"
-                      data-testid="select-funnel-product-add"
-                    >
-                      <Plus className="h-3 w-3" />
-                      Add more +
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    className="w-64 p-0 z-[10001] pointer-events-auto"
-                    align="start"
-                    container={portalContainer}
-                    onCloseAutoFocus={(e) => e.preventDefault()}
-                    onPointerDown={(e) => e.stopPropagation()}
-                  >
-                    <Command key={addProductKey}>
-                      <CommandInput
-                        placeholder="Search products…"
-                        data-testid="input-funnel-product-search"
-                      />
-                      <CommandList>
-                        <CommandEmpty>No products found.</CommandEmpty>
-                        <CommandGroup>
-                          {unselectedProducts.map((p) => (
-                            <CommandItem
-                              key={p.content_slug}
-                              value={`${p.name} ${p.content_slug}`}
-                              onSelect={() => addProductSlug(p.content_slug)}
-                              data-testid={`option-funnel-product-${p.content_slug}`}
-                            >
-                              <span className="flex-1 truncate">{p.name || p.content_slug}</span>
-                              <span className="text-[10px] text-muted-foreground font-mono ml-2 shrink-0">
-                                {p.content_slug}
-                              </span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              ) : selectedSlugs.length === 0 ? (
-                <Badge variant="outline" className="text-muted-foreground font-normal">
-                  No active purchasable products
-                </Badge>
-              ) : null}
-            </div>
           </div>
-        )}
-      </div>
-
-      {data?.storeMembership && data.storeMembership.length > 0 && (
-        <div className="space-y-2">
-          <Label>Store product journeys</Label>
-          <ul className="text-xs space-y-1">
-            {data.storeMembership.map((m) => (
-              <li key={m.productSlug}>
-                <Link
-                  href={`/private/store/product/${m.productSlug}`}
-                  className="text-primary hover:underline inline-flex items-center gap-1"
-                >
-                  {m.productSlug}
-                  <ExternalLink className="h-3 w-3" />
-                </Link>
-                <span className="text-muted-foreground"> · {STAGE_LABELS[m.stage] ?? m.stage}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="flex justify-end gap-2 pt-2">
-        {saveMutation.isError && (
-          <p className="text-xs text-destructive flex-1 self-center">
-            {(saveMutation.error as Error)?.message}
+          <p className="text-[10px] text-muted-foreground">
+            Saves {typeLabel}/{contentInfo.slug}{" "}
+            <code className="bg-muted px-1 rounded">_common.yml</code> only — locale files unchanged.
           </p>
-        )}
-        <Button
-          type="button"
-          disabled={!dirty || saveMutation.isPending}
-          onClick={handleSave}
-          data-testid="button-save-funnel"
-        >
-          {saveMutation.isPending ? "Saving…" : "Save funnel"}
-        </Button>
-      </div>
-
-      <p className="text-[10px] text-muted-foreground">
-        Saves {typeLabel}/{contentInfo.slug}{" "}
-        <code className="bg-muted px-1 rounded">_common.yml</code> only — locale files unchanged.
-      </p>
-    </div>
+        </>
+      }
+    />
   );
 }

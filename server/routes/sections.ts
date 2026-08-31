@@ -1778,9 +1778,9 @@ export function registerSectionsRoutes(app: Express): void {
   });
 
   /**
-   * Bulk delete with relation cascade preview (authors → blog.authors).
-   * Body: { contentType, slugs, confirm?, reassignments?, author? }
-   * Without confirm: returns preview. With confirm: best-effort results[].
+   * Bulk delete with relation-index hard-block + link referrer warnings.
+   * Body: { contentType, slugs, confirm?, author? }
+   * Without confirm: returns preview. With confirm: deletes only unblocked slugs.
    */
   app.post("/api/content/delete-entries", async (req, res) => {
     try {
@@ -1800,77 +1800,95 @@ export function registerSectionsRoutes(app: Express): void {
       }
       if (confirm) enterContentWriteContext(writeGate.ctx);
       const author = auth.author || (typeof req.body?.author === "string" ? req.body.author : undefined);
-      const reassignments =
-        req.body?.reassignments && typeof req.body.reassignments === "object"
-          ? (req.body.reassignments as Record<string, string[]>)
-          : undefined;
 
       if (!contentType || slugs.length === 0) {
         res.status(400).json({ error: "contentType and slugs[] are required" });
         return;
       }
 
+      const contentRoot = getContentRoot(res);
       const {
-        previewAuthorDeleteCascade,
-        applyAuthorDeleteCascade,
-        DEFAULT_ORG_AUTHOR_SLUG,
-      } = await import("../relation-delete");
+        getRelationIndexStatus,
+        getDependentsForTarget,
+        flushRelationIndexPendingSync,
+      } = await import("../relation-index");
+      const { isProtectedContentSlug } = await import("../relation-delete");
+      const { getDeleteReferrersPreview } = await import("../link-delete-preview");
 
-      const preview =
-        contentType === "authors"
-          ? previewAuthorDeleteCascade(slugs, getContentRoot(res))
-          : {
-              blocked: [],
-              dependents: [],
-              needs_reassignment: [],
-              default_author_slug: DEFAULT_ORG_AUTHOR_SLUG,
-            };
+      flushRelationIndexPendingSync(contentRoot);
+      const indexStatus = getRelationIndexStatus(contentRoot);
+
+      const blocked_protected: string[] = [];
+      const blocked_by_relation: Array<{ slug: string; dependents: string[] }> = [];
+      const deletable: string[] = [];
+
+      if (indexStatus.ready) {
+        for (const slug of slugs) {
+          if (isProtectedContentSlug(contentType, slug, contentRoot)) {
+            blocked_protected.push(slug);
+            continue;
+          }
+          const deps = getDependentsForTarget(contentType, slug, contentRoot, { limit: 25 });
+          if (deps.count > 0) {
+            blocked_by_relation.push({ slug, dependents: deps.dependents });
+            continue;
+          }
+          deletable.push(slug);
+        }
+      }
+
+      const link_preview_by_slug: Record<
+        string,
+        Awaited<ReturnType<typeof getDeleteReferrersPreview>>
+      > = {};
+      for (const slug of slugs) {
+        link_preview_by_slug[slug] = getDeleteReferrersPreview({
+          contentType,
+          slug,
+          contentRoot,
+          limit: 15,
+        });
+      }
+
+      const rebuild_hint =
+        "Relation index isn’t ready. It normally rebuilds when site validation runs the site-relation-index check — try again after that.";
 
       if (!confirm) {
-        const { getDeleteReferrersPreview } = await import("../link-delete-preview");
-        const linkPreviewBySlug: Record<
-          string,
-          Awaited<ReturnType<typeof getDeleteReferrersPreview>>
-        > = {};
-        for (const slug of slugs) {
-          linkPreviewBySlug[slug] = getDeleteReferrersPreview({
-            contentType,
-            slug,
-            contentRoot: getContentRoot(res),
-            limit: 15,
-          });
-        }
         res.json({
           success: true,
-          action_required: "confirm_delete",
+          action_required: indexStatus.ready ? "confirm_delete" : "rebuild_relation_index",
           preview: {
-            ...preview,
-            link_preview_by_slug: linkPreviewBySlug,
+            index_ready: indexStatus.ready,
+            index_updated_at: indexStatus.updated_at,
+            blocked_protected,
+            blocked_by_relation,
+            deletable: indexStatus.ready ? deletable : [],
+            link_preview_by_slug,
+            rebuild_hint: indexStatus.ready ? undefined : rebuild_hint,
           },
-          message:
-            preview.needs_reassignment.length > 0
-              ? "Some posts would lose their last author — provide reassignments (defaults to org author) and confirm:true"
-              : "Pass confirm:true to delete. Protected slugs are blocked.",
+          message: !indexStatus.ready
+            ? rebuild_hint
+            : blocked_by_relation.length > 0 || blocked_protected.length > 0
+              ? "Some slugs are blocked (relations or protected). Pass confirm:true to delete only the unblocked set."
+              : "Pass confirm:true to delete the listed slugs.",
         });
         return;
       }
 
-      if (preview.blocked.length && preview.blocked.length === slugs.length) {
-        res.status(403).json({
-          error: `All requested slugs are protected and cannot be deleted: ${preview.blocked.join(", ")}`,
-          preview,
+      if (!indexStatus.ready) {
+        res.status(503).json({
+          error: rebuild_hint,
+          code: "relation_index_not_ready",
+          preview: {
+            index_ready: false,
+            index_updated_at: null,
+            blocked_protected: [],
+            blocked_by_relation: [],
+            deletable: [],
+            rebuild_hint,
+          },
         });
         return;
-      }
-
-      const deletable = slugs.filter((s) => !preview.blocked.includes(s));
-
-      if (contentType === "authors" && deletable.length > 0) {
-        applyAuthorDeleteCascade(deletable, {
-          contentRoot: getContentRoot(res),
-          author,
-          reassignments,
-        });
       }
 
       const results: Array<{
@@ -1879,13 +1897,24 @@ export function registerSectionsRoutes(app: Express): void {
         error?: string;
         skipped?: boolean;
       }> = [];
+
       for (const slug of slugs) {
-        if (preview.blocked.includes(slug)) {
+        if (blocked_protected.includes(slug)) {
           results.push({
             slug,
             ok: false,
             skipped: true,
             error: "protected system entry",
+          });
+          continue;
+        }
+        const relBlock = blocked_by_relation.find((b) => b.slug === slug);
+        if (relBlock) {
+          results.push({
+            slug,
+            ok: false,
+            skipped: true,
+            error: `Still referenced by: ${relBlock.dependents.slice(0, 5).join(", ")}`,
           });
           continue;
         }
@@ -1905,8 +1934,15 @@ export function registerSectionsRoutes(app: Express): void {
       res.json({
         success: true,
         results,
-        preview,
-        blocked: preview.blocked,
+        preview: {
+          index_ready: true,
+          index_updated_at: indexStatus.updated_at,
+          blocked_protected,
+          blocked_by_relation,
+          deletable,
+          link_preview_by_slug,
+        },
+        blocked: [...blocked_protected, ...blocked_by_relation.map((b) => b.slug)],
       });
     } catch (error) {
       log.error({ err: error }, "Content delete-entries error:");

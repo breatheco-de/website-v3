@@ -939,7 +939,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
             {canViewMetrics && (
             <ExpandableMenuItem
               icon={Stethoscope}
-              label="Errors & Diagnostics"
+              label="Reports & Diagnostics"
               expanded={diagnosticsExpanded}
               onToggle={() => {
                 const opening = !diagnosticsExpanded;

@@ -531,6 +531,13 @@ app.use((req, res, next) => {
           logger.error({ err, worker: "LinkIndex" }, "failed to load link indexes from GCS");
         });
 
+        const { loadRelationIndexesFromBucket } = await import("./relation-index");
+        await loadRelationIndexesFromBucket(
+          [...getSiteContextMap().values()].map((ctx) => ({ contentRoot: ctx.contentRoot })),
+        ).catch((err) => {
+          logger.error({ err, worker: "RelationIndex" }, "failed to load relation indexes from GCS");
+        });
+
         const { ValidationService } = await import("../scripts/validation/service");
         const { applyValidationRunToCache } = await import("./services/validationCachePostProcess");
         for (const ctx of getSiteContextMap().values()) {

@@ -11,6 +11,7 @@ export const SYNC_FILENAMES = {
   runtimeIssuesIgnore: "runtime-issues-ignore.json",
   gscUrlInspection: "gsc-url-inspection.json",
   linkIndex: "link-index.json",
+  relationIndex: "relation-index.json",
 } as const;
 
 export type SyncFilename = (typeof SYNC_FILENAMES)[keyof typeof SYNC_FILENAMES];
@@ -138,6 +139,10 @@ export function runtimeIssuesIgnoreReadKeys(site: string): string[] {
 
 export function linkIndexReadKeys(site: string): string[] {
   return [siteSyncGcsKey(site, SYNC_FILENAMES.linkIndex)];
+}
+
+export function relationIndexReadKeys(site: string): string[] {
+  return [siteSyncGcsKey(site, SYNC_FILENAMES.relationIndex)];
 }
 
 /** Prefix for per-database semantic search result cache objects. */

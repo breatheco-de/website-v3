@@ -56,6 +56,11 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { DeletePageModal } from "@/components/DebugBubble/components/DeletePageModal";
+import { BulkUpdateFunnelDialog } from "@/components/content-type/BulkUpdateFunnelDialog";
+import {
+  BulkDeleteStaticDialog,
+  BulkDeleteDbInfoDialog,
+} from "@/components/content-type/BulkDeleteDialogs";
 import { CreateContentModal } from "@/components/DebugBubble/components/CreateContentModal";
 import type { SitemapUrl } from "@/components/DebugBubble/types";
 import { ManagedSeoModal, type ManagedSeoModalTarget } from "@/components/editing/ManagedSeoModal";
@@ -5604,6 +5609,11 @@ export default function ContentTypeManagePage() {
   const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"static" | "db">("static");
   const [listPerspective, setListPerspective] = useState<"default" | "seo">("default");
+  const [selectedSlugs, setSelectedSlugs] = useState<Set<string>>(() => new Set());
+  const [bulkFunnelOpen, setBulkFunnelOpen] = useState(false);
+  const [bulkDeleteStaticOpen, setBulkDeleteStaticOpen] = useState(false);
+  const [bulkDeleteDbInfoOpen, setBulkDeleteDbInfoOpen] = useState(false);
+  const SELECTION_CAP = 50;
   const [seoModalOpen, setSeoModalOpen] = useState(false);
   const [seoModalTarget, setSeoModalTarget] = useState<ManagedSeoModalTarget | null>(null);
   const [seoPickerOpen, setSeoPickerOpen] = useState(false);
@@ -5616,6 +5626,10 @@ export default function ContentTypeManagePage() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
   const [isDeletingEntry, setIsDeletingEntry] = useState(false);
+
+  useEffect(() => {
+    setSelectedSlugs(new Set());
+  }, [contentType, viewMode, listPerspective]);
 
   const [semanticResults, setSemanticResults] = useState<Record<string, unknown>[] | null>(null);
   const [semanticActive, setSemanticActive] = useState(false);
@@ -6235,6 +6249,60 @@ export default function ContentTypeManagePage() {
     search !== debouncedSearch || staticLoading || staticFetching;
   const filteredSeoEntries = seoEntriesData?.entries || [];
 
+  const selectionActive = selectedSlugs.size > 0;
+  const selectedSlugList = useMemo(() => [...selectedSlugs], [selectedSlugs]);
+
+  const toggleSlugSelected = useCallback(
+    (slug: string, checked: boolean) => {
+      setSelectedSlugs((prev) => {
+        const next = new Set(prev);
+        if (checked) {
+          if (next.size >= SELECTION_CAP && !next.has(slug)) {
+            toast({
+              title: "Selection limit",
+              description: `You can select up to ${SELECTION_CAP} at a time.`,
+            });
+            return prev;
+          }
+          next.add(slug);
+        } else {
+          next.delete(slug);
+        }
+        return next;
+      });
+    },
+    [toast],
+  );
+
+  const selectPageSlugs = useCallback(
+    (pageSlugs: string[], select: boolean) => {
+      setSelectedSlugs((prev) => {
+        const next = new Set(prev);
+        if (!select) {
+          for (const s of pageSlugs) next.delete(s);
+          return next;
+        }
+        let hitCap = false;
+        for (const s of pageSlugs) {
+          if (next.has(s)) continue;
+          if (next.size >= SELECTION_CAP) {
+            hitCap = true;
+            break;
+          }
+          next.add(s);
+        }
+        if (hitCap) {
+          toast({
+            title: "Selection limit",
+            description: `You can select up to ${SELECTION_CAP} at a time.`,
+          });
+        }
+        return next;
+      });
+    },
+    [toast],
+  );
+
   const staticTotal = staticEntriesData?.total ?? filteredStatic.length;
   const staticTotalPages = staticEntriesData?.totalPages ?? 1;
   const staticPage = staticEntriesData?.page ?? listPage;
@@ -6516,17 +6584,37 @@ export default function ContentTypeManagePage() {
           });
           return;
         }
-        const needs = (previewData.preview?.needs_reassignment || []) as Array<{ slug: string }>;
-        const defaultAuthor = previewData.preview?.default_author_slug || "4geeks-academy";
-        const reassignments: Record<string, string[]> = {};
-        for (const row of needs) {
-          reassignments[row.slug] = [defaultAuthor];
+        if (previewData.preview && previewData.preview.index_ready === false) {
+          toast({
+            title: "Cannot delete yet",
+            description:
+              previewData.preview.rebuild_hint ||
+              "Relation index isn’t ready. Run site validation (site-relation-index), then try again.",
+            variant: "destructive",
+          });
+          return;
         }
-        if (needs.length > 0) {
-          const ok = window.confirm(
-            `${needs.length} blog post(s) would lose their last author. Reassign to "${defaultAuthor}" and delete?`,
-          );
-          if (!ok) return;
+        const blockedRel = (previewData.preview?.blocked_by_relation || []) as Array<{
+          slug: string;
+          dependents: string[];
+        }>;
+        const blockedProt = (previewData.preview?.blocked_protected || []) as string[];
+        if (blockedProt.includes(deletingEntry.slug)) {
+          toast({
+            title: "Protected entry",
+            description: "This system entry cannot be deleted.",
+            variant: "destructive",
+          });
+          return;
+        }
+        const relHit = blockedRel.find((b) => b.slug === deletingEntry.slug);
+        if (relHit) {
+          toast({
+            title: "Still in use",
+            description: `Other entries still reference this author (${relHit.dependents.slice(0, 5).join(", ")}). Remove those relations first, then delete.`,
+            variant: "destructive",
+          });
+          return;
         }
         const response = await fetch("/api/content/delete-entries", {
           method: "POST",
@@ -6535,7 +6623,6 @@ export default function ContentTypeManagePage() {
             contentType: "authors",
             slugs: [deletingEntry.slug],
             confirm: true,
-            reassignments,
             author,
           }),
         });
@@ -6548,7 +6635,7 @@ export default function ContentTypeManagePage() {
             title: failed.length ? "Deleted with errors" : "Entry deleted",
             description: failed.length
               ? failed.map((f: { slug: string; error?: string }) => `${f.slug}: ${f.error}`).join("; ")
-              : "Author removed; blog.authors updated.",
+              : undefined,
             variant: failed.length ? "destructive" : undefined,
           });
           setDeleteModalOpen(false);
@@ -7450,6 +7537,54 @@ export default function ContentTypeManagePage() {
       />
 
       <div className="w-full pb-6" data-testid="content-type-entries-list">
+          {selectionActive ? (
+            <div
+              className="flex items-center gap-3 flex-wrap px-6 pt-6 pb-3"
+              data-testid="bulk-actions-bar"
+            >
+              <span className="text-sm text-muted-foreground tabular-nums" data-testid="text-bulk-selected-count">
+                {selectedSlugs.size} selected
+                {listPerspective === "default" ? (
+                  <span className="ml-1 text-xs">
+                    (
+                    {viewMode === "static"
+                      ? `${filteredStatic.filter((e) => selectedSlugs.has(e.slug)).length} on this page`
+                      : `${[...new Set(filtered.map((i) => String(i.slug ?? "")).filter(Boolean))].filter((s) => selectedSlugs.has(s)).length} on this page`}
+                    )
+                  </span>
+                ) : null}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedSlugs(new Set())}
+                data-testid="button-bulk-clear-selection"
+              >
+                Clear
+              </Button>
+              <div className="flex-1 min-w-[1rem]" />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkFunnelOpen(true)}
+                data-testid="button-bulk-update-funnel"
+              >
+                Update funnel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  if (viewMode === "db") setBulkDeleteDbInfoOpen(true);
+                  else setBulkDeleteStaticOpen(true);
+                }}
+                data-testid="button-bulk-delete"
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                Delete
+              </Button>
+            </div>
+          ) : (
           <div className="flex items-center gap-3 flex-wrap px-6 pt-6 pb-3">
               <div className="flex items-center gap-1" data-testid="toggle-view-mode">
                 <Button
@@ -7645,6 +7780,7 @@ export default function ContentTypeManagePage() {
                 );
               })()}
             </div>
+          )}
           <div>
             {listPerspective === "seo" ? (
               seoEntriesLoading || (seoEntriesFetching && !seoEntriesData) ? (
@@ -7915,6 +8051,24 @@ export default function ContentTypeManagePage() {
                   <table className="w-full text-sm" data-testid="table-static-entries">
                     <thead>
                       <tr className="border-b bg-muted/50">
+                        <th className="w-10 px-4 py-3">
+                          {(() => {
+                            const pageSlugs = filteredStatic.map((e) => e.slug);
+                            const selectedOnPage = pageSlugs.filter((s) => selectedSlugs.has(s));
+                            const allSelected =
+                              pageSlugs.length > 0 && selectedOnPage.length === pageSlugs.length;
+                            const someSelected =
+                              selectedOnPage.length > 0 && !allSelected;
+                            return (
+                              <Checkbox
+                                checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                                onCheckedChange={(v) => selectPageSlugs(pageSlugs, v === true)}
+                                aria-label="Select all on this page"
+                                data-testid="checkbox-select-all-static"
+                              />
+                            );
+                          })()}
+                        </th>
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground">Title</th>
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground">Locales</th>
                         <UpdatedAtSortHeader dir={updatedSortDir} onToggle={toggleUpdatedSort} />
@@ -7930,6 +8084,14 @@ export default function ContentTypeManagePage() {
                             className="border-b last:border-0 hover:bg-muted/30 transition-colors"
                             data-testid={`row-static-${entry.slug}`}
                           >
+                            <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                              <Checkbox
+                                checked={selectedSlugs.has(entry.slug)}
+                                onCheckedChange={(v) => toggleSlugSelected(entry.slug, v === true)}
+                                aria-label={`Select ${entry.title || entry.slug}`}
+                                data-testid={`checkbox-select-static-${entry.slug}`}
+                              />
+                            </td>
                             <td className="px-4 py-3">
                               <div className="min-w-0">
                                 <div className="font-medium truncate max-w-[300px]" title={entry.title} data-testid={`text-title-${entry.slug}`}>
@@ -8252,6 +8414,30 @@ export default function ContentTypeManagePage() {
                   <table className="w-full text-sm" data-testid="table-items">
                     <thead>
                       <tr className="border-b bg-muted/50">
+                        <th className="w-10 px-4 py-3">
+                          {(() => {
+                            const pageSlugs = [
+                              ...new Set(
+                                filtered
+                                  .map((item) => String(item.slug ?? "").trim())
+                                  .filter(Boolean),
+                              ),
+                            ];
+                            const selectedOnPage = pageSlugs.filter((s) => selectedSlugs.has(s));
+                            const allSelected =
+                              pageSlugs.length > 0 && selectedOnPage.length === pageSlugs.length;
+                            const someSelected =
+                              selectedOnPage.length > 0 && !allSelected;
+                            return (
+                              <Checkbox
+                                checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                                onCheckedChange={(v) => selectPageSlugs(pageSlugs, v === true)}
+                                aria-label="Select all on this page"
+                                data-testid="checkbox-select-all-db"
+                              />
+                            );
+                          })()}
+                        </th>
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground">Title</th>
                         {hasAuthorField && <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Author</th>}
                         {allIndexFields.map((idx) => (
@@ -8294,6 +8480,18 @@ export default function ContentTypeManagePage() {
                             className="border-b last:border-0 hover:bg-muted/30 transition-colors"
                             data-testid={`row-item-${item.id || item.slug}`}
                           >
+                            <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                              {item.slug ? (
+                                <Checkbox
+                                  checked={selectedSlugs.has(String(item.slug))}
+                                  onCheckedChange={(v) =>
+                                    toggleSlugSelected(String(item.slug), v === true)
+                                  }
+                                  aria-label={`Select ${item.title || item.slug}`}
+                                  data-testid={`checkbox-select-db-${item.slug}`}
+                                />
+                              ) : null}
+                            </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-3">
                                 <div className="relative w-10 h-10 flex-shrink-0 hidden sm:block">
@@ -8996,6 +9194,67 @@ export default function ContentTypeManagePage() {
         onClearReplacePreview={() => {
           setSharedLayoutReplacePreview(null);
         }}
+      />
+      <BulkUpdateFunnelDialog
+        open={bulkFunnelOpen}
+        onOpenChange={setBulkFunnelOpen}
+        contentType={contentType}
+        slugs={selectedSlugList}
+        isDbView={viewMode === "db"}
+        onDone={({ ok, failed }) => {
+          toast({
+            title: failed.length ? "Funnel update finished with errors" : "Funnel updated",
+            description: failed.length
+              ? `${ok.length} ok, ${failed.length} failed: ${failed
+                  .slice(0, 5)
+                  .map((f) => `${f.slug}: ${f.error}`)
+                  .join("; ")}`
+              : `Updated ${ok.length} entr${ok.length === 1 ? "y" : "ies"}.`,
+            variant: failed.length ? "destructive" : undefined,
+          });
+          if (failed.length === 0) {
+            setSelectedSlugs(new Set());
+          } else {
+            setSelectedSlugs(new Set(failed.map((f) => f.slug)));
+          }
+        }}
+      />
+      <BulkDeleteStaticDialog
+        open={bulkDeleteStaticOpen}
+        onOpenChange={setBulkDeleteStaticOpen}
+        contentType={contentType}
+        slugs={selectedSlugList}
+        onDone={({ ok, failed, blockedLeft }) => {
+          toast({
+            title: failed.length ? "Delete finished with errors" : "Entries deleted",
+            description: [
+              ok.length ? `Deleted ${ok.length}` : null,
+              blockedLeft.length
+                ? `${blockedLeft.length} still blocked — clear relations and delete manually`
+                : null,
+              failed.length
+                ? failed
+                    .slice(0, 5)
+                    .map((f) => `${f.slug}: ${f.error}`)
+                    .join("; ")
+                : null,
+            ]
+              .filter(Boolean)
+              .join(". "),
+            variant: failed.length ? "destructive" : undefined,
+          });
+          const keep = new Set([...blockedLeft, ...failed.map((f) => f.slug)]);
+          setSelectedSlugs(keep);
+          queryClient.invalidateQueries({
+            queryKey: ["/api/content-types", contentType, "static-entries"],
+          });
+        }}
+      />
+      <BulkDeleteDbInfoDialog
+        open={bulkDeleteDbInfoOpen}
+        onOpenChange={setBulkDeleteDbInfoOpen}
+        count={selectedSlugs.size}
+        databaseSlug={dbSlug}
       />
       <DeletePageModal
         open={deleteModalOpen}
