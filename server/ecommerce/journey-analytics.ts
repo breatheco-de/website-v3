@@ -216,7 +216,7 @@ export async function getProductJourneyAnalytics(opts: {
     return emptyPagePerformance(productSlug, days, [
       {
         code: "bigquery_client_unavailable",
-        message: "Could not create BigQuery client — check ADC / GOOGLE_APPLICATION_CREDENTIALS",
+        message: "Could not create BigQuery client — check GCS_CREDENTIALS_JSON / ADC",
       },
     ]);
   }
@@ -516,7 +516,7 @@ export async function getProductJourneyAnalytics(opts: {
       { code: "bigquery_query_failed", message },
       {
         code: "configure_at",
-        message: "Check /private/tracking/bigquery and ADC credentials",
+        message: "Check /private/tracking/bigquery and GCS_CREDENTIALS_JSON / ADC",
       },
     ]);
   }

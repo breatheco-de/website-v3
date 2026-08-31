@@ -101,7 +101,7 @@ export interface TrackingWebhook {
   auth_header?: string;
 }
 
-/** GA4 BigQuery export connection (non-secret). Credentials via ADC / GOOGLE_APPLICATION_CREDENTIALS. */
+/** GA4 BigQuery export connection (non-secret). Credentials via GCS_CREDENTIALS_JSON / GCS_KEY_FILENAME (same as media) or ADC. */
 export interface TrackingBigQuerySettings {
   enabled: boolean;
   project_id: string;

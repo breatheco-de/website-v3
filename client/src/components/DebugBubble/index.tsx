@@ -2334,7 +2334,7 @@ export function DebugBubble() {
                   setCommitModalOpen(true);
                   fetchPendingChanges(); // Refresh pending changes when opening modal
                 }}
-                className="absolute -top-1 left-full ml-1 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium animate-pulse cursor-pointer hover:opacity-90 transition-opacity"
+                className="absolute -top-1 left-full ml-6 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium animate-pulse cursor-pointer hover:opacity-90 transition-opacity"
                 style={{
                   backgroundColor: '#fbbf24',
                   color: '#000',
@@ -2350,7 +2350,7 @@ export function DebugBubble() {
             {hasSystemAlerts && (
               <button
                 onClick={() => setOpen(true)}
-                className="absolute left-full ml-1 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
+                className="absolute left-full ml-6 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
                 style={{
                   top: pillTop(hasCommitIndicator ? 1 : 0),
                   backgroundColor: "#ef4444",
@@ -2367,7 +2367,7 @@ export function DebugBubble() {
             {(pageErrorCount > 0 || pageWarningCount > 0 || pageDiagnostics?.dirty) && (
               <button
                 onClick={() => setPageErrorsModalOpen(true)}
-                className="absolute left-full ml-1 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
+                className="absolute left-full ml-6 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
                 style={{
                   top: pillTop((hasCommitIndicator ? 1 : 0) + (hasSystemAlerts ? 1 : 0)),
                   backgroundColor: pageErrorCount > 0 ? '#ef4444' : pageDiagnostics?.dirty ? '#78716c' : '#f59e0b',

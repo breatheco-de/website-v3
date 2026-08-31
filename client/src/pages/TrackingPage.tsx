@@ -1702,6 +1702,7 @@ function BigQuerySection() {
   const [testing, setTesting] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [credentialsHint, setCredentialsHint] = useState("");
+  const [credentialsSource, setCredentialsSource] = useState<string>("");
   const [warnings, setWarnings] = useState<string[]>([]);
 
   const { data, isLoading, refetch } = useQuery({
@@ -1720,6 +1721,7 @@ function BigQuerySection() {
           table_prefix: string;
         };
         credentials_hint: string;
+        credentials_source?: string;
         warnings: string[];
       }>;
     },
@@ -1733,6 +1735,7 @@ function BigQuerySection() {
     setLocation(data.settings.location || "US");
     setTablePrefix(data.settings.table_prefix || "events_");
     setCredentialsHint(data.credentials_hint || "");
+    setCredentialsSource(data.credentials_source || "");
     setWarnings(data.warnings || []);
   }, [data, dirty]);
 
@@ -1765,18 +1768,21 @@ function BigQuerySection() {
     try {
       const res = await apiFetch("/api/settings/tracking/bigquery/test", { method: "POST" });
       const body = await res.json();
+      const sourceLabel = body.credentials_source
+        ? ` · creds: ${body.credentials_source}`
+        : "";
       if (!res.ok || !body.ok) {
         toast({
           title: "Connection failed",
-          description: body.error || `HTTP ${res.status}`,
+          description: `${body.error || `HTTP ${res.status}`}${sourceLabel}`,
           variant: "destructive",
         });
       } else {
         toast({
           title: "Connection OK",
           description: body.latest_table
-            ? `Latest table: ${body.latest_table} (${body.table_count} tables)`
-            : "Dataset reachable",
+            ? `Latest table: ${body.latest_table} (${body.table_count} tables)${sourceLabel}`
+            : `Dataset reachable${sourceLabel}`,
         });
       }
     } catch (err: any) {
@@ -1931,8 +1937,14 @@ function BigQuerySection() {
                   </div>
                 </div>
                 <p>{credentialsHint}</p>
+                {credentialsSource ? (
+                  <p className="text-xs">
+                    Active credentials source:{" "}
+                    <span className="font-mono text-foreground">{credentialsSource}</span>
+                  </p>
+                ) : null}
                 <p className="font-mono text-xs">
-                  settings.yml → tracking.bigquery · ADC / GOOGLE_APPLICATION_CREDENTIALS
+                  settings.yml → tracking.bigquery · GCS_CREDENTIALS_JSON / GCS_KEY_FILENAME (same as media)
                 </p>
               </CollapsibleContent>
             </Collapsible>
