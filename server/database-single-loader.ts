@@ -47,6 +47,23 @@ export type { PerEntryAccum } from "./section-merge";
 
 export const TEMPLATE_EXPR_RE = /\{\{[\s\S]*?\}\}/;
 
+/**
+ * Editorial clocks on `template.{locale}.yml` describe the shared shell, not an entry.
+ * When merging an attached entry, drop them so missing entry dates fall through to
+ * the entry's own `published_at` / locale `updated_at` instead of the shell seed.
+ */
+const SHELL_EDITORIAL_DATE_KEYS = [
+  "updated_at",
+  RESERVED_UPDATED_AT_FIELD,
+  "published_at",
+] as const;
+
+export function stripShellEditorialDates(data: Record<string, unknown>): void {
+  for (const key of SHELL_EDITORIAL_DATE_KEYS) {
+    delete data[key];
+  }
+}
+
 export function extractVariableFields(
   obj: unknown,
   prefix = "",
@@ -141,6 +158,11 @@ export function mergeSingleTemplate(
   let merged: Record<string, unknown> = Object.keys(baseData).length > 0
     ? deepMerge(baseData, localeData)
     : { ...localeData };
+
+  // Entry merge: shell dates must not masquerade as the entry's editorial clock.
+  if (slug) {
+    stripShellEditorialDates(merged);
+  }
 
   // Capture stable base-template section-id → index map BEFORE any per-entry layers
   // so that originalIndex values in accum.removedSections are always relative to the

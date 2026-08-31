@@ -5,9 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   hasStaticSharedLayoutEntryLocale,
   loadMergedSinglePage,
+  mergeSingleTemplate,
   resolveDetachedEntryLocalePath,
 } from "./database-single-loader";
-import { resetRegistry } from "./content-types";
+import { resetRegistry, resolveEntryUpdatedAt } from "./content-types";
 
 const ORIGINAL_CWD = process.cwd();
 let tempDir: string;
@@ -151,5 +152,105 @@ describe("loadMergedSinglePage static shared-layout", () => {
     expect(page?.sections?.some((s) => (s as { type?: string }).type === "article")).toBe(
       true,
     );
+  });
+});
+
+describe("mergeSingleTemplate shell editorial dates", () => {
+  it("does not leak template updated_at onto an entry that only has published_at", () => {
+    const blogDir = path.join(contentRoot, "blog");
+    fs.writeFileSync(
+      path.join(blogDir, "template.es.yml"),
+      [
+        "sections:",
+        "  - type: hero",
+        "    variant: blogHero",
+        '    title: "{{ entry.title }}"',
+        '    updated_at: "{{ entry.updated_at }}"',
+        'updated_at: "2022-11-30T12:02:10.252Z"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    const entryDir = path.join(blogDir, "como-configurar-grok-bot");
+    fs.mkdirSync(entryDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(entryDir, "es.yml"),
+      [
+        'title: "Cómo configurar Grok Bot"',
+        "sections: []",
+        'published_at: "2026-08-18T00:00:00.000Z"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const merged = mergeSingleTemplate(
+      "blog",
+      "es",
+      "como-configurar-grok-bot",
+      undefined,
+      contentRoot,
+    );
+    expect(merged).not.toBeNull();
+    expect(merged?.updated_at).toBeUndefined();
+    expect(merged?.published_at).toBe("2026-08-18T00:00:00.000Z");
+
+    const iso = resolveEntryUpdatedAt({
+      contentType: "blog",
+      slug: "como-configurar-grok-bot",
+      locale: "es",
+      record: merged ?? undefined,
+      contentRoot,
+      isDb: false,
+    });
+    expect(iso).toBe("2026-08-18T00:00:00.000Z");
+  });
+
+  it("keeps template updated_at when loading the shell without an entry slug", () => {
+    const blogDir = path.join(contentRoot, "blog");
+    fs.writeFileSync(
+      path.join(blogDir, "template.es.yml"),
+      [
+        "sections:",
+        "  - type: hero",
+        "    variant: blogHero",
+        'updated_at: "2022-11-30T12:02:10.252Z"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const shell = mergeSingleTemplate("blog", "es", undefined, undefined, contentRoot);
+    expect(shell?.updated_at).toBe("2022-11-30T12:02:10.252Z");
+  });
+
+  it("preserves an entry's own updated_at over the stripped shell", () => {
+    const blogDir = path.join(contentRoot, "blog");
+    fs.writeFileSync(
+      path.join(blogDir, "template.es.yml"),
+      [
+        "sections:",
+        "  - type: article",
+        'updated_at: "2022-11-30T12:02:10.252Z"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    const entryDir = path.join(blogDir, "fresh-post");
+    fs.mkdirSync(entryDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(entryDir, "es.yml"),
+      [
+        "title: Fresh",
+        "sections: []",
+        'updated_at: "2026-08-20T10:00:00.000Z"',
+        'published_at: "2026-08-18T00:00:00.000Z"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const merged = mergeSingleTemplate("blog", "es", "fresh-post", undefined, contentRoot);
+    expect(merged?.updated_at).toBe("2026-08-20T10:00:00.000Z");
   });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, DownloadCloud, ExternalLink, FileText, Globe, Info, Loader2, MoreVertical, Network, Plus, Star, Unlink } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, DownloadCloud, ExternalLink, FileText, Globe, Info, Loader2, MoreVertical, Network, Pencil, Plus, Star, Unlink } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -1332,12 +1332,16 @@ function ClusterMemberRow({
   hubId,
   clusters,
   gscConfigured,
+  canEditSeo,
+  onEditSeo,
 }: {
   member: ClusterMember;
   hubPillarUrl: string;
   hubId: string;
   clusters: SeoOverview["clusters"];
   gscConfigured?: boolean;
+  canEditSeo: boolean;
+  onEditSeo: (contentType: string, slug: string, locale: string) => void;
 }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -1430,6 +1434,19 @@ function ClusterMemberRow({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                data-testid={`button-cluster-edit-seo-${member.slug}`}
+                disabled={!canEditSeo}
+                title={
+                  !canEditSeo
+                    ? `You need seo_edit for content type "${member.contentType}"`
+                    : undefined
+                }
+                onSelect={() => onEditSeo(member.contentType, member.slug, member.locale)}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit SEO
+              </DropdownMenuItem>
               <DropdownMenuItem
                 data-testid={`button-cluster-change-${member.slug}`}
                 onSelect={() => setChangeOpen(true)}
@@ -2866,6 +2883,10 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                             hubId={hubId}
                             clusters={data.clusters}
                             gscConfigured={gsc?.configured}
+                            canEditSeo={canEditSeoFor(member.contentType)}
+                            onEditSeo={(contentType, slug, locale) => {
+                              void beginEditSeo(contentType, slug, locale, "general");
+                            }}
                           />
                         ))}
                       </div>
