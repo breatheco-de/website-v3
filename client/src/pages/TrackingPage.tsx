@@ -25,6 +25,7 @@ import {
   IconToggleRight,
   IconTrash,
   IconListDetails,
+  IconDatabase,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
@@ -1688,6 +1689,291 @@ function EventsSection() {
 }
 
 
+function BigQuerySection() {
+  const { toast } = useToast();
+  const { canMutateMetrics } = useDebugAuth();
+  const [enabled, setEnabled] = useState(false);
+  const [projectId, setProjectId] = useState("");
+  const [datasetId, setDatasetId] = useState("");
+  const [location, setLocation] = useState("US");
+  const [tablePrefix, setTablePrefix] = useState("events_");
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [credentialsHint, setCredentialsHint] = useState("");
+  const [warnings, setWarnings] = useState<string[]>([]);
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["/api/settings/tracking/bigquery"],
+    queryFn: async () => {
+      const res = await apiFetch("/api/settings/tracking/bigquery");
+      if (!res.ok) throw new Error("Failed to load BigQuery settings");
+      return res.json() as Promise<{
+        configured: boolean;
+        enabled: boolean;
+        settings: {
+          enabled: boolean;
+          project_id: string;
+          dataset_id: string;
+          location: string;
+          table_prefix: string;
+        };
+        credentials_hint: string;
+        warnings: string[];
+      }>;
+    },
+  });
+
+  useEffect(() => {
+    if (!data?.settings || dirty) return;
+    setEnabled(data.settings.enabled);
+    setProjectId(data.settings.project_id || "");
+    setDatasetId(data.settings.dataset_id || "");
+    setLocation(data.settings.location || "US");
+    setTablePrefix(data.settings.table_prefix || "events_");
+    setCredentialsHint(data.credentials_hint || "");
+    setWarnings(data.warnings || []);
+  }, [data, dirty]);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await apiRequest("PUT", "/api/settings/tracking/bigquery", {
+        enabled,
+        project_id: projectId.trim(),
+        dataset_id: datasetId.trim(),
+        location: location.trim() || "US",
+        table_prefix: tablePrefix.trim() || "events_",
+      });
+      setDirty(false);
+      await refetch();
+      toast({ title: "BigQuery settings saved" });
+    } catch (err: any) {
+      toast({
+        title: "Failed to save",
+        description: err.message || String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function testConnection() {
+    setTesting(true);
+    try {
+      const res = await apiFetch("/api/settings/tracking/bigquery/test", { method: "POST" });
+      const body = await res.json();
+      if (!res.ok || !body.ok) {
+        toast({
+          title: "Connection failed",
+          description: body.error || `HTTP ${res.status}`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Connection OK",
+          description: body.latest_table
+            ? `Latest table: ${body.latest_table} (${body.table_count} tables)`
+            : "Dataset reachable",
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: "Connection failed",
+        description: err.message || String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <Card data-testid="card-bigquery-settings">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
+        <div className="flex items-center gap-2">
+          <IconDatabase className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-base">GA4 BigQuery export</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <IconLoader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <>
+            <div className="space-y-1">
+              <p className="text-sm font-medium">What this does</p>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Point this site at your GA4 BigQuery export so Store journey analytics can load.
+                Project and dataset are saved here; Google credentials stay in the server environment.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 pt-2 border-t">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Enable BigQuery analytics</p>
+                <p className="text-xs text-muted-foreground">
+                  When off, product journey metrics stay empty without querying GCP.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEnabled((v) => !v);
+                  setDirty(true);
+                }}
+                disabled={!canMutateMetrics}
+                className="shrink-0 text-muted-foreground disabled:opacity-50"
+                data-testid="toggle-bigquery-enabled"
+                aria-label={enabled ? "Disable BigQuery" : "Enable BigQuery"}
+              >
+                {enabled ? (
+                  <IconToggleRight className="h-8 w-8 text-primary" />
+                ) : (
+                  <IconToggleLeft className="h-8 w-8" />
+                )}
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="bq-project">
+                  Project ID
+                </label>
+                <Input
+                  id="bq-project"
+                  value={projectId}
+                  onChange={(e) => {
+                    setProjectId(e.target.value);
+                    setDirty(true);
+                  }}
+                  placeholder="my-gcp-project"
+                  disabled={!canMutateMetrics}
+                  data-testid="input-bq-project"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="bq-dataset">
+                  Dataset ID
+                </label>
+                <Input
+                  id="bq-dataset"
+                  value={datasetId}
+                  onChange={(e) => {
+                    setDatasetId(e.target.value);
+                    setDirty(true);
+                  }}
+                  placeholder="analytics_XXXXXX"
+                  disabled={!canMutateMetrics}
+                  data-testid="input-bq-dataset"
+                />
+              </div>
+            </div>
+
+            {warnings.length > 0 && (
+              <ul className="text-xs text-amber-600 dark:text-amber-400 space-y-1 list-disc pl-4">
+                {warnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            )}
+
+            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 text-sm font-medium text-foreground"
+                  data-testid="button-bq-advanced"
+                >
+                  Read more (advanced)
+                  <IconChevronDown
+                    className={`h-4 w-4 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-3 space-y-3 text-sm text-muted-foreground">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground" htmlFor="bq-location">
+                      Location
+                    </label>
+                    <Input
+                      id="bq-location"
+                      value={location}
+                      onChange={(e) => {
+                        setLocation(e.target.value);
+                        setDirty(true);
+                      }}
+                      placeholder="US"
+                      disabled={!canMutateMetrics}
+                      data-testid="input-bq-location"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground" htmlFor="bq-prefix">
+                      Table prefix
+                    </label>
+                    <Input
+                      id="bq-prefix"
+                      value={tablePrefix}
+                      onChange={(e) => {
+                        setTablePrefix(e.target.value);
+                        setDirty(true);
+                      }}
+                      placeholder="events_"
+                      disabled={!canMutateMetrics}
+                      data-testid="input-bq-prefix"
+                    />
+                  </div>
+                </div>
+                <p>{credentialsHint}</p>
+                <p className="font-mono text-xs">
+                  settings.yml → tracking.bigquery · ADC / GOOGLE_APPLICATION_CREDENTIALS
+                </p>
+              </CollapsibleContent>
+            </Collapsible>
+
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t">
+              <Button
+                type="button"
+                onClick={save}
+                disabled={!canMutateMetrics || !dirty || saving}
+                data-testid="button-bq-save"
+              >
+                {saving ? (
+                  <IconLoader2 className="h-4 w-4 animate-spin mr-1.5" />
+                ) : (
+                  <IconDeviceFloppy className="h-4 w-4 mr-1.5" />
+                )}
+                Save
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={testConnection}
+                disabled={testing || !enabled || !projectId.trim() || !datasetId.trim()}
+                data-testid="button-bq-test"
+              >
+                {testing ? (
+                  <IconLoader2 className="h-4 w-4 animate-spin mr-1.5" />
+                ) : (
+                  <IconPlugConnected className="h-4 w-4 mr-1.5" />
+                )}
+                Test connection
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
 export default function TrackingPage() {
   return (
     <MetricsAccessGate>
@@ -1700,7 +1986,8 @@ function TrackingPageInner() {
   const [location] = useLocation();
   const isSgtm = location === "/private/tracking/sgtm";
   const isIpn = location === "/private/tracking/ipn";
-  const isEvents = !isSgtm && !isIpn;
+  const isBigQuery = location === "/private/tracking/bigquery";
+  const isEvents = !isSgtm && !isIpn && !isBigQuery;
 
   return (
     <div className="min-h-screen bg-background">
@@ -1766,6 +2053,21 @@ function TrackingPageInner() {
                 IP Normalization
               </button>
             </Link>
+            <div className="w-px h-6 bg-border" />
+            <Link href="/private/tracking/bigquery">
+              <button
+                type="button"
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${
+                  isBigQuery
+                    ? "bg-secondary text-secondary-foreground font-medium"
+                    : "text-muted-foreground hover-elevate"
+                }`}
+                data-testid="button-view-bigquery"
+              >
+                <IconDatabase className="h-3.5 w-3.5" />
+                BigQuery
+              </button>
+            </Link>
           </div>
         </div>
 
@@ -1780,6 +2082,11 @@ function TrackingPageInner() {
             <div className="space-y-4">
               <IpNormalizationSection />
             </div>
+          </div>
+        ) : isBigQuery ? (
+          <div className="space-y-2">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">BigQuery</h2>
+            <BigQuerySection />
           </div>
         ) : (
           <div className="space-y-2">

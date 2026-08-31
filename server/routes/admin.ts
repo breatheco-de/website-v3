@@ -1471,10 +1471,57 @@ export function registerAdminRoutes(app: Express): void {
         normalizedFrom = normalizedFrom.slice(0, -1);
       }
 
-      const sourceFile = source as string;
-
-      const resolvedSource = path.resolve(process.cwd(), sourceFile);
+      // Accept cwd-relative site_* paths, display paths relative to content root,
+      // or legacy roots (marketing-content/, 4geeks-com/, content/) remapped to
+      // the active site folder — never nest marketing-content under site_*.
       const marketingDir = path.resolve(getContentRoot(res));
+      const contentRootName = path.basename(marketingDir);
+      const LEGACY_CONTENT_ROOTS = new Set([
+        "marketing-content",
+        "4geeks-com",
+        "content",
+      ]);
+      let sourceFile = String(source).replace(/\\/g, "/");
+      const firstSeg = sourceFile.split("/").filter(Boolean)[0] ?? "";
+      if (
+        firstSeg &&
+        (LEGACY_CONTENT_ROOTS.has(firstSeg) ||
+          (/^site_[^/]+$/.test(firstSeg) && firstSeg !== contentRootName))
+      ) {
+        const rest = sourceFile.split("/").filter(Boolean).slice(1).join("/");
+        sourceFile = rest ? `${contentRootName}/${rest}` : contentRootName;
+      }
+      // Collapse site_*/marketing-content/... from a prior bad join
+      {
+        const parts = sourceFile.split("/").filter(Boolean);
+        if (
+          parts[0] === contentRootName &&
+          parts[1] &&
+          LEGACY_CONTENT_ROOTS.has(parts[1])
+        ) {
+          sourceFile = [contentRootName, ...parts.slice(2)].join("/");
+        }
+      }
+
+      let resolvedSource = path.resolve(process.cwd(), sourceFile);
+      if (
+        !resolvedSource.startsWith(marketingDir + path.sep) &&
+        resolvedSource !== marketingDir
+      ) {
+        // Only treat as site-relative when it does not already look like a
+        // different top-level content root (handled above).
+        const underRoot = path.resolve(marketingDir, sourceFile);
+        if (
+          underRoot.startsWith(marketingDir + path.sep) &&
+          underRoot !== marketingDir
+        ) {
+          sourceFile = path
+            .relative(process.cwd(), underRoot)
+            .split(path.sep)
+            .join("/");
+          resolvedSource = underRoot;
+        }
+      }
       if (
         !resolvedSource.startsWith(marketingDir + path.sep) &&
         resolvedSource !== marketingDir
@@ -1487,7 +1534,10 @@ export function registerAdminRoutes(app: Express): void {
         return;
       }
 
-      if (sourceFile === `${path.basename(getContentRoot(res))}/custom-redirects.yml`) {
+      if (
+        sourceFile === `${contentRootName}/custom-redirects.yml` ||
+        sourceFile === "custom-redirects.yml"
+      ) {
         const customFilePath = path.join(
           getContentRoot(res),
           "custom-redirects.yml",
@@ -1504,9 +1554,13 @@ export function registerAdminRoutes(app: Express): void {
         } | null;
 
         if (!loaded || !Array.isArray(loaded.redirects)) {
-          res
-            .status(404)
-            .json({ error: "No redirects found in custom redirects file" });
+          // Idempotent: no redirects list means the rule is already gone.
+          afterRedirectWrite(res, sourceFile);
+          res.json({
+            success: true,
+            alreadyAbsent: true,
+            message: `Custom redirect "${normalizedFrom}" was already absent`,
+          });
           return;
         }
 
@@ -1520,8 +1574,11 @@ export function registerAdminRoutes(app: Express): void {
         });
 
         if (loaded.redirects.length === originalLength) {
-          res.status(404).json({
-            error: `Redirect "${normalizedFrom}" not found in custom-redirects.yml`,
+          afterRedirectWrite(res, sourceFile);
+          res.json({
+            success: true,
+            alreadyAbsent: true,
+            message: `Custom redirect "${normalizedFrom}" was already absent`,
           });
           return;
         }
@@ -1556,9 +1613,13 @@ export function registerAdminRoutes(app: Express): void {
 
       const meta = parsed.meta as Record<string, unknown> | undefined;
       if (!meta || !Array.isArray(meta.redirects)) {
-        res
-          .status(404)
-          .json({ error: `No redirects found in "${sourceFile}"` });
+        // Idempotent: empty/missing redirects means the rule is already gone.
+        afterRedirectWrite(res, sourceFile);
+        res.json({
+          success: true,
+          alreadyAbsent: true,
+          message: `Redirect "${normalizedFrom}" was already absent from "${sourceFile}"`,
+        });
         return;
       }
 
@@ -1587,8 +1648,11 @@ export function registerAdminRoutes(app: Express): void {
       );
 
       if ((meta.redirects as unknown[]).length === originalLength) {
-        res.status(404).json({
-          error: `Redirect "${normalizedFrom}" not found in "${sourceFile}"`,
+        afterRedirectWrite(res, sourceFile);
+        res.json({
+          success: true,
+          alreadyAbsent: true,
+          message: `Redirect "${normalizedFrom}" was already absent from "${sourceFile}"`,
         });
         return;
       }
@@ -3321,6 +3385,32 @@ export function registerAdminRoutes(app: Express): void {
       return;
     }
     res.json({ ok: true });
+  });
+
+  /** MCP-only read/write access overlay (does not change CMS roles). */
+  app.put("/api/admin/users/:username/mcp-access", async (req, res) => {
+    const auth = await requireCapability(req, res, "users_manage");
+    if (!auth.authorized) return;
+    const { username } = req.params;
+    const { mcpReadEnabled, mcpWriteEnabled } = req.body ?? {};
+    if (mcpReadEnabled !== undefined && typeof mcpReadEnabled !== "boolean") {
+      res.status(400).json({ error: "mcpReadEnabled must be a boolean" });
+      return;
+    }
+    if (mcpWriteEnabled !== undefined && typeof mcpWriteEnabled !== "boolean") {
+      res.status(400).json({ error: "mcpWriteEnabled must be a boolean" });
+      return;
+    }
+    if (mcpReadEnabled === undefined && mcpWriteEnabled === undefined) {
+      res.status(400).json({ error: "Provide mcpReadEnabled and/or mcpWriteEnabled" });
+      return;
+    }
+    const result = userStore.setMcpAccess(username, { mcpReadEnabled, mcpWriteEnabled });
+    if (!result.ok) {
+      res.status(404).json({ error: result.error });
+      return;
+    }
+    res.json({ ok: true, ...result.access });
   });
 
   app.delete("/api/admin/users/:username", async (req, res) => {

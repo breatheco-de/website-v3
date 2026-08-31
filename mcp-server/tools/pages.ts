@@ -998,11 +998,13 @@ export function registerPageTools(
   // agent_session — start/note/summarize (pipeline audit events)
   mcp.tool(
     "agent_session",
+    "Prefer bootstrap_agent once per MCP run before start (Claude.ai / Grok / any connector). " +
     "Start, note, or summarize an agent content session for staff monitoring on Background Pipeline. " +
     "start returns agent_session_id — pass it on mutating tools. " +
     "note/summarize require agent_session_id + report (min 80 chars). " +
     "summarize closes the run for the staff banner (last summarize wins). " +
     "Reports are staff-readable: for copy you set, list plain values (Title: …); no JSON/YAML dumps. " +
+    "After writes, follow conversation conventions from bootstrap_agent (skill.content) for human-facing replies. " +
     "Does not write YAML. Prefer write/issue report for per-change notes; use summarize once at end.",
     {
       action: z.enum(["start", "note", "summarize"]).describe("start | note | summarize"),
@@ -1082,7 +1084,7 @@ export function registerPageTools(
             event_id: data.event_id ?? null,
             message:
               action === "start"
-                ? "Session started. Pass agent_session_id on mutating tools; call summarize when done."
+                ? "Session started. Prefer bootstrap_agent once per MCP run before start if you have not already. Pass agent_session_id on mutating tools; call summarize when done. Follow bootstrap conventions (skill.content) for human-facing replies."
                 : action === "summarize"
                   ? "Session summarized for staff banner."
                   : "Session note recorded.",

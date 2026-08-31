@@ -19,6 +19,7 @@ import { getDefaultContentRoot } from "../site-config";
 import { resolveComponentBehaviors } from "@shared/component-behaviors";
 import { buildProductFunnelJourney } from "../ecommerce/funnel-journey";
 import { FUNNEL_STAGES } from "@shared/funnel";
+import { api } from "../rate-limit/api.js";
 import { child } from "../logger";
 
 const log = child({ module: "routes/ecommerce" });
@@ -269,6 +270,48 @@ export function registerEcommerceRoutes(app: Express): void {
       res.status(500).json({ error: "Internal server error" });
     }
   });
+
+  api.get(
+    app,
+    "/api/ecommerce/funnel/:slug/analytics",
+    { rate: "publicRead" },
+    async (req, res) => {
+      const { requireCapability } = await import("./_helpers");
+      const auth = await requireCapability(req, res, "metrics_view");
+      if (!auth.authorized) return;
+
+      const parsed = slugSchema.safeParse(req.params);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid slug" });
+      }
+      const modeRaw = typeof req.query.mode === "string" ? req.query.mode : "page_performance";
+      const mode =
+        modeRaw === "stage_flow" ? ("stage_flow" as const) : ("page_performance" as const);
+      const daysRaw = typeof req.query.days === "string" ? Number(req.query.days) : 28;
+      const days = Number.isFinite(daysRaw) ? daysRaw : 28;
+
+      try {
+        const slug = parsed.data.slug;
+        const product =
+          ecommerceManager.findProductByCmsEntry("program", slug) ||
+          ecommerceManager.getAllProducts().find((p) => p.content_slug === slug);
+        if (!product) {
+          return res.status(404).json({ error: `No purchasable product for slug "${slug}"` });
+        }
+        const { getProductJourneyAnalytics } = await import("../ecommerce/journey-analytics");
+        const analytics = await getProductJourneyAnalytics({
+          productSlug: product.content_slug,
+          productContentType: product.content_type,
+          mode,
+          days,
+        });
+        res.json(analytics);
+      } catch (err) {
+        log.error({ err }, "[EcommerceRoutes] GET /api/ecommerce/funnel/:slug/analytics:");
+        res.status(500).json({ error: "Internal server error" });
+      }
+    },
+  );
 
   app.put("/api/ecommerce/funnel/:slug", (_req: Request, res: Response) => {
     res.status(410).json({

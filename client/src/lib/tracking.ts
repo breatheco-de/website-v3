@@ -155,6 +155,10 @@ export interface ConversionPayload {
   attribution_id?: string;
   referral_key?: string;
   program?: string;
+  /** Ecommerce product_id — dual-written when conversion product resolve succeeds */
+  item_id?: string;
+  /** Content slug for analytics — dual-written with item_id */
+  program_id?: string;
   plan?: string;
   location?: string;
   region?: string;
@@ -459,6 +463,8 @@ export type FormSubmissionTrackingData = {
   last_name?: string;
   phone?: string;
   program?: string;
+  item_id?: string;
+  program_id?: string;
   plan?: string;
   location?: string;
   region?: string;
@@ -494,6 +500,8 @@ export async function trackFormSubmission(
   setString("last_name", formData.last_name);
   setString("phone", formData.phone);
   setString("program", formData.program);
+  setString("item_id", formData.item_id);
+  setString("program_id", formData.program_id);
   setString("plan", formData.plan);
   setString("location", formData.location);
   setString("region", formData.region);

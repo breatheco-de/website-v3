@@ -90,5 +90,81 @@ export function registerEcommerceTools(
     },
   );
 
+  mcp.tool(
+    "get_product_funnel_analytics",
+    "Page performance (or stage_flow stub) for a purchasable product journey from GA4 BigQuery. " +
+      "Returns per-page sessions/views/CTAs, stage distinct sessions, shared vs product-specific session counts, " +
+      "and product-scoped conversions/ecommerce intent (item_id). Does not imply stage-to-stage flow. " +
+      "Requires content_view. Configure dataset at /private/tracking/bigquery.",
+    {
+      slug: z.string().describe("Product content slug, e.g. ai-fluency"),
+      mode: z
+        .enum(["page_performance", "stage_flow"])
+        .optional()
+        .describe("Default page_performance. stage_flow returns not_implemented."),
+      days: z.number().int().min(1).max(90).optional().describe("Lookback days ending yesterday (default 28)"),
+      site: z
+        .string()
+        .optional()
+        .describe("Site domain when multi-site. Always pass site when multiple sites are configured; call list_sites if unsure."),
+    },
+    async ({ slug, mode, days, site }) => {
+      const viewDenied = await denyUnlessContentView(mcpToken, undefined, grants);
+      if (viewDenied) return viewDenied;
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return fail(siteResult.error);
+      const domain = siteResult.domain;
+
+      try {
+        const params = new URLSearchParams();
+        params.set("mode", mode || "page_performance");
+        if (days) params.set("days", String(days));
+        if (domain) params.set("__site", domain);
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/ecommerce/funnel/${encodeURIComponent(slug)}/analytics?${params}`;
+        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const data = (await res.json()) as Record<string, unknown>;
+        if (!res.ok) {
+          return fail((data.error as string) || `Server error: ${res.status}`);
+        }
+        const warnings: Array<{ code: string; message: string }> = Array.isArray(data.warnings)
+          ? (data.warnings as Array<{ code: string; message: string }>)
+          : [];
+        if (data.status === "not_implemented") {
+          warnings.push({
+            code: "stage_flow_not_implemented",
+            message: "Use mode=page_performance for live metrics.",
+          });
+        }
+        warnings.push({
+          code: "no_stage_to_stage_flow",
+          message:
+            "Page performance metrics do not prove traffic moved from one funnel stage to the next.",
+        });
+        return ok(
+          {
+            message: `Journey analytics for ${slug} (${data.mode || mode || "page_performance"})`,
+            ...data,
+          },
+          {
+            warnings,
+            side_effects: [],
+            next_actions:
+              data.status === "unavailable"
+                ? [
+                    {
+                      tool: "explain_site",
+                      args: { topic: "ecommerce" },
+                      reason: "BigQuery may be unconfigured — check tracking.bigquery / staff /private/tracking/bigquery",
+                    },
+                  ]
+                : [],
+          },
+        );
+      } catch (e) {
+        return fail(`get_product_funnel_analytics failed: ${(e as Error).message}`);
+      }
+    },
+  );
+
   // update_product_funnel retired — membership is on page _common.yml (410 from API)
 }

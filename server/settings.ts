@@ -101,6 +101,25 @@ export interface TrackingWebhook {
   auth_header?: string;
 }
 
+/** GA4 BigQuery export connection (non-secret). Credentials via ADC / GOOGLE_APPLICATION_CREDENTIALS. */
+export interface TrackingBigQuerySettings {
+  enabled: boolean;
+  project_id: string;
+  dataset_id: string;
+  /** Query location, e.g. US or EU */
+  location: string;
+  /** Daily export table prefix (GA4 default events_) */
+  table_prefix: string;
+}
+
+export const DEFAULT_TRACKING_BIGQUERY: TrackingBigQuerySettings = {
+  enabled: false,
+  project_id: "",
+  dataset_id: "",
+  location: "US",
+  table_prefix: "events_",
+};
+
 export interface TrackingSettings {
   conversion_events: ConversionEventEntry[];
   webhook?: TrackingWebhook;
@@ -108,6 +127,31 @@ export interface TrackingSettings {
   leads_expected_conversion_names?: string[];
   /** Allowlist of expected ActiveCampaign tags for the Leads diagnostics (empty = warning disabled). */
   leads_expected_tags?: string[];
+  bigquery: TrackingBigQuerySettings;
+}
+
+export function parseTrackingBigQuerySettings(
+  raw: unknown,
+  defaults: TrackingBigQuerySettings = DEFAULT_TRACKING_BIGQUERY,
+): TrackingBigQuerySettings {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ...defaults };
+  }
+  const o = raw as Record<string, unknown>;
+  const prefix =
+    typeof o.table_prefix === "string" && o.table_prefix.trim()
+      ? o.table_prefix.trim()
+      : defaults.table_prefix;
+  return {
+    enabled: typeof o.enabled === "boolean" ? o.enabled : defaults.enabled,
+    project_id: typeof o.project_id === "string" ? o.project_id.trim() : defaults.project_id,
+    dataset_id: typeof o.dataset_id === "string" ? o.dataset_id.trim() : defaults.dataset_id,
+    location:
+      typeof o.location === "string" && o.location.trim()
+        ? o.location.trim()
+        : defaults.location,
+    table_prefix: prefix.endsWith("_") ? prefix : `${prefix}_`,
+  };
 }
 
 /** GET | POST | PUT for auth API endpoints */
@@ -518,6 +562,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
     },
     tracking: {
       conversion_events: [],
+      bigquery: { ...DEFAULT_TRACKING_BIGQUERY },
     },
     robots: { ...DEFAULT_ROBOTS_SETTINGS },
     search_console: { ...DEFAULT_SEARCH_CONSOLE_SETTINGS },
@@ -666,6 +711,10 @@ function loadSettings(contentRoot?: string): SiteSettings {
               .map((t) => t.trim()),
           }
         : {}),
+      bigquery: parseTrackingBigQuerySettings(
+        trackingRaw?.bigquery,
+        defaults.tracking.bigquery,
+      ),
     };
 
     const robotsRaw = parsed.robots as Record<string, unknown> | undefined;
@@ -1327,6 +1376,7 @@ export function updateTrackingSettings(input: {
   webhook?: { url: string; method?: string; auth_header?: string } | null;
   leads_expected_conversion_names?: string[];
   leads_expected_tags?: string[];
+  bigquery?: Partial<TrackingBigQuerySettings>;
 }, contentRoot?: string): void {
   if (input.conversion_events !== undefined && !Array.isArray(input.conversion_events)) {
     throw new Error("conversion_events must be an array");
@@ -1419,6 +1469,30 @@ export function updateTrackingSettings(input: {
       .map((t) => t.trim());
     if (cleaned.length > 0) nextTracking.leads_expected_tags = cleaned;
     else delete nextTracking.leads_expected_tags;
+  }
+
+  if (input.bigquery !== undefined) {
+    const currentBq = parseTrackingBigQuerySettings(
+      currentTracking.bigquery,
+      DEFAULT_TRACKING_BIGQUERY,
+    );
+    const merged = parseTrackingBigQuerySettings(
+      { ...currentBq, ...input.bigquery },
+      DEFAULT_TRACKING_BIGQUERY,
+    );
+    if (merged.enabled && (!merged.project_id || !merged.dataset_id)) {
+      throw new Error("bigquery.project_id and bigquery.dataset_id are required when enabled");
+    }
+    if (merged.table_prefix && /[^a-zA-Z0-9_]/.test(merged.table_prefix.replace(/_$/, ""))) {
+      throw new Error("bigquery.table_prefix must be alphanumeric/underscore (e.g. events_)");
+    }
+    nextTracking.bigquery = {
+      enabled: merged.enabled,
+      project_id: merged.project_id,
+      dataset_id: merged.dataset_id,
+      location: merged.location,
+      table_prefix: merged.table_prefix,
+    };
   }
 
   existing.tracking = nextTracking;

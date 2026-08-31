@@ -10,6 +10,8 @@ An MCP (Model Context Protocol) server that gives Claude read and write access t
 
 **Role-scoped connectors:** use `/mcp/role/:roleId` (e.g. `/mcp/role/seo_manager`) for a focused tool list. The caller must be **assigned** that CMS role (strict). Catalog and capability checks use that role’s capabilities only. Unknown role → 404; not assigned → 403. Multi-role paths are not supported — use plain `/mcp` for the union of all your roles. OAuth consent shows the role description and tool list; pass `mcp_role` (or a `resource` URL containing `/mcp/role/…`) into `/oauth/authorize`. `get_current_user` returns `active_role`, `role_label`, and `role_description`. Reconnect the host after role or tool-list changes.
 
+**Per-user MCP read/write:** Security → Users has **MCP read** and **MCP write** toggles (independent of CMS roles). Read off → `/mcp` returns 403 even with a valid token. Read on + write off → view/explain tools only (`content_view`, `metrics_view`, `read_redirects`); mutate tools are hidden and `checkCap` denies writes. `get_current_user` returns `mcp_read_enabled` / `mcp_write_enabled`. Missing flags default to both on. CMS login via `/api/debug/validate-token` is unchanged.
+
 **Shared-layout / `single_template`:** shell lives in `template.{locale}.yml` (legacy `single.*` still loads); create with `create_entry`, locale fields (e.g. `content`), and `sections: []`. See `explain_site` topic `shared-layout`. Call `get_content_type_info` before creating when unsure (`db_backed` vs `single_template`, `create_via`).
 
 ## Mutating response envelope
@@ -34,7 +36,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 |---|---|
 | `list_sites` | Configured domains + content folders (`sites.yml`) |
 | `explain_site` | Architecture playbooks + live per-site catalogs (conversion_events, CRM tags, locales). Pass `site`. |
-| `get_agent_changelog` | Recent MCP/agent-facing changes (6-day window). Call at session start; does not refresh host tool list. |
+| `bootstrap_agent` | Call once near the start of an MCP content run (Claude.ai / Grok / connectors). Returns technical playbook + conversation conventions (`skill.content` on first call) + 6-day changelog. Later calls: `include_skill_content: false` / `known_skill_version`. Does not refresh host tool list. |
 | `list_entries` | List YAML (non-DB) entries with slug, content type, locales, title, urls |
 | `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, strategy, observed URL-param values, create_via, body_model, template_vars_note |
 | `get_entry_content` | Merged entry content without meta/SEO |

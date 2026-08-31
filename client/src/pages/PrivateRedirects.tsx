@@ -34,6 +34,7 @@ import { useToast } from "@/hooks/use-toast";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 import {
   RedirectConflictResolverModal,
+  ensureContentApiSourcePath,
   parseRedirectConflict,
   useRedirectConflictResolver,
 } from "@/components/RedirectConflictResolver";
@@ -232,6 +233,12 @@ function removeFromFileLabel(
 
 export default function PrivateRedirects() {
   const formatPath = useFormatSitePath();
+  const { data: siteInfo } = useQuery<{ contentFolder: string }>({
+    queryKey: ["/api/site/info"],
+  });
+  const contentPathOptions = siteInfo?.contentFolder
+    ? { contentFolder: siteInfo.contentFolder }
+    : undefined;
   const { hasCapability } = useDebugAuth();
   const canEditRedirects = hasCapability("edit_redirects");
   const [search, setSearch] = useState("");
@@ -379,19 +386,28 @@ export default function PrivateRedirects() {
 
     setIsDeleting(true);
     try {
-      await apiRequest("DELETE", "/api/debug/redirects", {
+      const res = await apiRequest("DELETE", "/api/debug/redirects", {
         from: target.from,
         source: target.source,
         author: getDebugUserName(),
       });
+      const result = (await res.json()) as {
+        success?: boolean;
+        alreadyAbsent?: boolean;
+        message?: string;
+      };
 
       if (dontAskAgainDelete) {
         setSkipDeleteConfirmUntil(Date.now() + SKIP_DELETE_CONFIRM_MS);
       }
 
       toast({
-        title: "Redirect deleted",
-        description: `${target.from} has been removed`,
+        title: result.alreadyAbsent ? "Already removed" : "Redirect deleted",
+        description:
+          result.message ??
+          (result.alreadyAbsent
+            ? `${target.from} was already absent`
+            : `${target.from} has been removed`),
       });
 
       setDeletingRedirect(null);
@@ -438,11 +454,14 @@ export default function PrivateRedirects() {
     try {
       const res = await apiRequest("DELETE", "/api/debug/redirects", {
         from: redirectUrl,
-        source,
+        source: ensureContentApiSourcePath(source, contentPathOptions),
         author: getDebugUserName(),
       });
       const data = await res.json();
-      toast({ title: "Removed", description: data.message || `Removed from ${source}` });
+      toast({
+        title: data.alreadyAbsent ? "Already removed" : "Removed",
+        description: data.message || `Removed from ${source}`,
+      });
       removeIssueFromValidation(redirectUrl);
       queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
     } catch (err) {
@@ -463,7 +482,7 @@ export default function PrivateRedirects() {
       for (const source of files) {
         await apiRequest("DELETE", "/api/debug/redirects", {
           from: redirectUrl,
-          source,
+          source: ensureContentApiSourcePath(source, contentPathOptions),
           author: getDebugUserName(),
         });
       }
@@ -1034,7 +1053,7 @@ export default function PrivateRedirects() {
                 ) : (
                   <>
                     {validationResult.errors.map((issue, i) => {
-                      const conflict = parseRedirectConflict(issue);
+                      const conflict = parseRedirectConflict(issue, contentPathOptions);
                       return (
                         <div
                           key={`err-${i}`}
@@ -1114,7 +1133,7 @@ export default function PrivateRedirects() {
                       );
                     })}
                     {validationResult.warnings.map((issue, i) => {
-                      const conflict = parseRedirectConflict(issue);
+                      const conflict = parseRedirectConflict(issue, contentPathOptions);
                       return (
                         <div
                           key={`warn-${i}`}

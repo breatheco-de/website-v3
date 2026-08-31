@@ -232,7 +232,7 @@ export function registerAuthRoutes(app: Express): void {
 
     const isDevelopment = process.env.NODE_ENV !== "production";
     // Role-scoped checks always evaluate against the role (even in development).
-    // Unscoped checks keep the legacy "allow all" behaviour in development.
+    // Unscoped checks keep the legacy "allow all" behaviour in development (2A).
     if (isDevelopment && !role) {
       res.json({ allowed: true });
       return;
@@ -247,10 +247,12 @@ export function registerAuthRoutes(app: Express): void {
     }
 
     let resolvedUsername: string | null = username || null;
+    let isMcpInternal = false;
 
     // Support both MCP_SERVER_SECRET (new name) and MCP_API_KEY (legacy alias)
     const mcpApiKey = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY;
     if (mcpApiKey && bearerToken === mcpApiKey) {
+      isMcpInternal = true;
       // Trusted internal call from the MCP server — username must be supplied explicitly
       if (!resolvedUsername) {
         res.status(400).json({ error: "username query parameter required when authenticating with the API key" });
@@ -266,13 +268,25 @@ export function registerAuthRoutes(app: Express): void {
       resolvedUsername = profile.username;
     }
 
+    // MCP-only read/write overlay (CMS sessions use role caps without this).
+    if (isMcpInternal && resolvedUsername) {
+      const mcpAccess = userStore.getMcpAccess(resolvedUsername);
+      if (!userStore.mcpAccessAllowsCapability(mcpAccess, cap)) {
+        const reason = !mcpAccess.mcpReadEnabled
+          ? "MCP read access is disabled for this user"
+          : "MCP write access is disabled for this user";
+        res.status(403).json({ error: reason, allowed: false });
+        return;
+      }
+    }
+
     if (role) {
       const roleDef = userStore.getRole(role);
       if (!roleDef) {
         res.status(404).json({ error: `Unknown role '${role}'`, allowed: false });
         return;
       }
-      if (!userStore.userHasRole(resolvedUsername, role)) {
+      if (!userStore.userHasRole(resolvedUsername!, role)) {
         res.status(403).json({
           error: `Forbidden: you are not assigned the role '${role}'`,
           allowed: false,
@@ -280,7 +294,7 @@ export function registerAuthRoutes(app: Express): void {
         return;
       }
       const allowed = userStore.hasCapabilityInRole(
-        resolvedUsername,
+        resolvedUsername!,
         role,
         cap as CapabilityName,
         contentType || undefined,
@@ -297,7 +311,7 @@ export function registerAuthRoutes(app: Express): void {
       return;
     }
 
-    const allowed = userStore.hasCapability(resolvedUsername, cap as CapabilityName, contentType || undefined);
+    const allowed = userStore.hasCapability(resolvedUsername!, cap as CapabilityName, contentType || undefined);
     if (!allowed) {
       const scopeMsg = contentType ? ` for content type '${contentType}'` : "";
       res.status(403).json({ error: `Forbidden: capability '${cap}' required${scopeMsg}`, allowed: false });
@@ -376,12 +390,24 @@ export function registerAuthRoutes(app: Express): void {
       return;
     }
 
+    const mcpAccess = userStore.getMcpAccess(username);
+    if (!mcpAccess.mcpReadEnabled) {
+      res.status(403).json({
+        error: "MCP read access is disabled for this user. Ask an administrator to enable MCP read on Security → Users.",
+      });
+      return;
+    }
+
+    const capabilities = userStore.applyMcpAccessToGrants(roleDef.capabilities ?? [], mcpAccess);
+
     res.json({
       roleId: role,
       label: roleDef.label,
       description: roleDef.description ?? "",
-      capabilities: roleDef.capabilities,
-      allowedTools: allowedToolNames(roleDef.capabilities ?? []),
+      capabilities,
+      allowedTools: allowedToolNames(capabilities),
+      mcp_read_enabled: mcpAccess.mcpReadEnabled,
+      mcp_write_enabled: mcpAccess.mcpWriteEnabled,
     });
   });
 
@@ -455,6 +481,7 @@ export function registerAuthRoutes(app: Express): void {
 
   // Internal loopback: return identity + roles + capabilities for an authenticated MCP caller.
   // Accepts the same trusted-internal auth pattern as /api/auth/check-capability.
+  // Capabilities are MCP-overlayed (read/write flags); CMS validate-token is unchanged.
   app.get("/api/auth/user-info", async (req, res) => {
     const { username } = req.query as Record<string, string>;
 
@@ -462,13 +489,16 @@ export function registerAuthRoutes(app: Express): void {
     if (isDevelopment) {
       const devUser = username || "dev.user";
       const devRecord = userStore.getUser(devUser);
+      const mcpAccess = userStore.getMcpAccess(devUser);
       res.json({
         username: devUser,
         firstName: devRecord?.firstName ?? "Dev",
         lastName: devRecord?.lastName ?? "User",
         email: devRecord?.email ?? "dev@localhost",
         roles: devRecord?.roles ?? ["webmaster"],
-        capabilities: userStore.getEffectiveCapabilities(devUser),
+        capabilities: userStore.getMcpEffectiveCapabilities(devUser),
+        mcp_read_enabled: mcpAccess.mcpReadEnabled,
+        mcp_write_enabled: mcpAccess.mcpWriteEnabled,
       });
       return;
     }
@@ -504,13 +534,16 @@ export function registerAuthRoutes(app: Express): void {
       return;
     }
 
+    const mcpAccess = userStore.getMcpAccess(resolvedUsername);
     res.json({
       username: record.username,
       firstName: record.firstName ?? "",
       lastName: record.lastName ?? "",
       email: record.email ?? "",
       roles: record.roles,
-      capabilities: userStore.getEffectiveCapabilities(resolvedUsername),
+      capabilities: userStore.getMcpEffectiveCapabilities(resolvedUsername),
+      mcp_read_enabled: mcpAccess.mcpReadEnabled,
+      mcp_write_enabled: mcpAccess.mcpWriteEnabled,
     });
   });
 

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  ensureContentApiSourcePath,
   extractRedirectClaimantPaths,
   keepInFileLabel,
   parseRedirectConflict,
   stripLiveRedirectLabel,
 } from "./RedirectConflictResolver";
+
+const SITE = { contentFolder: "site_4geeks-com" };
 
 describe("stripLiveRedirectLabel", () => {
   it("strips (live) suffix", () => {
@@ -17,14 +20,14 @@ describe("stripLiveRedirectLabel", () => {
 });
 
 describe("extractRedirectClaimantPaths", () => {
-  it("parses current validator labels with (live) suffix", () => {
+  it("parses current validator labels with (live) suffix and prefixes site folder", () => {
     const message =
       'Redirect conflict: "/bootcamp/ai" is claimed by both ' +
       '"programs/ai-engineering/en.yml (live)" and ' +
       '"programs/ai-engineering-devs/en.yml (live)"';
-    expect(extractRedirectClaimantPaths(message)).toEqual([
-      "programs/ai-engineering/en.yml",
-      "programs/ai-engineering-devs/en.yml",
+    expect(extractRedirectClaimantPaths(message, SITE)).toEqual([
+      "site_4geeks-com/programs/ai-engineering/en.yml",
+      "site_4geeks-com/programs/ai-engineering-devs/en.yml",
     ]);
   });
 
@@ -66,21 +69,62 @@ describe("extractRedirectClaimantPaths", () => {
   });
 });
 
+describe("ensureContentApiSourcePath", () => {
+  it("prefixes display paths with contentFolder for API deletes", () => {
+    expect(ensureContentApiSourcePath("programs/ai/en.yml", SITE)).toBe(
+      "site_4geeks-com/programs/ai/en.yml",
+    );
+  });
+
+  it("leaves already-prefixed paths unchanged", () => {
+    expect(
+      ensureContentApiSourcePath("site_4geeks-com/programs/ai/en.yml", SITE),
+    ).toBe("site_4geeks-com/programs/ai/en.yml");
+  });
+
+  it("remaps legacy marketing-content paths to the active site folder", () => {
+    expect(
+      ensureContentApiSourcePath(
+        "marketing-content/programs/ai-engineering-devs/en.yml",
+        SITE,
+      ),
+    ).toBe("site_4geeks-com/programs/ai-engineering-devs/en.yml");
+    expect(
+      ensureContentApiSourcePath(
+        "/home/runner/workspace/marketing-content/programs/ai-engineering/en.yml",
+        SITE,
+      ),
+    ).toBe("site_4geeks-com/programs/ai-engineering/en.yml");
+  });
+
+  it("does not nest marketing-content under site_*", () => {
+    expect(
+      ensureContentApiSourcePath(
+        "site_4geeks-com/marketing-content/programs/ai/en.yml",
+        SITE,
+      ),
+    ).toBe("site_4geeks-com/programs/ai/en.yml");
+  });
+});
+
 describe("parseRedirectConflict", () => {
-  it("returns both distinct files for current REDIRECT_CONFLICT messages", () => {
-    const info = parseRedirectConflict({
-      type: "error",
-      code: "REDIRECT_CONFLICT",
-      message:
-        'Redirect conflict: "/bootcamp/ai" is claimed by both ' +
-        '"programs/ai-engineering/en.yml (live)" and ' +
-        '"programs/ai-engineering-devs/en.yml (live)"',
-      file: "site_4geeks-com/programs/ai-engineering/en.yml",
-    });
+  it("returns both site-prefixed files for current REDIRECT_CONFLICT messages", () => {
+    const info = parseRedirectConflict(
+      {
+        type: "error",
+        code: "REDIRECT_CONFLICT",
+        message:
+          'Redirect conflict: "/bootcamp/ai" is claimed by both ' +
+          '"programs/ai-engineering/en.yml (live)" and ' +
+          '"programs/ai-engineering-devs/en.yml (live)"',
+        file: "site_4geeks-com/programs/ai-engineering/en.yml",
+      },
+      SITE,
+    );
     expect(info?.redirectUrl).toBe("/bootcamp/ai");
     expect(info?.files).toEqual([
       "site_4geeks-com/programs/ai-engineering/en.yml",
-      "programs/ai-engineering-devs/en.yml",
+      "site_4geeks-com/programs/ai-engineering-devs/en.yml",
     ]);
   });
 
@@ -101,17 +145,21 @@ describe("parseRedirectConflict", () => {
   });
 
   it("parses REDIRECT_OVERLAP claimants with (live) labels", () => {
-    const info = parseRedirectConflict({
-      type: "warning",
-      code: "REDIRECT_OVERLAP",
-      message:
-        'Redirect "/x" exists in both "programs/foo/_common.yml (live)" and "programs/foo/en.yml (live)"',
-      file: "site_4geeks-com/programs/foo/en.yml",
-    });
+    const info = parseRedirectConflict(
+      {
+        type: "warning",
+        code: "REDIRECT_OVERLAP",
+        message:
+          'Redirect "/x" exists in both "programs/foo/_common.yml (live)" and "programs/foo/en.yml (live)"',
+        file: "site_4geeks-com/programs/foo/en.yml",
+      },
+      SITE,
+    );
     expect(info?.files.map((f) => formatSitePathForTest(f))).toEqual([
       "programs/foo/_common.yml",
       "programs/foo/en.yml",
     ]);
+    expect(info?.files.every((f) => f.startsWith("site_4geeks-com/"))).toBe(true);
   });
 });
 

@@ -109,6 +109,18 @@ The following conversion events are tracked and should be configured as GA4 conv
 
 All conversion events include `visitor_id` in the dataLayer push.
 
+### Product identity on conversions (`item_id`)
+
+Lead forms may set `ecommerce_product_field` (default `program`) — the submit field used to resolve ecommerce product identity. Resolution uses page `funnel.products` (same rules as ecommerce tracking) and the product map (`_ecommerce.yml`).
+
+When resolve succeeds, the conversion dataLayer push **dual-writes**:
+
+- `program` — unchanged CRM / webhook value from the form
+- `item_id` — ecommerce `product_id` (same as `trackEcommerce`)
+- `program_id` — content slug
+
+GTM must register `item_id` (and ideally `program_id`) as GA4 event parameters on conversion tags so BigQuery exports include them. If the user pick is outside the page funnel, CRM still receives `program` but analytics `item_id` is omitted.
+
 ## General Tracking Events
 
 | Event Name            | Description                        |

@@ -36,6 +36,7 @@ import {
 import { warnMcpBucketParity } from "./lib/bucket-parity.js";
 import {
   fetchCallerGrants,
+  fetchMcpAccess,
   fetchRoleContext,
   fetchRoleInfo,
   runInMcpSession,
@@ -315,8 +316,26 @@ async function authMiddleware(
   const bearerToken =
     typeof authHeader === "string" ? authHeader.replace(/^Bearer\s+/i, "").trim() : "";
 
+  const denyMcpReadDisabled = () => {
+    res.status(403).json({
+      error:
+        "MCP access is disabled for this user. Ask an administrator to enable MCP read on Security → Users.",
+    });
+  };
+
+  const ensureMcpRead = async (username: string): Promise<boolean> => {
+    const access = await fetchMcpAccess(username);
+    if (!access.mcpReadEnabled) {
+      denyMcpReadDisabled();
+      return false;
+    }
+    return true;
+  };
+
   // Path 1: valid OAuth access token (issued by this server's /oauth/token endpoint)
   if (bearerToken && validateToken(bearerToken)) {
+    const username = getTokenUsername(bearerToken);
+    if (username && !(await ensureMcpRead(username))) return;
     next();
     return;
   }
@@ -332,6 +351,7 @@ async function authMiddleware(
     const cachedUsername = getCachedBreathecodeUsername(candidate);
     if (cachedUsername) {
       console.log(`[MCP] OAuth: using cached Breathecode token for ${cachedUsername}`);
+      if (!(await ensureMcpRead(cachedUsername))) return;
       next();
       return;
     }
@@ -342,6 +362,7 @@ async function authMiddleware(
       // getTokenUsername() works in checkCap() and the /mcp handler, and
       // so subsequent requests hit the cache instead of the network.
       registerBreathecodeToken(candidate, validation.username);
+      if (!(await ensureMcpRead(validation.username))) return;
       next();
       return;
     }

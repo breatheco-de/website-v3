@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSitePath, formatSitePathsInText } from "./formatSitePath";
+import { formatSitePath, formatSitePathsInText, toContentFileRef } from "./formatSitePath";
 
 describe("formatSitePath", () => {
   it("strips absolute path under site folder", () => {
@@ -53,6 +53,30 @@ describe("formatSitePath", () => {
         knownSiteFolders: ["custom-folder"],
       }),
     ).toBe("pages/en.yml");
+  });
+});
+
+describe("toContentFileRef", () => {
+  it("remaps marketing-content to the active contentFolder", () => {
+    expect(
+      toContentFileRef("marketing-content/programs/ai-engineering-devs/en.yml", {
+        contentFolder: "site_4geeks-com",
+      }),
+    ).toBe("site_4geeks-com/programs/ai-engineering-devs/en.yml");
+  });
+
+  it("collapses nested site_*/marketing-content paths", () => {
+    expect(
+      toContentFileRef("site_4geeks-com/marketing-content/programs/ai/en.yml", {
+        contentFolder: "site_4geeks-com",
+      }),
+    ).toBe("site_4geeks-com/programs/ai/en.yml");
+  });
+
+  it("prefixes display paths with contentFolder", () => {
+    expect(
+      toContentFileRef("programs/ai/en.yml", { contentFolder: "site_4geeks-com" }),
+    ).toBe("site_4geeks-com/programs/ai/en.yml");
   });
 });
 

@@ -21,7 +21,13 @@ import { useSession, useLocation as useSessionLocation, useUTM } from "@/context
 import { useSectionContext } from "@/contexts/SectionContext";
 import { apiRequest, apiFetch } from "@/lib/queryClient";
 import type { Country } from "react-phone-number-input";
-import { trackFormSubmission, resolveWebhook, hashEmail, type ConversionName, type TrackingSettingsResponse } from "@/lib/tracking";
+import { trackFormSubmission, resolveWebhook, hashEmail, getEcommerceProductLookup, type ConversionName, type TrackingSettingsResponse } from "@/lib/tracking";
+import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
+import { usePageFunnel } from "@/contexts/PageFunnelContext";
+import {
+  DEFAULT_ECOMMERCE_PRODUCT_FIELD,
+  resolveConversionProduct,
+} from "@shared/resolveConversionProduct";
 import { resolveFormDefaults } from "@shared/resolveFormDefaults";
 import { resolveConsentCopy, extraConsentYamlFieldsFromObject, consentKeyFromYamlField, isBlankConsentHtml, parseConsentSettingsResponse, shouldShowFallbackConsent } from "@shared/consent-settings";
 import { RichTextContent } from "@/components/ui/rich-text-content";
@@ -164,6 +170,11 @@ interface FieldConfig {
 export interface LeadFormData {
   variant?: "stacked" | "inline";
   conversion_name?: ConversionName;
+  /**
+   * Submit field that supplies ecommerce product identity for analytics (item_id).
+   * Default "program". Scoped by page funnel.products when set.
+   */
+  ecommerce_product_field?: string;
   /** Signup mode: guests are registered via site auth settings; logged-in users skip known fields. */
   is_signup?: boolean;
   /** @deprecated Prefer `fields.plan.default`. Legacy fallback when fields.plan is omitted. */
@@ -642,6 +653,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const landingLocations = undefined as string[] | undefined;
   const { slug, contentType, singleEntry } = useSectionContext();
   const programContext = contentType === "program" ? slug : undefined;
+  const pageFunnel = usePageFunnel();
   const { t, i18n } = useTranslation();
   const locale = i18n.language === "es" ? "es" : "en";
   const { session, setConversionPage } = useSession();
@@ -1435,6 +1447,30 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         );
       }
       if (effective.conversion_name) {
+        await ensureEcommerceProductLookup();
+        const productField =
+          (typeof data.ecommerce_product_field === "string" && data.ecommerce_product_field.trim()) ||
+          DEFAULT_ECOMMERCE_PRODUCT_FIELD;
+        const fieldRaw = (fields as Record<string, unknown>)[productField];
+        const fieldValue =
+          typeof fieldRaw === "string"
+            ? fieldRaw
+            : typeof fields.program === "string"
+              ? fields.program
+              : "";
+        const resolvedProduct = resolveConversionProduct({
+          funnel: pageFunnel,
+          contentType,
+          contentSlug: slug,
+          fieldValue,
+          productLookup: getEcommerceProductLookup(),
+        });
+        if (!resolvedProduct.ok) {
+          console.warn(
+            `[LeadForm] ecommerce product not resolved for analytics (${resolvedProduct.reason}). CRM program unchanged.`,
+            { productField, fieldValue },
+          );
+        }
         await trackFormSubmission(
           effective.conversion_name,
           {
@@ -1443,6 +1479,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             last_name: variables.last_name,
             phone: variables.phone,
             program: fields.program,
+            ...(resolvedProduct.ok
+              ? { item_id: resolvedProduct.item_id, program_id: resolvedProduct.program_id }
+              : {}),
             plan: fields.plan,
             location: fields.location,
             region: fields.region,

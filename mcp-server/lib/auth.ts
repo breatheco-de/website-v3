@@ -77,6 +77,38 @@ export async function fetchCallerGrants(mcpToken: string): Promise<CatalogGrant[
   }
 }
 
+export interface McpAccessFlags {
+  mcpReadEnabled: boolean;
+  mcpWriteEnabled: boolean;
+}
+
+/**
+ * Fetch MCP read/write flags for a username via main-app user-info.
+ * Fails closed (read disabled) on network/auth errors so a down CMS cannot
+ * leave MCP open when flags cannot be verified.
+ */
+export async function fetchMcpAccess(username: string): Promise<McpAccessFlags> {
+  try {
+    const params = new URLSearchParams({ username });
+    const url = `http://localhost:${MAIN_SERVER_PORT}/api/auth/user-info?${params}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${MCP_SERVER_SECRET}` },
+    });
+    if (!res.ok) {
+      return { mcpReadEnabled: false, mcpWriteEnabled: false };
+    }
+    const data = (await res.json()) as {
+      mcp_read_enabled?: boolean;
+      mcp_write_enabled?: boolean;
+    };
+    const mcpReadEnabled = data.mcp_read_enabled !== false;
+    const mcpWriteEnabled = mcpReadEnabled && data.mcp_write_enabled !== false;
+    return { mcpReadEnabled, mcpWriteEnabled };
+  } catch {
+    return { mcpReadEnabled: false, mcpWriteEnabled: false };
+  }
+}
+
 export interface McpRoleContext {
   roleId: string;
   label: string;

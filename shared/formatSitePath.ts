@@ -94,6 +94,10 @@ export function formatSitePath(filePath: string, options?: FormatSitePathOptions
 /**
  * Normalize a file path to cwd-relative form including the site folder prefix.
  * Suitable for API calls that resolve via path.resolve(process.cwd(), sourceFile).
+ *
+ * When `contentFolder` is set, legacy roots (`marketing-content`, `4geeks-com`,
+ * `content`) and other site_* folders are remapped to that active folder so
+ * API deletes do not look for site_X/marketing-content/...
  */
 export function toContentFileRef(filePath: string, options?: FormatSitePathOptions): string {
   if (!filePath) return filePath;
@@ -101,16 +105,35 @@ export function toContentFileRef(filePath: string, options?: FormatSitePathOptio
   const normalized = normalizeSlashes(filePath);
   const knownSiteFolders = options?.knownSiteFolders ?? [];
   const segments = normalized.split("/").filter(Boolean);
+  const folder = options?.contentFolder?.replace(/\/+$/, "") || null;
 
   const detectedIndex = findSiteFolderIndex(segments, knownSiteFolders);
   if (detectedIndex >= 0) {
-    return segments.slice(detectedIndex).join("/");
+    const detectedFolder = segments[detectedIndex]!;
+    let restSegments = segments.slice(detectedIndex + 1);
+    // Collapse accidental site_*/marketing-content/... nests from bad joins.
+    const nested = restSegments[0];
+    if (
+      nested &&
+      LEGACY_SITE_FOLDERS.has(nested) &&
+      nested !== folder &&
+      nested !== detectedFolder
+    ) {
+      restSegments = restSegments.slice(1);
+    }
+    const rest = restSegments.join("/");
+    if (folder && detectedFolder !== folder) {
+      return rest ? `${folder}/${rest}` : folder;
+    }
+    return rest ? `${detectedFolder}/${rest}` : detectedFolder;
   }
 
-  if (options?.contentFolder) {
-    const folder = options.contentFolder.replace(/\/+$/, "");
+  if (folder) {
     const relative = formatSitePath(filePath, options);
     if (relative && relative !== basename(normalized)) {
+      return `${folder}/${relative}`;
+    }
+    if (relative && /\.ya?ml$/i.test(relative)) {
       return `${folder}/${relative}`;
     }
   }

@@ -232,7 +232,8 @@ export function resolveDynamicTags(content: string, contentPath: string): string
   );
 }
 
-import { buildAgentChangelogPayload } from "../lib/agent-changelog.js";
+import { buildBootstrapPayload } from "../lib/agent-changelog.js";
+import { ok } from "../lib/respond.js";
 
 // ─── Tool registration ────────────────────────────────────────────────────────
 
@@ -242,20 +243,55 @@ export function registerExplainTools(
   grants?: CatalogGrant[],
 ): void {
   mcp.tool(
-    "get_agent_changelog",
-    "Returns recent MCP / agent-facing platform changes (last 6 days). " +
-      "Call near the start of a content session or when behavior looks wrong. " +
+    "bootstrap_agent",
+    "Call once near the start of any Website MCP content run (Claude.ai, Grok, or any connector), " +
+      "before mutates or agent_session start. Returns: technical playbook, conversation conventions " +
+      "(skill.content on first call), and recent agent changelog (last 6 days). " +
+      "First call: omit params (or include_skill_content: true). " +
+      "Later calls in the same chat: include_skill_content: false and/or known_skill_version from the prior response " +
+      "(changelog + playbook still returned; conventions body omitted). " +
       "Does NOT refresh the host MCP tool list — if tools look missing/stale after a deploy, " +
-      "ask the human to refresh/reconnect the MCP connector (Cursor: refresh MCP server; Claude: reconnect). " +
-      "Requires content_view.",
-    {},
-    async () => {
+      "ask the human to refresh/reconnect the MCP connector. Requires content_view.",
+    {
+      include_skill_content: z
+        .boolean()
+        .optional()
+        .describe(
+          "Default true. When false, omit skill.content (conventions markdown). Pass false on later bootstraps in the same chat.",
+        ),
+      known_skill_version: z
+        .string()
+        .optional()
+        .describe(
+          "If equal to skill.version from a prior bootstrap, omit skill.content even when include_skill_content is true.",
+        ),
+    },
+    async ({ include_skill_content, known_skill_version }) => {
       const viewDenied = await denyUnlessContentView(mcpToken, undefined, grants);
       if (viewDenied) return viewDenied;
-      const payload = buildAgentChangelogPayload();
-      return {
-        content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
-      };
+      const payload = buildBootstrapPayload({
+        include_skill_content,
+        known_skill_version,
+      });
+      return ok(
+        {
+          ...payload,
+          message:
+            "Bootstrapped. Keep skill.content (when present) as standing conventions for this chat; " +
+            "call agent_session start next; pass agent_session_id + report on mutates.",
+        },
+        {
+          warnings: [],
+          next_actions: [
+            {
+              tool: "agent_session",
+              reason: "Start a content session; pass returned agent_session_id on mutates.",
+              priority: "recommended",
+              args_hint: { action: "start" },
+            },
+          ],
+        },
+      );
     },
   );
 

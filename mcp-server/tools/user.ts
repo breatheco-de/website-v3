@@ -29,9 +29,13 @@ export function registerUserTools(
     "get_current_user",
     "Return the identity, roles, effective capabilities, and allowed_tools of the authenticated MCP caller. " +
       "Useful for agents that need to understand who they are acting as and what operations they are permitted to perform. " +
-      "Returns: username, firstName, lastName, email, roles, capabilities, allowed_tools, active_role (null on /mcp; role id on /mcp/role/:id), role_description. " +
+      "Returns: username, firstName, lastName, email, roles, capabilities, allowed_tools, " +
+      "mcp_read_enabled, mcp_write_enabled (MCP-only overlay; CMS roles unchanged), " +
+      "active_role (null on /mcp; role id on /mcp/role/:id), role_description. " +
+      "When mcp_write_enabled is false, capabilities are view-only and mutate tools are absent from allowed_tools. " +
+      "When mcp_read_enabled is false, the connection is rejected before tools run. " +
       "Note: metrics_view is read-only (diagnostics/insights/error log/conversions/tracking); it does not authorize content edits or job runs. " +
-      "content_view authorizes YAML/component/explain reads only. Cursor's tool list updates on MCP reconnect/refresh after a role change.",
+      "content_view authorizes YAML/component/explain reads only. Cursor's tool list updates on MCP reconnect/refresh after a role or MCP-access change.",
     {},
     async () => {
       const username = mcpToken ? getTokenUsername(mcpToken) : null;
@@ -61,17 +65,25 @@ export function registerUserTools(
           };
         }
 
-        const profile = (await res.json()) as { capabilities?: CatalogGrant[] } & Record<string, unknown>;
+        const profile = (await res.json()) as {
+          capabilities?: CatalogGrant[];
+          mcp_read_enabled?: boolean;
+          mcp_write_enabled?: boolean;
+        } & Record<string, unknown>;
         const capGrants = Array.isArray(grants)
           ? grants
           : Array.isArray(profile.capabilities)
             ? profile.capabilities
             : [];
+        const mcpReadEnabled = profile.mcp_read_enabled !== false;
+        const mcpWriteEnabled = mcpReadEnabled && profile.mcp_write_enabled !== false;
         const payload = {
           ...profile,
           // Session grants win when role-scoped (do not re-expand to all user roles).
           capabilities: capGrants,
           allowed_tools: allowedToolNames(capGrants),
+          mcp_read_enabled: mcpReadEnabled,
+          mcp_write_enabled: mcpWriteEnabled,
           active_role: opts?.activeRoleId ?? null,
           role_label: opts?.roleLabel ?? null,
           role_description: opts?.roleDescription ?? null,

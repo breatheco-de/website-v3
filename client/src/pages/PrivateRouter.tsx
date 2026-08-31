@@ -139,6 +139,7 @@ export default function PrivateRouter() {
           <Route path="/private/store/conversions" component={ConversionsPage} />
           <Route path="/private/tracking/sgtm" component={TrackingPage} />
           <Route path="/private/tracking/ipn" component={TrackingPage} />
+          <Route path="/private/tracking/bigquery" component={TrackingPage} />
           <Route path="/private/tracking" component={TrackingPage} />
           <Route path="/private/security/roles" component={SecurityPage} />
           <Route path="/private/security/users" component={SecurityPage} />

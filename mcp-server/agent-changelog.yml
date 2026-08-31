@@ -1,10 +1,46 @@
-# MCP agent changelog — last 6 days are served by get_agent_changelog.
-# Append when changing MCP tools, explain docs, envelopes, or agent-facing contracts.
+# MCP agent changelog — last 6 days are served by bootstrap_agent.
+# Append when changing MCP tools, explain docs, envelopes, conventions, or agent-facing contracts.
 # See .cursor/rules/mcp-server-responses.mdc
 
 window_days: 6
 
 entries:
+  - date: "2026-08-31"
+    summary: "get_product_funnel_analytics — Page performance from GA4 BigQuery"
+    agent_impact:
+      - "New read tool get_product_funnel_analytics(slug, mode?, days?, site?) — per-page sessions/views/CTAs, stage distinct sessions, product item_id KPIs. Does not imply stage-to-stage flow."
+      - "mode=stage_flow returns not_implemented; use page_performance. Configure tracking.bigquery via staff /private/tracking/bigquery."
+      - "Conversions dual-write item_id when ecommerce_product_field + funnel resolve succeeds — prefer item_id over program for product KPIs."
+    paths:
+      - mcp-server/tools/ecommerce.ts
+      - shared/mcp-tool-catalog.ts
+      - mcp-server/explain/ecommerce.md
+      - mcp-server/explain/lead-forms.md
+    tools_changed: true
+  - date: "2026-08-31"
+    summary: "Per-user MCP read/write access overlay (Security → Users)"
+    agent_impact:
+      - "get_current_user returns mcp_read_enabled and mcp_write_enabled. CMS roles are unchanged; these flags only affect MCP."
+      - "When mcp_write_enabled is false, capabilities are view-only (content_view / metrics_view / read_redirects) and mutate tools are absent from allowed_tools — guide/explain only."
+      - "When mcp_read_enabled is false, /mcp requests are rejected (403). Reconnect after an admin changes your MCP access."
+    paths:
+      - mcp-server/tools/user.ts
+      - mcp-server/lib/auth.ts
+      - server/user-store.ts
+    tools_changed: false
+  - date: "2026-08-31"
+    summary: "bootstrap_agent replaces get_agent_changelog (playbook + conventions + changelog)"
+    agent_impact:
+      - "Call bootstrap_agent once near the start of an MCP content run (Claude.ai / Grok / connectors). First call: empty args → playbook + skill.content (mcp-server/agent-conventions.md) + 6-day changelog."
+      - "Later calls: include_skill_content:false and/or known_skill_version — changelog and playbook still returned; conventions body omitted. Then agent_session start; pass agent_session_id + report on mutates."
+      - "get_agent_changelog removed — reconnect/refresh the MCP connector so tools/list updates."
+    paths:
+      - mcp-server/tools/explain.ts
+      - mcp-server/lib/mcp-playbook.ts
+      - mcp-server/lib/agent-changelog.ts
+      - mcp-server/agent-conventions.md
+      - shared/mcp-tool-catalog.ts
+    tools_changed: true
   - date: "2026-08-29"
     summary: "Validation cache staleness: verified complete, 1-min on-save debounce, scoped diagnostics without confirm"
     agent_impact:

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, DownloadCloud, ExternalLink, FileText, Globe, Info, Loader2, MoreVertical, Network, Plus, Star, Unlink } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, DownloadCloud, ExternalLink, FileText, Globe, Info, Loader2, MoreVertical, Network, Plus, Star, Unlink } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -1330,15 +1330,18 @@ function ClusterMemberRow({
   member,
   hubPillarUrl,
   hubId,
+  clusters,
   gscConfigured,
 }: {
   member: ClusterMember;
   hubPillarUrl: string;
   hubId: string;
+  clusters: SeoOverview["clusters"];
   gscConfigured?: boolean;
 }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const [changeOpen, setChangeOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
   const { data, isLoading, isError, error } = useQuery<ClusterEntryInfo>({
@@ -1427,6 +1430,13 @@ function ClusterMemberRow({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                data-testid={`button-cluster-change-${member.slug}`}
+                onSelect={() => setChangeOpen(true)}
+              >
+                <ArrowRightLeft className="h-3.5 w-3.5" />
+                Change cluster
+              </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 data-testid={`button-cluster-remove-${member.slug}`}
@@ -1527,6 +1537,22 @@ function ClusterMemberRow({
         </PopoverContent>
       </Popover>
 
+      <AssignClusterDialog
+        open={changeOpen}
+        onOpenChange={setChangeOpen}
+        entry={member}
+        clusters={clusters}
+        excludePillarUrl={hubPillarUrl}
+        title="Change cluster"
+        descriptionPrefix="Pick a new hub"
+        successTitle="Moved to cluster"
+        testIdPrefix="cluster-change"
+        onAssigned={() => {
+          invalidateClusterQueries(hubId);
+          setOpen(false);
+        }}
+      />
+
       <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
         <AlertDialogContent data-testid={`dialog-cluster-remove-${member.slug}`}>
           <AlertDialogHeader>
@@ -1556,24 +1582,43 @@ function ClusterMemberRow({
   );
 }
 
-function OrphanAssignButton({
-  orphan,
+function AssignClusterDialog({
+  open,
+  onOpenChange,
+  entry,
   clusters,
+  excludePillarUrl,
+  title,
+  descriptionPrefix,
+  successTitle,
+  testIdPrefix,
+  onAssigned,
 }: {
-  orphan: { slug: string; contentType: string; locale?: string };
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  entry: { slug: string; contentType: string; locale?: string };
   clusters: SeoOverview["clusters"];
+  excludePillarUrl?: string;
+  title: string;
+  descriptionPrefix: string;
+  successTitle: string;
+  testIdPrefix: string;
+  onAssigned?: () => void;
 }) {
   const { toast } = useToast();
-  const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const locale = orphan.locale || "en";
-  const hubs = clusters.filter((c) => (c.locale || "en") === locale);
+  const locale = entry.locale || "en";
+  const hubs = clusters.filter(
+    (c) =>
+      (c.locale || "en") === locale &&
+      (!excludePillarUrl || c.pillarUrl !== excludePillarUrl),
+  );
 
   const assignToHub = async (pillarUrl: string) => {
-    if (!orphan.contentType || !orphan.slug) {
+    if (!entry.contentType || !entry.slug) {
       toast({
         title: "Missing entry metadata",
-        description: "This orphan row is missing content type or slug.",
+        description: "This page is missing content type or slug.",
         variant: "destructive",
       });
       return;
@@ -1581,17 +1626,17 @@ function OrphanAssignButton({
     setSaving(true);
     try {
       await putSeoPillarPath({
-        contentType: orphan.contentType,
-        slug: orphan.slug,
+        contentType: entry.contentType,
+        slug: entry.slug,
         locale,
         pillarPath: pillarUrl,
       });
       toast({
-        title: "Assigned to cluster",
+        title: successTitle,
         description: "Pending Cloud Sync — seo.pillar_path was updated.",
       });
-      invalidateClusterQueries();
-      setOpen(false);
+      onAssigned?.();
+      onOpenChange(false);
     } catch (err) {
       toast({
         title: "Could not assign cluster",
@@ -1604,6 +1649,67 @@ function OrphanAssignButton({
   };
 
   return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="max-w-sm bg-background text-foreground"
+        data-testid={`dialog-${testIdPrefix}-${entry.slug}`}
+      >
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            {descriptionPrefix} ({locale.toUpperCase()}) for{" "}
+            <span className="font-medium text-foreground">{deslugifyLabel(entry.slug)}</span>.
+          </DialogDescription>
+        </DialogHeader>
+        {hubs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {excludePillarUrl
+              ? "No other pillar hubs found for this locale."
+              : "No pillar hubs found for this locale."}
+          </p>
+        ) : (
+          <ScrollArea className="max-h-56">
+            <div className="space-y-1 pr-2">
+              {hubs.map((hub) => (
+                <button
+                  key={hub.hubId || hub.pillarUrl}
+                  type="button"
+                  disabled={saving}
+                  className="w-full text-left rounded-md border border-border px-2 py-1.5 text-xs hover:bg-muted/50 disabled:opacity-50"
+                  onClick={() => void assignToHub(hub.pillarUrl)}
+                  data-testid={`${testIdPrefix}-hub-option-${hub.hubId || hub.pillarUrl}`}
+                >
+                  <span className="font-medium block">
+                    {clusterListLabel(hub.keyword, hub.pillarUrl)}
+                  </span>
+                  <span className="font-mono text-[10px] text-muted-foreground truncate block">
+                    {hub.pillarUrl}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
+        )}
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancel
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function OrphanAssignButton({
+  orphan,
+  clusters,
+}: {
+  orphan: { slug: string; contentType: string; locale?: string };
+  clusters: SeoOverview["clusters"];
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
     <>
       <Button
         variant="outline"
@@ -1614,47 +1720,17 @@ function OrphanAssignButton({
       >
         Assign to cluster
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-sm bg-background text-foreground" data-testid={`dialog-orphan-assign-${orphan.slug}`}>
-          <DialogHeader>
-            <DialogTitle>Assign to cluster</DialogTitle>
-            <DialogDescription>
-              Pick a hub ({locale.toUpperCase()}) for{" "}
-              <span className="font-medium text-foreground">{deslugifyLabel(orphan.slug)}</span>.
-            </DialogDescription>
-          </DialogHeader>
-          {hubs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No pillar hubs found for this locale.</p>
-          ) : (
-            <ScrollArea className="max-h-56">
-              <div className="space-y-1 pr-2">
-                {hubs.map((hub) => (
-                  <button
-                    key={hub.hubId || hub.pillarUrl}
-                    type="button"
-                    disabled={saving}
-                    className="w-full text-left rounded-md border border-border px-2 py-1.5 text-xs hover:bg-muted/50 disabled:opacity-50"
-                    onClick={() => void assignToHub(hub.pillarUrl)}
-                    data-testid={`orphan-hub-option-${hub.hubId || hub.pillarUrl}`}
-                  >
-                    <span className="font-medium block">
-                      {clusterListLabel(hub.keyword, hub.pillarUrl)}
-                    </span>
-                    <span className="font-mono text-[10px] text-muted-foreground truncate block">
-                      {hub.pillarUrl}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </ScrollArea>
-          )}
-          <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={saving}>
-              Cancel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AssignClusterDialog
+        open={open}
+        onOpenChange={setOpen}
+        entry={orphan}
+        clusters={clusters}
+        title="Assign to cluster"
+        descriptionPrefix="Pick a hub"
+        successTitle="Assigned to cluster"
+        testIdPrefix="orphan-assign"
+        onAssigned={() => invalidateClusterQueries()}
+      />
     </>
   );
 }
@@ -2788,6 +2864,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                             member={member}
                             hubPillarUrl={cluster.pillarUrl}
                             hubId={hubId}
+                            clusters={data.clusters}
                             gscConfigured={gsc?.configured}
                           />
                         ))}

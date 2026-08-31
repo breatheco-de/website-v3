@@ -1,7 +1,7 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Check, Wrench, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { getApiErrorMessage } from "@/components/editing/AddRedirectDialog";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugUserName } from "@/hooks/useDebugAuth";
@@ -18,6 +19,7 @@ import {
   formatSitePathSpaced,
   isContentFilePath,
   toContentFileRef,
+  type FormatSitePathOptions,
 } from "@shared/formatSitePath";
 
 export interface RedirectConflictInfo {
@@ -53,50 +55,62 @@ export function stripLiveRedirectLabel(raw: string): string {
   return raw.replace(/\s*\(live\)\s*$/i, "").trim();
 }
 
-function normalizeClaimantRef(rawPath: string): string | null {
+function normalizeClaimantRef(
+  rawPath: string,
+  options?: FormatSitePathOptions,
+): string | null {
   const stripped = stripLiveRedirectLabel(rawPath);
   if (!stripped || !isContentFilePath(stripped)) return null;
-  return toContentFileRef(stripped);
+  return toContentFileRef(stripped, options);
+}
+
+function hasSiteFolderPrefix(ref: string): boolean {
+  return /(?:^|\/)(?:site_[^/]+|4geeks-com|content|marketing-content)\//.test(ref);
 }
 
 /** Dedupe by display path (after site folder); prefer site_-prefixed refs for API deletes. */
-function pushUniqueFile(files: string[], rawPath: string): void {
-  const ref = normalizeClaimantRef(rawPath);
+function pushUniqueFile(
+  files: string[],
+  rawPath: string,
+  options?: FormatSitePathOptions,
+): void {
+  const ref = normalizeClaimantRef(rawPath, options);
   if (!ref) return;
-  const display = formatSitePath(ref);
-  const existingIdx = files.findIndex((f) => formatSitePath(f) === display);
+  const display = formatSitePath(ref, options);
+  const existingIdx = files.findIndex((f) => formatSitePath(f, options) === display);
   if (existingIdx < 0) {
     files.push(ref);
     return;
   }
   const existing = files[existingIdx]!;
   // Prefer cwd-relative path that still includes the site folder prefix.
-  const refHasSite = /(?:^|\/)(?:site_[^/]+|4geeks-com|content|marketing-content)\//.test(ref);
-  const existingHasSite = /(?:^|\/)(?:site_[^/]+|4geeks-com|content|marketing-content)\//.test(existing);
-  if (refHasSite && !existingHasSite) {
+  if (hasSiteFolderPrefix(ref) && !hasSiteFolderPrefix(existing)) {
     files[existingIdx] = ref;
   }
 }
 
 /** Collect claimant file paths from a REDIRECT_CONFLICT / REDIRECT_OVERLAP message. */
-export function extractRedirectClaimantPaths(message: string): string[] {
+export function extractRedirectClaimantPaths(
+  message: string,
+  options?: FormatSitePathOptions,
+): string[] {
   const files: string[] = [];
 
   const claimed = message.match(/claimed by both "([^"]+)" and "([^"]+)"/);
   if (claimed) {
-    pushUniqueFile(files, claimed[1]!);
-    pushUniqueFile(files, claimed[2]!);
+    pushUniqueFile(files, claimed[1]!, options);
+    pushUniqueFile(files, claimed[2]!, options);
   }
 
   const existsInBoth = message.match(/exists in both "([^"]+)" and "([^"]+)"/);
   if (existsInBoth) {
-    pushUniqueFile(files, existsInBoth[1]!);
-    pushUniqueFile(files, existsInBoth[2]!);
+    pushUniqueFile(files, existsInBoth[1]!, options);
+    pushUniqueFile(files, existsInBoth[2]!, options);
   }
 
   const conflicts = message.match(/conflicts with "([^"]+)"/);
   if (conflicts) {
-    pushUniqueFile(files, conflicts[1]!);
+    pushUniqueFile(files, conflicts[1]!, options);
   }
 
   // Older absolute / site-prefixed messages (no " (live)" suffix).
@@ -104,7 +118,7 @@ export function extractRedirectClaimantPaths(message: string): string[] {
     const legacy = message.match(LEGACY_CONTENT_FILE_IN_MESSAGE_RE);
     if (legacy) {
       for (const m of legacy) {
-        pushUniqueFile(files, m.replace(/"/g, ""));
+        pushUniqueFile(files, m.replace(/"/g, ""), options);
       }
     }
   }
@@ -112,7 +126,25 @@ export function extractRedirectClaimantPaths(message: string): string[] {
   return files;
 }
 
-export function parseRedirectConflict(issue: ValidatorIssue): RedirectConflictInfo | null {
+/**
+ * Ensure a content path is cwd-relative with the *active* site folder prefix so
+ * DELETE /api/debug/redirects path.resolve(cwd, source) stays under content root.
+ * Validator / cache messages often use display paths or legacy roots
+ * (marketing-content/, 4geeks-com/) — those are remapped via toContentFileRef.
+ */
+export function ensureContentApiSourcePath(
+  filePath: string,
+  options?: FormatSitePathOptions,
+): string {
+  const stripped = stripLiveRedirectLabel(filePath);
+  if (!stripped) return filePath;
+  return toContentFileRef(stripped, options);
+}
+
+export function parseRedirectConflict(
+  issue: ValidatorIssue,
+  options?: FormatSitePathOptions,
+): RedirectConflictInfo | null {
   const codes = ["REDIRECT_CONFLICT", "REDIRECT_OVERLAP", "SELF_REDIRECT", "REDIRECT_OVERWRITES_CONTENT"];
   if (!codes.includes(issue.code)) return null;
 
@@ -122,29 +154,41 @@ export function parseRedirectConflict(issue: ValidatorIssue): RedirectConflictIn
   if (issue.code === "REDIRECT_CONFLICT" || issue.code === "REDIRECT_OVERLAP") {
     const urlMatch = issue.message.match(/"(\/[^"]*)"/);
     if (urlMatch) redirectUrl = urlMatch[1]!;
-    for (const f of extractRedirectClaimantPaths(issue.message)) {
+    for (const f of extractRedirectClaimantPaths(issue.message, options)) {
       if (!files.includes(f)) files.push(f);
     }
-    if (issue.file) pushUniqueFile(files, issue.file);
+    if (issue.file) pushUniqueFile(files, issue.file, options);
     if (issue.code === "REDIRECT_OVERLAP" && !files.some((f) => f.includes("_common.yml"))) {
       const localeFile = files.find((f) => !f.includes("_common.yml"));
       if (localeFile) {
         const dir = localeFile.substring(0, localeFile.lastIndexOf("/"));
-        if (dir) files.unshift(`${dir}/_common.yml`);
+        if (dir) {
+          pushUniqueFile(files, `${dir}/_common.yml`, options);
+          // Keep _common first for overlap UI.
+          const commonIdx = files.findIndex((f) => f.includes("_common.yml"));
+          if (commonIdx > 0) {
+            const [common] = files.splice(commonIdx, 1);
+            files.unshift(common!);
+          }
+        }
       }
     }
   } else if (issue.code === "SELF_REDIRECT") {
     const urlMatch = issue.message.match(/"(\/[^"]*)"/);
     if (urlMatch) redirectUrl = urlMatch[1]!;
-    if (issue.file) pushUniqueFile(files, issue.file);
+    if (issue.file) pushUniqueFile(files, issue.file, options);
   } else if (issue.code === "REDIRECT_OVERWRITES_CONTENT") {
     const urlMatch = issue.message.match(/"(\/[^"]*)"/);
     if (urlMatch) redirectUrl = urlMatch[1]!;
-    if (issue.file) pushUniqueFile(files, issue.file);
+    if (issue.file) pushUniqueFile(files, issue.file, options);
   }
 
   if (!redirectUrl) return null;
-  return { redirectUrl, files, code: issue.code };
+  return {
+    redirectUrl,
+    files: files.map((f) => ensureContentApiSourcePath(f, options)),
+    code: issue.code,
+  };
 }
 
 function getConflictTitle(code: string): string {
@@ -252,27 +296,41 @@ export function RedirectConflictResolverModal({
   const { toast } = useToast();
   const [resolving, setResolving] = useState(false);
   const [pendingAction, setPendingAction] = useState<{ fileToRemove: string; keepFile: string } | null>(null);
+  const { data: siteInfo } = useQuery<{ contentFolder: string }>({
+    queryKey: ["/api/site/info"],
+  });
+  const pathOptions: FormatSitePathOptions | undefined = siteInfo?.contentFolder
+    ? { contentFolder: siteInfo.contentFolder }
+    : undefined;
 
   const handleResolve = async (fileToRemoveFrom: string) => {
     if (!conflict) return;
     setResolving(true);
     try {
+      const source = ensureContentApiSourcePath(fileToRemoveFrom, pathOptions);
       const res = await apiRequest("DELETE", "/api/debug/redirects", {
         from: conflict.redirectUrl,
-        source: fileToRemoveFrom,
+        source,
         author: getDebugUserName(),
       });
       const result = await res.json();
       if (result.success) {
-        toast({ title: "Resolved", description: result.message });
+        toast({
+          title: result.alreadyAbsent ? "Already fixed" : "Resolved",
+          description: result.message,
+        });
         setPendingAction(null);
         onOpenChange(false);
         onResolved();
       } else {
         toast({ title: "Error", description: result.error || "Failed to resolve", variant: "destructive" });
       }
-    } catch {
-      toast({ title: "Error", description: "Failed to resolve conflict", variant: "destructive" });
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: getApiErrorMessage(err, "Failed to resolve conflict"),
+        variant: "destructive",
+      });
     } finally {
       setResolving(false);
     }
@@ -460,9 +518,15 @@ export function RedirectConflictResolverModal({
 export function useRedirectConflictResolver() {
   const [resolveModalOpen, setResolveModalOpen] = useState(false);
   const [activeConflict, setActiveConflict] = useState<RedirectConflictInfo | null>(null);
+  const { data: siteInfo } = useQuery<{ contentFolder: string }>({
+    queryKey: ["/api/site/info"],
+  });
 
   const openResolver = (issue: ValidatorIssue) => {
-    const conflict = parseRedirectConflict(issue);
+    const conflict = parseRedirectConflict(
+      issue,
+      siteInfo?.contentFolder ? { contentFolder: siteInfo.contentFolder } : undefined,
+    );
     if (conflict) {
       setActiveConflict(conflict);
       setResolveModalOpen(true);

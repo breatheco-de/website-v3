@@ -18,6 +18,7 @@ yaml: |
     form:
       variant: stacked
       conversion_name: student_application
+      ecommerce_product_field: program
       submit_label: Solicita más información
       tags: website-lead
       fields:

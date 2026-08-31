@@ -48,10 +48,11 @@ describe("allowedToolNames", () => {
     expect(names.has("get_entry_content")).toBe(true);
     expect(names.has("get_entry_seo")).toBe(true);
     expect(names.has("explain_site")).toBe(true);
-    expect(names.has("get_agent_changelog")).toBe(true);
+    expect(names.has("bootstrap_agent")).toBe(true);
     expect(names.has("list_components")).toBe(true);
     expect(names.has("create_component_section_demo")).toBe(true);
     expect(names.has("get_product_funnel")).toBe(true);
+    expect(names.has("get_product_funnel_analytics")).toBe(true);
     expect(names.has("get_or_set_image_to_gallery")).toBe(true);
     expect(names.has("update_fields")).toBe(false);
     expect(names.has("create_entry")).toBe(false);

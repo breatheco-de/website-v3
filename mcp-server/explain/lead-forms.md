@@ -38,6 +38,20 @@ source:
 - Do not write `relation`, `value`, `label`, `name`, or string shorthand.
 - Runtime does not guess mapping. Omit paths → MCP `actionRequired` (`source_value_label_path_required`). Confirm both paths with the user after `get_content_type_info` / `get_entry_content`.
 - `options[]` overlays marketing labels — **does not filter**.
+
+## `ecommerce_product_field`
+
+Which submit field resolves ecommerce product identity for GA (`item_id`):
+
+```yaml
+conversion_name: student_application
+ecommerce_product_field: program   # default; set explicitly on authored forms
+```
+
+- Default is `program` when omitted.
+- Page `funnel.products` limits which picks get analytics `item_id` (funnel wins).
+- Does **not** change CRM/webhook `program` values.
+- Topic `ecommerce` for product map / `item_id` alignment.
 - `slugs` is ignored when `source` is set.
 - EN and ES are separate files — no locale fan-out.
 

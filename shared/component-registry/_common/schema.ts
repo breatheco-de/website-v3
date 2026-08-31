@@ -155,6 +155,11 @@ export type WebhookConfig = z.infer<typeof webhookConfigSchema>;
 export const leadFormDataSchema = z.object({
   variant: z.enum(["stacked", "inline"]).optional(),
   conversion_name: z.string().optional(), // Tracking event name for conversions
+  /**
+   * Submit field name used to resolve ecommerce product identity for analytics (item_id).
+   * Default "program". Funnel.products scopes allowed values when set on the page.
+   */
+  ecommerce_product_field: z.string().optional(),
   title: z.string().optional(),
   subtitle: z.string().optional(),
   submit_label: z.string().optional(),

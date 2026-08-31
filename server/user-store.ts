@@ -66,6 +66,18 @@ export interface UserRecord {
   email?: string;
   lastLoginAt?: string;
   roles: string[];
+  /**
+   * MCP-only access overlay (CMS roles unchanged).
+   * Missing ⇒ both true. Write requires read (read off ⇒ write off).
+   */
+  mcpReadEnabled?: boolean;
+  mcpWriteEnabled?: boolean;
+}
+
+/** Normalized MCP access flags (defaults: both on; write implies read). */
+export interface McpAccess {
+  mcpReadEnabled: boolean;
+  mcpWriteEnabled: boolean;
 }
 
 export interface PendingUserRecord {
@@ -542,6 +554,8 @@ export function upsertUser(profile: {
     email: profile.email ?? existing?.email,
     lastLoginAt: new Date().toISOString(),
     roles: existing?.roles ? [...existing.roles] : [],
+    mcpReadEnabled: existing?.mcpReadEnabled,
+    mcpWriteEnabled: existing?.mcpWriteEnabled,
   };
   state.users[profile.username] = record;
   if (found && found.key !== profile.username) {
@@ -591,6 +605,82 @@ export function getOrCreateStaffUserId(username: string, email?: string): string
   state.users[found.key].id = id;
   save();
   return id;
+}
+
+/** Normalize raw/missing MCP flags. Missing ⇒ both true; write requires read. */
+export function normalizeMcpAccess(
+  user?: Pick<UserRecord, "mcpReadEnabled" | "mcpWriteEnabled"> | null,
+): McpAccess {
+  const mcpReadEnabled = user?.mcpReadEnabled !== false;
+  const mcpWriteEnabled = mcpReadEnabled && user?.mcpWriteEnabled !== false;
+  return { mcpReadEnabled, mcpWriteEnabled };
+}
+
+/** MCP access for a staff identity (defaults when user missing: both on). */
+export function getMcpAccess(username: string, email?: string): McpAccess {
+  ensureLoaded();
+  const found = findUserEntry(username, email);
+  return normalizeMcpAccess(found?.user ?? null);
+}
+
+/**
+ * Persist MCP read/write flags. Write is forced off when read is off.
+ */
+export function setMcpAccess(
+  username: string,
+  flags: { mcpReadEnabled?: boolean; mcpWriteEnabled?: boolean },
+  email?: string,
+): { ok: boolean; error?: string; access?: McpAccess } {
+  ensureLoaded();
+  const found = findUserEntry(username, email);
+  if (!found) return { ok: false, error: "User not found" };
+
+  const current = normalizeMcpAccess(found.user);
+  const mcpReadEnabled =
+    flags.mcpReadEnabled !== undefined ? flags.mcpReadEnabled : current.mcpReadEnabled;
+  let mcpWriteEnabled =
+    flags.mcpWriteEnabled !== undefined ? flags.mcpWriteEnabled : current.mcpWriteEnabled;
+  if (!mcpReadEnabled) mcpWriteEnabled = false;
+
+  state.users[found.key].mcpReadEnabled = mcpReadEnabled;
+  state.users[found.key].mcpWriteEnabled = mcpWriteEnabled;
+  save();
+  return { ok: true, access: { mcpReadEnabled, mcpWriteEnabled } };
+}
+
+/** Apply MCP access overlay to a grant list (view-only intersect when write off). */
+export function applyMcpAccessToGrants(
+  grants: CapabilityGrant[],
+  access: McpAccess,
+): CapabilityGrant[] {
+  if (!access.mcpReadEnabled) return [];
+  if (!access.mcpWriteEnabled) {
+    return grants.filter((g) => VIEW_ONLY_CAPABILITIES.has(g.name));
+  }
+  return grants;
+}
+
+/**
+ * True when MCP may use this capability under the user's MCP access overlay.
+ * Read off ⇒ false. Write off ⇒ only VIEW_ONLY_CAPABILITIES.
+ */
+export function mcpAccessAllowsCapability(access: McpAccess, capName: string): boolean {
+  if (!access.mcpReadEnabled) return false;
+  if (!access.mcpWriteEnabled) {
+    return VIEW_ONLY_CAPABILITIES.has(capName as CapabilityName);
+  }
+  return true;
+}
+
+/**
+ * Role-union capabilities after MCP read/write overlay.
+ * Used by MCP user-info / catalog — not by CMS validate-token.
+ */
+export function getMcpEffectiveCapabilities(username: string, email?: string): CapabilityGrant[] {
+  return applyMcpAccessToGrants(
+    getEffectiveCapabilities(username, email),
+    getMcpAccess(username, email),
+  );
 }
 
 /**

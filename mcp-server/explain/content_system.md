@@ -229,9 +229,11 @@ Staff: delete confirm modal and Runtime 404 **CMS links** column show derived re
 
 ## Agent sessions and reports
 
-- Start with `agent_session` (`start`) → pass `agent_session_id` on every content mutate (header `x-mcp-agent-session` via loopback).
+- Call `bootstrap_agent` once near the start of an MCP content run (Claude.ai, Grok, or any connector). First call: omit params → playbook + conversation conventions (`skill.content` from `mcp-server/agent-conventions.md`) + 6-day changelog. Later calls: `include_skill_content: false` and/or `known_skill_version` matching `skill.version` (changelog + playbook still returned).
+- Then `agent_session` (`start`) → pass `agent_session_id` on every content mutate (header `x-mcp-agent-session` via loopback).
 - Every high-impact content mutate requires `report` (min 80 characters): what changed and why for this write.
 - **Staff-readable values:** when you set copy or structured text (titles, subtitles, CTA, success messages, blurbs), list the **plain new values** inline (`Title: …; Subtitle: …`). Do not paste JSON/YAML dumps or only name tools/field paths.
+- **Human-facing replies:** follow conventions from `bootstrap_agent` `skill.content` (e.g. markdown links to modified pages + `?force_variant=` for drafts).
 - `update_issue` claim (first): `report` = why you are claiming + plan (min 80). Own TTL refresh may omit. Complete: `report` = what you changed and how, including plain values for copy you set (min 80).
 - Prefer one `summarize` at the end; staff also see an auto banner from write/issue events on Background Pipeline.
 - Omit `agent_session_id` → warning `agent_session_unscoped` (staff **Unscoped**). Bulk sync never gets a session id.

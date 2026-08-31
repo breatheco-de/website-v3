@@ -26,9 +26,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ContentTypeScopeBar } from "@/components/capabilities/ContentTypeScopeBar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -88,6 +90,15 @@ interface UserRecord {
   email?: string;
   lastLoginAt?: string;
   roles: string[];
+  /** Missing ⇒ true (MCP overlay; CMS roles unchanged). */
+  mcpReadEnabled?: boolean;
+  mcpWriteEnabled?: boolean;
+}
+
+function normalizeUserMcpAccess(user: UserRecord): { mcpReadEnabled: boolean; mcpWriteEnabled: boolean } {
+  const mcpReadEnabled = user.mcpReadEnabled !== false;
+  const mcpWriteEnabled = mcpReadEnabled && user.mcpWriteEnabled !== false;
+  return { mcpReadEnabled, mcpWriteEnabled };
 }
 
 interface PendingUserRecord {
@@ -158,102 +169,6 @@ function withAutoContentView(
   return updated;
 }
 
-interface ContentTypeEntry {
-  name: string;
-  label: string;
-}
-
-function ContentTypeSelector({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const { data: contentTypesData } = useQuery<ContentTypeEntry[]>({
-    queryKey: ["/api/content-types"],
-  });
-
-  const contentTypes = contentTypesData ?? [];
-  const selected = value.trim()
-    ? value.split(",").map((s) => s.trim()).filter(Boolean)
-    : [];
-  const isAll = selected.length === 0;
-
-  function toggleAll() {
-    onChange("");
-  }
-
-  function toggleType(name: string) {
-    if (isAll) {
-      onChange(name);
-    } else if (selected.includes(name)) {
-      const next = selected.filter((t) => t !== name);
-      onChange(next.join(", "));
-    } else {
-      onChange([...selected, name].join(", "));
-    }
-  }
-
-  const displayLabel = isAll
-    ? "All content types"
-    : selected.length === 1
-    ? (contentTypes.find((ct) => ct.name === selected[0])?.label ?? selected[0])
-    : `${selected.length} content types`;
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className="text-xs h-7 justify-between w-full font-normal"
-          data-testid="button-ct-selector"
-        >
-          <span className="truncate">{displayLabel}</span>
-          <IconChevronDown className="h-3 w-3 ml-1 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="p-2 w-64" align="start">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-2 px-1 py-1 rounded-sm hover-elevate cursor-pointer">
-            <Checkbox
-              checked={isAll}
-              onCheckedChange={toggleAll}
-              id="ct-all"
-              data-testid="checkbox-ct-all"
-            />
-            <label htmlFor="ct-all" className="text-xs cursor-pointer font-medium flex-1">
-              All content types
-            </label>
-          </div>
-          {contentTypes.length > 0 && <div className="border-t my-1" />}
-          {contentTypes.map((ct) => (
-            <div
-              key={ct.name}
-              className="flex items-center gap-2 px-1 py-1 rounded-sm hover-elevate cursor-pointer"
-            >
-              <Checkbox
-                checked={!isAll && selected.includes(ct.name)}
-                onCheckedChange={() => toggleType(ct.name)}
-                id={`ct-${ct.name}`}
-                data-testid={`checkbox-ct-${ct.name}`}
-              />
-              <label htmlFor={`ct-${ct.name}`} className="text-xs cursor-pointer flex-1 min-w-0">
-                <span className="block truncate">{ct.label}</span>
-                <span className="block text-muted-foreground font-mono">{ct.name}</span>
-              </label>
-            </div>
-          ))}
-          {contentTypes.length === 0 && (
-            <p className="text-xs text-muted-foreground px-1 py-1">Loading content types…</p>
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 function capGrantsFromFormState(map: Record<string, CapabilityFormState>): CapabilityGrant[] {
   return Object.entries(map)
     .filter(([, v]) => v.enabled)
@@ -319,35 +234,19 @@ function CapabilityFields({
               )}
             </div>
             {cap.scoped && state.enabled && (
-              <div className="ml-6 flex items-center gap-2">
-                <div className="flex-1 min-w-0">
-                  <ContentTypeSelector
-                    value={state.contentTypes}
-                    onChange={(v) =>
-                      onChange(withAutoContentView(caps, cap.name, { ...state, contentTypes: v }))
-                    }
-                  />
-                </div>
-                {syncFromName && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs h-7 shrink-0 px-2"
-                    onClick={() => {
-                      const from = caps[syncFromName] ?? { enabled: false, contentTypes: "" };
-                      onChange(
-                        withAutoContentView(caps, cap.name, {
-                          ...state,
-                          contentTypes: from.contentTypes,
-                        }),
-                      );
-                    }}
-                    data-testid={`button-sync-ct-${cap.name}`}
-                  >
-                    {"<- Match with above cap."}
-                  </Button>
-                )}
+              <div className="ml-6">
+                <ContentTypeScopeBar
+                  value={state.contentTypes}
+                  onChange={(v) =>
+                    onChange(withAutoContentView(caps, cap.name, { ...state, contentTypes: v }))
+                  }
+                  sameAsValue={
+                    syncFromName != null
+                      ? (caps[syncFromName] ?? { enabled: false, contentTypes: "" }).contentTypes
+                      : null
+                  }
+                  testId={`scope-ct-${cap.name}`}
+                />
               </div>
             )}
           </div>
@@ -1096,6 +995,8 @@ function UsersTab() {
   const [assigningEmail, setAssigningEmail] = useState<string | null>(null);
   const [assignTargetUsername, setAssignTargetUsername] = useState("");
   const [assignSaving, setAssignSaving] = useState(false);
+  const [mcpAccessSaving, setMcpAccessSaving] = useState<string | null>(null);
+  const [mcpAdvancedOpen, setMcpAdvancedOpen] = useState(false);
 
   const allRoles = rolesData ? Object.entries(rolesData) : [];
   const allUsers = users ?? [];
@@ -1104,6 +1005,26 @@ function UsersTab() {
     setEditingUser(user.username);
     setEditingUsername(user.username);
     setUserRoles([...user.roles]);
+  }
+
+  async function saveMcpAccess(
+    username: string,
+    flags: { mcpReadEnabled?: boolean; mcpWriteEnabled?: boolean },
+  ) {
+    setMcpAccessSaving(username);
+    try {
+      const res = await apiRequest("PUT", `/api/admin/users/${encodeURIComponent(username)}/mcp-access`, flags);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to update MCP access");
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "MCP access updated" });
+    } catch (err: any) {
+      toast({ title: "Failed to update MCP access", description: err.message, variant: "destructive" });
+    } finally {
+      setMcpAccessSaving(null);
+    }
   }
 
   async function saveUserRoles(originalUsername: string) {
@@ -1356,15 +1277,50 @@ function UsersTab() {
       {allUsers.length > 0 && (
         <div className="space-y-2">
           {pending.length > 0 && <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Active</p>}
-          {allUsers.map((user) => (
+          <div className="rounded-md border bg-muted/40 px-3 py-2 space-y-1.5">
+            <p className="text-xs text-muted-foreground">
+              MCP read lets agents look up and explain content. MCP write lets agents change content.
+              These toggles do not change what the person can do in the CMS.
+            </p>
+            <Collapsible open={mcpAdvancedOpen} onOpenChange={setMcpAdvancedOpen}>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-auto px-0 py-0 text-xs text-muted-foreground hover:text-foreground">
+                  {mcpAdvancedOpen ? "Hide advanced details" : "Read more (advanced)"}
+                  <IconChevronDown className={`h-3.5 w-3.5 ml-1 transition-transform ${mcpAdvancedOpen ? "rotate-180" : ""}`} />
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-1 space-y-1 text-xs text-muted-foreground">
+                <p>
+                  Write-off keeps only view capabilities for MCP: <code className="font-mono text-[11px]">content_view</code>,{" "}
+                  <code className="font-mono text-[11px]">metrics_view</code>,{" "}
+                  <code className="font-mono text-[11px]">read_redirects</code>.
+                </p>
+                <p>Enforced on MCP requests via the server secret; CMS login and roles are unchanged. Missing flags default to both on.</p>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+          {allUsers.map((user) => {
+            const { mcpReadEnabled, mcpWriteEnabled } = normalizeUserMcpAccess(user);
+            const mcpBusy = mcpAccessSaving === user.username;
+            return (
             <Card key={user.username} data-testid={`card-user-${user.username}`}>
               <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
                 <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium">
                       {[user.firstName, user.lastName].filter(Boolean).join(" ") || user.username}
                     </span>
                     <code className="text-xs font-mono text-muted-foreground">{user.username}</code>
+                    {!mcpReadEnabled && (
+                      <Badge variant="outline" className="text-xs" data-testid={`badge-mcp-off-${user.username}`}>
+                        MCP off
+                      </Badge>
+                    )}
+                    {mcpReadEnabled && !mcpWriteEnabled && (
+                      <Badge variant="secondary" className="text-xs" data-testid={`badge-mcp-read-only-${user.username}`}>
+                        MCP read only
+                      </Badge>
+                    )}
                   </div>
                   {user.email && (
                     <p className="text-xs text-muted-foreground">{user.email}</p>
@@ -1400,7 +1356,7 @@ function UsersTab() {
                   </Button>
                 )}
               </CardHeader>
-              <CardContent className="pt-0">
+              <CardContent className="pt-0 space-y-3">
                 {editingUser === user.username ? (
                   <div className="flex flex-col gap-3">
                     <div className="flex flex-col gap-1">
@@ -1458,9 +1414,54 @@ function UsersTab() {
                     )}
                   </div>
                 )}
+                <div className="flex flex-col gap-2 border-t pt-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <label htmlFor={`mcp-read-${user.username}`} className="text-xs font-medium cursor-pointer inline-flex items-center gap-1.5">
+                      Allow using MCP to
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-semibold uppercase tracking-wide">
+                        read
+                      </Badge>
+                      data
+                    </label>
+                    <Switch
+                      id={`mcp-read-${user.username}`}
+                      checked={mcpReadEnabled}
+                      disabled={mcpBusy}
+                      onCheckedChange={(checked) =>
+                        saveMcpAccess(user.username, {
+                          mcpReadEnabled: checked,
+                          ...(checked ? {} : { mcpWriteEnabled: false }),
+                        })
+                      }
+                      data-testid={`switch-mcp-read-${user.username}`}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <label
+                      htmlFor={`mcp-write-${user.username}`}
+                      className={`text-xs font-medium inline-flex items-center gap-1.5 ${mcpReadEnabled ? "cursor-pointer" : "text-muted-foreground"}`}
+                    >
+                      Allow using MCP to
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-semibold uppercase tracking-wide">
+                        write
+                      </Badge>
+                      data
+                    </label>
+                    <Switch
+                      id={`mcp-write-${user.username}`}
+                      checked={mcpWriteEnabled}
+                      disabled={mcpBusy || !mcpReadEnabled}
+                      onCheckedChange={(checked) =>
+                        saveMcpAccess(user.username, { mcpWriteEnabled: checked })
+                      }
+                      data-testid={`switch-mcp-write-${user.username}`}
+                    />
+                  </div>
+                </div>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
 
