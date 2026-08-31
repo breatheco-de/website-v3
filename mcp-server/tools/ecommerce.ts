@@ -93,7 +93,8 @@ export function registerEcommerceTools(
   mcp.tool(
     "get_product_funnel_analytics",
     "Page performance (or stage_flow stub) for a purchasable product journey from GA4 BigQuery. " +
-      "Returns per-page sessions/views/CTAs, stage distinct sessions, shared vs product-specific session counts, " +
+      "Returns per-page sessions/views plus path-scoped lead conversions and ecommerce intent " +
+      "(same event set on every stage), stage distinct sessions, shared vs product-specific session counts, " +
       "and product-scoped conversions/ecommerce intent (item_id). Does not imply stage-to-stage flow. " +
       "Requires content_view. Configure dataset at /private/tracking/bigquery.",
     {

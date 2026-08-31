@@ -33,10 +33,18 @@ const ECOMMERCE_INTENT_EVENTS = [
   "click_begin_checkout",
 ] as const;
 
+/** Events counted for per-page + product lead conversions (keep UI popovers in sync). */
+export const JOURNEY_LEAD_CONVERSION_EVENTS = LEAD_CONVERSION_EVENTS;
+/** Events counted for per-page + product ecommerce intent (keep UI popovers in sync). */
+export const JOURNEY_ECOMMERCE_INTENT_EVENTS = ECOMMERCE_INTENT_EVENTS;
+
 export type PagePathMetrics = {
   sessions: number;
   views: number;
-  cta_clicks: number;
+  /** Path-scoped lead conversions for this product (same event set on every stage). */
+  conversions: number;
+  /** Path-scoped ecommerce intent for this product (same event set on every stage). */
+  ecommerce_intent: number;
 };
 
 export type JourneyAnalyticsWarning = {
@@ -89,7 +97,11 @@ export type JourneyAnalyticsResult =
       message: string;
     };
 
-/** Normalize a URL or path to a pathname without trailing slash (except root). */
+/**
+ * Normalize a URL or path to a pathname without trailing slash (except root).
+ * Does not rewrite locale prefixes — those come from content-type `url_pattern`s
+ * via `contentIndex.getAlternateUrls` → `collectPaths`.
+ */
 export function normalizeAnalyticsPath(raw: string): string {
   let s = (raw || "").trim();
   if (!s) return "";
@@ -107,6 +119,37 @@ export function normalizeAnalyticsPath(raw: string): string {
   if (!s.startsWith("/")) s = `/${s}`;
   if (s.length > 1 && s.endsWith("/")) s = s.slice(0, -1);
   return s;
+}
+
+/**
+ * BigQuery expression: event_params → pathname (no origin), trailing slash stripped.
+ * Prefer GA4 `page_path` when present; otherwise extract path from `page_location`.
+ * Locale segments are left as-is so they match content-type URL patterns.
+ */
+function bqNormalizedPagePathSql(): string {
+  return `REGEXP_REPLACE(
+            COALESCE(
+              NULLIF(
+                (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_path'),
+                ''
+              ),
+              REGEXP_EXTRACT(
+                (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location'),
+                r'^https?://[^/?#]+([^?#]*)'
+              ),
+              REGEXP_REPLACE(
+                COALESCE(
+                  (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location'),
+                  ''
+                ),
+                r'[?#].*$',
+                ''
+              ),
+              ''
+            ),
+            r'/+$',
+            ''
+          )`;
 }
 
 function collectPaths(row: JourneyPageRow): string[] {
@@ -264,6 +307,8 @@ export async function getProductJourneyAnalytics(opts: {
   const warnings: JourneyAnalyticsWarning[] = [];
 
   try {
+    const pagePathExpr = bqNormalizedPagePathSql();
+
     const pathMetricsSql = `
       WITH params AS (
         SELECT @start_date AS start_date, @end_date AS end_date
@@ -273,38 +318,48 @@ export async function getProductJourneyAnalytics(opts: {
           user_pseudo_id,
           (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS ga_session_id,
           event_name,
-          REGEXP_REPLACE(
-            REGEXP_REPLACE(
-              COALESCE(
-                (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location'),
-                (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_path'),
-                ''
-              ),
-              r'[?#].*$', ''
-            ),
-            r'/+$', ''
-          ) AS page_path
+          ${pagePathExpr} AS page_path,
+          (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'item_id') AS item_id,
+          (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'program_id') AS program_id,
+          (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'program') AS program
         FROM ${eventsTable}, params
         WHERE _TABLE_SUFFIX BETWEEN FORMAT_DATE('%Y%m%d', DATE(params.start_date))
           AND FORMAT_DATE('%Y%m%d', DATE(params.end_date))
-          AND event_name IN ('page_view', 'cta_click')
+          AND event_name IN UNNEST(@traffic_and_action_events)
       ),
       cleaned AS (
         SELECT
           user_pseudo_id,
           ga_session_id,
           event_name,
+          item_id,
+          program_id,
+          program,
           CASE WHEN page_path = '' THEN '/' ELSE page_path END AS page_path
         FROM base
         WHERE page_path IS NOT NULL AND page_path != ''
           AND page_path IN UNNEST(@paths)
+      ),
+      with_product AS (
+        SELECT
+          *,
+          (
+            @has_product_ids
+            AND (
+              item_id IN UNNEST(@ids)
+              OR program_id IN UNNEST(@ids)
+              OR program IN UNNEST(@ids)
+            )
+          ) AS matches_product
+        FROM cleaned
       )
       SELECT
         page_path,
         COUNTIF(event_name = 'page_view') AS views,
         COUNT(DISTINCT IF(event_name = 'page_view', CONCAT(user_pseudo_id, '-', CAST(ga_session_id AS STRING)), NULL)) AS sessions,
-        COUNTIF(event_name = 'cta_click') AS cta_clicks
-      FROM cleaned
+        COUNTIF(event_name IN UNNEST(@lead_events) AND matches_product) AS conversions,
+        COUNTIF(event_name IN UNNEST(@ecommerce_events) AND matches_product) AS ecommerce_intent
+      FROM with_product
       GROUP BY page_path
     `;
 
@@ -316,17 +371,7 @@ export async function getProductJourneyAnalytics(opts: {
         SELECT
           user_pseudo_id,
           (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS ga_session_id,
-          REGEXP_REPLACE(
-            REGEXP_REPLACE(
-              COALESCE(
-                (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location'),
-                (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_path'),
-                ''
-              ),
-              r'[?#].*$', ''
-            ),
-            r'/+$', ''
-          ) AS page_path
+          ${pagePathExpr} AS page_path
         FROM ${eventsTable}, params
         WHERE _TABLE_SUFFIX BETWEEN FORMAT_DATE('%Y%m%d', DATE(params.start_date))
           AND FORMAT_DATE('%Y%m%d', DATE(params.end_date))
@@ -368,12 +413,26 @@ export async function getProductJourneyAnalytics(opts: {
     `;
 
     const location = settings.location || undefined;
+    const trafficAndActionEvents = [
+      "page_view",
+      ...LEAD_CONVERSION_EVENTS,
+      ...ECOMMERCE_INTENT_EVENTS,
+    ];
     const pathRows =
       allPaths.length > 0
         ? (
             await client.query({
               query: pathMetricsSql,
-              params: { start_date: start, end_date: end, paths: allPaths },
+              params: {
+                start_date: start,
+                end_date: end,
+                paths: allPaths,
+                has_product_ids: identityValues.length > 0,
+                ids: identityValues.length > 0 ? identityValues : ["__none__"],
+                traffic_and_action_events: trafficAndActionEvents,
+                lead_events: [...LEAD_CONVERSION_EVENTS],
+                ecommerce_events: [...ECOMMERCE_INTENT_EVENTS],
+              },
               location,
               maximumBytesBilled: "5000000000",
             })
@@ -386,7 +445,8 @@ export async function getProductJourneyAnalytics(opts: {
       byPath.set(path, {
         sessions: Number(row.sessions || 0),
         views: Number(row.views || 0),
-        cta_clicks: Number(row.cta_clicks || 0),
+        conversions: identityValues.length > 0 ? Number(row.conversions || 0) : 0,
+        ecommerce_intent: identityValues.length > 0 ? Number(row.ecommerce_intent || 0) : 0,
       });
     }
 
@@ -394,18 +454,21 @@ export async function getProductJourneyAnalytics(opts: {
     for (const meta of pageMeta) {
       let sessions = 0;
       let views = 0;
-      let cta = 0;
+      let conversions = 0;
+      let ecommerce_intent = 0;
       for (const p of meta.paths) {
         const m = byPath.get(p);
         if (!m) continue;
         sessions += m.sessions;
         views += m.views;
-        cta += m.cta_clicks;
+        conversions += m.conversions;
+        ecommerce_intent += m.ecommerce_intent;
       }
       pages[meta.key] = {
         sessions,
         views,
-        cta_clicks: cta,
+        conversions,
+        ecommerce_intent,
         shared: meta.shared,
         paths: meta.paths,
       };

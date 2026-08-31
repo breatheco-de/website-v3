@@ -10,19 +10,23 @@ import {
 } from "./bigquery-client";
 
 describe("normalizeAnalyticsPath", () => {
-  it("strips origin query and hash", () => {
-    expect(normalizeAnalyticsPath("https://4geeks.com/us/ai-fluency?x=1#y")).toBe(
-      "/us/ai-fluency",
+  it("strips origin query and hash without rewriting locale prefixes", () => {
+    // Paths mirror content-type url_patterns; normalizer only cleans shape.
+    expect(normalizeAnalyticsPath("https://4geeks.com/en/career-programs/foo?x=1#y")).toBe(
+      "/en/career-programs/foo",
+    );
+    expect(normalizeAnalyticsPath("https://4geeks.com/es/programas-de-carrera/foo?x=1")).toBe(
+      "/es/programas-de-carrera/foo",
     );
   });
 
   it("removes trailing slash except root", () => {
-    expect(normalizeAnalyticsPath("/us/foo/")).toBe("/us/foo");
+    expect(normalizeAnalyticsPath("/en/foo/")).toBe("/en/foo");
     expect(normalizeAnalyticsPath("/")).toBe("/");
   });
 
   it("adds leading slash", () => {
-    expect(normalizeAnalyticsPath("us/foo")).toBe("/us/foo");
+    expect(normalizeAnalyticsPath("en/foo")).toBe("/en/foo");
   });
 });
 

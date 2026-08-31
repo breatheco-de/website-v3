@@ -6,6 +6,17 @@ window_days: 6
 
 entries:
   - date: "2026-08-31"
+    summary: "get_product_funnel_analytics — per-page conversions + ecommerce intent (drop CTAs)"
+    agent_impact:
+      - "Per-page metrics are sessions/views plus path-scoped lead conversions and ecommerce intent (same event set on every stage). cta_clicks removed."
+      - "Lead events: student_application, request_more_info. Ecommerce intent: view_item, add_to_cart, view_item_list, select_item, click_begin_checkout — filtered by product identity on the page path."
+      - "Product-wide conversions/ecommerce_intent KPIs unchanged. Stage placement does not filter which action events count."
+    paths:
+      - mcp-server/tools/ecommerce.ts
+      - server/ecommerce/journey-analytics.ts
+      - client/src/pages/StoreProductDetailPage.tsx
+    tools_changed: false
+  - date: "2026-08-31"
     summary: "get_product_funnel_analytics — Page performance from GA4 BigQuery"
     agent_impact:
       - "New read tool get_product_funnel_analytics(slug, mode?, days?, site?) — per-page sessions/views/CTAs, stage distinct sessions, product item_id KPIs. Does not imply stage-to-stage flow."

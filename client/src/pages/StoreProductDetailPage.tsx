@@ -78,7 +78,8 @@ interface JourneyAnalyticsResponse {
     {
       sessions: number;
       views: number;
-      cta_clicks: number;
+      conversions: number;
+      ecommerce_intent: number;
       shared: boolean;
       paths: string[];
     }
@@ -92,6 +93,46 @@ interface JourneyAnalyticsResponse {
     content_slug: string;
   };
 }
+
+/** Must match server/ecommerce/journey-analytics.ts lead + ecommerce event lists. */
+const PAGE_CONVERSION_EVENTS = ["student_application", "request_more_info"] as const;
+const PAGE_ECOMMERCE_EVENTS = [
+  "view_item",
+  "add_to_cart",
+  "view_item_list",
+  "select_item",
+  "click_begin_checkout",
+] as const;
+
+const STAGE_SIGNAL_NOTE =
+  "We use the same action events on every stage. “Later” actions on an early-stage page (or soft leads on the product page) can mean the page is in the wrong stage, or that one page is doing more than one job. Treat it as a signal to check — not proof the catalog is wrong.";
+
+const METRIC_HELP = {
+  sessions: {
+    title: "Sessions",
+    body: "Separate visits that included a view of this page (about the last 28 days). If the same person leaves and comes back later, that usually counts as another session. This is not “unique people.”",
+    events: ["page_view"] as readonly string[],
+    note: undefined as string | undefined,
+  },
+  views: {
+    title: "Views",
+    body: "How many times this page was loaded. One visit can add more than one view if someone reloads or returns to the page in the same session.",
+    events: ["page_view"] as readonly string[],
+    note: undefined as string | undefined,
+  },
+  conversions: {
+    title: "Conversions",
+    body: "Form submits for this product that fired while the visitor was on this page’s URLs (not product-wide). Soft and hard leads are both included — stage does not filter the list.",
+    events: PAGE_CONVERSION_EVENTS,
+    note: STAGE_SIGNAL_NOTE,
+  },
+  ecommerce_intent: {
+    title: "Ecommerce intent",
+    body: "Product ecommerce events that fired while the visitor was on this page’s URLs (cart / item interest for this product). Stage does not filter the list.",
+    events: PAGE_ECOMMERCE_EVENTS,
+    note: STAGE_SIGNAL_NOTE,
+  },
+} as const;
 
 const STAGE_META: Record<
   string,
@@ -324,18 +365,60 @@ function KpiCard({
   );
 }
 
+function MetricHint({
+  metricKey,
+  value,
+  label,
+  testId,
+}: {
+  metricKey: keyof typeof METRIC_HELP;
+  value: number;
+  label: string;
+  testId: string;
+}) {
+  const help = METRIC_HELP[metricKey];
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline underline decoration-dotted decoration-muted-foreground/50 underline-offset-2 hover:text-foreground hover:decoration-foreground/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm"
+          data-testid={testId}
+          aria-label={`What does ${label} mean?`}
+        >
+          {value.toLocaleString()} {label}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 space-y-2 p-3 text-sm">
+        <p className="font-medium text-foreground">{help.title}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">{help.body}</p>
+        <p className="text-[11px] font-mono text-muted-foreground break-all">
+          Events: {help.events.join(" · ")}
+        </p>
+        {help.note ? (
+          <p className="text-[11px] text-muted-foreground leading-relaxed border-t border-border pt-2">
+            {help.note}
+          </p>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function StepCard({
   step,
   badge,
   metrics,
-  showProductConversions,
-  productConversions,
 }: {
   step: FunnelStepRow;
   badge?: string;
-  metrics?: { sessions: number; views: number; cta_clicks: number; shared?: boolean };
-  showProductConversions?: boolean;
-  productConversions?: number;
+  metrics?: {
+    sessions: number;
+    views: number;
+    conversions: number;
+    ecommerce_intent: number;
+    shared?: boolean;
+  };
 }) {
   const primaryUrl = step.urls.en || step.urls.es || Object.values(step.urls)[0];
   return (
@@ -360,12 +443,34 @@ function StepCard({
           )}
         </div>
         {metrics && (
-          <p className="text-[11px] text-muted-foreground tabular-nums">
-            {metrics.sessions.toLocaleString()} sessions · {metrics.views.toLocaleString()} views ·{" "}
-            {metrics.cta_clicks.toLocaleString()} CTAs
-            {showProductConversions && productConversions != null
-              ? ` · ${productConversions.toLocaleString()} product conversions`
-              : null}
+          <p className="text-[11px] text-muted-foreground tabular-nums flex flex-wrap items-center gap-x-1 gap-y-0.5">
+            <MetricHint
+              metricKey="sessions"
+              value={metrics.sessions}
+              label="sessions"
+              testId={`metric-sessions-${step.slug}`}
+            />
+            <span aria-hidden>·</span>
+            <MetricHint
+              metricKey="views"
+              value={metrics.views}
+              label="views"
+              testId={`metric-views-${step.slug}`}
+            />
+            <span aria-hidden>·</span>
+            <MetricHint
+              metricKey="conversions"
+              value={metrics.conversions}
+              label="conversions"
+              testId={`metric-conversions-${step.slug}`}
+            />
+            <span aria-hidden>·</span>
+            <MetricHint
+              metricKey="ecommerce_intent"
+              value={metrics.ecommerce_intent}
+              label="intent"
+              testId={`metric-intent-${step.slug}`}
+            />
           </p>
         )}
       </CardContent>
@@ -677,8 +782,6 @@ export default function StoreProductDetailPage() {
                             step={locked}
                             badge="locked product page"
                             metrics={pageMetrics(locked)}
-                            showProductConversions
-                            productConversions={analytics?.product?.conversions}
                           />
                         </div>
                       )}
