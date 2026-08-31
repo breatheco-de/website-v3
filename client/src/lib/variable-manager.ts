@@ -1,10 +1,14 @@
 import { parsePipeFallback } from "@shared/json-field";
+import {
+  EXACT_ENTRY_OR_SINGLE_VAR_PATTERN,
+  entryBagFieldPathFromVarName,
+  formatEntryVarName,
+  isEntryOrSingleVarName,
+} from "@shared/entryTemplateVars";
 
 const TEMPLATE_REGEX = /\{\{\s*([^|}]+?)\s*(?:\|\s*([\s\S]*?))?\s*\}\}/g;
-const SINGLE_PREFIX = "single.";
 const META_PREFIX = "meta.";
 const PARAM_PREFIX = "param.";
-const EXACT_SINGLE_VAR_PATTERN = /^\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
 const EXACT_META_VAR_PATTERN = /^\{\{\s*meta\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
 const EXACT_PARAM_VAR_PATTERN = /^\{\{\s*param\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
 
@@ -145,11 +149,11 @@ export function resolveTemplateString(
     const name = expression.trim();
     const defVal = (inlineDefault || "").trim();
 
-    if (name.startsWith(SINGLE_PREFIX)) {
+    if (isEntryOrSingleVarName(name)) {
       if (!singleEntry) {
         return match;
       }
-      const fieldPath = name.slice(SINGLE_PREFIX.length);
+      const fieldPath = entryBagFieldPathFromVarName(name)!;
       const singleResult = resolveSingleVariable(fieldPath, singleEntry);
 
       if (preserveTemplate) {
@@ -283,7 +287,7 @@ export function resolveDeep(
     if (typeof value === "string") {
       if (!options?.preserveTemplate) {
         if (singleEntry) {
-          const exactMatch = value.match(EXACT_SINGLE_VAR_PATTERN);
+          const exactMatch = value.match(EXACT_ENTRY_OR_SINGLE_VAR_PATTERN);
           if (exactMatch) {
             const fieldPath = exactMatch[1];
             const hasFallback = exactMatch[2] !== undefined;
@@ -299,7 +303,7 @@ export function resolveDeep(
 
             allVariables.push({
               original: value,
-              variableName: `single.${fieldPath}`,
+              variableName: formatEntryVarName(fieldPath),
               resolvedValue: displayValue,
               source: resolved !== undefined && resolved !== null ? "single" : "inline",
               defaultValue: fallback || "",

@@ -34,7 +34,7 @@ const TOPIC_DESC: Record<string, string> = {
   content_system: "YAML content files, _common.yml merge, SEO clustering inventory + links, safeYamlLoad",
   routing:
     "URL patterns, locale prefixes (/en/, /es/), dynamic routes, ?cache=false HTML cache bypass",
-  images: "Image registry, UniversalImage component, image_id referencing",
+  images: "Image registry, UniversalImage, image_id, get_or_set_image_to_gallery MCP",
   sections: "SectionRenderer, component registry, in-page CTA hashes (#section_id modal/scroll, inline#, #top/#bottom)",
   semantic_search:
     "Qdrant vector store, local embeddings, database vector_search, keyword fallback",
@@ -49,7 +49,7 @@ const TOPIC_DESC: Record<string, string> = {
   "lead-forms":
     "catalog source content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling",
   redirects:
-    "CMS 301/302: two stores, first-match, test_redirect + update_redirect (seo_edit), before_from custom-only",
+    "CMS 301/302: two stores, first-match, test_redirect (read_redirects) + update_redirect (edit_redirects), before_from custom-only",
 };
 
 type TagResolver = (contentPath: string) => string;
@@ -232,6 +232,9 @@ export function resolveDynamicTags(content: string, contentPath: string): string
   );
 }
 
+import { buildBootstrapPayload } from "../lib/agent-changelog.js";
+import { ok } from "../lib/respond.js";
+
 // ─── Tool registration ────────────────────────────────────────────────────────
 
 export function registerExplainTools(
@@ -239,6 +242,59 @@ export function registerExplainTools(
   mcpToken?: string,
   grants?: CatalogGrant[],
 ): void {
+  mcp.tool(
+    "bootstrap_agent",
+    "Call once near the start of any Website MCP content run (Claude.ai, Grok, or any connector), " +
+      "before mutates or agent_session start. Returns: technical playbook, conversation conventions " +
+      "(skill.content on first call), and recent agent changelog (last 6 days). " +
+      "First call: omit params (or include_skill_content: true). " +
+      "Later calls in the same chat: include_skill_content: false and/or known_skill_version from the prior response " +
+      "(changelog + playbook still returned; conventions body omitted). " +
+      "Does NOT refresh the host MCP tool list — if tools look missing/stale after a deploy, " +
+      "ask the human to refresh/reconnect the MCP connector. Requires content_view.",
+    {
+      include_skill_content: z
+        .boolean()
+        .optional()
+        .describe(
+          "Default true. When false, omit skill.content (conventions markdown). Pass false on later bootstraps in the same chat.",
+        ),
+      known_skill_version: z
+        .string()
+        .optional()
+        .describe(
+          "If equal to skill.version from a prior bootstrap, omit skill.content even when include_skill_content is true.",
+        ),
+    },
+    async ({ include_skill_content, known_skill_version }) => {
+      const viewDenied = await denyUnlessContentView(mcpToken, undefined, grants);
+      if (viewDenied) return viewDenied;
+      const payload = buildBootstrapPayload({
+        include_skill_content,
+        known_skill_version,
+      });
+      return ok(
+        {
+          ...payload,
+          message:
+            "Bootstrapped. Keep skill.content (when present) as standing conventions for this chat; " +
+            "call agent_session start next; pass agent_session_id + report on mutates.",
+        },
+        {
+          warnings: [],
+          next_actions: [
+            {
+              tool: "agent_session",
+              reason: "Start a content session; pass returned agent_session_id on mutates.",
+              priority: "recommended",
+              args_hint: { action: "start" },
+            },
+          ],
+        },
+      );
+    },
+  );
+
   mcp.tool(
     "explain_site",
     "Returns architectural context about this codebase for a given topic. " +
@@ -255,7 +311,7 @@ export function registerExplainTools(
       "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example), " +
       "'relation-fields' (relation editor, authors CT, listing vs hydrate, delete_entries reassign), " +
       "'lead-forms' (catalog source.content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling), " +
-      "'redirects' (CMS 301/302, two stores, test_redirect + update_redirect, seo_edit, first-match). " +
+      "'redirects' (CMS 301/302, two stores, test_redirect / read_redirects, update_redirect / edit_redirects, first-match). " +
       "Requires content_view. " +
       "Calling an unknown topic returns a clear error listing the valid options. " +
       "Multi-site: always pass site. If unsure, call list_sites first.",

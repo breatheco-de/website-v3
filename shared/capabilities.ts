@@ -86,9 +86,28 @@ const REGISTRY = [
   },
   {
     name: "seo_edit",
-    label: "Edit SEO",
+    label: "Edit page SEO",
+    scoped: true,
+    description: "Update meta titles, descriptions, and other per-entry SEO fields.",
+  },
+  {
+    name: "read_redirects",
+    label: "Read redirects",
     scoped: false,
-    description: "Update meta titles, descriptions, redirects, and other SEO settings.",
+    description: "List and test URL redirects without changing them.",
+  },
+  {
+    name: "edit_redirects",
+    label: "Edit redirects",
+    scoped: false,
+    description: "Add, change, or remove URL redirects for pages and the site.",
+  },
+  {
+    name: "seo_settings",
+    label: "Manage SEO settings",
+    scoped: false,
+    description:
+      "Change site-wide SEO config: Schema.org, brand, Search Console, OG/preview, companion ensure, and runtime-issue cleanup.",
   },
   {
     name: "content_types_manage",
@@ -173,4 +192,5 @@ export const CONTENT_MUTATE_CAPABILITIES: ScopedCapability[] = SCOPED_CAPABILITI
 export const VIEW_ONLY_CAPABILITIES: ReadonlySet<CapabilityName> = new Set([
   "metrics_view",
   "content_view",
+  "read_redirects",
 ]);

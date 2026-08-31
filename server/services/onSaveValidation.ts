@@ -16,12 +16,13 @@ import type { ContentIndex } from "../content-index";
 import type { ValidationCacheService } from "./validationCacheService";
 import { startDiagnosticsJob, isDiagnosticsRunning } from "./diagnosticsJobService";
 import { getVersioningManager } from "../versioning";
+import { ON_SAVE_VALIDATION_DEBOUNCE_MS } from "./onSaveValidationScheduler";
 import { child } from "../logger";
 
 const log = child({ module: "onSaveValidation" });
 
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const DEBOUNCE_MS = 1500;
+const DEBOUNCE_MS = ON_SAVE_VALIDATION_DEBOUNCE_MS;
 
 export type OnSaveValidationArgs = {
   contentRoot: string;
@@ -51,7 +52,7 @@ function parseLocaleVariantFromBasename(basename: string): {
   // single.es.yml | single.draft.es.yml | es.yml | draft.es.yml
   const noExt = basename.replace(/\.ya?ml$/i, "");
   if (noExt === "_common") return null;
-  if (noExt.startsWith("single.")) {
+  if (noExt.startsWith("single.") || noExt.startsWith("template.")) {
     const rest = noExt.slice("single.".length);
     if (!rest.includes(".")) return { locale: rest };
     const parts = rest.split(".");

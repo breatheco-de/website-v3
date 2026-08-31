@@ -2,9 +2,13 @@ import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } f
 import { resolveContentTypeUrl } from "../../../server/content-types";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
 
+/**
+ * Entry-local SEO depth: title/description length, OG image, canonical URL.
+ * Duplicate title/description checks live in seo-duplicates (cross-entry).
+ */
 export const seoDepthValidator: Validator = {
   name: "seo-depth",
-  description: "Validates SEO depth: title/description length, OG image, canonical URL, and duplicates",
+  description: "Validates SEO depth: title/description length, OG image, and canonical URL",
   apiExposed: true,
   estimatedDuration: "fast",
   category: "seo",
@@ -14,8 +18,6 @@ export const seoDepthValidator: Validator = {
     const errors: ValidationIssue[] = [];
     const warnings: ValidationIssue[] = [];
 
-    const titleMap = new Map<string, string[]>();
-    const descriptionMap = new Map<string, string[]>();
     let pagesWithOptimalTitles = 0;
     let pagesWithOptimalDescriptions = 0;
 
@@ -42,10 +44,6 @@ export const seoDepthValidator: Validator = {
         } else {
           pagesWithOptimalTitles++;
         }
-
-        const existing = titleMap.get(pageTitle) || [];
-        existing.push(file.filePath);
-        titleMap.set(pageTitle, existing);
       }
 
       if (description) {
@@ -68,10 +66,6 @@ export const seoDepthValidator: Validator = {
         } else {
           pagesWithOptimalDescriptions++;
         }
-
-        const existing = descriptionMap.get(description) || [];
-        existing.push(file.filePath);
-        descriptionMap.set(description, existing);
       }
 
       if (!file.meta?.og_image) {
@@ -107,34 +101,6 @@ export const seoDepthValidator: Validator = {
       }
     }
 
-    let duplicateTitles = 0;
-    titleMap.forEach((files, title) => {
-      if (files.length > 1) {
-        duplicateTitles++;
-        errors.push({
-          type: "error",
-          code: "DUPLICATE_TITLE",
-          message: `Duplicate page_title "${title}" used by ${files.length} files`,
-          file: files[0],
-          suggestion: `Also used in: ${files.slice(1).join(", ")}`,
-        });
-      }
-    });
-
-    let duplicateDescriptions = 0;
-    descriptionMap.forEach((files, desc) => {
-      if (files.length > 1) {
-        duplicateDescriptions++;
-        errors.push({
-          type: "error",
-          code: "DUPLICATE_DESCRIPTION",
-          message: `Duplicate description used by ${files.length} files: "${desc.substring(0, 60)}..."`,
-          file: files[0],
-          suggestion: `Also used in: ${files.slice(1).join(", ")}`,
-        });
-      }
-    });
-
     const duration = Date.now() - startTime;
     return {
       name: this.name,
@@ -147,8 +113,6 @@ export const seoDepthValidator: Validator = {
         pagesChecked: context.contentFiles.length,
         pagesWithOptimalTitles,
         pagesWithOptimalDescriptions,
-        duplicateTitles,
-        duplicateDescriptions,
       },
     };
   },

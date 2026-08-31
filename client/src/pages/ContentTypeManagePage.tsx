@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Pagination,
   PaginationContent,
@@ -65,7 +66,11 @@ import {
 } from "@/components/editing/SeoContextPickerDialog";
 import type { SeoModalTab } from "@/components/DebugBubble/components/SeoModal";
 import { SharedLayoutExplainDialog } from "@/components/editing/SharedLayoutExplainDialog";
-import { SharedLayoutEnableDialog } from "@/components/editing/SharedLayoutEnableDialog";
+import {
+  SharedLayoutEnableDialog,
+  type SharedLayoutEnablePayload,
+  SharedLayoutEnableFields,
+} from "@/components/editing/SharedLayoutEnableDialog";
 import { LinkedDatabaseExplainDialog } from "@/components/editing/LinkedDatabaseExplainDialog";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
 import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
@@ -700,6 +705,41 @@ function ClearCacheConfirmDialog({
   );
 }
 
+const REQUIRED_FIELD_SKIP_CONFIRM_KEY = "ct-required-field-skip-confirm";
+
+type RequiredMode = false | true | "attached";
+
+function readSkipRequiredConfirm(): boolean {
+  try {
+    return localStorage.getItem(REQUIRED_FIELD_SKIP_CONFIRM_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeSkipRequiredConfirm(skip: boolean) {
+  try {
+    if (skip) localStorage.setItem(REQUIRED_FIELD_SKIP_CONFIRM_KEY, "1");
+    else localStorage.removeItem(REQUIRED_FIELD_SKIP_CONFIRM_KEY);
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function normalizeRequiredMode(value: EditorHint["required"]): RequiredMode {
+  if (value === true || value === "attached") return value;
+  return false;
+}
+
+function nextRequiredMode(current: RequiredMode, allowAttachedMode: boolean): RequiredMode {
+  if (allowAttachedMode) {
+    if (current === false) return "attached";
+    if (current === "attached") return true;
+    return false;
+  }
+  return current === false ? true : false;
+}
+
 function RequiredFieldConfirmDialog({
   open,
   onOpenChange,
@@ -710,12 +750,22 @@ function RequiredFieldConfirmDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelect: (next: false | true | "attached") => void;
+  onSelect: (next: RequiredMode, neverAskAgain: boolean) => void;
   fieldName: string | null;
-  currentRequired: false | true | "attached";
+  currentRequired: RequiredMode;
   /** Show "Required when attached" only for shared-layout content types. */
   allowAttachedMode: boolean;
 }) {
+  const [neverAskAgain, setNeverAskAgain] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setNeverAskAgain(false);
+      setShowAdvanced(false);
+    }
+  }, [open]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[520px]" data-testid="dialog-required-field-confirm">
@@ -727,7 +777,9 @@ function RequiredFieldConfirmDialog({
                 Field{" "}
                 <code className="font-mono text-foreground text-xs">{fieldName}</code>
                 {currentRequired === true
-                  ? " — currently required always (even detached)"
+                  ? allowAttachedMode
+                    ? " — currently required always (even detached)"
+                    : " — currently required always"
                   : currentRequired === "attached"
                     ? " — currently required only on template (attached)"
                     : " — currently never required"}
@@ -737,104 +789,140 @@ function RequiredFieldConfirmDialog({
             )}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3 text-sm text-muted-foreground" data-testid="fields-required-education">
+        <div className="space-y-2 text-xs text-muted-foreground" data-testid="fields-required-education">
           <p>
-            <strong className="font-medium text-foreground">Never required</strong> — drafts and live
-            entries may leave this field empty.
+            This sets whether the field must be filled before an entry can go live. Drafts can stay empty
+            either way; once live, a required field cannot be cleared until you turn the requirement off.
           </p>
-          {allowAttachedMode ? (
-            <p>
-              <strong className="font-medium text-foreground">Required only on template (attached)</strong>{" "}
-              (<code className="font-mono text-[10px]">editor.required: attached</code> — publishing and
-              live saves need a value while the entry uses the shared template. Entries with{" "}
-              <code className="font-mono text-[10px]">detached: true</code> skip this field (Fields UI
-              shows “Optional while detached”). JSON fields must also satisfy their schema.
-            </p>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
+            onClick={() => setShowAdvanced((v) => !v)}
+            data-testid="button-toggle-required-field-education"
+          >
+            {showAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+            <IconChevronDown
+              className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+            />
+          </button>
+          {showAdvanced ? (
+            <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3 text-xs">
+              <p>
+                Turning a field required also needs a type Strategy (purpose) and{" "}
+                <code className="font-mono text-[10px]">fill_intent</code> on the field — you will be asked
+                if those are missing. Live SEO still separately needs{" "}
+                <code className="font-mono bg-muted px-1 rounded">meta.page_title</code> and{" "}
+                <code className="font-mono bg-muted px-1 rounded">meta.description</code>.
+              </p>
+              <p className="text-muted-foreground">
+                Paths:{" "}
+                <code className="font-mono text-[10px]">shared/fillIntent.ts</code>,{" "}
+                <code className="font-mono text-[10px]">shared/contentTypeStrategy.ts</code>,{" "}
+                <code className="font-mono text-[10px]">shared/validateRequiredFields.ts</code>,{" "}
+                <code className="font-mono text-[10px]">server/live-entry-seo-gate.ts</code>
+              </p>
+            </div>
           ) : null}
-          <p>
-            <strong className="font-medium text-foreground">Required always (even detached)</strong>{" "}
-            <code className="font-mono text-[10px]">editor.required: true</code> — drafts may be empty;
-            publishing and live saves need a value whether attached or detached (JSON fields must also
-            satisfy their schema).
-          </p>
-          <p>
-            Live pages also always need{" "}
-            <code className="font-mono bg-muted px-1 rounded text-xs">meta.page_title</code> and{" "}
-            <code className="font-mono bg-muted px-1 rounded text-xs">meta.description</code> — separate
-            from this asterisk.
-          </p>
-          <p>
-            Marking a field required also requires{" "}
-            <code className="font-mono text-[10px]">fill_intent</code> (goal + purpose; optional
-            constraints). That is the declarative why/how for agents and Diagnostics — short Description
-            stays a UI hint only. Goal is an open tag (presets like{" "}
-            <code className="font-mono text-[10px]">geo_llm</code> /{" "}
-            <code className="font-mono text-[10px]">conversion</code> are shortcuts). Set fill intent in
-            the field settings (sliders) before or when enabling required. Schema rules like{" "}
-            <code className="font-mono text-[10px]">minItems</code> enforce structure; fill_intent does not
-            replace them.
-          </p>
-          <p>
-            The content type must also have a valid{" "}
-            <code className="font-mono text-[10px]">strategy</code> (non-empty{" "}
-            <code className="font-mono text-[10px]">purpose</code>) before any field can be required.
-            Set it with the Strategy button on this manage page — that is the type-level brief for staff
-            and agents, not the same as per-field fill_intent.
-          </p>
-          <p className="text-xs">
-            Read more:{" "}
-            <code className="font-mono text-[10px]">shared/fillIntent.ts</code>,{" "}
-            <code className="font-mono text-[10px]">shared/contentTypeStrategy.ts</code>,{" "}
-            <code className="font-mono text-[10px]">shared/validateRequiredFields.ts</code>,{" "}
-            <code className="font-mono text-[10px]">server/live-entry-seo-gate.ts</code>,{" "}
-            <code className="font-mono text-[10px]">scripts/validation/validators/required-fields.ts</code>
-            , <code className="font-mono text-[10px]">server/shared-layout-detach.ts</code>.
-          </p>
         </div>
         <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            data-testid="button-cancel-required-field"
+          <div
+            className="flex w-full rounded-md border overflow-hidden"
+            role="group"
+            aria-label="Required mode"
+            data-testid="required-mode-toggle"
           >
-            Cancel
-          </Button>
-          <Button
-            variant={currentRequired === false ? "default" : "secondary"}
-            onClick={() => onSelect(false)}
-            data-testid="button-required-mode-none"
-            className="justify-start gap-2"
-          >
-            <span className="inline-flex w-7 justify-center opacity-40" aria-hidden>
-              <Asterisk className="h-3.5 w-3.5" />
-            </span>
-            Never required
-          </Button>
-          {allowAttachedMode ? (
-            <Button
-              variant={currentRequired === "attached" ? "default" : "secondary"}
-              onClick={() => onSelect("attached")}
-              data-testid="button-required-mode-attached"
-              className="justify-start gap-2"
+            <button
+              type="button"
+              onClick={() => onSelect(false, neverAskAgain)}
+              data-testid="button-required-mode-none"
+              aria-pressed={currentRequired === false}
+              className={`flex-1 min-w-0 flex flex-col items-start gap-1 px-2.5 py-2.5 text-left transition-colors ${
+                currentRequired === false
+                  ? "bg-primary/15 text-primary font-medium"
+                  : "text-muted-foreground hover-elevate"
+              }`}
             >
-              <span className="inline-flex w-7 items-center justify-center" aria-hidden>
-                <Asterisk className="h-3.5 w-3.5" />
-                <Asterisk className="h-3.5 w-3.5 -ml-2" />
+              <span className="inline-flex items-center gap-1.5 text-xs">
+                <span className="inline-flex shrink-0 opacity-50" aria-hidden>
+                  <Asterisk className="h-3.5 w-3.5" />
+                </span>
+                Never required
               </span>
-              Required only on template (attached)
-            </Button>
-          ) : null}
-          <Button
-            variant={currentRequired === true ? "default" : "secondary"}
-            onClick={() => onSelect(true)}
-            data-testid="button-required-mode-always"
-            className="justify-start gap-2"
+              <span
+                className={`text-[10px] font-normal leading-snug ${
+                  currentRequired === false ? "text-primary/70" : "text-muted-foreground/80"
+                }`}
+              >
+                Drafts and live may leave this empty.
+              </span>
+            </button>
+            {allowAttachedMode ? (
+              <button
+                type="button"
+                onClick={() => onSelect("attached", neverAskAgain)}
+                data-testid="button-required-mode-attached"
+                aria-pressed={currentRequired === "attached"}
+                className={`flex-1 min-w-0 flex flex-col items-start gap-1 border-l px-2.5 py-2.5 text-left transition-colors ${
+                  currentRequired === "attached"
+                    ? "bg-primary/15 text-primary font-medium"
+                    : "text-muted-foreground hover-elevate"
+                }`}
+              >
+                <span className="inline-flex items-center gap-1.5 text-xs">
+                  <span className="inline-flex shrink-0" aria-hidden>
+                    <Asterisk className="h-3.5 w-3.5" />
+                  </span>
+                  Required only on template (attached)
+                </span>
+                <span
+                  className={`text-[10px] font-normal leading-snug ${
+                    currentRequired === "attached" ? "text-primary/70" : "text-muted-foreground/80"
+                  }`}
+                >
+                  Needed to publish on the shared template; skipped when detached.
+                </span>
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => onSelect(true, neverAskAgain)}
+              data-testid="button-required-mode-always"
+              aria-pressed={currentRequired === true}
+              className={`flex-1 min-w-0 flex flex-col items-start gap-1 border-l px-2.5 py-2.5 text-left transition-colors ${
+                currentRequired === true
+                  ? "bg-primary/15 text-primary font-medium"
+                  : "text-muted-foreground hover-elevate"
+              }`}
+            >
+              <span className="inline-flex items-center gap-1.5 text-xs">
+                <span className="inline-flex shrink-0 items-center" aria-hidden>
+                  <Asterisk className="h-3.5 w-3.5" />
+                  <Asterisk className="h-3.5 w-3.5 -ml-2" />
+                </span>
+                {allowAttachedMode ? "Required always (even detached)" : "Required always"}
+              </span>
+              <span
+                className={`text-[10px] font-normal leading-snug ${
+                  currentRequired === true ? "text-primary/70" : "text-muted-foreground/80"
+                }`}
+              >
+                {allowAttachedMode
+                  ? "Needed to publish whether attached or detached (drafts may still be empty)."
+                  : "Needed to publish (drafts may still be empty)."}
+              </span>
+            </button>
+          </div>
+          <label
+            className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none pt-1"
+            data-testid="label-never-ask-required-confirm"
           >
-            <span className="inline-flex w-7 justify-center" aria-hidden>
-              <Asterisk className="h-3.5 w-3.5" />
-            </span>
-            Required always (even detached)
-          </Button>
+            <Checkbox
+              checked={neverAskAgain}
+              onCheckedChange={(checked) => setNeverAskAgain(checked === true)}
+              data-testid="checkbox-never-ask-required-confirm"
+            />
+            Never ask this again — click the asterisk to cycle modes
+          </label>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -845,17 +933,59 @@ function ConnectDatabaseConfirmDialog({
   open,
   onOpenChange,
   onConfirm,
+  contentType,
   contentTypeLabel,
   staticCount,
   alreadyConnected,
+  needsTemplateChoice,
+  usableTemplate,
+  divergences,
+  bindings,
+  templatePayload,
+  onTemplatePayloadChange,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
+  contentType: string;
   contentTypeLabel: string;
   staticCount: number;
   alreadyConnected: boolean;
+  needsTemplateChoice: boolean;
+  usableTemplate: boolean;
+  divergences: Array<{
+    locale: string;
+    sectionCount: number;
+    sectionIds: string[];
+    basename?: string;
+    naming?: "template" | "single";
+  }>;
+  bindings: Array<{
+    id: string;
+    name?: string;
+    component: string;
+    locale: string;
+    memberCount: number;
+    members: Array<{ contentType: string; slug: string; sectionId: string }>;
+  }>;
+  templatePayload: SharedLayoutEnablePayload;
+  onTemplatePayloadChange: (p: SharedLayoutEnablePayload) => void;
 }) {
+  const [sourceEligible, setSourceEligible] = useState(!needsTemplateChoice || usableTemplate);
+
+  useEffect(() => {
+    if (open) {
+      setSourceEligible(!needsTemplateChoice || usableTemplate);
+    }
+  }, [open, needsTemplateChoice, usableTemplate]);
+
+  const canContinue =
+    !needsTemplateChoice ||
+    templatePayload.template_mode === "keep_existing" ||
+    (!!templatePayload.template_entry_source_slug &&
+      sourceEligible &&
+      (!usableTemplate || !!templatePayload.confirm));
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[560px] max-h-[85vh] flex flex-col overflow-hidden" data-testid="dialog-connect-database-confirm">
@@ -895,12 +1025,53 @@ function ConnectDatabaseConfirmDialog({
               </ul>
             </div>
           )}
+          {needsTemplateChoice && (
+            <div className="space-y-2">
+              <p className="font-medium text-foreground">Shared template</p>
+              <p className="text-xs">
+                Linking a database turns shared layout on. Choose whether to keep an existing{" "}
+                <code className="text-[11px]">template.*.yml</code> shell or seed one from an entry.
+              </p>
+              <SharedLayoutEnableFields
+                contentType={contentType}
+                usableTemplate={usableTemplate}
+                divergences={divergences}
+                bindings={bindings}
+                value={templatePayload}
+                onChange={onTemplatePayloadChange}
+                onSourceEligibleChange={setSourceEligible}
+              />
+              {usableTemplate && templatePayload.template_mode === "from_entry" && (
+                <label className="flex items-start gap-2 text-xs text-foreground rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={!!templatePayload.confirm}
+                    onChange={(e) =>
+                      onTemplatePayloadChange({
+                        ...templatePayload,
+                        confirm: e.target.checked,
+                      })
+                    }
+                    data-testid="checkbox-confirm-template-replace"
+                  />
+                  <span>
+                    I understand this overwrites the existing shared template for every attached
+                    entry of this type.
+                  </span>
+                </label>
+              )}
+            </div>
+          )}
           <div>
             <p className="font-medium text-foreground mb-1">What happens next</p>
             <ul className="list-disc pl-5 space-y-1">
               <li>Pick a database and map identity fields (slug, locale)</li>
               <li>Map content fields and optional indexes for filtering</li>
-              <li>Shared <code className="text-[11px]">single.*.yml</code> templates are used to render DB entries</li>
+              <li>
+                Shared <code className="text-[11px]">template.*.yml</code> templates are used to render
+                DB entries
+              </li>
             </ul>
           </div>
         </div>
@@ -913,6 +1084,7 @@ function ConnectDatabaseConfirmDialog({
             Cancel
           </Button>
           <Button
+            disabled={!canContinue}
             onClick={() => {
               onOpenChange(false);
               onConfirm();
@@ -1011,7 +1183,7 @@ function PartialOverrideDialog({
               <div>
                 <p className="font-medium text-foreground mb-1">Database dependencies</p>
                 <ul className="list-disc pl-5 space-y-1">
-                  <li>Template fields using <code className="text-[11px]">{`{{ single.* }}`}</code> resolve from the DB row at render time</li>
+                  <li>Template fields using <code className="text-[11px]">{`{{ entry.* }}`}</code> resolve from the DB row at render time</li>
                   <li>Public URLs are resolved from the database index (<code className="text-[11px]">byUrl</code>) when the cache is loaded</li>
                   <li>
                     <code className="text-[11px]">loadDatabaseSinglePage</code> returns null without a
@@ -1073,10 +1245,13 @@ function DataSourceDialog({
   open,
   onOpenChange,
   contentType,
+  sharedLayoutEnablePayload,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   contentType: string;
+  /** When newly linking DB and shared layout was off — pass enable gate fields. */
+  sharedLayoutEnablePayload?: SharedLayoutEnablePayload | null;
 }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
@@ -1332,13 +1507,29 @@ function DataSourceDialog({
         }
       }
 
-      const payload = {
+      const payload: Record<string, unknown> = {
         field_mapping: Object.keys(fullMapping).length > 0 ? fullMapping : undefined,
         indexes: stripLocaleIndexFields(indexedFields),
         database: {
           slug: selectedDb,
         },
       };
+
+      const wasDbBacked = !!config?.database?.slug;
+      if (!wasDbBacked && sharedLayoutEnablePayload) {
+        payload.template_mode = sharedLayoutEnablePayload.template_mode;
+        if (sharedLayoutEnablePayload.shared_layout_base_locale) {
+          payload.shared_layout_base_locale = sharedLayoutEnablePayload.shared_layout_base_locale;
+        }
+        if (sharedLayoutEnablePayload.template_entry_source_slug) {
+          payload.template_entry_source_slug = sharedLayoutEnablePayload.template_entry_source_slug;
+        }
+        if (sharedLayoutEnablePayload.template_entry_source_locale) {
+          payload.template_entry_source_locale =
+            sharedLayoutEnablePayload.template_entry_source_locale;
+        }
+        if (sharedLayoutEnablePayload.confirm) payload.confirm = true;
+      }
 
       const res = await fetch(`/api/content-types/${contentType}/config`, {
         method: "PUT",
@@ -1350,6 +1541,15 @@ function DataSourceDialog({
       try { data = await res.json(); } catch { /* non-JSON */ }
 
       if (!res.ok) {
+        if (data.code === "confirm_template_replace" && data.preview) {
+          toast({
+            title: "Confirm template replace",
+            description:
+              "Re-save with confirm after reviewing the overwrite preview in the connect dialog.",
+            variant: "destructive",
+          });
+          return;
+        }
         toast({ title: (data.error as string) || "Failed to save configuration", variant: "destructive" });
         return;
       }
@@ -2649,11 +2849,11 @@ const SPECIAL_FIELD_INFO: Record<
   _slug: {
     title: "_slug — Entry identity",
     summary:
-      "System field on every content type. Points at the value that uniquely identifies each entry for URL routing and lookups. The resolved value is also available as {{ single.slug }} (alias). You cannot declare a custom field named slug.",
+      "System field on every content type. Points at the value that uniquely identifies each entry for URL routing and lookups. The resolved value is also available as {{ entry.slug }} (alias). You cannot declare a custom field named slug.",
     howItWorks: [
       "For database types, this is usually a column on each row (e.g. slug).",
       "For static types, default identity is the YAML/folder slug field.",
-      "Templates use {{ single.slug }} or {{ single._slug }} (both exposed).",
+      "Templates use {{ entry.slug }} or {{ entry._slug }} (both exposed).",
     ],
     howToSet: [
       "Map it to a string field such as slug or id (DB identity).",
@@ -2664,7 +2864,7 @@ const SPECIAL_FIELD_INFO: Record<
   _locale: {
     title: "_locale — Language of the entry",
     summary:
-      "System field on every content type. Identifies which language each entry/row belongs to. May be empty on static types when locale comes from the file name. Exposed as {{ single.locale }} and {{ single._locale }}.",
+      "System field on every content type. Identifies which language each entry/row belongs to. May be empty on static types when locale comes from the file name. Exposed as {{ entry.locale }} and {{ entry._locale }}.",
     howItWorks: [
       "Each DB row is one locale; _locale tells the system whether the row is en, es, etc.",
       "On static types, locale often comes from the filename (en.yml); mapping locale is optional.",
@@ -2684,7 +2884,7 @@ const SPECIAL_FIELD_INFO: Record<
       "Expects a dictionary: { en: \"english-slug\", es: \"spanish-slug\" }.",
       "getAlternateUrls reads this map for language switching, hreflang, and sitemap alternates.",
       "Static types keep folder / per-locale slug behavior; do not set _hreflangs there.",
-      "Do not use {{ single._hreflangs }} in templates — it is stripped from the single bag.",
+      "Do not use {{ entry._hreflangs }} in templates — it is stripped from the single bag.",
     ],
     howToSet: [
       "On DB types: map to a translations-like field or a function.",
@@ -2696,7 +2896,7 @@ const SPECIAL_FIELD_INFO: Record<
   _updated_at: {
     title: "_updated_at — Last content change",
     summary:
-      "Editorial clock for sitemap <lastmod>, {{ single.updated_at }}, Schema.org dateModified, and the manage Updated column. Last time title, meta title/description, or section copy/images changed — not Git or file mtime.",
+      "Editorial clock for sitemap <lastmod>, {{ entry.updated_at }}, Schema.org dateModified, and the manage Updated column. Last time title, meta title/description, or section copy/images changed — not Git or file mtime.",
     howItWorks: [
       "Stored as top-level updated_at on the locale or variant YAML being saved ({directory}/{slug}/{locale}.yml).",
       "Empty values resolve to published_at (first go-live on _common.yml) until this locale is saved; that save writes the seed onto the layer file.",
@@ -2712,7 +2912,7 @@ const SPECIAL_FIELD_INFO: Record<
   _image: {
     title: "_image — Preview / OG image",
     summary:
-      "System field for entry list thumbnails and Open Graph. Exposed as {{ single.image }} and {{ single._image }}. You cannot declare a custom field named image.",
+      "System field for entry list thumbnails and Open Graph. Exposed as {{ entry.image }} and {{ entry._image }}. You cannot declare a custom field named image.",
     howItWorks: [
       "Maps to a URL (or path) on the entry / database row.",
       "When empty, optional preview.component screenshots can fill the gap.",
@@ -2980,7 +3180,7 @@ function SpecialFieldInfoDialog({
           <DialogTitle className="font-mono text-base">{title}</DialogTitle>
           <DialogDescription>
             {info?.summary ??
-              "Underscore-prefixed keys are system fields used for routing and locale linking. slug/locale/image/updated_at are also exposed on {{ single.* }}; _hreflangs is routing-only."}
+              "Underscore-prefixed keys are system fields used for routing and locale linking. slug/locale/image/updated_at are also exposed on {{ entry.* }}; _hreflangs is routing-only."}
           </DialogDescription>
         </DialogHeader>
         {info ? (
@@ -3010,7 +3210,7 @@ function SpecialFieldInfoDialog({
           <p className="text-sm text-muted-foreground">
             <code className="font-mono bg-muted px-1 rounded">{fieldKey}</code> is a custom special field.
             Underscore keys are reserved for system use and are not available as{" "}
-            <code className="font-mono bg-muted px-1 rounded">{"{{ single.* }}"}</code> variables.
+            <code className="font-mono bg-muted px-1 rounded">{"{{ entry.* }}"}</code> variables.
           </p>
         ) : null}
         <DialogFooter>
@@ -3384,9 +3584,9 @@ function FieldMappingDialog({
     if (FORBIDDEN_SCHEMA_FIELDS.has(key) || key === RESERVED_IMAGE_FIELD || key.startsWith("_")) {
       toast({
         title: key === FORBIDDEN_SCHEMA_FIELD
-          ? `Use system field ${RESERVED_IMAGE_FIELD} for preview/OG (aliased to {{ single.image }})`
+          ? `Use system field ${RESERVED_IMAGE_FIELD} for preview/OG (aliased to {{ entry.image }})`
           : key === FORBIDDEN_SLUG_ALIAS
-            ? "Use system field _slug for entry identity (aliased to {{ single.slug }})"
+            ? "Use system field _slug for entry identity (aliased to {{ entry.slug }})"
             : "Reserved or system field names cannot be added here",
         variant: "destructive",
       });
@@ -3501,6 +3701,64 @@ function FieldMappingDialog({
       setSaving(false);
     }
   };
+
+  const allowAttachedRequiredMode = !!config?.single_template || !!config?.database?.slug;
+
+  const applyRequiredMode = useCallback(
+    (field: string, nextRequired: RequiredMode): boolean => {
+      if (nextRequired !== false) {
+        if (!isValidContentTypeStrategy(config?.strategy)) {
+          toast({
+            title: "Content type strategy required",
+            description:
+              "Set a type strategy (non-empty purpose) before marking fields required.",
+            variant: "destructive",
+          });
+          onRequestStrategy?.();
+          return false;
+        }
+        const cur = editorHints[field] || {};
+        if (!isValidFillIntent(cur.fill_intent)) {
+          toast({
+            title: "Fill intent required",
+            description:
+              "Set fill_intent (goal + purpose) in field settings before marking this field required.",
+            variant: "destructive",
+          });
+          setHintDialogField(field);
+          return false;
+        }
+      }
+      setEditorHints((prev) => {
+        const cur = prev[field] || {};
+        if (nextRequired === false) {
+          const { required: _r, ...rest } = cur;
+          if (Object.keys(rest).length === 0) {
+            const clone = { ...prev };
+            delete clone[field];
+            return clone;
+          }
+          return { ...prev, [field]: rest };
+        }
+        return { ...prev, [field]: { ...cur, required: nextRequired } };
+      });
+      return true;
+    },
+    [config?.strategy, editorHints, onRequestStrategy, toast],
+  );
+
+  const handleRequiredFieldClick = useCallback(
+    (field: string) => {
+      if (!readSkipRequiredConfirm()) {
+        setPendingRequiredField(field);
+        return;
+      }
+      const current = normalizeRequiredMode(editorHints[field]?.required);
+      const next = nextRequiredMode(current, allowAttachedRequiredMode);
+      applyRequiredMode(field, next);
+    },
+    [allowAttachedRequiredMode, applyRequiredMode, editorHints],
+  );
 
   const regularKeys = Object.keys(mappings).filter(
     (k) => !k.startsWith("_") && !FORBIDDEN_SCHEMA_FIELDS.has(k) && !SEO_DB_MAPPING_KEYS.has(k),
@@ -3910,7 +4168,7 @@ function FieldMappingDialog({
                 <code className="font-mono bg-muted px-1 rounded text-xs">fill_intent</code>{" "}
                 (goal and purpose) and try to set the right values. Purpose is also shown as the
                 hint in the item editor. Field values then become accessible through{" "}
-                <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ single.field_name }}"}</code>{" "}
+                <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ entry.field_name }}"}</code>{" "}
                 in the entry YAML file.
               </p>
               <button
@@ -3928,7 +4186,7 @@ function FieldMappingDialog({
                 <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2 text-xs">
                   <p>
                     Declare schema fields for this type. A YAML parent key becomes{" "}
-                    <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ single.fieldName }}"}</code>{" "}
+                    <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ entry.fieldName }}"}</code>{" "}
                     when added here. New fields require a default (including <code className="font-mono text-xs">null</code>).
                     SEO head keys use the Meta tab and{" "}
                     <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ meta.* }}"}</code>.
@@ -3979,7 +4237,7 @@ function FieldMappingDialog({
                     System identity (<code className="font-mono">slug</code>,{" "}
                     <code className="font-mono">locale</code>, <code className="font-mono">image</code> and
                     underscore forms) is auto-exposed on{" "}
-                    <code className="font-mono">{"{{ single.* }}"}</code>;{" "}
+                    <code className="font-mono">{"{{ entry.* }}"}</code>;{" "}
                     <code className="font-mono">_hreflangs</code> is routing-only.{" "}
                     <code className="font-mono">_updated_at</code> is last <strong className="font-medium text-foreground">content</strong> change
                     (title, meta title/description, section copy/images) on locale YAML{" "}
@@ -3998,10 +4256,10 @@ function FieldMappingDialog({
                     overlays under <code className="font-mono">field_overrides</code>.
                   </p>
                   <p>
-                    Asterisk (<code className="font-mono">editor.required</code>): single{" "}
-                    <strong className="font-medium text-foreground">*</strong> = required for
-                    publish on all live entries; double{" "}
-                    <strong className="font-medium text-foreground">**</strong> = required only
+                    Asterisk (<code className="font-mono">editor.required</code>): double{" "}
+                    <strong className="font-medium text-foreground">**</strong> = required for
+                    publish on all live entries; single{" "}
+                    <strong className="font-medium text-foreground">*</strong> = required only
                     when the entry uses the shared template (skipped if{" "}
                     <code className="font-mono">detached: true</code>). Drafts may be empty; JSON
                     fields must satisfy their schema. Live pages also always need{" "}
@@ -4263,10 +4521,10 @@ function FieldMappingDialog({
                                       ? "text-primary"
                                       : ""
                                   }`}
-                                  onClick={() => setPendingRequiredField(key)}
+                                  onClick={() => handleRequiredFieldClick(key)}
                                   data-testid={`button-required-field-${key}`}
                                 >
-                                  {editorHints[key]?.required === "attached" ? (
+                                  {editorHints[key]?.required === true ? (
                                     <span
                                       className="inline-flex items-center"
                                       aria-hidden
@@ -4284,11 +4542,15 @@ function FieldMappingDialog({
                                 className="text-xs"
                                 data-testid={`tooltip-required-field-${key}`}
                               >
-                                {editorHints[key]?.required === "attached"
-                                  ? "** When attached"
-                                  : editorHints[key]?.required === true
-                                    ? "* Always required"
-                                    : "* Always · ** Attached"}
+                                {editorHints[key]?.required === true
+                                  ? "** Always required"
+                                  : editorHints[key]?.required === "attached"
+                                    ? "* When attached"
+                                    : readSkipRequiredConfirm()
+                                      ? "Click to cycle required mode"
+                                      : allowAttachedRequiredMode
+                                        ? "** Always · * Attached"
+                                        : "Click to set required"}
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
@@ -4316,7 +4578,7 @@ function FieldMappingDialog({
                         {!showComputeEditor && (
                           <p className="text-[10px] text-muted-foreground ml-[7.5rem] mt-0.5 flex items-center gap-1">
                             <span>
-                              Use it as <code className="font-mono">{`{{ single.${key} }}`}</code> on any yml
+                              Use it as <code className="font-mono">{`{{ entry.${key} }}`}</code> on any yml
                             </span>
                             <TooltipProvider delayDuration={200}>
                               <Tooltip>
@@ -4324,7 +4586,7 @@ function FieldMappingDialog({
                                   <button
                                     type="button"
                                     className="inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                    aria-label={`About {{ single.${key} }}`}
+                                    aria-label={`About {{ entry.${key} }}`}
                                     data-testid={`button-single-var-info-${key}`}
                                   >
                                     <Info className="h-3 w-3" />
@@ -4335,7 +4597,7 @@ function FieldMappingDialog({
                                   className="z-[10001] max-w-[260px] text-xs"
                                 >
                                   In page or component YAML, reference this field with{" "}
-                                  <code className="font-mono">{`{{ single.${key} }}`}</code>.
+                                  <code className="font-mono">{`{{ entry.${key} }}`}</code>.
                                   The value comes from the entry&apos;s{" "}
                                   <code className="font-mono">{key}</code> property (or its default when missing).
                                   Use the Code button only if you need to remap or compute it.
@@ -4637,58 +4899,19 @@ function FieldMappingDialog({
       fieldName={pendingRequiredField}
       currentRequired={
         pendingRequiredField
-          ? editorHints[pendingRequiredField]?.required === "attached"
-            ? "attached"
-            : editorHints[pendingRequiredField]?.required === true
-              ? true
-              : false
+          ? normalizeRequiredMode(editorHints[pendingRequiredField]?.required)
           : false
       }
-      allowAttachedMode={!!config?.single_template || !!config?.database?.slug}
+      allowAttachedMode={allowAttachedRequiredMode}
       onOpenChange={(next) => {
         if (!next) setPendingRequiredField(null);
       }}
-      onSelect={(nextRequired) => {
+      onSelect={(nextRequired, neverAskAgain) => {
         const field = pendingRequiredField;
         if (!field) return;
-        if (nextRequired !== false) {
-          if (!isValidContentTypeStrategy(config?.strategy)) {
-            toast({
-              title: "Content type strategy required",
-              description:
-                "Set a type strategy (non-empty purpose) before marking fields required.",
-              variant: "destructive",
-            });
-            setPendingRequiredField(null);
-            onRequestStrategy?.();
-            return;
-          }
-          const cur = editorHints[field] || {};
-          if (!isValidFillIntent(cur.fill_intent)) {
-            toast({
-              title: "Fill intent required",
-              description:
-                "Set fill_intent (goal + purpose) in field settings before marking this field required.",
-              variant: "destructive",
-            });
-            setPendingRequiredField(null);
-            setHintDialogField(field);
-            return;
-          }
+        if (applyRequiredMode(field, nextRequired) && neverAskAgain) {
+          writeSkipRequiredConfirm(true);
         }
-        setEditorHints((prev) => {
-          const cur = prev[field] || {};
-          if (nextRequired === false) {
-            const { required: _r, ...rest } = cur;
-            if (Object.keys(rest).length === 0) {
-              const clone = { ...prev };
-              delete clone[field];
-              return clone;
-            }
-            return { ...prev, [field]: rest };
-          }
-          return { ...prev, [field]: { ...cur, required: nextRequired } };
-        });
         setPendingRequiredField(null);
       }}
     />
@@ -6039,10 +6262,47 @@ export default function ContentTypeManagePage() {
   const [explainSharedLayoutOpen, setExplainSharedLayoutOpen] = useState(false);
   const [explainLinkedDatabaseOpen, setExplainLinkedDatabaseOpen] = useState(false);
   const [enableSharedLayoutOpen, setEnableSharedLayoutOpen] = useState(false);
+  const [sharedLayoutUsableTemplate, setSharedLayoutUsableTemplate] = useState(false);
   const [sharedLayoutDivergences, setSharedLayoutDivergences] = useState<
-    Array<{ locale: string; sectionCount: number; sectionIds: string[] }>
+    Array<{
+      locale: string;
+      sectionCount: number;
+      sectionIds: string[];
+      basename?: string;
+      naming?: "template" | "single";
+    }>
   >([]);
   const [sharedLayoutBindings, setSharedLayoutBindings] = useState<
+    Array<{
+      id: string;
+      name?: string;
+      component: string;
+      locale: string;
+      memberCount: number;
+      members: Array<{ contentType: string; slug: string; sectionId: string }>;
+    }>
+  >([]);
+  const [sharedLayoutReplacePreview, setSharedLayoutReplacePreview] = useState<{
+    current: Array<{ locale: string; sectionCount: number; sectionIds: string[] }>;
+    proposed: { locale: string; sectionCount: number; sectionIds: string[] };
+    paths_to_overwrite: string[];
+  } | null>(null);
+  const [pendingEnablePayload, setPendingEnablePayload] =
+    useState<SharedLayoutEnablePayload | null>(null);
+  /** Template choice when connecting a database (B1). */
+  const [dbConnectTemplatePayload, setDbConnectTemplatePayload] =
+    useState<SharedLayoutEnablePayload | null>(null);
+  const [dbConnectUsableTemplate, setDbConnectUsableTemplate] = useState(false);
+  const [dbConnectDivergences, setDbConnectDivergences] = useState<
+    Array<{
+      locale: string;
+      sectionCount: number;
+      sectionIds: string[];
+      basename?: string;
+      naming?: "template" | "single";
+    }>
+  >([]);
+  const [dbConnectBindings, setDbConnectBindings] = useState<
     Array<{
       id: string;
       name?: string;
@@ -6060,34 +6320,74 @@ export default function ContentTypeManagePage() {
   });
   const linkedDbLabel =
     (dbSlug && databasesForLabel?.find((d) => d.name === dbSlug)?.label) || dbSlug || null;
-  const applySingleTemplateToggle = async (checked: boolean, baseLocale?: string) => {
+  const applySingleTemplateToggle = async (
+    checked: boolean,
+    enablePayload?: SharedLayoutEnablePayload,
+  ) => {
     setSingleTemplateSaving(true);
     try {
-      const res = await apiRequest("PUT", `/api/content-types/${contentType}/config`, {
-        single_template: checked,
-        ...(checked && baseLocale ? { shared_layout_base_locale: baseLocale } : {}),
-      });
+      const body: Record<string, unknown> = { single_template: checked };
+      if (checked && enablePayload) {
+        body.template_mode = enablePayload.template_mode;
+        if (enablePayload.shared_layout_base_locale) {
+          body.shared_layout_base_locale = enablePayload.shared_layout_base_locale;
+        }
+        if (enablePayload.template_entry_source_slug) {
+          body.template_entry_source_slug = enablePayload.template_entry_source_slug;
+        }
+        if (enablePayload.template_entry_source_locale) {
+          body.template_entry_source_locale = enablePayload.template_entry_source_locale;
+        }
+        if (enablePayload.confirm) body.confirm = true;
+      }
+      const res = await apiRequest("PUT", `/api/content-types/${contentType}/config`, body);
       const result = await res.json().catch(() => ({}));
       await queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/content-types"] });
       const dissolvedCount = result?.bindingsDissolved?.count ?? 0;
       toast({
-        title: checked ? "Single template on" : "Single template off",
+        title: checked ? "Shared template on" : "Shared template off",
         description: checked
           ? dissolvedCount > 0
-            ? `Shared layout enabled. Removed ${dissolvedCount} section binding${dissolvedCount === 1 ? "" : "s"}. Sibling locale singles were aligned to your base locale.`
-            : "All entries share one layout. Sibling locale singles were aligned to your base locale."
+            ? `Shared layout enabled. Removed ${dissolvedCount} section binding${dissolvedCount === 1 ? "" : "s"}.`
+            : "All entries share one layout from template.{locale}.yml."
           : "Each entry keeps its own full layout. Cross-locale sync is off.",
       });
+      setEnableSharedLayoutOpen(false);
+      setSharedLayoutReplacePreview(null);
+      setPendingEnablePayload(null);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const jsonMatch = msg.match(/^\d+:\s*(\{[\s\S]*\})$/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1]) as {
+            code?: string;
+            preview?: typeof sharedLayoutReplacePreview;
+            error?: string;
+          };
+          if (parsed.code === "confirm_template_replace" && parsed.preview) {
+            setPendingEnablePayload(enablePayload || null);
+            setSharedLayoutReplacePreview(parsed.preview);
+            return;
+          }
+          toast({
+            title: "Failed to update shared template",
+            description: parsed.error || msg,
+            variant: "destructive",
+          });
+          return;
+        } catch {
+          /* fall through */
+        }
+      }
       toast({
-        title: "Failed to update single template",
-        description: err instanceof Error ? err.message : String(err),
+        title: "Failed to update shared template",
+        description: msg,
         variant: "destructive",
       });
     } finally {
       setSingleTemplateSaving(false);
-      setEnableSharedLayoutOpen(false);
     }
   };
 
@@ -6125,17 +6425,47 @@ export default function ContentTypeManagePage() {
       await applySingleTemplateToggle(false);
       return;
     }
-    // Enabling: show divergence / base-locale modal (and bindings warning if any)
     try {
       const res = await apiRequest("GET", `/api/content-types/${contentType}/shared-layout-status`);
       const data = await res.json();
-      setSharedLayoutDivergences(data.locales ?? []);
+      setSharedLayoutUsableTemplate(!!data.usable_template);
+      setSharedLayoutDivergences(data.template_locales ?? data.locales ?? []);
       setSharedLayoutBindings(data.bindings ?? []);
     } catch {
+      setSharedLayoutUsableTemplate(false);
       setSharedLayoutDivergences([]);
       setSharedLayoutBindings([]);
     }
+    setSharedLayoutReplacePreview(null);
     setEnableSharedLayoutOpen(true);
+  };
+
+  const openConnectDatabase = async () => {
+    const needsChoice = !hasDb && !singleTemplateEnabled;
+    if (needsChoice) {
+      try {
+        const res = await apiRequest(
+          "GET",
+          `/api/content-types/${contentType}/shared-layout-status`,
+        );
+        const data = await res.json();
+        setDbConnectUsableTemplate(!!data.usable_template);
+        setDbConnectDivergences(data.template_locales ?? data.locales ?? []);
+        setDbConnectBindings(data.bindings ?? []);
+        setDbConnectTemplatePayload({
+          template_mode: data.usable_template ? "keep_existing" : "from_entry",
+          shared_layout_base_locale: "en",
+        });
+      } catch {
+        setDbConnectUsableTemplate(false);
+        setDbConnectDivergences([]);
+        setDbConnectBindings([]);
+        setDbConnectTemplatePayload({ template_mode: "from_entry" });
+      }
+    } else {
+      setDbConnectTemplatePayload(null);
+    }
+    setConnectDbConfirmOpen(true);
   };
 
   const staticEntryCount =
@@ -6580,13 +6910,13 @@ export default function ContentTypeManagePage() {
     if (token) headers["Authorization"] = `Token ${token}`;
     try {
       const res = await fetch(
-        `/api/content/raw-file?contentType=${encodeURIComponent(contentType)}&slug=${encodeURIComponent("_common.single")}&locale=en`,
+        `/api/content/raw-file?contentType=${encodeURIComponent(contentType)}&slug=${encodeURIComponent("_common.template")}&locale=en`,
         { headers },
       );
       if (!res.ok) {
         toast({
           title: "No template found",
-          description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+          description: "This content type has no _common.template.yml (or template.*.yml / legacy single.*) yet.",
           variant: "destructive",
         });
         return;
@@ -6595,12 +6925,12 @@ export default function ContentTypeManagePage() {
       if (!data.exists) {
         toast({
           title: "No template found",
-          description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+          description: "This content type has no _common.template.yml (or template.*.yml / legacy single.*) yet.",
           variant: "destructive",
         });
         return;
       }
-      setYamlEditorInfo({ contentType, slug: "_common.single", locale: "en" });
+      setYamlEditorInfo({ contentType, slug: "_common.template", locale: "en" });
       setShowYamlEditor(true);
     } catch {
       toast({ title: "Error", description: "Failed to open the single template", variant: "destructive" });
@@ -6925,7 +7255,7 @@ export default function ContentTypeManagePage() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem
-                    onClick={() => setConnectDbConfirmOpen(true)}
+                    onClick={() => void openConnectDatabase()}
                     data-testid="button-manage-connection"
                   >
                     <Database className="h-4 w-4 mr-2" />
@@ -7906,7 +8236,7 @@ export default function ContentTypeManagePage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setConnectDbConfirmOpen(true)}
+                    onClick={() => void openConnectDatabase()}
                     data-testid="button-link-database"
                   >
                     <Database className="h-4 w-4 mr-1" />
@@ -8473,7 +8803,7 @@ export default function ContentTypeManagePage() {
                 </ul>
                 <p className="text-destructive text-xs">
                   Existing per-entry overlay patches will be merged into full static YAML and overwritten.
-                  Shared <code className="text-[11px]">single.*.yml</code> templates will be deleted.
+                  Shared <code className="text-[11px]">template.*.yml</code> templates will be deleted.
                   Remote markdown bodies are inlined into the YAML.
                 </p>
               </div>
@@ -8590,11 +8920,29 @@ export default function ContentTypeManagePage() {
         open={connectDbConfirmOpen}
         onOpenChange={setConnectDbConfirmOpen}
         onConfirm={() => setDsDialogOpen(true)}
+        contentType={contentType}
         contentTypeLabel={label}
         staticCount={typeof staticEntryCount === "number" ? staticEntryCount : staticEntriesData?.total ?? staticEntriesData?.count ?? 0}
         alreadyConnected={hasDb}
+        needsTemplateChoice={!hasDb && !singleTemplateEnabled}
+        usableTemplate={dbConnectUsableTemplate}
+        divergences={dbConnectDivergences}
+        bindings={dbConnectBindings}
+        templatePayload={
+          dbConnectTemplatePayload || {
+            template_mode: dbConnectUsableTemplate ? "keep_existing" : "from_entry",
+          }
+        }
+        onTemplatePayloadChange={(p) => setDbConnectTemplatePayload(p)}
       />
-      <DataSourceDialog open={dsDialogOpen} onOpenChange={setDsDialogOpen} contentType={contentType} />
+      <DataSourceDialog
+        open={dsDialogOpen}
+        onOpenChange={setDsDialogOpen}
+        contentType={contentType}
+        sharedLayoutEnablePayload={
+          !hasDb && !singleTemplateEnabled ? dbConnectTemplatePayload : null
+        }
+      />
       <FieldMappingDialog
         open={mappingDialogOpen}
         onOpenChange={setMappingDialogOpen}
@@ -8628,16 +8976,26 @@ export default function ContentTypeManagePage() {
       />
       <SharedLayoutEnableDialog
         open={enableSharedLayoutOpen}
-        onClose={() => setEnableSharedLayoutOpen(false)}
-        onConfirm={(baseLocale) => applySingleTemplateToggle(true, baseLocale)}
-        locales={
-          sharedLayoutDivergences.length > 0
-            ? sharedLayoutDivergences.map((d) => d.locale)
-            : ["en", "es"]
-        }
+        onClose={() => {
+          setEnableSharedLayoutOpen(false);
+          setSharedLayoutReplacePreview(null);
+          setPendingEnablePayload(null);
+        }}
+        onConfirm={async (payload) => {
+          const merged = payload.confirm && pendingEnablePayload
+            ? { ...pendingEnablePayload, confirm: true }
+            : payload;
+          await applySingleTemplateToggle(true, merged);
+        }}
+        contentType={contentType}
+        usableTemplate={sharedLayoutUsableTemplate}
         divergences={sharedLayoutDivergences}
         bindings={sharedLayoutBindings}
         isLoading={singleTemplateSaving}
+        replacePreview={sharedLayoutReplacePreview}
+        onClearReplacePreview={() => {
+          setSharedLayoutReplacePreview(null);
+        }}
       />
       <DeletePageModal
         open={deleteModalOpen}
@@ -8702,7 +9060,10 @@ export default function ContentTypeManagePage() {
             onClose={() => setShowYamlEditor(false)}
             onSaved={() => {
               setShowYamlEditor(false);
-              if (yamlEditorInfo?.slug === "_common.single") {
+              if (
+                yamlEditorInfo?.slug === "_common.template" ||
+                yamlEditorInfo?.slug === "_common.single"
+              ) {
                 queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
                 toast({ title: "Template saved" });
               } else {

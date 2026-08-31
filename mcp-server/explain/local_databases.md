@@ -67,7 +67,7 @@ Warns if `related_features.length > 2`.
 
 ### FAQ sections (listing)
 
-`type: faq` is a listing component (`behaviors.listing` → `dynamic_entries`). Author filters under `dynamic_entries.permanent_filters` (e.g. topics / locations). On location pages use `value: "{{ single.slug }}"` for the `locations` filter. **Do not** author section-level `related_features` (save rejects). FAQPage JSON-LD uses the same post-`resolveDynamicEntries` `items` as the accordion (plus `item_overrides.hideOnLocations`).
+`type: faq` is a listing component (`behaviors.listing` → `dynamic_entries`). Author filters under `dynamic_entries.permanent_filters` (e.g. topics / locations). On location pages use `value: "{{ entry.slug }}"` for the `locations` filter. **Do not** author section-level `related_features` (save rejects). FAQPage JSON-LD uses the same post-`resolveDynamicEntries` `items` as the accordion (plus `item_overrides.hideOnLocations`).
 
 ## Side effects and non-effects
 

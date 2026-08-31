@@ -34,6 +34,7 @@ import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { SECTION_LAYOUT_DEFAULT_KEYS } from "../section-layout-defaults";
 import { databaseManager, DatabaseManager, getCachedDatabaseEntryCount } from "../database";
+import { TESTIMONIALS_DATABASE } from "@shared/testimonials-listing";
 
 function getDB(res: import("express").Response): DatabaseManager {
   return (res.locals.site as import("../site-manager").SiteContext)?.database ?? databaseManager;
@@ -187,7 +188,10 @@ import {
 import { mediaGallery } from "../media-gallery";
 import { media } from "../media";
 import multer from "multer";
+import fs from "fs";
+import path from "path";
 import { contentIndex, type ContentType } from "../content-index";
+import { observeParamValuesByLocale, localeYamlCandidatesForObserve } from "../url-param-peers";
 import {
   usesDraftFirstCreate,
   getEntryContentDir,
@@ -205,6 +209,12 @@ import {
   alignSiblingSinglesToBase,
   summarizeSingleTemplateLocales,
 } from "../shared-layout-sync";
+import {
+  assessTemplateEntrySource,
+  enableSharedLayoutFromEntry,
+  isEnablingSharedLayout,
+  summarizeTemplateLocales,
+} from "../shared-layout-enable";
 import {
   getFolder,
   getType,
@@ -343,6 +353,7 @@ import {
   resolveVersioningReadSlug,
 } from "../shared-layout-entry";
 import { detachEntry, reattachEntry, getReattachSectionLossPreview, ReattachRequiredFieldsError } from "../shared-layout-detach";
+import { resolveCommonTemplatePath } from "../shared-layout-paths";
 import {
   buildLocaleUnavailablePayload,
   isEmptyDetachedLocaleEntry,
@@ -390,6 +401,7 @@ import {
   ValidationFixRunLogEntry,
   FixerItemStatus,
 } from "./_helpers";
+import { api } from "../rate-limit/api.js";
 import { resolveRelationsOnEntry } from "../resolve-relations";
 import { child } from "../logger";
 const log = child({ module: "routes/content" });
@@ -1697,7 +1709,6 @@ export function registerContentRoutes(app: Express): void {
         database: config.database || null,
         url_pattern: config.url_pattern,
         single_template: !!config.single_template,
-        immutable_slug: !!config.immutable_slug,
         protected_slugs: config.protected_slugs || [],
         preview: config.preview || null,
         schema_org_requirements: config.schema_org_requirements || [],
@@ -1754,7 +1765,7 @@ export function registerContentRoutes(app: Express): void {
   app.post("/api/content-types/:type/schema-org-ensure", async (req, res) => {
     try {
       const { type } = req.params;
-      const auth = await requireCapability(req, res, "content_edit_structure", type);
+      const auth = await requireCapability(req, res, "seo_settings");
       if (!auth.authorized) return;
 
       const config = getContentTypeConfig(type, ctRoot(res));
@@ -2136,6 +2147,69 @@ export function registerContentRoutes(app: Express): void {
         }
       }
 
+      const newlyLinkingDb =
+        !priorConfig?.database?.slug &&
+        !!(
+          body.database &&
+          typeof body.database === "object" &&
+          (body.database as { slug?: string }).slug
+        );
+
+      const enablingShared = isEnablingSharedLayout({
+        priorSingleTemplate: !!priorConfig?.single_template,
+        bodySingleTemplate:
+          body.single_template === undefined ? undefined : !!body.single_template,
+        linkingDatabaseEnablesShared: newlyLinkingDb,
+      });
+
+      let enableBootstrap: ReturnType<typeof enableSharedLayoutFromEntry> | null = null;
+      if (enablingShared) {
+        const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
+        const yaml = await import("js-yaml");
+        const dumpYaml = (d: unknown) => {
+          const { escaped, map } = escapeObjectVars(d);
+          return unescapeYamlDump(
+            yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }),
+            map,
+          );
+        };
+        enableBootstrap = enableSharedLayoutFromEntry({
+          contentType: type,
+          contentRoot: getContentRoot(res),
+          templateMode: body.template_mode,
+          templateEntrySourceSlug:
+            typeof body.template_entry_source_slug === "string"
+              ? body.template_entry_source_slug
+              : undefined,
+          templateEntrySourceLocale:
+            typeof body.template_entry_source_locale === "string"
+              ? body.template_entry_source_locale
+              : undefined,
+          sharedLayoutBaseLocale:
+            typeof body.shared_layout_base_locale === "string"
+              ? body.shared_layout_base_locale
+              : undefined,
+          confirm: body.confirm === true,
+          safeYamlLoad: (r) => getCI(res).safeYamlLoad(r),
+          dumpYaml,
+          getAvailableLocales: (ct, slug) =>
+            getCI(res).getAvailableLocalesOrVariants(ct as import("@shared/schema").ContentType, slug),
+          onWritten: (filePath) => markFileAsModified(filePath),
+        });
+        if (!enableBootstrap.ok) {
+          res.status(enableBootstrap.status).json({
+            error: enableBootstrap.error,
+            code: enableBootstrap.code,
+            ...(enableBootstrap.locales ? { locales: enableBootstrap.locales } : {}),
+            ...(enableBootstrap.preview ? { preview: enableBootstrap.preview } : {}),
+            ...(enableBootstrap.invalidSections
+              ? { invalidSections: enableBootstrap.invalidSections }
+              : {}),
+          });
+          return;
+        }
+      }
+
       try {
         updateContentTypeConfig(type, update, getContentRoot(res));
       } catch (err) {
@@ -2164,9 +2238,7 @@ export function registerContentRoutes(app: Express): void {
 
       // When enabling shared layout, dissolve bindings for this type (bindings and templates don't mix)
       let bindingsDissolved: unknown = undefined;
-      const enabledShared =
-        body.single_template === true || (willHaveDb && !priorConfig?.single_template);
-      if (enabledShared) {
+      if (enablingShared) {
         const dissolved = bindingManager.dissolveGroupsForContentType(type);
         if (dissolved.count > 0) {
           bindingsDissolved = {
@@ -2187,9 +2259,10 @@ export function registerContentRoutes(app: Express): void {
         }
       }
 
-      // When enabling shared layout, optionally align sibling singles to a base locale
-      let alignResult: unknown = undefined;
+      // Legacy path: align when already shared and only base locale sent (no enable bootstrap)
+      let alignResult: unknown = enableBootstrap?.ok ? enableBootstrap.align : undefined;
       if (
+        !enablingShared &&
         body.single_template === true &&
         typeof body.shared_layout_base_locale === "string" &&
         body.shared_layout_base_locale
@@ -2218,6 +2291,16 @@ export function registerContentRoutes(app: Express): void {
         success: true,
         ...(alignResult ? { align: alignResult } : {}),
         ...(bindingsDissolved ? { bindingsDissolved } : {}),
+        ...(enableBootstrap?.ok
+          ? {
+              shared_layout_enable: {
+                template_mode: enableBootstrap.templateMode,
+                written_paths: enableBootstrap.writtenPaths,
+                source_slug: enableBootstrap.sourceSlug,
+                source_locale: enableBootstrap.sourceLocale,
+              },
+            }
+          : {}),
         ...((res.locals as { previewCircularWarn?: string[] }).previewCircularWarn
           ? {
               warning: `preview.props references reserved image field (circular): ${(res.locals as { previewCircularWarn: string[] }).previewCircularWarn.join(", ")}`,
@@ -2239,7 +2322,13 @@ export function registerContentRoutes(app: Express): void {
       }
       const folder = getFolder(type, getContentRoot(res));
       const templateDir = path.join(getContentRoot(res), folder);
-      const locales = summarizeSingleTemplateLocales(templateDir, (r) => getCI(res).safeYamlLoad(r));
+      const templateLocales = summarizeTemplateLocales(templateDir, (r) =>
+        getCI(res).safeYamlLoad(r),
+      );
+      const locales = summarizeSingleTemplateLocales(templateDir, (r) =>
+        getCI(res).safeYamlLoad(r),
+      );
+      const usable_template = templateLocales.some((l) => l.sectionCount > 0);
       const bindingGroups = bindingManager.findGroupsForContentType(type).map((g) => ({
         id: g.id,
         name: g.name,
@@ -2252,11 +2341,86 @@ export function registerContentRoutes(app: Express): void {
           sectionId: m.sectionId,
         })),
       }));
+
+      const entrySlug =
+        typeof req.query.entry === "string" ? req.query.entry.trim() : "";
+      const entryLocaleQuery =
+        typeof req.query.locale === "string" ? req.query.locale.trim() : "";
+      let entry_locales: string[] | undefined;
+      let entry_assessment:
+        | {
+            ok: true;
+            source_locale: string;
+            section_count: number;
+            section_ids: string[];
+          }
+        | {
+            ok: false;
+            code: string;
+            error: string;
+            invalid_sections?: Array<{
+              sectionId: string | null;
+              index: number;
+              reason: string;
+            }>;
+          }
+        | undefined;
+
+      if (entrySlug) {
+        entry_locales = getCI(res).getAvailableLocalesOrVariants(
+          type as import("@shared/schema").ContentType,
+          entrySlug,
+        );
+
+        const needsLocale =
+          (entry_locales?.length ?? 0) > 1 && !entryLocaleQuery;
+        if (!needsLocale) {
+          const assessed = assessTemplateEntrySource({
+            contentType: type,
+            contentRoot: getContentRoot(res),
+            templateEntrySourceSlug: entrySlug,
+            templateEntrySourceLocale: entryLocaleQuery || undefined,
+            safeYamlLoad: (r) => getCI(res).safeYamlLoad(r),
+            getAvailableLocales: (ct, slug) =>
+              getCI(res).getAvailableLocalesOrVariants(
+                ct as import("@shared/schema").ContentType,
+                slug,
+              ),
+          });
+          if (assessed.ok) {
+            entry_assessment = {
+              ok: true,
+              source_locale: assessed.sourceLocale,
+              section_count: assessed.sectionCount,
+              section_ids: assessed.sectionIds,
+            };
+          } else {
+            entry_assessment = {
+              ok: false,
+              code: assessed.code,
+              error: assessed.error,
+              ...(assessed.invalidSections
+                ? { invalid_sections: assessed.invalidSections }
+                : {}),
+            };
+          }
+        }
+      }
+
       res.json({
         single_template: !!config.single_template,
         database: !!config.database?.slug,
+        usable_template,
+        template_locales: templateLocales,
         locales,
         bindings: bindingGroups,
+        ...(entry_locales
+          ? {
+              entry_locales,
+              entry_slug: entrySlug,
+              ...(entry_assessment ? { entry_assessment } : {}),
+            }
+          : {}),
       });
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -2349,43 +2513,49 @@ export function registerContentRoutes(app: Express): void {
       }
 
       const mapping = getFieldMapping(type, ctRoot(res));
-      const valueSets: Record<string, Set<string>> = {};
-      const localeSets: Record<string, Record<string, Set<string>>> = {};
       const shapeVotes: Record<string, { object_slug: number; string: number }> = {};
       for (const param of params) {
-        valueSets[param] = new Set();
-        localeSets[param] = {};
         shapeVotes[param] = { object_slug: 0, string: 0 };
       }
 
-      const ci = getCI(res);
-      const slugs = ci.listContentSlugs(type as ContentType);
-      for (const slug of slugs) {
-        const locales = ci
-          .getAvailableLocalesOrVariants(type as ContentType, slug)
-          .filter((l) => !l.startsWith("_") && !l.includes("."));
-        for (const locale of locales) {
-          const { data } = ci.loadMergedContent(type, slug, locale);
-          if (!data) continue;
-          const record = data as Record<string, unknown>;
-          for (const param of params) {
-            const raw = getRawUrlParamValue(record, param, mapping);
-            if (raw === undefined || raw === null) continue;
-            shapeVotes[param][detectUrlParamValueShape(raw)] += 1;
-            const resolved = resolveUrlFieldValue(raw);
-            if (resolved) {
-              valueSets[param].add(resolved);
-              (localeSets[param][locale] ??= new Set()).add(resolved);
+      const contentPath = ctRoot(res);
+      const typeDir = path.join(contentPath, getDirectory(type, contentPath));
+      const supportedLocales = getSupportedLocales();
+
+      for (const param of params) {
+        optionsByLocale[param] = observeParamValuesByLocale(contentPath, type, config, param, supportedLocales);
+        options[param] = [...new Set(Object.values(optionsByLocale[param]).flat())].sort((a, b) =>
+          a.localeCompare(b),
+        );
+      }
+
+      if (fs.existsSync(typeDir)) {
+        const ci = getCI(res);
+        for (const entry of fs.readdirSync(typeDir, { withFileTypes: true })) {
+          if (!entry.isDirectory() || entry.name.startsWith("_")) continue;
+          const slugDir = path.join(typeDir, entry.name);
+          for (const locale of supportedLocales) {
+            for (const candidate of localeYamlCandidatesForObserve(locale)) {
+              const filePath = path.join(slugDir, candidate);
+              if (!fs.existsSync(filePath)) continue;
+              try {
+                const raw = fs.readFileSync(filePath, "utf-8");
+                const record = ci.safeYamlLoad(raw) as Record<string, unknown> | null;
+                if (!record) continue;
+                for (const param of params) {
+                  const rawValue = getRawUrlParamValue(record, param, mapping);
+                  if (rawValue === undefined || rawValue === null) continue;
+                  shapeVotes[param][detectUrlParamValueShape(rawValue)] += 1;
+                }
+              } catch {
+                /* skip */
+              }
             }
           }
         }
       }
 
       for (const param of params) {
-        options[param] = [...valueSets[param]].sort((a, b) => a.localeCompare(b));
-        for (const [locale, set] of Object.entries(localeSets[param])) {
-          optionsByLocale[param][locale] = [...set].sort((a, b) => a.localeCompare(b));
-        }
         // `:category` is always a plain string URL slug — never `{ slug }`.
         if (param === "category") {
           shapes[param] = "string";
@@ -2453,7 +2623,7 @@ export function registerContentRoutes(app: Express): void {
         res.status(404).json({ error: `Unknown content type: ${type}` });
         return;
       }
-      // DB-backed and static single_template shared-layout types both use single.{locale}.yml
+      // DB-backed and static single_template shared-layout types both use template.{locale}.yml
       if (!isSharedLayoutType(type, root)) {
         res.status(400).json({ error: `Content type "${type}" does not use a single template` });
         return;
@@ -2588,7 +2758,7 @@ export function registerContentRoutes(app: Express): void {
         res.status(404).json({ error: `Content type "${name}" not found` });
         return;
       }
-      const filePath = path.join(getContentRoot(res), folder, "_common.single.yml");
+      const filePath = resolveCommonTemplatePath(path.join(getContentRoot(res), folder));
       if (!fs.existsSync(filePath)) {
         res.json({ defaults: {} });
         return;
@@ -2614,10 +2784,13 @@ export function registerContentRoutes(app: Express): void {
         res.status(400).json({ error: "Request body must be a JSON object" });
         return;
       }
-      const filePath = path.join(getContentRoot(res), folder, "_common.single.yml");
+      const filePath = resolveCommonTemplatePath(path.join(getContentRoot(res), folder), {
+        forWrite: true,
+      });
       let existing: Record<string, unknown> = {};
-      if (fs.existsSync(filePath)) {
-        const raw = fs.readFileSync(filePath, "utf-8");
+      const existingPath = resolveCommonTemplatePath(path.join(getContentRoot(res), folder));
+      if (fs.existsSync(existingPath)) {
+        const raw = fs.readFileSync(existingPath, "utf-8");
         existing = getCI(res).safeYamlLoad(raw) || {};
       }
       const { author: _authorIgnored, ...bodyWithoutAuthor } = body as Record<string, unknown>;
@@ -3640,7 +3813,11 @@ export function registerContentRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/content-types/:type/entry-previews/enqueue", async (req, res) => {
+  api.post(
+    app,
+    "/api/content-types/:type/entry-previews/enqueue",
+    { rate: "expensiveCapture" },
+    async (req, res) => {
     try {
       const { type } = req.params;
       const auth = await requireCapability(req, res, "content_edit_media", type);
@@ -4128,7 +4305,12 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
 
-      if (isKnownSeoFieldPath(field) || field === "seo.pillar") {
+      const isSeoField = isKnownSeoFieldPath(field) || field === "seo.pillar";
+      const resetCap = isSeoField ? "seo_edit" : "content_edit_text";
+      const auth = await requireCapability(req, res, resetCap, type);
+      if (!auth.authorized) return;
+
+      if (isSeoField) {
         const fieldPath = field === "seo.pillar" ? "seo.pillar_path" : field;
         let dbItem: Record<string, unknown> | null = null;
         const dbName = config.database?.slug;
@@ -4618,9 +4800,30 @@ Important: Only include mappings where you are confident the field exists. Use d
     }
   });
 
-  app.get("/api/testimonials/:locale", (req, res) => {
+  /**
+   * Compat shim. Testimonials sections now resolve through `dynamic_entries` over
+   * the `testimonials` database, so this reads the same merged bank and filters by
+   * locale. Kept only for staff pickers that still ask per locale; remove once
+   * nothing calls it. Falls back to the deprecated flat `testimonials/{locale}.yml`
+   * on content roots that have not been migrated yet.
+   */
+  app.get("/api/testimonials/:locale", async (req, res) => {
     const { locale } = req.params;
     const normalizedLocale = normalizeLocale(locale);
+
+    if (getDB(res).exists(TESTIMONIALS_DATABASE)) {
+      try {
+        const { items } = await getDB(res).fetchItems(TESTIMONIALS_DATABASE);
+        const testimonials = items.filter(
+          (item) => String((item as Record<string, unknown>).locale ?? "") === normalizedLocale,
+        );
+        res.json({ testimonials, source: `db/${TESTIMONIALS_DATABASE}` });
+        return;
+      } catch (error) {
+        log.error({ err: error }, "Error loading testimonials from database:");
+        // fall through to the flat bank so staff UIs keep working
+      }
+    }
 
     const testimonialsPath = path.join(
       getContentRoot(res),
@@ -4636,7 +4839,7 @@ Important: Only include mappings where you are confident the field exists. Use d
     try {
       const content = fs.readFileSync(testimonialsPath, "utf8");
       const data = safeYamlLoad(content) as unknown[];
-      res.json({ testimonials: data || [] });
+      res.json({ testimonials: data || [], source: "flat-yaml" });
     } catch (error) {
       log.error({ err: error }, "Error loading testimonials:");
       res.status(500).json({ error: "Failed to load testimonials" });

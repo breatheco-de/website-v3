@@ -1,0 +1,256 @@
+name: AI Flex Path
+version: "1.0"
+component: AiFlexPath
+file: client/src/components/ai_flex_path/variants/AiFlexPathDefault.tsx
+description: >-
+  Interactive learning-path builder: pick or rearrange courses, see skills/tools, and CTA into enrollment.
+when_to_use: >-
+  Use on program or AI-path landing pages when learners should assemble or review a multi-course path before applying.
+variants:
+  course_color_selector: {}
+  default: {}
+  drag_and_drop: {}
+  simplified: {}
+variant_props:
+  course_color_selector:
+    max_selections:
+      type: number
+      required: false
+    view_details_label:
+      type: string
+      required: false
+    drag_instruction_label:
+      type: string
+      required: false
+    replace_label:
+      type: string
+      required: false
+    swap_label:
+      type: string
+      required: false
+    swap_icon:
+      type: string
+      required: false
+    swap_prompt_label:
+      type: string
+      required: false
+    swap_cancel_label:
+      type: string
+      required: false
+    tools_label:
+      type: string
+      required: false
+    tools_marquee:
+      type: boolean
+      required: false
+    show_available_courses:
+      type: string
+      required: true
+    image_id:
+      type: string
+      required: false
+    default_courses:
+      type: array
+      required: true
+      items:
+        type:
+          type: string
+          required: true
+    slot_colors:
+      type: array
+      required: false
+      items:
+        color:
+          type: string
+          required: true
+    draggable:
+      type: boolean
+      required: false
+  default:
+    counter_label:
+      type: string
+      required: true
+    max_selections:
+      type: string
+      required: true
+    skills_breakdown_label:
+      type: string
+      required: true
+    tools_label:
+      type: string
+      required: true
+    tools_marquee:
+      type: boolean
+      required: false
+    default_courses:
+      type: array
+      required: true
+      items:
+        type:
+          type: string
+          required: true
+  drag_and_drop:
+    max_selections:
+      type: number
+      required: false
+    view_details_label:
+      type: string
+      required: false
+    drag_instruction_label:
+      type: string
+      required: false
+    replace_label:
+      type: string
+      required: false
+    swap_label:
+      type: string
+      required: false
+    swap_icon:
+      type: string
+      required: false
+    swap_prompt_label:
+      type: string
+      required: false
+    swap_cancel_label:
+      type: string
+      required: false
+    tools_label:
+      type: string
+      required: false
+    tools_marquee:
+      type: boolean
+      required: false
+    show_available_courses:
+      type: string
+      required: true
+    image_id:
+      type: string
+      required: false
+    default_courses:
+      type: array
+      required: true
+      items:
+        type:
+          type: string
+          required: true
+  simplified:
+    view_details_label:
+      type: string
+      required: false
+    show_details:
+      type: string
+      required: true
+    show_markers:
+      type: string
+      required: true
+    image_id:
+      type: string
+      required: false
+    slot_colors:
+      type: array
+      required: false
+      items:
+        color:
+          type: string
+          required: true
+props:
+  ready_label:
+    type: string
+    required: false
+  path_name:
+    type: string
+    required: true
+  tagline:
+    type: string
+    required: false
+  results_subtitle:
+    type: string
+    required: false
+  icon:
+    type: string
+    required: false
+  courses:
+    type: array
+    required: true
+    items:
+      name:
+        type: string
+        required: true
+      tagline:
+        type: string
+        required: true
+      hrs:
+        type: string
+        required: true
+      tools:
+        type: array
+        required: true
+        items:
+          type:
+            type: string
+            required: true
+      skills:
+        type: array
+        required: true
+        items:
+          name:
+            type: string
+            required: true
+          skill_percentage:
+            type: number
+            required: true
+      color:
+        type: string
+        required: false
+      icon:
+        type: string
+        required: false
+  cta:
+    type: object
+    required: true
+    properties:
+      title:
+        type: string
+        required: true
+      subtitle:
+        type: string
+        required: false
+      banner:
+        type: boolean
+        required: false
+      buttons:
+        type: array
+        required: true
+        items:
+          text:
+            type: string
+            required: true
+          url:
+            type: string
+            required: true
+          variant:
+            type: string
+            required: true
+            options:
+              - primary
+              - secondary
+              - outline
+          tracking:
+            type: string
+            required: false
+            options:
+              - none
+              - add_to_cart
+              - click_begin_checkout
+          button_variant:
+            type: string
+            required: false
+          text_color:
+            type: string
+            required: false
+          icon:
+            type: string
+            required: false
+          us_only:
+            type: boolean
+            required: false

@@ -16,10 +16,9 @@ import {
 } from "@/components/ui/dialog";
 import {
   Tabs,
-  TabsList,
-  TabsTrigger,
   TabsContent,
 } from "@/components/ui/tabs";
+import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { ContentInfo, SeoMeta, SeoLocation, SlugCheckStatus } from "../types";
 
@@ -251,13 +250,6 @@ export function SeoModal({
     }
   }, [open]);
 
-  const { data: ctConfig } = useQuery<{ immutable_slug?: boolean }>({
-    queryKey: ["/api/content-types", contentInfo.type, "config"],
-    enabled: open && !!contentInfo.type,
-    staleTime: 5 * 60 * 1000,
-  });
-  const slugImmutable = !!ctConfig?.immutable_slug;
-
   const snippetUrl = seoMeta.canonical_url || (typeof window !== "undefined" ? `${window.location.origin}/${contentInfo.slug || ""}` : "");
   const snippetBreadcrumb = (() => {
     try {
@@ -283,10 +275,12 @@ export function SeoModal({
               {!slugEditing || !contentInfo.type ? (
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="truncate">
-                    {contentInfo.slug ? `${contentInfo.label}: ${contentInfo.slug}` : "Page SEO settings"}
+                    {(currentLocaleSlug || contentInfo.slug)
+                      ? `${contentInfo.label}: ${currentLocaleSlug || contentInfo.slug}`
+                      : "Page SEO settings"}
                     {isVariantContext ? ` · variant ${seoVariant}` : ""}
                   </span>
-                  {contentInfo.type && !slugImmutable && !slugRenameDisabled && (
+                  {contentInfo.type && !slugRenameDisabled && (
                     <Button
                       size="icon"
                       variant="ghost"
@@ -381,11 +375,6 @@ export function SeoModal({
                   Slug rename is disabled while editing a variant. Open LIVE context to rename.
                 </p>
               )}
-              {slugImmutable && !slugRenameDisabled && !slugEditing && (
-                <p className="text-xs" data-testid="text-slug-immutable">
-                  Slug is immutable for this content type (authors).
-                </p>
-              )}
               {slugRedirectPrompt && (
                 <div className="space-y-3 rounded-md border p-3 text-foreground">
                   <p className="text-sm font-medium">Create a redirect?</p>
@@ -472,36 +461,36 @@ export function SeoModal({
           </div>
         ) : seoData ? (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full min-w-0">
-            <TabsList className="inline-flex h-auto w-auto max-w-full flex-wrap justify-start" data-testid="tabs-seo-nav">
-              <TabsTrigger value="general" data-testid="tab-general" className="flex items-center justify-center gap-1.5 px-2.5" title="SEO Meta" aria-label="SEO Meta">
+            <ToggleButtonBarList className="inline-flex w-auto max-w-full" data-testid="tabs-seo-nav">
+              <ToggleButtonBarTrigger value="general" data-testid="tab-general" className="gap-1.5" title="SEO Meta" aria-label="SEO Meta">
                 <FileText className="h-3.5 w-3.5 shrink-0" />
                 <span className="hidden sm:inline">SEO Meta</span>
-              </TabsTrigger>
-              <TabsTrigger value="fields" data-testid="tab-fields" className="flex items-center justify-center gap-1.5 px-2.5" title="Fields" aria-label="Fields">
+              </ToggleButtonBarTrigger>
+              <ToggleButtonBarTrigger value="fields" data-testid="tab-fields" className="gap-1.5" title="Fields" aria-label="Fields">
                 <Table2 className="h-3.5 w-3.5 shrink-0" />
                 <span className="hidden sm:inline">Fields</span>
-              </TabsTrigger>
-              <TabsTrigger value="funnel" data-testid="tab-funnel" className="flex items-center justify-center gap-1.5 px-2.5" title="Funnel" aria-label="Funnel">
+              </ToggleButtonBarTrigger>
+              <ToggleButtonBarTrigger value="funnel" data-testid="tab-funnel" className="gap-1.5" title="Funnel" aria-label="Funnel">
                 <Filter className="h-3.5 w-3.5 shrink-0" />
                 <span className="hidden sm:inline">Funnel</span>
-              </TabsTrigger>
-              <TabsTrigger value="schema" data-testid="tab-schema" className="flex items-center justify-center gap-1.5 px-2.5" title="Schema" aria-label="Schema">
+              </ToggleButtonBarTrigger>
+              <ToggleButtonBarTrigger value="schema" data-testid="tab-schema" className="gap-1.5" title="Schema" aria-label="Schema">
                 <Code className="h-3.5 w-3.5 shrink-0" />
                 <span className="hidden sm:inline">Schema</span>
-              </TabsTrigger>
-              <TabsTrigger value="visibility" data-testid="tab-visibility" className="flex items-center justify-center gap-1.5 px-2.5" title="Visibility" aria-label="Visibility">
+              </ToggleButtonBarTrigger>
+              <ToggleButtonBarTrigger value="visibility" data-testid="tab-visibility" className="gap-1.5" title="Visibility" aria-label="Visibility">
                 {seoMeta.robots && seoMeta.robots.includes("noindex") ? (
                   <EyeOff className="h-3.5 w-3.5 shrink-0 text-destructive" />
                 ) : (
                   <Eye className="h-3.5 w-3.5 shrink-0" />
                 )}
                 <span className="hidden sm:inline">Visibility</span>
-              </TabsTrigger>
-              <TabsTrigger value="redirects" data-testid="tab-redirects" className="flex items-center justify-center gap-1.5 px-2.5" title="Redirects" aria-label="Redirects">
+              </ToggleButtonBarTrigger>
+              <ToggleButtonBarTrigger value="redirects" data-testid="tab-redirects" className="gap-1.5" title="Redirects" aria-label="Redirects">
                 <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
                 <span className="hidden sm:inline">Redirects</span>
-              </TabsTrigger>
-            </TabsList>
+              </ToggleButtonBarTrigger>
+            </ToggleButtonBarList>
 
             {/* ── SEO Meta tab ───────────────────────────────────────── */}
             <TabsContent value="general" className="min-w-0 space-y-6 pt-4">
@@ -515,7 +504,7 @@ export function SeoModal({
                 <p>
                   <strong>Cluster fields</strong> live under <code className="font-mono">seo:</code> (main keyword,
                   pillar path) — saved separately via <strong>Save SEO fields</strong>. Content-type schema fields are
-                  on the <strong>Fields</strong> tab (<code className="font-mono">{"{{ single.* }}"}</code>).
+                  on the <strong>Fields</strong> tab (<code className="font-mono">{"{{ entry.* }}"}</code>).
                 </p>
                 <p>
                   Each section saves independently — visibility, locations, and snippet patch{" "}

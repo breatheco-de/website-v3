@@ -243,6 +243,7 @@ import { registerSectionsRoutes } from "./sections";
 import { registerSeoRoutes } from "./seo";
 import { registerAdminRoutes } from "./admin";
 import { registerSidequestDashboardRoutes } from "./sidequest-dashboard";
+import { registerSidequestAdminRoutes } from "./sidequest-admin";
 import { registerComponentsRoutes } from "./components";
 import { registerVersioningRoutes } from "./versioning";
 import { registerGithubRoutes } from "./github";
@@ -322,6 +323,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerSeoRoutes(app);
   registerAdminRoutes(app);
   registerSidequestDashboardRoutes(app);
+  registerSidequestAdminRoutes(app);
   registerComponentsRoutes(app);
   registerVersioningRoutes(app);
   registerGithubRoutes(app);

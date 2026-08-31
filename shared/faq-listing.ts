@@ -20,9 +20,16 @@ export function faqIgnoreIdentity(item: Record<string, unknown>): string {
   return faqItemKey(String(item.question ?? ""));
 }
 
+/**
+ * Drop rows whose stable slug/id or content key appears in `ignored_entries`.
+ *
+ * `contentKey` lets non-FAQ listings key on their own identity field (e.g.
+ * testimonials key on `student_name`); slug/id always wins when present.
+ */
 export function applyIgnoredEntries(
   items: Record<string, unknown>[],
   ignored: string[] | undefined,
+  contentKey?: (item: Record<string, unknown>) => string,
 ): Record<string, unknown>[] {
   if (!ignored?.length) return items;
   const ignoredSet = new Set(ignored.map((k: string) => k.toLowerCase().trim()));
@@ -31,7 +38,8 @@ export function applyIgnoredEntries(
     if (slug !== undefined && slug !== null && String(slug).trim()) {
       if (ignoredSet.has(String(slug).toLowerCase().trim())) return false;
     }
-    return !ignoredSet.has(faqItemKey(String(item.question ?? "")));
+    const key = contentKey ? contentKey(item) : faqItemKey(String(item.question ?? ""));
+    return !ignoredSet.has(key);
   });
 }
 

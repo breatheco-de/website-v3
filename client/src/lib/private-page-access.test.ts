@@ -13,6 +13,12 @@ describe("isPrivateEmbedPath", () => {
     expect(
       isPrivateEmbedPath("/private/component-showcase/hero/preview/"),
     ).toBe(true);
+    expect(
+      isPrivateEmbedPath("/private/demo/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+    ).toBe(true);
+    expect(
+      isPrivateEmbedPath("/private/demo/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"),
+    ).toBe(true);
   });
 
   it("does not treat staff admin pages as embeds", () => {
@@ -20,6 +26,8 @@ describe("isPrivateEmbedPath", () => {
     expect(isPrivateEmbedPath("/private/component-showcase/hero")).toBe(false);
     expect(isPrivateEmbedPath("/private/preview/page/home")).toBe(false);
     expect(isPrivateEmbedPath("/private/settings")).toBe(false);
+    expect(isPrivateEmbedPath("/private/demo/short")).toBe(false);
+    expect(isPrivateEmbedPath("/private/demo/not-hex-not-hex-not-hex-not-hex!!")).toBe(false);
   });
 });
 

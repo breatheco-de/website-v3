@@ -4,7 +4,7 @@ import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createContentEntry,
-  SHARED_LAYOUT_SINGLE_LOCALE_CREATE_ERROR,
+  SINGLE_LOCALE_CREATE_ERROR,
 } from "./content-editor";
 import { resetRegistry } from "./content-types";
 
@@ -43,7 +43,7 @@ afterEach(() => {
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
-describe("shared-layout single-locale create", () => {
+describe("single-locale create (all types)", () => {
   it("rejects create when more than one locale is active", async () => {
     const result = await createContentEntry({
       type: "blog",
@@ -56,7 +56,7 @@ describe("shared-layout single-locale create", () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.statusCode).toBe(400);
-      expect(result.error).toBe(SHARED_LAYOUT_SINGLE_LOCALE_CREATE_ERROR);
+      expect(result.error).toBe(SINGLE_LOCALE_CREATE_ERROR);
     }
   });
 
@@ -70,7 +70,7 @@ describe("shared-layout single-locale create", () => {
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error).toBe(SHARED_LAYOUT_SINGLE_LOCALE_CREATE_ERROR);
+      expect(result.error).toBe(SINGLE_LOCALE_CREATE_ERROR);
     }
   });
 });

@@ -44,7 +44,7 @@ describe("observeParamValues locale scoping", () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("ignores _common category when locale is set (category is locale-only)", () => {
+  it("ignores _common URL params when locale is set", () => {
     const en = observeParamValues(tmp, "blog", blogConfig, "category", "en");
     const es = observeParamValues(tmp, "blog", blogConfig, "category", "es");
     expect(en).toEqual(["ai-tools"]);

@@ -7,6 +7,7 @@ import { resolvePrivatePageAccess } from "@/lib/private-page-access";
 const ComponentShowcase = lazy(() => import("@/pages/ComponentShowcase"));
 const ComponentGallery = lazy(() => import("@/pages/ComponentGallery"));
 const ComponentPreview = lazy(() => import("@/pages/ComponentPreview"));
+const ComponentSectionDemoPage = lazy(() => import("@/pages/ComponentSectionDemoPage"));
 const EntryPreviewFrame = lazy(() => import("@/pages/EntryPreviewFrame"));
 const MediaGallery = lazy(() => import("@/pages/MediaGallery"));
 const MenuEditor = lazy(() => import("@/pages/MenuEditor"));
@@ -102,6 +103,7 @@ export default function PrivateRouter() {
           <Route path="/private/component-showcase" component={ComponentShowcase} />
           <Route path="/private/component-showcase/:componentType" component={ComponentShowcase} />
           <Route path="/private/component-showcase/:componentType/preview" component={ComponentPreview} />
+          <Route path="/private/demo/:hash" component={ComponentSectionDemoPage} />
           <Route path="/private/entry-preview-frame/:contentType/:slug" component={EntryPreviewFrame} />
           <Route path="/private/blog" component={BlogManageRedirect} />
           <Route path="/private/type/:contentType" component={ContentTypeManagePage} />
@@ -137,6 +139,7 @@ export default function PrivateRouter() {
           <Route path="/private/store/conversions" component={ConversionsPage} />
           <Route path="/private/tracking/sgtm" component={TrackingPage} />
           <Route path="/private/tracking/ipn" component={TrackingPage} />
+          <Route path="/private/tracking/bigquery" component={TrackingPage} />
           <Route path="/private/tracking" component={TrackingPage} />
           <Route path="/private/security/roles" component={SecurityPage} />
           <Route path="/private/security/users" component={SecurityPage} />

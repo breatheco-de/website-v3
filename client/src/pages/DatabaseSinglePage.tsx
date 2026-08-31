@@ -11,6 +11,7 @@ import { usePageMeta } from "@/hooks/usePageMeta";
 import { useSchemaOrg } from "@/hooks/useSchemaOrg";
 import { useContentAutoRefresh } from "@/hooks/useContentAutoRefresh";
 import { useAlternateUrls } from "@/hooks/useAlternateUrls";
+import { useScrollToLocationHashWhenReady } from "@/hooks/useScrollToLocationHashWhenReady";
 import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
 import { resolveDeep } from "@/lib/variable-manager";
 import Header from "@/components/Header";
@@ -124,6 +125,8 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
   };
 
   useContentAutoRefresh(contentType, slug, locale, handleRefetch);
+
+  useScrollToLocationHashWhenReady(!!page && !isLoading);
 
   const {
     topMenuId,

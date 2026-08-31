@@ -175,6 +175,11 @@ import {
 import { resolveDynamicEntries } from "../dynamic-entries";
 import { loadMergedSinglePage, mergeSingleTemplate } from "../database-single-loader";
 import { rejectAttachedStructuralEdit } from "../shared-layout-entry";
+import {
+  resolveTemplateLocalePath,
+  isTypeLayoutTarget,
+  isSharedTemplateBasename,
+} from "../shared-layout-paths";
 import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
@@ -215,6 +220,11 @@ import {
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
+  beginMcpContentWrite,
+  runWithContentWriteContextAsync,
+  enterContentWriteContext,
+  resolveAgentSessionId,
+  resolveEventActor,
 } from "./_helpers";
 import { child } from "../logger";
 const log = child({ module: "routes/sections" });
@@ -339,8 +349,8 @@ export function registerSectionsRoutes(app: Express): void {
           const { generateSectionId } = await import("../utils/generateSectionId");
           sectionId = generateSectionId((targetSection.type as string) || "section");
 
-          const localePath = path.join(templateDir, `single.${locale}.yml`);
-          const fallbackPath = path.join(templateDir, "single.en.yml");
+          const localePath = resolveTemplateLocalePath(templateDir, locale, { fallbackLocale: "" });
+          const fallbackPath = resolveTemplateLocalePath(templateDir, "en", { fallbackLocale: "" });
           const templateFile = fs.existsSync(localePath) ? localePath : fallbackPath;
 
           if (fs.existsSync(templateFile)) {
@@ -741,8 +751,8 @@ export function registerSectionsRoutes(app: Express): void {
       }
 
       // Find and mutate the correct template YAML file
-      const localePath = path.join(templateDir, `single.${locale}.yml`);
-      const fallbackPath = path.join(templateDir, "single.en.yml");
+      const localePath = resolveTemplateLocalePath(templateDir, locale, { fallbackLocale: "" });
+      const fallbackPath = resolveTemplateLocalePath(templateDir, "en", { fallbackLocale: "" });
       const templateFile = fs.existsSync(localePath) ? localePath : fallbackPath;
 
       if (!fs.existsSync(templateFile)) {
@@ -901,8 +911,8 @@ export function registerSectionsRoutes(app: Express): void {
         const { generateSectionId } = await import("../utils/generateSectionId");
         sectionId = generateSectionId((targetSection.type as string) || "section");
 
-        const localePath = path.join(templateDir, `single.${locale}.yml`);
-        const fallbackPath = path.join(templateDir, "single.en.yml");
+        const localePath = resolveTemplateLocalePath(templateDir, locale, { fallbackLocale: "" });
+        const fallbackPath = resolveTemplateLocalePath(templateDir, "en", { fallbackLocale: "" });
         const templateFile = fs.existsSync(localePath) ? localePath : fallbackPath;
 
         if (fs.existsSync(templateFile)) {
@@ -1039,6 +1049,12 @@ export function registerSectionsRoutes(app: Express): void {
       // Use server-resolved author from identity; fall back to client-provided value
       const authorName = auth.author || (requestAuthor && typeof requestAuthor === "string" ? requestAuthor : undefined);
 
+      const writeGate = beginMcpContentWrite(req, req.body?.report);
+      if (!writeGate.ok) {
+        res.status(400).json({ error: writeGate.error, code: writeGate.code });
+        return;
+      }
+
       if (!contentType || !slug || !locale) {
         res.status(400).json({
           error: "Missing required fields: contentType, slug, locale",
@@ -1082,7 +1098,7 @@ export function registerSectionsRoutes(app: Express): void {
 
       const isMcpRequest = typeof req.headers["x-mcp-author"] === "string";
       const resolvedLayoutTarget =
-        layoutTarget === "entry" || layoutTarget === "type_single" ? layoutTarget : undefined;
+        layoutTarget === "entry" || isTypeLayoutTarget(layoutTarget) ? layoutTarget : undefined;
 
       const touchedSectionIndexes = new Set<number>();
       for (const op of finalOperations as Array<{ action: string; index?: number; path?: string }>) {
@@ -1113,20 +1129,22 @@ export function registerSectionsRoutes(app: Express): void {
         }
       }
 
-      const result = await editContent({
-        contentType,
-        slug,
-        locale,
-        operations: finalOperations,
-        variant: effectiveVariant,
-        version: effectiveVersion,
-        author: authorName,
-        contentRoot: getContentRoot(res),
-        database: (res.locals.site as import("../site-manager").SiteContext)?.database,
-        ci: getCI(res),
-        skipSharedLayoutFanOut: isMcpRequest,
-        layoutTarget: resolvedLayoutTarget,
-      });
+      const result = await runWithContentWriteContextAsync(writeGate.ctx, () =>
+        editContent({
+          contentType,
+          slug,
+          locale,
+          operations: finalOperations,
+          variant: effectiveVariant,
+          version: effectiveVersion,
+          author: authorName,
+          contentRoot: getContentRoot(res),
+          database: (res.locals.site as import("../site-manager").SiteContext)?.database,
+          ci: getCI(res),
+          skipSharedLayoutFanOut: isMcpRequest,
+          layoutTarget: resolvedLayoutTarget,
+        }),
+      );
 
       if (result.success) {
         // Propagate to bound sections on live single-section updates (update_section
@@ -1185,6 +1203,8 @@ export function registerSectionsRoutes(app: Express): void {
                     holder: bindingHolder,
                     token: acquired.lease.token,
                     author: authorName,
+                    actor: resolveEventActor(req),
+                    agent_session_id: resolveAgentSessionId(req),
                   });
                 } else {
                   bindingWarnings = [
@@ -1209,7 +1229,7 @@ export function registerSectionsRoutes(app: Express): void {
         const normalizedLocale = normalizeLocale(locale);
 
         let syncSlow = false;
-        let wroteSharedTemplate = resolvedLayoutTarget === "type_single";
+        let wroteSharedTemplate = isTypeLayoutTarget(resolvedLayoutTarget);
         try {
           const writtenPath = ci.getContentFilePath(
             contentType,
@@ -1219,20 +1239,18 @@ export function registerSectionsRoutes(app: Express): void {
             effectiveVersion,
           );
           if (fileMentionsRedirects(writtenPath)) syncSlow = true;
-          if (path.basename(writtenPath).startsWith("single.")) {
+          if (isSharedTemplateBasename(path.basename(writtenPath))) {
             wroteSharedTemplate = true;
           }
         } catch { /* ignore */ }
-        if (resolvedLayoutTarget === "type_single") {
+        if (isTypeLayoutTarget(resolvedLayoutTarget)) {
           try {
             const folder = ci.getFolderName(contentType);
-            const singlePath = path.join(
-              getContentRoot(res),
-              folder,
-              effectiveVariant
-                ? `single.${effectiveVariant}.${normalizedLocale}.yml`
-                : `single.${normalizedLocale}.yml`,
-            );
+            const typeDir = path.join(getContentRoot(res), folder);
+            const singlePath = resolveTemplateLocalePath(typeDir, normalizedLocale, {
+              variant: effectiveVariant,
+              fallbackLocale: "",
+            });
             if (fileMentionsRedirects(singlePath)) syncSlow = true;
             wroteSharedTemplate = true;
           } catch { /* ignore */ }
@@ -1265,7 +1283,7 @@ export function registerSectionsRoutes(app: Express): void {
         }
         if (wroteSharedTemplate) {
           response.shared_template_html_cache =
-            "Shared-template save: this page (and bound pages) had path-scoped HTML cache bust. Other URLs that share single.*.yml may keep previous anonymous HTML until TTL (~5 min). Slow content-index scan is async/coalesced. See server/content-write-flush.ts, server/html-page-cache.ts, server/content-index.ts.";
+            "Shared-template save: this page (and bound pages) had path-scoped HTML cache bust. Other URLs that share template.*.yml may keep previous anonymous HTML until TTL (~5 min). Slow content-index scan is async/coalesced. See server/content-write-flush.ts, server/html-page-cache.ts, server/content-index.ts.";
         }
         if (result.warning) {
           response.warning = result.warning;
@@ -1330,8 +1348,6 @@ export function registerSectionsRoutes(app: Express): void {
   app.post("/api/content/bulk-update-meta", async (req, res) => {
     try {
       req.body = decodeHtmlValues(req.body);
-      const auth = await requireCapability(req, res, "seo_edit");
-      if (!auth.authorized) return;
 
       const {
         slugs,
@@ -1342,6 +1358,14 @@ export function registerSectionsRoutes(app: Express): void {
         confirm_live_edit,
         author: requestAuthor,
       } = req.body;
+
+      if (typeof contentType !== "string" || !contentType.trim()) {
+        res.status(400).json({ error: "contentType is required" });
+        return;
+      }
+
+      const auth = await requireCapability(req, res, "seo_edit", contentType.trim());
+      if (!auth.authorized) return;
 
       if (!Array.isArray(slugs) || slugs.length === 0) {
         res.status(400).json({ error: "slugs must be a non-empty array" });
@@ -1382,7 +1406,7 @@ export function registerSectionsRoutes(app: Express): void {
         slugs,
         locale,
         updates,
-        contentType: typeof contentType === "string" ? contentType : undefined,
+        contentType: contentType.trim(),
         variant: typeof variant === "string" ? variant : undefined,
         confirm_live_edit: !!confirm_live_edit,
         author: authorName,
@@ -1434,6 +1458,13 @@ export function registerSectionsRoutes(app: Express): void {
       req.body = decodeHtmlValues(req.body);
       const auth = await requireCapability(req, res, "content_edit_text", req.body.contentType || undefined);
       if (!auth.authorized) return;
+
+      const writeGate = beginMcpContentWrite(req, req.body?.report);
+      if (!writeGate.ok) {
+        res.status(400).json({ error: writeGate.error, code: writeGate.code });
+        return;
+      }
+      enterContentWriteContext(writeGate.ctx);
 
       const { contentType, slug, operations, author: requestAuthor } = req.body;
 
@@ -1495,9 +1526,19 @@ export function registerSectionsRoutes(app: Express): void {
     try {
       const auth = await requireCapability(req, res, "content_edit_structure", req.body.contentType || undefined);
       if (!auth.authorized) return;
-      const { contentType, folderSlug, locale, newSlug, createRedirect, author: rawAuthor } = req.body;
+      const { contentType, folderSlug, locale, newSlug, createRedirect, enforceRedirectPolicy, author: rawAuthor } = req.body;
       const author = auth.author || (rawAuthor && typeof rawAuthor === "string" ? rawAuthor : undefined);
-      const result = await renameContentSlug({ contentType, folderSlug, locale, newSlug, createRedirect: !!createRedirect, author, contentRootName: getContentRootName(res) });
+      const result = await renameContentSlug({
+        contentType,
+        folderSlug,
+        locale,
+        newSlug,
+        createRedirect: !!createRedirect,
+        enforceRedirectPolicy: !!enforceRedirectPolicy,
+        author,
+        contentRootName: getContentRootName(res),
+        ci: getCI(res),
+      });
       if (!result.success) { res.status(result.statusCode).json({ error: result.error }); return; }
       res.json(result.data);
     } catch (error) {
@@ -1641,6 +1682,11 @@ export function registerSectionsRoutes(app: Express): void {
     try {
       const auth = await requireCapability(req, res, "content_create_entry", req.body.type || undefined);
       if (!auth.authorized) return;
+      const writeGate = beginMcpContentWrite(req, req.body?.report);
+      if (!writeGate.ok) {
+        res.status(400).json({ error: writeGate.error, code: writeGate.code });
+        return;
+      }
       const { type, slugEn, slugEs, title, sourceUrl, sourceSlug, sourceType, changeContentType, author: rawAuthor, skipLocales: rawSkipLocales, uniqueFieldValues: rawUniqueFieldValues, localeTitles: rawLocaleTitles } = req.body;
       const author = auth.author || (rawAuthor && typeof rawAuthor === "string" ? rawAuthor : undefined);
       const skipLocales: string[] = Array.isArray(rawSkipLocales) ? rawSkipLocales.filter((l: unknown) => typeof l === "string") : [];
@@ -1662,19 +1708,49 @@ export function registerSectionsRoutes(app: Express): void {
           : {};
       const localeTitles: Record<string, string> = rawLocaleTitles && typeof rawLocaleTitles === "object"
         ? Object.fromEntries(Object.entries(rawLocaleTitles).filter(([, v]) => typeof v === "string")) : {};
-      const result = await createContentEntry({
-        type, title, sourceUrl,
-        sourceSlug: typeof sourceSlug === "string" ? sourceSlug : undefined,
-        sourceType: typeof sourceType === "string" ? sourceType : undefined,
-        changeContentType: !!changeContentType,
-        slugEn: slugEn || req.body.slug, slugEs: slugEs || req.body.slug,
-        skipLocales, uniqueFieldValues, urlParamValues, localeTitles, author,
-        contentRootName: getContentRootName(res),
-      });
+      const result = await runWithContentWriteContextAsync(writeGate.ctx, () =>
+        createContentEntry({
+          type, title, sourceUrl,
+          sourceSlug: typeof sourceSlug === "string" ? sourceSlug : undefined,
+          sourceType: typeof sourceType === "string" ? sourceType : undefined,
+          changeContentType: !!changeContentType,
+          slugEn: slugEn || req.body.slug, slugEs: slugEs || req.body.slug,
+          skipLocales, uniqueFieldValues, urlParamValues, localeTitles, author,
+          contentRootName: getContentRootName(res),
+        }),
+      );
       if (!result.success) { res.status(result.statusCode).json({ error: result.error }); return; }
       res.json(result.data);
     } catch (error) {
       log.error({ err: error }, "Content create error:");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/content/delete-preview", async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "content_delete_entry", String(req.query.type || ""));
+      if (!auth.authorized) return;
+      const type = String(req.query.type || "");
+      const slug = String(req.query.slug || "");
+      const localesRaw = String(req.query.locales || "");
+      const locales = localesRaw
+        ? localesRaw.split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined;
+      if (!type || !slug) {
+        res.status(400).json({ error: "type and slug query params are required" });
+        return;
+      }
+      const { getDeleteReferrersPreview } = await import("../link-delete-preview");
+      const preview = getDeleteReferrersPreview({
+        contentType: type,
+        slug,
+        locales,
+        contentRoot: getContentRoot(res),
+      });
+      res.json({ success: true, ...preview });
+    } catch (error) {
+      log.error({ err: error }, "Content delete preview error:");
       res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -1715,6 +1791,14 @@ export function registerSectionsRoutes(app: Express): void {
         ? (req.body.slugs as unknown[]).map(String).filter(Boolean)
         : [];
       const confirm = req.body?.confirm === true;
+      const writeGate = confirm
+        ? beginMcpContentWrite(req, req.body?.report)
+        : { ok: true as const, ctx: {} };
+      if (!writeGate.ok) {
+        res.status(400).json({ error: writeGate.error, code: writeGate.code });
+        return;
+      }
+      if (confirm) enterContentWriteContext(writeGate.ctx);
       const author = auth.author || (typeof req.body?.author === "string" ? req.body.author : undefined);
       const reassignments =
         req.body?.reassignments && typeof req.body.reassignments === "object"
@@ -1743,10 +1827,26 @@ export function registerSectionsRoutes(app: Express): void {
             };
 
       if (!confirm) {
+        const { getDeleteReferrersPreview } = await import("../link-delete-preview");
+        const linkPreviewBySlug: Record<
+          string,
+          Awaited<ReturnType<typeof getDeleteReferrersPreview>>
+        > = {};
+        for (const slug of slugs) {
+          linkPreviewBySlug[slug] = getDeleteReferrersPreview({
+            contentType,
+            slug,
+            contentRoot: getContentRoot(res),
+            limit: 15,
+          });
+        }
         res.json({
           success: true,
           action_required: "confirm_delete",
-          preview,
+          preview: {
+            ...preview,
+            link_preview_by_slug: linkPreviewBySlug,
+          },
           message:
             preview.needs_reassignment.length > 0
               ? "Some posts would lose their last author — provide reassignments (defaults to org author) and confirm:true"

@@ -66,6 +66,18 @@ export interface UserRecord {
   email?: string;
   lastLoginAt?: string;
   roles: string[];
+  /**
+   * MCP-only access overlay (CMS roles unchanged).
+   * Missing ⇒ both true. Write requires read (read off ⇒ write off).
+   */
+  mcpReadEnabled?: boolean;
+  mcpWriteEnabled?: boolean;
+}
+
+/** Normalized MCP access flags (defaults: both on; write implies read). */
+export interface McpAccess {
+  mcpReadEnabled: boolean;
+  mcpWriteEnabled: boolean;
 }
 
 export interface PendingUserRecord {
@@ -91,13 +103,17 @@ export function isBuiltInRole(roleId: string): boolean {
 
 const BUILT_IN_WEBMASTER_ROLE: RoleDefinition = {
   label: "Webmaster",
-  description: "Full platform access",
+  description:
+    "Full CMS access: content, SEO, media, types, databases, users, and diagnostics. Use when no narrower role fits. Prefer a focused /mcp/role/… connector when one exists.",
   capabilities: [
     { name: "users_manage" },
     { name: "theme_edit" },
     { name: "media_upload" },
     { name: "media_delete" },
-    { name: "seo_edit" },
+    { name: "seo_edit", contentTypes: "*" },
+    { name: "read_redirects" },
+    { name: "edit_redirects" },
+    { name: "seo_settings" },
     { name: "content_types_manage" },
     { name: "databases_manage" },
     { name: "components_manage" },
@@ -121,14 +137,14 @@ const BUILT_IN_WEBMASTER_ROLE: RoleDefinition = {
 const BUILT_IN_METRICS_VIEWER_ROLE: RoleDefinition = {
   label: "Metrics Viewer",
   description:
-    "Read-only access to diagnostics, runtime issues, component insights, error log, conversions, and tracking. Cannot start jobs, apply fixers, or change settings.",
+    "Read-only metrics and diagnostics (issues, insights, error log, conversions, tracking). Cannot start jobs, fix issues, or edit content or SEO.",
   capabilities: [{ name: "metrics_view" }],
 };
 
 const BUILT_IN_CONTENT_VIEWER_ROLE: RoleDefinition = {
   label: "Content Viewer",
   description:
-    "Read-only MCP access to YAML entries, type contracts, component schemas, and architecture playbooks. Cannot write content, run diagnostics jobs, or manage FAQ databases.",
+    "Read-only content and playbooks (YAML entries, type contracts, component schemas). Cannot write entries, SEO, redirects, or run mutating diagnostics.",
   capabilities: [{ name: "content_view", contentTypes: "*" }],
 };
 
@@ -167,6 +183,9 @@ function unionContentTypeScopes(
 /**
  * Add content_view to custom editor roles that have mutate caps but no view grant.
  * Built-in roles are skipped (synced from code). Returns true if any role changed.
+ *
+ * Triggers on CONTENT_MUTATE_CAPABILITIES (incl. scoped seo_edit) or edit_redirects.
+ * edit_redirects alone → content_view with "*".
  */
 export function ensureContentViewOnEditorRoles(
   roles: Record<string, RoleDefinition>,
@@ -176,14 +195,51 @@ export function ensureContentViewOnEditorRoles(
     if (isBuiltInRole(roleId)) continue;
     if (!role?.capabilities) continue;
     if (role.capabilities.some((g) => g.name === "content_view")) continue;
+
     const mutateGrants = role.capabilities.filter((g) =>
       (CONTENT_MUTATE_CAPABILITIES as readonly string[]).includes(g.name),
     );
-    if (mutateGrants.length === 0) continue;
+    const hasEditRedirects = role.capabilities.some((g) => g.name === "edit_redirects");
+    if (mutateGrants.length === 0 && !hasEditRedirects) continue;
+
+    const contentTypes =
+      mutateGrants.length > 0 ? unionContentTypeScopes(mutateGrants) : ("*" as const);
+
     role.capabilities = [
-      { name: "content_view", contentTypes: unionContentTypeScopes(mutateGrants) },
+      { name: "content_view", contentTypes },
       ...role.capabilities,
     ];
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * Expand legacy global seo_edit on custom roles to the split caps.
+ * Preserves existing seo_edit grant; fills missing contentTypes with "*".
+ * Returns true if changed.
+ */
+export function migrateSeoEditSplit(roles: Record<string, RoleDefinition>): boolean {
+  let changed = false;
+  for (const [roleId, role] of Object.entries(roles)) {
+    if (isBuiltInRole(roleId)) continue;
+    if (!role?.capabilities) continue;
+    const seoGrant = role.capabilities.find((g) => g.name === "seo_edit");
+    if (!seoGrant) continue;
+
+    if (seoGrant.contentTypes === undefined) {
+      seoGrant.contentTypes = "*";
+      changed = true;
+    }
+
+    const names = new Set(role.capabilities.map((g) => g.name));
+    const toAdd: CapabilityGrant[] = [];
+    if (!names.has("read_redirects")) toAdd.push({ name: "read_redirects" });
+    if (!names.has("edit_redirects")) toAdd.push({ name: "edit_redirects" });
+    if (!names.has("seo_settings")) toAdd.push({ name: "seo_settings" });
+    if (toAdd.length === 0) continue;
+
+    role.capabilities = [...role.capabilities, ...toAdd];
     changed = true;
   }
   return changed;
@@ -198,6 +254,9 @@ function finishLoad(persist: "local" | "all"): void {
   syncBuiltInRoles();
   if (!state.users) state.users = {};
   backfillMissingUserIds();
+  if (migrateSeoEditSplit(state.roles)) {
+    log.info("[UserStore] Migrated custom roles: expanded seo_edit to redirect + settings caps");
+  }
   if (ensureContentViewOnEditorRoles(state.roles)) {
     log.info("[UserStore] Migrated custom roles: added content_view from editor capabilities");
   }
@@ -495,6 +554,8 @@ export function upsertUser(profile: {
     email: profile.email ?? existing?.email,
     lastLoginAt: new Date().toISOString(),
     roles: existing?.roles ? [...existing.roles] : [],
+    mcpReadEnabled: existing?.mcpReadEnabled,
+    mcpWriteEnabled: existing?.mcpWriteEnabled,
   };
   state.users[profile.username] = record;
   if (found && found.key !== profile.username) {
@@ -546,6 +607,82 @@ export function getOrCreateStaffUserId(username: string, email?: string): string
   return id;
 }
 
+/** Normalize raw/missing MCP flags. Missing ⇒ both true; write requires read. */
+export function normalizeMcpAccess(
+  user?: Pick<UserRecord, "mcpReadEnabled" | "mcpWriteEnabled"> | null,
+): McpAccess {
+  const mcpReadEnabled = user?.mcpReadEnabled !== false;
+  const mcpWriteEnabled = mcpReadEnabled && user?.mcpWriteEnabled !== false;
+  return { mcpReadEnabled, mcpWriteEnabled };
+}
+
+/** MCP access for a staff identity (defaults when user missing: both on). */
+export function getMcpAccess(username: string, email?: string): McpAccess {
+  ensureLoaded();
+  const found = findUserEntry(username, email);
+  return normalizeMcpAccess(found?.user ?? null);
+}
+
+/**
+ * Persist MCP read/write flags. Write is forced off when read is off.
+ */
+export function setMcpAccess(
+  username: string,
+  flags: { mcpReadEnabled?: boolean; mcpWriteEnabled?: boolean },
+  email?: string,
+): { ok: boolean; error?: string; access?: McpAccess } {
+  ensureLoaded();
+  const found = findUserEntry(username, email);
+  if (!found) return { ok: false, error: "User not found" };
+
+  const current = normalizeMcpAccess(found.user);
+  const mcpReadEnabled =
+    flags.mcpReadEnabled !== undefined ? flags.mcpReadEnabled : current.mcpReadEnabled;
+  let mcpWriteEnabled =
+    flags.mcpWriteEnabled !== undefined ? flags.mcpWriteEnabled : current.mcpWriteEnabled;
+  if (!mcpReadEnabled) mcpWriteEnabled = false;
+
+  state.users[found.key].mcpReadEnabled = mcpReadEnabled;
+  state.users[found.key].mcpWriteEnabled = mcpWriteEnabled;
+  save();
+  return { ok: true, access: { mcpReadEnabled, mcpWriteEnabled } };
+}
+
+/** Apply MCP access overlay to a grant list (view-only intersect when write off). */
+export function applyMcpAccessToGrants(
+  grants: CapabilityGrant[],
+  access: McpAccess,
+): CapabilityGrant[] {
+  if (!access.mcpReadEnabled) return [];
+  if (!access.mcpWriteEnabled) {
+    return grants.filter((g) => VIEW_ONLY_CAPABILITIES.has(g.name));
+  }
+  return grants;
+}
+
+/**
+ * True when MCP may use this capability under the user's MCP access overlay.
+ * Read off ⇒ false. Write off ⇒ only VIEW_ONLY_CAPABILITIES.
+ */
+export function mcpAccessAllowsCapability(access: McpAccess, capName: string): boolean {
+  if (!access.mcpReadEnabled) return false;
+  if (!access.mcpWriteEnabled) {
+    return VIEW_ONLY_CAPABILITIES.has(capName as CapabilityName);
+  }
+  return true;
+}
+
+/**
+ * Role-union capabilities after MCP read/write overlay.
+ * Used by MCP user-info / catalog — not by CMS validate-token.
+ */
+export function getMcpEffectiveCapabilities(username: string, email?: string): CapabilityGrant[] {
+  return applyMcpAccessToGrants(
+    getEffectiveCapabilities(username, email),
+    getMcpAccess(username, email),
+  );
+}
+
 /**
  * Get all effective capability grants for a user (union across all their roles).
  * Resolves by username key or email so lookups match upsertUser identity rules.
@@ -591,18 +728,11 @@ export function getUserRoles(username: string, email?: string): string[] {
   return findUserEntry(username, email)?.user.roles ?? [];
 }
 
-/**
- * Check if a user has a specific capability, optionally scoped to a content type.
- */
-export function hasCapability(
-  username: string,
+function grantAllowsCap(
+  grant: CapabilityGrant | undefined,
   capName: CapabilityName,
-  contentType?: string
+  contentType?: string,
 ): boolean {
-  if (hasWebmasterRole(username)) return true;
-
-  const caps = getEffectiveCapabilities(username);
-  const grant = caps.find((g) => g.name === capName);
   if (!grant) return false;
 
   if (SCOPED_CAPABILITIES.includes(capName as ScopedCapability)) {
@@ -619,6 +749,51 @@ export function hasCapability(
   }
 
   return true;
+}
+
+/**
+ * Check if a user has a specific capability, optionally scoped to a content type.
+ */
+export function hasCapability(
+  username: string,
+  capName: CapabilityName,
+  contentType?: string
+): boolean {
+  if (hasWebmasterRole(username)) return true;
+
+  const caps = getEffectiveCapabilities(username);
+  return grantAllowsCap(
+    caps.find((g) => g.name === capName),
+    capName,
+    contentType,
+  );
+}
+
+/** Whether the user is assigned the given role id. */
+export function userHasRole(username: string, roleId: string, email?: string): boolean {
+  return getUserRoles(username, email).includes(roleId);
+}
+
+/**
+ * Capability check against a single role's grants only (no webmaster bypass).
+ * Returns false if the user is not assigned the role or the role does not exist.
+ */
+export function hasCapabilityInRole(
+  username: string,
+  roleId: string,
+  capName: CapabilityName,
+  contentType?: string,
+  email?: string,
+): boolean {
+  if (!userHasRole(username, roleId, email)) return false;
+  ensureLoaded();
+  const role = state.roles[roleId];
+  if (!role) return false;
+  return grantAllowsCap(
+    role.capabilities.find((g) => g.name === capName),
+    capName,
+    contentType,
+  );
 }
 
 export function getAllUsers(): UserRecord[] {

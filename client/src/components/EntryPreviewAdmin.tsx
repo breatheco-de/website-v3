@@ -577,7 +577,7 @@ export function EntryPreviewConfigDialog({
               Map component fields to content-type fields (<code className="font-mono text-[10px]">single</code>),{" "}
               <code className="font-mono text-[10px]">meta.*</code>, or{" "}
               <code className="font-mono text-[10px]">brand.*</code> — same namespaces as templates.
-              Capture loads SEO meta and expands <code className="font-mono text-[10px]">{"{{ single.* }}"}</code> inside it.
+              Capture loads SEO meta and expands <code className="font-mono text-[10px]">{"{{ entry.* }}"}</code> inside it.
               Brand is live at capture time and does not auto-recapture. Required top-level props and at least one
               mapping are needed before saving.
             </DialogDescription>

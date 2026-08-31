@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { usePageSections } from "@/contexts/PageSectionsContext";
 import { isDeviceEmbedPreview, notifyDeviceEmbedNavBlocked, shouldAllowDeviceEmbedHref } from "@/lib/preview-devices";
+import { scrollToSectionWhenReady } from "@/hooks/useScrollToLocationHashWhenReady";
 import { isNonNavigableHref } from "@shared/safe-href";
 
 function isInternalHref(href: string): boolean {
@@ -108,6 +109,30 @@ function mergeSearch(existing: string, extra: string): string {
   return str ? `?${str}` : "";
 }
 
+function dispatchScrollToSection(targetId: string): void {
+  window.dispatchEvent(new CustomEvent("scrollToSection", { detail: { targetId } }));
+}
+
+/**
+ * Same-page hash: wake deferred sections, then one smooth scroll (or open modal).
+ * Modals must assign `location.hash` without a prior `replaceState` that includes `#id`
+ * — otherwise hashchange never fires and eager modals stay closed.
+ */
+export function activateHashTarget(id: string, mergedSearch: string): void {
+  const el = document.getElementById(id);
+  if (el?.dataset.sectionType === "modal") {
+    dispatchScrollToSection(id);
+    const path = window.location.pathname;
+    if (mergedSearch !== window.location.search) {
+      history.replaceState(null, "", `${path}${mergedSearch}`);
+    }
+    window.location.hash = id;
+    return;
+  }
+  history.replaceState(null, "", `${window.location.pathname}${mergedSearch}#${id}`);
+  scrollToSectionWhenReady(id);
+}
+
 /**
  * Apply `?query` or `?query#id` on the current page.
  * Splits `#` before URLSearchParams so it never lands inside a query value.
@@ -120,20 +145,7 @@ function applyQueryOnlyHref(href: string): void {
   const mergedSearch = mergeSearch(window.location.search, queryPart);
 
   if (hashId) {
-    history.replaceState(null, "", `${window.location.pathname}${mergedSearch}#${hashId}`);
-    const el = document.getElementById(hashId);
-    if (el) {
-      if (el.dataset.sectionType === "modal") {
-        window.location.hash = hashId;
-      } else {
-        window.dispatchEvent(new CustomEvent("scrollToSection", { detail: { targetId: hashId } }));
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            el.scrollIntoView({ behavior: "smooth", block: "start" });
-          });
-        });
-      }
-    }
+    activateHashTarget(hashId, mergedSearch);
     return;
   }
 
@@ -302,21 +314,7 @@ export function useInternalNav(
     if (href.startsWith("#")) {
       e.preventDefault();
       const { id, extraSearch } = parseHashHref(href);
-      const el = document.getElementById(id);
-      if (el) {
-        if (el.dataset.sectionType === "modal") {
-          window.location.hash = id;
-        } else {
-          window.dispatchEvent(new CustomEvent("scrollToSection", { detail: { targetId: id } }));
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              el.scrollIntoView({ behavior: "smooth", block: "start" });
-              const mergedSearch = mergeSearch(window.location.search, extraSearch);
-              history.replaceState(null, "", `${window.location.pathname}${mergedSearch}#${id}`);
-            });
-          });
-        }
-      }
+      activateHashTarget(id, mergeSearch(window.location.search, extraSearch));
       onNavigate?.();
       return;
     }
@@ -330,8 +328,13 @@ export function useInternalNav(
 
     if (isInternalHref(href)) {
       e.preventDefault();
+      const hashIdx = href.indexOf("#");
+      const hashId = hashIdx === -1 ? "" : href.slice(hashIdx + 1).split("?")[0];
       setLocation(href);
-      window.scrollTo(0, 0);
+      // Destination pages run useScrollToLocationHashWhenReady; avoid wiping that with top scroll.
+      if (!hashId) {
+        window.scrollTo(0, 0);
+      }
       onNavigate?.();
     } else if (href !== rawHref) {
       // External URL had {qs:} tokens and/or callback — browser would use the raw href.
@@ -375,21 +378,7 @@ export function useInternalNav(
 
     if (resolved.startsWith("#")) {
       const { id, extraSearch } = parseHashHref(resolved);
-      const el = document.getElementById(id);
-      if (el) {
-        if (el.dataset.sectionType === "modal") {
-          window.location.hash = id;
-        } else {
-          window.dispatchEvent(new CustomEvent("scrollToSection", { detail: { targetId: id } }));
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              el.scrollIntoView({ behavior: "smooth", block: "start" });
-              const mergedSearch = mergeSearch(window.location.search, extraSearch);
-              history.replaceState(null, "", `${window.location.pathname}${mergedSearch}#${id}`);
-            });
-          });
-        }
-      }
+      activateHashTarget(id, mergeSearch(window.location.search, extraSearch));
       onNavigate?.();
       return null;
     }
@@ -401,8 +390,12 @@ export function useInternalNav(
     }
 
     if (isInternalHref(resolved)) {
+      const hashIdx = resolved.indexOf("#");
+      const hashId = hashIdx === -1 ? "" : resolved.slice(hashIdx + 1).split("?")[0];
       setLocation(resolved);
-      window.scrollTo(0, 0);
+      if (!hashId) {
+        window.scrollTo(0, 0);
+      }
       onNavigate?.();
       return null;
     }

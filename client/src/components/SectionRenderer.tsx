@@ -368,8 +368,12 @@ function DeferredSection({ children }: { children: React.ReactNode }) {
       if (!targetId) return;
       const target = document.getElementById(targetId);
       if (!target) return;
+      // Wake this section when it IS the hash target (id lives on the wrapper that
+      // contains this sentinel) or when it sits above the target on the way down.
+      const isSelf = target === sentinel || target.contains(sentinel);
       const position = sentinel.compareDocumentPosition(target);
-      if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
+      const isOnTheWay = !!(position & Node.DOCUMENT_POSITION_FOLLOWING);
+      if (isSelf || isOnTheWay) {
         setIsVisible(true);
       }
     };
@@ -800,7 +804,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
     if (!contentType || !slug || !locale) return;
     const result = await sendEditOperation(contentType, slug, locale, [
       { action: "reorder_sections", from, to }
-    ], { variant, version, ...(isSharedTemplate && variant ? { layoutTarget: "type_single" } : {}) });
+    ], { variant, version, ...(isSharedTemplate && variant ? { layoutTarget: "type_template" } : {}) });
     if (result.success) {
       toast({ title: from < to ? "Section moved down" : "Section moved up" });
       emitContentUpdated({ contentType, slug, locale });
@@ -1026,7 +1030,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
 
     const result = await sendEditOperation(contentType, slug, locale, [
       { action: "remove_item", path: "sections", index }
-    ], { variant, version, ...(isSharedTemplate && variant ? { layoutTarget: "type_single" } : {}) });
+    ], { variant, version, ...(isSharedTemplate && variant ? { layoutTarget: "type_template" } : {}) });
 
     if (result.success) {
       // If the lookup failed entirely OR the member removal returned an error,
@@ -1489,7 +1493,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
             if (ctEntry) {
               const dir = ctEntry.directory;
               if (singleEntry) {
-                pageContext.yamlFile = `4geeks-com/${dir}/single.${locale}.yml`;
+                pageContext.yamlFile = `4geeks-com/${dir}/template.${locale}.yml`;
               } else {
                 pageContext.yamlFile = `4geeks-com/${dir}/${slug}/_common.yml`;
               }

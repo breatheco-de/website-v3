@@ -4,7 +4,7 @@ CMS 301/302 routing lives in **two YAML stores**. Runtime is **first-match** (on
 
 ## Capability
 
-`test_redirect` and `update_redirect` require **`seo_edit`**. Built-in Webmaster has it. Metrics Viewer (`metrics_view` only) does not. Missing cap → `denyResponse("seo_edit")`. Agent identity is the connected staff user (`get_current_user` / `check_capability`).
+`test_redirect` requires **`read_redirects`**; `update_redirect` requires **`edit_redirects`**. Built-in Webmaster has both. Metrics Viewer (`metrics_view` only) does not. Missing cap → `denyResponse("read_redirects")` / `denyResponse("edit_redirects")`. Agent identity is the connected staff user (`get_current_user` / `check_capability`).
 
 ## Two MCP tools
 

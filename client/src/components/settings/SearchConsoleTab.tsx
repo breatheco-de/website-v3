@@ -130,7 +130,7 @@ function RollupCard({
 export function SearchConsoleTab() {
   const { toast } = useToast();
   const { hasCapability, isValidated } = useDebugAuth();
-  const canEdit = hasCapability("seo_edit");
+  const canEdit = hasCapability("seo_settings");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);

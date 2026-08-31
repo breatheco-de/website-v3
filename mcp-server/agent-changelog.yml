@@ -1,0 +1,197 @@
+# MCP agent changelog — last 6 days are served by bootstrap_agent.
+# Append when changing MCP tools, explain docs, envelopes, conventions, or agent-facing contracts.
+# See .cursor/rules/mcp-server-responses.mdc
+
+window_days: 6
+
+entries:
+  - date: "2026-08-31"
+    summary: "get_product_funnel_analytics — Page performance from GA4 BigQuery"
+    agent_impact:
+      - "New read tool get_product_funnel_analytics(slug, mode?, days?, site?) — per-page sessions/views/CTAs, stage distinct sessions, product item_id KPIs. Does not imply stage-to-stage flow."
+      - "mode=stage_flow returns not_implemented; use page_performance. Configure tracking.bigquery via staff /private/tracking/bigquery."
+      - "Conversions dual-write item_id when ecommerce_product_field + funnel resolve succeeds — prefer item_id over program for product KPIs."
+    paths:
+      - mcp-server/tools/ecommerce.ts
+      - shared/mcp-tool-catalog.ts
+      - mcp-server/explain/ecommerce.md
+      - mcp-server/explain/lead-forms.md
+    tools_changed: true
+  - date: "2026-08-31"
+    summary: "Per-user MCP read/write access overlay (Security → Users)"
+    agent_impact:
+      - "get_current_user returns mcp_read_enabled and mcp_write_enabled. CMS roles are unchanged; these flags only affect MCP."
+      - "When mcp_write_enabled is false, capabilities are view-only (content_view / metrics_view / read_redirects) and mutate tools are absent from allowed_tools — guide/explain only."
+      - "When mcp_read_enabled is false, /mcp requests are rejected (403). Reconnect after an admin changes your MCP access."
+    paths:
+      - mcp-server/tools/user.ts
+      - mcp-server/lib/auth.ts
+      - server/user-store.ts
+    tools_changed: false
+  - date: "2026-08-31"
+    summary: "bootstrap_agent replaces get_agent_changelog (playbook + conventions + changelog)"
+    agent_impact:
+      - "Call bootstrap_agent once near the start of an MCP content run (Claude.ai / Grok / connectors). First call: empty args → playbook + skill.content (mcp-server/agent-conventions.md) + 6-day changelog."
+      - "Later calls: include_skill_content:false and/or known_skill_version — changelog and playbook still returned; conventions body omitted. Then agent_session start; pass agent_session_id + report on mutates."
+      - "get_agent_changelog removed — reconnect/refresh the MCP connector so tools/list updates."
+    paths:
+      - mcp-server/tools/explain.ts
+      - mcp-server/lib/mcp-playbook.ts
+      - mcp-server/lib/agent-changelog.ts
+      - mcp-server/agent-conventions.md
+      - shared/mcp-tool-catalog.ts
+    tools_changed: true
+  - date: "2026-08-29"
+    summary: "Validation cache staleness: verified complete, 1-min on-save debounce, scoped diagnostics without confirm"
+    agent_impact:
+      - "update_issue complete re-validates the entry (seo-duplicates for DUPLICATE_*); refuses with complete_rejected_still_open + prior_attempts if still failing; returns auto_completed_ids for cleared siblings."
+      - "get_entry_content / get_entry_seo include validation_pending when on-save revalidation is still debouncing (1 min after writes)."
+      - "run_entry_diagnostics with slugs/urls no longer needs confirm:true; full-site still does. seo-duplicates is cross-entry (not cleared by slug-scoped runs)."
+    paths:
+      - mcp-server/tools/pages.ts
+      - server/services/verifiedCompleteIssue.ts
+      - server/services/onSaveValidationScheduler.ts
+      - scripts/validation/validators/seo-duplicates.ts
+    tools_changed: true
+  - date: "2026-08-28"
+    summary: "Agent reports must list plain copy values (not JSON dumps)"
+    agent_impact:
+      - "Mutate / issue / session report params: when you set titles, CTA copy, success messages, etc., list plain values (Title: …; Subtitle: …)."
+      - "Do not paste JSON/YAML or only name tools/fields in staff-facing reports."
+      - "Reconnect MCP if tool descriptions look stale."
+    paths:
+      - mcp-server/lib/agent-report.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/content_system.md
+      - client/src/components/DebugBubble/solveWithAiPrompt.ts
+    tools_changed: true
+  - date: "2026-08-28"
+    summary: "update_issue release requires report; prior_attempts on validation issues"
+    agent_impact:
+      - "release of an active claim requires report (min 80): what you tried and why stopping. Idempotent if already unclaimed."
+      - "get_entry_content / get_entry_seo validation_issues include prior_attempts (who, when, reason released|ttl_expired, reports)."
+      - "Read prior_attempts before reclaiming. Reconnect MCP if tool descriptions look stale."
+    paths:
+      - mcp-server/tools/pages.ts
+      - server/services/validationCacheService.ts
+      - scripts/validation/shared/types.ts
+    tools_changed: true
+  - date: "2026-08-28"
+    summary: "SEO capabilities split: scoped seo_edit + read/edit_redirects + seo_settings"
+    agent_impact:
+      - "seo_edit is scoped by content type (page meta only). Custom roles with old seo_edit were expanded to also grant read_redirects, edit_redirects, and seo_settings."
+      - "test_redirect → read_redirects; update_redirect → edit_redirects; ensure_content_type_schema_org → seo_settings. SEO listings union content_view + seo_edit scopes."
+      - "reset_entry_field removed — use update_fields updates[] with reset:true (no value/meta_target) or update_entry_field reset:true. Reconnect MCP if tools/list looks stale."
+    paths:
+      - shared/capabilities.ts
+      - shared/mcp-tool-catalog.ts
+      - server/user-store.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/tools/redirects.ts
+    tools_changed: true
+  - date: "2026-08-28"
+    summary: "Fold reset_entry_field into update_fields / update_entry_field"
+    agent_impact:
+      - "reset_entry_field removed — use update_fields updates[] with reset:true (no value/meta_target) or update_entry_field reset:true."
+      - "update_fields may mix set and reset items; reset-only returns after field-reset without set-write."
+      - "Refresh/reconnect MCP connector — tool list changed (reset_entry_field gone)."
+    paths:
+      - mcp-server/tools/pages.ts
+    tools_changed: true
+  - date: "2026-08-28"
+    summary: "Redirect MCP tools use read_redirects / edit_redirects (not seo_edit)"
+    agent_impact:
+      - "test_redirect requires read_redirects; update_redirect requires edit_redirects (denyResponse matches)."
+      - "seo_edit alone no longer reveals redirect tools in tools/list — reconnect if caps look stale."
+    paths:
+      - mcp-server/tools/redirects.ts
+      - mcp-server/explain/redirects.md
+      - shared/mcp-tool-catalog.ts
+    tools_changed: false
+  - date: "2026-08-28"
+    summary: "Agent sessions + required report on MCP content mutates"
+    agent_impact:
+      - "Call agent_session start → pass agent_session_id on mutates; note/summarize emit pipeline audit events."
+      - "Content mutates require report (min 80). Missing session → agent_session_unscoped warning (staff Unscoped bucket)."
+      - "update_issue claim (first) report = why/plan; complete report = what/how (min 80). Own claim TTL refresh may omit report."
+      - "Staff Background Pipeline filters by session/kind; session banner is a template rollup from events (no LLM)."
+    paths:
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/loopback.ts
+      - server/events/event-store.ts
+      - server/pipeline-db/migrations.ts
+      - client/src/pages/BackgroundPipelinePage.tsx
+    tools_changed: true
+  - date: "2026-08-28"
+    summary: "Role-scoped MCP connectors at /mcp/role/:roleId"
+    agent_impact:
+      - "Use /mcp for all of the caller's roles, or /mcp/role/{roleId} for one assigned CMS role only (strict membership)."
+      - "get_current_user returns active_role, role_label, role_description, and allowed_tools for this connector session."
+      - "Ask the human to reconnect/refresh the MCP connector if tools look missing or stale after a role or deploy change."
+    paths:
+      - mcp-server/index.ts
+      - mcp-server/lib/auth.ts
+      - mcp-server/tools/user.ts
+      - shared/mcp-tool-catalog.ts
+    tools_changed: true
+  - date: "2026-08-27"
+    summary: "get_or_set_image_to_gallery url mode: registry lookup by src/source_url"
+    agent_impact:
+      - "url now resolves existing gallery entries (matches entry.src or source_url); requires content_view only."
+      - "Unknown URLs return url_not_in_gallery — remote import still under development; use prompt or image_id."
+      - "Refresh MCP connector if tool descriptions look stale."
+    paths:
+      - mcp-server/tools/media.ts
+      - mcp-server/explain/images.md
+    tools_changed: true
+  - date: "2026-08-27"
+    summary: "New get_or_set_image_to_gallery MCP tool (lookup + AI generate)"
+    agent_impact:
+      - "image_id returns gallery entry; prompt generates n=1 and registers origin=ai immediately (no confirm)."
+      - "url returns under_development (Cloudflare Images import later) — use prompt or image_id."
+      - "Does not attach image_id to YAML; AI unused assets may GC after grace — call update_fields soon."
+    paths:
+      - mcp-server/tools/media.ts
+      - mcp-server/explain/images.md
+      - shared/mcp-tool-catalog.ts
+    tools_changed: true
+  - date: "2026-08-27"
+    summary: "Agent/staff copy prefers template.* shell paths (identifiers unchanged)"
+    agent_impact:
+      - "Explain docs and promote/detach warnings say template.{locale}.yml; legacy single.* only as dual-load."
+      - "Prefer {{ entry.* }} in field_mapping education; type_single / single_template identifiers unchanged."
+      - "Refresh MCP connector if explain/warning text looks stale."
+    paths:
+      - mcp-server/explain/content_system.md
+      - mcp-server/explain/component-behaviors.md
+      - mcp-server/explain/relation-fields.md
+      - mcp-server/lib/respond.ts
+      - mcp-server/tools/pages.ts
+      - shared/entryTemplateVars.ts
+    tools_changed: true
+  - date: "2026-08-27"
+    summary: "Shared shell files renamed single.* → template.* (dual-load)"
+    agent_impact:
+      - "Shell paths are template.{locale}.yml and _common.template.yml; legacy single.* still loads if present."
+      - "layout_target prefer type_template (alias type_single still accepted)."
+      - "Versioning slug prefer template (alias single still accepted)."
+      - "Entry slugs template and single are reserved for the shell."
+      - "get_content_type_info template_vars_note mentions template.* shells."
+    paths:
+      - mcp-server/explain/shared-layout.md
+      - mcp-server/lib/entry-helpers.ts
+      - shared/sharedLayoutPaths.ts
+      - server/shared-layout-paths.ts
+    tools_changed: true
+  - date: "2026-08-27"
+    summary: "{{ entry.* }} replaces {{ single.* }} for entry field binds"
+    agent_impact:
+      - "Prefer {{ entry.field }} in sections/meta/templates; saves reject {{ single.* }}."
+      - "Delivery still resolves legacy {{ single.* }} so missed content does not 500."
+      - "Shared shell files use template.{locale}.yml (filename ≠ {{ entry.* }} namespace); legacy single.* still loads."
+      - "get_content_type_info returns template_vars_note keyed by body_model."
+    paths:
+      - mcp-server/explain/content_system.md
+      - mcp-server/lib/entry-helpers.ts
+      - shared/entryTemplateVars.ts
+    tools_changed: true

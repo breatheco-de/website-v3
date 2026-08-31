@@ -14,6 +14,14 @@ import {
   TEMPLATE_VERSIONING_SLUG,
   isTemplateVersioningSlug,
 } from "../shared-layout-entry";
+import {
+  VARIANT_SHELL_BASENAME_RE,
+  LIVE_SHELL_BASENAME_RE,
+  isReservedTemplateVariantSlug,
+  isSharedTemplateBasename,
+  variantTemplateBasename,
+  shellBasenameCandidates,
+} from "../shared-layout-paths";
 const log = child({ module: "versioning/VersioningManager" });
 
 
@@ -108,13 +116,13 @@ export class VersioningManager {
     const file = parts[parts.length - 1];
     const base = file.slice(0, -4); // strip .yml
 
-    // Type-root template variant: single.{variant}.{locale}.yml (3 path segments after site)
+    // Type-root template variant: template|single.{variant}.{locale}.yml (3 path segments after site)
     if (parts.length === 3) {
-      const m = /^single\.([a-z0-9-]+)\.([a-z]{2}(?:-[a-zA-Z]+)?)$/i.exec(base);
+      const m = VARIANT_SHELL_BASENAME_RE.exec(file);
       if (!m) return null;
       const variantSlug = m[1];
       const locale = m[2];
-      if (variantSlug.startsWith("_")) return null;
+      if (variantSlug.startsWith("_") || isReservedTemplateVariantSlug(variantSlug)) return null;
       const folder = parts[1];
       const contentType = getType(folder);
       return { contentType, slug: TEMPLATE_VERSIONING_SLUG, variantSlug, locale };
@@ -129,8 +137,8 @@ export class VersioningManager {
     const variantSlug = base.slice(0, lastDot);
     const locale = base.slice(lastDot + 1);
 
-    // Exclude shared templates ("single.en.yml") and internal files ("_common.yml")
-    if (!variantSlug || variantSlug === "single" || variantSlug.startsWith("_")) return null;
+    // Exclude shared templates and reserved/internal names
+    if (!variantSlug || isReservedTemplateVariantSlug(variantSlug) || variantSlug.startsWith("_")) return null;
     // Locale codes are short alpha-only strings
     if (!/^[a-z]{2,5}$/.test(locale)) return null;
 
@@ -156,7 +164,7 @@ export class VersioningManager {
 
   /**
    * Path to a variant YAML file.
-   * Template mode: single.{variant}.{locale}.yml at type root.
+   * Template mode: template.{variant}.{locale}.yml at type root (writes always template.*).
    * Entry mode: {variant}.{locale}.yml under the entry folder.
    */
   public getVariantFilePath(
@@ -167,7 +175,7 @@ export class VersioningManager {
   ): string {
     const dir = this.getVersioningContentDir(contentType, slug);
     if (isTemplateVersioningSlug(slug)) {
-      return path.join(dir, `single.${variantSlug}.${locale}.yml`);
+      return path.join(dir, variantTemplateBasename(variantSlug, locale));
     }
     return path.join(dir, `${variantSlug}.${locale}.yml`);
   }
@@ -379,13 +387,15 @@ export class VersioningManager {
 
   /**
    * Find the actual YAML file for a variant slug + locale.
-   * Template mode: single.{variant}.{locale}.yml
+   * Template mode: template.{variant}.{locale}.yml (fallback single.*)
    * Entry mode: {variant}.{locale}.yml (or legacy {variant}.v*.{locale}.yml)
    */
   private findVariantFile(contentDir: string, variantSlug: string, locale: string, templateMode = false): string | null {
     if (templateMode) {
-      const templatePath = path.join(contentDir, `single.${variantSlug}.${locale}.yml`);
-      if (fs.existsSync(templatePath)) return templatePath;
+      for (const name of shellBasenameCandidates(locale, variantSlug)) {
+        const p = path.join(contentDir, name);
+        if (fs.existsSync(p)) return p;
+      }
       return null;
     }
 
@@ -425,7 +435,7 @@ export class VersioningManager {
 
     if (!filePath) {
       log.warn(
-        `[Versioning] Variant file not found: ${templateMode ? `single.${variantSlug}.${locale}.yml` : `${variantSlug}.${locale}.yml`} in ${contentDir}`,
+        `[Versioning] Variant file not found: ${templateMode ? variantTemplateBasename(variantSlug, locale) : `${variantSlug}.${locale}.yml`} in ${contentDir}`,
       );
       return null;
     }
@@ -671,32 +681,33 @@ export class VersioningManager {
             return false;
           }
           if (templateMode) {
-            return file.startsWith("single.");
+            return isSharedTemplateBasename(file) && !file.startsWith("_");
           }
-          return !file.startsWith("single.");
+          return !isSharedTemplateBasename(file);
         })
         .map((file) => {
           const name = file.replace(".yml", "");
           const parts = name.split(".");
 
           if (templateMode) {
-            // single.{locale}.yml (promoted) or single.{variant}.{locale}.yml
-            if (parts[0] !== "single") {
-              return null;
-            }
-            if (parts.length === 2) {
+            // template|single.{locale}.yml (promoted) or template|single.{variant}.{locale}.yml
+            const liveM = LIVE_SHELL_BASENAME_RE.exec(file);
+            if (liveM) {
               return {
                 filename: file,
                 name,
                 variantSlug: "promoted",
                 version: null,
-                locale: parts[1],
-                displayName: `Promoted (${parts[1].toUpperCase()})`,
+                locale: liveM[1],
+                displayName: `Promoted (${liveM[1].toUpperCase()})`,
                 isPromoted: true,
               };
             }
-            const locale = parts[parts.length - 1];
-            const variantSlug = parts.slice(1, -1).join(".");
+            const varM = VARIANT_SHELL_BASENAME_RE.exec(file);
+            if (!varM) return null;
+            const variantSlug = varM[1];
+            const locale = varM[2];
+            if (isReservedTemplateVariantSlug(variantSlug)) return null;
             return {
               filename: file,
               name,

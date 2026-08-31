@@ -43,6 +43,7 @@ yaml: |
     form:
       variant: stacked
       conversion_name: request_more_info
+      ecommerce_product_field: program
       submit_label: Save my progress
       fields:
         first_name: { visible: true, required: true }

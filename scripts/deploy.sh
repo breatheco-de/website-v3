@@ -7,6 +7,11 @@
 # .bootstrap-complete is cleared so boot hash-diff realigns (catches content pushes
 # that landed during npm ci/build).
 #
+# site_* ownership: website-deployer:website-runtime with setgid + group write so the
+# app (website-runtime) can write site_*/.cache and deploy can still rm -rf old
+# releases. Host: usermod -aG website-runtime website-deployer; website.service
+# (and sidequest) should set UMask=0002.
+#
 # Deploy lock lives in this script (not the Actions SSH observer) so cancel-in-progress
 # cannot drop the lock while work continues. Abort flag (.deploy-state/<sha>.abort) is
 # checked before npm ci and before flip; post-flip abort is ignored.
@@ -244,6 +249,33 @@ ensure_release_site_dirs() {
   fi
 }
 
+# Align site_* with .env/.git pattern: deployer owns, runtime group can write.
+# Requires website-deployer ∈ website-runtime (chgrp) and UMask=0002 on the units.
+fix_site_dirs_group_access() {
+  local folder
+  local target
+  local runtime_group=website-runtime
+
+  if ! getent group "$runtime_group" >/dev/null 2>&1; then
+    echo "[deploy] WARNING: group $runtime_group missing — skip site_* group fix" >&2
+    return 0
+  fi
+
+  echo "[deploy] setting site_* group $runtime_group (setgid + group write)"
+  while IFS= read -r folder; do
+    [[ -n "$folder" ]] || continue
+    target="$RELEASE/$folder"
+    [[ -d "$target" ]] || continue
+    if ! chgrp -R "$runtime_group" "$target" 2>/dev/null; then
+      echo "[deploy] WARNING: chgrp $runtime_group failed on $target (is website-deployer in that group?)" >&2
+      continue
+    fi
+    # Group rwx on dirs + setgid so runtime-created children keep the group.
+    find "$target" -type d -exec chmod 2775 {} + 2>/dev/null || true
+    find "$target" -type f -exec chmod g+rw {} + 2>/dev/null || true
+  done < <(list_sites_yml_folders "$PERSISTENT/sites.yml")
+}
+
 # Drop bootstrap flags so the next boot hash-diff realigns (content pushes during build).
 clear_bootstrap_complete_flags() {
   local folder
@@ -266,6 +298,12 @@ echo "[deploy] linking persistent paths"
 for name in sites.yml data .cache .local .multisite-user-store.json .qdrant-initialized snapshots; do
   link_persistent "$name"
 done
+
+# Ephemeral MCP section demos (hash-gated previews). Wipe on every redeploy so
+# links die with the release flip; .cache itself is persistent across releases.
+echo "[deploy] wiping component section demos"
+rm -rf "$PERSISTENT/.cache/component-section-demos"
+mkdir -p "$PERSISTENT/.cache/component-section-demos"
 
 ensure_release_site_dirs
 
@@ -443,6 +481,7 @@ fi
 
 echo "[deploy] pulling content (blocking, pre-flip)"
 npm run content:pull -- --required
+fix_site_dirs_group_access
 
 echo "[deploy] compiling"
 npm run build
@@ -470,6 +509,11 @@ restart_website() {
   else
     echo "[deploy] website.service not installed — skip restart"
   fi
+  if systemctl cat website-sidequest.service >/dev/null 2>/dev/null; then
+    sudo systemctl restart website-sidequest
+  else
+    echo "[deploy] website-sidequest.service not installed — skip Sidequest restart (jobs will not run until enabled)"
+  fi
 }
 
 restart_website
@@ -487,7 +531,9 @@ rollback() {
     assert_not_live_release "$RELEASE"
     echo "[deploy] removing failed build $RELEASE" >&2
     chmod -R u+w "$RELEASE" 2>/dev/null || true
-    rm -rf "$RELEASE"
+    if ! rm -rf "$RELEASE"; then
+      echo "[deploy] WARNING: could not fully remove $RELEASE (runtime-owned site_*/.cache?)" >&2
+    fi
   fi
 }
 
@@ -524,7 +570,11 @@ for dir in "${ALL_RELEASES[@]:-}"; do
     assert_not_live_release "$dir"
     echo "[deploy] removing $dir"
     chmod -R u+w "$dir" 2>/dev/null || true
-    rm -rf "$dir"
+    # Non-fatal: flip already succeeded. Old trees may still have runtime-owned
+    # site_*/.cache from before setgid/UMask=0002.
+    if ! rm -rf "$dir"; then
+      echo "[deploy] WARNING: could not fully remove $dir (check site_*/.cache ownership)" >&2
+    fi
   fi
 done
 

@@ -46,7 +46,7 @@ async function updateSectionField(
   value: ResponsiveSpacing,
   variant?: string,
   version?: number,
-  layoutTarget?: "entry" | "type_single"
+  layoutTarget?: "entry" | "type_single" | "type_template"
 ): Promise<{ success: boolean; error?: string }> {
   const token = getDebugToken();
   const author = await resolveAuthorName();
@@ -326,7 +326,7 @@ export function SpacingControlPopover({
     setIsSaving(true);
     const operations: Promise<{ success: boolean; error?: string }>[] = [];
 
-    const spacingLayoutTarget = variant ? "type_single" : undefined;
+    const spacingLayoutTarget = variant ? "type_template" : undefined;
 
     if (sectionAbove) {
       const originalAbove = parseSpacingValue(sectionAbove);

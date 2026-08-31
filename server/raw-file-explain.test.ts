@@ -12,7 +12,7 @@ describe("localeFromYamlFilename", () => {
     expect(localeFromYamlFilename("single.seo-fix.en.yml")).toBe("en");
     expect(localeFromYamlFilename("seo-fix.en.yml")).toBe("en");
     expect(localeFromYamlFilename("_common.yml")).toBeNull();
-    expect(localeFromYamlFilename("_common.single.yml")).toBeNull();
+    expect(localeFromYamlFilename("_common.template.yml")).toBeNull();
   });
 });
 
@@ -55,7 +55,7 @@ describe("buildRawFileExplain", () => {
         name: "es.yml",
         path: "site_4geeks-com/blog/how-to-become-an-ai-engineer/es.yml",
         reason: "shared_template",
-        templatePath: "site_4geeks-com/blog/single.es.yml",
+        templatePath: "site_4geeks-com/blog/template.es.yml",
       },
     ]);
   });
@@ -77,7 +77,7 @@ describe("buildRawFileExplain", () => {
   it("sets localeFallback for missing template variant locale", () => {
     const ctx = buildRawFileExplain({
       ...base,
-      slug: "_common.single",
+      slug: "_common.template",
       isTemplate: true,
       isSharedLayout: true,
       detached: false,
@@ -89,8 +89,8 @@ describe("buildRawFileExplain", () => {
     expect(ctx.localeFallback).toBe(true);
     expect(ctx.missing).toEqual([
       {
-        name: "single.seo-fix.es.yml",
-        path: "site_4geeks-com/blog/single.seo-fix.es.yml",
+        name: "template.seo-fix.es.yml",
+        path: "site_4geeks-com/blog/template.seo-fix.es.yml",
         reason: "variant_locale_missing",
       },
     ]);

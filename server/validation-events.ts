@@ -1,10 +1,11 @@
 /**
- * Admin events for validation issue workflow overlays (claim / complete / reopen).
+ * Admin events for validation issue workflow overlays (claim / complete / reopen / release).
  */
 
 import type {
   StoredValidationIssue,
   ValidationIssueActor,
+  ValidationIssueAttempt,
   ValidationIssueCompletion,
 } from "../scripts/validation/shared/types";
 import { emitEvent } from "./events/event-store";
@@ -14,7 +15,8 @@ import { singleAttribution } from "./events/types";
 export type ValidationIssueWorkflowEventType =
   | "validation_issue_claimed"
   | "validation_issue_completed"
-  | "validation_issue_reopened";
+  | "validation_issue_reopened"
+  | "validation_issue_released";
 
 function parseResourceFromPath(filePath: string): {
   path: string;
@@ -45,7 +47,10 @@ function parseResourceFromPath(filePath: string): {
     return { path: norm, contentType, slug };
   }
   let locale = base;
-  if (base.startsWith("single.")) locale = base.slice("single.".length);
+  if (base.startsWith("template.") || base.startsWith("single.")) {
+    const rest = base.startsWith("template.") ? base.slice("template.".length) : base.slice("single.".length);
+    locale = rest.split(".")[0] || locale;
+  }
   else if (base.includes(".")) locale = base.split(".").pop() || base;
   return { path: norm, contentType, slug, locale };
 }
@@ -104,8 +109,12 @@ export function emitValidationIssueWorkflowEvent(opts: {
   author: string;
   actor?: ValidationIssueActor;
   priorCompletion?: ValidationIssueCompletion;
+  report?: string;
+  agent_session_id?: string;
+  /** Present for validation_issue_released */
+  attempt?: ValidationIssueAttempt;
 }): void {
-  const { type, site, issue, author, actor, priorCompletion } = opts;
+  const { type, site, issue, author, actor, priorCompletion, report, attempt } = opts;
   const entryKey = issueEntryKey(issue);
   const fromEntry = entryKey ? parseResourceFromEntryKey(entryKey) : {};
   const fromFile = issue.file ? parseResourceFromPath(issue.file) : { path: "" };
@@ -129,11 +138,22 @@ export function emitValidationIssueWorkflowEvent(opts: {
     payload.priorActor = priorCompletion.actor ?? null;
     payload.priorCompletedAt = priorCompletion.completedAt;
   }
+  if (type === "validation_issue_released" && attempt) {
+    payload.reason = attempt.reason;
+    payload.by = attempt.by;
+    payload.claimedBy = attempt.claimedBy ?? null;
+    payload.claimedAt = attempt.claimedAt ?? null;
+    payload.claimReport = attempt.claimReport ?? null;
+    if (attempt.report) payload.report = attempt.report;
+  } else if (report) {
+    payload.report = report;
+  }
   emitEvent({
     site,
     type: type as EventType,
     resource,
     attribution: singleAttribution(author, actor),
+    agent_session_id: opts.agent_session_id,
     payload,
   });
 }

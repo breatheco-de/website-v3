@@ -323,19 +323,33 @@ export function validateEditorFieldValue(
   }
 
   if (type === "select") {
-    if (typeof value !== "string") {
+    const multiple = hint.multiple === true;
+    let values: string[];
+    if (typeof value === "string") {
+      values = [value];
+    } else if (multiple && Array.isArray(value)) {
+      if (!value.every((el) => typeof el === "string")) {
+        return mismatch(`Field "${field}" select array items must be strings`);
+      }
+      values = value as string[];
+    } else if (multiple) {
+      return mismatch(`Field "${field}" should be a string or string[] (select, multiple)`);
+    } else {
       return mismatch(`Field "${field}" should be a string (select)`);
     }
+
     const staticEnum =
       selectOptionValues(hint).length > 0 &&
       hint.populate_options !== true &&
       hint.allow_custom_values !== true;
     if (staticEnum) {
       const allowed = selectOptionValues(hint);
-      if (!allowed.includes(value)) {
-        return mismatch(
-          `Field "${field}" value "${value}" is not in editor.options (${allowed.join(", ")})`,
-        );
+      for (const v of values) {
+        if (!allowed.includes(v)) {
+          return mismatch(
+            `Field "${field}" value "${v}" is not in editor.options (${allowed.join(", ")})`,
+          );
+        }
       }
     }
     return [];

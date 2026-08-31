@@ -30,6 +30,11 @@ import {
   refreshSitemapEntriesForContentKey,
 } from "../sitemap";
 import { markFileAsModified } from "../sync-state";
+import {
+  runWithContentWriteContextAsync,
+  enterContentWriteContext,
+  type ContentWriteContext,
+} from "../write-context";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager } from "../database";
@@ -214,10 +219,12 @@ export async function requireCapability(
     undefined;
 
   const isDevelopment = process.env.NODE_ENV !== "production";
+  const enforceCapsInDev = process.env.ENFORCE_CAPS_IN_DEV === "1";
   const token = extractToken(req);
 
-  if (isDevelopment) {
+  if (isDevelopment && !enforceCapsInDev) {
     // In dev mode, resolve username from token if present, but always allow
+    // (set ENFORCE_CAPS_IN_DEV=1 to exercise production-like capability checks).
     if (token) {
       try {
         const profile = await userManager.validateToken(token);
@@ -318,9 +325,10 @@ export async function requireMutatingStaff(
   res: Response,
 ): Promise<{ authorized: boolean; token: string | null; username: string | null; author: string | null }> {
   const isDevelopment = process.env.NODE_ENV !== "production";
+  const enforceCapsInDev = process.env.ENFORCE_CAPS_IN_DEV === "1";
   const token = extractToken(req);
 
-  if (isDevelopment) {
+  if (isDevelopment && !enforceCapsInDev) {
     if (token) {
       try {
         const profile = await userManager.validateToken(token);
@@ -383,6 +391,92 @@ function sanitizeIssueActorModel(model: unknown): string | undefined {
   return trimmed.length > 64 ? trimmed.slice(0, 64) : trimmed;
 }
 
+export const ISSUE_REPORT_MIN_LENGTH = 80;
+export const ISSUE_REPORT_MAX_LENGTH = 2000;
+
+/** Trim and cap MCP report text (writes, issue claim/complete, session note/summarize). */
+export function sanitizeIssueReport(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim().replace(/\s+/g, " ");
+  if (!trimmed) return undefined;
+  return trimmed.length > ISSUE_REPORT_MAX_LENGTH
+    ? trimmed.slice(0, ISSUE_REPORT_MAX_LENGTH)
+    : trimmed;
+}
+
+export function requireIssueReport(
+  raw: unknown,
+): { ok: true; report: string } | { ok: false; error: string; code: "report_required" | "report_too_short" } {
+  const report = sanitizeIssueReport(raw);
+  if (!report) {
+    return {
+      ok: false,
+      error: `report required (min ${ISSUE_REPORT_MIN_LENGTH} characters)`,
+      code: "report_required",
+    };
+  }
+  if (report.length < ISSUE_REPORT_MIN_LENGTH) {
+    return {
+      ok: false,
+      error: `report must be at least ${ISSUE_REPORT_MIN_LENGTH} characters`,
+      code: "report_too_short",
+    };
+  }
+  return { ok: true, report };
+}
+
+/** MCP agent session id from x-mcp-agent-session (loopback only — never trust browser). */
+export function resolveAgentSessionId(req: Request): string | undefined {
+  if (!isMcpLoopbackRequest(req)) return undefined;
+  const raw = req.headers["x-mcp-agent-session"];
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > 128) return undefined;
+  return trimmed;
+}
+
+/**
+ * For MCP loopback content mutates: require report in body.
+ * Staff UI returns ok without a report.
+ */
+export function requireMcpWriteReport(
+  req: Request,
+  raw: unknown,
+):
+  | { ok: true; report?: string }
+  | { ok: false; error: string; code: "report_required" | "report_too_short" } {
+  if (!isMcpLoopbackRequest(req)) return { ok: true };
+  return requireIssueReport(raw);
+}
+
+/**
+ * Build write context for an MCP loopback mutate (session + report + actor).
+ * Returns error payload when MCP report is missing/short; staff UI always ok.
+ */
+export function beginMcpContentWrite(
+  req: Request,
+  reportRaw: unknown,
+):
+  | { ok: true; ctx: ContentWriteContext }
+  | { ok: false; error: string; code: "report_required" | "report_too_short" } {
+  if (!isMcpLoopbackRequest(req)) {
+    return { ok: true, ctx: {} };
+  }
+  const parsed = requireIssueReport(reportRaw);
+  if (!parsed.ok) return parsed;
+  return {
+    ok: true,
+    ctx: {
+      agentSessionId: resolveAgentSessionId(req),
+      report: parsed.report,
+      actor: resolveEventActor(req),
+    },
+  };
+}
+
+export { runWithContentWriteContextAsync, enterContentWriteContext };
+
+
 /**
  * Resolve actor provenance for validation issue claim/complete overlays.
  * MCP path: client from x-mcp-client (set by MCP server); model from body on MCP only.
@@ -441,15 +535,25 @@ export function markContentFileModified(
     req?: Request;
     contentRoot?: string;
     allowedExceptions?: Set<string>;
+    agentSessionId?: string;
+    report?: string;
   },
 ): void {
   const actor = opts.actor ?? (opts.req ? resolveEventActor(opts.req) : undefined);
+  const agentSessionId =
+    opts.agentSessionId ?? (opts.req ? resolveAgentSessionId(opts.req) : undefined);
+  const report =
+    opts.report ??
+    (opts.req && isMcpLoopbackRequest(opts.req)
+      ? sanitizeIssueReport((opts.req.body as { report?: unknown } | undefined)?.report)
+      : undefined);
   markFileAsModified(
     filePath,
     opts.author,
     opts.allowedExceptions,
     opts.contentRoot,
     actor,
+    { agentSessionId, report },
   );
 }
 

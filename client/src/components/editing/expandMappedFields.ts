@@ -5,7 +5,7 @@ export interface AvailablePropertyPaths {
 
 /** One selectable row in the single-variable picker. */
 export interface PickerField {
-  /** Path inserted as `single.${key}` (e.g. `category` or nested `author.name`). */
+  /** Path inserted as `entry.${key}` (e.g. `category` or nested `author.name`). */
   key: string;
   /** YAML source path used for coverage validation. */
   source: string;
@@ -17,7 +17,7 @@ export interface PickerField {
   isSystemAlias?: boolean;
 }
 
-/** Reserved field_mapping keys that expose friendly `single.*` aliases at runtime. */
+/** Reserved field_mapping keys that expose friendly `entry.*` aliases at runtime (legacy `single.*` still resolves). */
 export const SYSTEM_ALIAS_FIELDS = [
   { reserved: "_slug", alias: "slug" },
   { reserved: "_image", alias: "image" },

@@ -34,7 +34,8 @@ describe("ensureSiteScaffold", () => {
 
     expect(fs.existsSync(path.join(root, "blog", "sample-post", "en.yml"))).toBe(true);
     expect(fs.existsSync(path.join(root, "blog", "sample-post.en.yml"))).toBe(false);
-    expect(fs.existsSync(path.join(root, "blog", "single.en.yml"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "blog", "template.en.yml"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "blog", "_common.template.yml"))).toBe(true);
 
     const ct = fs.readFileSync(path.join(root, "content-types.yml"), "utf-8");
     expect(ct).toContain("blog:");

@@ -13,6 +13,7 @@ import { resolveComponentPath } from "../../shared/registry-resolve.js";
 import { denyUnlessContentView } from "../lib/auth.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
 import { SITE_PARAM_DESC } from "../lib/entry-helpers.js";
+import { ok, fail } from "../lib/respond.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
@@ -179,6 +180,124 @@ export function registerComponentTools(
         return { content: [{ type: "text", text: JSON.stringify(json, null, 2) }] };
       } catch (e) {
         return { content: [{ type: "text", text: `Failed to fetch component usage: ${(e as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // create_component_section_demo
+  mcp.tool(
+    "create_component_section_demo",
+    "Create a disposable single-section preview for humans. Pass componentType plus YAML for exactly one section (use-case-specific copy/stats). Validates against the registry schema, writes `.cache/component-section-demos/{hash}.yml`, and returns preview_url at /private/demo/{hash}. Hash is the only access control (no staff login). Demos are wiped on every production redeploy and are not a page publish. Requires content_view.",
+    {
+      componentType: z.string().describe("Component type name, e.g. 'graduates_stats', 'value_proof_panel'"),
+      yaml: z
+        .string()
+        .describe(
+          "YAML for exactly one section object (or a one-element array / { sections: [one] }). Must include type matching componentType.",
+        ),
+      version: z
+        .string()
+        .optional()
+        .describe("Registry version folder, e.g. 'v1.0'. Defaults to latest / section.version."),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ componentType, yaml: yamlText, version, site }) => {
+      const viewDenied = await denyUnlessContentView(mcpToken, undefined, grants);
+      if (viewDenied) return viewDenied;
+      try {
+        assertSafeSegment(componentType, "componentType");
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return fail(siteResult.error);
+      const { domain, contentFolder } = siteResult;
+
+      const pathErr = assertResolvedComponent(componentType, contentFolder);
+      if (pathErr) return fail(pathErr);
+
+      const url = `http://localhost:${MAIN_SERVER_PORT}/api/component-section-demos?__site=${encodeURIComponent(domain)}`;
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: internalHeaders(mcpToken),
+          body: JSON.stringify({
+            componentType,
+            yaml: yamlText,
+            ...(version ? { version } : {}),
+          }),
+        });
+        const json = (await res.json()) as Record<string, unknown>;
+        if (!res.ok) {
+          return fail(
+            typeof json.error === "string" ? json.error : `Failed to create demo (${res.status})`,
+            {
+              property_path: json.property_path,
+              details: json.details,
+              http_status: res.status,
+            },
+          );
+        }
+
+        const hash = typeof json.hash === "string" ? json.hash : "";
+        const previewUrl = typeof json.preview_url === "string" ? json.preview_url : "";
+        const relativePath =
+          typeof json.path === "string"
+            ? json.path
+            : hash
+              ? `.cache/component-section-demos/${hash}.yml`
+              : undefined;
+
+        return ok(
+          {
+            hash,
+            preview_url: previewUrl,
+            path: relativePath,
+            componentType,
+            version: json.version ?? version ?? null,
+          },
+          {
+            warnings: [
+              {
+                code: "demo_not_a_publish",
+                message:
+                  "This does not write content YAML or publish a page — it only stores a temporary section preview.",
+              },
+              {
+                code: "demo_world_readable_with_url",
+                message:
+                  "Anyone with the preview_url can view the section (hash is the access secret). Do not put secrets or private PII in the YAML.",
+              },
+              {
+                code: "demo_wiped_on_redeploy",
+                message:
+                  "Demo files under .cache/component-section-demos/ are deleted on every production redeploy; the link will 404 afterward.",
+              },
+              {
+                code: "demo_single_section_only",
+                message: "v1 demos render exactly one section — no page chrome or multi-section layouts.",
+              },
+            ],
+            side_effects: relativePath
+              ? [
+                  {
+                    kind: "write_demo_file",
+                    summary: "Wrote ephemeral component section demo YAML",
+                    paths: [relativePath],
+                  },
+                ]
+              : [
+                  {
+                    kind: "write_demo_file",
+                    summary: "Wrote ephemeral component section demo YAML",
+                  },
+                ],
+            next_actions: [],
+          },
+        );
+      } catch (e) {
+        return fail(`Failed to create component section demo: ${(e as Error).message}`);
       }
     }
   );

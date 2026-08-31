@@ -18,6 +18,7 @@ import {
   IconAlertCircle,
   IconKey,
   IconInfoCircle,
+  IconSparkles,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
@@ -25,9 +26,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ContentTypeScopeBar } from "@/components/capabilities/ContentTypeScopeBar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useDebugAuth, getDebugUserName } from "@/hooks/useDebugAuth";
@@ -77,6 +90,15 @@ interface UserRecord {
   email?: string;
   lastLoginAt?: string;
   roles: string[];
+  /** Missing ⇒ true (MCP overlay; CMS roles unchanged). */
+  mcpReadEnabled?: boolean;
+  mcpWriteEnabled?: boolean;
+}
+
+function normalizeUserMcpAccess(user: UserRecord): { mcpReadEnabled: boolean; mcpWriteEnabled: boolean } {
+  const mcpReadEnabled = user.mcpReadEnabled !== false;
+  const mcpWriteEnabled = mcpReadEnabled && user.mcpWriteEnabled !== false;
+  return { mcpReadEnabled, mcpWriteEnabled };
 }
 
 interface PendingUserRecord {
@@ -93,7 +115,26 @@ interface RoleFormState {
   capabilities: Record<string, CapabilityFormState>;
 }
 
+/** Slugify a role label into a valid role id (`^[a-z][a-z0-9_-]*$`). */
+function slugifyRoleId(label: string): string {
+  const raw = label
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!raw) return "";
+  if (/^[a-z]/.test(raw)) return raw;
+  return `r_${raw}`;
+}
+
+function isValidRoleIdFormat(id: string): boolean {
+  return /^[a-z][a-z0-9_-]*$/.test(id);
+}
+
 const CONTENT_MUTATE_SET = new Set<string>(CONTENT_MUTATE_CAPABILITIES);
+/** Global caps that should also auto-enable content_view (all types). */
+const AUTO_VIEW_GLOBAL = new Set<string>(["edit_redirects"]);
 
 function parseScopeList(raw: string): string[] {
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
@@ -111,111 +152,21 @@ function withAutoContentView(
   nextState: CapabilityFormState,
 ): Record<string, CapabilityFormState> {
   const updated = { ...caps, [changedName]: nextState };
-  if (!CONTENT_MUTATE_SET.has(changedName) || !nextState.enabled) return updated;
+  if (!nextState.enabled) return updated;
+
+  const isScopedMutate = CONTENT_MUTATE_SET.has(changedName);
+  const isEditRedirects = AUTO_VIEW_GLOBAL.has(changedName);
+  if (!isScopedMutate && !isEditRedirects) return updated;
+
   const view = updated.content_view ?? { enabled: false, contentTypes: "" };
+  const incomingScope = isEditRedirects ? "" : nextState.contentTypes;
   updated.content_view = {
     enabled: true,
     contentTypes: view.enabled
-      ? mergeContentTypeScopes(view.contentTypes, nextState.contentTypes)
-      : nextState.contentTypes,
+      ? mergeContentTypeScopes(view.contentTypes, incomingScope)
+      : incomingScope,
   };
   return updated;
-}
-
-interface ContentTypeEntry {
-  name: string;
-  label: string;
-}
-
-function ContentTypeSelector({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const { data: contentTypesData } = useQuery<ContentTypeEntry[]>({
-    queryKey: ["/api/content-types"],
-  });
-
-  const contentTypes = contentTypesData ?? [];
-  const selected = value.trim()
-    ? value.split(",").map((s) => s.trim()).filter(Boolean)
-    : [];
-  const isAll = selected.length === 0;
-
-  function toggleAll() {
-    onChange("");
-  }
-
-  function toggleType(name: string) {
-    if (isAll) {
-      onChange(name);
-    } else if (selected.includes(name)) {
-      const next = selected.filter((t) => t !== name);
-      onChange(next.join(", "));
-    } else {
-      onChange([...selected, name].join(", "));
-    }
-  }
-
-  const displayLabel = isAll
-    ? "All content types"
-    : selected.length === 1
-    ? (contentTypes.find((ct) => ct.name === selected[0])?.label ?? selected[0])
-    : `${selected.length} content types`;
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className="text-xs h-7 justify-between w-full font-normal"
-          data-testid="button-ct-selector"
-        >
-          <span className="truncate">{displayLabel}</span>
-          <IconChevronDown className="h-3 w-3 ml-1 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="p-2 w-64" align="start">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-2 px-1 py-1 rounded-sm hover-elevate cursor-pointer">
-            <Checkbox
-              checked={isAll}
-              onCheckedChange={toggleAll}
-              id="ct-all"
-              data-testid="checkbox-ct-all"
-            />
-            <label htmlFor="ct-all" className="text-xs cursor-pointer font-medium flex-1">
-              All content types
-            </label>
-          </div>
-          {contentTypes.length > 0 && <div className="border-t my-1" />}
-          {contentTypes.map((ct) => (
-            <div
-              key={ct.name}
-              className="flex items-center gap-2 px-1 py-1 rounded-sm hover-elevate cursor-pointer"
-            >
-              <Checkbox
-                checked={!isAll && selected.includes(ct.name)}
-                onCheckedChange={() => toggleType(ct.name)}
-                id={`ct-${ct.name}`}
-                data-testid={`checkbox-ct-${ct.name}`}
-              />
-              <label htmlFor={`ct-${ct.name}`} className="text-xs cursor-pointer flex-1 min-w-0">
-                <span className="block truncate">{ct.label}</span>
-                <span className="block text-muted-foreground font-mono">{ct.name}</span>
-              </label>
-            </div>
-          ))}
-          {contentTypes.length === 0 && (
-            <p className="text-xs text-muted-foreground px-1 py-1">Loading content types…</p>
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
 }
 
 function capGrantsFromFormState(map: Record<string, CapabilityFormState>): CapabilityGrant[] {
@@ -247,10 +198,18 @@ function CapabilityFields({
   caps: Record<string, CapabilityFormState>;
   onChange: (updated: Record<string, CapabilityFormState>) => void;
 }) {
+  let previousScopedEnabled: string | null = null;
+
   return (
     <div className="space-y-2 pt-1">
       {CAPABILITY_REGISTRY.map((cap) => {
         const state = caps[cap.name] ?? { enabled: false, contentTypes: "" };
+        const syncFromName =
+          cap.scoped && state.enabled ? previousScopedEnabled : null;
+        if (cap.scoped && state.enabled) {
+          previousScopedEnabled = cap.name;
+        }
+
         return (
           <div key={cap.name} className="space-y-1">
             <div className="flex items-center gap-2">
@@ -276,11 +235,17 @@ function CapabilityFields({
             </div>
             {cap.scoped && state.enabled && (
               <div className="ml-6">
-                <ContentTypeSelector
+                <ContentTypeScopeBar
                   value={state.contentTypes}
                   onChange={(v) =>
                     onChange(withAutoContentView(caps, cap.name, { ...state, contentTypes: v }))
                   }
+                  sameAsValue={
+                    syncFromName != null
+                      ? (caps[syncFromName] ?? { enabled: false, contentTypes: "" }).contentTypes
+                      : null
+                  }
+                  testId={`scope-ct-${cap.name}`}
                 />
               </div>
             )}
@@ -289,6 +254,78 @@ function CapabilityFields({
       })}
     </div>
   );
+}
+
+function RoleAgentDescriptionField({
+  description,
+  onDescriptionChange,
+  onGenerateClick,
+  generating,
+  inputTestId,
+  generateTestId,
+  helperExtra,
+}: {
+  description: string;
+  onDescriptionChange: (value: string) => void;
+  onGenerateClick: () => void;
+  generating: boolean;
+  inputTestId: string;
+  generateTestId: string;
+  helperExtra?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-xs font-medium text-muted-foreground">Description for AI agents</label>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              disabled={generating}
+              onClick={onGenerateClick}
+              data-testid={generateTestId}
+              aria-label="Generate description for AI agents"
+            >
+              {generating ? (
+                <IconLoader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <IconSparkles className="h-4 w-4" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-center">
+            Draft a short description agents use to pick this MCP connector over similar roles. You can edit before
+            saving.
+          </TooltipContent>
+        </Tooltip>
+      </div>
+      <Input
+        placeholder="SEO only: meta, clusters, redirects. Do not edit page sections or structure."
+        value={description}
+        onChange={(e) => onDescriptionChange(e.target.value)}
+        data-testid={inputTestId}
+      />
+      <p className="text-xs text-muted-foreground">
+        Required. Used for MCP connectors at{" "}
+        <code className="font-mono text-[11px] bg-muted px-1 rounded">/mcp/role/…</code>. Agents read this to decide
+        which connector to use{helperExtra ? ` — ${helperExtra}` : "."}
+      </p>
+    </div>
+  );
+}
+
+function parseApiErrorMessage(message: string, fallback: string): string {
+  const jsonMatch = message.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return message || fallback;
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as { error?: string };
+    return parsed.error?.trim() || message || fallback;
+  } catch {
+    return message || fallback;
+  }
 }
 
 function RolesTab() {
@@ -300,15 +337,45 @@ function RolesTab() {
   });
 
   const [newRoleForm, setNewRoleForm] = useState<RoleFormState | null>(null);
+  /** When true, label changes no longer overwrite the id (user edited id manually). */
+  const [newRoleIdTouched, setNewRoleIdTouched] = useState(false);
+  const [debouncedNewRoleId, setDebouncedNewRoleId] = useState("");
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
   const [editRoleForm, setEditRoleForm] = useState<Omit<RoleFormState, "id"> | null>(null);
   const [deletingRoleId, setDeletingRoleId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [generatingRoleDescription, setGeneratingRoleDescription] = useState(false);
+  const [confirmGenerateDescription, setConfirmGenerateDescription] = useState<{
+    target: "new" | "edit";
+    roleId?: string;
+  } | null>(null);
 
   const roles = rolesData ? Object.entries(rolesData) : [];
 
+  useEffect(() => {
+    if (!newRoleForm) {
+      setDebouncedNewRoleId("");
+      return;
+    }
+    const id = newRoleForm.id;
+    const t = setTimeout(() => setDebouncedNewRoleId(id), 400);
+    return () => clearTimeout(t);
+  }, [newRoleForm?.id, newRoleForm]);
+
+  const newRoleIdStatus: "empty" | "typing" | "invalid" | "taken" | "available" = (() => {
+    if (!newRoleForm) return "empty";
+    const id = newRoleForm.id.trim();
+    if (!id) return "empty";
+    if (id !== debouncedNewRoleId) return "typing";
+    if (!isValidRoleIdFormat(id)) return "invalid";
+    if (rolesData && id in rolesData) return "taken";
+    return "available";
+  })();
+
   function startNewRole() {
     setNewRoleForm({ id: "", label: "", description: "", capabilities: {} });
+    setNewRoleIdTouched(false);
+    setDebouncedNewRoleId("");
     setEditingRoleId(null);
     setEditRoleForm(null);
   }
@@ -321,6 +388,7 @@ function RolesTab() {
       capabilities: capMapFromGrants(role.capabilities),
     });
     setNewRoleForm(null);
+    setNewRoleIdTouched(false);
   }
 
   async function saveNewRole() {
@@ -329,12 +397,37 @@ function RolesTab() {
       toast({ title: "Required fields missing", description: "Role ID and label are required", variant: "destructive" });
       return;
     }
+    if (!isValidRoleIdFormat(newRoleForm.id)) {
+      toast({
+        title: "Invalid role ID",
+        description: "ID must start with a letter and use only lowercase letters, numbers, hyphens, or underscores.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (rolesData && newRoleForm.id in rolesData) {
+      toast({
+        title: "Role ID already taken",
+        description: `A role with id "${newRoleForm.id}" already exists. Choose a different id.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!newRoleForm.description.trim()) {
+      toast({
+        title: "Description for AI agents is required",
+        description:
+          "Agents use this text to choose which MCP connector (/mcp/role/…) to use and what they should do.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSaving(true);
     try {
       const res = await apiRequest("POST", "/api/admin/roles", {
         id: newRoleForm.id,
         label: newRoleForm.label,
-        description: newRoleForm.description || undefined,
+        description: newRoleForm.description.trim(),
         capabilities: capGrantsFromFormState(newRoleForm.capabilities),
       });
       if (!res.ok) {
@@ -343,6 +436,7 @@ function RolesTab() {
       }
       queryClient.invalidateQueries({ queryKey: ["/api/admin/roles"] });
       setNewRoleForm(null);
+      setNewRoleIdTouched(false);
       toast({ title: "Role created" });
     } catch (err: any) {
       toast({ title: "Failed to save role", description: err.message, variant: "destructive" });
@@ -357,11 +451,20 @@ function RolesTab() {
       toast({ title: "Label is required", variant: "destructive" });
       return;
     }
+    if (!editRoleForm.description.trim()) {
+      toast({
+        title: "Description for AI agents is required",
+        description:
+          "Agents use this text to choose which MCP connector (/mcp/role/…) to use and what they should do.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSaving(true);
     try {
       const res = await apiRequest("PUT", `/api/admin/roles/${editingRoleId}`, {
         label: editRoleForm.label,
-        description: editRoleForm.description || undefined,
+        description: editRoleForm.description.trim(),
         capabilities: capGrantsFromFormState(editRoleForm.capabilities),
       });
       if (!res.ok) {
@@ -392,6 +495,81 @@ function RolesTab() {
     } catch (err: any) {
       setDeletingRoleId(null);
       toast({ title: "Failed to delete role", description: err.message, variant: "destructive" });
+    }
+  }
+
+  function requestGenerateRoleDescription(target: "new" | "edit", roleId?: string) {
+    const form = target === "new" ? newRoleForm : editRoleForm;
+    if (!form) return;
+
+    const caps = capGrantsFromFormState(form.capabilities);
+    if (caps.length === 0) {
+      toast({
+        title: "Select at least one capability first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (form.description.trim()) {
+      setConfirmGenerateDescription({ target, roleId });
+      return;
+    }
+
+    void runGenerateRoleDescription(target, roleId);
+  }
+
+  async function runGenerateRoleDescription(target: "new" | "edit", roleId?: string) {
+    const form = target === "new" ? newRoleForm : editRoleForm;
+    if (!form) return;
+
+    const caps = capGrantsFromFormState(form.capabilities);
+    if (caps.length === 0) return;
+
+    if (!form.label.trim()) {
+      toast({
+        title: "Role label is required",
+        description: "Enter a label before generating a description.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setGeneratingRoleDescription(true);
+    try {
+      const res = await apiRequest("POST", "/api/ai/generate-role-description", {
+        id:
+          target === "edit"
+            ? roleId
+            : newRoleForm?.id.trim()
+              ? newRoleForm.id.trim()
+              : undefined,
+        label: form.label.trim(),
+        capabilities: caps,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to generate description");
+      }
+
+      if (target === "new" && newRoleForm) {
+        setNewRoleForm({ ...newRoleForm, description: data.description });
+      } else if (target === "edit" && editRoleForm) {
+        setEditRoleForm({ ...editRoleForm, description: data.description });
+      }
+      toast({ title: "Description generated" });
+    } catch (err: any) {
+      toast({
+        title: "Failed to generate description",
+        description: parseApiErrorMessage(
+          err?.message ?? "",
+          "Failed to generate description",
+        ),
+        variant: "destructive",
+      });
+    } finally {
+      setGeneratingRoleDescription(false);
+      setConfirmGenerateDescription(null);
     }
   }
 
@@ -428,33 +606,80 @@ function RolesTab() {
           <CardContent className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">ID</label>
-                <Input
-                  placeholder="editor"
-                  value={newRoleForm.id}
-                  onChange={(e) => setNewRoleForm({ ...newRoleForm, id: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") })}
-                  data-testid="input-new-role-id"
-                />
-              </div>
-              <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Label</label>
                 <Input
                   placeholder="Content Editor"
                   value={newRoleForm.label}
-                  onChange={(e) => setNewRoleForm({ ...newRoleForm, label: e.target.value })}
+                  onChange={(e) => {
+                    const label = e.target.value;
+                    setNewRoleForm((prev) => {
+                      if (!prev) return prev;
+                      return {
+                        ...prev,
+                        label,
+                        id: newRoleIdTouched ? prev.id : slugifyRoleId(label),
+                      };
+                    });
+                  }}
                   data-testid="input-new-role-label"
                 />
               </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">ID</label>
+                <div className="relative">
+                  <Input
+                    placeholder="content_editor"
+                    value={newRoleForm.id}
+                    onChange={(e) => {
+                      setNewRoleIdTouched(true);
+                      setNewRoleForm({
+                        ...newRoleForm,
+                        id: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""),
+                      });
+                    }}
+                    className="pr-9"
+                    aria-invalid={
+                      newRoleIdStatus === "taken" || newRoleIdStatus === "invalid"
+                        ? true
+                        : undefined
+                    }
+                    data-testid="input-new-role-id"
+                  />
+                  <span
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                    data-testid="status-new-role-id"
+                    aria-live="polite"
+                  >
+                    {newRoleIdStatus === "typing" && (
+                      <IconLoader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    )}
+                    {newRoleIdStatus === "available" && (
+                      <IconCheck className="h-4 w-4 text-status-online" />
+                    )}
+                    {(newRoleIdStatus === "taken" || newRoleIdStatus === "invalid") && (
+                      <IconX className="h-4 w-4 text-destructive" />
+                    )}
+                  </span>
+                </div>
+                {newRoleIdStatus === "taken" && (
+                  <p className="text-xs text-destructive">This role ID is already taken.</p>
+                )}
+                {newRoleIdStatus === "invalid" && (
+                  <p className="text-xs text-destructive">
+                    Must start with a letter; use lowercase letters, numbers, hyphens, or underscores.
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Description (optional)</label>
-              <Input
-                placeholder="Can edit text content"
-                value={newRoleForm.description}
-                onChange={(e) => setNewRoleForm({ ...newRoleForm, description: e.target.value })}
-                data-testid="input-new-role-description"
-              />
-            </div>
+            <RoleAgentDescriptionField
+              description={newRoleForm.description}
+              onDescriptionChange={(description) => setNewRoleForm({ ...newRoleForm, description })}
+              onGenerateClick={() => requestGenerateRoleDescription("new")}
+              generating={generatingRoleDescription}
+              inputTestId="input-new-role-description"
+              generateTestId="button-generate-role-description"
+              helperExtra="say what this role should and should not do"
+            />
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Capabilities</label>
               <p className="text-xs text-muted-foreground">
@@ -466,7 +691,18 @@ function RolesTab() {
               />
             </div>
             <div className="flex justify-end pt-1">
-              <Button size="sm" onClick={saveNewRole} disabled={saving} data-testid="button-save-new-role">
+              <Button
+                size="sm"
+                onClick={saveNewRole}
+                disabled={
+                  saving ||
+                  newRoleIdStatus === "taken" ||
+                  newRoleIdStatus === "invalid" ||
+                  newRoleIdStatus === "empty" ||
+                  newRoleIdStatus === "typing"
+                }
+                data-testid="button-save-new-role"
+              >
                 {saving ? <IconLoader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <IconDeviceFloppy className="h-4 w-4 mr-1.5" />}
                 Save role
               </Button>
@@ -580,15 +816,16 @@ function RolesTab() {
                   </div>
                 ) : isEditing && editRoleForm ? (
                   <div className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-muted-foreground">Description (optional)</label>
-                      <Input
-                        placeholder="Role description"
-                        value={editRoleForm.description}
-                        onChange={(e) => setEditRoleForm({ ...editRoleForm, description: e.target.value })}
-                        data-testid={`input-edit-role-desc-${roleId}`}
-                      />
-                    </div>
+                    <RoleAgentDescriptionField
+                      description={editRoleForm.description}
+                      onDescriptionChange={(description) =>
+                        setEditRoleForm({ ...editRoleForm, description })
+                      }
+                      onGenerateClick={() => requestGenerateRoleDescription("edit", roleId)}
+                      generating={generatingRoleDescription}
+                      inputTestId={`input-edit-role-desc-${roleId}`}
+                      generateTestId={`button-generate-role-description-${roleId}`}
+                    />
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-muted-foreground">Capabilities</label>
                       <p className="text-xs text-muted-foreground">
@@ -602,8 +839,17 @@ function RolesTab() {
                   </div>
                 ) : (
                   <>
-                    {role.description && (
+                    {role.description ? (
                       <p className="text-xs text-muted-foreground mb-2">{role.description}</p>
+                    ) : (
+                      <p className="text-xs text-destructive mb-2">
+                        Missing description for AI agents — edit this role before using /mcp/role/{roleId}.
+                      </p>
+                    )}
+                    {isBuiltIn && (
+                      <p className="text-[11px] text-muted-foreground mb-2">
+                        Description is managed in code and cannot be edited here.
+                      </p>
                     )}
                     {roleId === "content_viewer" && (
                       <>
@@ -622,7 +868,8 @@ function RolesTab() {
                               MCP <code className="font-mono">tools/list</code> is filtered in production from this grant.
                             </p>
                             <p>
-                              Does not include <code className="font-mono">seo_edit</code> (redirects), FAQ item CRUD,
+                              Does not include <code className="font-mono">seo_edit</code>,{" "}
+                              <code className="font-mono">edit_redirects</code>, FAQ item CRUD,
                               or starting diagnostics jobs. After assigning this role, refresh the MCP server in Cursor.
                             </p>
                             <p>
@@ -676,6 +923,44 @@ function RolesTab() {
           );
         })}
       </div>
+
+      <AlertDialog
+        open={!!confirmGenerateDescription}
+        onOpenChange={(open) => !open && setConfirmGenerateDescription(null)}
+      >
+        <AlertDialogContent data-testid="dialog-replace-role-description">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace description?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Generated text will overwrite the current description. You can still edit before saving the role.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={generatingRoleDescription}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={generatingRoleDescription}
+              onClick={(e) => {
+                e.preventDefault();
+                if (confirmGenerateDescription) {
+                  void runGenerateRoleDescription(
+                    confirmGenerateDescription.target,
+                    confirmGenerateDescription.roleId,
+                  );
+                }
+              }}
+            >
+              {generatingRoleDescription ? (
+                <>
+                  <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generating…
+                </>
+              ) : (
+                "Replace"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -710,6 +995,8 @@ function UsersTab() {
   const [assigningEmail, setAssigningEmail] = useState<string | null>(null);
   const [assignTargetUsername, setAssignTargetUsername] = useState("");
   const [assignSaving, setAssignSaving] = useState(false);
+  const [mcpAccessSaving, setMcpAccessSaving] = useState<string | null>(null);
+  const [mcpAdvancedOpen, setMcpAdvancedOpen] = useState(false);
 
   const allRoles = rolesData ? Object.entries(rolesData) : [];
   const allUsers = users ?? [];
@@ -718,6 +1005,26 @@ function UsersTab() {
     setEditingUser(user.username);
     setEditingUsername(user.username);
     setUserRoles([...user.roles]);
+  }
+
+  async function saveMcpAccess(
+    username: string,
+    flags: { mcpReadEnabled?: boolean; mcpWriteEnabled?: boolean },
+  ) {
+    setMcpAccessSaving(username);
+    try {
+      const res = await apiRequest("PUT", `/api/admin/users/${encodeURIComponent(username)}/mcp-access`, flags);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to update MCP access");
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "MCP access updated" });
+    } catch (err: any) {
+      toast({ title: "Failed to update MCP access", description: err.message, variant: "destructive" });
+    } finally {
+      setMcpAccessSaving(null);
+    }
   }
 
   async function saveUserRoles(originalUsername: string) {
@@ -970,15 +1277,50 @@ function UsersTab() {
       {allUsers.length > 0 && (
         <div className="space-y-2">
           {pending.length > 0 && <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Active</p>}
-          {allUsers.map((user) => (
+          <div className="rounded-md border bg-muted/40 px-3 py-2 space-y-1.5">
+            <p className="text-xs text-muted-foreground">
+              MCP read lets agents look up and explain content. MCP write lets agents change content.
+              These toggles do not change what the person can do in the CMS.
+            </p>
+            <Collapsible open={mcpAdvancedOpen} onOpenChange={setMcpAdvancedOpen}>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-auto px-0 py-0 text-xs text-muted-foreground hover:text-foreground">
+                  {mcpAdvancedOpen ? "Hide advanced details" : "Read more (advanced)"}
+                  <IconChevronDown className={`h-3.5 w-3.5 ml-1 transition-transform ${mcpAdvancedOpen ? "rotate-180" : ""}`} />
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-1 space-y-1 text-xs text-muted-foreground">
+                <p>
+                  Write-off keeps only view capabilities for MCP: <code className="font-mono text-[11px]">content_view</code>,{" "}
+                  <code className="font-mono text-[11px]">metrics_view</code>,{" "}
+                  <code className="font-mono text-[11px]">read_redirects</code>.
+                </p>
+                <p>Enforced on MCP requests via the server secret; CMS login and roles are unchanged. Missing flags default to both on.</p>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+          {allUsers.map((user) => {
+            const { mcpReadEnabled, mcpWriteEnabled } = normalizeUserMcpAccess(user);
+            const mcpBusy = mcpAccessSaving === user.username;
+            return (
             <Card key={user.username} data-testid={`card-user-${user.username}`}>
               <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
                 <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium">
                       {[user.firstName, user.lastName].filter(Boolean).join(" ") || user.username}
                     </span>
                     <code className="text-xs font-mono text-muted-foreground">{user.username}</code>
+                    {!mcpReadEnabled && (
+                      <Badge variant="outline" className="text-xs" data-testid={`badge-mcp-off-${user.username}`}>
+                        MCP off
+                      </Badge>
+                    )}
+                    {mcpReadEnabled && !mcpWriteEnabled && (
+                      <Badge variant="secondary" className="text-xs" data-testid={`badge-mcp-read-only-${user.username}`}>
+                        MCP read only
+                      </Badge>
+                    )}
                   </div>
                   {user.email && (
                     <p className="text-xs text-muted-foreground">{user.email}</p>
@@ -1014,7 +1356,7 @@ function UsersTab() {
                   </Button>
                 )}
               </CardHeader>
-              <CardContent className="pt-0">
+              <CardContent className="pt-0 space-y-3">
                 {editingUser === user.username ? (
                   <div className="flex flex-col gap-3">
                     <div className="flex flex-col gap-1">
@@ -1072,9 +1414,54 @@ function UsersTab() {
                     )}
                   </div>
                 )}
+                <div className="flex flex-col gap-2 border-t pt-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <label htmlFor={`mcp-read-${user.username}`} className="text-xs font-medium cursor-pointer inline-flex items-center gap-1.5">
+                      Allow using MCP to
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-semibold uppercase tracking-wide">
+                        read
+                      </Badge>
+                      data
+                    </label>
+                    <Switch
+                      id={`mcp-read-${user.username}`}
+                      checked={mcpReadEnabled}
+                      disabled={mcpBusy}
+                      onCheckedChange={(checked) =>
+                        saveMcpAccess(user.username, {
+                          mcpReadEnabled: checked,
+                          ...(checked ? {} : { mcpWriteEnabled: false }),
+                        })
+                      }
+                      data-testid={`switch-mcp-read-${user.username}`}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <label
+                      htmlFor={`mcp-write-${user.username}`}
+                      className={`text-xs font-medium inline-flex items-center gap-1.5 ${mcpReadEnabled ? "cursor-pointer" : "text-muted-foreground"}`}
+                    >
+                      Allow using MCP to
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-semibold uppercase tracking-wide">
+                        write
+                      </Badge>
+                      data
+                    </label>
+                    <Switch
+                      id={`mcp-write-${user.username}`}
+                      checked={mcpWriteEnabled}
+                      disabled={mcpBusy || !mcpReadEnabled}
+                      onCheckedChange={(checked) =>
+                        saveMcpAccess(user.username, { mcpWriteEnabled: checked })
+                      }
+                      data-testid={`switch-mcp-write-${user.username}`}
+                    />
+                  </div>
+                </div>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
 

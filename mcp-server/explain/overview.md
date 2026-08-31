@@ -4,7 +4,7 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 
 ## Core concepts
 
-- **Content types** — defined in `{content_folder}/content-types.yml`. Each type has a directory, URL pattern, and optional field mappings. **DB-backed** means `database.slug` is set (YAML create tools skip those). **Shared-layout** means `single_template: true` and/or DB — shell lives in `single.{locale}.yml`. Example: `blog` is static YAML + `single_template` (not DB-backed).
+- **Content types** — defined in `{content_folder}/content-types.yml`. Each type has a directory, URL pattern, and optional field mappings. **DB-backed** means `database.slug` is set (YAML create tools skip those). **Shared-layout** means `single_template: true` and/or DB — shell lives in `template.{locale}.yml` (legacy `single.{locale}.yml` still loads). Example: `blog` is static YAML + `single_template` (not DB-backed).
 - **Sections** — every page is a list of section objects. Each section has a `type` that maps to a React component registered in `SectionRenderer`. Sections are authored in YAML and never in code.
 - **i18n** — pages exist in one or more locales. Each locale has its own YAML file (`en.yml`, `es.yml`). Shared fields live in `_common.yml` and are deep-merged at read time.
 - **Image registry** — all images are referenced by ID from `{content_folder}/image-registry.json`. Raw paths are never hardcoded in components.
@@ -37,6 +37,6 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 | `shared-layout` | `single_template` / DB shared shell; create_entry playbook; blog as example |
 | `relation-fields` | Relation editor, authors hubs, listing vs hydrate, delete reassign |
 | `lead-forms` | Catalog `source` (`content_type` / `database` / `related_field`), required `value_path`/`label_path`, required `query` on ecommerce catalogs, `purchasable` vs `actively_selling` |
-| `redirects` | CMS 301/302: two stores, first-match, `test_redirect` + `update_redirect` (`seo_edit`) |
+| `redirects` | CMS 301/302: two stores, first-match, `test_redirect` (`read_redirects`) + `update_redirect` (`edit_redirects`) |
 
 **Before making any structural change to this codebase, call `explain_site` with the relevant topic.**

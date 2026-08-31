@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { CSSMarquee } from "@/components/ui/CSSMarquee";
 import { getIcon } from "@/lib/icons";
-import { useInternalNav } from "@/hooks/useInternalNav";
+import { InternalLink } from "@/components/InternalLink";
 import type { AiFlexPathDefault } from "@shared/schema";
 
 type Course = AiFlexPathDefault["courses"][0];
@@ -190,8 +190,6 @@ function CourseCard({
 export default function AiFlexPathDefault({ data }: { data: AiFlexPathDefault }) {
   const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set(data.default_courses));
   const [counterFlash, setCounterFlash] = useState(false);
-  const nav = useInternalNav();
-
   const maxSelections = data.max_selections ?? 4;
 
   const pathTools = useMemo(() => {
@@ -367,15 +365,14 @@ export default function AiFlexPathDefault({ data }: { data: AiFlexPathDefault })
               </div>
               <div className="flex gap-2 flex-shrink-0">
                 {data.cta.buttons.map((btn, i) => (
-                  <a
+                  <InternalLink
                     key={i}
                     href={btn.url}
-                    onClick={nav}
                     className="rounded-[8px] px-[18px] py-[10px] text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                     style={{ background: "hsl(var(--background))", color: "hsl(var(--primary))", textDecoration: "none" }}
                   >
                     {btn.text}
-                  </a>
+                  </InternalLink>
                 ))}
               </div>
             </div>
@@ -383,15 +380,14 @@ export default function AiFlexPathDefault({ data }: { data: AiFlexPathDefault })
             <div className="flex items-center gap-4 mt-[35px]">
               <div className="flex gap-2 flex-shrink-0">
                 {data.cta.buttons.map((btn, i) => (
-                  <a
+                  <InternalLink
                     key={i}
                     href={btn.url}
-                    onClick={nav}
                     className="rounded-[8px] px-[22px] py-[10px] text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                     style={{ background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", textDecoration: "none" }}
                   >
                     {btn.text}
-                  </a>
+                  </InternalLink>
                 ))}
               </div>
               <div>

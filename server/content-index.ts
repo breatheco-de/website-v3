@@ -19,6 +19,14 @@ import {
   buildMirroredLocaleSingle,
   listAllSinglePaths,
 } from "./shared-layout-sync";
+import {
+  COMMON_TEMPLATE_BASENAME,
+  LEGACY_COMMON_SINGLE_BASENAME,
+  isSharedTemplateBasename,
+  liveTemplateBasename,
+  resolveCommonTemplatePath,
+  resolveTemplateLocalePath,
+} from "./shared-layout-paths";
 import { child } from "./logger";
 import {
   wipeDocumentSectionsOnDuplicate,
@@ -436,7 +444,7 @@ export class ContentIndex {
             const isVariantLayer =
               !isLiveLocale &&
               (Boolean(variantLocaleMatch) ||
-                /^single\.[a-z0-9-]+\./i.test(baseName) ||
+                /^(?:template|single)\.[a-z0-9-]+\./i.test(baseName) ||
                 /^[a-z0-9-]+\.[a-z]{2}/i.test(baseName));
             if (isVariantLayer && variantLocaleMatch) {
               const liveLocale = variantLocaleMatch[1]!;
@@ -445,6 +453,8 @@ export class ContentIndex {
                   (f) =>
                     f === `${liveLocale}.yml` ||
                     f === `${liveLocale}.yaml` ||
+                    f === `template.${liveLocale}.yml` ||
+                    f === `template.${liveLocale}.yaml` ||
                     f === `single.${liveLocale}.yml` ||
                     f === `single.${liveLocale}.yaml`,
                 ) || entry.locales.includes(liveLocale);
@@ -1111,13 +1121,13 @@ export class ContentIndex {
         log.info(`[ContentIndex] Auto-created folder: ${this.contentRootName}/${folder}/`);
       }
 
-      const commonPath = path.join(typeDir, "_common.single.yml");
-      if (!fs.existsSync(commonPath)) {
+      const commonPath = resolveCommonTemplatePath(typeDir, { forWrite: true });
+      if (!fs.existsSync(resolveCommonTemplatePath(typeDir))) {
         fs.writeFileSync(
           commonPath,
-          "# Layout defaults for shared-layout singles (no sections — structure lives in single.{locale}.yml)\n",
+          "# Layout defaults for shared-layout templates (no sections — structure lives in template.{locale}.yml)\n",
         );
-        log.info(`[ContentIndex] Auto-created: ${this.contentRootName}/${folder}/_common.single.yml`);
+        log.info(`[ContentIndex] Auto-created: ${this.contentRootName}/${folder}/${COMMON_TEMPLATE_BASENAME}`);
       }
 
       const locales = Object.keys(config.url_pattern || {}).filter((k) => k !== "default");
@@ -1126,23 +1136,27 @@ export class ContentIndex {
       const mirrorSource = findBestSingleMirrorSource(typeDir, (raw) => this.safeYamlLoad(raw));
 
       for (const locale of locales) {
-        const singlePath = path.join(typeDir, `single.${locale}.yml`);
-        const exists = fs.existsSync(singlePath);
+        const singlePath = resolveTemplateLocalePath(typeDir, locale, {
+          forWrite: true,
+          fallbackLocale: "",
+        });
+        const existingPath = resolveTemplateLocalePath(typeDir, locale, { fallbackLocale: "" });
+        const exists = fs.existsSync(existingPath);
 
         if (exists) {
           try {
-            const existing = this.safeYamlLoad(fs.readFileSync(singlePath, "utf-8"));
+            const existing = this.safeYamlLoad(fs.readFileSync(existingPath, "utf-8"));
             const sections = Array.isArray(existing?.sections) ? existing.sections : [];
             if (sections.length === 0 && mirrorSource && mirrorSource.locale !== locale) {
               const mirrored = buildMirroredLocaleSingle(mirrorSource.data);
               if (existing?.meta) mirrored.meta = existing.meta;
-              fs.writeFileSync(singlePath, yamlDump(mirrored) + "\n", "utf-8");
+              fs.writeFileSync(existingPath, yamlDump(mirrored) + "\n", "utf-8");
               log.info(
-                `[ContentIndex] Repaired empty single stub from ${mirrorSource.locale}: ${this.contentRootName}/${folder}/single.${locale}.yml`,
+                `[ContentIndex] Repaired empty template stub from ${mirrorSource.locale}: ${this.contentRootName}/${folder}/${path.basename(existingPath)}`,
               );
             }
           } catch (err) {
-            log.warn(`[ContentIndex] Could not inspect single.${locale}.yml:`, err instanceof Error ? err.message : err);
+            log.warn(`[ContentIndex] Could not inspect ${path.basename(existingPath)}:`, err instanceof Error ? err.message : err);
           }
           continue;
         }
@@ -1151,18 +1165,18 @@ export class ContentIndex {
           const mirrored = buildMirroredLocaleSingle(mirrorSource.data);
           fs.writeFileSync(singlePath, yamlDump(mirrored) + "\n", "utf-8");
           log.info(
-            `[ContentIndex] Auto-created single template (mirrored from ${mirrorSource.locale}): ${this.contentRootName}/${folder}/single.${locale}.yml`,
+            `[ContentIndex] Auto-created template (mirrored from ${mirrorSource.locale}): ${this.contentRootName}/${folder}/${liveTemplateBasename(locale)}`,
           );
         } else {
           const template = [
             "meta:",
-            '  page_title: "{{ single.title }}"',
-            '  description: "{{ single.description }}"',
+            '  page_title: "{{ entry.title }}"',
+            '  description: "{{ entry.description }}"',
             "sections: []",
             "",
           ].join("\n");
           fs.writeFileSync(singlePath, template);
-          log.info(`[ContentIndex] Auto-created empty single template: ${this.contentRootName}/${folder}/single.${locale}.yml`);
+          log.info(`[ContentIndex] Auto-created empty template: ${this.contentRootName}/${folder}/${liveTemplateBasename(locale)}`);
         }
       }
 
@@ -1175,7 +1189,7 @@ export class ContentIndex {
             const mirrored = buildMirroredLocaleSingle(mirrorSource.data);
             if (existing?.meta) mirrored.meta = existing.meta;
             fs.writeFileSync(filePath, yamlDump(mirrored) + "\n", "utf-8");
-            log.info(`[ContentIndex] Repaired extra empty single.${locale}.yml from ${mirrorSource.locale}`);
+            log.info(`[ContentIndex] Repaired extra empty ${path.basename(filePath)} from ${mirrorSource.locale}`);
           }
         } catch { /* non-fatal */ }
       }
@@ -1703,7 +1717,7 @@ export class ContentIndex {
       const perSlugPath = path.join(slugDir, `${locale}.yml`);
       if (fs.existsSync(perSlugPath)) return perSlugPath;
 
-      const singlePath = path.join(typeRoot, `single.${locale}.yml`);
+      const singlePath = resolveTemplateLocalePath(typeRoot, locale, { fallbackLocale: "" });
       if (fs.existsSync(singlePath)) return singlePath;
 
       return perSlugPath;
@@ -1735,7 +1749,7 @@ export class ContentIndex {
       }
       const raw = fs.readFileSync(filePath, "utf-8");
       const data = this.safeYamlLoad(raw) as Record<string, unknown>;
-      const isSharedTemplate = path.basename(filePath).startsWith("single.");
+      const isSharedTemplate = isSharedTemplateBasename(path.basename(filePath));
       return { data, filePath, isSharedTemplate };
     } catch (error) {
       return { data: null, filePath: "", error: `Error loading locale data: ${error}` };
@@ -1747,7 +1761,9 @@ export class ContentIndex {
     let commonPath = path.join(this.contentRoot, this.getFolderName(contentType), resolved, "_common.yml");
 
     if (!fs.existsSync(commonPath) && this.isDatabaseBacked(contentType)) {
-      commonPath = path.join(this.contentRoot, this.getFolderName(contentType), "_common.single.yml");
+      commonPath = resolveCommonTemplatePath(
+        path.join(this.contentRoot, this.getFolderName(contentType)),
+      );
     }
 
     if (!fs.existsSync(commonPath)) {
@@ -1777,7 +1793,7 @@ export class ContentIndex {
       }
 
       const folder = this.getFolderName(contentType);
-      const singleCommonPath = path.join(this.contentRoot, folder, "_common.single.yml");
+      const singleCommonPath = resolveCommonTemplatePath(path.join(this.contentRoot, folder));
       const typeCommonPath = path.join(this.contentRoot, folder, "_common.yml");
       const useSingleTemplate =
         !!getContentTypeConfig(contentType, this.contentRoot)?.single_template &&
@@ -1802,10 +1818,9 @@ export class ContentIndex {
             baseData = Object.keys(baseData).length > 0 ? deepMerge(baseData, typeCommon) : typeCommon;
           }
         }
-        let singleLocalePath = path.join(this.contentRoot, folder, `single.${locale}.yml`);
-        if (!fs.existsSync(singleLocalePath)) {
-          singleLocalePath = path.join(this.contentRoot, folder, "single.en.yml");
-        }
+        let singleLocalePath = resolveTemplateLocalePath(path.join(this.contentRoot, folder), locale, {
+          fallbackLocale: "en",
+        });
         if (fs.existsSync(singleLocalePath) && path.resolve(singleLocalePath) !== path.resolve(filePath)) {
           const singleLocale = this.safeYamlLoad(fs.readFileSync(singleLocalePath, "utf-8")) as Record<string, unknown> | null;
           if (singleLocale) {
@@ -1832,7 +1847,7 @@ export class ContentIndex {
           : localeData;
       }
 
-      const isSharedTemplate = useSingleTemplate || path.basename(filePath).startsWith("single.");
+      const isSharedTemplate = useSingleTemplate || isSharedTemplateBasename(path.basename(filePath));
       return { data: merged, filePath, isSharedTemplate };
     } catch (error) {
       return { data: null, filePath: "", error: `Error loading merged content: ${error}` };
@@ -1862,7 +1877,7 @@ export class ContentIndex {
         return { success: false, error: `Required _common.yml not found: ${commonPath}` };
       }
 
-      const singleCommonPath = path.join(this.contentRoot, folder, "_common.single.yml");
+      const singleCommonPath = resolveCommonTemplatePath(path.join(this.contentRoot, folder));
       const typeCommonPath = path.join(this.contentRoot, folder, "_common.yml");
       const useSingleTemplate =
         !!getContentTypeConfig(contentType, this.contentRoot)?.single_template &&
@@ -1885,10 +1900,11 @@ export class ContentIndex {
             baseData = Object.keys(baseData).length > 0 ? deepMerge(baseData, typeCommon) : typeCommon;
           }
         }
-        let singleLocalePath = path.join(this.contentRoot, folder, `single.${localeOrVariant}.yml`);
-        if (!fs.existsSync(singleLocalePath)) {
-          singleLocalePath = path.join(this.contentRoot, folder, "single.en.yml");
-        }
+        let singleLocalePath = resolveTemplateLocalePath(
+          path.join(this.contentRoot, folder),
+          localeOrVariant,
+          { fallbackLocale: "en" },
+        );
         if (fs.existsSync(singleLocalePath)) {
           const singleLocale = this.safeYamlLoad(fs.readFileSync(singleLocalePath, "utf-8")) as Record<string, unknown> | null;
           if (singleLocale) {
@@ -2118,7 +2134,11 @@ export class ContentIndex {
     const parsedFiles: Array<{ file: string; parsed: Record<string, unknown> }> = [];
 
     for (const file of sourceFiles) {
-      if (file === "_common.single.yml" || file.startsWith("single.")) continue;
+      if (
+        file === COMMON_TEMPLATE_BASENAME ||
+        file === LEGACY_COMMON_SINGLE_BASENAME ||
+        isSharedTemplateBasename(file)
+      ) continue;
 
       const fileLocale = file.replace(/\.(yml|yaml)$/, "");
       if (fileLocale !== "_common" && skipLocales.includes(fileLocale)) continue;

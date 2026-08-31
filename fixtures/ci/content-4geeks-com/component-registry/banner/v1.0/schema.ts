@@ -15,7 +15,6 @@ export const bannerSectionSchema = z.object({
   title: z.string(),
   description: z.string().optional(),
   cta: ctaButtonSchema.optional(),
-  background: z.enum(["gradient", "muted", "card", "background"]).optional().default("gradient"),
 });
 
 export type BannerSection = z.infer<typeof bannerSectionSchema>;

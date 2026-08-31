@@ -52,7 +52,7 @@ export default function Staff404VariantModal({
           </DialogTitle>
           <DialogDescription>
             {mode === "templates"
-              ? `These versions are this type’s shared layout (single.*.yml), not this missing entry.`
+              ? `These versions are this type’s shared layout (template.*.yml), not this missing entry.`
               : "Open a draft or variant to preview and edit this entry."}
           </DialogDescription>
         </DialogHeader>
@@ -77,7 +77,7 @@ export default function Staff404VariantModal({
               <ul className="mt-2 list-disc pl-5 space-y-1 text-xs text-muted-foreground">
                 <li>
                   <code className="text-[11px] font-mono">
-                    {typeDirectory || "content"}/single.{"{locale}"}.yml
+                    {typeDirectory || "content"}/template.{"{locale}"}.yml
                   </code>
                 </li>
                 <li>

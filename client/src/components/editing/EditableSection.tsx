@@ -244,7 +244,7 @@ function XSpacingPresetButtons({
             className="relative"
             onClick={() => onChange(preset.value)}
             data-testid={`x-spacing-preset-${testId}-${preset.value}`}
-            title={isDefault ? "Content-type default (_common.single.yml)" : undefined}
+            title={isDefault ? "Content-type default (_common.template.yml)" : undefined}
           >
             {isDefault ? (
               <span
@@ -454,7 +454,7 @@ export function EditableSection({ children, section, index, sectionType, content
     token: string | null;
     changedFields: string[];
   } | null>(null);
-  /** Layout defaults from _common.single.yml for the content type (X spacing keys only). */
+  /** Layout defaults from _common.template.yml for the content type (X spacing keys only). */
   const [contentTypeXDefaults, setContentTypeXDefaults] = useState<ContentTypeXDefaults | null>(null);
 
   // YAML source modal state
@@ -1427,7 +1427,7 @@ export function EditableSection({ children, section, index, sectionType, content
                       className="relative"
                       onClick={() => setXMaxWidth(prev => ({ ...prev, [xSpacingBreakpoint]: preset.value }))}
                       data-testid={`x-mw-preset-${index}-${preset.value}`}
-                      title={isDefault ? "Content-type default (_common.single.yml)" : undefined}
+                      title={isDefault ? "Content-type default (_common.template.yml)" : undefined}
                     >
                       {isDefault ? (
                         <span
@@ -1904,15 +1904,15 @@ export function EditableSection({ children, section, index, sectionType, content
       })()}
 
       
-      {/* Hidden-until-redirection badge — same style as other edit-mode badges */}
+      {/* Hide-until-opened badge — same style as other edit-mode badges */}
       {(section as SectionLayout).hidden_until_redirection && (
         <div
           className="absolute top-2 right-2 z-30 flex items-center gap-1 px-2 py-1 bg-amber-500/90 text-amber-950 text-xs font-medium rounded"
-          title={`Hidden from page — revealed via inline#${(section as SectionLayout).section_id ?? "…"}`}
+          title="Not shown to visitors until something on the page opens it"
           data-testid={`badge-hidden-redirect-${index}`}
         >
           <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
-          <span className="hidden md:inline">Hidden until redirect</span>
+          <span className="hidden md:inline">Hidden until opened</span>
         </div>
       )}
 

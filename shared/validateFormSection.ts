@@ -39,7 +39,7 @@ function getFormSettingsObject(
 
 /**
  * Normalize a conversion_name for membership checks against known events.
- * Exact `{{ single.… | plainFallback }}` binds → validate the plain fallback.
+ * Exact `{{ entry.… | plainFallback }}` / legacy `{{ single.… }}` binds → validate the plain fallback.
  * Other template binds (no usable plain fallback) → skip (return null).
  * Plain strings → return as-is.
  */
@@ -48,7 +48,7 @@ export function conversionNameForValidation(raw: string): string | null {
   if (!name) return null;
 
   const exactTemplate = name.match(
-    /^\{\{\s*single\.[a-zA-Z_][a-zA-Z0-9_.]*\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/,
+    /^\{\{\s*(?:entry|single)\.[a-zA-Z_][a-zA-Z0-9_.]*\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/,
   );
   if (exactTemplate) {
     const fallback = exactTemplate[1]?.trim() ?? "";

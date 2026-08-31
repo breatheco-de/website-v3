@@ -1,11 +1,14 @@
 import { useState, useEffect, createContext, useContext, createElement, type ReactNode } from "react";
 import { setAuthToken } from "@/lib/sessionHeaders";
-import { VIEW_ONLY_CAPABILITIES, type CapabilityName } from "@shared/capabilities";
+import { VIEW_ONLY_CAPABILITIES, SCOPED_CAPABILITIES, type CapabilityName } from "@shared/capabilities";
 
 const DEBUG_SESSION_KEY = "debug_validated";
 const DEBUG_SESSION_EXPIRY_KEY = "debug_validated_expiry";
 const DEBUG_TOKEN_KEY = "debug_token";
+/** localStorage: explicit debug UI opt-in (set by ?debug=true). Cleared by dismiss. */
 const DEBUG_MODE_KEY = "debug_mode";
+/** localStorage: staff hid DebugBubble without logging out. Cleared by ?debug=true or logout. */
+const DEBUG_UI_DISMISSED_KEY = "debug_ui_dismissed";
 const DEBUG_CAPABILITIES_KEY = "debug_capabilities";
 const DEBUG_ROLES_KEY = "debug_roles";
 const DEBUG_USERNAME_KEY = "debug_username";
@@ -18,35 +21,70 @@ export interface CapabilityGrant {
 
 const DEFAULT_CAPABILITIES: CapabilityGrant[] = [];
 
+/** Pure precedence for tests and isDebugModeActive side-effect wrapper. */
+export function resolveDebugModeActive(input: {
+  debugParam: string | null;
+  isDismissed: boolean;
+  isDev: boolean;
+  hasDebugModeFlag: boolean;
+  hasNonExpiredStaffToken: boolean;
+}): boolean {
+  if (input.debugParam === "false") return false;
+  if (input.isDismissed && input.debugParam !== "true") return false;
+  if (input.debugParam === "true") return true;
+  if (input.isDev) return true;
+  if (input.hasDebugModeFlag) return true;
+  if (input.hasNonExpiredStaffToken) return true;
+  return false;
+}
+
+function hasNonExpiredStaffToken(): boolean {
+  if (typeof window === "undefined") return false;
+  const cachedToken = localStorage.getItem(DEBUG_TOKEN_KEY);
+  const cachedExpiry = localStorage.getItem(DEBUG_SESSION_EXPIRY_KEY);
+  if (!cachedToken || !cachedExpiry) return false;
+  const expiryTime = parseInt(cachedExpiry, 10);
+  return Number.isFinite(expiryTime) && Date.now() < expiryTime;
+}
+
+function isDebugUiDismissed(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(DEBUG_UI_DISMISSED_KEY) === "true";
+}
+
+function setDebugUiDismissed(dismissed: boolean): void {
+  if (typeof window === "undefined") return;
+  if (dismissed) {
+    localStorage.setItem(DEBUG_UI_DISMISSED_KEY, "true");
+  } else {
+    localStorage.removeItem(DEBUG_UI_DISMISSED_KEY);
+  }
+}
+
+/**
+ * Sync gate for DebugBubble / staff UI.
+ * Precedence: ?debug=false → dismiss → ?debug=true → DEV → debug_mode flag → staff token.
+ */
 export function isDebugModeActive(): boolean {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === "undefined") return false;
   const urlParams = new URLSearchParams(window.location.search);
   const debugParam = urlParams.get("debug");
-  
-  if (debugParam === "false") {
-    return false;
-  }
-  
-  const isDev = import.meta.env.DEV;
-  
-  if (isDev) {
-    return true;
-  }
-  
-  const storedDebugMode = sessionStorage.getItem(DEBUG_MODE_KEY);
-  if (storedDebugMode === "true") {
-    return true;
-  }
-  
+
   if (debugParam === "true") {
-    sessionStorage.setItem(DEBUG_MODE_KEY, "true");
+    setDebugUiDismissed(false);
+    localStorage.setItem(DEBUG_MODE_KEY, "true");
     const url = new URL(window.location.href);
     url.searchParams.delete("debug");
     window.history.replaceState({}, "", url.toString());
-    return true;
   }
-  
-  return false;
+
+  return resolveDebugModeActive({
+    debugParam,
+    isDismissed: isDebugUiDismissed(),
+    isDev: import.meta.env.DEV,
+    hasDebugModeFlag: localStorage.getItem(DEBUG_MODE_KEY) === "true",
+    hasNonExpiredStaffToken: hasNonExpiredStaffToken(),
+  });
 }
 
 export function getDebugToken(): string | null {
@@ -189,6 +227,8 @@ interface DebugAuthValue {
   retryValidation: () => Promise<void>;
   validateManualToken: (manualToken: string) => Promise<void>;
   clearToken: () => void;
+  /** Hide DebugBubble without clearing staff session. Restore with ?debug=true. */
+  dismissDebugUi: () => void;
   checkSession: () => Promise<{ valid: boolean; expired?: boolean; networkError?: boolean }>;
 }
 
@@ -225,10 +265,15 @@ function grantHasCapability(
 ): boolean {
   const grant = capabilities.find((g) => g.name === capabilityName);
   if (!grant) return false;
-  if (!contentType || grant.contentTypes === undefined) return true;
-  if (grant.contentTypes === "*") return true;
-  if (Array.isArray(grant.contentTypes)) return grant.contentTypes.includes(contentType);
-  return false;
+  const isScoped = (SCOPED_CAPABILITIES as readonly string[]).includes(capabilityName);
+  if (isScoped) {
+    // Match server grantAllowsCap: missing contentType only allows "*" grants.
+    if (!contentType) return grant.contentTypes === "*";
+    if (grant.contentTypes === "*") return true;
+    if (Array.isArray(grant.contentTypes)) return grant.contentTypes.includes(contentType);
+    return false;
+  }
+  return true;
 }
 
 export function DebugAuthProvider({ children }: { children: ReactNode }) {
@@ -237,9 +282,13 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [capabilities, setCapabilities] = useState<CapabilityGrant[]>(DEFAULT_CAPABILITIES);
   const [roles, setRoles] = useState<string[]>([]);
+  const [isDebugMode, setIsDebugMode] = useState(() => isDebugModeActive());
   
   const isDevelopment = import.meta.env.DEV;
-  const isDebugMode = isDebugModeActive();
+
+  const refreshDebugMode = () => {
+    setIsDebugMode(isDebugModeActive());
+  };
 
   const validateToken = async (skipCache = false) => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -286,6 +335,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
               }
               setRoles(cachedRoles);
               setIsLoading(false);
+              refreshDebugMode();
               return;
             }
           } else {
@@ -311,6 +361,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
       setCapabilities(DEFAULT_CAPABILITIES);
       setRoles([]);
       setIsLoading(false);
+      refreshDebugMode();
       return;
     }
 
@@ -354,6 +405,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
           cacheStaffIdentity(data);
         }
         setIsValidated(true);
+        refreshDebugMode();
       } else {
         localStorage.removeItem(DEBUG_SESSION_KEY);
         localStorage.removeItem(DEBUG_SESSION_EXPIRY_KEY);
@@ -365,6 +417,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
         setCapabilities(data.capabilities ? capabilityGrantsFromResponse(data.capabilities) : DEFAULT_CAPABILITIES);
         setRoles([]);
         setIsValidated(false);
+        refreshDebugMode();
       }
     } catch (error) {
       console.error("Debug auth validation error:", error);
@@ -428,11 +481,13 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
           cacheStaffIdentity(data);
         }
         setIsValidated(true);
+        refreshDebugMode();
       } else {
         setAuthToken(undefined);
         setCapabilities(data.capabilities ? capabilityGrantsFromResponse(data.capabilities) : DEFAULT_CAPABILITIES);
         setRoles([]);
         setIsValidated(false);
+        refreshDebugMode();
       }
     } catch (error) {
       console.error("Debug auth validation error:", error);
@@ -482,6 +537,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
         setIsValidated(false);
         setCapabilities(DEFAULT_CAPABILITIES);
         setRoles([]);
+        refreshDebugMode();
         return { valid: false, expired: data.expired };
       }
     } catch (error) {
@@ -495,6 +551,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(DEBUG_SESSION_EXPIRY_KEY);
     localStorage.removeItem(DEBUG_TOKEN_KEY);
     localStorage.removeItem(DEBUG_CAPABILITIES_KEY);
+    setDebugUiDismissed(false);
     clearRolesCache();
     clearStaffIdentity();
     setAuthToken(undefined);
@@ -502,6 +559,13 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     setIsValidated(false);
     setCapabilities(DEFAULT_CAPABILITIES);
     setRoles([]);
+    refreshDebugMode();
+  };
+
+  const dismissDebugUi = () => {
+    setDebugUiDismissed(true);
+    localStorage.removeItem(DEBUG_MODE_KEY);
+    setIsDebugMode(false);
   };
 
   const hasCapability = (capability: string, contentType?: string): boolean => {
@@ -531,6 +595,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     retryValidation,
     validateManualToken,
     clearToken,
+    dismissDebugUi,
     checkSession,
   };
 

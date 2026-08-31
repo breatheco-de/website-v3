@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense, type ReactNode, type CSSProperties } from "react";
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronRight, CircleCheck, ExternalLink, FileText, GripVertical, Info, Pencil, Plus, Route, Search, ShieldCheck, TestTube, Trash2, Wrench, X } from "lucide-react";
-import { getDebugUserName } from "@/hooks/useDebugAuth";
+import { getDebugUserName, useDebugAuth } from "@/hooks/useDebugAuth";
 import { useQuery } from "@tanstack/react-query";
 import {
   Card,
@@ -34,6 +34,7 @@ import { useToast } from "@/hooks/use-toast";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 import {
   RedirectConflictResolverModal,
+  ensureContentApiSourcePath,
   parseRedirectConflict,
   useRedirectConflictResolver,
 } from "@/components/RedirectConflictResolver";
@@ -212,12 +213,18 @@ function removeFromFileLabel(
   index: number,
   formatPath: (filePath: string) => string,
 ): string {
-  const basenames = files.map((f) => formatPath(f).split("/").pop() || f);
-  const name = basenames[index] || "file";
-  const duplicateCount = basenames.filter((b) => b === name).length;
+  // formatPath may return spaced segments ("a / b / en.yml"); compare on real path basenames.
+  const displayPaths = files.map((f) => formatPath(f).split(" / ").join("/"));
+  const basenames = displayPaths.map((p) => p.split("/").pop() || p);
+  const name = (basenames[index] || "file").trim();
+  const full = displayPaths[index] || name;
+  if (full.includes("/")) {
+    return `Remove from ${full.split("/").join(" / ")}`;
+  }
+  const duplicateCount = basenames.filter((b) => b.trim() === name).length;
   if (duplicateCount > 1) {
     const ordinalIndex =
-      basenames.slice(0, index + 1).filter((b) => b === name).length - 1;
+      basenames.slice(0, index + 1).filter((b) => b.trim() === name).length - 1;
     const ordinal = FILE_ORDINALS[ordinalIndex] || `${ordinalIndex + 1}th`;
     return `Remove from ${ordinal} ${name}`;
   }
@@ -226,6 +233,14 @@ function removeFromFileLabel(
 
 export default function PrivateRedirects() {
   const formatPath = useFormatSitePath();
+  const { data: siteInfo } = useQuery<{ contentFolder: string }>({
+    queryKey: ["/api/site/info"],
+  });
+  const contentPathOptions = siteInfo?.contentFolder
+    ? { contentFolder: siteInfo.contentFolder }
+    : undefined;
+  const { hasCapability } = useDebugAuth();
+  const canEditRedirects = hasCapability("edit_redirects");
   const [search, setSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [showYamlEditor, setShowYamlEditor] = useState(false);
@@ -371,19 +386,28 @@ export default function PrivateRedirects() {
 
     setIsDeleting(true);
     try {
-      await apiRequest("DELETE", "/api/debug/redirects", {
+      const res = await apiRequest("DELETE", "/api/debug/redirects", {
         from: target.from,
         source: target.source,
         author: getDebugUserName(),
       });
+      const result = (await res.json()) as {
+        success?: boolean;
+        alreadyAbsent?: boolean;
+        message?: string;
+      };
 
       if (dontAskAgainDelete) {
         setSkipDeleteConfirmUntil(Date.now() + SKIP_DELETE_CONFIRM_MS);
       }
 
       toast({
-        title: "Redirect deleted",
-        description: `${target.from} has been removed`,
+        title: result.alreadyAbsent ? "Already removed" : "Redirect deleted",
+        description:
+          result.message ??
+          (result.alreadyAbsent
+            ? `${target.from} was already absent`
+            : `${target.from} has been removed`),
       });
 
       setDeletingRedirect(null);
@@ -430,11 +454,14 @@ export default function PrivateRedirects() {
     try {
       const res = await apiRequest("DELETE", "/api/debug/redirects", {
         from: redirectUrl,
-        source,
+        source: ensureContentApiSourcePath(source, contentPathOptions),
         author: getDebugUserName(),
       });
       const data = await res.json();
-      toast({ title: "Removed", description: data.message || `Removed from ${source}` });
+      toast({
+        title: data.alreadyAbsent ? "Already removed" : "Removed",
+        description: data.message || `Removed from ${source}`,
+      });
       removeIssueFromValidation(redirectUrl);
       queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
     } catch (err) {
@@ -455,7 +482,7 @@ export default function PrivateRedirects() {
       for (const source of files) {
         await apiRequest("DELETE", "/api/debug/redirects", {
           from: redirectUrl,
-          source,
+          source: ensureContentApiSourcePath(source, contentPathOptions),
           author: getDebugUserName(),
         });
       }
@@ -734,6 +761,8 @@ export default function PrivateRedirects() {
                 variant="default"
                 size="sm"
                 onClick={() => setShowAddDialog(true)}
+                disabled={!canEditRedirects}
+                title={!canEditRedirects ? "You need the edit_redirects capability" : undefined}
                 data-testid="button-add-redirect"
               >
                 <Plus className="h-3.5 w-3.5 mr-1" />
@@ -1024,7 +1053,7 @@ export default function PrivateRedirects() {
                 ) : (
                   <>
                     {validationResult.errors.map((issue, i) => {
-                      const conflict = parseRedirectConflict(issue);
+                      const conflict = parseRedirectConflict(issue, contentPathOptions);
                       return (
                         <div
                           key={`err-${i}`}
@@ -1104,7 +1133,7 @@ export default function PrivateRedirects() {
                       );
                     })}
                     {validationResult.warnings.map((issue, i) => {
-                      const conflict = parseRedirectConflict(issue);
+                      const conflict = parseRedirectConflict(issue, contentPathOptions);
                       return (
                         <div
                           key={`warn-${i}`}

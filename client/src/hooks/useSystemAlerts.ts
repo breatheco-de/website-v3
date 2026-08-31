@@ -12,6 +12,9 @@ export type SystemAlertCode =
   | "database_fetch_failed"
   | "turnstile_env_missing"
   | "turnstile_secret_invalid"
+  | "background_jobs_stalled"
+  | "sidequest_engine_down"
+  | "sidequest_engine_stuck"
   | "github_app_env_missing";
 
 export interface SystemAlert {
@@ -60,6 +63,8 @@ export function useSystemAlerts() {
   const [recheckMessage, setRecheckMessage] = useState<string | null>(null);
   const [recheckingDbId, setRecheckingDbId] = useState<string | null>(null);
   const [dbRecheckMessages, setDbRecheckMessages] = useState<Record<string, string>>({});
+  const [recheckingSidequest, setRecheckingSidequest] = useState(false);
+  const [sidequestRecheckMessage, setSidequestRecheckMessage] = useState<string | null>(null);
 
   const { data, isLoading, isFetching } = useQuery<SystemAlertsResponse>({
     queryKey: ["/api/admin/system-alerts"],
@@ -115,6 +120,26 @@ export function useSystemAlerts() {
     [queryClient],
   );
 
+  const recheckSidequest = useCallback(async () => {
+    setRecheckingSidequest(true);
+    setSidequestRecheckMessage(null);
+    try {
+      const res = await fetch("/api/admin/sidequest/recheck", {
+        method: "POST",
+        headers: { ...getSessionHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error("Failed to re-check Sidequest");
+      const body = (await res.json()) as { message?: string; summary?: string };
+      setSidequestRecheckMessage(body.message ?? body.summary ?? "Re-check complete.");
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/system-alerts"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/sidequest/diagnostics"] });
+      return body;
+    } finally {
+      setRecheckingSidequest(false);
+    }
+  }, [queryClient]);
+
   const alerts = data?.alerts ?? [];
   const criticalAlerts = alerts.filter((a) => a.severity === "critical");
   const warningAlerts = alerts.filter((a) => a.severity === "warning");
@@ -132,5 +157,8 @@ export function useSystemAlerts() {
     recheckDatabase,
     recheckingDbId,
     dbRecheckMessages,
+    recheckSidequest,
+    recheckingSidequest,
+    sidequestRecheckMessage,
   };
 }

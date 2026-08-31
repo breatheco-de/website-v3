@@ -6,8 +6,11 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import UniversalImage from "@/components/UniversalImage";
 import type { TestimonialsSection as TestimonialsSectionType } from "@shared/schema";
 import { DotsIndicator } from "@/components/DotsIndicator";
-import { useQuery } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
+import {
+  isValidForCarousel,
+  testimonialText,
+  type TestimonialBankRow,
+} from "@shared/testimonials-listing";
 
 interface LegacyTestimonial {
   id: string;
@@ -31,63 +34,21 @@ interface TestimonialItem {
   company?: string;
   outcome?: string;
   avatar?: string;
+  /** Index into `hardcoded_entries` so the avatar stays inline-editable. */
+  hardcodedIndex?: number;
 }
 
-interface BankTestimonial {
-  student_name: string;
-  student_thumb?: string;
-  student_video?: string;
-  excerpt?: string;
-  full_text?: string;
-  content?: string;
-  short_content?: string;
-  related_features?: string[];
-  priority?: number;
-  rating?: number;
-  role?: string;
-  company?: string;
-}
-
-const ANONYMOUS_NAMES = ["anonymous", "anonimous", "anónimo", "anonimo", "anon"];
-
-function isAnonymous(name: string): boolean {
-  return ANONYMOUS_NAMES.includes(name.trim().toLowerCase());
-}
-
-function isValidBankTestimonial(t: BankTestimonial): boolean {
-  if (isAnonymous(t.student_name)) return false;
-  if (t.student_video) return false;
-  const hasText = !!(t.excerpt || t.short_content || t.content || t.full_text);
-  return hasText;
-}
-
-function mapBankToItem(t: BankTestimonial): TestimonialItem {
+function mapBankRowToItem(row: TestimonialBankRow, hardcodedIndex?: number): TestimonialItem {
   return {
-    name: t.student_name,
-    role: t.role || "",
-    rating: t.rating || 5,
-    comment: t.excerpt || t.short_content || t.content || t.full_text || "",
-    company: t.company,
-    avatar: t.student_thumb,
+    name: row.student_name || "",
+    role: row.role || "",
+    rating: row.rating || 5,
+    comment: testimonialText(row),
+    company: row.company,
+    avatar: row.student_thumb,
+    outcome: row.outcome,
+    hardcodedIndex,
   };
-}
-
-function sortBankTestimonials(testimonials: BankTestimonial[], relatedFeatures?: string[]): BankTestimonial[] {
-  return [...testimonials].sort((a, b) => {
-    const aPriority5 = (a.priority ?? 0) >= 5 ? 1 : 0;
-    const bPriority5 = (b.priority ?? 0) >= 5 ? 1 : 0;
-    if (bPriority5 !== aPriority5) return bPriority5 - aPriority5;
-
-    if (relatedFeatures && relatedFeatures.length > 0) {
-      const aFeatures = a.related_features || [];
-      const bFeatures = b.related_features || [];
-      const aMatchCount = relatedFeatures.filter((f) => aFeatures.includes(f)).length;
-      const bMatchCount = relatedFeatures.filter((f) => bFeatures.includes(f)).length;
-      if (bMatchCount !== aMatchCount) return bMatchCount - aMatchCount;
-    }
-
-    return (b.priority ?? 0) - (a.priority ?? 0);
-  });
 }
 
 function getInitials(name: string): string {
@@ -113,40 +74,21 @@ const SIDE_OPACITY = 0.5;
 const SIDE_OPACITY_MOBILE = 0.2;
 
 export function TestimonialsSection({ data, testimonials }: TestimonialsSectionProps) {
-  const { i18n } = useTranslation();
-  const locale = i18n.language?.startsWith("es") ? "es" : "en";
+  // `items` is resolved server-side from dynamic_entries: manually-added rows
+  // first, then bank matches, already capped at dynamic_entries.limit.
+  const resolvedItems = (data?.items ?? []) as TestimonialBankRow[];
+  const hardcodedCount = data?.dynamic_entries?.hardcoded_entries?.length
+    ?? data?.hardcoded_entries?.length
+    ?? 0;
 
-  const relatedFeatures = data?.related_features || [];
-  const limit = Math.min(data?.limit || 10, 30);
-  const useBankData = relatedFeatures.length > 0;
-
-  const { data: bankData } = useQuery<{ testimonials: BankTestimonial[] }>({
-    queryKey: ["/api/testimonials", locale],
-    staleTime: 5 * 60 * 1000,
-    enabled: useBankData,
-  });
-
-  const bankItems: TestimonialItem[] = (() => {
-    if (!useBankData || !bankData?.testimonials) return [];
-    const valid = bankData.testimonials.filter(isValidBankTestimonial);
-    const filtered = valid.filter((t) => {
-      const features = t.related_features || [];
-      return relatedFeatures.some((f) => features.includes(f));
-    });
-    const sorted = sortBankTestimonials(filtered, relatedFeatures);
-    return sorted.slice(0, limit).map(mapBankToItem);
-  })();
-
-  const hardcodedItems: TestimonialItem[] = data?.items
-    ? data.items.map((item) => ({
-        name: item.name,
-        role: item.role,
-        rating: item.rating,
-        comment: item.comment,
-        company: item.company,
-        avatar: item.avatar,
-        outcome: item.outcome,
-      }))
+  const items: TestimonialItem[] = resolvedItems.length
+    ? resolvedItems
+        .map((row, index) => ({
+          row,
+          hardcodedIndex: index < hardcodedCount ? index : undefined,
+        }))
+        .filter(({ row }) => isValidForCarousel(row))
+        .map(({ row, hardcodedIndex }) => mapBankRowToItem(row, hardcodedIndex))
     : testimonials?.map((t) => ({
         name: t.name,
         role: t.role,
@@ -154,8 +96,6 @@ export function TestimonialsSection({ data, testimonials }: TestimonialsSectionP
         comment: t.comment,
         company: t.course,
       })) ?? [];
-
-  const items = useBankData && bankItems.length > 0 ? bankItems : hardcodedItems;
 
   const title = data?.title || "What Our Students Say";
   const subtitle = data?.subtitle;
@@ -618,7 +558,7 @@ export function TestimonialsSection({ data, testimonials }: TestimonialsSectionP
                       zIndex: transform.zIndex,
                     }}
                   >
-                    <TestimonialCard testimonial={testimonial} index={index} />
+                    <TestimonialCard testimonial={testimonial} />
                   </div>
                 );
               })}
@@ -644,10 +584,9 @@ export default TestimonialsSection;
 
 interface TestimonialCardProps {
   testimonial: TestimonialItem;
-  index: number;
 }
 
-function TestimonialCard({ testimonial, index }: TestimonialCardProps) {
+function TestimonialCard({ testimonial }: TestimonialCardProps) {
   return (
     <Card className="min-h-[320px] md:min-h-[270px] border border-border bg-card">
       <CardContent className="p-6 h-full flex flex-col min-h-[320px] md:min-h-[270px]">
@@ -660,7 +599,16 @@ function TestimonialCard({ testimonial, index }: TestimonialCardProps) {
                 alt={testimonial.name}
                 className="w-full h-full"
                 style={{ objectFit: "cover" }}
-                fieldContext={{ arrayPath: "items", index, srcField: "avatar" }}
+                /* Only manually-added rows are authored, so only they are editable. */
+                fieldContext={
+                  testimonial.hardcodedIndex != null
+                    ? {
+                        arrayPath: "dynamic_entries.hardcoded_entries",
+                        index: testimonial.hardcodedIndex,
+                        srcField: "student_thumb",
+                      }
+                    : undefined
+                }
               />
             ) : (
               <AvatarFallback className="bg-muted text-muted-foreground text-base font-semibold">

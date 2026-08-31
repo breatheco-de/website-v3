@@ -4,6 +4,7 @@ export const GLOBAL_HEALTH_SEARCH_KEYS = {
   path: "path",
   scope: "scope",
   validators: "validators",
+  tried: "tried",
 } as const;
 
 export const GLOBAL_HEALTH_SCOPE_KEYS = [
@@ -24,6 +25,8 @@ export interface GlobalHealthViewState {
   path: string;
   scope: GlobalHealthScopeKey[];
   validators: string[];
+  /** Only open issues that have prior release/TTL attempts. */
+  priorAttempts: boolean;
 }
 
 export const GLOBAL_HEALTH_VIEW_DEFAULTS: GlobalHealthViewState = {
@@ -31,6 +34,7 @@ export const GLOBAL_HEALTH_VIEW_DEFAULTS: GlobalHealthViewState = {
   path: "",
   scope: [],
   validators: [],
+  priorAttempts: false,
 };
 
 const SCOPE_SET = new Set<string>(GLOBAL_HEALTH_SCOPE_KEYS);
@@ -65,11 +69,13 @@ function setCsvList(params: URLSearchParams, key: string, values: string[]) {
 
 export function parseGlobalHealthSearch(search: string): GlobalHealthViewState {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  const tried = params.get(GLOBAL_HEALTH_SEARCH_KEYS.tried);
   return {
     kpi: parseKpi(params.get(GLOBAL_HEALTH_SEARCH_KEYS.kpi)),
     path: (params.get(GLOBAL_HEALTH_SEARCH_KEYS.path) ?? "").trim(),
     scope: parseScope(params.get(GLOBAL_HEALTH_SEARCH_KEYS.scope)),
     validators: parseCsvList(params.get(GLOBAL_HEALTH_SEARCH_KEYS.validators)),
+    priorAttempts: tried === "1" || tried === "true",
   };
 }
 
@@ -90,6 +96,9 @@ export function serializeGlobalHealthSearch(
 
   setCsvList(params, GLOBAL_HEALTH_SEARCH_KEYS.scope, view.scope);
   setCsvList(params, GLOBAL_HEALTH_SEARCH_KEYS.validators, view.validators);
+
+  if (!view.priorAttempts) params.delete(GLOBAL_HEALTH_SEARCH_KEYS.tried);
+  else params.set(GLOBAL_HEALTH_SEARCH_KEYS.tried, "1");
 
   return params.toString();
 }

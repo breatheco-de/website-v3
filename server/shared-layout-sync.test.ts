@@ -42,8 +42,8 @@ describe("shared-layout-sync", () => {
         type: "hero",
         version: "1.0",
         section_id: "hero-1",
-        title: "{{ single.title }}",
-        subtitle: "{{ single.description | x }}",
+        title: "{{ entry.title }}",
+        subtitle: "{{ entry.description | x }}",
       }),
     ).toBe(true);
 
@@ -77,7 +77,7 @@ describe("shared-layout-sync", () => {
     const source = {
       type: "hero",
       section_id: "hero-1",
-      title: "{{ single.title }}",
+      title: "{{ entry.title }}",
     };
     const mirrored = prepareSiblingMirroredSection(source, "jane.doe");
     expect(mirrored._label).toBeUndefined();
@@ -237,11 +237,11 @@ describe("shared-layout-sync", () => {
         {
           type: "hero",
           section_id: "hero-1",
-          title: "{{ single.title }}",
+          title: "{{ entry.title }}",
           paddingY: { desktop: "sm" },
         },
       ];
-      const doc = { meta: { page_title: "{{ single.title }}" }, sections };
+      const doc = { meta: { page_title: "{{ entry.title }}" }, sections };
       const body = dumpYaml(doc);
       const normalized = body.endsWith("\n") ? body : `${body}\n`;
       fs.writeFileSync(en, normalized);

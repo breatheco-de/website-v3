@@ -3,7 +3,7 @@ import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
-import { isLocaleOnlyUrlParam } from "@shared/urlParamRules";
+import { entryBagFieldPathFromVarName, getLegacySingleVarWriteError } from "@shared/entryTemplateVars";
 import { getConsentKeyError } from "@shared/consentLegacyKeys";
 import {
   wipeSectionOnDuplicate,
@@ -52,6 +52,9 @@ function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
 import type { EditOperation } from "@shared/schema";
 import { normalizeLocale, getSupportedLocales, getDefaultLocale } from "./settings";
 import { markFileAsModified } from "./sync-state";
+import { emitContentEntryDeleted } from "./content-events";
+import { getContentWriteContext } from "./write-context";
+import { buildEntryKey } from "../scripts/validation/shared/entryKey";
 import { contentIndex, ContentIndex } from "./content-index";
 import { deepMerge } from "./utils/deepMerge";
 import { mergeSingleTemplate, extractVariableFields, TEMPLATE_EXPR_RE } from "./database-single-loader";
@@ -135,6 +138,14 @@ function identityValidateOptsForWrite(opts: {
   rejectAttachedStructuralEdit,
 } from "./shared-layout-entry";
 import {
+  isTypeLayoutTarget,
+  isSharedTemplateBasename,
+  isReservedTemplateVariantSlug,
+  resolveTemplateLocalePath,
+  liveTemplateBasename,
+  variantTemplateBasename,
+} from "./shared-layout-paths";
+import {
   applyEditorialUpdatedAtToData,
   type EditorialOp,
 } from "./editorial-updated-at";
@@ -146,12 +157,12 @@ import {
   rejectLiveWriteIfDraft,
 } from "./draft-entry";
 
-/** Shared-layout create/duplicate: exactly one live locale (no empty sibling stubs). */
-export const SHARED_LAYOUT_SINGLE_LOCALE_CREATE_ERROR =
-  "Shared-layout types go live immediately and must be created with exactly one locale. " +
-  "Seeding a second locale at create writes a public locale file before content exists " +
-  "(empty/broken URLs in listings and language switchers). " +
-  "Create the first locale now; add translations later as drafts (detach if needed, then translate_page / draft locale, then promote).";
+/** Create/duplicate: exactly one locale at a time (all content types). */
+export const SINGLE_LOCALE_CREATE_ERROR =
+  "Create exactly one locale at a time. Add translations later via translate_entry (draft.{locale}.yml) then promote or publish_draft.";
+
+/** @deprecated Use SINGLE_LOCALE_CREATE_ERROR */
+export const SHARED_LAYOUT_SINGLE_LOCALE_CREATE_ERROR = SINGLE_LOCALE_CREATE_ERROR;
 import {
   RESERVED_PUBLISHED_AT_FIELD,
   clearPublishedAtFromCommon,
@@ -248,8 +259,8 @@ interface ContentEditRequest {
   ci?: ContentIndex;
   /** When true, skip sibling-locale shared-layout fan-out (MCP agents sync via next_actions). */
   skipSharedLayoutFanOut?: boolean;
-  /** Force write layer for shared-layout types: type_single → single.{locale}.yml; entry → per-entry overlay. */
-  layoutTarget?: "entry" | "type_single";
+  /** Force write layer for shared-layout types: type_template → template.{locale}.yml; entry → per-entry overlay. */
+  layoutTarget?: "entry" | "type_single" | "type_template";
   /**
    * When true, skip entry-preview capture enqueue after save.
    * Only set by the bulk-meta endpoint (default false elsewhere).
@@ -585,6 +596,16 @@ export async function editContent(request: ContentEditRequest): Promise<{
     }
     return { success: true, updatedSections: [] };
   }
+
+  for (const op of operations) {
+    if (op.action === "update_field" && op.path === "slug") {
+      return {
+        success: false,
+        error:
+          "Locale URL slug cannot be changed via update_field. Use POST /api/content/rename-slug instead.",
+      };
+    }
+  }
   
   try {
     // Attached shared-layout: reject entry structural overlays and layout/menu writes
@@ -612,7 +633,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
       if (request.layoutTarget === "entry" && hasSectionOps) {
         return { success: false, error: attachedStructuralErr };
       }
-      if (hasSectionOps && request.layoutTarget !== "type_single") {
+      if (hasSectionOps && !isTypeLayoutTarget(request.layoutTarget)) {
         // Per-entry file writes of sections/layout are forbidden when attached
         const onlyEntryLayer =
           request.layoutTarget === "entry" ||
@@ -641,26 +662,28 @@ export async function editContent(request: ContentEditRequest): Promise<{
           (((op as { path?: string }).path || "") === "layout" ||
             ((op as { path?: string }).path || "").startsWith("layout.")),
       );
-      if (hasLayoutWrite && request.layoutTarget !== "type_single") {
+      if (hasLayoutWrite && !isTypeLayoutTarget(request.layoutTarget)) {
         return { success: false, error: attachedStructuralErr };
       }
     }
 
-    // Forced type_single: load/write shared single.{locale}.yml or single.{variant}.{locale}.yml
-    if (request.layoutTarget === "type_single") {
+    // Forced type shell: load/write shared template.{locale}.yml (or legacy single.*) / variant
+    if (isTypeLayoutTarget(request.layoutTarget)) {
       const folder = getFolder(contentType);
       const rootPath = contentRoot
         ? (path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot))
         : path.join(process.cwd(), getDefaultContentRootName());
-      const templateFilePath = hasVariant
-        ? path.join(rootPath, folder, `single.${variant}.${locale}.yml`)
-        : path.join(rootPath, folder, `single.${locale}.yml`);
+      const typeDir = path.join(rootPath, folder);
+      const templateFilePath = resolveTemplateLocalePath(typeDir, locale, {
+        variant: hasVariant ? variant : undefined,
+        fallbackLocale: "",
+      });
       if (!fs.existsSync(templateFilePath)) {
         return {
           success: false,
           error: hasVariant
-            ? `Template variant not found: ${folder}/single.${variant}.${locale}.yml`
-            : `Shared template not found: ${folder}/single.${locale}.yml`,
+            ? `Template variant not found: ${folder}/${variantTemplateBasename(variant, locale)}`
+            : `Shared template not found: ${folder}/${liveTemplateBasename(locale)}`,
         };
       }
       const rawTemplate = fs.readFileSync(templateFilePath, "utf-8");
@@ -677,7 +700,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
         contentRoot,
         database: request.database,
         ci,
-        // Draft template variants must not fan out onto live sibling singles
+        // Draft template variants must not fan out onto live sibling shells
         skipSharedLayoutFanOut: hasVariant || request.skipSharedLayoutFanOut,
         isDraftOrVariantWrite: hasVariant,
       }),
@@ -826,10 +849,10 @@ export async function editContent(request: ContentEditRequest): Promise<{
     // view to the per-entry local indices before applying, so we write to the
     // correct section. Template-owned sections (including layout keys like
     // maxWidth / paddingX from the X Spacing popover) must be forwarded to
-    // single.{locale}.yml — otherwise Apply writes ignored stubs into the entry
+    // template.{locale}.yml — otherwise Apply writes ignored stubs into the entry
     // file (attached merges use dataOnly and drop entry sections).
     // Detached entries own full structure (entry-only indices); never remap or
-    // forward ops to single.{locale}.yml.
+    // forward ops to template.{locale}.yml.
     const usesSharedTemplate =
       !isEntryDetached(contentType, slug, contentRoot) &&
       (ci.isDatabaseBacked(contentType) ||
@@ -875,7 +898,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
 
             if (localIdx === -1) {
               // Section lives in the shared template — collect it for a separate
-              // write to single.{locale}.yml via handleSharedTemplateEdit.
+              // write to template.{locale}.yml via handleSharedTemplateEdit.
               templateOps.push(op);
               continue;
             }
@@ -903,7 +926,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
 
             // Per-entry-only sections stay on the entry file. Everything else in the
             // attached merged view is template-owned — including layout keys from the
-            // X Spacing popover — and must hit single.{locale}.yml.
+            // X Spacing popover — and must hit template.{locale}.yml.
             if (mergedSection?._perEntrySource) {
               translated.push({
                 ...op,
@@ -923,10 +946,11 @@ export async function editContent(request: ContentEditRequest): Promise<{
         // Forward any template-owned ops to the shared template file.
         if (templateOps.length > 0) {
           // The per-entry file is at 4geeks-com/{type}/{slug}/{locale}.yml
-          // Two levels up is 4geeks-com/{type}/ where single.{locale}.yml lives.
-          const templateFilePath = path.join(
+          // Two levels up is 4geeks-com/{type}/ where template.{locale}.yml lives.
+          const templateFilePath = resolveTemplateLocalePath(
             path.dirname(path.dirname(filePath)),
-            `single.${locale}.yml`,
+            locale,
+            { fallbackLocale: "" },
           );
           if (fs.existsSync(templateFilePath)) {
             const rawTemplate = fs.readFileSync(templateFilePath, "utf-8");
@@ -1005,7 +1029,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
     }
 
     // Layout-only Apply (e.g. X Spacing maxWidth) on attached entries: all ops were
-    // written to single.{locale}.yml. Persist stub scrub on the entry only when
+    // written to template.{locale}.yml. Persist stub scrub on the entry only when
     // leftovers were actually removed (avoid empty writes / false redirects events).
     if (forwardedTemplateOps && resolvedOperations.length === 0) {
       if (entryOverlayScrubDirty && Array.isArray(localeData.sections)) {
@@ -1066,9 +1090,10 @@ export async function editContent(request: ContentEditRequest): Promise<{
 
         if (!fromIsPerEntry && !toIsPerEntry) {
           // Both are template sections: forward reorder to shared template file
-          const templateFilePath = path.join(
+          const templateFilePath = resolveTemplateLocalePath(
             path.dirname(path.dirname(filePath)),
-            `single.${locale}.yml`,
+            locale,
+            { fallbackLocale: "" },
           );
 
           if (!fs.existsSync(templateFilePath)) {
@@ -1236,7 +1261,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
     // full structure. Attached overlays keep identity patches (`section_id` / `_remove`).
     if (Array.isArray(localeData.sections)) {
       const ownsFullStructure =
-        path.basename(filePath).startsWith("single.") ||
+        isSharedTemplateBasename(path.basename(filePath)) ||
         isEntryDetached(contentType, slug, contentRoot) ||
         !isSharedLayoutType(contentType, contentRoot);
       localeData.sections = (localeData.sections as unknown[]).filter((s) =>
@@ -1273,11 +1298,16 @@ export async function editContent(request: ContentEditRequest): Promise<{
       return { success: false, error: consentErr };
     }
 
+    const legacySingleErr = getLegacySingleVarWriteError(localeData);
+    if (legacySingleErr) {
+      return { success: false, error: legacySingleErr, errorCode: "legacy_single_template_var" };
+    }
+
     // Live locale writes: require resolved meta + editor.required fields.
-    // Draft variant files and shared single.*.yml template edits skip this gate.
+    // Draft variant files and shared template.*.yml (legacy single.*) edits skip this gate.
     const writingLiveLocale =
       !hasVariant &&
-      !path.basename(filePath).startsWith("single.");
+      !isSharedTemplateBasename(path.basename(filePath));
     if (writingLiveLocale) {
       const commonForGate = ci.loadCommonData(contentType, slug) || {};
       const mergedForGate = deepMerge(commonForGate, localeData) as Record<
@@ -1542,7 +1572,7 @@ export function restoreTemplatePlaceholders(
 
 /**
  * Writes structural section changes (add/remove/swap) directly to the shared
- * `single.{locale}.yml` template file, preserving all `{{ }}` placeholder
+ * `template.{locale}.yml` template file, preserving all `{{ }}` placeholder
  * expressions. Uses safe YAML load/dump to avoid template variable corruption.
  * For shared-layout types, fans out allowlisted topology/layout to sibling singles.
  */
@@ -1591,7 +1621,7 @@ function writeStructuralChangesToTemplate(opts: {
     for (const op of annotatedOps) {
       // Always restore {{ single.* }} / {{ global.* }} from the on-disk template when
       // writing update_section — not only structural swaps. Code/Props saves omit
-      // structural:true and previously could bake resolved HTML into single.*.yml.
+      // structural:true and previously could bake resolved HTML into template.*.yml.
       if (op.action === "update_section") {
         const templateSections = Array.isArray(templateData.sections)
           ? (templateData.sections as Record<string, unknown>[])
@@ -1639,6 +1669,10 @@ function writeStructuralChangesToTemplate(opts: {
     const consentErrStructural = getConsentKeyError(templateData);
     if (consentErrStructural) {
       return { success: false, error: consentErrStructural };
+    }
+    const legacySingleStructural = getLegacySingleVarWriteError(templateData);
+    if (legacySingleStructural) {
+      return { success: false, error: legacySingleStructural, errorCode: "legacy_single_template_var" };
     }
 
     const skipIdentityIndexes = new Set<number>();
@@ -1813,6 +1847,10 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
     if (consentErrEntry) {
       return { success: false, error: consentErrEntry };
     }
+    const legacySingleEntry = getLegacySingleVarWriteError(entryData);
+    if (legacySingleEntry) {
+      return { success: false, error: legacySingleEntry, errorCode: "legacy_single_template_var" };
+    }
 
     const ciGate = contentIndex;
     const commonForGate = ciGate.loadCommonData(contentType, slug) || {};
@@ -1898,6 +1936,10 @@ function writeEntryOverlayOps(opts: {
     }
     const consentErr = getConsentKeyError(entryData);
     if (consentErr) return { success: false, error: consentErr };
+    const legacySinglePerEntry = getLegacySingleVarWriteError(entryData);
+    if (legacySinglePerEntry) {
+      return { success: false, error: legacySinglePerEntry, errorCode: "legacy_single_template_var" };
+    }
     stampLocaleYamlBeforeWrite({
       data: entryData,
       previous: previousEntryData,
@@ -2130,6 +2172,10 @@ function handleSharedTemplateEdit(opts: {
       if (consentErrTemplate) {
         return { success: false, error: consentErrTemplate };
       }
+      const legacySingleTemplate = getLegacySingleVarWriteError(templateData);
+      if (legacySingleTemplate) {
+        return { success: false, error: legacySingleTemplate, errorCode: "legacy_single_template_var" };
+      }
 
       stampLocaleYamlBeforeWrite({
         data: templateData,
@@ -2213,16 +2259,14 @@ function handleSharedTemplateEdit(opts: {
 }
 
 /**
- * Parses the template variable name from an expression like `{{ single.thumbnail | default.jpg }}`.
- * Returns the field key after "single." (e.g. "thumbnail"), or null if not a `single.*` variable.
+ * Parses the template variable name from an expression like `{{ entry.thumbnail | default.jpg }}`
+ * (or legacy `{{ single.thumbnail | … }}`).
+ * Returns the field key after `entry.` / `single.`, or null if not an entry-bag variable.
  */
 function parseTemplateKey(expr: string): string | null {
   const inner = expr.replace(/^\{\{/, "").replace(/\}\}$/, "").trim();
-  const varName = inner.split("|")[0].trim(); // "single.thumbnail"
-  if (varName.startsWith("single.")) {
-    return varName.slice("single.".length);
-  }
-  return null;
+  const varName = inner.split("|")[0].trim();
+  return entryBagFieldPathFromVarName(varName);
 }
 
 interface CommonEditRequest {
@@ -2536,8 +2580,12 @@ export interface RenameContentSlugInput {
   locale: string;
   newSlug: string;
   createRedirect?: boolean;
+  /** When true (MCP), entries >= 24h old must pass createRedirect: true. */
+  enforceRedirectPolicy?: boolean;
   author?: string;
   contentRootName?: string;
+  /** Per-site index; same pattern as editContent (`request.ci ?? contentIndex`). */
+  ci?: ContentIndex;
 }
 
 export async function renameContentSlug(
@@ -2546,8 +2594,9 @@ export async function renameContentSlug(
   success: boolean; folderSlug: string; oldSlug: string; newSlug: string;
   oldUrl: string; newUrl: string; locale: string; redirectCreated: boolean; routed: boolean;
 }>> {
-  const { contentType, folderSlug, locale, newSlug, createRedirect = false, author } = input;
-  const rootName = input.contentRootName ?? getDefaultContentRootName();
+  const { contentType, folderSlug, locale, newSlug, createRedirect = false, enforceRedirectPolicy = false, author } = input;
+  const ci = input.ci ?? contentIndex;
+  const rootName = input.contentRootName ?? ci.contentRootName ?? getDefaultContentRootName();
 
   if (!contentType || !folderSlug || !locale || !newSlug) {
     return { success: false, statusCode: 400, error: "Missing required fields: contentType, folderSlug, locale, newSlug" };
@@ -2558,23 +2607,24 @@ export async function renameContentSlug(
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(newSlug)) {
     return { success: false, statusCode: 400, error: "Invalid slug format. Use lowercase letters, numbers, and hyphens only." };
   }
-
-  try {
-    const { isImmutableSlugContentType } = await import("./relation-delete");
-    if (isImmutableSlugContentType(contentType)) {
-      return {
-        success: false,
-        statusCode: 403,
-        error: `Content type "${contentType}" has immutable slugs; rename is not allowed`,
-      };
-    }
-  } catch {
-    /* ignore */
+  if (isReservedTemplateVariantSlug(newSlug)) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: 'Slug "template" and "single" are reserved for the shared-layout shell and cannot be used as entry slugs.',
+    };
   }
 
-  const contentFolder = getFolder(contentType);
-  const resolvedFolderSlug = contentIndex.resolveBaseSlug(folderSlug, contentFolder);
-  const folderPath = path.join(process.cwd(), rootName, contentFolder, resolvedFolderSlug);
+  const {
+    assertCreateRedirectIfRequired,
+    assertLocaleUrlAvailable,
+    entryAgeHours,
+    readPublishedAtFromCommon,
+  } = await import("./locale-url-slug.js");
+
+  const contentFolder = ci.getFolderName(contentType);
+  const resolvedFolderSlug = ci.resolveBaseSlug(folderSlug, contentType);
+  const folderPath = ci.getContentFolderPath(contentType, folderSlug);
 
   if (!fs.existsSync(folderPath)) {
     return { success: false, statusCode: 404, error: `Content folder not found: ${folderSlug} (resolved: ${resolvedFolderSlug})` };
@@ -2582,7 +2632,7 @@ export async function renameContentSlug(
 
   const effectiveLocale =
     contentType === "landing"
-      ? ((contentIndex.loadCommonData("landing", resolvedFolderSlug)?.locale as string) || locale)
+      ? ((ci.loadCommonData("landing", resolvedFolderSlug)?.locale as string) || locale)
       : locale;
 
   const localeFile = [`${effectiveLocale}.yml`, `${effectiveLocale}.yaml`].find(
@@ -2594,7 +2644,7 @@ export async function renameContentSlug(
 
   const localeFilePath = path.join(folderPath, localeFile);
   const raw = fs.readFileSync(localeFilePath, "utf-8");
-  const parsed = contentIndex.safeYamlLoad(raw) as Record<string, unknown> | null;
+  const parsed = ci.safeYamlLoad(raw) as Record<string, unknown> | null;
   if (!parsed) return { success: false, statusCode: 500, error: "Failed to parse locale file" };
 
   const currentSlug = (parsed.slug as string) || folderSlug;
@@ -2602,18 +2652,41 @@ export async function renameContentSlug(
     return { success: false, statusCode: 400, error: "New slug is the same as current slug" };
   }
 
-  const oldUrl = contentIndex.buildUrl(contentFolder, effectiveLocale, currentSlug);
-  const newUrl = contentIndex.buildUrl(contentFolder, effectiveLocale, newSlug);
-  const existingOwner = contentIndex.resolveUrl(newUrl);
-  if (existingOwner && existingOwner.slug !== resolvedFolderSlug) {
-    return {
-      success: false,
-      statusCode: 409,
-      error:
-        `slug_already_owned_by_other_entry: "${newUrl}" resolves to ` +
-        `"${existingOwner.contentType}/${existingOwner.slug}"`,
-    };
+  const commonData = ci.loadCommonData(contentType, resolvedFolderSlug) || {};
+  const redirectGate = assertCreateRedirectIfRequired({
+    ageHours: entryAgeHours(readPublishedAtFromCommon(commonData)),
+    createRedirect: !!createRedirect,
+    isLiveSlugChange: true,
+    enforceRedirectPolicy,
+  });
+  if (!redirectGate.ok) {
+    return { success: false, statusCode: redirectGate.statusCode, error: redirectGate.error };
   }
+
+  const mergedForUrl = { ...commonData, ...parsed, slug: newSlug };
+  const urlCheck = assertLocaleUrlAvailable({
+    contentType,
+    entryIdentity: resolvedFolderSlug,
+    locale: effectiveLocale,
+    mergedPageData: mergedForUrl,
+    ci,
+  });
+  if (!urlCheck.ok) {
+    return { success: false, statusCode: urlCheck.statusCode, error: urlCheck.error };
+  }
+
+  const mergedOldForUrl = { ...commonData, ...parsed, slug: currentSlug };
+  const oldUrlResult = assertLocaleUrlAvailable({
+    contentType,
+    entryIdentity: resolvedFolderSlug,
+    locale: effectiveLocale,
+    mergedPageData: mergedOldForUrl,
+    ci,
+  });
+  const oldUrl = oldUrlResult.ok
+    ? oldUrlResult.url
+    : ci.buildUrl(contentType, effectiveLocale, currentSlug);
+  const newUrl = urlCheck.url;
   parsed.slug = newSlug;
 
   if (createRedirect) {
@@ -2627,8 +2700,8 @@ export async function renameContentSlug(
   const updated = safeYamlDump(parsed, { lineWidth: -1, noRefs: true });
   fs.writeFileSync(localeFilePath, updated, "utf-8");
   markFileAsModified(`${rootName}/${contentFolder}/${resolvedFolderSlug}/${localeFile}`, author);
-  contentIndex.refresh({ syncSlow: !!createRedirect });
-  const routed = contentIndex.resolveUrl(newUrl)?.slug === resolvedFolderSlug;
+  ci.refresh({ syncSlow: !!createRedirect });
+  const routed = ci.resolveUrl(newUrl)?.slug === resolvedFolderSlug;
   refreshSitemapEntry(contentType, resolvedFolderSlug, effectiveLocale);
   clearRedirectCache();
   invalidateContentCaches(contentType);
@@ -2643,6 +2716,69 @@ export async function renameContentSlug(
 }
 
 // ─── deleteContentEntry ───────────────────────────────────────────────────────
+
+function localeFromLocaleFilename(filename: string): string | null {
+  const base = filename.replace(/\.ya?ml$/i, "");
+  if (base === "_common") return null;
+  const liveM = /^(?:template|single)\.([a-z]{2}(?:-[a-zA-Z]+)?)$/i.exec(base);
+  if (liveM) return liveM[1];
+  const varM = /^(?:template|single)\.([a-z0-9-]+)\.([a-z]{2}(?:-[a-zA-Z]+)?)$/i.exec(base);
+  if (varM) return varM[2];
+  if (base.includes(".")) return base.split(".").pop() || null;
+  return base;
+}
+
+function collectEntryKeysInFolder(
+  contentType: string,
+  slug: string,
+  folderPath: string,
+  onlyLocales?: string[],
+): string[] {
+  if (!fs.existsSync(folderPath)) return [];
+  const localeFilter = onlyLocales?.length ? new Set(onlyLocales) : null;
+  const keys: string[] = [];
+  for (const file of fs.readdirSync(folderPath)) {
+    if (!file.endsWith(".yml") && !file.endsWith(".yaml")) continue;
+    if (file.startsWith("_")) continue;
+    const locale = localeFromLocaleFilename(file);
+    if (!locale || locale.includes(".")) continue;
+    if (localeFilter && !localeFilter.has(locale)) continue;
+    keys.push(buildEntryKey(contentType, slug, locale));
+  }
+  return keys;
+}
+
+function emitEntryDeletedPipelineEvent(opts: {
+  rootName: string;
+  type: string;
+  slug: string;
+  author?: string;
+  entryKeys: string[];
+  deletedPaths: string[];
+  folderRemoved: boolean;
+  localesRemoved?: string[];
+}): void {
+  if (opts.entryKeys.length === 0 && opts.deletedPaths.length === 0) return;
+  try {
+    const writeCtx = getContentWriteContext();
+    emitContentEntryDeleted({
+      site: opts.rootName,
+      contentType: opts.type,
+      slug: opts.slug,
+      locale: opts.localesRemoved?.length === 1 ? opts.localesRemoved[0] : undefined,
+      entryKeys: opts.entryKeys,
+      deletedPaths: opts.deletedPaths,
+      folderRemoved: opts.folderRemoved,
+      localesRemoved: opts.localesRemoved,
+      author: opts.author,
+      actor: writeCtx?.actor ?? (opts.author ? { type: "ui" } : { type: "system", source: "content-delete" }),
+      agent_session_id: writeCtx?.agentSessionId,
+      report: writeCtx?.report,
+    });
+  } catch {
+    /* non-fatal */
+  }
+}
 
 export interface DeleteContentEntryInput {
   type: string;
@@ -2697,18 +2833,24 @@ export async function deleteContentEntry(
 
   if (localesToDelete.length > 0) {
     const deletedFiles: string[] = [];
+    const deletedPaths: string[] = [];
+    const removedLocales: string[] = [];
     for (const locale of localesToDelete) {
       const localeFile = path.join(folderPath, `${locale}.yml`);
       if (fs.existsSync(localeFile)) {
+        const relPath = `${rootName}/${typeFolder}/${resolvedSlug}/${locale}.yml`;
         fs.unlinkSync(localeFile);
         deletedFiles.push(`${locale}.yml`);
-        markFileAsModified(`${rootName}/${typeFolder}/${resolvedSlug}/${locale}.yml`, author);
+        deletedPaths.push(relPath);
+        removedLocales.push(locale);
+        markFileAsModified(relPath, author);
       }
     }
 
     const remainingFiles = fs.readdirSync(folderPath).filter((f) => f.endsWith(".yml") && !f.startsWith("_"));
+    const folderRemoved = remainingFiles.length === 0;
 
-    if (remainingFiles.length === 0) {
+    if (folderRemoved) {
       const allFiles = fs.existsSync(folderPath) ? fs.readdirSync(folderPath) : [];
       for (const file of allFiles) {
         markFileAsModified(`${rootName}/${typeFolder}/${resolvedSlug}/${file}`, author);
@@ -2733,22 +2875,38 @@ export async function deleteContentEntry(
     contentIndex.refresh();
     invalidateContentCaches(type);
 
+    const entryKeys = removedLocales.map((loc) => buildEntryKey(type, resolvedSlug, loc));
+
+    emitEntryDeletedPipelineEvent({
+      rootName,
+      type,
+      slug: resolvedSlug,
+      author,
+      entryKeys,
+      deletedPaths,
+      folderRemoved,
+      localesRemoved: removedLocales,
+    });
+
     return {
       success: true,
       data: {
         success: true,
-        message: remainingFiles.length === 0
+        message: folderRemoved
           ? `Successfully deleted ${type}/${slug}`
           : `Deleted ${deletedFiles.join(", ")} from ${type}/${slug}`,
         deletedFiles,
-        folderRemoved: remainingFiles.length === 0,
+        folderRemoved,
       },
     };
   }
 
   // Full folder delete
-  const allFiles = fs.readdirSync(folderPath);
-  for (const file of allFiles) {
+  const entryKeysBeforeDelete = collectEntryKeysInFolder(type, resolvedSlug, folderPath);
+  const deletedPaths = fs
+    .readdirSync(folderPath)
+    .map((file) => `${rootName}/${typeFolder}/${resolvedSlug}/${file}`);
+  for (const file of fs.readdirSync(folderPath)) {
     markFileAsModified(`${rootName}/${typeFolder}/${resolvedSlug}/${file}`, author);
   }
   fs.rmSync(folderPath, { recursive: true, force: true });
@@ -2761,6 +2919,16 @@ export async function deleteContentEntry(
     const { removeSlugFromAllDependants } = await import("./utils/sectionAnchors");
     removeSlugFromAllDependants(type, resolvedSlug);
   } catch { /* non-fatal */ }
+
+  emitEntryDeletedPipelineEvent({
+    rootName,
+    type,
+    slug: resolvedSlug,
+    author,
+    entryKeys: entryKeysBeforeDelete,
+    deletedPaths,
+    folderRemoved: true,
+  });
 
   return { success: true, data: { success: true, message: `Successfully deleted ${type}/${slug}` } };
 }
@@ -2817,11 +2985,11 @@ export async function createContentEntry(
   const sharedLayout = isSharedLayoutType(type, contentRootAbs);
 
   const activeUrlLocales = getSupportedLocales().filter(l => !skipLocales.includes(l));
-  if (sharedLayout && activeUrlLocales.length !== 1) {
+  if (activeUrlLocales.length !== 1) {
     return {
       success: false,
       statusCode: 400,
-      error: SHARED_LAYOUT_SINGLE_LOCALE_CREATE_ERROR,
+      error: SINGLE_LOCALE_CREATE_ERROR,
     };
   }
 
@@ -2829,21 +2997,10 @@ export async function createContentEntry(
     normalizeUrlParamInput(urlParamValues[loc]?.[param]) ??
     normalizeUrlParamInput(uniqueFieldValues[param]);
 
-  // Params whose value is identical across active locales go to _common.yml;
-  // params that differ per locale are written into each locale file instead.
-  const uniformUrlParams: Record<string, string> = {};
+  // URL pattern params are always written on locale YAML (never _common.yml).
   const perLocaleUrlParams: string[] = [];
   for (const param of urlParams) {
-    if (isLocaleOnlyUrlParam(param)) {
-      if (activeUrlLocales.some((l) => urlParamValueForLocale(param, l))) {
-        perLocaleUrlParams.push(param);
-      }
-      continue;
-    }
-    const vals = activeUrlLocales.map(l => urlParamValueForLocale(param, l));
-    if (vals.length > 0 && vals[0] && vals.every(v => v === vals[0])) {
-      uniformUrlParams[param] = vals[0];
-    } else if (vals.some(v => v)) {
+    if (activeUrlLocales.some((l) => urlParamValueForLocale(param, l))) {
       perLocaleUrlParams.push(param);
     }
   }
@@ -2878,6 +3035,16 @@ export async function createContentEntry(
   }
   if (esSlug && !slugRegex.test(esSlug)) {
     return { success: false, statusCode: 400, error: "Invalid Spanish slug format. Use lowercase letters, numbers, and hyphens only." };
+  }
+  if (
+    (enSlug && isReservedTemplateVariantSlug(enSlug)) ||
+    (esSlug && isReservedTemplateVariantSlug(esSlug))
+  ) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: 'Slug "template" and "single" are reserved for the shared-layout shell and cannot be used as entry slugs.',
+    };
   }
 
   const folderSlug = (enSlug || esSlug)!;
@@ -3141,11 +3308,9 @@ export async function createContentEntry(
               if (fieldName === "slug" || fieldName === "title") continue;
               parsed[fieldName] = coerceToOriginalType(String(newValue), parsed[fieldName]);
             }
-            for (const [param, value] of Object.entries(uniformUrlParams)) {
-              const existing = parsed[param];
-              parsed[param] = existing !== undefined
-                ? coerceToOriginalType(value, existing)
-                : formatUrlParamFieldValue(value, urlParamShapes[param] ?? "string");
+            // URL pattern params must not live on _common.yml
+            for (const param of urlParams) {
+              delete parsed[param];
             }
             // Duplicates never keep source go-live date
             delete parsed[RESERVED_PUBLISHED_AT_FIELD];
@@ -3315,22 +3480,14 @@ export async function createContentEntry(
     else if (key === RESERVED_PUBLISHED_AT_FIELD) {
       // Draft-first: omit until publish/promote. Live create: stamp now.
       if (!draftFirst) commonObj[key] = new Date().toISOString();
-    } else if (urlParams.includes(key) && !isLocaleOnlyUrlParam(key)) {
-      const uniform = uniformUrlParams[key];
-      commonObj[key] = uniform
-        ? formatUrlParamFieldValue(uniform, urlParamShapes[key] ?? "string")
-        : "";
+    } else if (urlParams.includes(key)) {
+      // URL pattern params are locale-only; omit from _common.yml
     } else if (uniqueFieldValues[key] !== undefined) {
       const ufv = uniqueFieldValues[key];
       commonObj[key] = typeof ufv === "boolean" ? ufv : coerceStringValue(ufv as string);
     } else {
       commonObj[key] = "";
     }
-  }
-  // Uniform URL pattern params must be present even if missing from field_mapping
-  for (const [param, value] of Object.entries(uniformUrlParams)) {
-    if (commonObj[param] !== undefined && commonObj[param] !== "") continue;
-    commonObj[param] = formatUrlParamFieldValue(value, urlParamShapes[param] ?? "string");
   }
   const commonYml = yaml.dump(commonObj, { lineWidth: 120, noRefs: true, sortKeys: false });
 

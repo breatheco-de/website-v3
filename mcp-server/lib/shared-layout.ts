@@ -4,24 +4,36 @@
 
 import fs from "fs";
 import path from "path";
+import {
+  TEMPLATE_VERSIONING_SLUG,
+  LAYOUT_TARGET_TYPE_TEMPLATE,
+  LIVE_SHELL_BASENAME_RE,
+  isTemplateVersioningSlug,
+  isTypeLayoutTarget,
+  isReservedTemplateVariantSlug,
+  liveTemplateBasename,
+  variantTemplateBasename,
+  type TypeLayoutTarget,
+  type LayoutTarget as SharedLayoutTarget,
+} from "@shared/sharedLayoutPaths";
 import type { ContentTypeConfig } from "./content.js";
 import { getDirectory, loadContentTypes, isSharedLayoutConfig } from "./content.js";
 import type { NextAction, McpSideEffect, McpWarning } from "./respond.js";
 
-export type LayoutTarget = "auto" | "entry" | "type_single";
+export type LayoutTarget = SharedLayoutTarget;
 
 /** Versioning API slug for list/create.
- * Attached shared-layout → `single` (template) unless the entry already has
+ * Attached shared-layout → `template` (accept legacy `single`) unless the entry already has
  * its own drafts/versioning.yml (translate_entry), then keep the entry slug.
  * Detached / non-shared → entry slug.
- * Promote/publish should pass the entry slug (or `single` for template) as-is.
+ * Promote/publish should pass the entry slug (or `template`/`single` for type shell) as-is.
  */
 export function versioningApiSlug(
   contentType: string,
   entrySlug: string,
   contentPath?: string,
 ): string {
-  if (entrySlug === "single") return "single";
+  if (isTemplateVersioningSlug(entrySlug)) return TEMPLATE_VERSIONING_SLUG;
   const config = getContentTypeConfig(contentType, contentPath);
   if (!config || !isSharedLayoutConfig(config)) return entrySlug;
   const typeDir = getDirectory(contentType, config);
@@ -34,7 +46,7 @@ export function versioningApiSlug(
     } catch { /* ignore */ }
   }
   if (hasEntryLevelVersioningDir(entryDir)) return entrySlug;
-  return "single";
+  return TEMPLATE_VERSIONING_SLUG;
 }
 
 /** Entry folder has versioning.yml or `{variant}.{locale}.yml` drafts. */
@@ -46,7 +58,7 @@ export function hasEntryLevelVersioningDir(entryDir: string): boolean {
       const m = /^([a-z0-9-]+)\.([a-z]{2}(?:-[a-zA-Z]+)?)\.ya?ml$/i.exec(name);
       if (!m) continue;
       const variantSlug = m[1];
-      if (variantSlug === "single" || variantSlug.startsWith("_")) continue;
+      if (isReservedTemplateVariantSlug(variantSlug) || variantSlug.startsWith("_")) continue;
       return true;
     }
   } catch {
@@ -63,7 +75,7 @@ export function getContentTypeConfig(
   return configs[contentType] ?? null;
 }
 
-/** Sibling locales that have single.{locale}.yml under the type directory. */
+/** Sibling locales that have template|single.{locale}.yml under the type directory. */
 export function listSiblingSingleLocales(
   contentType: string,
   sourceLocale: string,
@@ -72,14 +84,14 @@ export function listSiblingSingleLocales(
 ): string[] {
   const typeDir = path.join(contentPath, getDirectory(contentType, config));
   if (!fs.existsSync(typeDir)) return [];
-  const locales: string[] = [];
+  const locales = new Set<string>();
   for (const name of fs.readdirSync(typeDir)) {
-    const m = /^single\.([a-z]{2}(?:-[a-z]+)?)\.yml$/i.exec(name);
+    const m = LIVE_SHELL_BASENAME_RE.exec(name);
     if (!m) continue;
     if (m[1] === sourceLocale) continue;
-    locales.push(m[1]);
+    locales.add(m[1]);
   }
-  return locales;
+  return [...locales];
 }
 
 /** Sibling entry locale yml files for the same slug (excluding source). */
@@ -112,18 +124,22 @@ export function pathForLayoutTarget(opts: {
   config: ContentTypeConfig;
   slug: string;
   locale: string;
-  layoutTarget: "entry" | "type_single";
+  layoutTarget: "entry" | TypeLayoutTarget;
   variant?: string;
-}): { filePath: string; relativeHint: string; layer: "entry_locale" | "type_single" | "variant" } {
+}): {
+  filePath: string;
+  relativeHint: string;
+  layer: "entry_locale" | "type_template" | "variant";
+} {
   const typeDir = getDirectory(opts.contentType, opts.config);
-  if (opts.layoutTarget === "type_single") {
+  if (isTypeLayoutTarget(opts.layoutTarget)) {
     const fileName = opts.variant
-      ? `single.${opts.variant}.${opts.locale}.yml`
-      : `single.${opts.locale}.yml`;
+      ? variantTemplateBasename(opts.variant, opts.locale)
+      : liveTemplateBasename(opts.locale);
     return {
       filePath: path.join(opts.contentPath, typeDir, fileName),
       relativeHint: `${typeDir}/${fileName}`,
-      layer: opts.variant ? "variant" : "type_single",
+      layer: opts.variant ? "variant" : "type_template",
     };
   }
   if (opts.variant) {
@@ -151,9 +167,9 @@ export function confirmLayoutTargetPayload(opts: {
   return {
     action_required: "confirm_layout_target",
     message:
-      `Content type '${opts.contentType}' uses a shared layout. This edit may change single.${opts.locale}.yml (all entries) or only this entry overlay. Re-call with layout_target set.`,
+      `Content type '${opts.contentType}' uses a shared layout. This edit may change ${liveTemplateBasename(opts.locale)} (all entries) or only this entry overlay. Re-call with layout_target set.`,
     options: [
-      `layout_target: "type_single" — write the shared single.${opts.locale}.yml (affects all attached entries in this locale)`,
+      `layout_target: "type_template" — write the shared ${liveTemplateBasename(opts.locale)} (affects all attached entries in this locale)`,
       `Detach the entry first if you need a custom section tree, then edit as a standalone page`,
     ],
     detected: {
@@ -165,7 +181,7 @@ export function confirmLayoutTargetPayload(opts: {
   };
 }
 
-/** Required sibling sync next_actions for a structural tool on type_single. */
+/** Required sibling sync next_actions for a structural tool on type_template. */
 export function siblingSingleStructuralActions(opts: {
   tool: string;
   contentType: string;
@@ -178,13 +194,13 @@ export function siblingSingleStructuralActions(opts: {
     tool: opts.tool,
     priority: "required" as const,
     reason:
-      `${opts.reasonPrefix} Replicate allowlisted structure only to single.${loc}.yml — do NOT copy marketing copy. Blast radius: every ${opts.contentType} entry uses this template.`,
+      `${opts.reasonPrefix} Replicate allowlisted structure only to ${liveTemplateBasename(loc)} — do NOT copy marketing copy. Blast radius: every ${opts.contentType} entry uses this template.`,
     args_hint: {
       ...opts.argsHintBase,
       contentType: opts.contentType,
-      slug: "single",
+      slug: TEMPLATE_VERSIONING_SLUG,
       locale: loc,
-      layout_target: "type_single",
+      layout_target: LAYOUT_TARGET_TYPE_TEMPLATE,
       confirm_layout_target: true,
     },
   }));
@@ -193,15 +209,15 @@ export function siblingSingleStructuralActions(opts: {
 export function sharedTemplateBlastSideEffect(contentType: string, locale: string): McpSideEffect {
   return {
     kind: "shared_template_blast_radius",
-    summary: `This is the shared layout for content type '${contentType}'. All ${contentType} entries in locale '${locale}' render sections from single.${locale}.yml — not a single post.`,
+    summary: `This is the shared layout for content type '${contentType}'. All ${contentType} entries in locale '${locale}' render sections from ${liveTemplateBasename(locale)} — not a single post.`,
   };
 }
 
-/** After type_single / shared-template writes — async flush + path-scoped HTML bust. */
+/** After type_template / shared-template writes — async flush + path-scoped HTML bust. */
 export const SHARED_TEMPLATE_HTML_CACHE_WARNING: McpWarning = {
   code: "shared_template_html_cache_async",
   message:
-    "Shared-template write: path-scoped HTML bust for this entry (+ bound_updates if any). Other URLs that share single.*.yml may keep previous anonymous HTML until TTL (~5 min). Slow content-index scan is async/coalesced; redirect writes still sync-slow. Non-effect: does not invalidate all DB/template entry URLs. See server/content-write-flush.ts, server/html-page-cache.ts, server/content-index.ts.",
+    "Shared-template write: path-scoped HTML bust for this entry (+ bound_updates if any). Other URLs that share template.*.yml may keep previous anonymous HTML until TTL (~5 min). Slow content-index scan is async/coalesced; redirect writes still sync-slow. Non-effect: does not invalidate all DB/template entry URLs. See server/content-write-flush.ts, server/html-page-cache.ts, server/content-index.ts.",
 };
 
 export function localeSiblingSyncSideEffect(summary: string): McpSideEffect {
@@ -244,7 +260,7 @@ export const REORDER_NO_BINDING_FANOUT: McpWarning = {
 export const CREATE_ENTRY_SHARED_LAYOUT_WARNING: McpWarning = {
   code: "create_entry_shared_layout_inherits_single",
   message:
-    "This content type uses a shared layout. The new entry does not own the full section shell — structure comes from single.{locale}.yml. " +
+    "This content type uses a shared layout. The new entry does not own the full section shell — structure comes from template.{locale}.yml. " +
     "Create with sections: [] and put body/fields on the locale (e.g. title, description, content). " +
     "Do not author hero/breadcrumb/article shells on the entry. Editing shared structure later requires layout_target and affects all attached entries.",
 };

@@ -240,14 +240,101 @@ describe("validation cache claims", () => {
     const { issueId } = seedIssue(cache, root);
 
     await cache.claimIssue(issueId, "agent-a");
-    const denied = await cache.updateIssue(issueId, "release", "agent-b");
+    const denied = await cache.updateIssue(issueId, "release", "agent-b", {
+      report: "Staff override not allowed for agent-b without force — this should fail ownership.",
+    });
     expect(denied.ok).toBe(false);
 
     const forced = await cache.updateIssue(issueId, "release", "staff", {
       staffForceRelease: true,
+      report:
+        "Staff releasing foreign claim after agent stalled; sitemap still missing — next pass should fix redirects.",
     });
     expect(forced.ok).toBe(true);
     expect(cache.isClaimActive(issueId)).toBe(false);
+    expect(cache.getAttempts(issueId)[0]?.reason).toBe("released");
+    expect(cache.getAttempts(issueId)[0]?.claimedBy).toBe("agent-a");
+    expect(cache.getAttempts(issueId)[0]?.by).toBe("staff");
+  });
+
+  it("release without report fails while claimed; no-claim release is idempotent", async () => {
+    const root = tempRoot();
+    roots.push(root);
+    const cache = new ValidationCacheService(root);
+    const { issueId } = seedIssue(cache, root);
+
+    await cache.claimIssue(issueId, "agent-a");
+    const missing = await cache.updateIssue(issueId, "release", "agent-a");
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.code).toBe("report_required");
+
+    const report =
+      "Tried patching meta.page_title; validator still fails — need sitemap entry change next.";
+    const ok = await cache.updateIssue(issueId, "release", "agent-a", { report });
+    expect(ok.ok).toBe(true);
+    expect(cache.getAttempts(issueId)).toHaveLength(1);
+
+    const again = await cache.updateIssue(issueId, "release", "agent-a");
+    expect(again.ok).toBe(true);
+    expect(cache.getAttempts(issueId)).toHaveLength(1);
+  });
+
+  it("caps attempts from llm.yml and keeps them through complete and rewrite", async () => {
+    const root = tempRoot();
+    roots.push(root);
+    fs.writeFileSync(
+      path.join(root, "llm.yml"),
+      "validation_issues:\n  max_attempts: 2\n",
+    );
+    const cache = new ValidationCacheService(root);
+    const { file, issueId } = seedIssue(cache, root);
+
+    for (let i = 0; i < 3; i++) {
+      await cache.claimIssue(issueId, "agent-a");
+      const r = await cache.updateIssue(issueId, "release", "agent-a", {
+        report: `Attempt ${i + 1}: still cannot fix sitemap missing entry after trying meta redirects patch.`,
+      });
+      expect(r.ok).toBe(true);
+    }
+    expect(cache.getAttempts(issueId)).toHaveLength(2);
+    expect(cache.getAttempts(issueId)[0]?.report).toContain("Attempt 3");
+
+    await cache.completeIssue(issueId, "agent-a");
+    expect(cache.getAttempts(issueId)).toHaveLength(2);
+
+    await cache.uncompleteIssue(issueId);
+    cache.applyValidatorResults(
+      [
+        metaValidator([
+          {
+            code: "CONTENT_NOT_IN_SITEMAP",
+            message: "missing",
+            file: file.filePath,
+          },
+        ]),
+      ],
+      { contentFiles: [file], entryKeys: ["page/home/en"] },
+    );
+    expect(cache.getAttempts(issueId)).toHaveLength(2);
+
+    const listed = listCacheIssuesFromStore(cache, { entryKey: "page/home/en" });
+    expect(listed.issues[0]?.attempts?.length).toBe(2);
+  });
+
+  it("TTL expiry records ttl_expired attempt", async () => {
+    const root = tempRoot();
+    roots.push(root);
+    const cache = new ValidationCacheService(root);
+    const { issueId } = seedIssue(cache, root);
+
+    await cache.claimIssue(issueId, "agent-a", { type: "mcp", client: "Cursor" }, "Planning to fix sitemap.");
+    const claim = cache.getActiveClaim(issueId)!;
+    // Force expiry via private path: mutate expiresAt through release after faking expiry
+    (claim as { expiresAt: string }).expiresAt = new Date(Date.now() - 1000).toISOString();
+    expect(cache.getActiveClaim(issueId)).toBeUndefined();
+    const attempts = cache.getAttempts(issueId);
+    expect(attempts[0]?.reason).toBe("ttl_expired");
+    expect(attempts[0]?.claimedBy).toBe("agent-a");
   });
 
   it("stores actor on claim and complete; re-claim overwrites actor", async () => {
@@ -271,6 +358,28 @@ describe("validation cache claims", () => {
     const listed = listCacheIssuesFromStore(cache, { entryKey: "page/home/en", includeCompleted: true });
     expect(listed.issues[0]?.claimed).toBeUndefined();
     expect(listed.issues[0]?.completed?.actor).toEqual(mcpActor);
+  });
+
+  it("stores report on claim and complete; re-claim preserves report", async () => {
+    const root = tempRoot();
+    roots.push(root);
+    const cache = new ValidationCacheService(root);
+    const { issueId } = seedIssue(cache, root);
+
+    const claimReport = "Will fix missing sitemap entry by updating meta redirects.";
+    await cache.claimIssue(issueId, "jane", { type: "mcp", client: "Cursor" }, claimReport);
+    expect(cache.getActiveClaim(issueId)?.report).toBe(claimReport);
+
+    const refresh = await cache.claimIssue(issueId, "jane");
+    expect(refresh.ok).toBe(true);
+    expect(cache.getActiveClaim(issueId)?.report).toBe(claimReport);
+
+    const completeReport = "Added /en/home to meta.redirects via update_fields on pages/home/en.yml.";
+    await cache.completeIssue(issueId, "jane", { type: "mcp", client: "Cursor" }, completeReport);
+    expect(cache.getCompletion(issueId)?.report).toBe(completeReport);
+
+    const listed = listCacheIssuesFromStore(cache, { entryKey: "page/home/en", includeCompleted: true });
+    expect(listed.issues[0]?.completed?.report).toBe(completeReport);
   });
 
   it("emits validation_issue_reopened when rewrite clears completion", async () => {

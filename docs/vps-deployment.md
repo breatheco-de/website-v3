@@ -92,11 +92,22 @@ ReadWritePaths=/opt/website-v3
 This limits what the process can touch on the host while still allowing the app
 to write to its runtime files under `/opt/website-v3`.
 
+### Sidequest remote restart bridge
+
+`website-runtime` cannot run `sudo systemctl`. For in-app **Restart Sidequest**
+(webmaster only), the app writes `current/data/sidequest.restart-requested`.
+A separate root-owned **path unit** (`website-sidequest-restart.path`) runs
+`systemctl restart website-sidequest` when that file is touched.
+
+This is intentional and narrow: fixed `ExecStart`, single watched path, no
+user-controlled shell. It is **not** general privilege escalation for the web
+process. Install steps are in [vps.md](vps.md) under Sidequest.
+
 ## Runtime file ownership
 
 Current important ownership/mode expectations:
 
-- `/opt/website-v3/.env`
+- `/opt/website-v3/.env` (and per-release `current/.env`)
   - owner: `website-deployer`
   - group: `website-runtime`
   - mode: `640`
@@ -105,12 +116,21 @@ Current important ownership/mode expectations:
   - group: `website-runtime`
   - directories: `2750`
   - files: `640`
+- `current/site_*` (content + `site_*/.cache` written by the app)
+  - owner: `website-deployer`
+  - group: `website-runtime`
+  - directories: `2775` (setgid) so runtime-created children keep the group
+  - `website-deployer` must be in group `website-runtime` (`usermod -aG website-runtime website-deployer`)
+  - systemd units should set `UMask=0002` so new files are group-writable and deploy can prune old releases
 
 Why this split exists:
 
-- deploy still needs write access to the code repo
+- deploy still needs write access to the code repo and must be able to `rm -rf` old `releases/<sha>`
 - runtime may need to read git metadata (`git rev-parse`, `git show`) but must
   not be able to modify `.git`
+- runtime writes validation/index caches under `site_*/.cache` (not under
+  `persistent/.cache`); without shared group + setgid, prune fails with
+  Permission denied after a successful flip
 
 The host also declares:
 
@@ -120,6 +140,28 @@ git config --system --add safe.directory /opt/website-v3
 
 This allows Git commands run as `website-runtime` to read the repo without
 failing on Git's dubious ownership protection.
+
+One-time host setup for `site_*` prune:
+
+```bash
+sudo usermod -aG website-runtime website-deployer
+# re-login / new SSH session for the group to apply
+```
+
+```bash
+# /etc/systemd/system/website.service.d/umask.conf
+[Service]
+UMask=0002
+
+# /etc/systemd/system/website-sidequest.service.d/umask.conf
+[Service]
+UMask=0002
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart website website-sidequest
+```
 
 ## Environment file
 

@@ -179,6 +179,7 @@ import {
   BREATHECODE_HOST,
   extractToken,
   requireCapability,
+  resolveEventActor,
   safeYamlLoad,
   safeYamlDump,
   resolveVariantAssignment,
@@ -209,6 +210,8 @@ import {
   ValidationFixRunLogEntry,
   FixerItemStatus,
 } from "./_helpers";
+import { api } from "../rate-limit/api.js";
+import { markRateLimitNoCharge, markRateLimitSuccess } from "../rate-limit/limiter.js";
 import { child } from "../logger";
 const log = child({ module: "routes/media" });
 
@@ -805,18 +808,279 @@ export function registerMediaRoutes(app: Express): void {
         }
         const alt = (req.body?.alt as string) || undefined;
         const tags = req.body?.tags ? JSON.parse(req.body.tags) : undefined;
-        const result = await getMediaGallery(res).uploadAndRegister(
+        let origin: "upload" | "import" | "ai" | undefined;
+        if (req.body?.origin === "upload" || req.body?.origin === "import" || req.body?.origin === "ai") {
+          origin = req.body.origin;
+        }
+        let ai:
+          | {
+              generated: true;
+              model?: string;
+              prompt?: string;
+              generated_at?: string;
+              aspect_ratio?: string;
+              requested_by?: import("../ai/ai-image-meta").AiRequestedBy;
+            }
+          | undefined;
+        if (req.body?.ai) {
+          try {
+            const parsed = typeof req.body.ai === "string" ? JSON.parse(req.body.ai) : req.body.ai;
+            if (parsed && parsed.generated === true) {
+              ai = {
+                generated: true,
+                model: typeof parsed.model === "string" ? parsed.model : undefined,
+                prompt: typeof parsed.prompt === "string" ? parsed.prompt : undefined,
+                aspect_ratio:
+                  typeof parsed.aspect_ratio === "string" ? parsed.aspect_ratio : undefined,
+                generated_at:
+                  typeof parsed.generated_at === "string"
+                    ? parsed.generated_at
+                    : new Date().toISOString(),
+              };
+              origin = origin ?? "ai";
+            }
+          } catch {
+            /* ignore bad ai json */
+          }
+        }
+
+        if (origin === "ai" || ai?.generated) {
+          const actor = resolveEventActor(req);
+          let username: string | null = null;
+          if (actor.type === "ui") {
+            const token = extractToken(req);
+            if (token) {
+              try {
+                const profile = await userManager.validateToken(token);
+                if (profile.valid && profile.username) username = profile.username;
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+          const mcpAuthor = req.headers["x-mcp-author"];
+          const authorStr =
+            typeof mcpAuthor === "string" && mcpAuthor.trim() ? mcpAuthor.trim() : undefined;
+          const requested_by =
+            actor.type === "mcp"
+              ? {
+                  kind: "agent" as const,
+                  id: authorStr || actor.client,
+                  name: authorStr || actor.client || "mcp",
+                }
+              : actor.type === "system"
+                ? {
+                    kind: "system" as const,
+                    id: actor.source,
+                    name: actor.source,
+                  }
+                : {
+                    kind: "user" as const,
+                    ...(username
+                      ? { id: username, name: username }
+                      : { name: "staff" }),
+                  };
+          ai = {
+            generated: true,
+            ...(ai || {}),
+            generated_at: ai?.generated_at || new Date().toISOString(),
+            requested_by,
+          };
+          origin = origin ?? "ai";
+        }
+
+        const gallery = getMediaGallery(res);
+        const result = await gallery.uploadAndRegister(
           file.originalname,
           file.buffer,
           file.mimetype,
-          { alt, tags },
+          { alt, tags, origin, ai },
         );
+
+        if (!result.duplicate && (origin === "ai" || ai?.generated)) {
+          const site = res.locals.site as import("../site-manager").SiteContext | undefined;
+          if (site) {
+            const { enqueueAiImageGc, AI_IMAGE_GC_DELAY_MS } = await import(
+              "../jobs/ai-image-gc-shared"
+            );
+            await enqueueAiImageGc({
+              site: site.contentRootName,
+              contentRoot: site.contentRoot,
+              imageId: result.id,
+              delayMs: AI_IMAGE_GC_DELAY_MS,
+            });
+          }
+        }
+
         res.json(result);
       } catch (error: any) {
         res.status(500).json({ error: error.message || "Upload failed" });
       }
     },
   );
+
+  api.post(app, "/api/media/generate-images", { rate: "expensiveAi" }, async (req, res) => {
+    try {
+      const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+      if (!prompt) {
+        res.status(400).json({ error: "prompt is required" });
+        return;
+      }
+      const aspect_ratio =
+        typeof req.body?.aspect_ratio === "string" ? req.body.aspect_ratio : undefined;
+      const nRaw = typeof req.body?.n === "number" ? req.body.n : 4;
+      const n = Math.min(4, Math.max(1, Math.floor(nRaw)));
+
+      const site = res.locals.site as import("../site-manager").SiteContext | undefined;
+      const contentRoot = site?.contentRoot;
+
+      const { resolveImageGenerationReady } = await import("../ai/image-generation-ready");
+      const ready = resolveImageGenerationReady(contentRoot);
+      if (!ready.ok) {
+        res.status(503).json({
+          error: ready.error,
+          code: "image_generation_not_configured",
+          hint: ready.hint,
+          model: ready.model,
+        });
+        return;
+      }
+
+      let cancelled = false;
+      req.on("close", () => {
+        cancelled = true;
+      });
+
+      res.writeHead(200, {
+        "Content-Type": "application/x-ndjson",
+        "Transfer-Encoding": "chunked",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+
+      const writeEvent = (event: Record<string, unknown>) => {
+        if (cancelled || res.writableEnded) return;
+        res.write(JSON.stringify(event) + "\n");
+      };
+
+      try {
+        const { generateImagesStream } = await import(
+          "../ai/LLMService"
+        );
+        const result = await generateImagesStream(
+          {
+            prompt,
+            n,
+            aspect_ratio,
+            contentRoot,
+            isCancelled: () => cancelled || Boolean(req.aborted),
+          },
+          (c) => {
+            writeEvent({
+              type: "candidate",
+              index: c.index,
+              b64: c.b64,
+              mediaType: c.mediaType,
+              model: c.model,
+            });
+          },
+        );
+        writeEvent({ type: "done", model: result.model, count: result.candidates.length });
+        if (result.candidates.length > 0) {
+          markRateLimitSuccess(res);
+        } else {
+          markRateLimitNoCharge(res);
+        }
+        res.end();
+      } catch (err: any) {
+        const { GenerateImagesCancelledError: Cancelled } = await import("../ai/LLMService");
+        if (err instanceof Cancelled || cancelled) {
+          markRateLimitNoCharge(res);
+          if (!res.writableEnded) res.end();
+          return;
+        }
+        const message = err?.message || "Image generation failed";
+        markRateLimitNoCharge(res);
+        writeEvent({ type: "error", error: message });
+        res.end();
+      }
+    } catch (error: any) {
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message || "Image generation failed" });
+      } else if (!res.writableEnded) {
+        res.write(JSON.stringify({ type: "error", error: error.message || "Image generation failed" }) + "\n");
+        res.end();
+      }
+    }
+  });
+
+  app.get("/api/image-registry/:id/ai-meta", async (req, res) => {
+    try {
+      const id = typeof req.params.id === "string" ? req.params.id : "";
+      if (!id) {
+        res.status(400).json({ error: "id is required" });
+        return;
+      }
+      const gallery = getMediaGallery(res);
+      const entry = gallery.getRegistry()?.images?.[id];
+      if (!entry) {
+        res.status(404).json({ error: "Image not found" });
+        return;
+      }
+      if (entry.origin !== "ai" && !entry.ai?.generated) {
+        res.status(404).json({ error: "Not an AI-generated image" });
+        return;
+      }
+      const meta = await gallery.readAiMetaSidecar(id);
+      if (!meta) {
+        res.status(404).json({ error: "AI meta not found" });
+        return;
+      }
+      res.json(meta);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to load AI meta" });
+    }
+  });
+
+  app.post("/api/media/impression", (req, res) => {
+    try {
+      const id = typeof req.body?.id === "string" ? req.body.id.trim() : "";
+      if (!id) {
+        res.status(400).json({ error: "id is required" });
+        return;
+      }
+      const site = res.locals.site as import("../site-manager").SiteContext | undefined;
+      const contentRootName = site?.contentRootName;
+      if (!contentRootName) {
+        res.status(204).end();
+        return;
+      }
+      const gallery = getMediaGallery(res);
+      const entry = gallery.getRegistry()?.images?.[id];
+      const isAi = entry?.origin === "ai" || entry?.ai?.generated === true;
+      const { recordImageImpression } = require("../media-impressions") as typeof import("../media-impressions");
+      recordImageImpression(contentRootName, id, !!isAi);
+      res.status(204).end();
+    } catch {
+      res.status(204).end();
+    }
+  });
+
+  app.get("/api/media/generate-images/status", (_req, res) => {
+    try {
+      const site = res.locals.site as import("../site-manager").SiteContext | undefined;
+      const { resolveImageGenerationReady } = require("../ai/image-generation-ready") as typeof import("../ai/image-generation-ready");
+      const ready = resolveImageGenerationReady(site?.contentRoot);
+      res.json({
+        ready: ready.ok,
+        model: ready.model,
+        error: ready.ok ? undefined : ready.error,
+        hint: ready.ok ? undefined : ready.hint,
+      });
+    } catch (err: any) {
+      res.status(500).json({ ready: false, error: err?.message || "status failed" });
+    }
+  });
 
   app.post(
     "/api/image-registry/:id/replace",

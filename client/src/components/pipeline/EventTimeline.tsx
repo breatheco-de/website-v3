@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { IconAlertTriangle, IconArrowRight } from "@tabler/icons-react";
 import { DataSet, Timeline } from "vis-timeline/standalone";
 import type { DataGroup, DataItem, TimelineOptions } from "vis-timeline/standalone";
@@ -27,7 +27,7 @@ const FOLLOW_NOW_EPS_MS = 2_000;
 const CHROME_STYLE_ID = "event-timeline-chrome-overrides";
 
 const HELP_DEFAULT =
-  "Your agents are working for you — watch them collaborate and interact on this timeline. Drag to move along their timeline; the list below scrolls and highlights with you so nothing is ever filtered away.";
+  "Your agents are working for you — watch them collaborate and interact on this timeline. Drag to move along their timeline; the list below moves and highlights with you so nothing is ever filtered away.";
 const HELP_AT_NOW_EDGE =
   "You've already reached the end of the history — you can drag right to move back in time.";
 
@@ -107,17 +107,6 @@ function ensureChromeStyleTag() {
   document.head.appendChild(style);
 }
 
-function formatHoverTime(ts: number): string {
-  return new Date(ts).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-}
-
 export type EventTimelineEvent = {
   id: number;
   type: string;
@@ -194,7 +183,7 @@ export function layoutStaffItems(
       start: displayStart,
       realStart: event.created_at,
       type: "box",
-      title: `#${event.id} · ${activityLabel}`,
+      title: activityLabel,
       activityLabel,
       agentIconUrl: getAgentIconUrl(agentId, theme),
       content: "",
@@ -229,6 +218,7 @@ export function EventTimeline({
   onSelect,
   onUserInteract,
   onJumpToLatest,
+  toolbar,
   className,
 }: {
   events: EventTimelineEvent[];
@@ -239,12 +229,13 @@ export function EventTimeline({
   /** User started scrubbing/zooming the timeline (not live rolling updates). */
   onUserInteract?: () => void;
   onJumpToLatest?: () => void;
+  /** Optional controls on the right of the help bar (e.g. filters). */
+  toolbar?: ReactNode;
   className?: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const hoverLineRef = useRef<HTMLDivElement | null>(null);
-  const hoverLabelRef = useRef<HTMLSpanElement | null>(null);
   const timelineRef = useRef<Timeline | null>(null);
   const itemsRef = useRef<DataSet<TimelineItem> | null>(null);
   const groupsRef = useRef<DataSet<DataGroup> | null>(null);
@@ -278,20 +269,9 @@ export function EventTimeline({
       if (removed || hoverAttachedRef.current) return;
       const shell = shellRef.current;
       const line = hoverLineRef.current;
-      const label = hoverLabelRef.current;
-      if (!shell || !line || !label) return;
+      if (!shell || !line) return;
 
       hoverAttachedRef.current = true;
-
-      const timeAtX = (x: number, width: number): number => {
-        const timeline = timelineRef.current;
-        if (!timeline || width <= 0) return Date.now();
-        const w = timeline.getWindow();
-        const start = +w.start;
-        const end = +w.end;
-        const ratio = Math.min(1, Math.max(0, x / width));
-        return start + ratio * (end - start);
-      };
 
       const hide = () => {
         line.style.opacity = "0";
@@ -307,7 +287,6 @@ export function EventTimeline({
         line.style.opacity = "1";
         line.style.visibility = "visible";
         line.classList.add("is-visible");
-        label.textContent = formatHoverTime(timeAtX(x, rect.width));
       };
 
       const pointerInShell = (clientX: number, clientY: number) => {
@@ -592,14 +571,17 @@ export function EventTimeline({
 
   return (
     <div
-      className={cn("w-full bg-white py-3", className)}
+      className={cn(
+        "sticky top-0 z-30 w-full bg-background shadow-[0_1px_0_0_hsl(var(--border))]",
+        className,
+      )}
       data-testid="event-timeline"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 px-6 py-2 bg-foreground text-background">
         <p
           key={atHistoryEndHint ? "at-end" : "default"}
           className={cn(
-            "text-xs leading-relaxed max-w-3xl event-timeline-help",
+            "text-xs leading-relaxed max-w-3xl event-timeline-help min-w-0 flex-1",
             atHistoryEndHint
               ? "event-timeline-help--warn text-amber-300 dark:text-amber-800 inline-flex items-start gap-2"
               : "text-background/80",
@@ -619,17 +601,21 @@ export function EventTimeline({
             HELP_DEFAULT
           )}
         </p>
-        {onJumpToLatest && !isAtLatest ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs text-background hover:underline shrink-0 font-medium"
-            onClick={handleJumpToLatest}
-            data-testid="button-timeline-jump-latest"
-          >
-            Jump to latest
-            <IconArrowRight className="h-3.5 w-3.5" aria-hidden />
-          </button>
-        ) : null}
+        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+          {toolbar}
+          {onJumpToLatest && !isAtLatest ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-xs text-background hover:underline shrink-0 font-medium"
+              onClick={handleJumpToLatest}
+              aria-label="Jump to latest"
+              data-testid="button-timeline-jump-latest"
+            >
+              <span className="hidden sm:inline">Jump to latest</span>
+              <IconArrowRight className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          ) : null}
+        </div>
       </div>
       <div ref={shellRef} className="event-timeline-shell relative w-full">
         <div ref={containerRef} className="event-timeline-root w-full" />
@@ -638,9 +624,7 @@ export function EventTimeline({
           className="event-timeline-hover-line"
           style={{ opacity: 0, visibility: "hidden" }}
           aria-hidden
-        >
-          <span ref={hoverLabelRef} className="event-timeline-hover-label" />
-        </div>
+        />
       </div>
     </div>
   );

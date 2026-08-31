@@ -59,6 +59,22 @@ function batchSpecs(): SeedSpec[] {
       triggeredByIndex: 0,
     },
     {
+      type: "validation_issue_completed",
+      offsetMs: -88 * 60_000,
+      attribution: mcp("Cursor", "claude-4-sonnet"),
+      resource: { contentType: "blog", slug: "demo-post", locale: "en", path: "blog/demo-post/en.yml" },
+      payload: {
+        demo: true,
+        entryKey: "blog/demo-post/en",
+        code: "meta_description_too_short",
+        severity: "warning",
+        validator: "seo",
+        report:
+          "I expanded the meta description to ~155 characters and kept the primary keyword near the front. Re-ran SEO checks — this warning is clear.",
+      },
+      triggeredByIndex: 2,
+    },
+    {
       type: "binding_propagation_started",
       offsetMs: -55 * 60_000,
       attribution: mcp("Codex", "codex"),
@@ -71,7 +87,7 @@ function batchSpecs(): SeedSpec[] {
       attribution: mcp("Codex", "codex"),
       resource: { groupId: "demo-footer", locale: "en" },
       payload: { demo: true, updated: 3 },
-      triggeredByIndex: 3,
+      triggeredByIndex: 4,
     },
     {
       type: "content_file_written",
@@ -105,7 +121,7 @@ function batchSpecs(): SeedSpec[] {
       attribution: mcp("Perplexity", "sonar"),
       resource: { contentType: "page", slug: "home", locale: "en" },
       payload: { demo: true, skipped: true, note: "Dedupe skip — tests muted row styling" },
-      triggeredByIndex: 8,
+      triggeredByIndex: 9,
     },
   ];
 }

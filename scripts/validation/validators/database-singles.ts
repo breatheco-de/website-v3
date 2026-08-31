@@ -4,14 +4,20 @@ import type { Validator, ValidationContext, ValidatorResult, ValidationIssue } f
 import { getAllConfigs } from "../../../server/content-types";
 import { databaseManager } from "../../../server/database";
 import { mappingSourceString, type FieldMappingValue } from "@shared/validateEditorFieldTypes";
-
-const MARKETING_CONTENT_PATH = path.join(process.cwd(), "4geeks-com");
-const SINGLE_VAR_PATTERN = /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*[^}]*?)?\s*\}\}/g;
+import { ENTRY_OR_SINGLE_VAR_PATTERN } from "@shared/entryTemplateVars";
+import {
+  hasLiveTemplateLocale,
+  liveTemplateBasename,
+  bothShellNamingWarnings,
+  resolveTemplateLocalePath,
+} from "../../../server/shared-layout-paths";
+import { isSharedLayoutType } from "../../../server/shared-layout-entry";
+import { getDefaultContentFolder } from "../../../server/site-config";
 
 function extractSingleVarNames(content: string): string[] {
   const names: string[] = [];
   let match;
-  const re = new RegExp(SINGLE_VAR_PATTERN.source, "g");
+  const re = new RegExp(ENTRY_OR_SINGLE_VAR_PATTERN.source, "g");
   while ((match = re.exec(content)) !== null) {
     if (!names.includes(match[1])) {
       names.push(match[1]);
@@ -50,15 +56,40 @@ export const databaseSinglesValidator: Validator = {
   estimatedDuration: "medium",
   category: "integrity",
 
-  async run(_context: ValidationContext): Promise<ValidatorResult> {
+  async run(context: ValidationContext): Promise<ValidatorResult> {
     const start = Date.now();
     const errors: ValidationIssue[] = [];
     const warnings: ValidationIssue[] = [];
 
-    const configs = getAllConfigs();
-    const dbTypes = Object.entries(configs).filter(([, config]) => config.database?.slug);
+    const contentRootRel =
+      context.contentRoot || getDefaultContentFolder();
+    const contentRootAbs = path.isAbsolute(contentRootRel)
+      ? contentRootRel
+      : path.join(process.cwd(), contentRootRel);
 
-    if (dbTypes.length === 0) {
+    const configs = getAllConfigs(contentRootAbs);
+    const sharedTypes = Object.entries(configs).filter(([typeName]) =>
+      isSharedLayoutType(typeName, contentRootAbs),
+    );
+    const dbTypes = sharedTypes.filter(([, config]) => config.database?.slug);
+
+    for (const [contentType, config] of sharedTypes) {
+      const folder = config.directory || contentType;
+      const typeDir = path.join(contentRootAbs, folder);
+      if (!fs.existsSync(typeDir)) continue;
+      for (const msg of bothShellNamingWarnings(typeDir)) {
+        warnings.push({
+          type: "warning",
+          code: "DUPLICATE_TEMPLATE_SHELL_NAMING",
+          message: `${folder}: ${msg}`,
+          file: `${contentRootRel}/${folder}`,
+          suggestion:
+            "Keep template.* / _common.template.yml and delete the legacy single.* sibling.",
+        });
+      }
+    }
+
+    if (dbTypes.length === 0 && sharedTypes.length === 0) {
       return {
         name: this.name,
         description: this.description,
@@ -71,7 +102,7 @@ export const databaseSinglesValidator: Validator = {
 
     for (const [contentType, config] of dbTypes) {
       const folder = config.directory || contentType;
-      const typeDir = path.join(MARKETING_CONTENT_PATH, folder);
+      const typeDir = path.join(contentRootAbs, folder);
       const dbName = config.database!.slug;
       const fieldMapping = config.field_mapping;
       const localeFieldPath = fieldMapping?._locale
@@ -82,13 +113,12 @@ export const databaseSinglesValidator: Validator = {
       if (locales.length === 0) locales.push("en");
 
       for (const locale of locales) {
-        const singlePath = path.join(typeDir, `single.${locale}.yml`);
-        if (!fs.existsSync(singlePath)) {
+        if (!hasLiveTemplateLocale(typeDir, locale)) {
           errors.push({
             type: "error",
             code: "MISSING_SINGLE_TEMPLATE",
-            message: `Missing single template: ${folder}/single.${locale}.yml`,
-            file: `4geeks-com/${folder}/single.${locale}.yml`,
+            message: `Missing template shell: ${folder}/${liveTemplateBasename(locale)}`,
+            file: `${contentRootRel}/${folder}/${liveTemplateBasename(locale)}`,
             suggestion: `Create the template file or ensure auto-creation runs on startup`,
           });
         }
@@ -99,7 +129,7 @@ export const databaseSinglesValidator: Validator = {
           type: "error",
           code: "DATABASE_UNREACHABLE",
           message: `Database "${dbName}" not found for content type "${contentType}"`,
-          suggestion: `Add a database configuration at 4geeks-com/db/${dbName}/config.yml`,
+          suggestion: `Add a database configuration at ${contentRootRel}/db/${dbName}/config.yml`,
         });
         continue;
       }
@@ -224,7 +254,7 @@ export const databaseSinglesValidator: Validator = {
             type: "warning",
             code: "DISK_OVERRIDES_DATABASE",
             message: `Disk folder "${folder}/${diskSlug}" overrides database item with ${lookupKey}="${diskSlug}"`,
-            file: `4geeks-com/${folder}/${diskSlug}/`,
+            file: `${contentRootRel}/${folder}/${diskSlug}/`,
             suggestion: `The disk-based YAML files take priority. Remove the disk folder to use the database item instead.`,
           });
         }
@@ -235,20 +265,21 @@ export const databaseSinglesValidator: Validator = {
         const availableFields = new Set(getNestedKeys(sampleItem));
 
         for (const locale of locales) {
-          const singlePath = path.join(typeDir, `single.${locale}.yml`);
+          const singlePath = resolveTemplateLocalePath(typeDir, locale, { fallbackLocale: "" });
           if (!fs.existsSync(singlePath)) continue;
 
           try {
             const content = fs.readFileSync(singlePath, "utf-8");
             const varNames = extractSingleVarNames(content);
+            const relName = path.basename(singlePath);
 
             for (const varName of varNames) {
               if (!availableFields.has(varName)) {
                 warnings.push({
                   type: "warning",
                   code: "UNRESOLVED_SINGLE_VARS",
-                  message: `Template variable "{{ single.${varName} }}" in ${folder}/single.${locale}.yml has no matching field in database items`,
-                  file: `4geeks-com/${folder}/single.${locale}.yml`,
+                  message: `Template variable "{{ entry.${varName} }}" in ${folder}/${relName} has no matching field in database items`,
+                  file: `${contentRootRel}/${folder}/${relName}`,
                   suggestion: `Available fields: ${Array.from(availableFields).slice(0, 15).join(", ")}${availableFields.size > 15 ? "..." : ""}`,
                 });
               }

@@ -1,3 +1,5 @@
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -8,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { McpAgentSetupTabs } from "@/components/mcp/McpAgentSetupTabs";
+import { McpSetupRoleTabs } from "@/components/mcp/McpSetupRoleTabs";
 import type { McpSetupTabId } from "@/components/mcp/mcpUrlHelpers";
 import {
   buildSolveWithAiPrefillUrl,
@@ -16,6 +19,7 @@ import {
 import { SolveWithAiAgentIcon } from "@/components/DebugBubble/SolveWithAiAgentIcon";
 import { IconPlug } from "@tabler/icons-react";
 import { useToast } from "@/hooks/use-toast";
+import { useDebugAuth } from "@/hooks/useDebugAuth";
 
 export interface McpRequiredForAiModalProps {
   open: boolean;
@@ -42,6 +46,23 @@ export function McpRequiredForAiModal({
   prefillUrlPrefix,
 }: McpRequiredForAiModalProps) {
   const { toast } = useToast();
+  const { roles: myRoleIds } = useDebugAuth();
+  /** Default All roles for Solve-with-AI; optional focused connector. */
+  const [setupRoleId, setSetupRoleId] = useState<string | null>(null);
+
+  const { data } = useQuery<{
+    roles?: { id: string; label: string; description?: string; allowedTools: string[] }[];
+  }>({
+    queryKey: ["/api/mcp/tools"],
+    staleTime: 60_000,
+    enabled: open,
+  });
+
+  const mySetupRoles = useMemo(
+    () => (data?.roles ?? []).filter((r) => myRoleIds.includes(r.id)),
+    [data?.roles, myRoleIds],
+  );
+
   const confirmLabel = prefillUrlPrefix
     ? `Fix with ${agentLabel}`
     : "Copy prompt & close";
@@ -95,11 +116,25 @@ export function McpRequiredForAiModal({
         </DialogHeader>
 
         <div className="space-y-3">
-          <p className="text-sm font-medium text-foreground">
-            Setup for {agentLabel}
-          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-medium text-foreground">
+              Setup for {agentLabel}
+            </p>
+            {mySetupRoles.length > 0 && (
+              <McpSetupRoleTabs
+                value={setupRoleId}
+                onValueChange={setSetupRoleId}
+                roles={mySetupRoles}
+                listTestId="tabs-mcp-required-setup-role"
+              />
+            )}
+          </div>
           {open ? (
-            <McpAgentSetupTabs key={defaultTab} onlyTab={defaultTab} />
+            <McpAgentSetupTabs
+              key={`${defaultTab}-${setupRoleId ?? "all"}`}
+              onlyTab={defaultTab}
+              roleId={setupRoleId}
+            />
           ) : null}
         </div>
 

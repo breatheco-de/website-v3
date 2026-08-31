@@ -78,5 +78,5 @@ Form / blog `call_to_action.tags` is an optional CRM tag string (comma-separated
 
 ## Blog `call_to_action`
 
-Shared-layout blog CTA (`cta_banner` on `blog/single.{locale}.yml`) binds copy + conversion/tags/success from the entry field `call_to_action`. Same conversion + CRM tag rules as above. Non-effects: does not change form field layout or the shared shell structure — only entry field values.
+Shared-layout blog CTA (`cta_banner` on `blog/template.{locale}.yml`) binds copy + conversion/tags/success from the entry field `call_to_action`. Same conversion + CRM tag rules as above. Non-effects: does not change form field layout or the shared shell structure — only entry field values.
 

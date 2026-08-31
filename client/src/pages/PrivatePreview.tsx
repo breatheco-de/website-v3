@@ -17,6 +17,7 @@ import { MenuVisualContextProvider } from "@/contexts/MenuVisualContext";
 import { useMenuConfig } from "@/hooks/useMenuConfig";
 import { getMenuChromeHeights } from "@/lib/menuChrome";
 import { restoreEditModeScrollPosition } from "@/lib/editModeScroll";
+import { useScrollToLocationHashWhenReady } from "@/hooks/useScrollToLocationHashWhenReady";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import { DevicePreviewShell } from "@/components/editing/DevicePreviewShell";
 import Staff404Layout from "@/components/editing/Staff404Layout";
@@ -243,22 +244,10 @@ export default function PrivatePreview() {
 
   useEffect(() => {
     if (!content || isLoading) return;
-    const hash = window.location.hash;
-    if (!hash) return;
-    const id = hash.slice(1);
-    requestAnimationFrame(() => {
-      const el = document.getElementById(id);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    });
-  }, [content, isLoading]);
-
-  // Fast-path restore after preview content paints (Edit toggle from public page)
-  useEffect(() => {
-    if (!content || isLoading) return;
     restoreEditModeScrollPosition();
   }, [content, isLoading]);
+
+  useScrollToLocationHashWhenReady(!!content && !isLoading);
 
   useEffect(() => {
     if (!content || isLoading) return;

@@ -6,7 +6,7 @@ import { lazy, Suspense, useState, useEffect, type ReactNode } from "react";
 import NotFound from "@/pages/not-found";
 import { SessionProvider } from "@/contexts/SessionContext";
 import { EditModeWrapper } from "@/components/editing/EditModeWrapper";
-import { DebugAuthProvider, isDebugModeActive, useDebugAuth } from "@/hooks/useDebugAuth";
+import { DebugAuthProvider, useDebugAuth } from "@/hooks/useDebugAuth";
 import { ImagePickerProvider } from "@/contexts/ImagePickerContext";
 import { usePageTracking } from "@/hooks/usePageTracking";
 import type { ContentTypeApiItem } from "@/hooks/useContentTypes";
@@ -102,12 +102,12 @@ const BootstrapModal = lazyWithRetry(() =>
   import("@/components/BootstrapModal").then((m) => ({ default: m.BootstrapModal })),
 );
 
-// DebugBubbleGate: gate the lazy import behind a synchronous debug-mode check.
-// isDebugModeActive() reads URL params + sessionStorage + import.meta.env.DEV —
-// all synchronous, no hooks. Regular visitors never trigger the network request
-// for the DebugBubble chunk.
+// DebugBubbleGate: lazy-load only when debug mode is on (URL, dismiss flag,
+// DEV, or non-expired staff token via useDebugAuth). Regular visitors never
+// download the DebugBubble chunk.
 function DebugBubbleGate() {
-  if (!isDebugModeActive()) return null;
+  const { isDebugMode } = useDebugAuth();
+  if (!isDebugMode) return null;
   return <Suspense fallback={null}><DebugBubble /></Suspense>;
 }
 

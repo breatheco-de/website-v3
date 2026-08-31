@@ -39,6 +39,16 @@ Effective UI order: (0) `funnel.traffic_sources` (top of funnel) (1) locked prod
 
 Field-editor type `ecommerce-products` binds `ecommerce_products`. Field-editor `cta-tracking` binds CTA objects.
 
+## Conversion forms — `ecommerce_product_field`
+
+On lead/form-settings objects, `ecommerce_product_field` (default `program`) names which submit field supplies product identity for analytics.
+
+- Funnel (`funnel.products` on `_common.yml`) scopes allowed products when set.
+- Resolve stamps `item_id` + `program_id` on conversion dataLayer pushes; CRM `program` is unchanged.
+- Store journey analytics product KPIs match on `item_id` in BigQuery.
+
+See topic `lead-forms` and `docs/gtm-analytics-setup.md`.
+
 Allowed `ecommerce_products` values: list of product content slugs, or `"all"`.
 
 ## Validation

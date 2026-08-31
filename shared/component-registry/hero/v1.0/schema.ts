@@ -95,7 +95,7 @@ export const heroSingleColumnSchema = z.object({
   image_width: z.string().optional(),
 }).passthrough();
 
-/** Author entry for blogHero byline (hydrated from `{{ single.authors }}`). */
+/** Author entry for blogHero byline (hydrated from `{{ entry.authors }}`). */
 export const heroBlogAuthorSchema = z.union([
   z.string(),
   z
@@ -117,7 +117,7 @@ export const heroBlogReadingTimeSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Body markdown/HTML used only to estimate reading time (~200 wpm). Map: reading_time.from_content: '{{ single.content }}'. Not rendered in the hero.",
+      "Body markdown/HTML used only to estimate reading time (~200 wpm). Map: reading_time.from_content: '{{ entry.content }}'. Not rendered in the hero.",
     ),
   value_in_minutes: z
     .number()
@@ -137,13 +137,13 @@ export const heroBlogHeroSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Editorial last-modified. Map: updated_at: '{{ single.updated_at }}'. Shown in the meta row when parseable.",
+      "Editorial last-modified. Map: updated_at: '{{ entry.updated_at }}'. Shown in the meta row when parseable.",
     ),
   authors: z
     .array(heroBlogAuthorSchema)
     .optional()
     .describe(
-      "Author byline with avatars. Map: authors: '{{ single.authors }}'. Pointers hydrate on page/SSR.",
+      "Author byline with avatars. Map: authors: '{{ entry.authors }}'. Pointers hydrate on page/SSR.",
     ),
   reading_time: heroBlogReadingTimeSchema.optional(),
 }).passthrough();

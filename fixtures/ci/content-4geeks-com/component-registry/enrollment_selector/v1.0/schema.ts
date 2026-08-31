@@ -143,7 +143,8 @@ const queryComponentBulletSchema = z.object({
 });
 
 const queryComponentItemSchema = z.object({
-  value: z.string(),
+  /** Scalar or list; any listed value matching ?{param} selects this card. First matching item wins. */
+  value: z.union([z.string(), z.array(z.string()).min(1)]),
   name: z.string(),
   tagline: z.string().optional(),
   hrs: z.string().optional(),
@@ -161,7 +162,7 @@ const queryComponentItemSchema = z.object({
 });
 
 export const enrollmentQueryComponentSchema = z.object({
-  /** Querystring key to read (e.g. "cohort"). Matched against items[].value. */
+  /** Querystring key to read (e.g. "cohort"). Matched against items[].value (string or string[]). */
   param: z.string(),
   /** Optional uppercase label above the card */
   label: z.string().optional(),
@@ -183,8 +184,8 @@ export const enrollmentProgramSchema = z.object({
   plans: z.array(enrollmentPlanSchema).optional(),
   addon: enrollmentAddonSchema.optional(),
   /**
-   * Optional card shown when the page URL has ?{param}={items[].value}.
-   * Independent of date-mode cohort matching on `dates`.
+   * Optional card shown when the page URL has ?{param} matching any items[].value
+   * (string or string[]). Independent of date-mode cohort matching on `dates`.
    */
   query_component: enrollmentQueryComponentSchema.optional(),
   /** Sent as top-level CTA checkout params (plan labels override when present). */

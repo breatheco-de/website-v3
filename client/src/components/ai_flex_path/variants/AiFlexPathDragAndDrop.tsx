@@ -17,7 +17,7 @@ import { IconBookFilled, IconGripVertical } from "@tabler/icons-react";
 import { CSSMarquee } from "@/components/ui/CSSMarquee";
 import { getIcon } from "@/lib/icons";
 import UniversalImage from "@/components/UniversalImage";
-import { useInternalNav } from "@/hooks/useInternalNav";
+import { InternalLink } from "@/components/InternalLink";
 import { resolveColorVar, hslColor, type ResolvedColor } from "@/components/course_selector/shared";
 import type { AiFlexPathDragAndDrop } from "@shared/schema";
 
@@ -644,8 +644,6 @@ export default function AiFlexPathDragAndDrop({ data }: { data: AiFlexPathDragAn
   const [dropCounts, setDropCounts] = useState<number[]>([0, 0, 0, 0, 0]);
   const lastOverSlotRef = useRef<number | null>(null);
   const [activeDeltaY, setActiveDeltaY] = useState(0);
-  const nav = useInternalNav();
-
   const maxSelections = data.max_selections ?? 4;
   const showAvailableCourses = data.show_available_courses !== false;
   const viewDetailsLabel = data.view_details_label ?? "View details";
@@ -941,15 +939,14 @@ export default function AiFlexPathDragAndDrop({ data }: { data: AiFlexPathDragAn
               </div>
               <div className="flex gap-2 flex-shrink-0">
                 {data.cta.buttons.map((btn, i) => (
-                  <a
+                  <InternalLink
                     key={i}
                     href={btn.url}
-                    onClick={nav}
                     className="rounded-[8px] px-[18px] py-[10px] text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                     style={{ background: "hsl(var(--background))", color: "hsl(var(--primary))", textDecoration: "none" }}
                   >
                     {btn.text}
-                  </a>
+                  </InternalLink>
                 ))}
               </div>
             </div>
@@ -957,15 +954,14 @@ export default function AiFlexPathDragAndDrop({ data }: { data: AiFlexPathDragAn
             <div className="flex items-center gap-4 mt-[35px]">
               <div className="flex gap-2 flex-shrink-0">
                 {data.cta.buttons.map((btn, i) => (
-                  <a
+                  <InternalLink
                     key={i}
                     href={btn.url}
-                    onClick={nav}
                     className="rounded-[8px] px-[22px] py-[10px] text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                     style={{ background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", textDecoration: "none" }}
                   >
                     {btn.text}
-                  </a>
+                  </InternalLink>
                 ))}
               </div>
               <div>
