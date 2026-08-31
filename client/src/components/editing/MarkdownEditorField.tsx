@@ -14,15 +14,92 @@ import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
+import type { Element as HastElement } from "hast";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import { Geekchart } from "geekchart";
 import {
   normalizeMathDelimiters,
   remarkMathOptions,
   rehypeKatexOptions,
 } from "@shared/markdown-math";
 import "./prose-preview.css";
+import "geekchart/fonts.css";
+
+/** Text content of a hast node, same idea as server/markdown-enhance.ts's collectText. */
+function collectHastText(node: HastElement | undefined): string {
+  if (!node) return "";
+  return node.children
+    .map((child) => {
+      if (child.type === "text") return child.value;
+      if (child.type === "element") return collectHastText(child);
+      return "";
+    })
+    .join("");
+}
+
+function isMermaidCodeNode(node: HastElement | undefined): boolean {
+  if (!node || node.tagName !== "code") return false;
+  const cls = node.properties?.className;
+  const classes = Array.isArray(cls) ? cls.map(String) : typeof cls === "string" ? [cls] : [];
+  return classes.includes("language-mermaid");
+}
+
+/** Same `speed=N` fence-meta parsing as server/markdown-enhance.ts's rehypeGeekchart. */
+/** duration=6 on the fence: how long the build animation takes, in seconds
+ * (server/markdown-enhance.ts reads the same); speed=N still works. */
+function durationFromMeta(node: HastElement | undefined): number | undefined {
+  const meta = String((node?.data as { meta?: string } | undefined)?.meta ?? "");
+  const match = /\bduration=([0-9]*\.?[0-9]+)/.exec(meta);
+  return match ? Number(match[1]) : undefined;
+}
+
+function speedFromMeta(node: HastElement | undefined): number | undefined {
+  const meta = String((node?.data as { meta?: string } | undefined)?.meta ?? "");
+  const match = /\bspeed=([0-9]*\.?[0-9]+)/.exec(meta);
+  return match ? Number(match[1]) : undefined;
+}
+
+/**
+ * A mermaid fence in the preview: the chart as the article column shows it,
+ * plus the renderer's own warnings for the writer — including a second,
+ * unseen render at the phone column width, which is the only way to learn
+ * that a chart will be "about N screens tall on a phone" (DESIGN 1.7)
+ * before it is published.
+ */
+function ChartPreview({ source, speed, duration }: { source: string; speed?: number; duration?: number }) {
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [phoneWarnings, setPhoneWarnings] = useState<string[]>([]);
+  const all = [...warnings, ...phoneWarnings];
+  return (
+    <figure className="geekchart">
+      <Geekchart
+        source={source}
+        play="once"
+        speed={duration ? undefined : speed}
+        duration={duration}
+        display={612}
+        onRender={(info) => setWarnings(info.warnings)}
+      />
+      <div style={{ display: "none" }} aria-hidden="true">
+        <Geekchart
+          source={source}
+          motion={false}
+          display={358}
+          onRender={(info) => setPhoneWarnings(info.warnings.filter((w) => w.startsWith("1.7")))}
+        />
+      </div>
+      {all.length > 0 && (
+        <ul className="mt-2 text-xs text-muted-foreground list-disc pl-4">
+          {all.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      )}
+    </figure>
+  );
+}
 
 interface TocPreviewItem {
   text: string;
@@ -392,6 +469,33 @@ function MarkdownEditorModal({
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm, [remarkMath, remarkMathOptions]]}
                     rehypePlugins={[[rehypeKatex, rehypeKatexOptions]]}
+                    components={{
+                      // Draw ```mermaid fences live instead of showing them as code.
+                      // node.data.meta carries the fence info string (e.g. "speed=0.7"),
+                      // same as server/markdown-enhance.ts reads from the fenced block.
+                      code: ({ className, children, node, ...props }) => {
+                        if (isMermaidCodeNode(node)) {
+                          const source = collectHastText(node).trim();
+                          return <ChartPreview source={source} speed={speedFromMeta(node)} duration={durationFromMeta(node)} />;
+                        }
+                        return (
+                          <code className={className} {...props}>
+                            {children}
+                          </code>
+                        );
+                      },
+                      // Mermaid fences render as <figure>, not <pre><code>; unwrap the
+                      // <pre> wrapper in that case so the figure is not nested inside it.
+                      pre: ({ children, node, ...props }) => {
+                        const codeChild = node?.children.find(
+                          (c): c is HastElement => c.type === "element" && c.tagName === "code",
+                        );
+                        if (isMermaidCodeNode(codeChild)) {
+                          return <>{children}</>;
+                        }
+                        return <pre {...props}>{children}</pre>;
+                      },
+                    }}
                   >
                     {previewMarkdown}
                   </ReactMarkdown>

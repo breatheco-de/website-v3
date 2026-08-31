@@ -17,6 +17,7 @@ import rehypePrettyCode from "rehype-pretty-code";
 import rehypeStringify from "rehype-stringify";
 import type { Root, Element, ElementContent, Text, Parents } from "hast";
 import { visit } from "unist-util-visit";
+import { renderToHtml } from "geekchart/server";
 import {
   normalizeMathDelimiters,
   remarkMathOptions,
@@ -34,7 +35,7 @@ const ALERT_TYPES = new Set(["NOTE", "TIP", "WARNING", "IMPORTANT"]);
 const enhanceCache = new Map<string, { html: string; fetched_at: number }>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Bump when enhance output shape changes so in-memory cache cannot serve stale HTML. */
-const ENHANCE_PIPELINE_VERSION = "v2-katex-html-only";
+const ENHANCE_PIPELINE_VERSION = "v5-geekchart-phone";
 
 const prettyCodeOptions = {
   theme: { light: "github-light", dark: "github-dark-dimmed" },
@@ -61,6 +62,7 @@ const sanitizeSchema = {
       "className",
       "dataLanguage",
       "dataTheme",
+      "dataMeta",
       ["className", /^language-/],
       ["className", /^line$/],
     ],
@@ -205,6 +207,79 @@ function collectText(node: ElementContent): string {
   return "";
 }
 
+/**
+ * Replace every ```mermaid code block with an animated SVG chart drawn on the
+ * server by geekchart (no browser involved). Runs after sanitize, before
+ * rehype-pretty-code, so the block is never syntax-highlighted as code.
+ *
+ * The chart arrives as one HTML block with no blank lines: the client feeds
+ * this HTML back through react-markdown, which would end an HTML block at the
+ * first blank line. A chart that fails to render is left as the original
+ * code block and logged, so a bad diagram never breaks the article.
+ */
+/** Width of the article column in CSS px (`.prose` in ArticleDefault) on a
+ * desktop and on a phone: the chart is laid out for each so its text stays
+ * legible at full size (DESIGN 1.1/1.6/3.1); the HTML carries both and a
+ * media query shows the one that fits. */
+const ARTICLE_COLUMN_PX = { desktop: 612, phone: 358 };
+
+/** Carry a fenced block's info string (```mermaid speed=0.7) into the HTML as
+ * `data-meta`, so it survives rehype-raw and sanitize where `node.data` does
+ * not. Sanitize allows it on `code` (schema below). */
+function remarkFenceMeta() {
+  return (tree: import("mdast").Root) => {
+    visit(tree, "code", (node: import("mdast").Code) => {
+      if (!node.meta) return;
+      const data = (node.data ??= {}) as { hProperties?: Record<string, unknown> };
+      data.hProperties = { ...(data.hProperties ?? {}), dataMeta: node.meta };
+    });
+  };
+}
+
+function rehypeGeekchart() {
+  return async (tree: Root) => {
+    const jobs: Array<Promise<void>> = [];
+    visit(tree, "element", (node: Element, index, parent) => {
+      if (node.tagName !== "pre" || !parent || index === undefined) return;
+      const code = node.children.find(
+        (c): c is Element => c.type === "element" && c.tagName === "code",
+      );
+      if (!code) return;
+      const cls = code.properties?.className;
+      const classes = Array.isArray(cls) ? cls.map(String) : typeof cls === "string" ? [cls] : [];
+      if (!classes.includes("language-mermaid")) return;
+      const source = collectText(code).trim();
+      if (!source) return;
+      // Writer-facing knobs on the fence line: ```mermaid speed=0.7
+      // (remark keeps the info string after the language as `data.meta`).
+      const meta = String(code.properties?.dataMeta ?? "");
+      // ```mermaid duration=6 — how long the build animation takes, in
+      // seconds (the renderer derives its pace from it). speed=N (a bare
+      // multiplier) is still accepted; duration wins when both appear.
+      const durationMatch = /\bduration=([0-9]*\.?[0-9]+)/.exec(meta);
+      const duration = durationMatch ? Number(durationMatch[1]) : undefined;
+      const speedMatch = /\bspeed=([0-9]*\.?[0-9]+)/.exec(meta);
+      const speed = speedMatch ? Number(speedMatch[1]) : undefined;
+      const host = parent as Parents;
+      const at = index;
+      jobs.push(
+        (async () => {
+          try {
+            const html = (await renderToHtml(source, { display: ARTICLE_COLUMN_PX, ...(duration ? { duration } : speed ? { speed } : {}) })).replace(/\n\s*\n/g, "\n");
+            host.children[at] = {
+              type: "raw",
+              value: `<figure class="geekchart">${html}</figure>`,
+            } as unknown as ElementContent;
+          } catch (err) {
+            log.warn({ err }, "[MarkdownEnhance] mermaid chart failed to render; leaving code block");
+          }
+        })(),
+      );
+    });
+    await Promise.all(jobs);
+  };
+}
+
 let processorPromise: ReturnType<typeof buildProcessor> | null = null;
 
 async function buildProcessor() {
@@ -212,15 +287,17 @@ async function buildProcessor() {
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkMath, remarkMathOptions)
+    .use(remarkFenceMeta)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
     .use(rehypeKatex, rehypeKatexOptions)
     .use(rehypeSanitize, sanitizeSchema as Parameters<typeof rehypeSanitize>[0])
     .use(rehypeSlug)
+    .use(rehypeGeekchart)
     .use(rehypePrettyCode, prettyCodeOptions)
     .use(rehypeUnwrapInlinePrettyCode)
     .use(rehypeGithubAlerts)
-    .use(rehypeStringify);
+    .use(rehypeStringify, { allowDangerousHtml: true });
 }
 
 async function getProcessor() {
@@ -256,7 +333,31 @@ export async function enhanceMarkdownToHtml(markdown: string): Promise<string> {
   }
 }
 
-/** Walk page sections and enhance any `type: article` content strings. */
+/**
+ * Render a `chart` section's mermaid `source` into `html` via geekchart, the
+ * same renderer `rehypeGeekchart` above uses for ```mermaid fences inside an
+ * article body. A `chart` section is not markdown — its `source` is bare
+ * mermaid — so it goes straight to `renderToHtml`, not through the markdown
+ * pipeline. Sized for the article column (DESIGN 1.1/1.6/3.1), same as an
+ * in-article chart. Failure leaves `html` empty and logs; it never throws,
+ * so one bad diagram never breaks the page it's on.
+ */
+async function enhanceChartSection(section: Record<string, unknown>): Promise<void> {
+  const source = typeof section.source === "string" ? section.source.trim() : "";
+  section.html = "";
+  if (!source) return;
+  const duration = typeof section.duration === "number" ? section.duration : undefined;
+  try {
+    section.html = await renderToHtml(source, {
+      display: ARTICLE_COLUMN_PX,
+      ...(duration ? { duration } : {}),
+    });
+  } catch (err) {
+    log.warn({ err }, "[MarkdownEnhance] chart section failed to render; leaving html empty");
+  }
+}
+
+/** Walk page sections and enhance `type: article` content and `type: chart` source. */
 export async function enhanceArticleSectionsInPage(
   pageData: Record<string, unknown>,
 ): Promise<void> {
@@ -267,6 +368,10 @@ export async function enhanceArticleSectionsInPage(
     sections.map(async (section) => {
       if (!section || typeof section !== "object") return;
       const s = section as Record<string, unknown>;
+      if (s.type === "chart") {
+        await enhanceChartSection(s);
+        return;
+      }
       if (s.type !== "article") return;
       if (typeof s.content !== "string" || !s.content.trim()) return;
       s.content = await enhanceMarkdownToHtml(s.content);

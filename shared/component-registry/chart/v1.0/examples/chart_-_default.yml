@@ -1,0 +1,11 @@
+name: chart - default
+yaml: |
+  - type: chart
+    version: "1.0"
+    source: |
+      flowchart LR
+        A[Prompt] --> B[Model] --> C[Answer]
+    caption: How a prompt becomes an answer
+    # how long the build animation takes, in seconds; leave it out to play
+    # at the chart's designed pace
+    duration: 6

@@ -3,6 +3,7 @@ import {
   ARTICLE_HTML_MARKER,
   enhanceMarkdownToHtml,
   clearMarkdownEnhanceCache,
+  enhanceArticleSectionsInPage,
 } from "./markdown-enhance";
 
 describe("enhanceMarkdownToHtml math", () => {
@@ -45,5 +46,70 @@ describe("enhanceMarkdownToHtml math", () => {
     clearMarkdownEnhanceCache();
     const html = await enhanceMarkdownToHtml("Bad \\(\\frac{a\\) here.");
     expect(html.startsWith(ARTICLE_HTML_MARKER)).toBe(true);
+  });
+});
+
+describe("mermaid blocks become geekchart figures", () => {
+  it("replaces a ```mermaid block with an inline animated SVG and no blank lines", async () => {
+    const md = "Intro\n\n```mermaid\nflowchart LR\n  A[Prompt] --> B[Model] --> C[Answer]\n```\n\nOutro";
+    const html = await enhanceMarkdownToHtml(md);
+    expect(html.startsWith(ARTICLE_HTML_MARKER)).toBe(true);
+    expect(html).toContain('<figure class="geekchart">');
+    expect(html).toContain("<svg");
+    expect(html).not.toContain("language-mermaid");
+    const figure = html.slice(html.indexOf("<figure"), html.indexOf("</figure>"));
+    expect(figure).not.toMatch(/\n\s*\n/);
+  });
+
+  it("leaves an unparseable chart as a code block", async () => {
+    const md = "```mermaid\nthis is not a diagram\n```";
+    const html = await enhanceMarkdownToHtml(md);
+    expect(html).not.toContain('<figure class="geekchart">');
+    expect(html).toContain("<pre");
+  });
+});
+
+describe("mermaid fence options", () => {
+  it("passes speed=N from the fence line through to the chart", async () => {
+    const md = "```mermaid speed=0.5\nflowchart LR\n  A[Prompt] --> B[Answer]\n```";
+    const html = await enhanceMarkdownToHtml(md);
+    expect(html).toContain('data-gc-speed="0.5"');
+  });
+});
+
+describe("chart sections get server-rendered html", () => {
+  it("sets html to an inline svg for a chart section", async () => {
+    const pageData = {
+      sections: [
+        {
+          type: "chart",
+          source: "flowchart LR\n  A[Prompt] --> B[Answer]",
+          caption: "How it works",
+        },
+      ],
+    };
+    await enhanceArticleSectionsInPage(pageData);
+    const section = pageData.sections[0] as { html?: string };
+    expect(section.html).toContain("<svg");
+  });
+
+  it("passes duration (seconds) through to the chart render", async () => {
+    const pageData = {
+      sections: [{ type: "chart", source: "flowchart LR\n  A --> B", duration: 60 }],
+    };
+    await enhanceArticleSectionsInPage(pageData);
+    const section = pageData.sections[0] as { html?: string };
+    // 60s is far beyond the natural cycle, so the derived multiplier clamps
+    // low and the svg carries a data-gc-speed well under 1.
+    expect(section.html).toMatch(/data-gc-speed="0\.\d+"/);
+  });
+
+  it("leaves html empty and does not throw when the source cannot be drawn", async () => {
+    const pageData = {
+      sections: [{ type: "chart", source: "this is not a diagram" }],
+    };
+    await expect(enhanceArticleSectionsInPage(pageData)).resolves.toBeUndefined();
+    const section = pageData.sections[0] as { html?: string };
+    expect(section.html).toBe("");
   });
 });
