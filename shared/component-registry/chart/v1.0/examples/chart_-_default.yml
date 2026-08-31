@@ -6,4 +6,6 @@ yaml: |
       flowchart LR
         A[Prompt] --> B[Model] --> C[Answer]
     caption: How a prompt becomes an answer
+    # speed is a multiplier over the designed pace: 0.5 plays at half speed,
+    # 2 at double; 1 is the default. Values are clamped to 0.25-4.
     speed: 1
