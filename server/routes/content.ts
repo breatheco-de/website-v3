@@ -35,6 +35,8 @@ import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { SECTION_LAYOUT_DEFAULT_KEYS } from "../section-layout-defaults";
 import { databaseManager, DatabaseManager, getCachedDatabaseEntryCount } from "../database";
 import { TESTIMONIALS_DATABASE } from "@shared/testimonials-listing";
+import { commonYmlPath, readFunnelBlockFromFile } from "../funnel-fields";
+import type { FunnelBlock } from "@shared/funnel";
 
 function getDB(res: import("express").Response): DatabaseManager {
   return (res.locals.site as import("../site-manager").SiteContext)?.database ?? databaseManager;
@@ -3358,6 +3360,287 @@ export function registerContentRoutes(app: Express): void {
         { contentType: type, source: "yaml", cache_age_hours: null },
         entries,
       );
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.get("/api/content-types/:type/funnel-entries", async (req, res) => {
+    try {
+      const { type } = req.params;
+      const pagination = parseListPagination(req.query as Record<string, unknown>);
+      const q =
+        typeof req.query.q === "string" && req.query.q.trim()
+          ? req.query.q.trim().toLowerCase()
+          : "";
+      const config = getContentTypeConfig(type, ctRoot(res));
+      if (!config) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+      const urlPattern = config.url_pattern as Record<string, string> | undefined;
+      const contentRoot = getContentRoot(res);
+      const root = ctRoot(res);
+
+      const pickPrimaryLocale = (locales: string[]): string =>
+        locales.includes("en") ? "en" : (locales[0] ?? "en");
+
+      const resolveUrl = (slug: string, locale: string): string | null => {
+        if (!urlPattern) return null;
+        const tpl = urlPattern[locale] || urlPattern["default"] || null;
+        if (!tpl) return null;
+        return tpl.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (_match, key: string) => {
+          if (key === "slug") return slug;
+          return "";
+        });
+      };
+
+      const pageTitleFromMeta = (meta: Record<string, unknown> | null | undefined): string => {
+        const raw = meta?.page_title;
+        if (typeof raw !== "string") return "";
+        const trimmed = raw.trim();
+        if (!trimmed || /\{\{.*?\}\}/.test(trimmed)) return "";
+        return trimmed;
+      };
+
+      const funnelMatchesQuery = (entry: {
+        slug: string;
+        title: string;
+        pageTitle: string;
+        funnel: FunnelBlock;
+      }) => {
+        if (!q) return true;
+        const stage = typeof entry.funnel.stage === "string" ? entry.funnel.stage.toLowerCase() : "";
+        const products =
+          entry.funnel.products === "all"
+            ? "all"
+            : Array.isArray(entry.funnel.products)
+              ? entry.funnel.products.join(" ").toLowerCase()
+              : "";
+        return (
+          entry.slug.toLowerCase().includes(q) ||
+          entry.title.toLowerCase().includes(q) ||
+          entry.pageTitle.toLowerCase().includes(q) ||
+          stage.includes(q) ||
+          products.includes(q)
+        );
+      };
+
+      type FunnelEntryRow = {
+        slug: string;
+        contentType: string;
+        locale: string;
+        url: string | null;
+        title: string;
+        pageTitle: string;
+        funnel: FunnelBlock;
+      };
+
+      const finish = (entries: FunnelEntryRow[], source: "yaml" | "db") => {
+        let filtered = entries.filter(funnelMatchesQuery);
+        if (!pagination.paginate) {
+          res.json({ contentType: type, source, count: filtered.length, entries: filtered });
+          return;
+        }
+        const paged = paginateList(filtered, pagination.page, pagination.pageSize);
+        res.json({
+          contentType: type,
+          source,
+          count: paged.pageItems.length,
+          entries: paged.pageItems,
+          total: paged.total,
+          page: paged.page,
+          pageSize: paged.pageSize,
+          totalPages: paged.totalPages,
+        });
+      };
+
+      // ── DB-backed: one row per unique slug ───────────────────────────────────
+      if (config.database?.slug) {
+        const dbName = config.database.slug;
+        if (!getDB(res).exists(dbName)) {
+          res.status(404).json({ error: `Database "${dbName}" not found` });
+          return;
+        }
+        const items = await getDB(res).fetchMappedItems(type);
+        const localeKey = getLocaleKey(type, ctRoot(res)) || "lang";
+        const bySlug = new Map<
+          string,
+          { locales: string[]; title: string; itemsByLocale: Record<string, Record<string, unknown>> }
+        >();
+        for (const item of items) {
+          const slug = typeof item.slug === "string" ? item.slug : "";
+          if (!slug) continue;
+          const locale = String(item[localeKey] || "en");
+          const existing = bySlug.get(slug);
+          const title =
+            typeof item.title === "string" && item.title.trim()
+              ? item.title.trim()
+              : slug;
+          if (!existing) {
+            bySlug.set(slug, {
+              locales: [locale],
+              title,
+              itemsByLocale: { [locale]: item as Record<string, unknown> },
+            });
+          } else {
+            if (!existing.locales.includes(locale)) existing.locales.push(locale);
+            existing.itemsByLocale[locale] = item as Record<string, unknown>;
+            if (existing.title === slug && title !== slug) existing.title = title;
+          }
+        }
+
+        const uniqueLocales = [...new Set([...bySlug.values()].flatMap((v) => v.locales))];
+        const templates: Record<string, Record<string, unknown> | null> = {};
+        for (const locale of uniqueLocales) {
+          templates[locale] = mergeSingleTemplate(type, locale, undefined, undefined, contentRoot);
+        }
+
+        const entries: FunnelEntryRow[] = [];
+        for (const [slug, info] of bySlug) {
+          const locale = pickPrimaryLocale(info.locales);
+          const item = info.itemsByLocale[locale] ?? info.itemsByLocale[info.locales[0]!];
+          const template = templates[locale];
+          const rawMeta = resolveAllTemplateVars(template?.meta ?? {}, {
+            singleEntry: item,
+            contentRoot,
+            context: { locale },
+            skipSiteVars: false,
+          }) as Record<string, unknown>;
+          const resolvedMeta: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(rawMeta)) {
+            resolvedMeta[k] = typeof v === "string" && /\{\{.*?\}\}/.test(v) ? null : v;
+          }
+          const pageTitle = pageTitleFromMeta(resolvedMeta);
+          const funnel = readFunnelBlockFromFile(commonYmlPath(type, slug, contentRoot));
+          entries.push({
+            slug,
+            contentType: type,
+            locale,
+            url: resolveUrl(slug, locale),
+            title: info.title || slug,
+            pageTitle,
+            funnel,
+          });
+        }
+
+        finish(entries, "db");
+        return;
+      }
+
+      // ── YAML-backed: one row per slug dir ────────────────────────────────────
+      const dir = getDirectory(type, contentRoot);
+      const contentDir = path.join(contentRoot, dir);
+      if (!fs.existsSync(contentDir)) {
+        res.status(404).json({ error: `Content directory not found: ${getContentRootName(res)}/${dir}` });
+        return;
+      }
+
+      const indexed = getCI(res).findByType(type);
+      const titleBySlug = new Map(indexed.map((e) => [e.slug, e.title || e.slug]));
+      const localesBySlug = new Map(
+        indexed.map((e) => [
+          e.slug,
+          e.locales.filter((l) => !l.startsWith("_") && !l.includes(".")),
+        ]),
+      );
+
+      const entries: FunnelEntryRow[] = [];
+      const slugDirs = fs.readdirSync(contentDir, { withFileTypes: true }).filter((d) => d.isDirectory());
+
+      for (const slugDir of slugDirs) {
+        const slug = slugDir.name;
+        const slugPath = path.join(contentDir, slug);
+        let locales = localesBySlug.get(slug) ?? [];
+        if (locales.length === 0) {
+          try {
+            const files = fs.readdirSync(slugPath).filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"));
+            locales = files
+              .map((f) => f.replace(/\.(yml|yaml)$/, ""))
+              .filter((n) => /^[a-z]{2}(-[a-z]{2})?$/.test(n));
+          } catch {
+            locales = [];
+          }
+        }
+
+        // Draft-only folders: include when draft-first and _common / drafts exist
+        if (locales.length === 0) {
+          if (!usesDraftFirstCreate(type, root)) continue;
+          const draftLocales = listDraftLocales(slugPath, false);
+          if (draftLocales.length === 0 && !fs.existsSync(path.join(slugPath, "_common.yml"))) continue;
+          locales = draftLocales.length > 0 ? draftLocales : ["en"];
+        }
+
+        const locale = pickPrimaryLocale(locales);
+        let title = titleBySlug.get(slug) || slug;
+        let commonData: Record<string, unknown> = {};
+        const commonPath = path.join(slugPath, "_common.yml");
+        if (fs.existsSync(commonPath)) {
+          try {
+            commonData =
+              (getCI(res).safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) as Record<
+                string,
+                unknown
+              > | null) || {};
+            if (typeof commonData.title === "string" && commonData.title.trim()) {
+              title = commonData.title.trim();
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+
+        let pageTitle = "";
+        const localePathYml = path.join(slugPath, `${locale}.yml`);
+        const localePathYaml = path.join(slugPath, `${locale}.yaml`);
+        const localePath = fs.existsSync(localePathYml)
+          ? localePathYml
+          : fs.existsSync(localePathYaml)
+            ? localePathYaml
+            : null;
+        if (localePath) {
+          try {
+            const localeData =
+              (getCI(res).safeYamlLoad(fs.readFileSync(localePath, "utf-8")) as Record<
+                string,
+                unknown
+              > | null) || {};
+            const merged = deepMerge(commonData, localeData) as Record<string, unknown>;
+            if (typeof merged.title === "string" && merged.title.trim() && title === slug) {
+              title = merged.title.trim();
+            }
+            const rawMeta = (merged.meta as Record<string, unknown>) ?? {};
+            const resolvedMeta = resolveAllTemplateVars(rawMeta, {
+              contentRoot,
+              context: { locale },
+              skipSiteVars: false,
+            }) as Record<string, unknown>;
+            pageTitle = pageTitleFromMeta(resolvedMeta);
+          } catch {
+            /* ignore */
+          }
+        }
+
+        // Prefer live locale URL from content index when available
+        const urls = getCI(res).getLocaleUrls(slug, type, { includeEmptyLocales: true });
+        const url =
+          (typeof urls[locale] === "string" && urls[locale]) ||
+          Object.values(urls).find((u) => typeof u === "string" && u) ||
+          resolveUrl(slug, locale);
+
+        const funnel = readFunnelBlockFromFile(commonYmlPath(type, slug, contentRoot));
+        entries.push({
+          slug,
+          contentType: type,
+          locale,
+          url: url || null,
+          title,
+          pageTitle,
+          funnel,
+        });
+      }
+
+      finish(entries, "yaml");
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

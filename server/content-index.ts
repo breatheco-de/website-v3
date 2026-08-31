@@ -23,6 +23,7 @@ import {
   COMMON_TEMPLATE_BASENAME,
   LEGACY_COMMON_SINGLE_BASENAME,
   isSharedTemplateBasename,
+  legacyLiveSingleBasename,
   liveTemplateBasename,
   resolveCommonTemplatePath,
   resolveTemplateLocalePath,
@@ -1105,6 +1106,11 @@ export class ContentIndex {
     } catch {}
   }
 
+  /**
+   * Ensure shared-layout types have `template.{locale}.yml` (+ `_common.template.yml`).
+   * Never writes legacy `single.*` / `_common.single.yml`. When both naming conventions
+   * exist and the legacy file is an empty stub, delete the legacy duplicate.
+   */
   private autoCreateSingleTemplates(baseDir: string): void {
     const yamlDump = (data: unknown) =>
       yaml.dump(data, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
@@ -1121,6 +1127,8 @@ export class ContentIndex {
         log.info(`[ContentIndex] Auto-created folder: ${this.contentRootName}/${folder}/`);
       }
 
+      this.scrubEmptyLegacyShellStubs(typeDir, folder);
+
       const commonPath = resolveCommonTemplatePath(typeDir, { forWrite: true });
       if (!fs.existsSync(resolveCommonTemplatePath(typeDir))) {
         fs.writeFileSync(
@@ -1136,10 +1144,17 @@ export class ContentIndex {
       const mirrorSource = findBestSingleMirrorSource(typeDir, (raw) => this.safeYamlLoad(raw));
 
       for (const locale of locales) {
-        const singlePath = resolveTemplateLocalePath(typeDir, locale, {
+        // forWrite always targets template.{locale}.yml — never single.*
+        const writePath = resolveTemplateLocalePath(typeDir, locale, {
           forWrite: true,
           fallbackLocale: "",
         });
+        if (path.basename(writePath) !== liveTemplateBasename(locale)) {
+          log.warn(
+            `[ContentIndex] Refusing non-template write path for ${folder}/${locale}: ${path.basename(writePath)}`,
+          );
+          continue;
+        }
         const existingPath = resolveTemplateLocalePath(typeDir, locale, { fallbackLocale: "" });
         const exists = fs.existsSync(existingPath);
 
@@ -1150,9 +1165,15 @@ export class ContentIndex {
             if (sections.length === 0 && mirrorSource && mirrorSource.locale !== locale) {
               const mirrored = buildMirroredLocaleSingle(mirrorSource.data);
               if (existing?.meta) mirrored.meta = existing.meta;
-              fs.writeFileSync(existingPath, yamlDump(mirrored) + "\n", "utf-8");
+              // Repair into canonical template.* even if the empty stub was legacy single.*
+              fs.writeFileSync(writePath, yamlDump(mirrored) + "\n", "utf-8");
+              if (path.resolve(existingPath) !== path.resolve(writePath) && fs.existsSync(existingPath)) {
+                try {
+                  fs.unlinkSync(existingPath);
+                } catch { /* non-fatal */ }
+              }
               log.info(
-                `[ContentIndex] Repaired empty template stub from ${mirrorSource.locale}: ${this.contentRootName}/${folder}/${path.basename(existingPath)}`,
+                `[ContentIndex] Repaired empty template stub from ${mirrorSource.locale}: ${this.contentRootName}/${folder}/${liveTemplateBasename(locale)}`,
               );
             }
           } catch (err) {
@@ -1163,7 +1184,7 @@ export class ContentIndex {
 
         if (mirrorSource) {
           const mirrored = buildMirroredLocaleSingle(mirrorSource.data);
-          fs.writeFileSync(singlePath, yamlDump(mirrored) + "\n", "utf-8");
+          fs.writeFileSync(writePath, yamlDump(mirrored) + "\n", "utf-8");
           log.info(
             `[ContentIndex] Auto-created template (mirrored from ${mirrorSource.locale}): ${this.contentRootName}/${folder}/${liveTemplateBasename(locale)}`,
           );
@@ -1175,7 +1196,7 @@ export class ContentIndex {
             "sections: []",
             "",
           ].join("\n");
-          fs.writeFileSync(singlePath, template);
+          fs.writeFileSync(writePath, template);
           log.info(`[ContentIndex] Auto-created empty template: ${this.contentRootName}/${folder}/${liveTemplateBasename(locale)}`);
         }
       }
@@ -1188,10 +1209,65 @@ export class ContentIndex {
           if (sections.length === 0 && mirrorSource && mirrorSource.locale !== locale) {
             const mirrored = buildMirroredLocaleSingle(mirrorSource.data);
             if (existing?.meta) mirrored.meta = existing.meta;
-            fs.writeFileSync(filePath, yamlDump(mirrored) + "\n", "utf-8");
-            log.info(`[ContentIndex] Repaired extra empty ${path.basename(filePath)} from ${mirrorSource.locale}`);
+            const writePath = resolveTemplateLocalePath(typeDir, locale, {
+              forWrite: true,
+              fallbackLocale: "",
+            });
+            fs.writeFileSync(writePath, yamlDump(mirrored) + "\n", "utf-8");
+            if (path.resolve(filePath) !== path.resolve(writePath) && fs.existsSync(filePath)) {
+              try {
+                fs.unlinkSync(filePath);
+              } catch { /* non-fatal */ }
+            }
+            log.info(`[ContentIndex] Repaired extra empty ${liveTemplateBasename(locale)} from ${mirrorSource.locale}`);
           }
         } catch { /* non-fatal */ }
+      }
+    }
+  }
+
+  /**
+   * Drop empty legacy `single.*` / `_common.single.yml` when the canonical `template.*`
+   * counterpart already exists. Prevents stale workers / dual-naming from cluttering sync.
+   */
+  private scrubEmptyLegacyShellStubs(typeDir: string, folder: string): void {
+    const templateCommon = path.join(typeDir, COMMON_TEMPLATE_BASENAME);
+    const legacyCommon = path.join(typeDir, LEGACY_COMMON_SINGLE_BASENAME);
+    if (fs.existsSync(templateCommon) && fs.existsSync(legacyCommon)) {
+      try {
+        fs.unlinkSync(legacyCommon);
+        log.info(
+          `[ContentIndex] Removed redundant ${LEGACY_COMMON_SINGLE_BASENAME} (canonical ${COMMON_TEMPLATE_BASENAME} present): ${this.contentRootName}/${folder}/`,
+        );
+      } catch (err) {
+        log.warn(
+          `[ContentIndex] Could not remove ${LEGACY_COMMON_SINGLE_BASENAME}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
+    if (!fs.existsSync(typeDir)) return;
+    for (const name of fs.readdirSync(typeDir)) {
+      const liveM = /^single\.([a-z]{2}(?:-[a-zA-Z]+)?)\.ya?ml$/i.exec(name);
+      if (!liveM) continue;
+      const locale = liveM[1];
+      const legacyPath = path.join(typeDir, name);
+      const canonical = path.join(typeDir, liveTemplateBasename(locale));
+      if (!fs.existsSync(canonical)) continue;
+      try {
+        const data = this.safeYamlLoad(fs.readFileSync(legacyPath, "utf-8"));
+        const sections = Array.isArray(data?.sections) ? data.sections : [];
+        if (sections.length > 0) continue; // keep non-empty legacy until migrated
+        fs.unlinkSync(legacyPath);
+        log.info(
+          `[ContentIndex] Removed empty legacy ${legacyLiveSingleBasename(locale)} (canonical ${liveTemplateBasename(locale)} present): ${this.contentRootName}/${folder}/`,
+        );
+      } catch (err) {
+        log.warn(
+          `[ContentIndex] Could not scrub ${name}:`,
+          err instanceof Error ? err.message : err,
+        );
       }
     }
   }

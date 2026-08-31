@@ -70,6 +70,11 @@ import {
   type SeoContextChoice,
 } from "@/components/editing/SeoContextPickerDialog";
 import type { SeoModalTab } from "@/components/DebugBubble/components/SeoModal";
+import { isFunnelStage, type FunnelBlock } from "@shared/funnel";
+import {
+  FUNNEL_STAGE_TAPER,
+  FUNNEL_STAGE_TONE,
+} from "@/lib/funnel-stage-ui";
 import { SharedLayoutExplainDialog } from "@/components/editing/SharedLayoutExplainDialog";
 import {
   SharedLayoutEnableDialog,
@@ -139,6 +144,39 @@ interface SeoEntriesResponse {
   page?: number;
   pageSize?: number;
   totalPages?: number;
+}
+
+interface FunnelEntry {
+  slug: string;
+  contentType: string;
+  locale: string;
+  url: string | null;
+  title: string;
+  pageTitle: string;
+  funnel: FunnelBlock;
+}
+
+interface FunnelEntriesResponse {
+  contentType: string;
+  source: string;
+  count: number;
+  entries: FunnelEntry[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
+}
+
+const FUNNEL_STAGE_LABELS: Record<string, string> = {
+  awareness: "Awareness",
+  consideration: "Consideration",
+  decision: "Decision",
+  "post-enrollment": "Post-enrollment",
+};
+
+function funnelHasProducts(products: FunnelBlock["products"]): boolean {
+  if (products === "all") return true;
+  return Array.isArray(products) && products.length > 0;
 }
 
 interface StaticEntriesResponse {
@@ -5608,7 +5646,7 @@ export default function ContentTypeManagePage() {
   const [strategyDialogOpen, setStrategyDialogOpen] = useState(false);
   const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"static" | "db">("static");
-  const [listPerspective, setListPerspective] = useState<"default" | "seo">("default");
+  const [listPerspective, setListPerspective] = useState<"default" | "seo" | "funnel">("default");
   const [selectedSlugs, setSelectedSlugs] = useState<Set<string>>(() => new Set());
   const [bulkFunnelOpen, setBulkFunnelOpen] = useState(false);
   const [bulkDeleteStaticOpen, setBulkDeleteStaticOpen] = useState(false);
@@ -5785,6 +5823,34 @@ export default function ContentTypeManagePage() {
       ).then((r) => r.json());
     },
     enabled: listPerspective === "seo",
+    staleTime: 0,
+    refetchOnMount: "always",
+    placeholderData: (prev) => prev,
+  });
+
+  const {
+    data: funnelEntriesData,
+    isLoading: funnelEntriesLoading,
+    isFetching: funnelEntriesFetching,
+  } = useQuery<FunnelEntriesResponse>({
+    queryKey: [
+      "/api/content-types",
+      contentType,
+      "funnel-entries",
+      listPage,
+      debouncedSearch,
+    ],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        page: String(listPage),
+        pageSize: String(MANAGE_LIST_PAGE_SIZE),
+      });
+      if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
+      return fetch(
+        `/api/content-types/${contentType}/funnel-entries?${params.toString()}`,
+      ).then((r) => r.json());
+    },
+    enabled: listPerspective === "funnel",
     staleTime: 0,
     refetchOnMount: "always",
     placeholderData: (prev) => prev,
@@ -6248,6 +6314,9 @@ export default function ContentTypeManagePage() {
   const staticListLoading =
     search !== debouncedSearch || staticLoading || staticFetching;
   const filteredSeoEntries = seoEntriesData?.entries || [];
+  const filteredFunnelEntries = funnelEntriesData?.entries || [];
+  const funnelListLoading =
+    search !== debouncedSearch || funnelEntriesLoading || (funnelEntriesFetching && !funnelEntriesData);
 
   const selectionActive = selectedSlugs.size > 0;
   const selectedSlugList = useMemo(() => [...selectedSlugs], [selectedSlugs]);
@@ -6320,6 +6389,10 @@ export default function ContentTypeManagePage() {
   const seoTotal = seoEntriesData?.total ?? filteredSeoEntries.length;
   const seoTotalPages = seoEntriesData?.totalPages ?? 1;
   const seoPage = seoEntriesData?.page ?? listPage;
+
+  const funnelTotal = funnelEntriesData?.total ?? filteredFunnelEntries.length;
+  const funnelTotalPages = funnelEntriesData?.totalPages ?? 1;
+  const funnelPage = funnelEntriesData?.page ?? listPage;
 
   const hasDb = !!typeConfig?.database?.slug;
   const singleTemplateEnabled = !!typeConfig?.single_template;
@@ -7552,6 +7625,12 @@ export default function ContentTypeManagePage() {
                       : `${[...new Set(filtered.map((i) => String(i.slug ?? "")).filter(Boolean))].filter((s) => selectedSlugs.has(s)).length} on this page`}
                     )
                   </span>
+                ) : listPerspective === "funnel" ? (
+                  <span className="ml-1 text-xs">
+                    (
+                    {filteredFunnelEntries.filter((e) => selectedSlugs.has(e.slug)).length} on this page
+                    )
+                  </span>
                 ) : null}
               </span>
               <Button
@@ -7563,26 +7642,30 @@ export default function ContentTypeManagePage() {
                 Clear
               </Button>
               <div className="flex-1 min-w-[1rem]" />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setBulkFunnelOpen(true)}
-                data-testid="button-bulk-update-funnel"
-              >
-                Update funnel
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => {
-                  if (viewMode === "db") setBulkDeleteDbInfoOpen(true);
-                  else setBulkDeleteStaticOpen(true);
-                }}
-                data-testid="button-bulk-delete"
-              >
-                <Trash2 className="h-4 w-4 mr-1" />
-                Delete
-              </Button>
+              {listPerspective === "funnel" ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBulkFunnelOpen(true)}
+                  data-testid="button-bulk-update-funnel"
+                >
+                  Update funnel
+                </Button>
+              ) : null}
+              {listPerspective === "default" ? (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    if (viewMode === "db") setBulkDeleteDbInfoOpen(true);
+                    else setBulkDeleteStaticOpen(true);
+                  }}
+                  data-testid="button-bulk-delete"
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Delete
+                </Button>
+              ) : null}
             </div>
           ) : (
           <div className="flex items-center gap-3 flex-wrap px-6 pt-6 pb-3">
@@ -7665,7 +7748,11 @@ export default function ContentTypeManagePage() {
                     data-testid="button-list-perspective"
                   >
                     <Columns3 className="h-4 w-4" />
-                    {listPerspective === "seo" ? "SEO" : "Default"}
+                    {listPerspective === "seo"
+                      ? "SEO"
+                      : listPerspective === "funnel"
+                        ? "Funnel"
+                        : "Default"}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -7682,6 +7769,13 @@ export default function ContentTypeManagePage() {
                   >
                     <Check className={`h-4 w-4 mr-2 ${listPerspective === "seo" ? "opacity-100" : "opacity-0"}`} />
                     SEO
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setListPerspective("funnel")}
+                    data-testid="menu-perspective-funnel"
+                  >
+                    <Check className={`h-4 w-4 mr-2 ${listPerspective === "funnel" ? "opacity-100" : "opacity-0"}`} />
+                    Funnel
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -8034,6 +8128,188 @@ export default function ContentTypeManagePage() {
                       })}
                     </tbody>
                   </table>
+                </div>
+              )
+            ) : listPerspective === "funnel" ? (
+              funnelListLoading ? (
+                <div className="flex items-center justify-center py-12" data-testid="loading-funnel-entries">
+                  <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-current border-r-transparent" />
+                  <span className="ml-2 text-sm text-muted-foreground">Loading funnel entries...</span>
+                </div>
+              ) : filteredFunnelEntries.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground space-y-2" data-testid="text-no-funnel-results">
+                  <p>No funnel entries found</p>
+                  <p className="text-xs max-w-md mx-auto">
+                    This list shows funnel membership — stage and products for Store journey and tracking.
+                    Missing values appear as red badges.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="px-4 pt-2 text-xs text-muted-foreground max-w-3xl" data-testid="text-funnel-perspective-edu">
+                    Funnel membership for this content type: stage and products drive Store journey and tracking.
+                    Red badges mark pages still missing a stage or products.
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm" data-testid="table-funnel-entries">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="w-10 px-4 py-3">
+                            {(() => {
+                              const pageSlugs = filteredFunnelEntries.map((e) => e.slug);
+                              const selectedOnPage = pageSlugs.filter((s) => selectedSlugs.has(s));
+                              const allSelected =
+                                pageSlugs.length > 0 && selectedOnPage.length === pageSlugs.length;
+                              const someSelected =
+                                selectedOnPage.length > 0 && selectedOnPage.length < pageSlugs.length;
+                              return (
+                                <Checkbox
+                                  checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                                  onCheckedChange={(checked) => {
+                                    selectPageSlugs(pageSlugs, checked === true);
+                                  }}
+                                  aria-label="Select all on page"
+                                  data-testid="checkbox-funnel-select-all"
+                                />
+                              );
+                            })()}
+                          </th>
+                          <th className="text-left px-4 py-3 font-medium text-muted-foreground">Page title</th>
+                          <th className="text-left px-4 py-3 font-medium text-muted-foreground w-[180px]">Stage</th>
+                          <th className="text-left px-4 py-3 font-medium text-muted-foreground">Products</th>
+                          <th className="text-right px-4 py-3 font-medium text-muted-foreground w-[200px]">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredFunnelEntries.map((entry) => {
+                          const slug = entry.slug;
+                          const locale = entry.locale || "en";
+                          const displayTitle =
+                            (entry.pageTitle && entry.pageTitle.trim()) || entry.title || slug;
+                          const stage =
+                            typeof entry.funnel?.stage === "string" && entry.funnel.stage.trim()
+                              ? entry.funnel.stage.trim()
+                              : "";
+                          const products = entry.funnel?.products;
+                          const hasProducts = funnelHasProducts(products);
+                          const stageKnown = isFunnelStage(stage);
+                          const taper = stageKnown ? FUNNEL_STAGE_TAPER[stage] : null;
+                          return (
+                            <tr
+                              key={slug}
+                              className="border-b last:border-0 hover:bg-muted/30 transition-colors align-top"
+                              data-testid={`row-funnel-${slug}`}
+                            >
+                              <td className="px-4 py-3">
+                                <Checkbox
+                                  checked={selectedSlugs.has(slug)}
+                                  onCheckedChange={(checked) =>
+                                    toggleSlugSelected(slug, checked === true)
+                                  }
+                                  aria-label={`Select ${slug}`}
+                                  data-testid={`checkbox-funnel-${slug}`}
+                                />
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="font-medium text-foreground leading-snug">{displayTitle}</div>
+                                <div className="text-xs text-muted-foreground font-mono mt-0.5">{slug}</div>
+                              </td>
+                              <td className="px-4 py-3">
+                                {stage ? (
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      "text-xs font-medium",
+                                      taper ? FUNNEL_STAGE_TONE[taper] : "border-border",
+                                    )}
+                                    data-testid={`badge-funnel-stage-${slug}`}
+                                  >
+                                    {FUNNEL_STAGE_LABELS[stage] ?? stage}
+                                  </Badge>
+                                ) : (
+                                  <Badge
+                                    variant="destructive"
+                                    className="text-xs"
+                                    data-testid={`badge-funnel-no-stage-${slug}`}
+                                  >
+                                    No stage yet
+                                  </Badge>
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                {hasProducts ? (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {products === "all" ? (
+                                      <Badge
+                                        variant="secondary"
+                                        className="text-xs"
+                                        data-testid={`badge-funnel-products-all-${slug}`}
+                                      >
+                                        All products
+                                      </Badge>
+                                    ) : (
+                                      (products as string[]).map((p) => (
+                                        <Badge
+                                          key={p}
+                                          variant="outline"
+                                          className="text-xs font-mono font-normal"
+                                          data-testid={`badge-funnel-product-${slug}-${p}`}
+                                        >
+                                          {p}
+                                        </Badge>
+                                      ))
+                                    )}
+                                  </div>
+                                ) : (
+                                  <Badge
+                                    variant="destructive"
+                                    className="text-xs"
+                                    data-testid={`badge-funnel-no-products-${slug}`}
+                                  >
+                                    No product yet
+                                  </Badge>
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                  {entry.url && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-xs gap-1"
+                                      asChild
+                                    >
+                                      <a
+                                        href={entry.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        data-testid={`button-open-funnel-${slug}`}
+                                      >
+                                        <ExternalLink className="h-3.5 w-3.5" />
+                                        Open
+                                      </a>
+                                    </Button>
+                                  )}
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-xs gap-1.5"
+                                    data-testid={`button-edit-funnel-${slug}`}
+                                    onClick={() => {
+                                      void beginEditSeo(slug, locale, "funnel");
+                                    }}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                    Edit Funnel
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )
             ) : viewMode === "static" ? (
@@ -8747,6 +9023,46 @@ export default function ContentTypeManagePage() {
                 )}
               </div>
             )}
+            {listPerspective === "funnel" && !funnelListLoading && filteredFunnelEntries.length > 0 && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t"
+                data-testid="text-showing-funnel-count"
+              >
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {funnelTotalPages > 1
+                    ? `Page ${funnelPage} of ${funnelTotalPages} · ${funnelTotal} funnel entries`
+                    : `Showing ${filteredFunnelEntries.length} of ${funnelTotal} funnel entries`}
+                </span>
+                {funnelTotalPages > 1 && (
+                  <Pagination className="mx-0 w-auto justify-end" data-testid="pagination-funnel-entries">
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          href="#"
+                          aria-disabled={funnelPage <= 1}
+                          className={funnelPage <= 1 ? "pointer-events-none opacity-50" : undefined}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (funnelPage > 1) setListPage(funnelPage - 1);
+                          }}
+                        />
+                      </PaginationItem>
+                      <PaginationItem>
+                        <PaginationNext
+                          href="#"
+                          aria-disabled={funnelPage >= funnelTotalPages}
+                          className={funnelPage >= funnelTotalPages ? "pointer-events-none opacity-50" : undefined}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (funnelPage < funnelTotalPages) setListPage(funnelPage + 1);
+                          }}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                )}
+              </div>
+            )}
             {listPerspective === "default" && viewMode === "static" && !staticListLoading && filteredStatic.length > 0 && (
               <div
                 className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t"
@@ -9217,6 +9533,9 @@ export default function ContentTypeManagePage() {
           } else {
             setSelectedSlugs(new Set(failed.map((f) => f.slug)));
           }
+          queryClient.invalidateQueries({
+            queryKey: ["/api/content-types", contentType, "funnel-entries"],
+          });
         }}
       />
       <BulkDeleteStaticDialog
@@ -9343,6 +9662,7 @@ export default function ContentTypeManagePage() {
         onSaved={() => {
           queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "seo-entries"] });
           queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "static-entries"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "funnel-entries"] });
         }}
       />
 

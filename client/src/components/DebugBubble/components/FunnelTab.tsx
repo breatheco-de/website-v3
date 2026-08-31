@@ -480,6 +480,9 @@ export function FunnelTab({
       void queryClient.invalidateQueries({
         queryKey: [`/api/content-types/${contentInfo.type}/funnel/${contentInfo.slug}`],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentInfo.type, "funnel-entries"],
+      });
     },
   });
 
