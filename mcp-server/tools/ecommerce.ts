@@ -154,7 +154,7 @@ export function registerEcommerceTools(
                 ? [
                     {
                       tool: "explain_site",
-                      args: { topic: "ecommerce" },
+                      args_hint: { topic: "ecommerce" },
                       reason: "BigQuery may be unconfigured — check tracking.bigquery / staff /private/tracking/bigquery",
                     },
                   ]
