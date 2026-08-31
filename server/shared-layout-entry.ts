@@ -5,12 +5,20 @@
 
 import fs from "fs";
 import path from "path";
+import {
+  TEMPLATE_VERSIONING_SLUG,
+  isTemplateVersioningSlug,
+  isReservedTemplateVariantSlug,
+} from "@shared/sharedLayoutPaths";
 import { getContentTypeConfig, getFolder } from "./content-types";
 import { contentIndex } from "./content-index";
 import { getDefaultContentRoot } from "./site-config";
 
-/** Sentinel content slug for type-level (template) versioning APIs and paths. */
-export const TEMPLATE_VERSIONING_SLUG = "single";
+export {
+  TEMPLATE_VERSIONING_SLUG,
+  LEGACY_TEMPLATE_VERSIONING_SLUG,
+  isTemplateVersioningSlug,
+} from "@shared/sharedLayoutPaths";
 
 export function isSharedLayoutType(
   contentType: string,
@@ -41,7 +49,7 @@ export function isEntryDetached(
   slug: string,
   contentRoot?: string,
 ): boolean {
-  if (!slug || slug === TEMPLATE_VERSIONING_SLUG) return false;
+  if (!slug || isTemplateVersioningSlug(slug)) return false;
   if (!isSharedLayoutType(contentType, contentRoot)) return false;
 
   const commonPath = getEntryCommonPath(contentType, slug, contentRoot);
@@ -66,7 +74,7 @@ export function hasEntryLevelVersioning(
   entrySlug: string,
   contentRoot?: string,
 ): boolean {
-  if (!entrySlug || entrySlug === TEMPLATE_VERSIONING_SLUG) return false;
+  if (!entrySlug || isTemplateVersioningSlug(entrySlug)) return false;
   const root = contentRoot ?? getDefaultContentRoot();
   const folder = getFolder(contentType, root);
   const entryDir = path.join(root, folder, entrySlug);
@@ -78,7 +86,7 @@ export function hasEntryLevelVersioning(
       const m = /^([a-z0-9-]+)\.([a-z]{2}(?:-[a-zA-Z]+)?)\.ya?ml$/i.exec(name);
       if (!m) continue;
       const variantSlug = m[1];
-      if (variantSlug === "single" || variantSlug.startsWith("_")) continue;
+      if (isReservedTemplateVariantSlug(variantSlug) || variantSlug.startsWith("_")) continue;
       return true;
     }
   } catch {
@@ -89,7 +97,7 @@ export function hasEntryLevelVersioning(
 
 /**
  * Versioning identity for live traffic / HTML assignment:
- * - attached shared-layout → template (`single`) — shell A/B
+ * - attached shared-layout → template (`template`, alias `single`) — shell A/B
  * - detached or non-shared → entry slug
  *
  * Does **not** consider entry-level translation drafts; those use
@@ -130,7 +138,7 @@ export function resolveVersioningReadSlug(
 /**
  * Writable versioning target (promote / publish / create / delete / allocate).
  * Entry slugs are allowed while attached so translate_entry drafts can go live.
- * Pass content slug `single` for type-root template variants.
+ * Pass content slug `template` (or legacy `single`) for type-root template variants.
  */
 export function resolveWritableVersioningTarget(
   contentType: string,
@@ -143,22 +151,18 @@ export function resolveWritableVersioningTarget(
         ok: false,
         status: 400,
         error:
-          'Template versioning (slug "single") is only valid for shared-layout content types',
+          'Template versioning (slug "template") is only valid for shared-layout content types',
       };
     }
-    return { ok: true, slug: contentSlug, templateMode: true };
+    // Normalize legacy "single" to canonical "template" for writers
+    return { ok: true, slug: TEMPLATE_VERSIONING_SLUG, templateMode: true };
   }
   return { ok: true, slug: contentSlug, templateMode: false };
 }
 
-/** True when versioning APIs should use type-root paths (template mode). */
-export function isTemplateVersioningSlug(contentSlug: string): boolean {
-  return contentSlug === TEMPLATE_VERSIONING_SLUG;
-}
-
 /**
  * Folder slug for preview/read APIs. Locale/URL slugs map via ContentIndex;
- * the template shell (`single`) is left unchanged.
+ * the template shell (`template`) is left unchanged.
  */
 export function resolvePreviewBaseSlug(
   slug: string,

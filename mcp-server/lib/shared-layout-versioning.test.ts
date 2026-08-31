@@ -28,11 +28,11 @@ describe("versioningApiSlug / entry-level drafts", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("remaps attached entries to single when no entry drafts", () => {
+  it("remaps attached entries to template when no entry drafts", () => {
     const entryDir = path.join(contentPath, "blog", "my-post");
     fs.mkdirSync(entryDir, { recursive: true });
     fs.writeFileSync(path.join(entryDir, "_common.yml"), "slug: my-post\n");
-    expect(versioningApiSlug("blog", "my-post", contentPath)).toBe("single");
+    expect(versioningApiSlug("blog", "my-post", contentPath)).toBe("template");
   });
 
   it("keeps entry slug when translate drafts exist", () => {

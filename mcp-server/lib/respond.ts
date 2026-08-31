@@ -127,7 +127,7 @@ export function promoteWarnings(sharedLayout: boolean): McpWarning[] {
     warnings.push({
       code: "promote_shared_layout_drift",
       message:
-        "This content type uses a shared layout. Promoting a variant does not update sibling locale singles or other entries. The newly promoted live file may no longer match the shared layout structure. You must manually reconcile: either (A) edit the promoted live entry/locale so its structure aligns with the shared single.{locale}.yml peers, or (B) intentionally update the shared layout / other entries to adopt what this promoted variant introduced — then sync allowlisted structure across sibling locales via next_actions on those live shared-layout edits. Do not assume promote fixed shared layout.",
+        "This content type uses a shared layout. Promoting a variant does not update sibling locale templates or other entries. The newly promoted live file may no longer match the shared layout structure. You must manually reconcile: either (A) edit the promoted live entry/locale so its structure aligns with the shared template.{locale}.yml peers, or (B) intentionally update the shared layout / other entries to adopt what this promoted variant introduced — then sync allowlisted structure across sibling locales via next_actions on those live shared-layout edits. Do not assume promote fixed shared layout.",
     });
   }
   return warnings;

@@ -10,12 +10,39 @@ If the change is not relevant to staff or agents (e.g. typo, pure CSS, dependenc
 
 ## Staff vs agents
 
-- **Staff (UI):** More detailed and explanatory. Always-visible how-it-works; optional **Read more (advanced)** with concrete relative file paths; empty states that teach; banners when dual write paths exist. Prefer clarity over brevity.
+- **Staff (UI):** Plain English about **this** surface. Always-visible copy answers: what am I deciding, what happens if I confirm, what does not change. Optional **Read more (advanced)** for under-the-hood, schemas, and relative file paths. Empty states that teach; banners when dual write paths exist.
 - **Agents (MCP):** Denser communications — short tool descriptions plus structured `warnings` / `side_effects` / `next_actions` with paths and non-effects. Agents read technical material well; keep payloads efficient **with no loss of facts** (precedence, locale scope, non-effects, which file). A staff paragraph may become three MCP fields; do not drop a non-effect or path to save tokens.
 - Mutating MCP tools follow [mcp-server-responses.mdc](mcp-server-responses.mdc).
 
-## Exemplars
+## Staff UI writing (required)
 
-- Partial Override dialog on Content Type manage (`ContentTypeManagePage`)
+Education that confuses is worse than none. Follow these when writing or reviewing staff copy:
+
+1. **Context first** — Only explain the decision this modal/panel/tab is for. Do not open with adjacent systems (`meta.page_title`, `fill_intent`, strategy, validators, file paths) unless this UI is specifically about those.
+2. **Plain English** — Staff words: live, draft, publish, template, detach. Save code identifiers and repo paths for **Read more (advanced)**.
+3. **Do not repeat the controls** — If a toggle/button already states the mode and a one-line meaning, the intro must not restate each option. Intro = framing; controls = choices.
+4. **Few concepts** — Prefer 2–3 short sentences over a checklist of prerequisites from other features. Prerequisites that block an action belong in the error/toast when the action fails, or behind advanced — not as the first paragraph.
+5. **Clarity ≠ length** — “Prefer clarity over brevity” means fewer jargon jumps and clearer cause/effect, not dumping every related subsystem on screen.
+6. **Advanced is opt-in** — Paths, merge rules, schema keys, and “under the hood” stay behind **Read more (advanced)**. Always-visible copy must still make sense if advanced is never opened.
+
+### Anti-patterns
+
+| Anti-pattern | Do instead |
+|---|---|
+| Lead with SEO meta / fill_intent / file paths in a “pick required mode” dialog | Explain required-for-live in plain English; put technical gates in advanced or toasts |
+| Restate every button’s description above the button bar | Let the controls teach the options |
+| Always-visible wall of related systems “so staff learn the platform” | Teach this decision; link deeper knowledge to advanced or the surface that owns it |
+| Invent education on typo/CSS plans | Mark Education layer **N/A** |
+
+## Exemplars (good)
+
+- Partial Override dialog on Content Type manage (`ContentTypeManagePage`) — plain “what / what you can customize / what still comes from DB”, advanced for merge/paths
 - Media Gallery overrides panel
-- SEO Fields tab (`MappingFieldsTab`) — intro + advanced with paths
+- SEO Fields tab (`MappingFieldsTab`) — intro about that tab’s job + advanced with paths
+
+## Plan section shape
+
+In the plan’s **Education layer**, state briefly:
+
+- **Staff:** always-visible framing (1–3 sentences) + whether advanced is needed and what it contains
+- **Agents:** which MCP fields/warnings carry the dense facts (or N/A)

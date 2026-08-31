@@ -134,6 +134,11 @@ import {
 } from "../content-types";
 import { isEntryDetached, isSharedLayoutType } from "../shared-layout-entry";
 import {
+  resolveCommonTemplatePath,
+  resolveTemplateLocalePath,
+  LIVE_SHELL_BASENAME_RE,
+} from "../shared-layout-paths";
+import {
   buildRawFileExplain,
   localeFromYamlFilename,
   rawFileRole,
@@ -190,6 +195,8 @@ import {
   BREATHECODE_HOST,
   extractToken,
   requireCapability,
+  requireStaffSession,
+  isMcpLoopbackRequest,
   safeYamlLoad,
   safeYamlDump,
   resolveVariantAssignment,
@@ -221,6 +228,12 @@ import {
   FixerItemStatus,
   markContentFileModified,
 } from "./_helpers";
+import {
+  DEMO_HASH_RE,
+  createDemo,
+  parseAndValidateDemoYaml,
+  readDemo,
+} from "../component-section-demos";
 import { child } from "../logger";
 const log = child({ module: "routes/components" });
 
@@ -237,6 +250,100 @@ function getContentRootName(res: Response): string {
 }
 
 export function registerComponentsRoutes(app: Express): void {
+
+  // Disposable single-section demos (MCP create → /private/demo/:hash preview).
+  // GET is public (hash is the secret). POST requires MCP loopback or staff.
+  app.get("/api/component-section-demos/:hash", (req, res) => {
+    const { hash } = req.params;
+    if (!DEMO_HASH_RE.test(hash)) {
+      res.status(400).json({ error: "Invalid demo hash" });
+      return;
+    }
+    const demo = readDemo(hash);
+    if (!demo) {
+      res.status(404).json({ error: "Demo not found" });
+      return;
+    }
+    res.json({
+      hash,
+      componentType: demo.component_type,
+      version: demo.version,
+      createdAt: demo.created_at,
+      section: demo.section,
+    });
+  });
+
+  app.post("/api/component-section-demos", async (req, res) => {
+    try {
+      if (!isMcpLoopbackRequest(req)) {
+        const staff = await requireStaffSession(req, res);
+        if (!staff.authorized) return;
+      }
+
+      const componentType =
+        typeof req.body?.componentType === "string" ? req.body.componentType.trim() : "";
+      const version =
+        typeof req.body?.version === "string" ? req.body.version.trim() : undefined;
+      const yamlText =
+        typeof req.body?.yaml === "string"
+          ? req.body.yaml
+          : typeof req.body?.yamlText === "string"
+            ? req.body.yamlText
+            : "";
+
+      if (!componentType) {
+        res.status(400).json({ error: "componentType is required" });
+        return;
+      }
+      if (!yamlText.trim()) {
+        res.status(400).json({ error: "yaml is required" });
+        return;
+      }
+
+      const contentFolder = getContentRootName(res);
+      const validated = parseAndValidateDemoYaml({
+        yamlText,
+        componentType,
+        version,
+        contentFolder,
+      });
+      if (!validated.ok) {
+        res.status(400).json({
+          error: validated.error.message,
+          property_path: validated.error.property_path,
+          details: validated.error.details,
+        });
+        return;
+      }
+
+      let created: ReturnType<typeof createDemo>;
+      try {
+        created = createDemo({
+          componentType,
+          version: validated.version,
+          section: validated.section,
+        });
+      } catch (e) {
+        const message = (e as Error).message;
+        if (message.includes("SITE_URL")) {
+          res.status(500).json({ error: message });
+          return;
+        }
+        throw e;
+      }
+
+      res.status(201).json({
+        hash: created.hash,
+        preview_url: created.previewUrl,
+        path: created.relativePath,
+        componentType,
+        version: validated.version,
+      });
+    } catch (error) {
+      log.error({ err: error }, "Failed to create component section demo");
+      res.status(500).json({ error: "Failed to create component section demo" });
+    }
+  });
 
   // Schema.org API endpoints
   app.get("/api/schema", (req, res) => {
@@ -819,9 +926,9 @@ export function registerComponentsRoutes(app: Express): void {
       const baseDir = path.join(contentRoot, folder);
       const isSharedLayout = isSharedLayoutType(contentType, contentRoot);
 
-      // Type-level single template: `_common.single.yml` (+ optional `single.{locale}.yml`)
-      // When variantSlug is provided, load `single.{variantSlug}.{locale}.yml` instead.
-      if (slug === "_common.single") {
+      // Type-level template shell: `_common.template.yml` (+ optional `template.{locale}.yml`)
+      // Accept legacy `_common.single` slug. When variantSlug is provided, load variant shell.
+      if (slug === "_common.single" || slug === "_common.template") {
         const variantSlug = req.query.variantSlug as string | undefined;
         const files: {
           locale?: { path: string; content: string; role?: string; locale?: string };
@@ -831,20 +938,26 @@ export function registerComponentsRoutes(app: Express): void {
         let localeFallback = false;
         let displayedLocale: string | null = null;
 
-        const singleCommonPath = path.join(baseDir, "_common.single.yml");
+        const singleCommonPath = resolveCommonTemplatePath(baseDir);
         if (fs.existsSync(singleCommonPath)) {
           files.common = {
-            path: `${contentRootName}/${folder}/_common.single.yml`,
+            path: `${contentRootName}/${folder}/${path.basename(singleCommonPath)}`,
             content: fs.readFileSync(singleCommonPath, "utf-8"),
             role: rawFileRole({ isTemplate: true, isCommon: true, variantSlug }),
           };
         }
 
         if (variantSlug) {
-          // Variant template: single.{variantSlug}.{locale}.yml
-          let singleLocalePath = path.join(baseDir, `single.${variantSlug}.${locale}.yml`);
+          // Variant template: template|single.{variantSlug}.{locale}.yml
+          let singleLocalePath = resolveTemplateLocalePath(baseDir, locale, {
+            variant: variantSlug,
+            fallbackLocale: "",
+          });
           if (!fs.existsSync(singleLocalePath)) {
-            const fallbackPath = path.join(baseDir, `single.${variantSlug}.en.yml`);
+            const fallbackPath = resolveTemplateLocalePath(baseDir, "en", {
+              variant: variantSlug,
+              fallbackLocale: "",
+            });
             if (fs.existsSync(fallbackPath)) {
               localeFallback = true;
               singleLocalePath = fallbackPath;
@@ -861,13 +974,20 @@ export function registerComponentsRoutes(app: Express): void {
             };
           }
         } else {
-          // Default template: load every `single.{locale}.yml` (not variant files)
+          // Default template: load every live shell (template.* prefer; dual-load single.*)
           const localeFiles: { path: string; content: string; locale: string; role: string }[] = [];
           if (fs.existsSync(baseDir)) {
+            const byLocale = new Map<string, string>();
             for (const name of fs.readdirSync(baseDir)) {
-              const match = name.match(/^single\.([a-z]{2,5})\.yml$/i);
+              const match = LIVE_SHELL_BASENAME_RE.exec(name);
               if (!match) continue;
               const localeCode = match[1].toLowerCase();
+              const existing = byLocale.get(localeCode);
+              if (!existing || /^template\./i.test(name)) {
+                byLocale.set(localeCode, name);
+              }
+            }
+            for (const [localeCode, name] of byLocale) {
               localeFiles.push({
                 path: `${contentRootName}/${folder}/${name}`,
                 content: fs.readFileSync(path.join(baseDir, name), "utf-8"),
@@ -900,7 +1020,7 @@ export function registerComponentsRoutes(app: Express): void {
           contentRootName,
           folder,
           contentType,
-          slug: "_common.single",
+          slug: "_common.template",
           isTemplate: true,
           isSharedLayout,
           detached: false,
@@ -911,7 +1031,7 @@ export function registerComponentsRoutes(app: Express): void {
           hasLocaleFile,
         });
 
-        res.json({ exists: true, files, resolvedSlug: "_common.single", context });
+        res.json({ exists: true, files, resolvedSlug: "_common.template", context });
         return;
       }
 

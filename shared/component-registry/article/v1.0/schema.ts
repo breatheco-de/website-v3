@@ -55,7 +55,7 @@ export const articleSectionSchema = z.object({
   category: z.string().optional().describe("Optional category chip in the article meta row"),
   category_url: z.string().optional().describe("Optional link for the category chip"),
   /**
-   * Hydrated author objects (from `{{ single.authors }}`) or legacy strings.
+   * Hydrated author objects (from `{{ entry.authors }}`) or legacy strings.
    * Byline joins names in array order (index 0 = primary).
    */
   authors: z
@@ -75,13 +75,13 @@ export const articleSectionSchema = z.object({
     )
     .optional()
     .describe(
-      "Author byline entries. Map explicitly: authors: '{{ single.authors }}'. Pointers hydrate on page/SSR.",
+      "Author byline entries. Map explicitly: authors: '{{ entry.authors }}'. Pointers hydrate on page/SSR.",
     ),
   updated_at: z
     .string()
     .optional()
     .describe(
-      "Editorial last-modified (same clock as manage Updated / sitemap lastmod / dateModified). Map: updated_at: '{{ single.updated_at }}'. Hidden when empty or unparseable.",
+      "Editorial last-modified (same clock as manage Updated / sitemap lastmod / dateModified). Map: updated_at: '{{ entry.updated_at }}'. Hidden when empty or unparseable.",
     ),
   section_id: z.string().optional().describe("Stable section id (also used as heading-id prefix on split pages)"),
 });

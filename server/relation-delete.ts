@@ -177,10 +177,3 @@ export function isProtectedContentSlug(
   const config = getContentTypeConfig(contentType, contentRoot);
   return !!config?.protected_slugs?.includes(slug);
 }
-
-export function isImmutableSlugContentType(
-  contentType: string,
-  contentRoot?: string,
-): boolean {
-  return !!getContentTypeConfig(contentType, contentRoot)?.immutable_slug;
-}

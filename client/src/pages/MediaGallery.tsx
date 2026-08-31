@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {AlertTriangle, ArrowLeft, Check, CheckCheck, ChevronDown, Cloud, Copy, Eye, FileText, Film, Folder, Image, Layers, Link as LinkIcon, ListChecks, Loader2, MoreHorizontal, Replace, Search, Settings, Square, SquareCheck, Stethoscope, Tags, Terminal, Trash2, Wand2, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, ArrowUpDown, Check, CheckCheck, ChevronDown, Cloud, Copy, Eye, FileText, Film, Folder, Image, Layers, Link as LinkIcon, ListChecks, Loader2, MoreHorizontal, Replace, Search, Settings, Square, SquareCheck, Stethoscope, Tags, Terminal, Trash2, Upload, Wand2, Wrench, X} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,7 @@ import {
   acceptAttrForDoctype,
   inferDoctypeFromSrc,
 } from "@shared/media-doctype";
+import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
@@ -382,6 +383,8 @@ export default function MediaGallery() {
   const [tagsExpanded, setTagsExpanded] = useState(false);
   const [doctypeExpanded, setDoctypeExpanded] = useState(false);
   const [showDerived, setShowDerived] = useState(false);
+  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "name" | "usage">("newest");
+  const [originFilter, setOriginFilter] = useState<"all" | "uploaded" | "ai">("all");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
@@ -422,6 +425,8 @@ export default function MediaGallery() {
   const [redundantResult, setRedundantResult] = useState<{ resolved: number; errors: string[] } | null>(null);
   const [redundantVisible, setRedundantVisible] = useState(10);
   const [detailImageId, setDetailImageId] = useState<string | null>(null);
+  const [addMediaOpen, setAddMediaOpen] = useState(false);
+  const [addMediaDoctype, setAddMediaDoctype] = useState<MediaDoctype>("image");
   const [scriptsOpen, setScriptsOpen] = useState(false);
   const [scriptMigrateFrom, setScriptMigrateFrom] = useState("local");
   const [scriptMigrateTo, setScriptMigrateTo] = useState("gcs");
@@ -465,6 +470,32 @@ export default function MediaGallery() {
     queryKey: ["/api/image-registry"],
     staleTime: 0,
     refetchOnMount: "always",
+  });
+
+  const detailEntry = detailImageId ? registry?.images?.[detailImageId] : undefined;
+  const detailIsAi =
+    !!detailEntry &&
+    ((detailEntry as { origin?: string }).origin === "ai" ||
+      (detailEntry as { ai?: { generated?: boolean } }).ai?.generated === true);
+
+  const { data: aiMeta, isLoading: aiMetaLoading } = useQuery<{
+    prompt?: string;
+    model?: string;
+    generated_at?: string;
+    aspect_ratio?: string;
+    requested_by?: { kind?: string; name?: string; id?: string };
+  } | null>({
+    queryKey: ["/api/image-registry", detailImageId, "ai-meta"],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/image-registry/${encodeURIComponent(detailImageId!)}/ai-meta`,
+      );
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("Failed to load AI meta");
+      return res.json();
+    },
+    enabled: !!detailImageId && detailIsAi,
+    staleTime: 60_000,
   });
 
   const { data: fixerList = [] } = useQuery<FixerMeta[]>({
@@ -1022,27 +1053,77 @@ export default function MediaGallery() {
   ];
 
   const filteredImages = registry?.images
-    ? Object.entries(registry.images).filter(([id, img]) => {
-        if (!showDerived && (img as { parentId?: string }).parentId) {
-          return false;
-        }
-        if (doctypeFilter !== "all") {
-          const dt = inferDoctypeFromSrc(img.src);
-          if (dt !== doctypeFilter) return false;
-        }
-        if (activeTagFilters.length > 0) {
-          const tagSet = new Set(activeTagFilters.map((t) => t.toLowerCase()));
-          const hasMatch = img.tags?.some((t) => tagSet.has(t.toLowerCase()));
-          if (!hasMatch) return false;
-        }
-        const searchLower = search.toLowerCase();
-        return (
-          id.toLowerCase().includes(searchLower) ||
-          img.alt.toLowerCase().includes(searchLower) ||
-          img.tags?.some((tag) => tag.toLowerCase().includes(searchLower))
-        );
-      })
+    ? Object.entries(registry.images)
+        .filter(([id, img]) => {
+          if (!showDerived && (img as { parentId?: string }).parentId) {
+            return false;
+          }
+          if (doctypeFilter !== "all") {
+            const dt = inferDoctypeFromSrc(img.src);
+            if (dt !== doctypeFilter) return false;
+          }
+          const isAi =
+            (img as { origin?: string }).origin === "ai" ||
+            (img as { ai?: { generated?: boolean } }).ai?.generated === true;
+          if (originFilter === "ai" && !isAi) return false;
+          if (originFilter === "uploaded" && isAi) return false;
+          if (activeTagFilters.length > 0) {
+            const tagSet = new Set(activeTagFilters.map((t) => t.toLowerCase()));
+            const hasMatch = img.tags?.some((t) => tagSet.has(t.toLowerCase()));
+            if (!hasMatch) return false;
+          }
+          const searchLower = search.toLowerCase();
+          if (!searchLower) return true;
+          const requestedBy = (img as {
+            ai?: { requested_by?: { name?: string; id?: string } };
+          }).ai?.requested_by;
+          return (
+            id.toLowerCase().includes(searchLower) ||
+            img.alt.toLowerCase().includes(searchLower) ||
+            img.tags?.some((tag) => tag.toLowerCase().includes(searchLower)) ||
+            (requestedBy?.name || "").toLowerCase().includes(searchLower) ||
+            (requestedBy?.id || "").toLowerCase().includes(searchLower)
+          );
+        })
+        .sort(([idA, a], [idB, b]) => {
+          if (sortBy === "name") {
+            return idA.localeCompare(idB);
+          }
+          if (sortBy === "usage") {
+            const ua = a.usage_count ?? 0;
+            const ub = b.usage_count ?? 0;
+            if (ub !== ua) return ub - ua;
+            return idA.localeCompare(idB);
+          }
+          const ta = Date.parse(
+            (a as { registered_at?: string }).registered_at ||
+              (a as { ai?: { generated_at?: string } }).ai?.generated_at ||
+              "",
+          );
+          const tb = Date.parse(
+            (b as { registered_at?: string }).registered_at ||
+              (b as { ai?: { generated_at?: string } }).ai?.generated_at ||
+              "",
+          );
+          const aValid = Number.isFinite(ta);
+          const bValid = Number.isFinite(tb);
+          // Legacy rows without a timestamp sort last when Newest, first when Oldest
+          if (aValid !== bValid) {
+            if (sortBy === "newest") return aValid ? -1 : 1;
+            return aValid ? 1 : -1;
+          }
+          if (aValid && bValid && ta !== tb) {
+            return sortBy === "newest" ? tb - ta : ta - tb;
+          }
+          return idA.localeCompare(idB);
+        })
     : [];
+
+  const focusNewestAfterAdd = () => {
+    setSortBy("newest");
+    setVisibleCount(PAGE_SIZE);
+    setSearch("");
+  };
 
   const handleSelectAll = () => {
     const allIds = filteredImages.map(([id]) => id);
@@ -1076,7 +1157,7 @@ export default function MediaGallery() {
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [search, activeTagFilters, doctypeFilter]);
+  }, [search, activeTagFilters, doctypeFilter, sortBy, originFilter]);
 
   const visibleImages = filteredImages.slice(0, visibleCount);
   const hasMore = visibleCount < filteredImages.length;
@@ -1488,6 +1569,134 @@ export default function MediaGallery() {
                   >
                     <span className="text-xs">Derived</span>
                   </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={originFilter !== "all" ? "secondary" : "outline"}
+                        className="h-8 shrink-0 gap-1.5"
+                        data-testid="button-gallery-origin"
+                      >
+                        <span className="text-xs">
+                          {originFilter === "ai"
+                            ? "AI"
+                            : originFilter === "uploaded"
+                              ? "Uploaded"
+                              : "Origin"}
+                        </span>
+                        <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {(
+                        [
+                          { key: "all" as const, label: "All" },
+                          { key: "uploaded" as const, label: "Uploaded" },
+                          { key: "ai" as const, label: "AI" },
+                        ] as const
+                      ).map(({ key, label }) => (
+                        <DropdownMenuItem
+                          key={key}
+                          data-testid={`menu-origin-${key}`}
+                          onClick={() => setOriginFilter(key)}
+                          className="gap-2"
+                        >
+                          <Check
+                            className={`h-3.5 w-3.5 ${originFilter === key ? "opacity-100" : "opacity-0"}`}
+                          />
+                          {label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 shrink-0 gap-1.5"
+                        data-testid="button-gallery-sort"
+                      >
+                        <ArrowUpDown className="h-3.5 w-3.5" />
+                        <span className="text-xs">
+                          {sortBy === "newest"
+                            ? "Newest"
+                            : sortBy === "oldest"
+                              ? "Oldest"
+                              : sortBy === "usage"
+                                ? "Most used"
+                                : "Name"}
+                        </span>
+                        <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {(
+                        [
+                          { key: "newest" as const, label: "Newest" },
+                          { key: "oldest" as const, label: "Oldest" },
+                          { key: "name" as const, label: "Name A–Z" },
+                          { key: "usage" as const, label: "Most used" },
+                        ] as const
+                      ).map(({ key, label }) => (
+                        <DropdownMenuItem
+                          key={key}
+                          data-testid={`menu-sort-${key}`}
+                          onClick={() => setSortBy(key)}
+                          className="gap-2"
+                        >
+                          <Check
+                            className={`h-3.5 w-3.5 ${sortBy === key ? "opacity-100" : "opacity-0"}`}
+                          />
+                          {label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="sm"
+                        className="h-8 shrink-0 gap-1.5"
+                        data-testid="button-add-gallery-media"
+                      >
+                        <Upload className="h-4 w-4" />
+                        Add media
+                        <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        data-testid="menu-add-media-image"
+                        onClick={() => {
+                          setAddMediaDoctype("image");
+                          setAddMediaOpen(true);
+                        }}
+                      >
+                        Image
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        data-testid="menu-add-media-video"
+                        onClick={() => {
+                          setAddMediaDoctype("video");
+                          setAddMediaOpen(true);
+                        }}
+                      >
+                        Video
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        data-testid="menu-add-media-pdf"
+                        onClick={() => {
+                          setAddMediaDoctype("pdf");
+                          setAddMediaOpen(true);
+                        }}
+                      >
+                        PDF
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
 
                 {doctypeExpanded && (
@@ -1559,6 +1768,7 @@ export default function MediaGallery() {
                       onClick={() => {
                         setDoctypeFilter("all");
                         setActiveTagFilters([]);
+                        setOriginFilter("all");
                       }}
                       data-testid="button-clear-gallery-filters"
                     >
@@ -1574,7 +1784,7 @@ export default function MediaGallery() {
 
       <div className="container mx-auto px-4 py-6 max-w-7xl">
         <p className="text-xs text-muted-foreground mb-4" data-testid="text-gallery-doctype-hint">
-          Holds images, videos, and PDFs. Use Type and Tags to filter; tags work the same for all media.
+          Holds images, videos, and PDFs. Use Type and Tags to filter; Sort to change order (Newest by default).
           Crop and optimize apply to images only.
         </p>
 
@@ -2333,7 +2543,13 @@ export default function MediaGallery() {
               <div className="text-center py-16">
                 <Image className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-muted-foreground" data-testid="text-no-results">
-                  {search ? "No images match your search" : "No images in registry"}
+                  {search
+                    ? "No images match your search"
+                    : originFilter === "ai"
+                      ? "No AI images in the registry"
+                      : originFilter === "uploaded"
+                        ? "No uploaded images match"
+                        : "No images in registry"}
                 </p>
               </div>
             )}
@@ -3128,6 +3344,68 @@ export default function MediaGallery() {
                     <p className="text-xs text-muted-foreground mb-1">Source</p>
                     <p className="text-xs font-mono break-all" data-testid="text-detail-src">{img.src}</p>
                   </div>
+                  {(img.origin === "ai" || img.ai?.generated) && (
+                    <div className="rounded-md border p-3 space-y-2" data-testid="panel-ai-details">
+                      <p className="text-xs font-medium">AI details</p>
+                      {(img.ai?.requested_by?.name || img.ai?.requested_by?.id) && (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-0.5">Generated by</p>
+                          <p className="text-sm" data-testid="text-detail-ai-requester">
+                            {img.ai.requested_by.kind === "agent" ? "Agent" : img.ai.requested_by.kind === "system" ? "System" : "User"}
+                            {": "}
+                            {img.ai.requested_by.name || img.ai.requested_by.id}
+                          </p>
+                        </div>
+                      )}
+                      {(img.ai?.generated_at || img.registered_at) && (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-0.5">Generated</p>
+                          <p className="text-sm text-muted-foreground">
+                            {img.ai?.generated_at || img.registered_at}
+                          </p>
+                        </div>
+                      )}
+                      {aiMetaLoading && (
+                        <p className="text-xs text-muted-foreground">Loading prompt & model…</p>
+                      )}
+                      {!aiMetaLoading && aiMeta && (
+                        <>
+                          {aiMeta.model && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-0.5">Model</p>
+                              <code className="text-xs" data-testid="text-detail-ai-model">
+                                {aiMeta.model}
+                              </code>
+                            </div>
+                          )}
+                          {aiMeta.prompt && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-0.5">Prompt</p>
+                              <p className="text-sm whitespace-pre-wrap" data-testid="text-detail-ai-prompt">
+                                {aiMeta.prompt}
+                              </p>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      {!aiMetaLoading && !aiMeta && (img.ai?.prompt || img.ai?.model) && (
+                        <>
+                          {img.ai.model && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-0.5">Model</p>
+                              <code className="text-xs">{img.ai.model}</code>
+                            </div>
+                          )}
+                          {img.ai.prompt && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-0.5">Prompt</p>
+                              <p className="text-sm whitespace-pre-wrap">{img.ai.prompt}</p>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                   {img.tags && img.tags.length > 0 && (
                     <div>
                       <p className="text-xs text-muted-foreground mb-1">Tags</p>
@@ -3741,6 +4019,25 @@ export default function MediaGallery() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <ImagePickerDialog
+        open={addMediaOpen}
+        onOpenChange={setAddMediaOpen}
+        title={
+          addMediaDoctype === "video"
+            ? "Add video"
+            : addMediaDoctype === "pdf"
+              ? "Add PDF"
+              : "Add image"
+        }
+        doctype={addMediaDoctype}
+        initialMode="upload"
+        uploadOnly
+        closeOnSuccessfulUpload
+        onSave={async () => {
+          focusNewestAfterAdd();
+        }}
+      />
 
       <RunQueueSidebar
         open={runQueueOpen}

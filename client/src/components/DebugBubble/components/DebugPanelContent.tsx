@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Bot, Brain, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Globe, Home, Image, Languages, Map, Menu, MessageCircle, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
 import { IconServer, IconShoppingBag, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle, IconSwitchHorizontal } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
@@ -396,7 +395,17 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
     if (!versionData?.deployedAt) return null;
     const deployedDate = new Date(versionData.deployedAt);
     if (Number.isNaN(deployedDate.getTime())) return null;
-    return formatDistanceToNow(deployedDate, { addSuffix: true });
+    const diffSec = Math.max(0, Math.floor((Date.now() - deployedDate.getTime()) / 1000));
+    if (diffSec < 60) return "just now";
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    if (diffDay < 30) return `${diffDay}d ago`;
+    const diffMo = Math.floor(diffDay / 30);
+    if (diffMo < 12) return `${diffMo}mo ago`;
+    return `${Math.floor(diffDay / 365)}y ago`;
   })();
 
   const { data: errorLogData } = useQuery<{ totalErrors: number; totalWarnings: number }>({
@@ -1378,7 +1387,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                     Detach copies the live shared template structure into this entry&apos;s <strong>existing</strong> locale YAML files and sets{" "}
                     <code className="text-[11px]">detached: true</code> in{" "}
                     <code className="text-[11px]">_common.yml</code>. Template variables like{" "}
-                    <code className="text-[11px]">{"{{ single.* }}"}</code> are preserved, not resolved.
+                    <code className="text-[11px]">{"{{ entry.* }}"}</code> are preserved, not resolved.
                     Paths: <code className="text-[11px]">server/shared-layout-detach.ts</code>, emptiness rules in{" "}
                     <code className="text-[11px]">shared/isEmptyLocaleContent.ts</code>.
                   </p>

@@ -138,7 +138,9 @@ programs:
       label: Your learning path
       view_details_label: View details
       items:
-        - value: "1713"
+        - value:
+            - "1713"
+            - "1801"
           name: The Builder
           tagline: Build apps with AI coding assistants
           hrs: "~30 hrs"

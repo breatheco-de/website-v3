@@ -10,6 +10,7 @@ import {
   type VariableDefinition,
   type VariableContext as VarCtx,
 } from "@/lib/variable-manager";
+import { isEntryOrSingleVarName } from "@shared/entryTemplateVars";
 import { VariableDetailModal } from "./VariableDetailModal";
 import { VariableTypeChooserModal } from "./VariableTypeChooserModal";
 import { SingleVariablePickerModal } from "./SingleVariablePickerModal";
@@ -472,7 +473,7 @@ export function VariableModalHost() {
   useEffect(() => {
     const handleClick = (e: Event) => {
       const detail = (e as CustomEvent<VariableClickDetail>).detail;
-      const isSingleVar = detail.variableName.startsWith("single.");
+      const isSingleVar = isEntryOrSingleVarName(detail.variableName);
       setModalState({
         variableName: detail.variableName,
         inlineDefault: detail.inlineDefault,

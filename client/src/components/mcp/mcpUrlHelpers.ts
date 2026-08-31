@@ -2,25 +2,37 @@ export function isLocalOrigin(origin: string): boolean {
   return origin.includes("localhost") || origin.includes("127.0.0.1");
 }
 
+function mcpPath(roleId?: string | null): string {
+  if (roleId) return `/mcp/role/${roleId}`;
+  return "/mcp";
+}
+
+/** Config key for mcpServers / CLI (unique per role for multi-connector hosts). */
+export function mcpServerConfigKey(roleId?: string | null): string {
+  return roleId ? `4geeks-cms-${roleId}` : "4geeks-cms";
+}
+
 /** Direct MCP process URL (port 3001 on local; same origin elsewhere via proxy). */
-export function getMcpServerUrl(): string {
+export function getMcpServerUrl(roleId?: string | null): string {
   const origin = window.location.origin;
+  const path = mcpPath(roleId);
   if (isLocalOrigin(origin)) {
-    return `${origin.replace(/:\d+$/, ":3001")}/mcp`;
+    return `${origin.replace(/:\d+$/, ":3001")}${path}`;
   }
-  return `${origin}/mcp`;
+  return `${origin}${path}`;
 }
 
 /** Prefer main-app proxied URL for cloud agents (works when MCP is behind the site). */
-export function getPublicConnectorUrl(): string {
-  return `${window.location.origin}/mcp`;
+export function getPublicConnectorUrl(roleId?: string | null): string {
+  return `${window.location.origin}${mcpPath(roleId)}`;
 }
 
-export function buildHttpMcpConfig(mcpUrl: string): string {
+export function buildHttpMcpConfig(mcpUrl: string, roleId?: string | null): string {
+  const key = mcpServerConfigKey(roleId);
   return JSON.stringify(
     {
       mcpServers: {
-        "4geeks-cms": {
+        [key]: {
           url: mcpUrl,
         },
       },
@@ -30,11 +42,12 @@ export function buildHttpMcpConfig(mcpUrl: string): string {
   );
 }
 
-export function buildClaudeDesktopConfig(mcpUrl: string): string {
+export function buildClaudeDesktopConfig(mcpUrl: string, roleId?: string | null): string {
+  const key = mcpServerConfigKey(roleId);
   return JSON.stringify(
     {
       mcpServers: {
-        "4geeks-cms": {
+        [key]: {
           type: "http",
           url: mcpUrl,
         },
@@ -45,8 +58,9 @@ export function buildClaudeDesktopConfig(mcpUrl: string): string {
   );
 }
 
-export function buildClaudeCodeCli(mcpUrl: string): string {
-  return `claude mcp add --transport http 4geeks-cms ${mcpUrl}`;
+export function buildClaudeCodeCli(mcpUrl: string, roleId?: string | null): string {
+  const key = mcpServerConfigKey(roleId);
+  return `claude mcp add --transport http ${key} ${mcpUrl}`;
 }
 
 export type McpSetupTabId =
@@ -75,12 +89,14 @@ export function resolveCloudConnectorUrl(opts: {
   siteDomain?: string | null;
   localDev: boolean;
   publicUrl: string;
+  roleId?: string | null;
 }): string | null {
+  const path = mcpPath(opts.roleId);
   const fromEnv = opts.siteUrl?.replace(/\/$/, "");
-  if (fromEnv) return `${fromEnv}/mcp`;
+  if (fromEnv) return `${fromEnv}${path}`;
   const domain = opts.siteDomain?.replace(/^https?:\/\//, "").replace(/\/$/, "");
   if (domain && !domain.includes("localhost") && !domain.includes("127.0.0.1")) {
-    return `https://${domain}/mcp`;
+    return `https://${domain}${path}`;
   }
   if (!opts.localDev) return opts.publicUrl;
   return null;

@@ -53,7 +53,7 @@ We run a content-driven marketing site. Public pages are authored in YAML and re
 - **Locales** — `en.yml` / `es.yml` plus `_common.yml` merged at read time.
 - **Sections** — ordered list of typed blocks on ordinary pages. Agents edit them with section tools; SEO/meta goes through meta tools. Mixing those paths is a common agent mistake we reject in the server.
 
-Some types are ordinary “page of sections.” Others are **shared-layout**: a shell lives in `single.{locale}.yml` (hero, article wrapper, breadcrumb, CTA, FAQ), and each attached entry only carries fields like `title`, `description`, `content`, `category`, with `sections: []`. Blog is the textbook case — YAML plus `single_template`, creatable via MCP, and **not** the same thing as DB-backed types. Confusing those two is how agents skip `create_entry` or invent a draft workflow that does not exist for that type.
+Some types are ordinary “page of sections.” Others are **shared-layout**: a shell lives in `template.{locale}.yml` (hero, article wrapper, breadcrumb, CTA, FAQ; legacy `single.*` still loads if present), and each attached entry only carries fields like `title`, `description`, `content`, `category`, with `sections: []`. Blog is the textbook case — YAML plus `single_template`, creatable via MCP, and **not** the same thing as DB-backed types. Confusing those two is how agents skip `create_entry` or invent a draft workflow that does not exist for that type.
 
 Multi-site means: call `list_sites` when more than one domain exists, then pass `site` on every later call. Ambiguous site is a gate, not a coin flip.
 
@@ -123,7 +123,7 @@ The rule we use internally is blunt: prefer dense structured education over long
 
 ### 3. Guide, don’t fan out
 
-We deliberately do **not** auto-fan-out sibling `single.*.yml` files from MCP writes. Locale sync for shared templates is agent-driven via `next_actions`. Soft prose alone is not enough; the follow-up must name a real tool and carry blast-radius reason text (“shared template,” sibling structure rules, what breaks if you skip it).
+We deliberately do **not** auto-fan-out sibling `template.*.yml` files from MCP writes. Locale sync for shared templates is agent-driven via `next_actions`. Soft prose alone is not enough; the follow-up must name a real tool and carry blast-radius reason text (“shared template,” sibling structure rules, what breaks if you skip it).
 
 Why refuse fan-out? Surprise multi-file writes are worse than an extra round trip. Agents (and humans reviewing transcripts) need to see each locale intentionally updated. Silent sync also fights the mental model that MCP loopback skips the main app’s shared-layout fan-out path — the agent is the orchestrator.
 
@@ -186,7 +186,7 @@ It did not start with `create_entry`.
 
 First it loaded the relevant tools (deferred tools required an explicit search step in that client). Then it proposed — and ran — `get_content_type_info` for `blog` with the site domain. The contract came back clear: shared-layout / `single_template`, live create in one locale, `sections` must be empty, URL pattern with `:category`, required fields `title`, `description`, `content`. Observed category values already included the series slug the article belonged to. Optional fields were listed separately so the agent would not invent requirements.
 
-The response recommended `explain_site` with topic `shared-layout` (`priority: "recommended"`). The agent treated that as blocking for its own confidence: shared-layout means publish-live-immediately, so reading the playbook was cheaper than a bad create. The playbook repeated the mental model: shell in `single.{locale}.yml`; entry fields only on the slug; do not paste hero/breadcrumb/article into the entry; use observed peers for category; verify afterward.
+The response recommended `explain_site` with topic `shared-layout` (`priority: "recommended"`). The agent treated that as blocking for its own confidence: shared-layout means publish-live-immediately, so reading the playbook was cheaper than a bad create. The playbook repeated the mental model: shell in `template.{locale}.yml`; entry fields only on the slug; do not paste hero/breadcrumb/article into the entry; use observed peers for category; verify afterward.
 
 Then it sampled peers with `list_entries` (content type `blog`, search on the series) to confirm the category slug in the wild and to see how published markdown looked — headings, spacing, how images are referenced — before drafting the new body.
 
@@ -199,7 +199,7 @@ That is what “agents can manage our website content” looks like in practice:
 Standards are as much about refusals as features.
 
 - **No parallel `*_shared` tool families.** One set of tools plus `layout_target` beats a second vocabulary for “the same write but on the shell.”
-- **No MCP locale auto-fan-out.** Sibling `single.*.yml` updates are explicit agent steps via `next_actions`. Surprising multi-file writes are worse than an extra round trip.
+- **No MCP locale auto-fan-out.** Sibling `template.*.yml` updates are explicit agent steps via `next_actions`. Surprising multi-file writes are worse than an extra round trip.
 - **No inventing URL-param values without a principal.** New categories are product decisions; `confirm_new_values` exists for a reason.
 - **No success payloads that omit `warnings` / `next_actions`.** Empty arrays are honest. Missing keys teach agents to ignore the contract.
 - **No burying blast radius only in prose.** Paths and non-effects belong in structured fields.

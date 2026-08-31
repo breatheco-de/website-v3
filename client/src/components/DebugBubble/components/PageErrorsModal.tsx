@@ -10,8 +10,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { PageDiagnostics } from "../types";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
@@ -43,16 +46,11 @@ import {
   IconLock,
   IconLockOpen,
   IconRefresh,
-  IconSparkles,
   IconUser,
 } from "@tabler/icons-react";
 import * as Flags from "country-flag-icons/react/3x2";
-import {
-  SOLVE_WITH_AI_MENU,
-  buildSolveWithAiPrompt,
-  type SolveWithAiAgentId,
-} from "../solveWithAiPrompt";
-import { SolveWithAiAgentIcon } from "../SolveWithAiAgentIcon";
+import { buildSolveWithAiPrompt, type SolveWithAiAgentId } from "../solveWithAiPrompt";
+import { SolveWithAiAgentDropdown } from "../SolveWithAiAgentDropdown";
 import type { McpSetupTabId } from "@/components/mcp/mcpUrlHelpers";
 
 /** Validators that make sense for a single page (entry-local only). */
@@ -400,7 +398,8 @@ function IssueCard({
       issue.file ||
       cacheBuiltAt ||
       issue.completed ||
-      issue.claimed,
+      issue.claimed ||
+      (issue.attempts && issue.attempts.length > 0),
   );
 
   return (
@@ -529,7 +528,7 @@ function IssueCard({
                   title={
                     isCompleted
                       ? "Mark as open"
-                      : "Mark as fixed — hides until the next cache write"
+                      : "Mark as fixed — re-checks live content for this page; refuses if still failing"
                   }
                   disabled={togglePending}
                   onClick={(e) => {
@@ -578,6 +577,22 @@ function IssueCard({
                   Cache built at {new Date(cacheBuiltAt).toLocaleString()}
                 </div>
               )}
+              {issue.attempts && issue.attempts.length > 0 && !isCompleted && (
+                <div className="text-xs text-muted-foreground space-y-1 pt-1 border-t border-border/50">
+                  <div className="font-medium text-foreground">
+                    Tried {issue.attempts.length}×
+                  </div>
+                  {issue.attempts.slice(0, 3).map((a, i) => (
+                    <div key={`${a.at}-${i}`}>
+                      {a.reason === "ttl_expired"
+                        ? `Claim expired (30m) — ${formatIssueActorLine(a.by, a.actor)}`
+                        : `Released by ${formatIssueActorLine(a.by, a.actor)}`}
+                      {a.claimedBy && a.claimedBy !== a.by ? ` (held by ${a.claimedBy})` : ""}
+                      {a.report ? `: ${a.report}` : ""}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </CollapsibleContent>
         )}
@@ -601,16 +616,16 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   const [isRunningValidation, setIsRunningValidation] = useState(false);
   const [activeTab, setActiveTab] = useState<"errors" | "warnings" | "crawlers">("errors");
   const [openPageMenuOpen, setOpenPageMenuOpen] = useState(false);
-  const [solveMenuOpen, setSolveMenuOpen] = useState(false);
   const [completedErrorsOpen, setCompletedErrorsOpen] = useState(false);
   const [completedWarningsOpen, setCompletedWarningsOpen] = useState(false);
   const [togglingIssueId, setTogglingIssueId] = useState<string | null>(null);
+  const [releaseTarget, setReleaseTarget] = useState<PageIssue | null>(null);
+  const [releaseReport, setReleaseReport] = useState("");
   const openPageMenuRef = useRef<HTMLDivElement>(null);
-  const solveMenuRef = useRef<HTMLDivElement>(null);
   const formatSitePath = useFormatSitePath();
   const queryClient = useQueryClient();
   const { hasCapability } = useDebugAuth();
-  const canInspect = hasCapability("seo_edit");
+  const canInspect = hasCapability("seo_settings");
   const { toast } = useToast();
 
   const allErrors = pageDiagnostics?.issues?.filter((i) => i.type === "error") ?? [];
@@ -620,13 +635,20 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   const completedErrors = allErrors.filter((i) => i.completed);
   const completedWarnings = allWarnings.filter((i) => i.completed);
   const canSolveWithAi = Boolean(pageDiagnostics && (errors.length > 0 || warnings.length > 0));
+  const solvePrompt = pageDiagnostics ? buildSolveWithAiPrompt(pageDiagnostics) : "";
   const openPageUrl = pageUrl ?? pageDiagnostics?.url;
   const inspectLookupUrl = openPageUrl || "";
 
   const handleUpdateIssue = async (
     issue: PageIssue,
     action: "claim" | "release" | "complete" | "uncomplete",
+    report?: string,
   ) => {
+    if (action === "release" && report === undefined) {
+      setReleaseTarget(issue);
+      setReleaseReport("");
+      return;
+    }
     if (!issue.id) {
       toast({
         title: "Cannot update issue",
@@ -645,12 +667,18 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
           ...getSessionHeaders(),
           ...(token ? { Authorization: `Token ${token}` } : {}),
         },
-        body: JSON.stringify({ issueId: issue.id, action }),
+        body: JSON.stringify({
+          issueId: issue.id,
+          action,
+          ...(report ? { report } : {}),
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(typeof body.error === "string" ? body.error : "Update failed");
       }
+      setReleaseTarget(null);
+      setReleaseReport("");
       await onRefreshDiagnostics?.();
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-issues"] });
@@ -727,7 +755,6 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   useEffect(() => {
     if (!open) {
       setOpenPageMenuOpen(false);
-      setSolveMenuOpen(false);
     }
   }, [open]);
 
@@ -741,24 +768,6 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [openPageMenuOpen]);
-
-  useEffect(() => {
-    if (!solveMenuOpen) return;
-    function onDown(e: MouseEvent) {
-      if (solveMenuRef.current && !solveMenuRef.current.contains(e.target as Node)) {
-        setSolveMenuOpen(false);
-      }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setSolveMenuOpen(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [solveMenuOpen]);
 
   useEffect(() => {
     if (!open || !pageDiagnostics) return;
@@ -795,39 +804,12 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
     setIsRunningValidation(false);
   }
 
-  async function handleSolveMenuSelect(agentId: SolveWithAiAgentId) {
-    if (!pageDiagnostics) return;
-    const item = SOLVE_WITH_AI_MENU.find((m) => m.id === agentId);
-    if (!item) return;
-    setSolveMenuOpen(false);
-    const prompt = buildSolveWithAiPrompt(pageDiagnostics);
-    try {
-      await navigator.clipboard.writeText(prompt);
-      toast({
-        title: "Prompt copied",
-        description: "Connect MCP in the next dialog, then confirm to open your AI agent.",
-      });
-    } catch {
-      toast({
-        title: "Could not copy prompt",
-        description: "Allow clipboard access, or copy again from the confirmation dialog.",
-        variant: "destructive",
-      });
-    }
-    onSolveWithAi?.({
-      agentId: item.id,
-      setupTab: item.setupTab,
-      prompt,
-      label: item.label,
-      prefillUrlPrefix: item.prefillUrlPrefix,
-    });
-  }
-
   const unpublishedVariant =
     pageDiagnostics?.validationSkippedReason === "unpublished_variant";
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 flex-wrap">
@@ -930,31 +912,31 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
               className="w-full"
             >
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <TabsList className="h-9" data-testid="tabs-page-errors">
-                  <TabsTrigger value="errors" data-testid="tab-errors" className="gap-1.5">
+                <ToggleButtonBarList data-testid="tabs-page-errors">
+                  <ToggleButtonBarTrigger value="errors" data-testid="tab-errors" className="gap-1.5">
                     Errors
                     <TabCountBadge
                       count={errors.length}
                       variant="error"
                       testId="text-modal-error-count"
                     />
-                  </TabsTrigger>
-                  <TabsTrigger value="warnings" data-testid="tab-warnings" className="gap-1.5">
+                  </ToggleButtonBarTrigger>
+                  <ToggleButtonBarTrigger value="warnings" data-testid="tab-warnings" className="gap-1.5">
                     Warnings
                     <TabCountBadge
                       count={warnings.length}
                       variant="warning"
                       testId="text-modal-warning-count"
                     />
-                  </TabsTrigger>
-                  <TabsTrigger value="crawlers" data-testid="tab-crawlers" className="gap-1.5">
+                  </ToggleButtonBarTrigger>
+                  <ToggleButtonBarTrigger value="crawlers" data-testid="tab-crawlers" className="gap-1.5">
                     Crawlers
                     <TabCountBadge
                       crawlerState={crawlerBadge}
                       testId="text-modal-crawler-error-count"
                     />
-                  </TabsTrigger>
-                </TabsList>
+                  </ToggleButtonBarTrigger>
+                </ToggleButtonBarList>
                 <div className="flex items-center gap-2">
                   {activeTab === "crawlers" ? (
                     <Button
@@ -1229,46 +1211,77 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
               )}
             </Button>
           )}
-          <div ref={solveMenuRef} className="relative">
-            <Button
-              type="button"
-              variant="default"
-              disabled={!canSolveWithAi}
-              aria-haspopup="menu"
-              aria-expanded={solveMenuOpen}
-              onClick={() => setSolveMenuOpen((prev) => !prev)}
-              data-testid="button-solve-with-ai-agent"
-            >
-              <IconSparkles className="h-4 w-4" />
-              Solve with AI Agent
-              <IconChevronDown className="h-4 w-4 opacity-70" />
-            </Button>
-            {solveMenuOpen && (
-              <div
-                role="menu"
-                className="absolute bottom-full right-0 z-50 mb-1 w-48 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-              >
-                {SOLVE_WITH_AI_MENU.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="menuitem"
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] hover-elevate"
-                    onClick={() => void handleSolveMenuSelect(item.id)}
-                    data-testid={`menu-solve-ai-${item.id}`}
-                  >
-                    <SolveWithAiAgentIcon agentId={item.id} />
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <SolveWithAiAgentDropdown
+            label="Solve with AI Agent"
+            prompt={solvePrompt}
+            disabled={!canSolveWithAi}
+            onAgentSelect={(payload) => onSolveWithAi?.(payload)}
+          />
           <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-close-page-errors">
             Close
           </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(releaseTarget)}
+        onOpenChange={(next) => {
+          if (!next) {
+            setReleaseTarget(null);
+            setReleaseReport("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Release claim</DialogTitle>
+            <DialogDescription>
+              Note what you tried and why you are stopping. The next agent or teammate will see this
+              on the issue.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="release-report">What went wrong (min 80 characters)</Label>
+            <Textarea
+              id="release-report"
+              value={releaseReport}
+              onChange={(e) => setReleaseReport(e.target.value)}
+              rows={4}
+              placeholder="Tried X… still failing because Y…"
+              data-testid="textarea-release-report"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              {releaseReport.trim().length}/80
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setReleaseTarget(null);
+                setReleaseReport("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={releaseReport.trim().length < 80 || !releaseTarget}
+              onClick={() => {
+                if (!releaseTarget) return;
+                void handleUpdateIssue(releaseTarget, "release", releaseReport.trim());
+              }}
+              data-testid="button-confirm-release"
+            >
+              {togglingIssueId === releaseTarget?.id ? (
+                <IconLoader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Release"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

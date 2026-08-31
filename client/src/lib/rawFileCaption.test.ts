@@ -7,7 +7,7 @@ function blogTemplate(over: Partial<RawFileExplainContext> = {}): RawFileExplain
     typeLabel: "blog",
     folder: "blog",
     contentRootName: "site_4geeks-com",
-    slug: "_common.single",
+    slug: "_common.template",
     isTemplate: true,
     isSharedLayout: true,
     detached: false,
@@ -66,7 +66,7 @@ describe("rawFileCaption", () => {
   it("1 template_live EN is not one article", () => {
     const c = rawFileCaption({
       role: "template_live",
-      path: "site_4geeks-com/blog/single.en.yml",
+      path: "site_4geeks-com/blog/template.en.yml",
       fileLocale: "en",
       context: blogTemplate(),
     });
@@ -77,12 +77,12 @@ describe("rawFileCaption", () => {
   it("2 template_live ES does not auto-sync from English", () => {
     const c = rawFileCaption({
       role: "template_live",
-      path: "site_4geeks-com/blog/single.es.yml",
+      path: "site_4geeks-com/blog/template.es.yml",
       fileLocale: "es",
       context: blogTemplate({ requestedLocale: "es", displayedLocale: "es" }),
     });
     expect(c.visible).toContain("does not auto-sync from English");
-    expect(nonEffect(c)).toContain("does not update `single.en.yml`");
+    expect(nonEffect(c)).toContain("does not update `template.en.yml`");
   });
 
   it("3 template_variant is not an article until promoted", () => {
@@ -99,7 +99,7 @@ describe("rawFileCaption", () => {
   it("4 template_common ignores sections", () => {
     const c = rawFileCaption({
       role: "template_common",
-      path: "site_4geeks-com/blog/_common.single.yml",
+      path: "site_4geeks-com/blog/_common.template.yml",
       context: blogTemplate(),
     });
     expect(c.visible).toContain("Sections in this file are ignored");
@@ -141,7 +141,7 @@ describe("rawFileCaption", () => {
       context: blogEntry({ hasLocaleFile: true, displayedLocale: "es" }),
     });
     expect(c.visible).toContain("locale overlay on the shared template");
-    expect(nonEffect(c)).toContain("does not change `single.es.yml`");
+    expect(nonEffect(c)).toContain("does not change `template.es.yml`");
   });
 
   it("8 attached locale overlay", () => {
@@ -168,7 +168,7 @@ describe("rawFileCaption", () => {
       }),
     });
     expect(c.visible).toContain("live EN file for this page only");
-    expect(nonEffect(c)).toContain("does not change `blog/single.en.yml`");
+    expect(nonEffect(c)).toContain("does not change `blog/template.en.yml`");
   });
 
   it("10 detached _common.yml with locale tab", () => {
@@ -223,7 +223,7 @@ describe("rawFileCaption", () => {
       context: landing(),
     });
     expect(c.visible).toContain("live EN file for this page");
-    expect(nonEffect(c)).toContain("there is no `single.en.yml` for this type");
+    expect(nonEffect(c)).toContain("there is no `template.en.yml` for this type");
   });
 
   it("14 landing _common.yml with locale tab", () => {

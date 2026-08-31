@@ -1,7 +1,8 @@
 import { parsePipeFallback } from "@shared/json-field";
-
-const SINGLE_VAR_PATTERN = /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}/g;
-const EXACT_SINGLE_VAR_PATTERN = /^\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
+import {
+  ENTRY_OR_SINGLE_VAR_PATTERN,
+  EXACT_ENTRY_OR_SINGLE_VAR_PATTERN,
+} from "@shared/entryTemplateVars";
 
 function getNestedValue(obj: Record<string, unknown>, dotPath: string): unknown {
   const parts = dotPath.split(".");
@@ -15,7 +16,7 @@ function getNestedValue(obj: Record<string, unknown>, dotPath: string): unknown 
 }
 
 function resolveString(str: string, singleItem: Record<string, unknown>): unknown {
-  const exactMatch = str.match(EXACT_SINGLE_VAR_PATTERN);
+  const exactMatch = str.match(EXACT_ENTRY_OR_SINGLE_VAR_PATTERN);
   if (exactMatch) {
     const fieldPath = exactMatch[1];
     // Group 2 is present only when `| fallback` was written (may be empty string).
@@ -27,10 +28,14 @@ function resolveString(str: string, singleItem: Record<string, unknown>): unknow
     return null;
   }
 
-  if (!SINGLE_VAR_PATTERN.test(str)) return str;
-  SINGLE_VAR_PATTERN.lastIndex = 0;
+  const globalPattern = new RegExp(
+    ENTRY_OR_SINGLE_VAR_PATTERN.source,
+    ENTRY_OR_SINGLE_VAR_PATTERN.flags,
+  );
+  if (!globalPattern.test(str)) return str;
+  globalPattern.lastIndex = 0;
 
-  return str.replace(SINGLE_VAR_PATTERN, (_match, fieldPath: string, fallback?: string) => {
+  return str.replace(globalPattern, (_match, fieldPath: string, fallback?: string) => {
     const value = getNestedValue(singleItem, fieldPath);
     if (value !== undefined && value !== null) {
       if (typeof value === "object") return JSON.stringify(value);
@@ -42,10 +47,11 @@ function resolveString(str: string, singleItem: Record<string, unknown>): unknow
 }
 
 /**
- * `item_template` uses `{{ single.* }}` to mean each *list item*, not the page
- * entry. Delivery-time resolveSingleVars must leave it untouched so editors
- * don't bake page values (e.g. title: "Blog") back into YAML on save.
- * resolveDynamicEntries applies the template against each queried row.
+ * `item_template` uses `{{ entry.* }}` / legacy `{{ single.* }}` to mean each
+ * *list item*, not the page entry. Delivery-time resolveSingleVars must leave
+ * it untouched so editors don't bake page values (e.g. title: "Blog") back
+ * into YAML on save. resolveDynamicEntries applies the template against each
+ * queried row.
  */
 function shouldPreserveTemplateSubtree(key: string): boolean {
   return key === "item_template" || key.startsWith("_");

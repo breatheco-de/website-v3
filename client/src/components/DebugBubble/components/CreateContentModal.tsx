@@ -554,8 +554,8 @@ export function CreateContentModal({
   const isSharedLayoutCreate = isSharedLayoutType(selectedTypeData);
   const isLocaleAgnosticPattern =
     !!urlPattern?.["default"] && !urlPattern?.[loc0] && !urlPattern?.[loc1];
-  /** Shared-layout (live-on-create) and locale-agnostic URL patterns: exactly one locale. */
-  const forceSingleLocaleCreate = isLocaleAgnosticPattern || isSharedLayoutCreate;
+  /** All content types: one locale at create; add translations via translate_entry. */
+  const forceSingleLocaleCreate = true;
 
   const sourceSlug = (() => {
     if (!duplicatingPage) return undefined;
@@ -1245,7 +1245,7 @@ export function CreateContentModal({
                       {urlParams.length > 0 && (
                         <div className="space-y-2">
                           <p className="text-xs text-muted-foreground">
-                            Category is saved on each language file (<code className="text-[11px]">en.yml</code> /{" "}
+                            URL pattern fields are saved on each language file (<code className="text-[11px]">en.yml</code> /{" "}
                             <code className="text-[11px]">es.yml</code>), not on <code className="text-[11px]">_common.yml</code>.
                             Pick a slug used by peers in that language.
                           </p>
@@ -1702,7 +1702,7 @@ export function CreateContentModal({
             <div className="space-y-1">
               <p className="font-medium text-foreground">Template variables resolved</p>
               <p>
-                <code className="text-xs bg-muted px-1 py-0.5 rounded">{"{{ single.* }}"}</code> template variables will be replaced with their actual or fallback values, hardcoded directly into the YAML content.
+                <code className="text-xs bg-muted px-1 py-0.5 rounded">{"{{ entry.* }}"}</code> template variables will be replaced with their actual or fallback values, hardcoded directly into the YAML content.
               </p>
             </div>
             <div className="space-y-1">
@@ -1720,7 +1720,7 @@ export function CreateContentModal({
             <div className="space-y-1">
               <p className="font-medium text-foreground">Listing components preserved</p>
               <p>
-                Listing components (<code className="text-xs bg-muted px-1 py-0.5 rounded">dynamic_entries</code>) and their <code className="text-xs bg-muted px-1 py-0.5 rounded">{"{{ single.* }}"}</code> template references will be preserved as-is.
+                Listing components (<code className="text-xs bg-muted px-1 py-0.5 rounded">dynamic_entries</code>) and their <code className="text-xs bg-muted px-1 py-0.5 rounded">{"{{ entry.* }}"}</code> template references will be preserved as-is.
               </p>
             </div>
           </div>

@@ -93,7 +93,7 @@ props:
         type: string
         required: true
     description: >-
-      Author byline (hydrated objects or strings). Map explicitly as authors: "{{ single.authors }}". First entry is
+      Author byline (hydrated objects or strings). Map explicitly as authors: "{{ entry.authors }}". First entry is
       primary.
   updated_at:
     type: string

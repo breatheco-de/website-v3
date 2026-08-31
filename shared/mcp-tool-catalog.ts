@@ -32,11 +32,15 @@ export const TOOL_GATES: Record<string, ToolGate> = {
   get_section_bindings: { kind: "anyCap", caps: ["content_view"] },
   list_variants: { kind: "anyCap", caps: ["content_view"] },
   get_product_funnel: { kind: "anyCap", caps: ["content_view"] },
+  get_product_funnel_analytics: { kind: "anyCap", caps: ["content_view"] },
   list_components: { kind: "anyCap", caps: ["content_view"] },
   get_component_schema: { kind: "anyCap", caps: ["content_view"] },
   get_component_variant: { kind: "anyCap", caps: ["content_view"] },
   get_component_usage: { kind: "anyCap", caps: ["content_view"] },
+  create_component_section_demo: { kind: "anyCap", caps: ["content_view"] },
   explain_site: { kind: "anyCap", caps: ["content_view"] },
+  bootstrap_agent: { kind: "anyCap", caps: ["content_view"] },
+  agent_session: { kind: "anyCap", caps: ["content_edit_text", "seo_edit"] },
 
   get_entry_seo: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
   list_entry_seo: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
@@ -45,13 +49,12 @@ export const TOOL_GATES: Record<string, ToolGate> = {
   get_seo_cluster: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
 
   update_fields: { kind: "anyCap", caps: ["content_edit_text", "seo_edit"] },
-  update_entry_field: { kind: "anyCap", caps: ["seo_edit"] },
-  reset_entry_field: { kind: "anyCap", caps: ["seo_edit"] },
+  update_entry_field: { kind: "anyCap", caps: ["content_edit_text"] },
   update_meta_fields: { kind: "anyCap", caps: ["seo_edit"] },
-  ensure_content_type_schema_org: { kind: "anyCap", caps: ["seo_edit"] },
+  ensure_content_type_schema_org: { kind: "anyCap", caps: ["seo_settings"] },
   update_content_type: { kind: "anyCap", caps: ["content_types_manage"] },
-  test_redirect: { kind: "anyCap", caps: ["seo_edit"] },
-  update_redirect: { kind: "anyCap", caps: ["seo_edit"] },
+  test_redirect: { kind: "anyCap", caps: ["read_redirects"] },
+  update_redirect: { kind: "anyCap", caps: ["edit_redirects"] },
 
   add_section: { kind: "anyCap", caps: ["content_edit_structure"] },
   remove_section: { kind: "anyCap", caps: ["content_edit_structure"] },
@@ -63,6 +66,10 @@ export const TOOL_GATES: Record<string, ToolGate> = {
   delete_entries: { kind: "anyCap", caps: ["content_delete_entry"] },
   translate_entry: { kind: "anyCap", caps: ["content_edit_text"] },
   regenerate_entry_previews: { kind: "anyCap", caps: ["content_edit_media"] },
+  get_or_set_image_to_gallery: {
+    kind: "anyCap",
+    caps: ["media_upload", "content_view"],
+  },
 
   create_variant: { kind: "anyCap", caps: ["content_create_variant"] },
   publish_draft: { kind: "anyCap", caps: ["content_promote_variant"] },
@@ -109,18 +116,34 @@ export function allowedToolNames(grants: CatalogGrant[]): string[] {
     .sort();
 }
 
+function scopeFromGrant(grant: CatalogGrant | undefined): Set<string> | null | "none" {
+  if (!grant) return "none";
+  if (grant.contentTypes === "*" || grant.contentTypes === undefined) return null;
+  if (Array.isArray(grant.contentTypes)) return new Set(grant.contentTypes);
+  return "none";
+}
+
 /**
  * Content types the caller may see in list_entries / list_entry_seo.
- * null = all types. seo_edit (global) unlocks all types for SEO listings.
+ * null = all types.
+ * When opts.unionSeoEdit is true, union content_view and seo_edit scopes
+ * (either * unlocks all; otherwise merge type lists).
  */
 export function visibleContentTypes(
   grants: CatalogGrant[],
-  opts?: { seoUnlocksAll?: boolean },
+  opts?: { unionSeoEdit?: boolean; /** @deprecated use unionSeoEdit */ seoUnlocksAll?: boolean },
 ): Set<string> | null {
-  if (opts?.seoUnlocksAll && hasCapAnyScope(grants, "seo_edit")) return null;
-  const view = grants.find((g) => g.name === "content_view");
-  if (!view) return new Set();
-  if (view.contentTypes === "*" || view.contentTypes === undefined) return null;
-  if (Array.isArray(view.contentTypes)) return new Set(view.contentTypes);
-  return new Set();
+  const unionSeo = opts?.unionSeoEdit ?? opts?.seoUnlocksAll ?? false;
+  const viewScope = scopeFromGrant(grants.find((g) => g.name === "content_view"));
+  if (!unionSeo) {
+    if (viewScope === "none") return new Set();
+    return viewScope;
+  }
+
+  const seoScope = scopeFromGrant(grants.find((g) => g.name === "seo_edit"));
+  if (viewScope === null || seoScope === null) return null;
+  if (viewScope === "none" && seoScope === "none") return new Set();
+  if (viewScope === "none") return seoScope;
+  if (seoScope === "none") return viewScope;
+  return new Set([...viewScope, ...seoScope]);
 }

@@ -11,6 +11,8 @@ import {
   IconCircleCheck,
   IconPlayerPause,
   IconLayersIntersect,
+  IconChartBar,
+  IconClick,
 } from "@tabler/icons-react";
 import { Link, useParams } from "wouter";
 import { ArrowLeft, ChevronDown, Plus } from "lucide-react";
@@ -23,7 +25,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SitemapSearch } from "@/components/menus/SitemapSearch";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, apiFetch } from "@/lib/queryClient";
 import type { SitemapSearchEntry } from "@/lib/sitemapSearch";
 import { type ComponentType, type ReactNode } from "react";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
@@ -35,6 +37,7 @@ import {
   type FunnelStageTaper,
 } from "@/lib/funnel-stage-ui";
 import { FUNNEL_STAGES, type FunnelBlock, type FunnelStage as FunnelStageKey } from "@shared/funnel";
+import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 
 interface FunnelStepRow {
   source?: "locked" | "authored" | "auto";
@@ -61,6 +64,33 @@ interface FunnelResponse {
     stage_order: string[];
   };
   education: { summary: string; advanced_paths: string[] };
+}
+
+interface JourneyAnalyticsResponse {
+  mode: "page_performance" | "stage_flow";
+  status: "ok" | "unavailable" | "not_implemented";
+  window_days?: number;
+  as_of?: string;
+  warnings?: Array<{ code: string; message: string }>;
+  message?: string;
+  pages?: Record<
+    string,
+    {
+      sessions: number;
+      views: number;
+      cta_clicks: number;
+      shared: boolean;
+      paths: string[];
+    }
+  >;
+  stages?: Record<string, { sessions_distinct: number; page_count: number }>;
+  summary?: { sessions_product_specific: number; sessions_shared: number };
+  product?: {
+    conversions: number;
+    ecommerce_intent: number;
+    item_id?: string;
+    content_slug: string;
+  };
 }
 
 const STAGE_META: Record<
@@ -294,17 +324,30 @@ function KpiCard({
   );
 }
 
-function StepCard({ step, badge }: { step: FunnelStepRow; badge?: string }) {
+function StepCard({
+  step,
+  badge,
+  metrics,
+  showProductConversions,
+  productConversions,
+}: {
+  step: FunnelStepRow;
+  badge?: string;
+  metrics?: { sessions: number; views: number; cta_clicks: number; shared?: boolean };
+  showProductConversions?: boolean;
+  productConversions?: number;
+}) {
   const primaryUrl = step.urls.en || step.urls.es || Object.values(step.urls)[0];
   return (
     <Card data-testid={`card-funnel-step-${step.slug}`}>
-      <CardContent className="py-2.5 text-sm">
+      <CardContent className="py-2.5 text-sm space-y-1.5">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="font-medium font-mono text-sm truncate">
             {step.content_type}/{step.slug}
           </p>
           <LocaleFlags urls={step.urls} />
           {badge && <Badge variant="secondary">{badge}</Badge>}
+          {metrics?.shared && <Badge variant="outline">Shared</Badge>}
           {primaryUrl && (
             <a
               href={primaryUrl}
@@ -316,6 +359,15 @@ function StepCard({ step, badge }: { step: FunnelStepRow; badge?: string }) {
             </a>
           )}
         </div>
+        {metrics && (
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            {metrics.sessions.toLocaleString()} sessions · {metrics.views.toLocaleString()} views ·{" "}
+            {metrics.cta_clicks.toLocaleString()} CTAs
+            {showProductConversions && productConversions != null
+              ? ` · ${productConversions.toLocaleString()} product conversions`
+              : null}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -326,14 +378,35 @@ export default function StoreProductDetailPage() {
   const slug = params.slug ?? "";
   const queryClient = useQueryClient();
   const [educationOpen, setEducationOpen] = useState(false);
+  const [analyticsMode, setAnalyticsMode] = useState<"page_performance" | "stage_flow">(
+    "page_performance",
+  );
 
   const { data, isLoading, isError } = useQuery<FunnelResponse>({
     queryKey: [`/api/ecommerce/funnel/${slug}`],
     enabled: !!slug,
   });
 
+  const { data: analytics, isLoading: analyticsLoading } = useQuery<JourneyAnalyticsResponse>({
+    queryKey: [`/api/ecommerce/funnel/${slug}/analytics`, analyticsMode],
+    queryFn: async () => {
+      const res = await apiFetch(
+        `/api/ecommerce/funnel/${encodeURIComponent(slug)}/analytics?mode=${analyticsMode}&days=28`,
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error || `HTTP ${res.status}`);
+      }
+      return res.json();
+    },
+    enabled: !!slug && !!data,
+  });
+
   const refreshJourney = () => {
     void queryClient.invalidateQueries({ queryKey: [`/api/ecommerce/funnel/${slug}`] });
+    void queryClient.invalidateQueries({
+      queryKey: [`/api/ecommerce/funnel/${slug}/analytics`],
+    });
   };
 
   const stageOrder = data?.funnel.stage_order ?? [...FUNNEL_STAGES];
@@ -342,6 +415,11 @@ export default function StoreProductDetailPage() {
     ? stageOrder.reduce((n, key) => n + (data.funnel.stages[key]?.length ?? 0), 1)
     : 0;
   let stageIndex = 1;
+
+  const pageMetrics = (step: FunnelStepRow) => {
+    const key = `${step.content_type}/${step.slug}`;
+    return analytics?.pages?.[key];
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -378,7 +456,7 @@ export default function StoreProductDetailPage() {
 
         {data && (
           <>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               <KpiCard
                 label="Product ID"
                 value={data.product.product_id}
@@ -410,12 +488,95 @@ export default function StoreProductDetailPage() {
                 testId="card-kpi-journey-pages"
                 valueClassName="tabular-nums"
               />
+              <KpiCard
+                label="Product conversions (28d)"
+                value={
+                  analyticsLoading
+                    ? "…"
+                    : (analytics?.product?.conversions ?? "—")
+                }
+                hint="Tagged with this product item_id — not everything on a URL"
+                icon={IconChartBar}
+                testId="card-kpi-conversions"
+                valueClassName="tabular-nums"
+              />
+              <KpiCard
+                label="Ecommerce intent (28d)"
+                value={
+                  analyticsLoading
+                    ? "…"
+                    : (analytics?.product?.ecommerce_intent ?? "—")
+                }
+                hint="view_item / cart / begin-checkout for this product"
+                icon={IconClick}
+                testId="card-kpi-ecommerce-intent"
+                valueClassName="tabular-nums"
+              />
             </div>
 
             <section className="space-y-1">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-                Conversion journey
-              </h2>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Conversion journey
+                </h2>
+                <ToggleButtonBar
+                  value={analyticsMode}
+                  onValueChange={(v) => {
+                    if (v === "page_performance" || v === "stage_flow") setAnalyticsMode(v);
+                  }}
+                  listTestId="toggle-journey-analytics-mode"
+                >
+                  <ToggleButtonBarTrigger value="page_performance" data-testid="tab-page-performance">
+                    Page performance
+                  </ToggleButtonBarTrigger>
+                  <ToggleButtonBarTrigger value="stage_flow" data-testid="tab-stage-flow">
+                    Stage flow
+                  </ToggleButtonBarTrigger>
+                </ToggleButtonBar>
+              </div>
+
+              {analyticsMode === "page_performance" ? (
+                <p className="text-xs text-muted-foreground mb-2">
+                  Traffic and clicks on these pages. Numbers are not proof that one stage fed the next.
+                  {analytics?.as_of ? (
+                    <>
+                      {" "}
+                      As of <span className="font-mono">{analytics.as_of}</span>
+                      {analytics.window_days ? ` (${analytics.window_days}d)` : null}.
+                    </>
+                  ) : null}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mb-2">
+                  Coming soon — will show only sessions that moved between stages in this journey.
+                </p>
+              )}
+
+              {analyticsMode === "page_performance" && analytics?.summary && (
+                <p className="text-xs text-muted-foreground mb-3 tabular-nums">
+                  Sessions on product-specific pages:{" "}
+                  {analytics.summary.sessions_product_specific.toLocaleString()} · on shared pages:{" "}
+                  {analytics.summary.sessions_shared.toLocaleString()}
+                  {analytics.status === "unavailable" ? (
+                    <>
+                      {" "}
+                      —{" "}
+                      <Link href="/private/tracking/bigquery" className="text-primary underline">
+                        Configure BigQuery
+                      </Link>
+                    </>
+                  ) : null}
+                </p>
+              )}
+
+              {analytics?.warnings && analytics.warnings.length > 0 && analyticsMode === "page_performance" && (
+                <ul className="text-xs text-amber-600 dark:text-amber-400 mb-3 list-disc pl-4 space-y-0.5">
+                  {analytics.warnings.slice(0, 3).map((w) => (
+                    <li key={w.code + w.message}>{w.message}</li>
+                  ))}
+                </ul>
+              )}
+
               <Card data-testid="card-education" className="mb-4">
                 <Collapsible open={educationOpen} onOpenChange={setEducationOpen}>
                   <div className="px-3 py-2 space-y-2 text-sm text-muted-foreground">
@@ -435,12 +596,20 @@ export default function StoreProductDetailPage() {
                     </CollapsibleTrigger>
                     <CollapsibleContent className="space-y-2">
                       <p>{data.education.summary}</p>
+                      <p>
+                        Shared badge means the page is tagged for all products — its traffic is not exclusive
+                        to this SKU. Stage session totals count unique sessions in that stage (not the sum of
+                        page cards).
+                      </p>
                       <details className="text-xs">
                         <summary className="cursor-pointer text-foreground font-medium">Read more (advanced)</summary>
                         <ul className="mt-2 list-disc pl-5 font-mono space-y-1">
                           {data.education.advanced_paths.map((p) => (
                             <li key={p}>{p}</li>
                           ))}
+                          <li>GET /api/ecommerce/funnel/:slug/analytics</li>
+                          <li>server/ecommerce/journey-analytics.ts</li>
+                          <li>/private/tracking/bigquery</li>
                         </ul>
                       </details>
                     </CollapsibleContent>
@@ -454,59 +623,85 @@ export default function StoreProductDetailPage() {
                 Use <strong>Add content +</strong> on a stage to attach a page from the sitemap.
               </p>
 
-              {stageOrder.map((stageKey, i) => {
-                const meta = STAGE_META[stageKey] ?? {
-                  label: stageKey,
-                  description: "",
-                  icon: IconTarget,
-                  taper: "mid" as const,
-                };
-                const pages = data.funnel.stages[stageKey] ?? [];
-                const isDecision = stageKey === "decision";
-                const locked = isDecision ? data.funnel.locked : null;
-                const isLast = i === stageOrder.length - 1;
-                const funnelStageKey = stageKey as FunnelStageKey;
+              {analyticsMode === "stage_flow" ? (
+                <Card>
+                  <CardContent className="py-10 text-center text-sm text-muted-foreground space-y-2">
+                    <p>{analytics?.message || "Stage flow is not implemented yet."}</p>
+                    <p className="text-xs">
+                      Switch to <strong>Page performance</strong> for on-page traffic and product-scoped KPIs.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                stageOrder.map((stageKey, i) => {
+                  const meta = STAGE_META[stageKey] ?? {
+                    label: stageKey,
+                    description: "",
+                    icon: IconTarget,
+                    taper: "mid" as const,
+                  };
+                  const pages = data.funnel.stages[stageKey] ?? [];
+                  const isDecision = stageKey === "decision";
+                  const locked = isDecision ? data.funnel.locked : null;
+                  const isLast = i === stageOrder.length - 1;
+                  const funnelStageKey = stageKey as FunnelStageKey;
+                  const stageSessions = analytics?.stages?.[stageKey]?.sessions_distinct;
 
-                return (
-                  <FunnelStage
-                    key={stageKey}
-                    label={meta.label}
-                    description={meta.description}
-                    icon={meta.icon}
-                    index={stageIndex++}
-                    taper={meta.taper}
-                    isLast={isLast}
-                    headerAction={
-                      FUNNEL_STAGES.includes(funnelStageKey) ? (
-                        <AddFunnelContentButton
-                          stageKey={funnelStageKey}
-                          stageLabel={meta.label}
-                          productSlug={slug}
-                          onSuccess={refreshJourney}
-                        />
-                      ) : null
-                    }
-                  >
-                    {locked && (
-                      <div className="space-y-2 mb-2">
-                        <StepCard step={locked} badge="locked product page" />
-                      </div>
-                    )}
-                    {pages.length === 0 ? (
-                      <p className="text-xs text-muted-foreground rounded-md border border-dashed px-3 py-3">
-                        No pages at this stage yet. Click <strong>Add content +</strong> to pick a page
-                        from the sitemap.
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {pages.map((step) => (
-                          <StepCard key={`${step.content_type}/${step.slug}`} step={step} />
-                        ))}
-                      </div>
-                    )}
-                  </FunnelStage>
-                );
-              })}
+                  return (
+                    <FunnelStage
+                      key={stageKey}
+                      label={meta.label}
+                      description={
+                        stageSessions != null
+                          ? `${meta.description} · ${stageSessions.toLocaleString()} unique sessions`
+                          : meta.description
+                      }
+                      icon={meta.icon}
+                      index={stageIndex++}
+                      taper={meta.taper}
+                      isLast={isLast}
+                      headerAction={
+                        FUNNEL_STAGES.includes(funnelStageKey) ? (
+                          <AddFunnelContentButton
+                            stageKey={funnelStageKey}
+                            stageLabel={meta.label}
+                            productSlug={slug}
+                            onSuccess={refreshJourney}
+                          />
+                        ) : null
+                      }
+                    >
+                      {locked && (
+                        <div className="space-y-2 mb-2">
+                          <StepCard
+                            step={locked}
+                            badge="locked product page"
+                            metrics={pageMetrics(locked)}
+                            showProductConversions
+                            productConversions={analytics?.product?.conversions}
+                          />
+                        </div>
+                      )}
+                      {pages.length === 0 ? (
+                        <p className="text-xs text-muted-foreground rounded-md border border-dashed px-3 py-3">
+                          No pages at this stage yet. Click <strong>Add content +</strong> to pick a page
+                          from the sitemap.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {pages.map((step) => (
+                            <StepCard
+                              key={`${step.content_type}/${step.slug}`}
+                              step={step}
+                              metrics={pageMetrics(step)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </FunnelStage>
+                  );
+                })
+              )}
             </section>
           </>
         )}

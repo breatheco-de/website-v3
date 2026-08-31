@@ -232,6 +232,16 @@ export interface PageDiagnostics {
       expiresAt: string;
       actor?: { type: "ui" | "mcp"; client?: string; model?: string };
     } | null;
+    attempts?: Array<{
+      by: string;
+      claimedBy?: string;
+      at: string;
+      reason: "released" | "ttl_expired";
+      report?: string;
+      claimedAt?: string;
+      claimReport?: string;
+      actor?: { type: "ui" | "mcp"; client?: string; model?: string };
+    }>;
   }>;
   /** @deprecated Removed — use issue counts from the shared store. */
   score?: { total: number; seo: number; schema: number; content: number };

@@ -3,30 +3,11 @@ import type { TestimonialsGridSection as TestimonialsGridSectionType } from "@sh
 import { UniversalVideo } from "@/components/UniversalVideo";
 import UniversalImage from "@/components/UniversalImage";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useQuery } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
-
-interface BankTestimonial {
-  student_name: string;
-  student_thumb?: string;
-  student_video?: string;
-  linkedin_url?: string;
-  excerpt?: string;
-  full_text?: string;
-  content?: string;
-  short_content?: string;
-  related_features?: string[];
-  locations?: string[];
-  priority?: number;
-  rating?: number;
-  role?: string;
-  company?: string;
-  media?: {
-    url: string;
-    type?: "image" | "video";
-    ratio?: string;
-  };
-}
+import {
+  isValidForGrid,
+  testimonialText,
+  type TestimonialBankRow,
+} from "@shared/testimonials-listing";
 
 interface GridItem {
   name: string;
@@ -36,12 +17,8 @@ interface GridItem {
   rating?: number;
   avatar?: string;
   linkedin_url?: string;
-  box_color?: string;
-  name_color?: string;
-  role_color?: string;
-  comment_color?: string;
-  star_color?: string;
-  linkedin_color?: string;
+  /** Bank `featured` flag — picks the section's featured colors over the defaults. */
+  featured?: boolean;
   media?: {
     url: string;
     type?: "image" | "video";
@@ -70,67 +47,22 @@ function isVideoUrl(url: string): boolean {
     videoHosts.some(host => lowerUrl.includes(host));
 }
 
-const ANONYMOUS_NAMES = ["anonymous", "anonimous", "anónimo", "anonimo", "anon"];
-
-function isAnonymous(name: string): boolean {
-  return ANONYMOUS_NAMES.includes(name.trim().toLowerCase());
-}
-
-function isValidTestimonial(t: BankTestimonial): boolean {
-  if (isAnonymous(t.student_name)) return false;
-  const hasText = !!(t.excerpt || t.short_content || t.content || t.full_text);
-  return hasText;
-}
-
-function mapBankToGridItem(
-  t: BankTestimonial,
-  itemStyles?: Record<string, { box_color?: string; name_color?: string; comment_color?: string }>
-): GridItem {
-  const   media = t.student_video
-    ? { url: t.student_video, type: "video" as const, ratio: "16:9" }
-    : t.media;
-
-  const style = itemStyles?.[t.student_name];
+function mapBankRowToGridItem(row: TestimonialBankRow): GridItem {
+  const media = row.student_video
+    ? { url: row.student_video, type: "video" as const, ratio: "16:9" }
+    : row.media;
 
   return {
-    name: t.student_name,
-    role: t.role || "",
-    company: t.company,
-    comment: t.excerpt || t.short_content || t.content || t.full_text || "",
-    rating: t.rating,
-    avatar: t.student_thumb,
-    linkedin_url: t.linkedin_url,
+    name: row.student_name || "",
+    role: row.role || "",
+    company: row.company,
+    comment: testimonialText(row),
+    rating: row.rating,
+    avatar: row.student_thumb,
+    linkedin_url: row.linkedin_url,
+    featured: row.featured === true,
     media,
-    box_color: style?.box_color,
-    name_color: style?.name_color,
-    comment_color: style?.comment_color,
   };
-}
-
-function sortTestimonials(testimonials: BankTestimonial[], relatedFeatures?: string[]): BankTestimonial[] {
-  return [...testimonials].sort((a, b) => {
-    const aPriority5 = (a.priority ?? 0) >= 5 ? 1 : 0;
-    const bPriority5 = (b.priority ?? 0) >= 5 ? 1 : 0;
-    if (bPriority5 !== aPriority5) return bPriority5 - aPriority5;
-
-    const aHasVideo = a.student_video ? 1 : 0;
-    const bHasVideo = b.student_video ? 1 : 0;
-    if (bHasVideo !== aHasVideo) return bHasVideo - aHasVideo;
-
-    const aHasThumb = a.student_thumb ? 1 : 0;
-    const bHasThumb = b.student_thumb ? 1 : 0;
-    if (bHasThumb !== aHasThumb) return bHasThumb - aHasThumb;
-
-    if (relatedFeatures && relatedFeatures.length > 0) {
-      const aFeatures = a.related_features || [];
-      const bFeatures = b.related_features || [];
-      const aMatchCount = relatedFeatures.filter((f) => aFeatures.includes(f)).length;
-      const bMatchCount = relatedFeatures.filter((f) => bFeatures.includes(f)).length;
-      if (bMatchCount !== aMatchCount) return bMatchCount - aMatchCount;
-    }
-
-    return (b.priority ?? 0) - (a.priority ?? 0);
-  });
 }
 
 function distributeVideosAcrossColumns(items: GridItem[], columns: number): GridItem[] {
@@ -184,46 +116,13 @@ function distributeVideosAcrossColumns(items: GridItem[], columns: number): Grid
   return columnBuckets.flat();
 }
 
-function filterByRelatedFeatures(
-  testimonials: BankTestimonial[],
-  relatedFeatures: string[],
-  limit: number,
-  itemStyles?: Record<string, { box_color?: string; name_color?: string; comment_color?: string }>
-): GridItem[] {
-  const filtered = testimonials.filter((t) => {
-    const features = t.related_features || [];
-    return relatedFeatures.some((f) => features.includes(f));
-  });
-
-  const sorted = sortTestimonials(filtered, relatedFeatures);
-  return sorted.slice(0, limit).map((t) => mapBankToGridItem(t, itemStyles));
-}
-
 export function TestimonialsGrid({ data }: TestimonialsGridProps) {
-  const { i18n } = useTranslation();
-  const locale = i18n.language?.startsWith("es") ? "es" : "en";
-
-  const relatedFeatures = data.related_features || [];
-  const limit = Math.min(data.limit || 30, 30);
-  const itemStyles = data.item_styles;
   const columns = data.columns || 3;
 
-  const { data: bankData, isLoading } = useQuery<{ testimonials: BankTestimonial[] }>({
-    queryKey: ["/api/testimonials", locale],
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const validTestimonials = (bankData?.testimonials ?? []).filter(isValidTestimonial);
-
+  // `items` is resolved server-side from dynamic_entries (grid is bank-only).
   const items: GridItem[] = (() => {
-    if (validTestimonials.length === 0) return [];
-    let gridItems: GridItem[];
-    if (relatedFeatures.length > 0) {
-      gridItems = filterByRelatedFeatures(validTestimonials, relatedFeatures, limit, itemStyles);
-    } else {
-      const sorted = sortTestimonials(validTestimonials);
-      gridItems = sorted.slice(0, limit).map((t) => mapBankToGridItem(t, itemStyles));
-    }
+    const rows = (data.items ?? []) as TestimonialBankRow[];
+    const gridItems = rows.filter(isValidForGrid).map(mapBankRowToGridItem);
     return distributeVideosAcrossColumns(gridItems, columns);
   })();
 
@@ -236,23 +135,6 @@ export function TestimonialsGrid({ data }: TestimonialsGridProps) {
   const defaultStarColor = data.default_star_color;
   const defaultLinkedinColor = data.default_linkedin_color;
   const background = data.background;
-
-  if (isLoading) {
-    return (
-      <section data-testid="section-testimonials-grid">
-        <div className="max-w-7xl mx-auto px-4 md:px-6">
-          <div className="animate-pulse">
-            <div className="h-10 w-64 bg-muted rounded mx-auto mb-8" />
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="h-40 bg-muted rounded-[0.8rem]" />
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-    );
-  }
 
   if (items.length === 0) return null;
 
@@ -319,12 +201,26 @@ export function TestimonialsGrid({ data }: TestimonialsGridProps) {
             <TestimonialGridCard
               key={index}
               item={item}
-              defaultBoxColor={defaultBoxColor}
-              defaultNameColor={defaultNameColor}
-              defaultRoleColor={defaultRoleColor}
-              defaultCommentColor={defaultCommentColor}
-              defaultStarColor={defaultStarColor}
-              defaultLinkedinColor={defaultLinkedinColor}
+              boxColor={
+                (item.featured ? data.featured_box_color : undefined) || defaultBoxColor
+              }
+              nameColor={
+                (item.featured ? data.featured_name_color : undefined) ?? defaultNameColor
+              }
+              roleColor={
+                (item.featured ? data.featured_role_color : undefined) ?? defaultRoleColor
+              }
+              commentColor={
+                (item.featured ? data.featured_comment_color : undefined) ??
+                defaultCommentColor
+              }
+              starColor={
+                (item.featured ? data.featured_star_color : undefined) ?? defaultStarColor
+              }
+              linkedinColor={
+                (item.featured ? data.featured_linkedin_color : undefined) ??
+                defaultLinkedinColor
+              }
               index={index}
             />
           ))}
@@ -336,31 +232,25 @@ export function TestimonialsGrid({ data }: TestimonialsGridProps) {
 
 interface TestimonialGridCardProps {
   item: GridItem;
-  defaultBoxColor: string;
-  defaultNameColor?: string;
-  defaultRoleColor?: string;
-  defaultCommentColor?: string;
-  defaultStarColor?: string;
-  defaultLinkedinColor?: string;
+  boxColor: string;
+  nameColor?: string;
+  roleColor?: string;
+  commentColor?: string;
+  starColor?: string;
+  linkedinColor?: string;
   index: number;
 }
 
 function TestimonialGridCard({
   item,
-  defaultBoxColor,
-  defaultNameColor,
-  defaultRoleColor,
-  defaultCommentColor,
-  defaultStarColor,
-  defaultLinkedinColor,
+  boxColor,
+  nameColor,
+  roleColor,
+  commentColor,
+  starColor,
+  linkedinColor,
   index,
 }: TestimonialGridCardProps) {
-  const boxColor = item.box_color || defaultBoxColor;
-  const nameColor = item.name_color || defaultNameColor;
-  const roleColor = item.role_color || defaultRoleColor;
-  const commentColor = item.comment_color || defaultCommentColor;
-  const starColor = item.star_color || defaultStarColor;
-  const linkedinColor = item.linkedin_color || defaultLinkedinColor;
   const hasMedia = !!item.media?.url;
   const mediaType = item.media?.type || (item.media?.url && isVideoUrl(item.media.url) ? "video" : "image");
 
@@ -401,7 +291,6 @@ function TestimonialGridCard({
                 alt={item.name}
                 className="w-full h-full"
                 style={{ objectFit: "cover" }}
-                fieldContext={{ arrayPath: "items", index, srcField: "avatar" }}
               />
             ) : (
               <AvatarFallback className="bg-foreground/10 text-foreground/70 text-sm font-semibold">

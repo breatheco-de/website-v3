@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
@@ -42,7 +43,8 @@ import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager, DatabaseManager } from "../database";
 import { collectSystemAlerts, recheckDatabaseHealth } from "../system-alerts";
-import { listEvents, clearAllEvents, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents, type EventType } from "../events/event-store";
+import { listEvents, clearAllEvents, listAgentSessions, getAgentSessionDetail, emitEvent, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents, type EventType } from "../events/event-store";
+import { singleAttribution } from "../events/types";
 import { seedDemoPipelineEvents } from "../events/seed-demo";
 import { listActiveLeases } from "../leases";
 import { getLastAppliedSnapshot } from "../jobs/applier";
@@ -250,6 +252,10 @@ import {
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
+  isMcpLoopbackRequest,
+  requireIssueReport,
+  resolveAgentSessionId,
+  resolveEventActor,
 } from "./_helpers";
 import { child } from "../logger";
 import { sqlite } from "../db";
@@ -606,14 +612,147 @@ export function registerAdminRoutes(app: Express): void {
     const cause = req.query.cause as string | undefined;
     const before = req.query.before ? Number(req.query.before) : undefined;
     const triggeredBy = req.query.triggeredBy ? Number(req.query.triggeredBy) : undefined;
+    const agentSessionId =
+      typeof req.query.agentSessionId === "string" && req.query.agentSessionId.trim()
+        ? req.query.agentSessionId.trim()
+        : undefined;
+    const unscopedOnly = req.query.unscoped === "1" || req.query.unscoped === "true";
     const limit = req.query.limit ? Number(req.query.limit) : 50;
 
-    const events = listEvents({ site, type, since, cause, before, triggeredBy, limit });
+    const events = listEvents({
+      site,
+      type,
+      since,
+      cause,
+      before,
+      triggeredBy,
+      agentSessionId,
+      unscopedOnly: !agentSessionId && unscopedOnly,
+      limit,
+    });
     res.json({
       events,
       unpublishedTotal: getUnpublishedCount(site),
       education:
-        "Saves return immediately; indexing, validation, bound-section sync and GitHub sync run in the background and report here.",
+        "This log is the diary of site changes and agent runs. Filter by agent session and by kind. Selecting a session shows a short summary built from those events.",
+    });
+  });
+
+  app.get("/api/admin/agent-sessions", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+    const site = (req.query.site as string) || res.locals.site?.contentRootName;
+    if (!site) {
+      res.status(400).json({ error: "Missing site" });
+      return;
+    }
+    const since = req.query.since ? Number(req.query.since) : undefined;
+    const limit = req.query.limit ? Number(req.query.limit) : 20;
+    const sessions = listAgentSessions(site, { since, limit });
+    res.json({ sessions });
+  });
+
+  app.get("/api/admin/agent-sessions/:agentSessionId", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+    const site = (req.query.site as string) || res.locals.site?.contentRootName;
+    if (!site) {
+      res.status(400).json({ error: "Missing site" });
+      return;
+    }
+    const agentSessionId = String(req.params.agentSessionId || "").trim();
+    if (!agentSessionId) {
+      res.status(400).json({ error: "Missing agentSessionId" });
+      return;
+    }
+    const detail = getAgentSessionDetail(site, agentSessionId);
+    if (!detail) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+    res.json(detail);
+  });
+
+  /** MCP loopback: emit agent_session_started | note | summarized audit events. */
+  app.post("/api/admin/agent-sessions/checkpoint", async (req, res) => {
+    if (!isMcpLoopbackRequest(req)) {
+      res.status(403).json({ error: "MCP loopback only" });
+      return;
+    }
+    const site =
+      (typeof req.body?.site === "string" && req.body.site) ||
+      res.locals.site?.contentRootName;
+    if (!site) {
+      res.status(400).json({ error: "Missing site" });
+      return;
+    }
+    const action = req.body?.action as string | undefined;
+    if (action !== "start" && action !== "note" && action !== "summarize") {
+      res.status(400).json({ error: "action must be start | note | summarize" });
+      return;
+    }
+    const author =
+      (typeof req.headers["x-mcp-author"] === "string" && req.headers["x-mcp-author"]) ||
+      "mcp";
+    const actor = resolveEventActor(req, { model: req.body?.model });
+
+    if (action === "start") {
+      const agent_session_id =
+        (typeof req.body?.agent_session_id === "string" && req.body.agent_session_id.trim()) ||
+        randomUUID();
+      const label =
+        typeof req.body?.label === "string" && req.body.label.trim()
+          ? req.body.label.trim().slice(0, 200)
+          : undefined;
+      const event = emitEvent({
+        site,
+        type: "agent_session_started",
+        agent_session_id,
+        attribution: singleAttribution(author, actor),
+        payload: { ...(label ? { label } : {}) },
+      });
+      return res.json({
+        success: true,
+        action: "start",
+        agent_session_id,
+        event_id: event.id,
+      });
+    }
+
+    const agent_session_id =
+      (typeof req.body?.agent_session_id === "string" && req.body.agent_session_id.trim()) ||
+      resolveAgentSessionId(req);
+    if (!agent_session_id) {
+      return res.status(400).json({
+        error: "agent_session_id required for note/summarize",
+        code: "session_required",
+      });
+    }
+    const existing = listEvents({ site, agentSessionId: agent_session_id, limit: 1 });
+    if (existing.length === 0) {
+      return res.status(404).json({
+        error: "Unknown agent_session_id — call agent_session start first",
+        code: "session_unknown",
+        action_required: "start",
+      });
+    }
+    const parsed = requireIssueReport(req.body?.report);
+    if (!parsed.ok) {
+      return res.status(400).json({ error: parsed.error, code: parsed.code });
+    }
+    const type = action === "note" ? "agent_session_note" : "agent_session_summarized";
+    const event = emitEvent({
+      site,
+      type,
+      agent_session_id,
+      attribution: singleAttribution(author, actor),
+      payload: { report: parsed.report },
+    });
+    return res.json({
+      success: true,
+      action,
+      agent_session_id,
+      event_id: event.id,
     });
   });
 
@@ -680,7 +819,7 @@ export function registerAdminRoutes(app: Express): void {
       return;
     }
 
-    const engine = getEngineStatus();
+    const engine = await getEngineStatus();
     const currentGeneration = getLatestWriteGeneration(site);
     const lastApplied = getLastAppliedSnapshot(site);
     const lastAppliedGeneration = lastApplied?.generation ?? 0;
@@ -822,7 +961,7 @@ export function registerAdminRoutes(app: Express): void {
   // Clear sitemap cache (requires token validation)
   app.post("/api/debug/clear-sitemap-cache", async (req, res) => {
     try {
-      const auth = await requireCapability(req, res, "seo_edit");
+      const auth = await requireCapability(req, res, "seo_settings");
       if (!auth.authorized) return;
 
       const result = clearSitemapCache();
@@ -905,7 +1044,9 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // Get active redirects (for debug tools)
-  app.get("/api/debug/redirects", (req, res) => {
+  app.get("/api/debug/redirects", async (req, res) => {
+    const auth = await requireCapability(req, res, "read_redirects");
+    if (!auth.authorized) return;
     const ci = getCI(res);
     const siteEntries = getFreshRedirectEntries(ci);
     const redirects = siteEntries.map((e) => ({
@@ -919,7 +1060,9 @@ export function registerAdminRoutes(app: Express): void {
     res.json({ count: redirects.length, redirects });
   });
 
-  app.get("/api/debug/redirects/yml", (_req, res) => {
+  app.get("/api/debug/redirects/yml", async (req, res) => {
+    const auth = await requireCapability(req, res, "read_redirects");
+    if (!auth.authorized) return;
     try {
       const relativePath = `${getContentRootName(res)}/custom-redirects.yml`;
       const customFilePath = path.join(getContentRoot(res), "custom-redirects.yml");
@@ -940,7 +1083,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/debug/redirects/yml", (req, res) => {
+  app.put("/api/debug/redirects/yml", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const { content, author } = req.body as {
         content?: string;
@@ -1055,7 +1200,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/debug/redirects/locale-urls", (req, res) => {
+  app.get("/api/debug/redirects/locale-urls", async (req, res) => {
+    const auth = await requireCapability(req, res, "read_redirects");
+    if (!auth.authorized) return;
     try {
       const url = req.query.url as string;
       if (!url) {
@@ -1080,7 +1227,9 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // Add a new redirect (for debug tools)
-  app.post("/api/debug/redirects", (req, res) => {
+  app.post("/api/debug/redirects", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const {
         from,
@@ -1300,7 +1449,9 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // Delete a redirect (for debug tools)
-  app.delete("/api/debug/redirects", (req, res) => {
+  app.delete("/api/debug/redirects", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const { from, source, author } = req.body;
       const authorName = author && typeof author === "string" ? author : undefined;
@@ -1320,10 +1471,57 @@ export function registerAdminRoutes(app: Express): void {
         normalizedFrom = normalizedFrom.slice(0, -1);
       }
 
-      const sourceFile = source as string;
-
-      const resolvedSource = path.resolve(process.cwd(), sourceFile);
+      // Accept cwd-relative site_* paths, display paths relative to content root,
+      // or legacy roots (marketing-content/, 4geeks-com/, content/) remapped to
+      // the active site folder — never nest marketing-content under site_*.
       const marketingDir = path.resolve(getContentRoot(res));
+      const contentRootName = path.basename(marketingDir);
+      const LEGACY_CONTENT_ROOTS = new Set([
+        "marketing-content",
+        "4geeks-com",
+        "content",
+      ]);
+      let sourceFile = String(source).replace(/\\/g, "/");
+      const firstSeg = sourceFile.split("/").filter(Boolean)[0] ?? "";
+      if (
+        firstSeg &&
+        (LEGACY_CONTENT_ROOTS.has(firstSeg) ||
+          (/^site_[^/]+$/.test(firstSeg) && firstSeg !== contentRootName))
+      ) {
+        const rest = sourceFile.split("/").filter(Boolean).slice(1).join("/");
+        sourceFile = rest ? `${contentRootName}/${rest}` : contentRootName;
+      }
+      // Collapse site_*/marketing-content/... from a prior bad join
+      {
+        const parts = sourceFile.split("/").filter(Boolean);
+        if (
+          parts[0] === contentRootName &&
+          parts[1] &&
+          LEGACY_CONTENT_ROOTS.has(parts[1])
+        ) {
+          sourceFile = [contentRootName, ...parts.slice(2)].join("/");
+        }
+      }
+
+      let resolvedSource = path.resolve(process.cwd(), sourceFile);
+      if (
+        !resolvedSource.startsWith(marketingDir + path.sep) &&
+        resolvedSource !== marketingDir
+      ) {
+        // Only treat as site-relative when it does not already look like a
+        // different top-level content root (handled above).
+        const underRoot = path.resolve(marketingDir, sourceFile);
+        if (
+          underRoot.startsWith(marketingDir + path.sep) &&
+          underRoot !== marketingDir
+        ) {
+          sourceFile = path
+            .relative(process.cwd(), underRoot)
+            .split(path.sep)
+            .join("/");
+          resolvedSource = underRoot;
+        }
+      }
       if (
         !resolvedSource.startsWith(marketingDir + path.sep) &&
         resolvedSource !== marketingDir
@@ -1336,7 +1534,10 @@ export function registerAdminRoutes(app: Express): void {
         return;
       }
 
-      if (sourceFile === `${path.basename(getContentRoot(res))}/custom-redirects.yml`) {
+      if (
+        sourceFile === `${contentRootName}/custom-redirects.yml` ||
+        sourceFile === "custom-redirects.yml"
+      ) {
         const customFilePath = path.join(
           getContentRoot(res),
           "custom-redirects.yml",
@@ -1353,9 +1554,13 @@ export function registerAdminRoutes(app: Express): void {
         } | null;
 
         if (!loaded || !Array.isArray(loaded.redirects)) {
-          res
-            .status(404)
-            .json({ error: "No redirects found in custom redirects file" });
+          // Idempotent: no redirects list means the rule is already gone.
+          afterRedirectWrite(res, sourceFile);
+          res.json({
+            success: true,
+            alreadyAbsent: true,
+            message: `Custom redirect "${normalizedFrom}" was already absent`,
+          });
           return;
         }
 
@@ -1369,8 +1574,11 @@ export function registerAdminRoutes(app: Express): void {
         });
 
         if (loaded.redirects.length === originalLength) {
-          res.status(404).json({
-            error: `Redirect "${normalizedFrom}" not found in custom-redirects.yml`,
+          afterRedirectWrite(res, sourceFile);
+          res.json({
+            success: true,
+            alreadyAbsent: true,
+            message: `Custom redirect "${normalizedFrom}" was already absent`,
           });
           return;
         }
@@ -1405,9 +1613,13 @@ export function registerAdminRoutes(app: Express): void {
 
       const meta = parsed.meta as Record<string, unknown> | undefined;
       if (!meta || !Array.isArray(meta.redirects)) {
-        res
-          .status(404)
-          .json({ error: `No redirects found in "${sourceFile}"` });
+        // Idempotent: empty/missing redirects means the rule is already gone.
+        afterRedirectWrite(res, sourceFile);
+        res.json({
+          success: true,
+          alreadyAbsent: true,
+          message: `Redirect "${normalizedFrom}" was already absent from "${sourceFile}"`,
+        });
         return;
       }
 
@@ -1436,8 +1648,11 @@ export function registerAdminRoutes(app: Express): void {
       );
 
       if ((meta.redirects as unknown[]).length === originalLength) {
-        res.status(404).json({
-          error: `Redirect "${normalizedFrom}" not found in "${sourceFile}"`,
+        afterRedirectWrite(res, sourceFile);
+        res.json({
+          success: true,
+          alreadyAbsent: true,
+          message: `Redirect "${normalizedFrom}" was already absent from "${sourceFile}"`,
         });
         return;
       }
@@ -1458,7 +1673,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.patch("/api/debug/redirects/reorder", (req, res) => {
+  app.patch("/api/debug/redirects/reorder", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const { redirects, author } = req.body;
       const authorName = author && typeof author === "string" ? author : undefined;
@@ -1523,7 +1740,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.patch("/api/debug/redirects/move", (req, res) => {
+  app.patch("/api/debug/redirects/move", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const { from, before_from: beforeFrom, author } = req.body;
       const authorName = author && typeof author === "string" ? author : undefined;
@@ -1562,6 +1781,8 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/debug/redirects/test", async (req, res) => {
+    const auth = await requireCapability(req, res, "read_redirects");
+    if (!auth.authorized) return;
     const url = req.query.url as string;
     if (!url) {
       res.status(400).json({ error: "Missing 'url' query parameter" });
@@ -1593,7 +1814,9 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // Update a custom regex redirect's from/to (inline editor)
-  app.patch("/api/debug/redirects", (req, res) => {
+  app.patch("/api/debug/redirects", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const { from, newFrom, newTo, author } = req.body;
       const authorName = author && typeof author === "string" ? author : undefined;
@@ -1693,7 +1916,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.patch("/api/debug/redirects/priority", (req, res) => {
+  app.patch("/api/debug/redirects/priority", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       const { from, priority, author } = req.body;
       const authorName = author && typeof author === "string" ? author : undefined;
@@ -1759,7 +1984,9 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // Clear redirect cache (for debug tools) — also rescan so disk and tester agree
-  app.post("/api/debug/clear-redirect-cache", (req, res) => {
+  app.post("/api/debug/clear-redirect-cache", async (req, res) => {
+    const auth = await requireCapability(req, res, "edit_redirects");
+    if (!auth.authorized) return;
     try {
       getCI(res).scan();
     } catch (err) {
@@ -1770,7 +1997,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/admin/brand-settings", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const schemaPath = path.join(getContentRoot(res), "schema-org.yml");
@@ -1826,7 +2053,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.put("/api/admin/brand-settings", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const {
@@ -1970,7 +2197,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/admin/schema-org", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const cr = getContentRoot(res);
@@ -1981,7 +2208,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.put("/api/admin/schema-org", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const cr = getContentRoot(res);
@@ -1996,7 +2223,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/admin/schema-org/yml", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const cr = getContentRoot(res);
@@ -2013,7 +2240,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.put("/api/admin/schema-org/yml", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const cr = getContentRoot(res);
@@ -3031,12 +3258,24 @@ export function registerAdminRoutes(app: Express): void {
         res.status(400).json({ error: "Role id must be lowercase letters, numbers, hyphens, or underscores" });
         return;
       }
+      if (userStore.getRole(id)) {
+        res.status(400).json({ error: `Role id "${id}" is already taken` });
+        return;
+      }
+      const desc = typeof description === "string" ? description.trim() : "";
+      if (!desc) {
+        res.status(400).json({
+          error:
+            "Description for AI agents is required. Agents use it to choose which MCP connector (/mcp/role/…) to use and what they should do.",
+        });
+        return;
+      }
       const capCheck = validateRoleCapabilities(capabilities, res);
       if (!capCheck.ok) {
         res.status(400).json({ error: capCheck.error });
         return;
       }
-      userStore.setRole(id, { label, description: description || undefined, capabilities: capCheck.valid! });
+      userStore.setRole(id, { label, description: desc, capabilities: capCheck.valid! });
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create role";
@@ -3050,9 +3289,23 @@ export function registerAdminRoutes(app: Express): void {
       const auth = await requireCapability(req, res, "users_manage");
       if (!auth.authorized) return;
       const { roleId } = req.params;
+      if (userStore.isBuiltInRole(roleId)) {
+        res.status(400).json({
+          error: `The built-in ${roleId} role is managed in code and cannot be updated from the admin UI.`,
+        });
+        return;
+      }
       const { label, description, capabilities } = req.body;
       if (!label || !Array.isArray(capabilities)) {
         res.status(400).json({ error: "Missing required fields: label, capabilities" });
+        return;
+      }
+      const desc = typeof description === "string" ? description.trim() : "";
+      if (!desc) {
+        res.status(400).json({
+          error:
+            "Description for AI agents is required. Agents use it to choose which MCP connector (/mcp/role/…) to use and what they should do.",
+        });
         return;
       }
       const capCheck = validateRoleCapabilities(capabilities, res);
@@ -3061,7 +3314,7 @@ export function registerAdminRoutes(app: Express): void {
         return;
       }
       // create-or-update semantics: PUT creates if not exists, updates if exists
-      userStore.setRole(roleId, { label, description: description || undefined, capabilities: capCheck.valid! });
+      userStore.setRole(roleId, { label, description: desc, capabilities: capCheck.valid! });
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update role";
@@ -3132,6 +3385,32 @@ export function registerAdminRoutes(app: Express): void {
       return;
     }
     res.json({ ok: true });
+  });
+
+  /** MCP-only read/write access overlay (does not change CMS roles). */
+  app.put("/api/admin/users/:username/mcp-access", async (req, res) => {
+    const auth = await requireCapability(req, res, "users_manage");
+    if (!auth.authorized) return;
+    const { username } = req.params;
+    const { mcpReadEnabled, mcpWriteEnabled } = req.body ?? {};
+    if (mcpReadEnabled !== undefined && typeof mcpReadEnabled !== "boolean") {
+      res.status(400).json({ error: "mcpReadEnabled must be a boolean" });
+      return;
+    }
+    if (mcpWriteEnabled !== undefined && typeof mcpWriteEnabled !== "boolean") {
+      res.status(400).json({ error: "mcpWriteEnabled must be a boolean" });
+      return;
+    }
+    if (mcpReadEnabled === undefined && mcpWriteEnabled === undefined) {
+      res.status(400).json({ error: "Provide mcpReadEnabled and/or mcpWriteEnabled" });
+      return;
+    }
+    const result = userStore.setMcpAccess(username, { mcpReadEnabled, mcpWriteEnabled });
+    if (!result.ok) {
+      res.status(404).json({ error: result.error });
+      return;
+    }
+    res.json({ ok: true, ...result.access });
   });
 
   app.delete("/api/admin/users/:username", async (req, res) => {
@@ -3217,6 +3496,7 @@ export function registerAdminRoutes(app: Express): void {
       .map(([id, role]) => ({
         id,
         label: role.label,
+        description: role.description ?? "",
         allowedTools: allowedToolNames(role.capabilities ?? []),
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
@@ -3363,18 +3643,60 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
+  app.get("/api/admin/runtime-issues/referrers", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+
+    try {
+      const pathParam = String(req.query.path || "");
+      if (!pathParam) {
+        res.status(400).json({ error: "path query param is required" });
+        return;
+      }
+      const { getReferrersForTargetPath, loadLinkIndex } = await import("../link-index");
+      const site = (res.locals as { site?: { contentRoot?: string } }).site;
+      const result = getReferrersForTargetPath(pathParam, site?.contentRoot, { limit: 50 });
+      const linkIndex = loadLinkIndex(site?.contentRoot);
+      res.json({
+        path: pathParam,
+        count: result.count,
+        entryKeys: result.referrers.map((r) => r.entryKey),
+        referrers: result.referrers,
+        linkIndexUpdatedAt: linkIndex.updated_at ?? result.updatedAt,
+      });
+    } catch (err) {
+      log.error({ err }, "Failed to list runtime issue referrers:");
+      res.status(500).json({ error: "Failed to list referrers" });
+    }
+  });
+
   app.get("/api/admin/runtime-issues", async (req, res) => {
     const auth = await requireCapability(req, res, "metrics_view");
     if (!auth.authorized) return;
 
     try {
       const { listRuntimeIssues } = await import("../runtime-issues-store");
+      const {
+        loadLinkIndex,
+        invertLinkIndex,
+        normalizeReferrerTargetPath,
+      } = await import("../link-index");
       const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
       const siteName = site?.contentRootName || "default";
       const data = listRuntimeIssues(siteName, {
         contentRoot: site?.contentRoot,
       });
-      res.json(data);
+      const linkIndex = loadLinkIndex(site?.contentRoot);
+      const inverted = invertLinkIndex(linkIndex.outbound);
+      const issues = data.issues.map((issue) => ({
+        ...issue,
+        cmsReferrerCount: (inverted.get(normalizeReferrerTargetPath(issue.path)) ?? []).length,
+      }));
+      res.json({
+        ...data,
+        issues,
+        linkIndexUpdatedAt: linkIndex.updated_at ?? null,
+      });
     } catch (err) {
       log.error({ err }, "Failed to list runtime issues:");
       res.status(500).json({ error: "Failed to list runtime issues" });
@@ -3570,7 +3892,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.post("/api/admin/runtime-issues/ignore", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
 
     const raw = req.body?.rules;
@@ -3593,12 +3915,24 @@ export function registerAdminRoutes(app: Express): void {
     const seedPaths = Array.isArray(seedRaw)
       ? seedRaw.filter((p): p is string => typeof p === "string" && p.trim().length > 0)
       : undefined;
+    const purgeRaw = req.body?.purgeFingerprints;
+    const purgeFingerprints = Array.isArray(purgeRaw)
+      ? Array.from(
+          new Set(
+            purgeRaw.filter((fp): fp is string => typeof fp === "string" && fp.trim().length > 0),
+          ),
+        )
+      : undefined;
 
     try {
       const { addIgnoreRules } = await import("../runtime-issues-store");
       const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
       const siteName = site?.contentRootName || "default";
-      const result = addIgnoreRules(siteName, rules, { contentRoot: site?.contentRoot, seedPaths });
+      const result = addIgnoreRules(siteName, rules, {
+        contentRoot: site?.contentRoot,
+        seedPaths,
+        purgeFingerprints,
+      });
       res.json(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to add ignore rules";
@@ -3612,7 +3946,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.post("/api/admin/runtime-issues/unignore", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
 
     const raw = req.body?.ids;
@@ -3637,6 +3971,52 @@ export function registerAdminRoutes(app: Express): void {
     } catch (err) {
       log.error({ err }, "Failed to remove ignore rules:");
       res.status(500).json({ error: "Failed to remove ignore rules" });
+    }
+  });
+
+  app.post("/api/admin/runtime-issues/purge", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+
+    const mode = req.body?.mode;
+    const fingerprintsRaw = req.body?.fingerprints;
+
+    try {
+      const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
+      const siteName = site?.contentRootName || "default";
+      const contentRoot = site?.contentRoot;
+
+      if (mode === "matching_ignore_rules") {
+        const { purgeIssuesMatchingIgnoreRules } = await import("../runtime-issues-store");
+        const result = purgeIssuesMatchingIgnoreRules(siteName, contentRoot);
+        res.json(result);
+        return;
+      }
+
+      if (!Array.isArray(fingerprintsRaw) || fingerprintsRaw.length === 0) {
+        res.status(400).json({
+          error: 'Provide fingerprints (string[]) or mode: "matching_ignore_rules"',
+        });
+        return;
+      }
+      const fingerprints = Array.from(
+        new Set(
+          fingerprintsRaw.filter(
+            (fp): fp is string => typeof fp === "string" && fp.trim().length > 0,
+          ),
+        ),
+      );
+      if (!fingerprints.length) {
+        res.status(400).json({ error: "fingerprints must include at least one string" });
+        return;
+      }
+
+      const { deleteRuntimeIssuesByFingerprints } = await import("../runtime-issues-store");
+      const result = deleteRuntimeIssuesByFingerprints(siteName, fingerprints, contentRoot);
+      res.json(result);
+    } catch (err) {
+      log.error({ err }, "Failed to purge runtime issues:");
+      res.status(500).json({ error: "Failed to purge runtime issues" });
     }
   });
 

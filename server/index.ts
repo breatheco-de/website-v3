@@ -28,7 +28,7 @@ import { emitContentFileWritten, emitRedirectsChanged } from "./content-events";
 import { startEventPruneTimer, wipeAllSiteEventStores } from "./events/event-store";
 import { startEventDispatcher } from "./events/dispatcher";
 import { registerAllJobs } from "./jobs/register";
-import { startJobQueue, stopJobQueue } from "./jobs/queue";
+import { configureJobQueue } from "./jobs/queue";
 import { ensurePipelineDbForSites } from "./pipeline-db/runner";
 import { startJobApplier, stopJobApplier } from "./jobs/applier";
 import { startEngineWatchdog } from "./jobs/engine-watchdog";
@@ -524,6 +524,13 @@ app.use((req, res, next) => {
           logger.error({ err, worker: "ValidationCache" }, "failed to load validation caches from GCS");
         });
 
+        const { loadLinkIndexesFromBucket } = await import("./link-index");
+        await loadLinkIndexesFromBucket(
+          [...getSiteContextMap().values()].map((ctx) => ({ contentRoot: ctx.contentRoot })),
+        ).catch((err) => {
+          logger.error({ err, worker: "LinkIndex" }, "failed to load link indexes from GCS");
+        });
+
         const { ValidationService } = await import("../scripts/validation/service");
         const { applyValidationRunToCache } = await import("./services/validationCachePostProcess");
         for (const ctx of getSiteContextMap().values()) {
@@ -573,6 +580,17 @@ app.use((req, res, next) => {
     registerAllJobs();
     const siteNames = [...getSiteContextMap().values()].map((c) => c.contentRootName);
     try {
+      const { configureImpressionFlush } = require("./media-impressions") as typeof import("./media-impressions");
+      configureImpressionFlush((contentRootName) => {
+        for (const ctx of getSiteContextMap().values()) {
+          if (ctx.contentRootName === contentRootName) return ctx.mediaGallery;
+        }
+        return null;
+      });
+    } catch (err) {
+      logger.warn({ err }, "[impressions] failed to configure flush");
+    }
+    try {
       ensurePipelineDbForSites(siteNames);
     } catch (err) {
       logger.error({ err, worker: "PipelineDb" }, "failed to apply pipeline SQLite migrations");
@@ -584,8 +602,10 @@ app.use((req, res, next) => {
         logger.info({ wiped, sites: siteNames.length }, "[Events] Dev boot wiped site event logs");
       }
     }
-    void startJobQueue().catch((err) => {
-      logger.error({ err, worker: "JobQueue" }, "failed to start job queue");
+    // Configure Sidequest for enqueue only — engine runs in a dedicated worker
+    // (`npm run sidequest` / website-sidequest.service). Never Sidequest.start() here.
+    void configureJobQueue().catch((err) => {
+      logger.error({ err, worker: "JobQueue" }, "failed to configure job queue for enqueue");
     });
     startEventDispatcher();
     startJobApplier();
@@ -594,22 +614,36 @@ app.use((req, res, next) => {
     /** Previous YAML bodies for redirects_changed gating (in-process seed). */
     const lastYamlContentByPath = new Map<string, string>();
     addFileModifiedListener((evt) => {
-      const { filePath, author, actor, contentChanged, content } = evt;
+      const { filePath, author, actor, contentChanged, content, agentSessionId, report } = evt;
       scheduleSectionVariantsRefreshForFile(filePath);
       if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
         for (const ctx of getSiteContextMap().values()) {
           if (!filePath.startsWith(ctx.contentRootName + "/")) continue;
-          try {
-            ctx.contentIndex.upsertEntry(filePath);
-          } catch {
-            /* non-fatal */
+          const abs = path.isAbsolute(filePath)
+            ? filePath
+            : path.join(process.cwd(), filePath);
+          const fileExists = fs.existsSync(abs);
+          if (fileExists) {
+            try {
+              ctx.contentIndex.upsertEntry(filePath);
+            } catch {
+              /* non-fatal */
+            }
+          }
+          if (!fileExists) {
+            break;
           }
           const resolvedActor =
             actor ?? (author ? { type: "ui" as const } : { type: "system" as const, source: "content-pipeline" });
-          emitContentFileWritten(filePath, { author, actor: resolvedActor });
+          emitContentFileWritten(filePath, {
+            author,
+            actor: resolvedActor,
+            agent_session_id: agentSessionId,
+            report,
+          });
 
           if (contentChanged) {
-            const abs = path.isAbsolute(filePath)
+            const absPath = path.isAbsolute(filePath)
               ? filePath
               : path.join(process.cwd(), filePath);
             const next =
@@ -617,7 +651,7 @@ app.use((req, res, next) => {
                 ? content
                 : (() => {
                     try {
-                      return fs.readFileSync(abs, "utf-8");
+                      return fs.readFileSync(absPath, "utf-8");
                     } catch {
                       return "";
                     }
@@ -629,7 +663,12 @@ app.use((req, res, next) => {
                 isCustomRedirectsFile: isCustomRedirects,
               })
             ) {
-              emitRedirectsChanged(filePath, { author, actor: resolvedActor });
+              emitRedirectsChanged(filePath, {
+                author,
+                actor: resolvedActor,
+                agent_session_id: agentSessionId,
+                report,
+              });
             }
             lastYamlContentByPath.set(filePath, next);
           }
@@ -657,7 +696,6 @@ app.use((req, res, next) => {
     try {
       flushAllPendingSyncStateWrites();
       stopJobApplier();
-      await stopJobQueue();
       await getVersioningManager().shutdown();
       await shutdownValidationCaches();
       await shutdownRuntimeIssues();

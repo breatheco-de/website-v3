@@ -68,7 +68,7 @@ Live process must use `current` (systemd). Runtime sidecars (`sites.yml`, caches
 
 ### 3.1 Site content (ephemeral per release)
 
-`site_*` folders are **not** linked from `persistent/`. Each release gets real `site_*` directories (from `content_folder` in `persistent/sites.yml`). `deploy.sh` runs a **blocking** `npm run content:pull -- --required` after `npm ci` and before `npm run build` / flip, so cutover never points at an empty tree.
+`site_*` folders are **not** linked from `persistent/`. Each release gets real `site_*` directories (from `content_folder` in `persistent/sites.yml`). `deploy.sh` runs a **blocking** `npm run content:pull -- --required` after `npm ci` and before `npm run build` / flip, so cutover never points at an empty tree. After the pull it sets group `website-runtime` + setgid on those trees so runtime can write `site_*/.cache` and deploy can still delete old releases.
 
 After that pull, deploy **clears** `.bootstrap-complete` on purpose. On the post-flip restart, when the flag is absent, the app **hash-diff pulls** again (GitHub wins) so content commits that landed during `npm ci`/build are picked up. Media/canonical assets live in **GCS**; YAML/registry come from those pulls.
 
@@ -133,17 +133,86 @@ One-time (requires root/sudo). After the first successful atomic deploy:
 WorkingDirectory=/opt/website-v3/current
 EnvironmentFile=/opt/website-v3/current/.env
 ExecStart=/opt/website-v3/current/scripts/start-production.sh
+UMask=0002
 ```
 
 Keep `ReadWritePaths=/opt/website-v3` so `persistent/` remains writable.
+`UMask=0002` lets `website-runtime` create group-writable `site_*/.cache` so
+`website-deployer` (in group `website-runtime`) can prune old releases.
+
+**Sidequest (required for background jobs):** Express only enqueues; a separate unit runs the engine.
+
+```bash
+# /etc/systemd/system/website-sidequest.service
+[Unit]
+Description=Website Sidequest job engine
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/website-v3/current
+EnvironmentFile=/opt/website-v3/current/.env
+ExecStart=/opt/website-v3/current/scripts/start-sidequest.sh
+UMask=0002
+Restart=always
+RestartSec=5
+# Same writable root as website.service so data/sidequest.sqlite is shared
+ReadWritePaths=/opt/website-v3
+
+[Install]
+WantedBy=multi-user.target
+```
 
 ```bash
 sudo systemctl daemon-reload
+sudo systemctl enable --now website-sidequest
 sudo systemctl restart website
 curl -fsS http://127.0.0.1:5000/health
+sudo systemctl is-active website-sidequest
+# Optional: cat /opt/website-v3/current/data/sidequest.pid  (web probes this PID)
 ```
 
-Until this flip, `deploy.sh` still builds releases and updates `current`, but the running service may keep using the legacy root tree — the script prints a WARNING if `WorkingDirectory` ≠ `…/current`.
+Until the Sidequest unit is enabled, saves still succeed but index/validation jobs queue and never run. `deploy.sh` restarts **both** `website` and `website-sidequest` when each unit exists.
+
+### Remote Sidequest restart (staff UI → systemd)
+
+The web process runs as `website-runtime` (no sudo). Webmasters can restart Sidequest from **Agent Pipeline** or the system alert panel; the API touches a flag file only — it never runs `systemctl` from Node.
+
+**Security:** The path unit watches **one file** and runs **fixed** commands (no shell, no flag contents in `ExecStart`). Same trust bar as other webmaster actions (Sidequest dashboard, sites.yml). See `docs/vps-deployment.md` for the runtime hardening context.
+
+One-time install (root):
+
+```bash
+# /etc/systemd/system/website-sidequest-restart.path
+[Unit]
+Description=Watch for Sidequest restart flag (webmaster API only)
+
+[Path]
+PathModified=/opt/website-v3/current/data/sidequest.restart-requested
+
+[Install]
+WantedBy=multi-user.target
+
+# /etc/systemd/system/website-sidequest-restart.service
+[Unit]
+Description=Restart Sidequest when flag file is touched
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart website-sidequest
+ExecStartPost=/bin/rm -f /opt/website-v3/current/data/sidequest.restart-requested
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now website-sidequest-restart.path
+```
+
+Optional in release `.env` when the path unit is enabled: `SIDEQUEST_SYSTEMD_RESTART_ENABLED=true` (lets diagnostics report path unit as available).
+
+Staff diagnostics: `GET /api/admin/sidequest/diagnostics`, log tail `GET /api/admin/sidequest/logs` (from `data/logs/sidequest.log`). Worker also writes `data/sidequest.heartbeat` (stale threshold `SIDEQUEST_HEARTBEAT_STALE_MS`, default 120000).
+
+Until the web service flip, `deploy.sh` still builds releases and updates `current`, but the running service may keep using the legacy root tree — the script prints a WARNING if `WorkingDirectory` ≠ `…/current`.
 
 ---
 
@@ -171,6 +240,7 @@ Canonical public URL in prod: **`https://4geeks.com`** (`SITE_URL`).
 ### Must not be public (loopback / Docker bind `127.0.0.1`)
 
 - Express `:5000`
+- Sidequest dashboard `:8678` (staff proxy via Express `/admin/sidequest`)
 - Qdrant `:6333`
 - MCP `:3001` (public only as Nginx → Express → loopback `/mcp`)
 - sGTM `:8080`, `:8081`
@@ -207,6 +277,7 @@ No secret values in this doc.
 
 - SSH with keys, not passwords (`PermitRootLogin no`, `PasswordAuthentication no`).
 - Deploy user (`website-deployer`): limited sudo (`systemctl` website/nginx, `nginx -t`) — not `NOPASSWD: ALL`.
+- `website-deployer` ∈ group `website-runtime` so deploy can prune `site_*/.cache` written by the app.
 - Runtime user without interactive login where applicable.
 - Emergency access: DigitalOcean Droplet Console (not SSH), not root over port 22.
 
@@ -296,8 +367,9 @@ Rate limit APIs/forms/`/mcp`, not a blunt global RPS on all static assets.
 | OS | Ubuntu 24.04 |
 | App root | `/opt/website-v3` |
 | Process | `website.service` → `current/scripts/start-production.sh` |
+| Sidequest | `website-sidequest.service` → `current/scripts/start-sidequest.sh` |
 | Reverse proxy | Nginx 80/443 |
-| Health | `http://127.0.0.1:5000/health` |
+| Health | `http://127.0.0.1:5000/health` (web); Sidequest liveness via `data/sidequest.pid` / `systemctl is-active website-sidequest` |
 | sGTM | `/opt/sgtm` Docker compose |
 
 IP, hostname, and which DNS records already point here: check DigitalOcean + Cloudflare, not this file.

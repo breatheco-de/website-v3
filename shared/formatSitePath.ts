@@ -5,10 +5,10 @@ export interface FormatSitePathOptions {
   knownSiteFolders?: string[];
 }
 
-const LEGACY_SITE_FOLDERS = new Set(["4geeks-com", "content"]);
+/** Former content roots — strip these like site_* so locale files stay distinguishable. */
+const LEGACY_SITE_FOLDERS = new Set(["4geeks-com", "content", "marketing-content"]);
 const SITE_FOLDER_RE = /^site_[^/]+$/;
 const REPO_NON_SITE_ROOTS = new Set([
-  "marketing-content",
   "client",
   "server",
   "scripts",
@@ -94,6 +94,10 @@ export function formatSitePath(filePath: string, options?: FormatSitePathOptions
 /**
  * Normalize a file path to cwd-relative form including the site folder prefix.
  * Suitable for API calls that resolve via path.resolve(process.cwd(), sourceFile).
+ *
+ * When `contentFolder` is set, legacy roots (`marketing-content`, `4geeks-com`,
+ * `content`) and other site_* folders are remapped to that active folder so
+ * API deletes do not look for site_X/marketing-content/...
  */
 export function toContentFileRef(filePath: string, options?: FormatSitePathOptions): string {
   if (!filePath) return filePath;
@@ -101,16 +105,35 @@ export function toContentFileRef(filePath: string, options?: FormatSitePathOptio
   const normalized = normalizeSlashes(filePath);
   const knownSiteFolders = options?.knownSiteFolders ?? [];
   const segments = normalized.split("/").filter(Boolean);
+  const folder = options?.contentFolder?.replace(/\/+$/, "") || null;
 
   const detectedIndex = findSiteFolderIndex(segments, knownSiteFolders);
   if (detectedIndex >= 0) {
-    return segments.slice(detectedIndex).join("/");
+    const detectedFolder = segments[detectedIndex]!;
+    let restSegments = segments.slice(detectedIndex + 1);
+    // Collapse accidental site_*/marketing-content/... nests from bad joins.
+    const nested = restSegments[0];
+    if (
+      nested &&
+      LEGACY_SITE_FOLDERS.has(nested) &&
+      nested !== folder &&
+      nested !== detectedFolder
+    ) {
+      restSegments = restSegments.slice(1);
+    }
+    const rest = restSegments.join("/");
+    if (folder && detectedFolder !== folder) {
+      return rest ? `${folder}/${rest}` : folder;
+    }
+    return rest ? `${detectedFolder}/${rest}` : detectedFolder;
   }
 
-  if (options?.contentFolder) {
-    const folder = options.contentFolder.replace(/\/+$/, "");
+  if (folder) {
     const relative = formatSitePath(filePath, options);
     if (relative && relative !== basename(normalized)) {
+      return `${folder}/${relative}`;
+    }
+    if (relative && /\.ya?ml$/i.test(relative)) {
       return `${folder}/${relative}`;
     }
   }
@@ -123,17 +146,21 @@ export function formatSitePathSpaced(filePath: string, options?: FormatSitePathO
   return formatSitePath(filePath, options).split("/").join(" / ");
 }
 
+const LIVE_LABEL_SUFFIX_RE = /\s*\(live\)\s*$/i;
+
 /** True when a quoted or standalone string looks like a content YAML/site path (not a URL). */
 export function isContentFilePath(p: string): boolean {
+  const pathPart = p.replace(LIVE_LABEL_SUFFIX_RE, "").trim();
   return (
-    /\.ya?ml$/i.test(p) ||
-    /(?:^|\/)(?:site_[^/]+|4geeks-com|content)\//.test(p)
+    /\.ya?ml$/i.test(pathPart) ||
+    /(?:^|\/)(?:site_[^/]+|4geeks-com|content|marketing-content)\//.test(pathPart)
   );
 }
 
 /**
  * Rewrite content-file paths inside a validation message to site-relative form
  * (path after the site_* folder). Quoted URLs such as "/landing/foo" are left unchanged.
+ * Preserves an optional " (live)" suffix from redirect validator labels.
  */
 export function formatSitePathsInText(
   text: string,
@@ -142,10 +169,19 @@ export function formatSitePathsInText(
 ): string {
   if (!text) return text;
   const fmt = formatPath ?? ((p: string) => formatSitePath(p, options));
+
+  const formatOne = (raw: string): string => {
+    const live = LIVE_LABEL_SUFFIX_RE.test(raw);
+    const pathPart = raw.replace(LIVE_LABEL_SUFFIX_RE, "").trim();
+    if (!isContentFilePath(pathPart)) return raw;
+    const formatted = fmt(pathPart);
+    return live ? `${formatted} (live)` : formatted;
+  };
+
   if (!text.includes('"') && isContentFilePath(text)) {
-    return fmt(text);
+    return formatOne(text);
   }
   return text.replace(/"([^"]+)"/g, (full, inner: string) =>
-    isContentFilePath(inner) ? `"${fmt(inner)}"` : full,
+    isContentFilePath(inner) ? `"${formatOne(inner)}"` : full,
   );
 }

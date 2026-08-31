@@ -38,7 +38,7 @@ export interface RawFileExplainContext {
 
 export function localeFromYamlFilename(filename: string): string | null {
   const base = filename.replace(/\.ya?ml$/i, "");
-  if (base === "_common" || base === "_common.single") return null;
+  if (base === "_common" || base === "_common.single" || base === "_common.template") return null;
   const parts = base.split(".");
   const last = parts[parts.length - 1];
   if (/^[a-z]{2}(-[a-z]{2})?$/i.test(last)) return last.toLowerCase();
@@ -83,7 +83,7 @@ export function buildRawFileExplain(args: {
   const requested = args.requestedLocale;
 
   if (args.isTemplate && args.variantSlug && args.localeFallback) {
-    const name = `single.${args.variantSlug}.${requested}.yml`;
+    const name = `template.${args.variantSlug}.${requested}.yml`;
     missing.push({
       name,
       path: posixJoin(prefix, name),
@@ -101,7 +101,7 @@ export function buildRawFileExplain(args: {
         name,
         path: filePath,
         reason: "shared_template",
-        templatePath: posixJoin(prefix, `single.${requested}.yml`),
+        templatePath: posixJoin(prefix, `template.${requested}.yml`),
       });
     } else if (args.isSharedLayout && args.detached) {
       missing.push({ name, path: filePath, reason: "detached_missing" });

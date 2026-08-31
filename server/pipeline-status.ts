@@ -60,6 +60,7 @@ export function deriveInFlight(
   const indexRefresh = recentEvents.some(
     (e) =>
       (e.type === "content_file_written" ||
+        e.type === "content_entry_deleted" ||
         e.type === "content_bulk_synced" ||
         e.type === "redirects_changed") &&
       writeNeedsIndexApply(e, recentEvents, lastAppliedGeneration),
@@ -168,6 +169,7 @@ export function pairLifecycleEvents(events: ContentEvent[]): Array<{
       });
     } else if (
       e.type === "content_file_written" ||
+      e.type === "content_entry_deleted" ||
       e.type === "content_bulk_synced" ||
       e.type === "redirects_changed"
     ) {

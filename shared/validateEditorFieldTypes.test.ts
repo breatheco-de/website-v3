@@ -161,6 +161,51 @@ describe("validateEditorFieldValue", () => {
     expect(issues[0]?.message).toMatch(/should be a string \(select\)/);
   });
 
+  it("accepts string[] for select when multiple: true", () => {
+    expect(
+      validateEditorFieldValue(
+        "region",
+        ["miami-dade", "broward"],
+        {
+          type: "select",
+          multiple: true,
+          allow_custom_values: true,
+          options: [
+            { value: "miami-dade", label: "Miami-Dade" },
+            { value: "broward", label: "Broward" },
+          ],
+        },
+      ),
+    ).toEqual([]);
+    expect(
+      validateEditorFieldValue("region", "miami-dade", {
+        type: "select",
+        multiple: true,
+        allow_custom_values: true,
+      }),
+    ).toEqual([]);
+  });
+
+  it("warns on string[] for select when multiple is not set", () => {
+    const issues = validateEditorFieldValue(
+      "region",
+      ["miami-dade", "broward"],
+      { type: "select", allow_custom_values: true },
+    );
+    expect(issues[0]?.code).toBe("FIELD_TYPE_MISMATCH");
+    expect(issues[0]?.message).toMatch(/should be a string \(select\)/);
+  });
+
+  it("warns when multi select array has non-string items", () => {
+    const issues = validateEditorFieldValue(
+      "region",
+      ["miami-dade", { slug: "broward" }],
+      { type: "select", multiple: true, allow_custom_values: true },
+    );
+    expect(issues[0]?.code).toBe("FIELD_TYPE_MISMATCH");
+    expect(issues[0]?.message).toMatch(/select array items must be strings/);
+  });
+
   it("accepts relation slug strings", () => {
     expect(
       validateEditorFieldValue("author", "ada", { type: "relation", source: "authors" }),

@@ -382,12 +382,14 @@ export function registerGithubRoutes(app: Express): void {
 
       const {
         getUserConnectionStatus,
+        getGitHubConnectSetupInfo,
         isGitHubConnectRequired,
       } = await import("../github-user-tokens");
       const status = await getUserConnectionStatus(auth.username);
       res.json({
         ...status,
         required: isGitHubConnectRequired(),
+        setup: getGitHubConnectSetupInfo(),
         education: {
           summary:
             "In production, content commits use your connected GitHub identity on the content repo. The service GITHUB_TOKEN is only for pulls and system operations.",
@@ -470,8 +472,16 @@ export function registerGithubRoutes(app: Express): void {
   });
 
   app.get("/api/github/oauth/callback", async (req, res) => {
-    const failRedirect = (msg: string) => {
+    const failRedirect = (
+      msg: string,
+      extra?: Record<string, string | undefined>,
+    ) => {
       const q = new URLSearchParams({ github: "error", message: msg });
+      if (extra) {
+        for (const [key, value] of Object.entries(extra)) {
+          if (value) q.set(key, value);
+        }
+      }
       res.redirect(`/private/repository-sync?${q.toString()}`);
     };
 
@@ -510,7 +520,13 @@ export function registerGithubRoutes(app: Express): void {
         exchanged.access_token,
       );
       if (!writeCheck.ok) {
-        failRedirect(writeCheck.error || "No write access to content repo");
+        failRedirect(
+          writeCheck.error || "No write access to content repo",
+          {
+            code: writeCheck.code,
+            repos: writeCheck.reposChecked.join(","),
+          },
+        );
         return;
       }
 

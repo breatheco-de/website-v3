@@ -31,6 +31,7 @@ import {
 } from "../sitemap";
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
+import { assertLocaleUrlAvailable } from "../locale-url-slug";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager } from "../database";
 import {
@@ -143,7 +144,14 @@ import {
   countVariantFiles,
   findSourceDraftVariant,
   usesDraftFirstCreate,
+  liveLocaleFileName,
 } from "../draft-entry";
+import {
+  resolveTemplateLocalePath,
+  liveTemplateBasename,
+  variantTemplateBasename,
+  isReservedTemplateVariantSlug,
+} from "../shared-layout-paths";
 import { ensurePublishedAtOnce } from "../published-at";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveSingleVars } from "../single-resolver";
@@ -229,6 +237,9 @@ import {
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
+  beginMcpContentWrite,
+  runWithContentWriteContextAsync,
+  enterContentWriteContext,
 } from "./_helpers";
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
@@ -583,6 +594,12 @@ export function registerVersioningRoutes(app: Express): void {
       res.status(400).json({ error: "variantSlug must be lowercase letters, numbers, and hyphens only" });
       return;
     }
+    if (isReservedTemplateVariantSlug(variantSlug)) {
+      res.status(400).json({
+        error: 'Variant slug "template" and "single" are reserved for the shared-layout shell',
+      });
+      return;
+    }
 
     const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
     const contentDir = versioningManager.getVersioningContentDir(contentType, resolved.slug);
@@ -598,14 +615,14 @@ export function registerVersioningRoutes(app: Express): void {
     if (fs.existsSync(variantFilePath)) {
       res.status(409).json({
         error: resolved.templateMode
-          ? `Variant single.${variantSlug}.${locale}.yml already exists`
+          ? `Variant ${variantTemplateBasename(variantSlug, locale)} already exists`
           : `Variant ${variantSlug}.${locale}.yml already exists`,
       });
       return;
     }
 
     const liveSourcePath = resolved.templateMode
-      ? path.join(contentDir, `single.${locale}.yml`)
+      ? resolveTemplateLocalePath(contentDir, locale, { fallbackLocale: "" })
       : path.join(contentDir, `${locale}.yml`);
 
     let sourceFilePath = liveSourcePath;
@@ -620,7 +637,7 @@ export function registerVersioningRoutes(app: Express): void {
       if (!srcSlug) {
         res.status(404).json({
           error: resolved.templateMode
-            ? `Source file single.${locale}.yml not found and no draft variants exist for ${locale}`
+            ? `Source file ${liveTemplateBasename(locale)} not found and no draft variants exist for ${locale}`
             : `Source file ${locale}.yml not found and no draft variants exist for ${locale}`,
         });
         return;
@@ -637,7 +654,7 @@ export function registerVersioningRoutes(app: Express): void {
       const sourceContent = fs.readFileSync(sourceFilePath, "utf-8");
       fs.writeFileSync(variantFilePath, sourceContent, "utf-8");
       const relPrimary = resolved.templateMode
-        ? `${folder}/single.${variantSlug}.${locale}.yml`
+        ? `${folder}/${variantTemplateBasename(variantSlug, locale)}`
         : `${folder}/${resolved.slug}/${variantSlug}.${locale}.yml`;
       markFileAsModified(relPrimary, auth.author || "api", undefined, root);
 
@@ -647,7 +664,10 @@ export function registerVersioningRoutes(app: Express): void {
         const sourceData = (getCI(res).safeYamlLoad(sourceContent) as Record<string, unknown>) || {};
         const requesterId = auth.author || undefined;
         for (const sibling of listSiblingSinglePaths(contentDir, locale)) {
-          const siblingVariantPath = path.join(contentDir, `single.${variantSlug}.${sibling.locale}.yml`);
+          const siblingVariantPath = path.join(
+            contentDir,
+            variantTemplateBasename(variantSlug, sibling.locale),
+          );
           if (fs.existsSync(siblingVariantPath)) continue;
           const mirrored = buildMirroredLocaleSingle(sourceData, requesterId);
           // Preserve layout from sibling live single when present
@@ -659,7 +679,7 @@ export function registerVersioningRoutes(app: Express): void {
           const { escaped, map } = escapeObjectVars(mirrored);
           const dumped = yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
           fs.writeFileSync(siblingVariantPath, unescapeYamlDump(dumped, map), "utf-8");
-          markFileAsModified(`${folder}/single.${variantSlug}.${sibling.locale}.yml`, auth.author || "api", undefined, root);
+          markFileAsModified(`${folder}/${variantTemplateBasename(variantSlug, sibling.locale)}`, auth.author || "api", undefined, root);
           createdSiblings.push(sibling.locale);
         }
       }
@@ -700,6 +720,13 @@ export function registerVersioningRoutes(app: Express): void {
 
     const auth = await requireCapability(req, res, "content_promote_variant", contentType);
     if (!auth.authorized) return;
+
+    const writeGate = beginMcpContentWrite(req, req.body?.report);
+    if (!writeGate.ok) {
+      res.status(400).json({ error: writeGate.error, code: writeGate.code });
+      return;
+    }
+    enterContentWriteContext(writeGate.ctx);
 
     const resolved = resolveWritableVersioningSlug(contentType, contentSlug, getContentRoot(res));
     if (!resolved.ok) {
@@ -760,7 +787,7 @@ export function registerVersioningRoutes(app: Express): void {
         );
         const defaultFilePath = path.resolve(
           contentDir,
-          resolved.templateMode ? `single.${locale}.yml` : `${locale}.yml`,
+          resolved.templateMode ? liveLocaleFileName(locale, true) : `${locale}.yml`,
         );
         const variantContent = fs.readFileSync(variantFilePath, "utf-8");
         const identityErr = validateYamlIdentity(variantContent, {
@@ -800,6 +827,25 @@ export function registerVersioningRoutes(app: Express): void {
           res.status(400).json({ error: `Cannot publish: ${seoGateErr}`, locale });
           return;
         }
+        if (!resolved.templateMode) {
+          const mergedForUrl = deepMerge(commonForGate, parsedVariant) as Record<string, unknown>;
+          const urlCheck = assertLocaleUrlAvailable({
+            contentType,
+            entryIdentity: resolved.slug,
+            locale,
+            mergedPageData: mergedForUrl,
+            ci: getCI(res),
+          });
+          if (!urlCheck.ok) {
+            res.status(urlCheck.statusCode).json({
+              error: `Cannot publish: ${urlCheck.error}`,
+              locale,
+              code: urlCheck.code,
+              url: urlCheck.url,
+            });
+            return;
+          }
+        }
         fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
 
         const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
@@ -815,8 +861,8 @@ export function registerVersioningRoutes(app: Express): void {
         fs.unlinkSync(variantFilePath);
 
         if (resolved.templateMode) {
-          markFileAsModified(`${folder}/single.${locale}.yml`, auth.author || "api", undefined, root);
-          markFileAsModified(`${folder}/single.${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
+          markFileAsModified(`${folder}/${liveTemplateBasename(locale)}`, auth.author || "api", undefined, root);
+          markFileAsModified(`${folder}/${variantTemplateBasename(variantSlug, locale)}`, auth.author || "api", undefined, root);
         } else {
           markFileAsModified(`${folder}/${resolved.slug}/${locale}.yml`, auth.author || "api", undefined, root);
           markFileAsModified(`${folder}/${resolved.slug}/${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
@@ -862,6 +908,13 @@ export function registerVersioningRoutes(app: Express): void {
     const auth = await requireCapability(req, res, "content_promote_variant", contentType);
     if (!auth.authorized) return;
 
+    const writeGate = beginMcpContentWrite(req, req.body?.report);
+    if (!writeGate.ok) {
+      res.status(400).json({ error: writeGate.error, code: writeGate.code });
+      return;
+    }
+    enterContentWriteContext(writeGate.ctx);
+
     const resolved = resolveWritableVersioningSlug(contentType, contentSlug, getContentRoot(res));
     if (!resolved.ok) {
       res.status(resolved.status).json({ error: resolved.error });
@@ -870,6 +923,12 @@ export function registerVersioningRoutes(app: Express): void {
 
     if (!/^[a-z0-9-]+$/.test(variantSlug)) {
       res.status(400).json({ error: "variantSlug must be lowercase letters, numbers, and hyphens only" });
+      return;
+    }
+    if (isReservedTemplateVariantSlug(variantSlug)) {
+      res.status(400).json({
+        error: 'Variant slug "template" and "single" are reserved for the shared-layout shell',
+      });
       return;
     }
 
@@ -891,7 +950,7 @@ export function registerVersioningRoutes(app: Express): void {
     const variantFilePath = path.resolve(versioningManager.getVariantFilePath(contentType, resolved.slug, variantSlug, locale));
     const defaultFilePath = path.resolve(
       contentDir,
-      resolved.templateMode ? `single.${locale}.yml` : `${locale}.yml`,
+      resolved.templateMode ? liveLocaleFileName(locale, true) : `${locale}.yml`,
     );
 
     if (!variantFilePath.startsWith(contentDir + path.sep) || !defaultFilePath.startsWith(contentDir + path.sep)) {
@@ -902,7 +961,7 @@ export function registerVersioningRoutes(app: Express): void {
     if (!fs.existsSync(variantFilePath)) {
       res.status(404).json({
         error: resolved.templateMode
-          ? `Variant file single.${variantSlug}.${locale}.yml not found`
+          ? `Variant file ${variantTemplateBasename(variantSlug, locale)} not found`
           : `Variant file ${variantSlug}.${locale}.yml not found`,
       });
       return;
@@ -949,6 +1008,24 @@ export function registerVersioningRoutes(app: Express): void {
         res.status(400).json({ error: `Cannot promote: ${seoGateErr}` });
         return;
       }
+      if (!resolved.templateMode) {
+        const mergedForUrl = deepMerge(commonForGate, parsedVariant) as Record<string, unknown>;
+        const urlCheck = assertLocaleUrlAvailable({
+          contentType,
+          entryIdentity: resolved.slug,
+          locale,
+          mergedPageData: mergedForUrl,
+          ci: getCI(res),
+        });
+        if (!urlCheck.ok) {
+          res.status(urlCheck.statusCode).json({
+            error: `Cannot promote: ${urlCheck.error}`,
+            code: urlCheck.code,
+            url: urlCheck.url,
+          });
+          return;
+        }
+      }
       fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
 
       const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
@@ -978,8 +1055,8 @@ export function registerVersioningRoutes(app: Express): void {
       cache.clearEntryKey(buildEntryKey(contentType, resolved.slug, locale, variantSlug));
 
       if (resolved.templateMode) {
-        markFileAsModified(`${folder}/single.${locale}.yml`, auth.author || "api", undefined, root);
-        markFileAsModified(`${folder}/single.${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
+        markFileAsModified(`${folder}/${liveTemplateBasename(locale)}`, auth.author || "api", undefined, root);
+        markFileAsModified(`${folder}/${variantTemplateBasename(variantSlug, locale)}`, auth.author || "api", undefined, root);
       } else {
         markFileAsModified(`${folder}/${resolved.slug}/${locale}.yml`, auth.author || "api", undefined, root);
         markFileAsModified(`${folder}/${resolved.slug}/${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
@@ -1094,6 +1171,12 @@ export function registerVersioningRoutes(app: Express): void {
       res.status(400).json({ error: "variantSlug must be lowercase letters, numbers, and hyphens only" });
       return;
     }
+    if (isReservedTemplateVariantSlug(variantSlug)) {
+      res.status(400).json({
+        error: 'Variant slug "template" and "single" are reserved for the shared-layout shell',
+      });
+      return;
+    }
 
     if (!/^[a-z]{2}(-[A-Z]{2})?$/.test(locale)) {
       res.status(400).json({ error: "locale must be a valid language code (e.g. en, es, pt-BR)" });
@@ -1120,7 +1203,7 @@ export function registerVersioningRoutes(app: Express): void {
     if (!fs.existsSync(variantFilePath)) {
       res.status(404).json({
         error: resolved.templateMode
-          ? `Variant file single.${variantSlug}.${locale}.yml not found`
+          ? `Variant file ${variantTemplateBasename(variantSlug, locale)} not found`
           : `Variant file ${variantSlug}.${locale}.yml not found`,
       });
       return;
@@ -1134,7 +1217,7 @@ export function registerVersioningRoutes(app: Express): void {
 
       fs.unlinkSync(variantFilePath);
       if (resolved.templateMode) {
-        markFileAsModified(`${folder}/single.${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
+        markFileAsModified(`${folder}/${variantTemplateBasename(variantSlug, locale)}`, auth.author || "api", undefined, root);
       } else {
         markFileAsModified(`${folder}/${resolved.slug}/${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
       }

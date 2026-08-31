@@ -8,20 +8,20 @@ import {
 
 const original = {
   type: "hero",
-  title: "{{ single.title | blog title }}",
-  subtitle: "{{ single.description }}",
+  title: "{{ entry.title | blog title }}",
+  subtitle: "{{ entry.description }}",
   image: {
-    src: "{{ single.image | https://example.com/fallback.webp }}",
+    src: "{{ entry.image | https://example.com/fallback.webp }}",
   },
   badge: "static-badge",
 };
 
 describe("restoreTemplateFieldValue", () => {
-  const expr = "{{ single.title }}";
+  const expr = "{{ entry.title }}";
 
   it("keeps strings that already contain template expressions", () => {
-    expect(restoreTemplateFieldValue("{{ single.title }} test", expr)).toBe(
-      "{{ single.title }} test",
+    expect(restoreTemplateFieldValue("{{ entry.title }} test", expr)).toBe(
+      "{{ entry.title }} test",
     );
   });
 
@@ -32,7 +32,7 @@ describe("restoreTemplateFieldValue", () => {
   it("uses resolved prefix to preserve a suffix", () => {
     expect(
       restoreTemplateFieldValue("Coding Bootcamp test", expr, "Coding Bootcamp"),
-    ).toBe("{{ single.title }} test");
+    ).toBe("{{ entry.title }} test");
   });
 });
 
@@ -44,10 +44,10 @@ describe("restoreTemplatePlaceholders", () => {
       title: "resolved title",
     };
     const result = restoreTemplatePlaceholders(incoming, original);
-    expect(result.title).toBe("{{ single.title | blog title }}");
-    expect(result.subtitle).toBe("{{ single.description }}");
+    expect(result.title).toBe("{{ entry.title | blog title }}");
+    expect(result.subtitle).toBe("{{ entry.description }}");
     expect((result.image as { src: string }).src).toBe(
-      "{{ single.image | https://example.com/fallback.webp }}",
+      "{{ entry.image | https://example.com/fallback.webp }}",
     );
     expect(result.badge).toBe("static-badge");
   });
@@ -55,15 +55,15 @@ describe("restoreTemplatePlaceholders", () => {
   it("preserves literal text around authored expressions", () => {
     const incoming = {
       type: "hero",
-      title: "{{ single.title | blog title }} test",
-      subtitle: "{{ single.description }}",
+      title: "{{ entry.title | blog title }} test",
+      subtitle: "{{ entry.description }}",
       image: {
-        src: "{{ single.image | https://example.com/fallback.webp }}",
+        src: "{{ entry.image | https://example.com/fallback.webp }}",
       },
       badge: "static-badge",
     };
     const result = restoreTemplatePlaceholders(incoming, original);
-    expect(result.title).toBe("{{ single.title | blog title }} test");
+    expect(result.title).toBe("{{ entry.title | blog title }} test");
   });
 
   it("preserves suffix when resolvedByPath is provided", () => {
@@ -79,24 +79,24 @@ describe("restoreTemplatePlaceholders", () => {
       subtitle: "Desc",
       "image.src": "https://cdn.example.com/photo.jpg",
     });
-    expect(result.title).toBe("{{ single.title | blog title }} test");
-    expect(result.subtitle).toBe("{{ single.description }}");
+    expect(result.title).toBe("{{ entry.title | blog title }} test");
+    expect(result.subtitle).toBe("{{ entry.description }}");
     expect((result.image as { src: string }).src).toBe(
-      "{{ single.image | https://example.com/fallback.webp }}",
+      "{{ entry.image | https://example.com/fallback.webp }}",
     );
   });
 
   it("leaves allowlisted missing paths gone", () => {
     const incoming = {
       type: "hero",
-      title: "{{ single.title | blog title }}",
-      subtitle: "{{ single.description }}",
+      title: "{{ entry.title | blog title }}",
+      subtitle: "{{ entry.description }}",
       badge: "static-badge",
     };
     const result = restoreTemplatePlaceholders(incoming, original, ["image.src"]);
     expect(result).not.toHaveProperty("image");
-    expect(result.title).toBe("{{ single.title | blog title }}");
-    expect(result.subtitle).toBe("{{ single.description }}");
+    expect(result.title).toBe("{{ entry.title | blog title }}");
+    expect(result.subtitle).toBe("{{ entry.description }}");
   });
 
   it("still restores non-allowlisted missing paths", () => {
@@ -106,8 +106,8 @@ describe("restoreTemplatePlaceholders", () => {
     };
     const result = restoreTemplatePlaceholders(incoming, original, ["image.src"]);
     expect(result).not.toHaveProperty("image");
-    expect(result.title).toBe("{{ single.title | blog title }}");
-    expect(result.subtitle).toBe("{{ single.description }}");
+    expect(result.title).toBe("{{ entry.title | blog title }}");
+    expect(result.subtitle).toBe("{{ entry.description }}");
   });
 
   it("overwrites present literals with template expressions (unchanged)", () => {
@@ -118,10 +118,10 @@ describe("restoreTemplatePlaceholders", () => {
       image: { src: "https://cdn.example.com/photo.jpg" },
     };
     const result = restoreTemplatePlaceholders(incoming, original);
-    expect(result.title).toBe("{{ single.title | blog title }}");
-    expect(result.subtitle).toBe("{{ single.description }}");
+    expect(result.title).toBe("{{ entry.title | blog title }}");
+    expect(result.subtitle).toBe("{{ entry.description }}");
     expect((result.image as { src: string }).src).toBe(
-      "{{ single.image | https://example.com/fallback.webp }}",
+      "{{ entry.image | https://example.com/fallback.webp }}",
     );
   });
 
@@ -129,7 +129,7 @@ describe("restoreTemplatePlaceholders", () => {
     const incoming = {
       type: "hero",
       title: "category",
-      subtitle: "{{ single.description }}",
+      subtitle: "{{ entry.description }}",
       image: { src: "https://cdn.example.com/fallback.webp" },
       badge: "static-badge",
     };
@@ -139,14 +139,14 @@ describe("restoreTemplatePlaceholders", () => {
     ]);
     expect(result.title).toBe("category");
     expect((result.image as { src: string }).src).toBe("https://cdn.example.com/fallback.webp");
-    expect(result.subtitle).toBe("{{ single.description }}");
+    expect(result.subtitle).toBe("{{ entry.description }}");
   });
 
   it("unbound wins when literal equals pipe fallback and resolved value", () => {
     const incoming = {
       type: "hero",
       title: "blog title",
-      subtitle: "{{ single.description }}",
+      subtitle: "{{ entry.description }}",
       badge: "static-badge",
     };
     const result = restoreTemplatePlaceholders(incoming, original, undefined, undefined, ["title"]);
@@ -158,8 +158,8 @@ describe("sanitizeClearedTemplatePaths", () => {
   it("keeps only real bindings that are absent on incoming", () => {
     const incoming = {
       type: "hero",
-      title: "{{ single.title | blog title }}",
-      subtitle: "{{ single.description }}",
+      title: "{{ entry.title | blog title }}",
+      subtitle: "{{ entry.description }}",
     };
     expect(
       sanitizeClearedTemplatePaths(
@@ -181,7 +181,7 @@ describe("sanitizeUnboundTemplatePaths", () => {
     const incoming = {
       type: "hero",
       title: "Guides",
-      subtitle: "{{ single.description }}",
+      subtitle: "{{ entry.description }}",
     };
     expect(
       sanitizeUnboundTemplatePaths(
@@ -195,7 +195,7 @@ describe("sanitizeUnboundTemplatePaths", () => {
   it("rejects paths still containing template syntax", () => {
     const incoming = {
       type: "hero",
-      title: "{{ single.title | blog title }}",
+      title: "{{ entry.title | blog title }}",
     };
     expect(
       sanitizeUnboundTemplatePaths(["title"], incoming, original),

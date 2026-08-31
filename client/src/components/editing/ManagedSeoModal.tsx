@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { SeoModal, type SeoModalTab } from "@/components/DebugBubble/components/SeoModal";
 import type { ContentInfo, SeoMeta, SeoLocation, SlugCheckStatus } from "@/components/DebugBubble/types";
 import { useToast } from "@/hooks/use-toast";
-import { getDebugToken } from "@/hooks/useDebugAuth";
+import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { useSeoModalSaves } from "@/hooks/useSeoModalSaves";
 import { useContentTypes } from "@/hooks/useContentTypes";
 import { normalizeLocale, buildContentUrlFromPattern } from "@/lib/locale";
@@ -37,7 +37,19 @@ const EMPTY_SEO_META: SeoMeta = {
 
 export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: ManagedSeoModalProps) {
   const { toast } = useToast();
+  const { hasCapability } = useDebugAuth();
   const contentTypesMap = useContentTypes();
+  const canEditSeo = Boolean(
+    target?.contentType && hasCapability("seo_edit", target.contentType),
+  );
+
+  const denySeoEdit = useCallback(async () => {
+    toast({
+      title: "Permission denied",
+      description: `You need the seo_edit capability for content type "${target?.contentType ?? ""}".`,
+      variant: "destructive",
+    });
+  }, [target?.contentType, toast]);
 
   const [seoLoading, setSeoLoading] = useState(false);
   const [seoData, setSeoData] = useState<{
@@ -129,7 +141,7 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
         (data.availableLocations as SeoLocation[]) || [],
       );
       setSeoLocationSearch("");
-      setNewSlugValue("");
+      setNewSlugValue(typeof data.slug === "string" && data.slug ? data.slug : target.slug);
       setSlugCheckStatus("idle");
       setSlugCheckReason(null);
       setSlugRedirectPrompt(false);
@@ -252,10 +264,14 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
       baselineLocations={locationsBaseline}
       saving={saves.saving}
       onSaveLocations={async (locs) => {
+        if (!canEditSeo) return denySeoEdit();
         await saves.saveLocations(locs);
         setLocationsBaseline([...locs]);
       }}
-      onSaveVisibility={saves.saveVisibility}
+      onSaveVisibility={async () => {
+        if (!canEditSeo) return denySeoEdit();
+        return saves.saveVisibility();
+      }}
       onRevertVisibility={() => {
         applySeoMetaFromForm({
           ...seoMeta,
@@ -264,7 +280,10 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
           change_frequency: baselineMetaRef.current.change_frequency,
         });
       }}
-      onSaveSnippet={saves.saveSnippet}
+      onSaveSnippet={async () => {
+        if (!canEditSeo) return denySeoEdit();
+        return saves.saveSnippet();
+      }}
       onRevertSnippet={() => {
         applySeoMetaFromForm({
           ...seoMeta,
@@ -272,8 +291,14 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
           description: baselineMetaRef.current.description,
         });
       }}
-      onSaveCanonical={saves.saveCanonical}
-      onSaveOgImage={saves.saveOgImage}
+      onSaveCanonical={async () => {
+        if (!canEditSeo) return denySeoEdit();
+        return saves.saveCanonical();
+      }}
+      onSaveOgImage={async (url: string) => {
+        if (!canEditSeo) return denySeoEdit();
+        return saves.saveOgImage(url);
+      }}
       visibilityDirty={["robots", "priority", "change_frequency"].some((k) => dirtyKeys.has(k))}
       snippetDirty={["page_title", "description"].some((k) => dirtyKeys.has(k))}
       snippetSaveBlocked={

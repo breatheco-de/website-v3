@@ -25,9 +25,12 @@ import {
 } from "@/components/ui/select";
 import { McpAgentSetupTabs } from "@/components/mcp/McpAgentSetupTabs";
 import { McpCopyButton } from "@/components/mcp/McpSetupUi";
+import { McpSetupRoleTabs } from "@/components/mcp/McpSetupRoleTabs";
 import {
   getMcpServerUrl,
+  isLocalOrigin,
 } from "@/components/mcp/mcpUrlHelpers";
+import { useDebugAuth } from "@/hooks/useDebugAuth";
 
 const ROLE_FILTER_ALL = "all";
 
@@ -65,6 +68,7 @@ interface FetchedTool {
 interface McpRoleFilter {
   id: string;
   label: string;
+  description?: string;
   allowedTools: string[];
 }
 
@@ -176,7 +180,11 @@ function ToolCard({ tool }: { tool: McpTool }) {
 export default function McpServerPage() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
-  const mcpUrl = getMcpServerUrl();
+  /** null = all roles (/mcp); string = /mcp/role/:id */
+  const [setupRoleId, setSetupRoleId] = useState<string | null>(null);
+  const { roles: myRoleIds } = useDebugAuth();
+  const mcpUrl = getMcpServerUrl(setupRoleId);
+  const localDev = isLocalOrigin(window.location.origin);
 
   const { data, isLoading, isError } = useQuery<{
     tools: FetchedTool[];
@@ -202,6 +210,13 @@ export default function McpServerPage() {
   );
 
   const roles = data?.roles ?? [];
+  const mySetupRoles = useMemo(
+    () => roles.filter((r) => myRoleIds.includes(r.id)),
+    [roles, myRoleIds],
+  );
+  const selectedSetupRole = setupRoleId
+    ? mySetupRoles.find((r) => r.id === setupRoleId) ?? null
+    : null;
   const selectedRole = roles.find((r) => r.id === roleFilter);
   const allowedByRole = useMemo(
     () => (selectedRole ? new Set(selectedRole.allowedTools) : null),
@@ -359,8 +374,43 @@ export default function McpServerPage() {
           </div>
 
           <div className="space-y-3">
-            <p className="text-sm font-medium text-foreground">Setup by agent</p>
-            <McpAgentSetupTabs defaultTab="cursor" />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm font-medium text-foreground">Setup by agent</p>
+              <McpSetupRoleTabs
+                value={setupRoleId}
+                onValueChange={setSetupRoleId}
+                roles={mySetupRoles}
+              />
+            </div>
+            {selectedSetupRole && (
+              <p className="text-xs text-muted-foreground leading-relaxed" data-testid="text-setup-role-hint">
+                <span className="text-foreground font-medium">{selectedSetupRole.label}</span>
+                {" — "}
+                {selectedSetupRole.description?.trim()
+                  ? selectedSetupRole.description
+                  : "No description set for this role."}
+                {" "}
+                ({selectedSetupRole.allowedTools.length} tools
+                {selectedSetupRole.allowedTools.length <= 3 ? " — limited connector" : ""}).
+                Agents use this description to choose the connector. You must be assigned this role
+                (OAuth will refuse otherwise).
+              </p>
+            )}
+            {!selectedSetupRole && (
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Connector uses everything your account can do (union of your roles).
+                Pick <span className="text-foreground font-medium">Only …</span> for a focused
+                Claude.ai / agent connector URL.
+              </p>
+            )}
+            {localDev && (
+              <p className="text-xs text-muted-foreground">
+                Local note: plain <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">/mcp</code>{" "}
+                may list more tools here than in production (production filters by your grants).
+                Role URLs always filter by that role.
+              </p>
+            )}
+            <McpAgentSetupTabs defaultTab="cursor" roleId={setupRoleId} />
           </div>
         </section>
 

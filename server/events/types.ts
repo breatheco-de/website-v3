@@ -1,5 +1,6 @@
 export const EVENT_TYPES = [
   "content_file_written",
+  "content_entry_deleted",
   "content_bulk_synced",
   "redirects_changed",
   "index_snapshot_ready",
@@ -7,9 +8,14 @@ export const EVENT_TYPES = [
   "validation_issue_claimed",
   "validation_issue_completed",
   "validation_issue_reopened",
+  "validation_issue_released",
   "binding_propagation_started",
   "binding_propagation_done",
   "job_failed",
+  "ai_image_gc_completed",
+  "agent_session_started",
+  "agent_session_note",
+  "agent_session_summarized",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -26,6 +32,7 @@ export type EventTypeMeta = {
 /** Single source of truth for event roles (outbox stall, write generation, dispatcher). */
 export const EVENT_TYPE_META: Record<EventType, EventTypeMeta> = {
   content_file_written: { outbox: "dispatch", affectsWriteGeneration: true },
+  content_entry_deleted: { outbox: "dispatch", affectsWriteGeneration: true },
   content_bulk_synced: { outbox: "dispatch", affectsWriteGeneration: true },
   binding_propagation_started: { outbox: "dispatch", affectsWriteGeneration: false },
   redirects_changed: { outbox: "audit", affectsWriteGeneration: true },
@@ -34,8 +41,13 @@ export const EVENT_TYPE_META: Record<EventType, EventTypeMeta> = {
   validation_issue_claimed: { outbox: "audit", affectsWriteGeneration: false },
   validation_issue_completed: { outbox: "audit", affectsWriteGeneration: false },
   validation_issue_reopened: { outbox: "audit", affectsWriteGeneration: false },
+  validation_issue_released: { outbox: "audit", affectsWriteGeneration: false },
   binding_propagation_done: { outbox: "audit", affectsWriteGeneration: false },
   job_failed: { outbox: "audit", affectsWriteGeneration: false },
+  ai_image_gc_completed: { outbox: "audit", affectsWriteGeneration: false },
+  agent_session_started: { outbox: "audit", affectsWriteGeneration: false },
+  agent_session_note: { outbox: "audit", affectsWriteGeneration: false },
+  agent_session_summarized: { outbox: "audit", affectsWriteGeneration: false },
 };
 
 export function isOutboxDispatchable(type: EventType): boolean {
@@ -54,7 +66,7 @@ export const INDEX_WRITE_EVENT_TYPES = EVENT_TYPES.filter(
 
 export type IndexWriteEventType = Extract<
   EventType,
-  "content_file_written" | "content_bulk_synced" | "redirects_changed"
+  "content_file_written" | "content_entry_deleted" | "content_bulk_synced" | "redirects_changed"
 >;
 
 export type EventResource = {
@@ -85,6 +97,7 @@ export type ContentEvent = {
   payload: Record<string, unknown>;
   triggeredByEventId?: number;
   triggeredByEventIds?: number[];
+  agent_session_id?: string;
   published: boolean;
   created_at: number;
 };
@@ -98,6 +111,7 @@ export type EmitEventOpts = {
   payload?: Record<string, unknown>;
   triggeredByEventId?: number;
   triggeredByEventIds?: number[];
+  agent_session_id?: string;
 };
 
 export function singleAttribution(author?: string, actor?: EventActor): EventAttribution[] {

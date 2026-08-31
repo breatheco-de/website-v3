@@ -126,7 +126,7 @@ export function evaluateLiveEntrySeoAndRequiredFields(
     requiredEditorKeys,
   });
 
-  // Attached shared-layout: meta often lives only on single.{locale}.yml as {{ single.* }}.
+  // Attached shared-layout: meta often lives only on template.{locale}.yml as {{ entry.* }}.
   let pageForResolve = pageData;
   if (shared && !detached) {
     const template = mergeSingleTemplate(

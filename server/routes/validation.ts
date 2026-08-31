@@ -15,6 +15,7 @@ import {
 } from "../services/validationCacheMerge";
 import { buildUrlCoveragePage } from "../services/validationCoverage";
 import { applyValidationRunToCache } from "../services/validationCachePostProcess";
+import { verifiedCompleteIssue } from "../services/verifiedCompleteIssue";
 import {
   DIAGNOSTICS_SKIP_FOR_PER_PAGE,
   getDiagnosticsJob,
@@ -56,6 +57,9 @@ import {
   requireCapability,
   requireMutatingStaff,
   resolveIssueActor,
+  isMcpLoopbackRequest,
+  requireIssueReport,
+  sanitizeIssueReport,
   createValidationFixRun,
   appendValidationRunLog,
   applyFixerProgress,
@@ -67,6 +71,7 @@ import {
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
+  resolveAgentSessionId,
 } from "./_helpers";
 import {
   emitValidationIssueWorkflowEvent,
@@ -815,12 +820,100 @@ export function registerValidationRoutes(app: Express): void {
     const cache = getValidationCache(res);
     const author = auth.author || auth.username || "staff";
     const actor =
-      action === "claim" || action === "complete"
+      action === "claim" || action === "complete" || action === "release"
         ? resolveIssueActor(req, { model: req.body?.model })
         : undefined;
+
+    let report: string | undefined;
+    if (action === "release") {
+      const existing = cache.getActiveClaim(issueId);
+      if (existing) {
+        const parsed = requireIssueReport(req.body?.report);
+        if (!parsed.ok) {
+          return res.status(400).json({ error: parsed.error, code: parsed.code });
+        }
+        report = parsed.report;
+      }
+    } else if (isMcpLoopbackRequest(req) && (action === "claim" || action === "complete")) {
+      if (action === "complete") {
+        const parsed = requireIssueReport(req.body?.report);
+        if (!parsed.ok) {
+          return res.status(400).json({ error: parsed.error, code: parsed.code });
+        }
+        report = parsed.report;
+      } else {
+        const existing = cache.getActiveClaim(issueId);
+        const isRefresh = existing?.claimedBy === author;
+        if (!isRefresh) {
+          const parsed = requireIssueReport(req.body?.report);
+          if (!parsed.ok) {
+            return res.status(400).json({ error: parsed.error, code: parsed.code });
+          }
+          report = parsed.report;
+        } else {
+          report = sanitizeIssueReport(req.body?.report);
+        }
+      }
+    }
+
+    const agent_session_id = resolveAgentSessionId(req);
+    if (action === "complete") {
+      const issueBefore = cache.getIssueById(issueId);
+      const verified = await verifiedCompleteIssue({
+        cache,
+        ci: getCI(res),
+        contentRoot: getContentRoot(res),
+        issueId,
+        author,
+        actor,
+        report,
+        agent_session_id,
+      });
+      if (!verified.ok) {
+        return res.status(verified.status).json({
+          error: verified.error,
+          code: verified.code,
+          attempt: verified.attempt ?? null,
+          issue: verified.issue
+            ? {
+                id: verified.issue.id,
+                code: verified.issue.code,
+                message: verified.issue.message,
+                severity: verified.issue.severity,
+              }
+            : undefined,
+        });
+      }
+      const site =
+        (res.locals.site as { contentRootName?: string } | undefined)?.contentRootName ??
+        cache.getSiteFolder();
+      if (issueBefore && resolveSiteForIssue(issueBefore, site)) {
+        emitValidationIssueWorkflowEvent({
+          type: "validation_issue_completed",
+          site: resolveSiteForIssue(issueBefore, site)!,
+          issue: issueBefore,
+          author,
+          actor,
+          report,
+          agent_session_id,
+        });
+      }
+      return res.json({
+        success: true,
+        issueId,
+        action: "complete",
+        completed: verified.completed,
+        claimed: null,
+        attempt: null,
+        auto_completed_ids: verified.auto_completed_ids,
+      });
+    }
+
     const result = await cache.updateIssue(issueId, action, author, {
       staffForceRelease: true,
       actor,
+      report,
+      agent_session_id,
     });
     if (!result.ok) {
       return res.status(result.status ?? 400).json({
@@ -829,18 +922,20 @@ export function registerValidationRoutes(app: Express): void {
         claimedBy: result.claimedBy,
       });
     }
-    if (action === "claim" || action === "complete") {
+    if (action === "claim") {
       const issue = cache.getIssueById(issueId);
       const site =
         (res.locals.site as { contentRootName?: string } | undefined)?.contentRootName ??
         cache.getSiteFolder();
       if (issue && resolveSiteForIssue(issue, site)) {
         emitValidationIssueWorkflowEvent({
-          type: action === "claim" ? "validation_issue_claimed" : "validation_issue_completed",
+          type: "validation_issue_claimed",
           site: resolveSiteForIssue(issue, site)!,
           issue,
           author,
           actor,
+          report,
+          agent_session_id,
         });
       }
     }
@@ -850,6 +945,7 @@ export function registerValidationRoutes(app: Express): void {
       action: result.action,
       completed: result.completed ?? null,
       claimed: result.claimed ?? null,
+      attempt: "attempt" in result ? result.attempt ?? null : null,
     });
   });
 
@@ -863,27 +959,61 @@ export function registerValidationRoutes(app: Express): void {
     const cache = getValidationCache(res);
     const completedBy = auth.author || auth.username || "staff";
     const actor = resolveIssueActor(req, { model: req.body?.model });
-    const result = await cache.updateIssue(issueId, "complete", completedBy, { actor });
-    if (!result.ok) {
-      return res.status(result.status ?? 404).json({ error: result.error });
+    let report: string | undefined;
+    if (isMcpLoopbackRequest(req)) {
+      const parsed = requireIssueReport(req.body?.report);
+      if (!parsed.ok) {
+        return res.status(400).json({ error: parsed.error, code: parsed.code });
+      }
+      report = parsed.report;
+    }
+    const agent_session_id = resolveAgentSessionId(req);
+    const verified = await verifiedCompleteIssue({
+      cache,
+      ci: getCI(res),
+      contentRoot: getContentRoot(res),
+      issueId,
+      author: completedBy,
+      actor,
+      report,
+      agent_session_id,
+    });
+    if (!verified.ok) {
+      return res.status(verified.status).json({
+        error: verified.error,
+        code: verified.code,
+        attempt: verified.attempt ?? null,
+        issue: verified.issue
+          ? {
+              id: verified.issue.id,
+              code: verified.issue.code,
+              message: verified.issue.message,
+              severity: verified.issue.severity,
+            }
+          : undefined,
+      });
     }
     const issue = cache.getIssueById(issueId);
     const site =
       (res.locals.site as { contentRootName?: string } | undefined)?.contentRootName ??
       cache.getSiteFolder();
-    if (issue && resolveSiteForIssue(issue, site)) {
+    const siteName = issue ? resolveSiteForIssue(issue, site) : site;
+    if (siteName && issue) {
       emitValidationIssueWorkflowEvent({
         type: "validation_issue_completed",
-        site: resolveSiteForIssue(issue, site)!,
+        site: siteName,
         issue,
         author: completedBy,
         actor,
+        report,
+        agent_session_id,
       });
     }
     return res.json({
       success: true,
       issueId,
-      completed: result.completed,
+      completed: verified.completed,
+      auto_completed_ids: verified.auto_completed_ids,
     });
   });
 
@@ -1458,6 +1588,7 @@ export function registerValidationRoutes(app: Express): void {
       const issues = storedIssues.map((s) => {
         const completion = cache.getCompletion(s.id);
         const claim = cache.getActiveClaim(s.id);
+        const attempts = cache.getAttempts(s.id);
         return {
           id: s.id,
           type: s.severity === "error" ? "error" : s.severity === "info" ? "info" : "warning",
@@ -1470,6 +1601,7 @@ export function registerValidationRoutes(app: Express): void {
           validationCacheBuiltAt: s.lastRunAt,
           completed: completion ? completionToApiRow(completion) : null,
           claimed: claim ? claimToApiRow(claim) : null,
+          attempts: attempts.length > 0 ? attempts : undefined,
         };
       });
 

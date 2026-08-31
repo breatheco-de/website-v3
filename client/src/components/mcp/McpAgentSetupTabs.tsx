@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { McpCodeBlock, McpCopyButton, McpSetupSteps } from "@/components/mcp/McpSetupUi";
 import {
   buildClaudeCodeCli,
@@ -24,6 +25,8 @@ export interface McpAgentSetupTabsProps {
    * Use after the user already chose an agent (e.g. Solve with AI → MCP required).
    */
   onlyTab?: McpSetupTabId;
+  /** CMS role id for `/mcp/role/:id`, or null/undefined for all-roles `/mcp`. */
+  roleId?: string | null;
   className?: string;
 }
 
@@ -303,14 +306,15 @@ export function McpAgentSetupTabs({
   value,
   onValueChange,
   onlyTab,
+  roleId = null,
   className,
 }: McpAgentSetupTabsProps) {
-  const mcpUrl = getMcpServerUrl();
-  const publicUrl = getPublicConnectorUrl();
+  const mcpUrl = getMcpServerUrl(roleId);
+  const publicUrl = getPublicConnectorUrl(roleId);
   const localDev = isLocalOrigin(window.location.origin);
-  const httpMcpConfig = buildHttpMcpConfig(mcpUrl);
-  const claudeDesktopConfig = buildClaudeDesktopConfig(mcpUrl);
-  const claudeCodeCli = buildClaudeCodeCli(mcpUrl);
+  const httpMcpConfig = buildHttpMcpConfig(mcpUrl, roleId);
+  const claudeDesktopConfig = buildClaudeDesktopConfig(mcpUrl, roleId);
+  const claudeCodeCli = buildClaudeCodeCli(mcpUrl, roleId);
 
   const { data } = useQuery<{ siteUrl?: string | null }>({
     queryKey: ["/api/mcp/tools"],
@@ -329,8 +333,9 @@ export function McpAgentSetupTabs({
         siteDomain: siteInfo?.domain,
         localDev,
         publicUrl,
+        roleId,
       }),
-    [data?.siteUrl, siteInfo?.domain, localDev, publicUrl],
+    [data?.siteUrl, siteInfo?.domain, localDev, publicUrl, roleId],
   );
 
   const snippets: SetupSnippets = {
@@ -361,13 +366,13 @@ export function McpAgentSetupTabs({
       data-testid="tabs-mcp-agent-setup"
       className={className}
     >
-      <TabsList className="h-auto flex-wrap justify-start gap-1 w-full">
+      <ToggleButtonBarList className="w-full" data-testid="tabs-mcp-agent-setup-list">
         {TAB_LABELS.map(({ id, label }) => (
-          <TabsTrigger key={id} value={id} data-testid={`tab-setup-${id}`}>
+          <ToggleButtonBarTrigger key={id} value={id} data-testid={`tab-setup-${id}`}>
             {label}
-          </TabsTrigger>
+          </ToggleButtonBarTrigger>
         ))}
-      </TabsList>
+      </ToggleButtonBarList>
 
       {TAB_LABELS.map(({ id }) => {
         const Panel = SETUP_BY_TAB[id];

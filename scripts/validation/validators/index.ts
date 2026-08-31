@@ -14,6 +14,7 @@ import { componentsValidator } from "./components";
 import { backgroundsValidator } from "./backgrounds";
 import { faqsValidator } from "./faqs";
 import { seoDepthValidator } from "./seo-depth";
+import { seoDuplicatesValidator } from "./seo-duplicates";
 import { schemaCompletenessValidator } from "./schema-completeness";
 import { imagesValidator } from "./images";
 import { contentQualityValidator } from "./content-quality";
@@ -43,7 +44,8 @@ import { editorFieldTypesValidator } from "./editor-field-types";
 import { unknownKeysValidator } from "./unknown-keys";
 import { relationTargetsValidator } from "./relation-targets";
 import { updatedAtValidator } from "./updated-at";
-import { blogCategoryLocaleValidator } from "./blog-category-locale";
+import { urlParamLocaleValidator } from "./url-param-locale";
+import { siteLinkIndexValidator } from "./site-link-index";
 
 export const validators: Validator[] = [
   redirectValidator,
@@ -56,6 +58,7 @@ export const validators: Validator[] = [
   backgroundsValidator,
   faqsValidator,
   seoDepthValidator,
+  seoDuplicatesValidator,
   schemaCompletenessValidator,
   schemaOrgCompanionsValidator,
   imagesValidator,
@@ -75,7 +78,7 @@ export const validators: Validator[] = [
   unknownKeysValidator,
   relationTargetsValidator,
   staticFieldOverridesValidator,
-  blogCategoryLocaleValidator,
+  urlParamLocaleValidator,
   orphanedFilesValidator,
   formsValidator,
   consentLegacyKeysValidator,
@@ -84,6 +87,7 @@ export const validators: Validator[] = [
   componentBehaviorsValidator,
   ctaTrackingValidator,
   updatedAtValidator,
+  siteLinkIndexValidator,
 ];
 
 /** @deprecated Lighthouse removed from platform diagnostics — use external tools. */
@@ -133,6 +137,7 @@ export {
   backgroundsValidator,
   faqsValidator,
   seoDepthValidator,
+  seoDuplicatesValidator,
   schemaCompletenessValidator,
   imagesValidator,
   contentQualityValidator,

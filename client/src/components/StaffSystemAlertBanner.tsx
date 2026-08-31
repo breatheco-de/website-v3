@@ -4,7 +4,10 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { isDebugModeActive, useDebugAuth } from "@/hooks/useDebugAuth";
 import { useSystemAlerts, type SystemAlert } from "@/hooks/useSystemAlerts";
+import { SidequestDiagnosticsPanel } from "@/components/pipeline/SidequestDiagnosticsPanel";
 import { cn } from "@/lib/utils";
+
+const SIDEQUEST_ALERT_CODES = new Set<SystemAlert["code"]>(["sidequest_engine_down", "sidequest_engine_stuck"]);
 
 const COLLAPSE_THRESHOLD = 2;
 
@@ -51,6 +54,9 @@ export function SystemAlertItem({
   onRecheckDatabase,
   recheckingDatabase = false,
   databaseRecheckMessage,
+  onRecheckSidequest,
+  recheckingSidequest = false,
+  sidequestRecheckMessage,
 }: {
   alert: SystemAlert;
   compact?: boolean;
@@ -60,9 +66,13 @@ export function SystemAlertItem({
   onRecheckDatabase?: () => void;
   recheckingDatabase?: boolean;
   databaseRecheckMessage?: string | null;
+  onRecheckSidequest?: () => void;
+  recheckingSidequest?: boolean;
+  sidequestRecheckMessage?: string | null;
 }) {
   const showGcsRecheck = alert.code === "gcs_migration_required" && onRecheckGcs;
   const showDbRecheck = DATABASE_ALERT_CODES.has(alert.code) && !!onRecheckDatabase;
+  const showSidequestPanel = SIDEQUEST_ALERT_CODES.has(alert.code) && !!onRecheckSidequest;
 
   return (
     <div className={cn("flex items-start gap-3", compact && "gap-2")} data-testid={`system-alert-${alert.id}`}>
@@ -93,6 +103,16 @@ export function SystemAlertItem({
           <p className={cn(compact ? "text-[11px]" : "text-xs", "mt-1", alertMessageClasses(alert.severity))}>
             {databaseRecheckMessage}
           </p>
+        ) : null}
+        {showSidequestPanel ? (
+          <div className="mt-2">
+            <SidequestDiagnosticsPanel
+              compact={compact}
+              onRecheck={onRecheckSidequest}
+              rechecking={recheckingSidequest}
+              recheckMessage={sidequestRecheckMessage}
+            />
+          </div>
         ) : null}
         <div className="flex flex-wrap items-center gap-2 mt-1">
           {showGcsRecheck ? (
@@ -161,6 +181,9 @@ export function SystemAlertsPanel({ compact = false }: { compact?: boolean }) {
     recheckDatabase,
     recheckingDbId,
     dbRecheckMessages,
+    recheckSidequest,
+    recheckingSidequest,
+    sidequestRecheckMessage,
   } = useSystemAlerts();
   if (!hasAlerts) return null;
 
@@ -180,6 +203,11 @@ export function SystemAlertsPanel({ compact = false }: { compact?: boolean }) {
             onRecheckDatabase={alert.database ? () => void recheckDatabase(alert) : undefined}
             recheckingDatabase={recheckingDbId === alert.id}
             databaseRecheckMessage={dbRecheckMessages[alert.id] ?? null}
+            onRecheckSidequest={
+              SIDEQUEST_ALERT_CODES.has(alert.code) ? () => void recheckSidequest() : undefined
+            }
+            recheckingSidequest={recheckingSidequest}
+            sidequestRecheckMessage={sidequestRecheckMessage}
           />
         </div>
       ))}
@@ -199,6 +227,9 @@ export function StaffSystemAlertBanner() {
     recheckDatabase,
     recheckingDbId,
     dbRecheckMessages,
+    recheckSidequest,
+    recheckingSidequest,
+    sidequestRecheckMessage,
   } = useSystemAlerts();
   const [expanded, setExpanded] = useState(false);
 
@@ -233,6 +264,11 @@ export function StaffSystemAlertBanner() {
               onRecheckDatabase={alert.database ? () => void recheckDatabase(alert) : undefined}
               recheckingDatabase={recheckingDbId === alert.id}
               databaseRecheckMessage={dbRecheckMessages[alert.id] ?? null}
+              onRecheckSidequest={
+                SIDEQUEST_ALERT_CODES.has(alert.code) ? () => void recheckSidequest() : undefined
+              }
+              recheckingSidequest={recheckingSidequest}
+              sidequestRecheckMessage={sidequestRecheckMessage}
             />
           </div>
         ))}

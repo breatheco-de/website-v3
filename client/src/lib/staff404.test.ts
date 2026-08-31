@@ -37,7 +37,7 @@ describe("staff404PreviewHref", () => {
         listingSharedTemplate: true,
         option: { locale: "en", isPromoted: true, variantSlug: "promoted", version: null },
       }),
-    ).toBe("/private/preview/blog/single?locale=en");
+    ).toBe("/private/preview/blog/template?locale=en");
   });
 
   it("keeps the entry slug for entry-level drafts", () => {

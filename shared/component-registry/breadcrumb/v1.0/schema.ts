@@ -13,7 +13,7 @@ export const breadcrumbSectionSchema = z.object({
     .array(z.string())
     .optional()
     .describe(
-      "Tag chips for blogWithTags only. Map: tags: '{{ single.tags }}'. Visual metadata — not included in BreadcrumbList JSON-LD.",
+      "Tag chips for blogWithTags only. Map: tags: '{{ entry.tags }}'. Visual metadata — not included in BreadcrumbList JSON-LD.",
     ),
 });
 

@@ -23,6 +23,16 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useSyncOptional } from "@/contexts/SyncContext";
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -131,7 +141,7 @@ export function DebugBubble() {
     window.location.pathname.startsWith("/private/entry-preview-frame/")
   );
   
-  const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, clearToken, checkSession } = useDebugAuth();
+  const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, clearToken, dismissDebugUi, checkSession } = useDebugAuth();
   const { criticalAlerts } = useSystemAlerts();
   const { showCritical: githubConnectCritical, needsConnect: githubConnectRequired } =
     useGitHubUserConnection();
@@ -224,6 +234,7 @@ export function DebugBubble() {
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
   const [pendingChangesLoading, setPendingChangesLoading] = useState(false);
   const [commitModalOpen, setCommitModalOpen] = useState(false);
+  const [dismissConfirmOpen, setDismissConfirmOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
   const [isCommitting, setIsCommitting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -455,13 +466,16 @@ export function DebugBubble() {
   }, [contentInfo.slug]);
 
   useEffect(() => {
-    if (seoModalOpen) {
-      setNewSlugValue(contentInfo.slug || "");
-      setSlugCheckStatus("idle");
-      setSlugCheckReason(null);
-      setSlugRedirectPrompt(false);
-    }
-  }, [seoModalOpen, contentInfo.slug]);
+    if (!seoModalOpen) return;
+    const localeSlug = (seoData?.slug as string) || contentInfo.slug || "";
+    setNewSlugValue((prev) => {
+      if (!prev || prev === contentInfo.slug) return localeSlug;
+      return prev;
+    });
+    setSlugCheckStatus("idle");
+    setSlugCheckReason(null);
+    setSlugRedirectPrompt(false);
+  }, [seoModalOpen, seoData?.slug, contentInfo.slug]);
 
   // State for expanded folders in sitemap view
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -1218,12 +1232,12 @@ export function DebugBubble() {
       });
       setSeoModalOpen(false);
       setNewSlugValue("");
-      const isPreview = pathname.startsWith("/private/preview/");
-      if (isPreview) {
-        const search = window.location.search;
-        window.location.href = `/private/preview/${contentInfo.type}/${contentInfo.slug}${search}`;
-      } else if (result.newUrl) {
+      if (result.newUrl) {
         window.location.href = result.newUrl;
+      } else if (pathname.startsWith("/private/preview/")) {
+        const search = window.location.search;
+        const folder = result.folderSlug || contentInfo.slug;
+        window.location.href = `/private/preview/${contentInfo.type}/${folder}${search}`;
       } else {
         window.location.reload();
       }
@@ -1644,8 +1658,8 @@ export function DebugBubble() {
   };
 
   // Only show bubble if debug mode is active
-  // In dev: always active
-  // In production: requires ?debug=true in URL
+  // In dev: always active (unless dismissed / ?debug=false)
+  // In production: staff session, debug_mode flag, or ?debug=true
   if (!isDebugMode) {
     return null;
   }
@@ -2097,10 +2111,10 @@ export function DebugBubble() {
       if (!isPreview || currentVariant !== variantSlug) {
         navigate(`/private/preview/${contentInfo.type}/${contentInfo.slug}?variant=${encodeURIComponent(variantSlug)}&locale=${locale}`);
       }
-      // Shared-layout template variants live at the type root; raw editor uses `_common.single`.
+      // Shared-layout template variants live at the type root; raw editor uses `_common.template`.
       const editorSlug =
         versioningData?.isSharedLayout && !versioningData?.detached
-          ? "_common.single"
+          ? "_common.template"
           : contentInfo.slug;
       setYamlEditorInfo({ contentType: contentInfo.type, slug: editorSlug, locale, variantSlug });
       setShowYamlEditor(true);
@@ -2116,7 +2130,7 @@ export function DebugBubble() {
       }
       const editorSlug =
         versioningData?.isSharedLayout && !versioningData?.detached
-          ? "_common.single"
+          ? "_common.template"
           : contentInfo.slug;
       setYamlEditorInfo({ contentType: contentInfo.type, slug: editorSlug, locale });
       setShowYamlEditor(true);
@@ -2146,13 +2160,13 @@ export function DebugBubble() {
       if (token) headers["Authorization"] = `Token ${token}`;
       try {
         const res = await fetch(
-          `/api/content/raw-file?contentType=${encodeURIComponent(contentInfo.type)}&slug=${encodeURIComponent("_common.single")}&locale=${encodeURIComponent(normalizeLocale(locale))}`,
+          `/api/content/raw-file?contentType=${encodeURIComponent(contentInfo.type)}&slug=${encodeURIComponent("_common.template")}&locale=${encodeURIComponent(normalizeLocale(locale))}`,
           { headers },
         );
         if (!res.ok) {
           toast({
             title: "No template found",
-            description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+            description: "This content type has no _common.template.yml (or template.*.yml / legacy single.*) yet.",
             variant: "destructive",
           });
           return;
@@ -2161,14 +2175,14 @@ export function DebugBubble() {
         if (!data.exists) {
           toast({
             title: "No template found",
-            description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+            description: "This content type has no _common.template.yml (or template.*.yml / legacy single.*) yet.",
             variant: "destructive",
           });
           return;
         }
         setYamlEditorInfo({
           contentType: contentInfo.type,
-          slug: "_common.single",
+          slug: "_common.template",
           locale: normalizeLocale(locale),
           readOnly: true,
         });
@@ -2293,6 +2307,26 @@ export function DebugBubble() {
             >
               {open ? <X className="h-5 w-5" /> : <Bug className="h-5 w-5" />}
             </Button>
+            {!open && (
+              <button
+                type="button"
+                className="absolute -top-1.5 -right-1.5 z-20 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow hover:text-foreground hover:bg-muted transition-colors"
+                title="Hide staff tools"
+                aria-label="Hide staff tools"
+                data-testid="button-debug-dismiss"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDismissConfirmOpen(true);
+                }}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
             {/* Show "Commit" indicator when there are local changes that need uploading - only when logged in */}
             {hasCommitIndicator && (
               <button
@@ -2300,7 +2334,7 @@ export function DebugBubble() {
                   setCommitModalOpen(true);
                   fetchPendingChanges(); // Refresh pending changes when opening modal
                 }}
-                className="absolute -top-1 left-full ml-1 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium animate-pulse cursor-pointer hover:opacity-90 transition-opacity"
+                className="absolute -top-1 left-full ml-6 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium animate-pulse cursor-pointer hover:opacity-90 transition-opacity"
                 style={{
                   backgroundColor: '#fbbf24',
                   color: '#000',
@@ -2316,7 +2350,7 @@ export function DebugBubble() {
             {hasSystemAlerts && (
               <button
                 onClick={() => setOpen(true)}
-                className="absolute left-full ml-1 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
+                className="absolute left-full ml-6 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
                 style={{
                   top: pillTop(hasCommitIndicator ? 1 : 0),
                   backgroundColor: "#ef4444",
@@ -2333,7 +2367,7 @@ export function DebugBubble() {
             {(pageErrorCount > 0 || pageWarningCount > 0 || pageDiagnostics?.dirty) && (
               <button
                 onClick={() => setPageErrorsModalOpen(true)}
-                className="absolute left-full ml-1 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
+                className="absolute left-full ml-6 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
                 style={{
                   top: pillTop((hasCommitIndicator ? 1 : 0) + (hasSystemAlerts ? 1 : 0)),
                   backgroundColor: pageErrorCount > 0 ? '#ef4444' : pageDiagnostics?.dirty ? '#78716c' : '#f59e0b',
@@ -2632,6 +2666,40 @@ export function DebugBubble() {
         }}
         target={managedSeoModalTarget}
       />
+      <AlertDialog open={dismissConfirmOpen} onOpenChange={setDismissConfirmOpen}>
+        <AlertDialogContent data-testid="dialog-dismiss-debug-ui">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hide staff tools?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  This only hides the tools bubble on the page. You stay signed in, and nothing else changes.
+                </p>
+                <p>
+                  To bring the tools back later, open the address bar at the top of your browser, go to the home
+                  page, add{" "}
+                  <span className="font-medium text-foreground">?debug=true</span> to the end of the address,
+                  and press Enter. For example:{" "}
+                  <span className="font-medium text-foreground">
+                    {(siteInfo?.domain?.replace(/^https?:\/\//, "") ||
+                      (typeof window !== "undefined" ? window.location.host : "example.com")) +
+                      "/?debug=true"}
+                  </span>
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-dismiss-debug-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-dismiss-debug-confirm"
+              onClick={() => dismissDebugUi()}
+            >
+              Hide tools
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {showYamlEditor && yamlEditorInfo && (
         <Suspense fallback={null}>
           <RawFileEditorPanel

@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { AlertTriangle, Check, ChevronDown, CloudUpload, Code, Database, ExternalLink, HelpCircle, Image, Info, Laptop, Link, Unlink, Loader2, MapPin, Monitor, Pencil, Plus, Redo2, RefreshCw, Save, Search, Settings, Smartphone, Trash2, Undo2, Upload, Video, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, CloudUpload, Code, Copy, Database, ExternalLink, EyeOff, HelpCircle, Image, Info, Laptop, Link, Unlink, Loader2, MapPin, Monitor, Pencil, Plus, Redo2, RefreshCw, Save, Search, Settings, Smartphone, Trash2, Undo2, Upload, Video, X } from "lucide-react";
 import { IconGitBranch, IconTargetArrow, IconFileCode, IconPencil, IconX, IconShieldCheck, IconShoppingCart } from "@tabler/icons-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BindingConfirmDialog } from "./BindingConfirmDialog";
 import { getIcon } from "@/lib/icons";
 import { isActivelySelling } from "@/lib/ecommerceProductMap";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -49,7 +50,20 @@ import {
 } from "@/lib/field-editor-registry";
 import { IconPickerModal } from "./IconPickerModal";
 import { RelatedFeaturesPicker } from "./RelatedFeaturesPicker";
-import { TestimonialItemsPreview } from "./TestimonialItemsPreview";
+import {
+  TestimonialsSectionEditorField,
+  type TestimonialsSectionType,
+} from "./TestimonialsSectionEditorField";
+import {
+  TESTIMONIALS_DATABASE,
+  TESTIMONIALS_SORT,
+  bankRowToEditorItem,
+  editorItemToBankRow,
+  normalizeTestimonialsListing,
+  readTestimonialTopics,
+  type TestimonialBankRow,
+  type TestimonialsDynamicEntries,
+} from "@shared/testimonials-listing";
 import { TableContentEditor } from "./TableContentEditor";
 import { FaqItemsPicker } from "./FaqItemsPicker";
 import { FaqSectionEditorField } from "./FaqSectionEditorField";
@@ -573,7 +587,7 @@ export function SectionEditorPanel({
   const [activeTab, setActiveTab] = useState("code");
   const [scopeDialogOpen, setScopeDialogOpen] = useState(false);
   const [templateSaveConfirmOpen, setTemplateSaveConfirmOpen] = useState(false);
-  /** Cleared `{{ single.* }}` paths approved via the shared-template confirm. */
+  /** Cleared `{{ entry.* }}` paths approved via the shared-template confirm. */
   const [pendingClearedTemplatePaths, setPendingClearedTemplatePaths] = useState<string[]>([]);
   /** Unbound paths → static literals for shared-template save confirm. */
   const [pendingUnboundTemplateDetails, setPendingUnboundTemplateDetails] = useState<
@@ -612,7 +626,7 @@ export function SectionEditorPanel({
   const hasVariableFields = !!(section as Record<string, unknown>)._variableFields;
   const isPerEntryOverlaySection = !!(section as Record<string, unknown>)._perEntrySource;
   /**
-   * Load raw single.*.yml for shared-layout template sections only.
+   * Load raw template.*.yml for shared-layout template sections only.
    * Ordinary pages (e.g. locations) keep authored `{{ }}` via
    * restoreVariableFieldsForEditor — do not hit single-template-sections for them.
    */
@@ -625,7 +639,7 @@ export function SectionEditorPanel({
     if (!vf) return {} as Record<string, string>;
     const result: Record<string, string> = {};
     for (const [fieldPath, templateExpr] of Object.entries(vf)) {
-      // Parse expressions like {{ single.thumbnail }} or {{ single.thumbnail | default.jpg }}
+      // Parse expressions like {{ entry.thumbnail }} or {{ entry.thumbnail | default.jpg }}
       const match = /\{\{\s*single\.([^|}\s]+)/.exec(templateExpr);
       if (match) {
         result[fieldPath] = match[1].trim();
@@ -660,7 +674,7 @@ export function SectionEditorPanel({
 
   const bindingQueryClient = useQueryClient();
 
-  // Shared-template variant YAML: single.{variant}.{locale}.yml (not entry ?variant= drafts).
+  // Shared-template variant YAML: template.{variant}.{locale}.yml (not entry ?variant= drafts).
   const effectiveTemplateVariant = (() => {
     if (!isSharedTemplate) return "";
     if (typeof window === "undefined") return variant ?? "";
@@ -711,6 +725,7 @@ export function SectionEditorPanel({
 
   // Binding state
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false);
+  const [bindingBannerExpanded, setBindingBannerExpanded] = useState(false);
   const [bindingConfirmOpen, setBindingConfirmOpen] = useState(false);
   const [exampleDialogOpen, setExampleDialogOpen] = useState(false);
   const [exampleCopied, setExampleCopied] = useState(false);
@@ -744,6 +759,10 @@ export function SectionEditorPanel({
   const boundSiblings = !bindingGroup ? [] : bindingGroup.members.filter(
     m => !(m.contentType === contentType && m.slug === slug && m.sectionIndex === sectionIndex)
   );
+
+  useEffect(() => {
+    setBindingBannerExpanded(false);
+  }, [bindingGroup?.id, boundSiblings.length]);
 
   // Icon picker state
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
@@ -1200,6 +1219,10 @@ export function SectionEditorPanel({
   const currentHiddenUntilRedirection =
     parsedSection?.hidden_until_redirection === true ||
     parsedSection?.hidden_until_redirection === "true";
+  const currentSectionId =
+    typeof parsedSection?.section_id === "string" && parsedSection.section_id.trim()
+      ? parsedSection.section_id.trim()
+      : "";
 
   // Initialize YAML content from section. Also re-initializes when slug changes so
   // navigating between DB-backed single pages (e.g. blog posts) resets stale state.
@@ -1726,6 +1749,70 @@ export function SectionEditorPanel({
       } catch (error) {
         console.error("Error updating array property:", error);
       }
+  };
+
+  /**
+   * Testimonials sections are listings over the `testimonials` database. Read the
+   * authored controls out of `dynamic_entries`, normalizing any section the bulk
+   * content migration missed (root related_features / limit / items).
+   */
+  const testimonialsListing = (() => {
+    const section = (parsedSection ?? {}) as Record<string, unknown>;
+    const normalized = normalizeTestimonialsListing(section) ?? section;
+    const de = (normalized.dynamic_entries ?? {}) as TestimonialsDynamicEntries;
+    const hardcodedRows = Array.isArray(de.hardcoded_entries)
+      ? (de.hardcoded_entries as TestimonialBankRow[])
+      : [];
+    return {
+      topics: readTestimonialTopics(de),
+      search: typeof de.search === "string" ? de.search : "",
+      limit: typeof de.limit === "number" && de.limit > 0 ? de.limit : undefined,
+      hardcodedRows,
+      hardcodedItems: hardcodedRows.map(bankRowToEditorItem),
+      resolvedItems: Array.isArray(section.items)
+        ? (section.items as TestimonialBankRow[])
+        : [],
+    };
+  })();
+
+  /**
+   * Apply one change to `dynamic_entries` on a testimonials section, migrating
+   * legacy root fields in the same write so a staff edit never leaves the
+   * section half on the old contract.
+   */
+  const updateTestimonialsListing = (
+    mutate: (dynamicEntries: Record<string, unknown>) => void,
+  ) => {
+    try {
+      const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") return;
+
+      pushUndoState(yamlContent);
+
+      const migrated = (normalizeTestimonialsListing(parsed) ?? parsed) as Record<
+        string,
+        unknown
+      >;
+      if (!migrated.dynamic_entries || typeof migrated.dynamic_entries !== "object") {
+        migrated.dynamic_entries = {};
+      }
+      const de = migrated.dynamic_entries as Record<string, unknown>;
+      if (!de.database) de.database = TESTIMONIALS_DATABASE;
+      if (!de.sort) de.sort = TESTIMONIALS_SORT;
+      mutate(de);
+
+      const newYaml = safeYamlDump(migrated, {
+        lineWidth: -1,
+        noRefs: true,
+        quotingType: '"',
+      });
+      setYamlContent(newYaml);
+      setHasChanges(true);
+      setParseError(null);
+      if (onPreviewChange) onPreviewChange(migrated as Section);
+    } catch (error) {
+      console.error("Error updating testimonials dynamic_entries:", error);
+    }
   };
 
   // Update a specific field in an array item (supports nested paths like "signup_card.features")
@@ -2353,8 +2440,8 @@ export function SectionEditorPanel({
     }
 
     try {
-      // Shared-template A/B drafts live at single.{variant}.{locale}.yml (type_single).
-      // Entry A/B drafts (e.g. programs/ai-flex/v2.es.yml) must not use type_single —
+      // Shared-template A/B drafts live at template.{variant}.{locale}.yml (type_template).
+      // Entry A/B drafts (e.g. programs/ai-flex/v2.es.yml) must not use type_template —
       // only pass the variant name so the server writes the entry variant file.
       const _urlParams = new URLSearchParams(window.location.search);
       const forceVariant = _urlParams.get("force_variant");
@@ -2370,7 +2457,7 @@ export function SectionEditorPanel({
         locale,
         variant: effectiveVariant,
         version: writeSharedTemplateVariant ? undefined : version,
-        ...(writeSharedTemplateVariant ? { layoutTarget: "type_single" } : {}),
+        ...(writeSharedTemplateVariant ? { layoutTarget: "type_template" } : {}),
         operations: [
           {
             action: "update_section",
@@ -2771,18 +2858,61 @@ export function SectionEditorPanel({
       </div>
 
       {/* Binding Banner - warning style, full width, inside header area */}
-      {boundSiblings.length > 0 && (
-        <div
-          className="bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800 px-4 py-2 text-xs flex items-center gap-2 cursor-pointer hover-elevate"
-          onClick={() => { refetchBinding(); setBindingDialogOpen(true); }}
-          data-testid="binding-banner"
-        >
-          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-          <span className="text-amber-800 dark:text-amber-200">
-            Synced with {boundSiblings.length} page{boundSiblings.length > 1 ? "s" : ""}: {boundSiblings.map(s => s.slug).join(", ")}
-          </span>
-        </div>
-      )}
+      {boundSiblings.length > 0 && (() => {
+        const BINDING_BANNER_PREVIEW = 6;
+        const slugs = boundSiblings.map((s) => s.slug);
+        const needsCollapse = slugs.length > BINDING_BANNER_PREVIEW;
+        const visibleSlugs =
+          needsCollapse && !bindingBannerExpanded
+            ? slugs.slice(0, BINDING_BANNER_PREVIEW)
+            : slugs;
+        const hiddenCount = slugs.length - BINDING_BANNER_PREVIEW;
+        return (
+          <div
+            className="bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800 px-4 py-2 text-xs flex items-start gap-2 cursor-pointer hover-elevate"
+            onClick={() => { refetchBinding(); setBindingDialogOpen(true); }}
+            data-testid="binding-banner"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <span className="text-amber-800 dark:text-amber-200">
+              Synced with {boundSiblings.length} page{boundSiblings.length > 1 ? "s" : ""}:{" "}
+              {visibleSlugs.join(", ")}
+              {needsCollapse && !bindingBannerExpanded && (
+                <>
+                  {", "}
+                  <button
+                    type="button"
+                    className="underline font-medium hover:no-underline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setBindingBannerExpanded(true);
+                    }}
+                    data-testid="binding-banner-expand"
+                  >
+                    and {hiddenCount} more…
+                  </button>
+                </>
+              )}
+              {needsCollapse && bindingBannerExpanded && (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="underline font-medium hover:no-underline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setBindingBannerExpanded(false);
+                    }}
+                    data-testid="binding-banner-collapse"
+                  >
+                    show less
+                  </button>
+                </>
+              )}
+            </span>
+          </div>
+        );
+      })()}
 
       {sectionType === "schema_org" && (() => {
         let schemaType = "";
@@ -2823,8 +2953,8 @@ export function SectionEditorPanel({
         onValueChange={setActiveTab}
         className="flex-1 flex flex-col min-h-0"
       >
-        <TabsList
-          className={`mx-4 mt-2 grid w-auto ${
+        <ToggleButtonBarList
+          className={`grid w-full rounded-none border-x-0 border-t-0 ${
             editorTabCount === 4
               ? "grid-cols-4"
               : editorTabCount === 3
@@ -2832,39 +2962,39 @@ export function SectionEditorPanel({
                 : "grid-cols-2"
           }`}
         >
-          <TabsTrigger value="code" className="gap-1.5" data-testid="tab-code">
-            <Code className="h-4 w-4" />
+          <ToggleButtonBarTrigger value="code" className="gap-1.5" data-testid="tab-code">
+            <Code className="h-3.5 w-3.5" />
             Code
-          </TabsTrigger>
-          <TabsTrigger
+          </ToggleButtonBarTrigger>
+          <ToggleButtonBarTrigger
             value="props"
             className="gap-1.5"
             data-testid="tab-props"
           >
-            <Settings className="h-4 w-4" />
+            <Settings className="h-3.5 w-3.5" />
             Props
-          </TabsTrigger>
+          </ToggleButtonBarTrigger>
           {showFormsTab && (
-            <TabsTrigger
+            <ToggleButtonBarTrigger
               value="conversion"
               className="gap-1.5"
               data-testid="tab-forms"
             >
-              <IconTargetArrow className="h-4 w-4" />
+              <IconTargetArrow className="h-3.5 w-3.5" />
               Forms
-            </TabsTrigger>
+            </ToggleButtonBarTrigger>
           )}
           {showEcommerceTab && (
-            <TabsTrigger
+            <ToggleButtonBarTrigger
               value="ecommerce"
               className="gap-1.5"
               data-testid="tab-ecommerce"
             >
-              <IconShoppingCart className="h-4 w-4" />
+              <IconShoppingCart className="h-3.5 w-3.5" />
               Ecommerce
-            </TabsTrigger>
+            </ToggleButtonBarTrigger>
           )}
-        </TabsList>
+        </ToggleButtonBarList>
 
         <TabsContent
           value="code"
@@ -2990,18 +3120,77 @@ export function SectionEditorPanel({
               onChange={(value) => updateProperty("showOn", value)}
             />
 
-            <div className="flex items-center justify-between gap-3">
-              <Label className="text-sm font-medium">Hidden until redirect</Label>
-              <Switch
-                checked={currentHiddenUntilRedirection}
-                onCheckedChange={(checked) =>
-                  updatePropertyWithValue(
-                    "hidden_until_redirection",
-                    checked ? true : undefined,
-                  )
-                }
-                data-testid="props-toggle-hidden-until-redirection"
-              />
+            <div
+              className="rounded-md border border-input bg-background"
+              data-testid="props-hide-until-opened-card"
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-input bg-muted/30 px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <EyeOff className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="text-sm font-medium">Hide this section until opened</span>
+                </div>
+                <Switch
+                  checked={currentHiddenUntilRedirection}
+                  onCheckedChange={(checked) =>
+                    updatePropertyWithValue(
+                      "hidden_until_redirection",
+                      checked ? true : undefined,
+                    )
+                  }
+                  data-testid="props-toggle-hidden-until-redirection"
+                />
+              </div>
+              <div className="px-3 py-3 space-y-3">
+                {!currentHiddenUntilRedirection ? (
+                  <p className="text-xs text-muted-foreground">
+                    Similar to how modals work, if on, visitors won&apos;t see this while
+                    scrolling. It only appears when another part of the page opens it.
+                  </p>
+                ) : currentSectionId ? (
+                  <p className="text-xs text-muted-foreground">
+                    Visitors won&apos;t see this while scrolling. To show it, point a button or
+                    quiz answer here with an Inline link.
+                  </p>
+                ) : (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    This section needs an ID before anything can open it.
+                  </p>
+                )}
+                {currentHiddenUntilRedirection && currentSectionId ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1.5"
+                    data-testid="props-copy-inline-open-link"
+                    onClick={() => {
+                      const openLink = `inline#${currentSectionId}`;
+                      void navigator.clipboard.writeText(openLink);
+                      toast({
+                        title: "Copied open link",
+                        description: openLink,
+                      });
+                    }}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    Copy open link
+                  </Button>
+                ) : null}
+                <details className="text-xs text-muted-foreground">
+                  <summary className="cursor-pointer text-foreground font-medium">
+                    Read more (advanced)
+                  </summary>
+                  <p className="mt-1.5">
+                    Sets <code className="text-[10px] bg-muted px-1 rounded">hidden_until_redirection</code>.
+                    Live visitors never see the section in normal page flow; edit mode still shows it
+                    with a badge. Open it from another field&apos;s link picker (Inline), or use{" "}
+                    <code className="text-[10px] bg-muted px-1 rounded">
+                      inline#{currentSectionId || "section_id"}
+                    </code>
+                    .
+                  </p>
+                </details>
+              </div>
             </div>
 
             {/* CTA Banner variant picker */}
@@ -3089,59 +3278,63 @@ export function SectionEditorPanel({
                 )}
               </div>
             )}
-            {/* Testimonials (grid, carousel, slide) related features picker */}
+            {/* Testimonials (grid, carousel, slide) listing card */}
             {["testimonials_grid", "testimonials", "testimonials_slide"].includes(sectionType) && (
-              <>
-                <div
-                  className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg flex items-start gap-2"
-                  data-testid="alert-testimonials-edit-info"
-                >
-                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-amber-800 dark:text-amber-200">
-                    {locale === "es"
-                      ? sectionType === "testimonials_grid"
-                        ? "Los testimonios se cargan del banco centralizado y se filtran por las características seleccionadas."
-                        : "Cuando se seleccionan características, los testimonios se cargan del banco centralizado. Sin características, se usan los items por defecto."
-                      : sectionType === "testimonials_grid"
-                        ? "Testimonials are loaded from the centralized bank and filtered by the selected features."
-                        : "When features are selected, testimonials load from the centralized bank. Without features, default items are used."}
-                  </p>
-                </div>
-                <RelatedFeaturesPicker
-                  value={(parsedSection?.related_features as string[]) || []}
-                  onChange={(value) =>
-                    updateArrayProperty("related_features", value)
-                  }
-                  locale={locale}
-                  context="testimonials"
-                />
-                <TestimonialItemsPreview
-                  relatedFeatures={
-                    (parsedSection?.related_features as string[]) || []
-                  }
-                  itemStyles={
-                    sectionType === "testimonials_grid"
-                      ? (parsedSection?.item_styles as Record<
-                          string,
-                          {
-                            box_color?: string;
-                            name_color?: string;
-                            comment_color?: string;
-                          }
-                        >) || {}
-                      : {}
-                  }
-                  locale={locale || "en"}
-                  onUpdateItemStyle={
-                    sectionType === "testimonials_grid"
-                      ? (studentName, prop, value) => {
-                          updateProperty(`item_styles.${studentName}.${prop}`, value);
-                        }
-                      : undefined
-                  }
-                  readOnly={sectionType !== "testimonials_grid"}
-                />
-              </>
+              <TestimonialsSectionEditorField
+                topics={testimonialsListing.topics}
+                onTopicsChange={(value) =>
+                  updateTestimonialsListing((de) => {
+                    const others = (
+                      Array.isArray(de.permanent_filters) ? de.permanent_filters : []
+                    ).filter(
+                      (pf) =>
+                        (pf as { item_property_slug?: string })?.item_property_slug !==
+                        "related_features",
+                    );
+                    const next = value.length
+                      ? [
+                          ...others,
+                          { item_property_slug: "related_features", value },
+                        ]
+                      : others;
+                    if (next.length) de.permanent_filters = next;
+                    else delete de.permanent_filters;
+                  })
+                }
+                searchPhrase={testimonialsListing.search}
+                onSearchChange={(value) =>
+                  updateTestimonialsListing((de) => {
+                    if (value == null || value.trim().length === 0) delete de.search;
+                    else de.search = value.trim();
+                  })
+                }
+                locale={locale || "en"}
+                sectionType={sectionType as TestimonialsSectionType}
+                limit={testimonialsListing.limit}
+                onLimitChange={(value) =>
+                  updateTestimonialsListing((de) => {
+                    if (value == null || value <= 0) delete de.limit;
+                    else de.limit = value;
+                  })
+                }
+                hardcodedItems={testimonialsListing.hardcodedItems}
+                onHardcodedItemsChange={
+                  sectionType === "testimonials" || sectionType === "testimonials_slide"
+                    ? (entries) => {
+                        const previous = testimonialsListing.hardcodedRows;
+                        const rows = entries.map((entry, index) =>
+                          editorItemToBankRow(entry, previous[index]),
+                        );
+                        updateTestimonialsListing((de) => {
+                          if (rows.length) de.hardcoded_entries = rows;
+                          else delete de.hardcoded_entries;
+                        });
+                      }
+                    : undefined
+                }
+                resolvedItems={testimonialsListing.resolvedItems}
+                data-testid="props-testimonials-section-editor"
+              />
             )}
             {sectionType === "dynamic_table" && (
               <VariantPicker
@@ -9673,12 +9866,12 @@ export function SectionEditorPanel({
                     </>
                   ) : null}
                   . Saving will update{" "}
-                  <code className="text-xs">single.{locale ?? "en"}.yml</code> and apply these changes to all
+                  <code className="text-xs">template.{locale ?? "en"}.yml</code> and apply these changes to all
                   attached {contentType ? contentType.replace(/_/g, " ") : "content type"} entries.
                 </p>
                 <p>
                   This page uses a shared layout file (
-                  <code className="text-xs">single.{locale ?? "en"}.yml</code>
+                  <code className="text-xs">template.{locale ?? "en"}.yml</code>
                   ). Saving replaces live per-post data with fixed text for{" "}
                   <strong className="text-foreground">every</strong> page attached to this layout in
                   this language—not only the page you are viewing. To change one page only, detach
@@ -9718,9 +9911,9 @@ export function SectionEditorPanel({
                       Removing template bindings
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      These <code className="text-[11px]">{"{{ single.* }}"}</code> fields will be
+                      These <code className="text-[11px]">{"{{ entry.* }}"}</code> fields will be
                       removed from this locale&apos;s{" "}
-                      <code className="text-[11px]">single.{locale ?? "en"}.yml</code> only
+                      <code className="text-[11px]">template.{locale ?? "en"}.yml</code> only
                       (sibling locales are not updated). Other bindings stay protected.
                     </p>
                     <ul className="list-disc pl-4 text-xs font-mono space-y-0.5">

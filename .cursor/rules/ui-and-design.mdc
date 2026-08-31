@@ -18,6 +18,15 @@ Use only semantic tokens from [design_guidelines.md](design_guidelines.md) and [
 
 shadcn/ui (new-york style). Use `cn()` from `@/lib/utils` for class name merging.
 
+### Toggle button bars
+
+For compact single-select bars (filters, mode switches, section pickers), use [`ToggleButtonBar`](client/src/components/ui/toggle-button-bar.tsx) — not raw `TabsList` styling or `ToggleGroup`.
+
+- **Standalone** (no panels): `ToggleButtonBar` + `ToggleButtonBarTrigger`
+- **With `TabsContent` panels**: keep a `Tabs` root; use `ToggleButtonBarList` + `ToggleButtonBarTrigger` instead of `TabsList` / `TabsTrigger`
+
+Visual contract: light muted track, grey border (`border-muted-foreground/20`), `text-xs` triggers, active = `bg-primary` / `text-primary-foreground`.
+
 ## Section Rendering
 
 Section types map to components via [SectionRenderer](client/src/components/SectionRenderer.tsx); respect lazy vs eager loading and existing registries.

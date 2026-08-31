@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { cn } from "@/lib/utils";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { useSystemAlerts } from "@/hooks/useSystemAlerts";
@@ -870,35 +870,28 @@ export default function CloudSyncPage() {
           {(inventorySiteFolders.length > 0 || (inventory?.rows.some((r) => !r.siteFolder) ?? false)) && (
             <div className="px-6 py-3 border-b flex flex-wrap items-center gap-2">
               <span className="text-xs text-muted-foreground uppercase tracking-wide shrink-0">Site</span>
-              <ToggleGroup
-                type="single"
+              <ToggleButtonBar
                 value={siteFilter}
                 onValueChange={(v) => v && setSiteFilter(v)}
-                className="flex-wrap justify-start"
-                data-testid="inventory-site-filter"
+                listTestId="inventory-site-filter"
               >
-                <ToggleGroupItem value="all" className="text-xs h-7 px-2.5">
-                  All
-                </ToggleGroupItem>
+                <ToggleButtonBarTrigger value="all">All</ToggleButtonBarTrigger>
                 {inventory?.rows.some((r) => !r.siteFolder) && (
-                  <ToggleGroupItem value="platform" className="text-xs h-7 px-2.5">
-                    Global (All sites)
-                  </ToggleGroupItem>
+                  <ToggleButtonBarTrigger value="platform">Global (All sites)</ToggleButtonBarTrigger>
                 )}
                 {inventorySiteFolders.map((folder) => {
                   const domain = domainByContentFolder.get(folder);
                   return (
-                  <ToggleGroupItem
-                    key={folder}
-                    value={folder}
-                    className="text-xs h-7 px-2.5"
-                    title={domain ? `${domain} (${folder})` : folder}
-                  >
-                    <span className="font-mono">{domain ?? folder}</span>
-                  </ToggleGroupItem>
+                    <ToggleButtonBarTrigger
+                      key={folder}
+                      value={folder}
+                      title={domain ? `${domain} (${folder})` : folder}
+                    >
+                      <span className="font-mono">{domain ?? folder}</span>
+                    </ToggleButtonBarTrigger>
                   );
                 })}
-              </ToggleGroup>
+              </ToggleButtonBar>
             </div>
           )}
           <Table>

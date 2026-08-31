@@ -17,6 +17,7 @@ import { entryPartsToPageUrl } from "@/lib/entryKeyToPageUrl";
 import { parseEntryKey } from "@/lib/parseEntryKey";
 import { apiFetch } from "@/lib/queryClient";
 import { staff404DashboardHref } from "@/lib/staff404";
+import { cn } from "@/lib/utils";
 import { formatAgentLabel, resolveAgentId } from "./agentIcons";
 
 export type PipelineContentEvent = {
@@ -28,6 +29,7 @@ export type PipelineContentEvent = {
   payload: Record<string, unknown>;
   triggeredByEventId?: number;
   triggeredByEventIds?: number[];
+  agent_session_id?: string;
   published: boolean;
   created_at: number;
 };
@@ -91,6 +93,7 @@ const TYPED_DETAIL_TYPES = new Set([
   "validation_issue_claimed",
   "validation_issue_completed",
   "validation_issue_reopened",
+  "validation_issue_released",
   "validation_results_ready",
 ]);
 
@@ -183,6 +186,14 @@ export function eventHasTypedDetails(event: PipelineContentEvent): boolean {
   return true;
 }
 
+/** Agent write-up from claim/complete (MCP `report`), if present. */
+export function eventAgentReport(event: PipelineContentEvent): string | null {
+  const report = strField(event.payload, "report");
+  if (!report) return null;
+  const trimmed = report.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export function eventValidationEntryRef(
   event: PipelineContentEvent,
 ): { entryKey: string; pageUrl?: string } | null {
@@ -198,7 +209,8 @@ export function eventValidationEntryRef(
   if (
     event.type === "validation_issue_claimed" ||
     event.type === "validation_issue_completed" ||
-    event.type === "validation_issue_reopened"
+    event.type === "validation_issue_reopened" ||
+    event.type === "validation_issue_released"
   ) {
     return { entryKey, pageUrl: strField(event.payload, "url") };
   }
@@ -212,12 +224,17 @@ export function EntryKeyBadges({
   locale,
   variant,
   groupId,
+  inline,
+  className,
 }: {
   slug?: string | null;
   contentType?: string | null;
   locale?: string | null;
   variant?: string | null;
   groupId?: string | null;
+  /** Inline layout for embedding in sentence headlines (default: block row). */
+  inline?: boolean;
+  className?: string;
 }) {
   const contentTypes = useContentTypes();
   const entryPageUrl = useMemo(() => {
@@ -226,8 +243,14 @@ export function EntryKeyBadges({
   }, [slug, contentType, locale, variant, contentTypes]);
 
   if (!slug && !contentType && !locale && !variant && !groupId) return null;
+  const Wrapper = inline ? "span" : "div";
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <Wrapper
+      className={cn(
+        inline ? "inline-flex flex-wrap items-center gap-1 align-middle" : "flex flex-wrap items-center gap-1.5",
+        className,
+      )}
+    >
       {slug ? (
         entryPageUrl ? (
           <a
@@ -282,7 +305,7 @@ export function EntryKeyBadges({
           <LocaleFlag locale={locale} className="w-3.5 h-2.5 rounded-sm" />
         </span>
       ) : null}
-    </div>
+    </Wrapper>
   );
 }
 
@@ -330,23 +353,11 @@ function EventContentPathSummary({
 }) {
   const path =
     strField(resource, "path") ?? strField(payload, "path") ?? null;
-  const entry = entryFromResourceOrPayload(resource, payload);
+
+  if (!path && !linkRedirects) return null;
 
   return (
     <div className="mt-0.5 space-y-0.5">
-      {entry ? (
-        <EntryKeyBadges
-          slug={entry.slug}
-          contentType={entry.contentType}
-          locale={entry.locale}
-          variant={entry.variant}
-        />
-      ) : strField(resource, "groupId") ? (
-        <EntryKeyBadges
-          groupId={strField(resource, "groupId")}
-          locale={strField(resource, "locale")}
-        />
-      ) : null}
       {path ? <EventPathRow path={path} /> : null}
       {linkRedirects ? (
         <ExternalLinkRow href="/private/redirects" label="View redirects" />
@@ -433,16 +444,7 @@ function EventValidationSummary({ payload }: { payload: Record<string, unknown> 
 
   return (
     <div className="mt-0.5 space-y-1">
-      {entry ? (
-        <EntryKeyBadges
-          slug={entry.slug}
-          contentType={entry.contentType}
-          locale={entry.locale}
-          variant={entry.variant}
-        />
-      ) : parsed.entryKey ? (
-        <EventPathRow path={parsed.entryKey} />
-      ) : null}
+      {!entry && parsed.entryKey ? <EventPathRow path={parsed.entryKey} /> : null}
       {validationOutcomeLine(parsed)}
     </div>
   );
@@ -496,7 +498,6 @@ function EventValidationIssueSummary({
   resource: Record<string, unknown>;
   payload: Record<string, unknown>;
 }) {
-  const entry = entryFromResourceOrPayload(resource, payload);
   const code = strField(payload, "code");
   const severity = strField(payload, "severity");
   const validator = strField(payload, "validator");
@@ -513,18 +514,17 @@ function EventValidationIssueSummary({
     );
   } else if (type === "validation_issue_claimed") {
     outcome = <p className="text-xs text-muted-foreground">In progress</p>;
+  } else if (type === "validation_issue_released") {
+    const reason = strField(payload, "reason");
+    outcome = (
+      <p className="text-xs text-amber-400/90">
+        {reason === "ttl_expired" ? "Claim expired (30m)" : "Claim released"}
+      </p>
+    );
   }
 
   return (
     <div className="mt-0.5 space-y-1">
-      {entry ? (
-        <EntryKeyBadges
-          slug={entry.slug}
-          contentType={entry.contentType}
-          locale={entry.locale}
-          variant={entry.variant}
-        />
-      ) : null}
       <div className="flex flex-wrap items-center gap-1.5">
         {severity ? <SeverityBadge severity={severity} /> : null}
         {code ? (
@@ -539,6 +539,25 @@ function EventValidationIssueSummary({
   );
 }
 
+function EventEntryDeletedSummary({
+  payload,
+}: {
+  resource: Record<string, unknown>;
+  payload: Record<string, unknown>;
+}) {
+  const entryKeys = stringArrayField(payload, "entryKeys");
+  const folderRemoved = payload.folderRemoved === true;
+
+  return (
+    <div className="mt-0.5 space-y-1">
+      <p className="text-xs text-muted-foreground">
+        {folderRemoved ? "Full entry folder removed" : "Locale file(s) removed"}
+        {entryKeys.length > 0 ? ` · ${entryKeys.length} key(s)` : ""}
+      </p>
+    </div>
+  );
+}
+
 function EventBindingStartedSummary({
   resource,
   payload,
@@ -546,7 +565,6 @@ function EventBindingStartedSummary({
   resource: Record<string, unknown>;
   payload: Record<string, unknown>;
 }) {
-  const groupId = strField(resource, "groupId") ?? strField(payload, "groupId");
   const locale = strField(resource, "locale") ?? strField(payload, "locale");
   const sourceContentType = strField(payload, "sourceContentType");
   const sourceSlug = strField(payload, "sourceSlug");
@@ -555,7 +573,6 @@ function EventBindingStartedSummary({
 
   return (
     <div className="mt-0.5 space-y-1">
-      <EntryKeyBadges groupId={groupId} locale={locale} />
       {sourceContentType && sourceSlug ? (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] text-muted-foreground">from</span>
@@ -575,20 +592,16 @@ function EventBindingStartedSummary({
 }
 
 function EventBindingDoneSummary({
-  resource,
   payload,
 }: {
   resource: Record<string, unknown>;
   payload: Record<string, unknown>;
 }) {
-  const groupId = strField(resource, "groupId") ?? strField(payload, "groupId");
-  const locale = strField(resource, "locale") ?? strField(payload, "locale");
   const updatedFiles = stringArrayField(payload, "updatedFiles");
   const errors = stringArrayField(payload, "errors");
 
   return (
     <div className="mt-0.5 space-y-0.5">
-      <EntryKeyBadges groupId={groupId} locale={locale} />
       <p
         className={`text-xs ${errors.length > 0 ? "text-red-400/90" : "text-muted-foreground"}`}
       >
@@ -634,6 +647,8 @@ export function EventSummary({ event }: { event: PipelineContentEvent }) {
   switch (event.type) {
     case "content_file_written":
       return <EventContentPathSummary resource={event.resource} payload={event.payload} />;
+    case "content_entry_deleted":
+      return <EventEntryDeletedSummary resource={event.resource} payload={event.payload} />;
     case "redirects_changed":
       return (
         <EventContentPathSummary
@@ -651,6 +666,7 @@ export function EventSummary({ event }: { event: PipelineContentEvent }) {
     case "validation_issue_claimed":
     case "validation_issue_completed":
     case "validation_issue_reopened":
+    case "validation_issue_released":
       return (
         <EventValidationIssueSummary
           type={event.type}
@@ -666,6 +682,33 @@ export function EventSummary({ event }: { event: PipelineContentEvent }) {
       return <EventBindingDoneSummary resource={event.resource} payload={event.payload} />;
     case "job_failed":
       return <EventJobFailedSummary resource={event.resource} payload={event.payload} />;
+    case "ai_image_gc_completed": {
+      const imageId =
+        typeof event.payload?.imageId === "string" ? event.payload.imageId : null;
+      const src = typeof event.payload?.src === "string" ? event.payload.src : null;
+      return (
+        <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
+          {imageId ? <p className="truncate font-mono">id: {imageId}</p> : null}
+          {src ? <p className="truncate font-mono">{src}</p> : null}
+        </div>
+      );
+    }
+    case "agent_session_started": {
+      const label = typeof event.payload?.label === "string" ? event.payload.label.trim() : "";
+      return label ? (
+        <p className="text-xs text-muted-foreground mt-0.5 truncate">{label}</p>
+      ) : null;
+    }
+    case "agent_session_note":
+    case "agent_session_summarized": {
+      const report = eventAgentReport(event);
+      if (!report) return null;
+      return (
+        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 whitespace-pre-wrap">
+          {report}
+        </p>
+      );
+    }
     default: {
       const fallback = summarizeResourceFallback(event.resource);
       if (!fallback) return null;
@@ -857,6 +900,18 @@ function ValidationIssueDetails({
     });
   }
 
+  if (event.type === "validation_issue_released") {
+    fields.push({ label: "Reason", value: strField(payload, "reason") });
+    fields.push({ label: "Claimed by", value: strField(payload, "claimedBy") });
+    fields.push({ label: "Claimed at", value: strField(payload, "claimedAt") });
+    fields.push({ label: "Claim report", value: strField(payload, "claimReport") });
+  }
+
+  const report = strField(payload, "report");
+  if (report) {
+    fields.push({ label: "Report", value: report });
+  }
+
   return (
     <div className="space-y-2">
       <dl className="grid gap-1.5 text-xs">
@@ -909,6 +964,7 @@ function TypedEventBody({ event }: { event: PipelineContentEvent }) {
     case "validation_issue_claimed":
     case "validation_issue_completed":
     case "validation_issue_reopened":
+    case "validation_issue_released":
       return <ValidationIssueDetails event={event} />;
     case "validation_results_ready": {
       const parsed = parseValidationPayload(event.payload);
@@ -947,6 +1003,11 @@ export function EventDetails({ event }: { event: PipelineContentEvent }) {
         className="mt-2 space-y-2 rounded-md border border-border bg-muted/20 p-2"
         data-testid={`event-payload-${event.id}`}
       >
+        {event.agent_session_id ? (
+          <p className="text-xs font-mono text-muted-foreground break-all">
+            agent_session_id: {event.agent_session_id}
+          </p>
+        ) : null}
         <EventAttributionDetails attribution={event.attribution} />
         {event.triggeredByEventIds && event.triggeredByEventIds.length > 0 ? (
           <ParentWriteIdsList ids={event.triggeredByEventIds} />
@@ -962,6 +1023,11 @@ export function EventDetails({ event }: { event: PipelineContentEvent }) {
       data-testid={`event-payload-${event.id}`}
     >
       <TypedEventBody event={event} />
+      {event.agent_session_id ? (
+        <p className="text-xs font-mono text-muted-foreground break-all">
+          agent_session_id: {event.agent_session_id}
+        </p>
+      ) : null}
       <EventAttributionDetails attribution={event.attribution} />
       <RawPayloadSection event={event} />
     </div>

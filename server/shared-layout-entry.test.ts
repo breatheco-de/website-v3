@@ -19,7 +19,8 @@ import { resetRegistry } from "./content-types";
 
 describe("shared-layout-entry helpers", () => {
   it("recognizes template versioning slug", () => {
-    expect(TEMPLATE_VERSIONING_SLUG).toBe("single");
+    expect(TEMPLATE_VERSIONING_SLUG).toBe("template");
+    expect(isTemplateVersioningSlug("template")).toBe(true);
     expect(isTemplateVersioningSlug("single")).toBe(true);
     expect(isTemplateVersioningSlug("my-post")).toBe(false);
   });
@@ -31,6 +32,7 @@ describe("shared-layout-entry helpers", () => {
           ? "cloudflareos"
           : slug,
     };
+    expect(resolvePreviewBaseSlug("template", "blog", ci)).toBe("template");
     expect(resolvePreviewBaseSlug("single", "blog", ci)).toBe("single");
     expect(
       resolvePreviewBaseSlug(
@@ -135,7 +137,9 @@ describe("entry-level versioning vs template", () => {
 
   it("allows writable template slug single", () => {
     const r = resolveWritableVersioningTarget("blog", "single", contentRoot);
-    expect(r).toEqual({ ok: true, slug: "single", templateMode: true });
+    expect(r).toEqual({ ok: true, slug: "template", templateMode: true });
+    const r2 = resolveWritableVersioningTarget("blog", "template", contentRoot);
+    expect(r2).toEqual({ ok: true, slug: "template", templateMode: true });
   });
 
   it("traffic slug stays template for attached; read slug prefers entry drafts", () => {
@@ -143,8 +147,8 @@ describe("entry-level versioning vs template", () => {
     fs.mkdirSync(entryDir, { recursive: true });
     fs.writeFileSync(path.join(entryDir, "_common.yml"), "slug: my-post\n");
 
-    expect(versioningContentSlug("blog", "my-post", contentRoot)).toBe("single");
-    expect(resolveVersioningReadSlug("blog", "my-post", contentRoot)).toBe("single");
+    expect(versioningContentSlug("blog", "my-post", contentRoot)).toBe("template");
+    expect(resolveVersioningReadSlug("blog", "my-post", contentRoot)).toBe("template");
     expect(hasEntryLevelVersioning("blog", "my-post", contentRoot)).toBe(false);
 
     fs.writeFileSync(path.join(entryDir, "draft.es.yml"), "title: Hola\n");
@@ -156,6 +160,6 @@ describe("entry-level versioning vs template", () => {
     expect(hasEntryLevelVersioning("blog", "my-post", contentRoot)).toBe(true);
     expect(resolveVersioningReadSlug("blog", "my-post", contentRoot)).toBe("my-post");
     // Live traffic assignment must still use the shared template
-    expect(versioningContentSlug("blog", "my-post", contentRoot)).toBe("single");
+    expect(versioningContentSlug("blog", "my-post", contentRoot)).toBe("template");
   });
 });

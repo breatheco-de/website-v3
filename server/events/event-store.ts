@@ -70,6 +70,10 @@ function parseTriggeredByEventIds(json: string | null | undefined): number[] | u
 }
 
 function rowToEvent(row: Record<string, unknown>): ContentEvent {
+  const agentSessionId =
+    typeof row.agent_session_id === "string" && row.agent_session_id.trim()
+      ? row.agent_session_id.trim()
+      : undefined;
   return {
     id: row.id as number,
     type: row.type as EventType,
@@ -80,6 +84,7 @@ function rowToEvent(row: Record<string, unknown>): ContentEvent {
     payload: parsePayload(row.payload_json as string),
     triggeredByEventId: (row.triggered_by_event_id as number | null) ?? undefined,
     triggeredByEventIds: parseTriggeredByEventIds(row.triggered_by_event_ids_json as string),
+    agent_session_id: agentSessionId,
     published: (row.published as number) === 1,
     created_at: row.created_at as number,
   };
@@ -98,13 +103,17 @@ export function emitEvent(opts: EmitEventOpts): EmitResult {
       ? JSON.stringify(opts.triggeredByEventIds)
       : null;
   const published = EVENT_TYPE_META[opts.type].outbox === "audit" ? 1 : 0;
+  const agentSessionId =
+    typeof opts.agent_session_id === "string" && opts.agent_session_id.trim()
+      ? opts.agent_session_id.trim()
+      : null;
   const stmt = db.prepare(`
     INSERT INTO events (
       type, site, resource_json, cause, payload_json,
       triggered_by_event_id, triggered_by_event_ids_json, attribution_json,
-      published, created_at
+      agent_session_id, published, created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const info = stmt.run(
     opts.type,
@@ -115,6 +124,7 @@ export function emitEvent(opts: EmitEventOpts): EmitResult {
     opts.triggeredByEventId ?? null,
     triggeredByEventIdsJson,
     JSON.stringify(attribution),
+    agentSessionId,
     published,
     now,
   );
@@ -128,6 +138,7 @@ export function emitEvent(opts: EmitEventOpts): EmitResult {
     payload: opts.payload ?? {},
     triggeredByEventId: opts.triggeredByEventId,
     triggeredByEventIds: opts.triggeredByEventIds,
+    agent_session_id: agentSessionId ?? undefined,
     published: published === 1,
     created_at: now,
   };
@@ -280,6 +291,9 @@ export type ListEventsOpts = {
   cause?: string;
   before?: number;
   triggeredBy?: number;
+  agentSessionId?: string;
+  /** When true, only events with no agent_session_id. Ignored if agentSessionId is set. */
+  unscopedOnly?: boolean;
   limit?: number;
 };
 
@@ -312,12 +326,167 @@ export function listEvents(opts: ListEventsOpts): ContentEvent[] {
     );
     params.push(opts.triggeredBy, opts.triggeredBy);
   }
+  if (opts.agentSessionId) {
+    clauses.push("agent_session_id = ?");
+    params.push(opts.agentSessionId);
+  } else if (opts.unscopedOnly) {
+    clauses.push("(agent_session_id IS NULL OR agent_session_id = '')");
+  }
   const limit = opts.limit ?? 50;
   params.push(limit);
   const rows = db
     .prepare(`SELECT * FROM events WHERE ${clauses.join(" AND ")} ORDER BY id DESC LIMIT ?`)
     .all(...params) as Record<string, unknown>[];
   return rows.map(rowToEvent);
+}
+
+export type AgentSessionSummary = {
+  agent_session_id: string;
+  started_at: number;
+  ended_at: number;
+  event_count: number;
+  write_count: number;
+  issue_complete_count: number;
+};
+
+/** Recent agent sessions derived from events (no separate store). */
+export function listAgentSessions(
+  site: string,
+  opts?: { since?: number; limit?: number },
+): AgentSessionSummary[] {
+  ensureSchema(site);
+  const db = getSiteSqlite(site);
+  const since = opts?.since ?? Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const limit = opts?.limit ?? 20;
+  const writeTypes = ["content_file_written", "content_entry_deleted", "redirects_changed"];
+  const writePlaceholders = writeTypes.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT agent_session_id AS agent_session_id,
+              MIN(created_at) AS started_at,
+              MAX(created_at) AS ended_at,
+              COUNT(*) AS event_count,
+              SUM(CASE WHEN type IN (${writePlaceholders}) THEN 1 ELSE 0 END) AS write_count,
+              SUM(CASE WHEN type = 'validation_issue_completed' THEN 1 ELSE 0 END) AS issue_complete_count
+       FROM events
+       WHERE site = ?
+         AND agent_session_id IS NOT NULL
+         AND agent_session_id != ''
+         AND created_at >= ?
+       GROUP BY agent_session_id
+       ORDER BY ended_at DESC
+       LIMIT ?`,
+    )
+    .all(...writeTypes, site, since, limit) as Array<{
+    agent_session_id: string;
+    started_at: number;
+    ended_at: number;
+    event_count: number;
+    write_count: number;
+    issue_complete_count: number;
+  }>;
+  return rows.map((r) => ({
+    agent_session_id: r.agent_session_id,
+    started_at: r.started_at,
+    ended_at: r.ended_at,
+    event_count: r.event_count,
+    write_count: Number(r.write_count) || 0,
+    issue_complete_count: Number(r.issue_complete_count) || 0,
+  }));
+}
+
+/** Template rollup for one session (events only, no LLM). */
+export function getAgentSessionDetail(
+  site: string,
+  agentSessionId: string,
+): {
+  summary: AgentSessionSummary;
+  events: ContentEvent[];
+  files: string[];
+  reports: Array<{ type: string; report: string; created_at: number; event_id: number }>;
+  headline: string | null;
+  attribution: EventAttribution[];
+} | null {
+  const events = listEvents({
+    site,
+    agentSessionId,
+    limit: 500,
+  });
+  if (events.length === 0) return null;
+
+  const started_at = Math.min(...events.map((e) => e.created_at));
+  const ended_at = Math.max(...events.map((e) => e.created_at));
+  const writeTypes = new Set([
+    "content_file_written",
+    "content_entry_deleted",
+    "redirects_changed",
+  ]);
+  let write_count = 0;
+  let issue_complete_count = 0;
+  const files: string[] = [];
+  const fileSeen = new Set<string>();
+  const reports: Array<{ type: string; report: string; created_at: number; event_id: number }> =
+    [];
+  let headline: string | null = null;
+
+  // events are newest-first
+  for (const e of events) {
+    if (writeTypes.has(e.type)) write_count += 1;
+    if (e.type === "validation_issue_completed") issue_complete_count += 1;
+    const path =
+      (typeof e.payload.path === "string" && e.payload.path) ||
+      (typeof e.resource.path === "string" && e.resource.path) ||
+      undefined;
+    if (path && !fileSeen.has(path)) {
+      fileSeen.add(path);
+      files.push(path);
+    }
+    const updatedFiles = e.payload.updatedFiles;
+    if (Array.isArray(updatedFiles)) {
+      for (const f of updatedFiles) {
+        if (typeof f === "string" && !fileSeen.has(f)) {
+          fileSeen.add(f);
+          files.push(f);
+        }
+      }
+    }
+    const report = typeof e.payload.report === "string" ? e.payload.report.trim() : "";
+    if (report) {
+      reports.push({
+        type: e.type,
+        report,
+        created_at: e.created_at,
+        event_id: e.id,
+      });
+    }
+    if (e.type === "agent_session_summarized" && report && !headline) {
+      headline = report;
+    }
+  }
+
+  // Prefer newest summarize (events are newest-first so first match is newest)
+  if (!headline) {
+    const complete = reports.find((r) => r.type === "validation_issue_completed");
+    if (complete) headline = complete.report;
+  }
+
+  const attribution = unionAttribution(...events.map((e) => e.attribution));
+
+  return {
+    summary: {
+      agent_session_id: agentSessionId,
+      started_at,
+      ended_at,
+      event_count: events.length,
+      write_count,
+      issue_complete_count,
+    },
+    events,
+    files,
+    reports,
+    headline,
+    attribution,
+  };
 }
 
 export function getUnpublishedCount(site: string): number {

@@ -34,14 +34,14 @@ beforeEach(() => {
   fs.writeFileSync(
     path.join(contentRoot, "blog", "single.en.yml"),
     `meta:
-  page_title: "{{ single.title }}"
+  page_title: "{{ entry.title }}"
 sections:
   - type: hero
     section_id: hero-1
-    title: "{{ single.title }}"
+    title: "{{ entry.title }}"
   - type: article
     section_id: article-1
-    content: "{{ single.content }}"
+    content: "{{ entry.content }}"
     maxWidth:
       desktop: 2xl
 `,

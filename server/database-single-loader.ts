@@ -33,8 +33,13 @@ import { canonicalSectionId, sectionIdCandidates } from "./utils/sectionIdentity
 import { applyPerEntryLayer, type PerEntryAccum } from "./section-merge";
 import { applySectionLayoutDefaults } from "./section-layout-defaults";
 import { isEntryDetached } from "./shared-layout-entry";
+import {
+  resolveCommonTemplatePath,
+  resolveTemplateLocalePath,
+} from "./shared-layout-paths";
 import { applyFieldOverridesToItem, readFieldOverrides } from "./field-overrides";
 import type { TemplatePage } from "@shared/schema";
+import { ENTRY_OR_SINGLE_KEY_RE } from "@shared/entryTemplateVars";
 import { child } from "./logger";
 const log = child({ module: "database-single-loader" });
 
@@ -64,8 +69,8 @@ export function extractVariableFields(
 
 /**
  * Attach `_variableFields` / `_variableKeys` on sections that still contain
- * `{{ single.* }}` expressions (before delivery-time resolution). Needed for
- * static single_template types as well as DB-backed singles.
+ * `{{ entry.* }}` / legacy `{{ single.* }}` expressions (before delivery-time resolution).
+ * Needed for static single_template types as well as DB-backed singles.
  */
 export function attachVariableFieldsToSections(sections: unknown[]): void {
   for (const section of sections) {
@@ -74,10 +79,10 @@ export function attachVariableFieldsToSections(sections: unknown[]): void {
     if (Object.keys(variableFields).length === 0) continue;
     (section as Record<string, unknown>)._variableFields = variableFields;
     const variableKeys: Record<string, string> = {};
-    const keyRe = /\{\{\s*single\.([^|}\s]+)/;
     for (const [dotPath, expr] of Object.entries(variableFields)) {
-      const m = keyRe.exec(expr);
+      const m = ENTRY_OR_SINGLE_KEY_RE.exec(expr);
       if (m) variableKeys[dotPath] = m[1].trim();
+      ENTRY_OR_SINGLE_KEY_RE.lastIndex = 0;
     }
     if (Object.keys(variableKeys).length > 0) {
       (section as Record<string, unknown>)._variableKeys = variableKeys;
@@ -91,37 +96,29 @@ export function mergeSingleTemplate(
   slug?: string,
   accum?: PerEntryAccum,
   contentRoot?: string,
-  /** When set, load `single.{variant}.{locale}.yml` instead of live `single.{locale}.yml`. */
+  /** When set, load `template.{variant}.{locale}.yml` (legacy `single.*`) instead of live shell. */
   templateVariant?: string,
 ): Record<string, unknown> | null {
   const resolvedRoot = contentRoot ?? getDefaultContentRoot();
   const folder = getFolder(contentType, resolvedRoot);
   const templateDir = path.join(resolvedRoot, folder);
-  const singleCommonPath = path.join(templateDir, "_common.single.yml");
+  const singleCommonPath = resolveCommonTemplatePath(templateDir);
   const commonPath = path.join(templateDir, "_common.yml");
-  let localePath: string;
-  if (templateVariant) {
-    localePath = path.join(templateDir, `single.${templateVariant}.${locale}.yml`);
-    if (!fs.existsSync(localePath)) {
-      localePath = path.join(templateDir, `single.${templateVariant}.en.yml`);
-    }
-  } else {
-    localePath = path.join(templateDir, `single.${locale}.yml`);
-    if (!fs.existsSync(localePath)) {
-      localePath = path.join(templateDir, "single.en.yml");
-    }
-  }
+  const localePath = resolveTemplateLocalePath(templateDir, locale, {
+    variant: templateVariant,
+    fallbackLocale: "en",
+  });
   if (!fs.existsSync(localePath)) return null;
 
   let baseData: Record<string, unknown> = {};
   if (fs.existsSync(singleCommonPath)) {
     const parsed = contentIndex.safeYamlLoad(fs.readFileSync(singleCommonPath, "utf-8"));
     if (parsed) {
-      // Shared-layout: _common.single.yml is layout defaults only — never carry sections
+      // Shared-layout: _common.template.yml is layout defaults only — never carry sections
       const { sections: _ignoredSections, ...rest } = parsed;
       if (_ignoredSections !== undefined) {
         log.warn(
-          `[mergeSingleTemplate] Ignoring sections in _common.single.yml for ${contentType} (structure lives in single.{locale}.yml)`,
+          `[mergeSingleTemplate] Ignoring sections in layout defaults for ${contentType} (structure lives in template.{locale}.yml)`,
         );
       }
       baseData = rest;
@@ -232,7 +229,7 @@ export function resolveDetachedEntryLocalePath(
 /**
  * True when a static shared-layout entry has a live `{slug}/{locale}.yml`.
  * Used by public delivery so missing slugs 404 instead of serving the empty
- * `single.*.yml` shell.
+ * `template.*.yml` shell.
  */
 export function hasStaticSharedLayoutEntryLocale(
   contentType: string,

@@ -37,11 +37,20 @@ import {
   type DiagnosticsIssueQueueResult,
 } from "../lib/diagnostics-issue-queue.js";
 import { getTokenUsername, getTokenClientName } from "../lib/oauth.js";
+import { buildLoopbackHeaders, missingSessionWarning } from "../lib/loopback.js";
+import {
+  AGENT_REPORT_ISSUE_COMPLETE_EXAMPLE,
+  AGENT_REPORT_ISSUE_DESC,
+  AGENT_REPORT_MUTATE_DESC,
+  AGENT_REPORT_SESSION_DESC,
+} from "../lib/agent-report.js";
 import { buildEditorSystemHints } from "../../shared/editorSystemHints.js";
 import { FILL_INTENT_GOAL_PRESET_OPTIONS } from "../../shared/fillIntent.js";
 import {
   parseContentTypeStrategy,
 } from "../../shared/contentTypeStrategy.js";
+import { runContentTypeFieldPatch } from "../lib/content-type-field-mcp.js";
+import type { ContentTypeEditorHint } from "../../server/content-types.js";
 import { promoteWarnings, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
 import {
   ok,
@@ -93,13 +102,13 @@ import {
   collectProposedUrlParamValues,
   collectProposedUrlParamValuesByLocale,
   validateUrlParamPeerValues,
-  LOCALE_ONLY_URL_PARAMS,
   extractParamSlug,
   missingRequiredFields,
   getEditorConfig,
   editorRequiredModes,
   bodyModelForConfig,
   createViaForConfig,
+  templateVarsNoteForBodyModel,
 } from "../lib/entry-helpers.js";
 import {
   resolveTranslateMode,
@@ -116,6 +125,7 @@ import {
   operationsFromLocalePayload,
 } from "../../server/editorial-updated-at.js";
 import { getSeoIndexEntry, SEO_INDEX_FILENAME } from "../../server/seo-index.js";
+import { buildSearchEnginesPagePayload } from "../../server/search-engines-page.js";
 import {
   collectFormSourceHitsFromNode,
   collectFormSourceHitsFromUpdates,
@@ -217,21 +227,11 @@ function schemaOrgOverrideWarningsFromFieldUpdates(
  * Always sets x-mcp-author when MCP_SERVER_SECRET is set so the main server
  * skips shared-layout locale fan-out (agent owns sibling sync via next_actions).
  */
-function internalHeaders(mcpToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (MCP_SERVER_SECRET) {
-    headers["Authorization"] = `Bearer ${MCP_SERVER_SECRET}`;
-    const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
-    headers["x-mcp-author"] = username || "mcp";
-    const clientName = mcpToken ? getTokenClientName(mcpToken) : undefined;
-    if (clientName) headers["x-mcp-client"] = clientName;
-  } else if (mcpToken) {
-    const username = getTokenUsername(mcpToken);
-    if (username) headers["x-mcp-author"] = username;
-    const clientName = getTokenClientName(mcpToken);
-    if (clientName) headers["x-mcp-client"] = clientName;
-  }
-  return headers;
+function internalHeaders(
+  mcpToken?: string,
+  opts?: { agentSessionId?: string; omitJsonContentType?: boolean },
+): Record<string, string> {
+  return buildLoopbackHeaders(mcpToken, opts);
 }
 
 /**
@@ -274,7 +274,9 @@ async function callEditSectionsApi(
     locale: string;
     variant?: string;
     operations: Record<string, unknown>[];
-    layoutTarget?: "entry" | "type_single";
+    layoutTarget?: "entry" | "type_single" | "type_template";
+    report?: string;
+    agent_session_id?: string;
   },
   mcpToken?: string,
   domain?: string,
@@ -283,7 +285,7 @@ async function callEditSectionsApi(
     const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/edit-sections${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
     const res = await fetch(url, {
       method: "POST",
-      headers: internalHeaders(mcpToken),
+      headers: internalHeaders(mcpToken, { agentSessionId: params.agent_session_id }),
       body: JSON.stringify({
         contentType: params.contentType,
         slug: params.slug,
@@ -291,6 +293,7 @@ async function callEditSectionsApi(
         operations: params.operations,
         ...(params.variant ? { variant: params.variant } : {}),
         ...(params.layoutTarget ? { layoutTarget: params.layoutTarget } : {}),
+        ...(params.report ? { report: params.report } : {}),
       }),
     });
     const data = await res.json() as Record<string, unknown>;
@@ -303,7 +306,7 @@ async function callEditSectionsApi(
               {
                 code: "section_index_no_create",
                 message:
-                  "Does not create sections[] slots or overlay patches. Reload indexes, or edit the template (single.{locale}.yml) with layout_target type_single. Overlay merge: server/section-merge.ts.",
+                  "Does not create sections[] slots or overlay patches. Reload indexes, or edit the template (template.{locale}.yml) with layout_target type_template. Overlay merge: server/section-merge.ts.",
               },
             ],
             next_actions: [
@@ -377,11 +380,11 @@ async function callEditSectionsApi(
 function appendSharedTemplateHtmlCacheWarning(
   warnings: McpWarning[],
   data: Record<string, unknown>,
-  layoutTarget?: "entry" | "type_single",
+  layoutTarget?: "entry" | "type_single" | "type_template",
 ): void {
   if (
     typeof data.shared_template_html_cache === "string" ||
-    layoutTarget === "type_single"
+    (layoutTarget === "type_single" || layoutTarget === "type_template")
   ) {
     if (!warnings.some((w) => w.code === SHARED_TEMPLATE_HTML_CACHE_WARNING.code)) {
       warnings.push(SHARED_TEMPLATE_HTML_CACHE_WARNING);
@@ -394,7 +397,13 @@ function appendSharedTemplateHtmlCacheWarning(
  * Returns an error response on failure, or null on success.
  */
 async function callEditCommonApi(
-  params: { contentType: string; slug: string; operations: Record<string, unknown>[] },
+  params: {
+    contentType: string;
+    slug: string;
+    operations: Record<string, unknown>[];
+    report?: string;
+    agent_session_id?: string;
+  },
   mcpToken?: string,
   domain?: string
 ): Promise<McpTextResult | null> {
@@ -402,11 +411,12 @@ async function callEditCommonApi(
     const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/edit-common${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
     const res = await fetch(url, {
       method: "POST",
-      headers: internalHeaders(mcpToken),
+      headers: internalHeaders(mcpToken, { agentSessionId: params.agent_session_id }),
       body: JSON.stringify({
         contentType: params.contentType,
         slug: params.slug,
         operations: params.operations,
+        ...(params.report ? { report: params.report } : {}),
       }),
     });
     const data = await res.json() as Record<string, unknown>;
@@ -452,7 +462,14 @@ async function callRefreshCacheApi(
 }
 
 async function callRenameSlugApi(
-  params: { contentType: string; folderSlug: string; locale: string; newSlug: string; createRedirect?: boolean },
+  params: {
+    contentType: string;
+    folderSlug: string;
+    locale: string;
+    newSlug: string;
+    createRedirect?: boolean;
+    enforceRedirectPolicy?: boolean;
+  },
   mcpToken?: string,
   domain?: string,
 ): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; error: McpTextResult }> {
@@ -626,16 +643,29 @@ interface MappedValidationIssue {
   completedBy?: string;
   completedAt?: string;
   completedActor?: ValidationIssueActorRef;
+  completedReport?: string;
   claimedBy?: string;
   claimedAt?: string;
   expiresAt?: string;
   claimedActor?: ValidationIssueActorRef;
+  claimReport?: string;
+  prior_attempts?: Array<{
+    by: string;
+    claimedBy?: string;
+    at: string;
+    reason: "released" | "ttl_expired" | "complete_rejected_still_open";
+    report?: string;
+    claimedAt?: string;
+    claimReport?: string;
+    actor?: ValidationIssueActorRef;
+  }>;
 }
 
 type CachedValidationIssuesSplit = {
   open: MappedValidationIssue[];
   claimed: MappedValidationIssue[];
   completed: MappedValidationIssue[];
+  validation_pending: boolean;
 };
 
 /**
@@ -649,7 +679,12 @@ function getCachedValidationIssues(
   contentPath?: string,
   viewerAuthor?: string,
 ): CachedValidationIssuesSplit {
-  const empty: CachedValidationIssuesSplit = { open: [], claimed: [], completed: [] };
+  const empty: CachedValidationIssuesSplit = {
+    open: [],
+    claimed: [],
+    completed: [],
+    validation_pending: false,
+  };
   const cachePath = contentPath
     ? path.join(contentPath, "validation-cache.json")
     : VALIDATION_CACHE_PATH;
@@ -671,16 +706,33 @@ function getCachedValidationIssues(
         validator?: string;
       }>;
       indexes?: { byUrl?: Record<string, string>; byEntry?: Record<string, string[]> };
-      completions?: Record<string, { completedBy: string; completedAt: string; actor?: ValidationIssueActorRef }>;
-      claims?: Record<string, { claimedBy: string; claimedAt: string; expiresAt: string; actor?: ValidationIssueActorRef }>;
+      runMeta?: { byEntry?: Record<string, { dirty?: boolean }> };
+      completions?: Record<string, { completedBy: string; completedAt: string; actor?: ValidationIssueActorRef; report?: string }>;
+      claims?: Record<string, { claimedBy: string; claimedAt: string; expiresAt: string; actor?: ValidationIssueActorRef; report?: string }>;
+      attempts?: Record<
+        string,
+        Array<{
+          by: string;
+          claimedBy?: string;
+          at: string;
+          reason: "released" | "ttl_expired" | "complete_rejected_still_open";
+          report?: string;
+          claimedAt?: string;
+          claimReport?: string;
+          actor?: ValidationIssueActorRef;
+        }>
+      >;
     };
 
     const completions = cache.completions ?? {};
     const claims = cache.claims ?? {};
+    const attemptsMap = cache.attempts ?? {};
     const now = Date.now();
+    let validation_pending = false;
     let all: MappedValidationIssue[] = [];
     if (cache.issues && cache.indexes) {
       const entryKey = cache.indexes.byUrl?.[url];
+      validation_pending = Boolean(entryKey && cache.runMeta?.byEntry?.[entryKey]?.dirty);
       const ids = entryKey ? cache.indexes.byEntry?.[entryKey] ?? [] : [];
       for (const id of ids) {
         const issue = cache.issues[id];
@@ -689,6 +741,7 @@ function getCachedValidationIssues(
         const claim = claims[id];
         const claimActive =
           claim && new Date(claim.expiresAt).getTime() > now ? claim : undefined;
+        const priorAttempts = attemptsMap[id];
         all.push({
           id,
           code: issue.code,
@@ -702,6 +755,7 @@ function getCachedValidationIssues(
                 completedBy: completion.completedBy,
                 completedAt: completion.completedAt,
                 ...(completion.actor ? { completedActor: completion.actor } : {}),
+                ...(completion.report ? { completedReport: completion.report } : {}),
               }
             : {}),
           ...(claimActive
@@ -710,7 +764,11 @@ function getCachedValidationIssues(
                 claimedAt: claimActive.claimedAt,
                 expiresAt: claimActive.expiresAt,
                 ...(claimActive.actor ? { claimedActor: claimActive.actor } : {}),
+                ...(claimActive.report ? { claimReport: claimActive.report } : {}),
               }
+            : {}),
+          ...(priorAttempts && priorAttempts.length > 0
+            ? { prior_attempts: priorAttempts }
             : {}),
         });
       }
@@ -756,7 +814,7 @@ function getCachedValidationIssues(
       }
       open.push(issue);
     }
-    return { open, claimed, completed };
+    return { open, claimed, completed, validation_pending };
   } catch {
     return empty;
   }
@@ -936,6 +994,129 @@ export function registerPageTools(
     }
   );
 
+
+  // agent_session — start/note/summarize (pipeline audit events)
+  mcp.tool(
+    "agent_session",
+    "Prefer bootstrap_agent once per MCP run before start (Claude.ai / Grok / any connector). " +
+    "Start, note, or summarize an agent content session for staff monitoring on Background Pipeline. " +
+    "start returns agent_session_id — pass it on mutating tools. " +
+    "note/summarize require agent_session_id + report (min 80 chars). " +
+    "summarize closes the run for the staff banner (last summarize wins). " +
+    "Reports are staff-readable: for copy you set, list plain values (Title: …); no JSON/YAML dumps. " +
+    "After writes, follow conversation conventions from bootstrap_agent (skill.content) for human-facing replies. " +
+    "Does not write YAML. Prefer write/issue report for per-change notes; use summarize once at end.",
+    {
+      action: z.enum(["start", "note", "summarize"]).describe("start | note | summarize"),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Required for note/summarize. From start."),
+      label: z.string().optional().describe("Optional short label on start (e.g. Fix blog SEO batch)"),
+      report: z
+        .string()
+        .optional()
+        .describe(AGENT_REPORT_SESSION_DESC),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+      model: z.string().optional().describe("Optional LLM model name for attribution"),
+    },
+    async ({ action, agent_session_id, label, report, site, model }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
+      const { domain } = siteResult;
+      try {
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/admin/agent-sessions/checkpoint${
+          domain ? `?__site=${encodeURIComponent(domain)}` : ""
+        }`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: internalHeaders(mcpToken, {
+            agentSessionId: agent_session_id,
+          }),
+          body: JSON.stringify({
+            action,
+            site: siteResult.contentFolder,
+            ...(agent_session_id ? { agent_session_id } : {}),
+            ...(label ? { label } : {}),
+            ...(report ? { report } : {}),
+            ...(model ? { model } : {}),
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        if (!res.ok) {
+          const code = typeof data.code === "string" ? data.code : "agent_session_failed";
+          if (code === "session_unknown" || data.action_required === "start") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "start",
+                code: "session_unknown",
+                message: String(data.error ?? "Unknown agent_session_id — call start first"),
+              },
+              [
+                {
+                  tool: "agent_session",
+                  reason: "Start a session, then retry note/summarize with the returned agent_session_id.",
+                  priority: "required",
+                  args_hint: { action: "start" },
+                },
+              ],
+            );
+          }
+          if (code === "report_required" || code === "report_too_short") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "report_required",
+                code,
+                message: String(data.error ?? "report required (min 80 characters)"),
+              },
+              [],
+            );
+          }
+          return fail(String(data.error ?? `agent_session failed (${res.status})`), { code });
+        }
+        const sid = String(data.agent_session_id ?? agent_session_id ?? "");
+        return ok(
+          {
+            action,
+            agent_session_id: sid,
+            event_id: data.event_id ?? null,
+            message:
+              action === "start"
+                ? "Session started. Prefer bootstrap_agent once per MCP run before start if you have not already. Pass agent_session_id on mutating tools; call summarize when done. Follow bootstrap conventions (skill.content) for human-facing replies."
+                : action === "summarize"
+                  ? "Session summarized for staff banner."
+                  : "Session note recorded.",
+          },
+          {
+            warnings: [],
+            side_effects: [
+              {
+                kind: "pipeline_event",
+                summary: `Emitted agent_session_${action === "start" ? "started" : action === "note" ? "note" : "summarized"}`,
+              },
+            ],
+            next_actions:
+              action === "start"
+                ? [
+                    {
+                      tool: "update_fields",
+                      reason: "Pass agent_session_id + report on content mutates.",
+                      priority: "recommended",
+                      args_hint: { agent_session_id: sid },
+                    },
+                  ]
+                : [],
+          },
+        );
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+    },
+  );
+
+
   // list_entries
   mcp.tool(
     "list_entries",
@@ -1089,9 +1270,10 @@ export function registerPageTools(
     "get_entry_content",
     "Get the merged content of a page (sections, title, and all other top-level YAML keys) without the meta/SEO block. " +
     "Also returns locales (all available locale codes for this page), urls (per-locale resolved paths), and " +
-    "validation_issues (open cached validation issues — incomplete and unclaimed, or claimed by you; each with id, code, message, severity, category). " +
+    "validation_issues (open cached validation issues — incomplete and unclaimed, or claimed by you; each with id, code, message, severity, category; may include prior_attempts from earlier releases/TTL). " +
     "claimed_issues (active claims by other authors). " +
     "completed_issues (soft-completed for audit; use update_issue). " +
+    "validation_pending (true when an on-save revalidation is still debouncing after a recent write — open lists may lag). " +
     "validation_issues, claimed_issues, and completed_issues are always present (empty arrays if none). " +
     "Merges _common.yml with the locale file. contentType is optional — omit it and the server will auto-detect it from the slug. " +
     "Use get_entry_seo to fetch only the SEO/meta fields. Requires content_view. " +
@@ -1130,7 +1312,7 @@ export function registerPageTools(
         const { meta: _meta, ...dataWithoutMeta } = result.data;
         const merged = { ...dataWithoutMeta } as Record<string, unknown>;
         applyPurchasableToRecord(merged, resolved.contentType, slug);
-        return { content: [{ type: "text", text: JSON.stringify({ contentType: resolved.contentType, slug, locale, variant, ...merged, validation_issues: [], claimed_issues: [], completed_issues: [] }, null, 2) }] };
+        return { content: [{ type: "text", text: JSON.stringify({ contentType: resolved.contentType, slug, locale, variant, ...merged, validation_issues: [], claimed_issues: [], completed_issues: [], validation_pending: false }, null, 2) }] };
       }
 
       const payload = resolvePagePayload(slug, locale, contentType, contentPath);
@@ -1152,9 +1334,9 @@ export function registerPageTools(
             contentPath,
             _mcpAuthor || mcpViewerAuthor(mcpToken),
           )
-        : { open: [], claimed: [], completed: [] };
+        : { open: [], claimed: [], completed: [], validation_pending: false };
 
-      return { content: [{ type: "text", text: JSON.stringify({ ...envelope, ...merged, validation_issues: split.open, claimed_issues: split.claimed, completed_issues: split.completed }, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ ...envelope, ...merged, validation_issues: split.open, claimed_issues: split.claimed, completed_issues: split.completed, validation_pending: split.validation_pending }, null, 2) }] };
     }
   );
 
@@ -1163,7 +1345,8 @@ export function registerPageTools(
     "get_entry_seo",
     "Get the SEO/meta block plus structured-data preview for a page, with the identifying envelope (contentType, slug, locale, locales, urls). " +
     "Returns meta, seo (locale seo.main_keyword / pillar_path / is_pillar), include_in_clustering (derived: false only when seo.pillar_path is explicit null), " +
-    "index (live seo-index.json row; omitted for variants), " +
+    "index (live seo-index.json topic-cluster inventory row — NOT search-engine indexing; omitted for variants), " +
+    "optional search_engines when include_search_engines:true (cached Google Search Console + Bing stub; read-only, does not refresh cache or call live APIs), " +
     "validation_issues (open cached SEO-category issues), " +
     "claimed_issues (SEO issues claimed by others), " +
     "completed_issues (soft-completed SEO issues), and a rich schema_org block: " +
@@ -1173,18 +1356,28 @@ export function registerPageTools(
     "Hub inventory: list_seo_clusters / list_seo_cluster_entries / get_seo_cluster. " +
     "Toggle clustering via update_fields seo.include_in_clustering (MCP-only; requires type seo_monitoring.enabled). " +
     "Do not expect a derived JSON-LD dump on get_entry_content. Requires content_view or seo_edit. " +
-    "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
+    "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file. " +
+    "Variants skip search_engines (live URLs only); re-call without variant to read engine status.",
     {
       slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to read (e.g. 'draft-v2'). When provided, reads {variantSlug}.{locale}.yml instead of the live locale file."),
+      include_search_engines: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "If true (live reads only), attach search_engines.{google,bing} from cached inspection data. " +
+            "index remains seo-index cluster inventory. Does not call Google/Bing APIs or refresh the cache. " +
+            "Ignored for variants (warning search_engines_skipped_variant).",
+        ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, contentType, variant, site }) => {
+    async ({ slug, locale, contentType, variant, include_search_engines, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const { contentPath } = siteResult;
+      const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
         assertSafeLocale(locale);
@@ -1260,6 +1453,23 @@ export function registerPageTools(
           locale,
           result.data as Record<string, unknown>,
         );
+        const warnings: Array<{ code: string; message: string }> = [
+          {
+            code: "variant_seo_not_indexed",
+            message: "Variant seo: is not in seo-index.json until promote.",
+          },
+          {
+            code: "variant_updated_at_not_live",
+            message: "Variant updated_at does not change live sitemap lastmod until promote.",
+          },
+        ];
+        if (include_search_engines) {
+          warnings.push({
+            code: "search_engines_skipped_variant",
+            message:
+              "Search engine status applies to live URLs only; re-call get_entry_seo without variant and include_search_engines:true.",
+          });
+        }
         return {
           content: [
             {
@@ -1285,16 +1495,7 @@ export function registerPageTools(
                     contentPath,
                     result.data as Record<string, unknown>,
                   ),
-                  warnings: [
-                    {
-                      code: "variant_seo_not_indexed",
-                      message: "Variant seo: is not in seo-index.json until promote.",
-                    },
-                    {
-                      code: "variant_updated_at_not_live",
-                      message: "Variant updated_at does not change live sitemap lastmod until promote.",
-                    },
-                  ],
+                  warnings,
                 },
                 null,
                 2,
@@ -1318,7 +1519,7 @@ export function registerPageTools(
             contentPath,
             _mcpAuthor || mcpViewerAuthor(mcpToken),
           )
-        : { open: [], claimed: [], completed: [] };
+        : { open: [], claimed: [], completed: [], validation_pending: false };
 
       const schema_org = await buildSchemaOrgBlock(
         payload.contentType,
@@ -1327,7 +1528,7 @@ export function registerPageTools(
         payload.data,
       );
 
-      const seoPayload = {
+      const seoPayload: Record<string, unknown> = {
         contentType: payload.contentType,
         slug: payload.slug,
         locale: payload.locale,
@@ -1341,6 +1542,7 @@ export function registerPageTools(
         validation_issues: split.open,
         claimed_issues: split.claimed,
         completed_issues: split.completed,
+        validation_pending: split.validation_pending,
         ...resolvedUpdatedAtFields(
           payload.contentType,
           payload.slug,
@@ -1350,6 +1552,17 @@ export function registerPageTools(
         ),
       };
 
+      if (include_search_engines) {
+        const engines = buildSearchEnginesPagePayload({
+          contentRoot: contentPath,
+          contentFolder,
+          domain,
+          requestedUrl: pageUrl,
+        });
+        seoPayload.search_engines = engines.search_engines;
+        seoPayload.warnings = engines.warnings;
+      }
+
       return { content: [{ type: "text", text: JSON.stringify(seoPayload, null, 2) }] };
     }
   );
@@ -1357,11 +1570,21 @@ export function registerPageTools(
   // update_issue
   mcp.tool(
     "update_issue",
-    "Claim, release, soft-complete, or reopen a validation issue by stable issue_id from get_entry_content / get_entry_seo. " +
+    "Claim, release, verify-complete, or reopen a validation issue by stable issue_id from get_entry_content / get_entry_seo. " +
     "Actions: claim (30m TTL, refresh if you already own it; fails if another author holds an active claim), " +
-    "release (drop your claim or staff release), complete (hide from open lists; also clears claim), uncomplete (reopen). " +
-    "Does NOT delete the issue row, push YAML/GitHub, or run diagnostics. " +
-    "A later validator cache write that rewrites the same id clears complete but keeps an active claim; may emit validation_issue_reopened in admin events. " +
+    "release (drop your claim or staff release — requires report min 80 when an active claim exists; idempotent no-op if already unclaimed), " +
+    "complete (re-validates the entry — or seo-duplicates for DUPLICATE_* — then soft-completes only if the issue_id is gone; " +
+    "also lists auto_completed_ids for sibling issues on that entry cleared by the same revalidation; refuses with complete_rejected_still_open + prior_attempts if still failing), " +
+    "uncomplete (reopen). " +
+    "MCP-only: claim requires report (why you are taking this issue + what you plan to change; min 80 chars; optional when refreshing your own claim). " +
+    "complete requires report (what you changed and how; include plain new values for copy you set — not JSON/YAML; min 80 chars). " +
+    "release requires report when releasing an active claim (what you tried + why stopping; stored as prior_attempts for the next agent). " +
+    "Read prior_attempts on validation_issues before reclaiming. " +
+    "Example claim: \"SEO title empty on blog/foo/en — will set meta.page_title from H1 and re-check.\" " +
+    AGENT_REPORT_ISSUE_COMPLETE_EXAMPLE + " " +
+    "Example release: \"Tried updating meta.page_title; validator still fails because sitemap entry missing — need redirects change.\" " +
+    "Does NOT push YAML/GitHub. complete runs entry-local (or seo-duplicates) revalidation before overlay. " +
+    "A later validator cache write that rewrites the same id clears complete but keeps an active claim and prior_attempts; may emit validation_issue_reopened in admin events. " +
     "Requires content_edit_text or seo_edit. Pass issue_id only (no update-by-code). Optional model (best-effort, self-reported).",
     {
       issue_id: z.string().describe("Stable issue id from validation_issues[].id"),
@@ -1372,9 +1595,17 @@ export function registerPageTools(
       model: z
         .string()
         .optional()
-        .describe("Optional LLM model name (best-effort; stored in actor.model on claim/complete)"),
+        .describe("Optional LLM model name (best-effort; stored in actor.model on claim/complete/release)"),
+      report: z
+        .string()
+        .optional()
+        .describe(AGENT_REPORT_ISSUE_DESC),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start — groups claim/complete/release under the same run."),
     },
-    async ({ issue_id, action, site, model }) => {
+    async ({ issue_id, action, site, model, report, agent_session_id }) => {
       const canMutate =
         !mcpToken ||
         !grants ||
@@ -1386,24 +1617,79 @@ export function registerPageTools(
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
+
+      const trimmedReport = typeof report === "string" ? report.trim() : "";
+      if (action === "complete") {
+        if (trimmedReport.length < 80) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "report_required",
+              code: "report_required",
+              message:
+                "complete requires report: explain what you changed and how you fixed this issue (min 80 characters). Include plain new values for copy you set.",
+            },
+            [],
+          );
+        }
+      } else if (action === "release") {
+        if (trimmedReport.length > 0 && trimmedReport.length < 80) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "report_required",
+              code: "report_too_short",
+              message: "release report must be at least 80 characters when provided.",
+            },
+            [],
+          );
+        }
+      } else if (action === "claim" && trimmedReport.length > 0 && trimmedReport.length < 80) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "report_required",
+            code: "report_too_short",
+            message: "claim report must be at least 80 characters when provided.",
+          },
+          [],
+        );
+      }
+
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       try {
         const res = await fetch(
           `http://localhost:${MAIN_SERVER_PORT}/api/validation/cache-issues/update${q}`,
           {
             method: "POST",
-            headers: internalHeaders(mcpToken),
+            headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
             body: JSON.stringify({
               issueId: issue_id,
               action,
               ...(model ? { model } : {}),
+              ...(trimmedReport ? { report: trimmedReport } : {}),
             }),
           },
         );
         const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
         if (!res.ok) {
+          const code = typeof data.code === "string" ? data.code : "update_issue_failed";
+          if (code === "report_required" || code === "report_too_short") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "report_required",
+                code,
+                message: String(
+                  data.error ??
+                    "report required for MCP claim/complete/release (min 80 characters when releasing an active claim)",
+                ),
+              },
+              [],
+            );
+          }
           return fail(String(data.error ?? `update_issue failed (${res.status})`), {
-            code: typeof data.code === "string" ? data.code : "update_issue_failed",
+            code,
             status: res.status,
             claimedBy: data.claimedBy,
           });
@@ -1412,16 +1698,22 @@ export function registerPageTools(
           {
             code: "overlay_env_local",
             message:
-              "Updates this environment's validation-cache claims/completions only — does not push YAML, sync GitHub, or update other environments.",
+              "Updates this environment's validation-cache claims/completions/attempts only — does not push YAML, sync GitHub, or update other environments.",
           },
           {
-            code: "no_diagnostics_run",
+            code: "complete_revalidates",
             message:
-              "Does not run diagnostics. complete is cleared if a later cache write rewrites this issue_id; claims survive rewrite until TTL/release/complete.",
+              "complete re-runs entry-local validators (or seo-duplicates for DUPLICATE_TITLE/DESCRIPTION) before soft-complete. Refuses with complete_rejected_still_open if the issue still reproduces; records prior_attempts. Returns auto_completed_ids for siblings on the same entry cleared by that revalidation.",
           },
           {
             code: "claim_ttl_30m",
-            message: "Claims expire after 30 minutes. Same author can re-claim to refresh.",
+            message:
+              "Claims expire after 30 minutes (records ttl_expired prior_attempt). Same author can re-claim to refresh.",
+          },
+          {
+            code: "mcp_report_required",
+            message:
+              "MCP claim (first), complete, and release (active claim) require report (min 80 chars). Release stores prior_attempts for the next agent.",
           },
           {
             code: "actor_client_from_oauth",
@@ -1431,15 +1723,18 @@ export function registerPageTools(
           {
             code: "validation_issue_events",
             message:
-              "claim/complete emit validation_issue_* admin events. Diagnostics may emit validation_issue_reopened when a completed id resurfaces.",
+              "claim/complete/release emit validation_issue_* admin events. TTL expiry also emits validation_issue_released.",
           },
         ];
         return ok(
           {
             issue_id,
             action,
+            report: trimmedReport || null,
             completed: data.completed ?? null,
             claimed: data.claimed ?? null,
+            attempt: data.attempt ?? null,
+            auto_completed_ids: data.auto_completed_ids ?? [],
             message: `Issue ${action} applied.`,
           },
           {
@@ -1603,22 +1898,23 @@ export function registerPageTools(
   mcp.tool(
     "run_entry_diagnostics",
     "Start or read page diagnostics against the unified validation-cache issue store. Does NOT wait for validators to finish. " +
-    "Returns status 'cached' (issues work queue from validation-cache when fresh), 'needs_confirm' (re-call with confirm:true), or 'queued'/'running' with job_id. " +
+    "Returns status 'cached' (issues work queue from validation-cache when fresh), 'needs_confirm' (full-site only — re-call with confirm:true), or 'queued'/'running' with job_id. " +
     "On cached: returns issues[] (default 50, errors first, diversified by code) with issues_offset/issues_limit pagination for the issue list only — not a full site dump. " +
     "MCP: categories (e.g. ['seo']) narrow which validators RUN when validators are omitted (staff Diagnostics scope chips are view-only and unchanged). " +
-    "content_view/seo_edit may READ cached or needs_confirm responses; only a metrics-mutating staff cap may start a job (confirm:true that queues). " +
-    "When a NEW job would start (freshness hard, or stale under max_age), confirm:true is required — metrics-capable agents may set the flag after reading the gate. " +
+    "content_view/seo_edit may READ cached or needs_confirm responses; only a metrics-mutating staff cap may start a job. " +
+    "Slug- or URL-scoped hard/max_age jobs that would start do NOT require confirm:true (escape hatch after edits). Full-site / unscoped jobs still need confirm:true. " +
     "Same-scope reuse of an in-flight job and pure 'cached' responses skip confirm. " +
     "When queued/running: wait retry_after_seconds then call get_diagnostics_job — do NOT re-call this tool to poll. " +
     "freshness 'max_age' (default) recomputes only URLs whose lastFullRunAt is older than max_age_seconds (default 86400); " +
-    "'hard' forces a recompute. Optional slugs scopes the run to entry-local validators only (never cross-entry like redirects — avoids false all-clear). " +
+    "'hard' forces a recompute. Optional slugs scopes the run to entry-local validators only (never cross-entry like redirects/seo-duplicates — avoids false all-clear). " +
     "side_effects: job runs in a forked worker process; replace-by-validator merge into validation-cache.json on disk " +
     "(parent reloads cache when the job completes; clears obsolete codes for ran validators in scope). " +
     "Concurrent start while another job holds the site returns busy (no queue). On-save entry-local writes are deferred while the lock is held. " +
-    "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap; fixing meta does not clear REDIRECT_CONFLICT; " +
+    "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap/seo-duplicates; fixing meta does not clear REDIRECT_CONFLICT or DUPLICATE_TITLE; " +
     "does not change staff Diagnostics HTTP payloads. Mid-run get_diagnostics_job may return a partial issues work queue. Authoritative after completed. " +
-    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs + confirm:true (metrics mutate). " +
-    "In-app content saves also debounce entry-local validation; redirect-config changes queue redirects separately.",
+    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs (no confirm needed when scoped). " +
+    "In-app / MCP content writes debounce entry-local validation for 1 minute; redirect-config changes queue redirects separately. " +
+    "When get_entry_* returns validation_pending:true, cache may lag until that debounce settles.",
     {
       slugs: z.array(z.string()).optional().describe("Optional page slugs to scope. Omit for all YAML-backed pages."),
       categories: z
@@ -1629,7 +1925,7 @@ export function registerPageTools(
         ),
       freshness: z.enum(["hard", "max_age"]).optional().describe("max_age (default) uses lastFullRunAt; hard always recomputes."),
       max_age_seconds: z.number().optional().describe("TTL for max_age freshness (default 86400). Ignored when freshness is hard."),
-      confirm: z.boolean().optional().describe("Set true to start a new diagnostics job after needs_confirm. Requires metrics-mutating cap. Not required for cached or same-scope reuse."),
+      confirm: z.boolean().optional().describe("Required only for full-site / unscoped jobs after needs_confirm. Slug-scoped starts skip confirm. Requires metrics-mutating cap to start any job."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
       ...diagnosticsIssueListParams,
     },
@@ -2106,14 +2402,14 @@ export function registerPageTools(
   const ALL_KNOWN_META_FIELDS = new Set([...META_COMMON_FIELDS, ...META_LOCALE_FIELDS]);
 
   const layoutTargetSchema = z
-    .enum(["auto", "entry", "type_single"])
+    .enum(["auto", "entry", "type_single", "type_template"])
     .optional()
     .default("auto")
     .describe(LAYOUT_TARGET_DESC);
   const confirmLayoutTargetSchema = z
     .boolean()
     .optional()
-    .describe('Set true after choosing layout_target "entry" or "type_single" when confirm_layout_target was required.');
+    .describe('Set true after choosing layout_target "entry" or "type_template" when confirm_layout_target was required.');
 
   function bindingPropagateSideEffects(boundUpdates: unknown): McpSideEffect[] | undefined {
     if (!Array.isArray(boundUpdates) || boundUpdates.length === 0) return undefined;
@@ -2127,9 +2423,11 @@ export function registerPageTools(
   mcp.tool(
     "update_fields",
     "The only single-entry field write tool. Apply one or more field updates to one page/locale. " +
+    "Each updates[] item is set-mode (value) or reset-mode (reset:true, no value/meta_target). " +
+    "reset:true clears the override via the field-reset API (inherit lower layer). " +
     "updates length 1 = single-field edit. May mix meta.*, safe top-level body fields, and fields under ONE sections.N.* index. " +
     "Rejects two or more distinct section indexes (split into separate calls so bindings can propagate). " +
-    "sections.N.* patches an existing slot only — missing index fails (reload, or edit single.{locale}.yml with layout_target type_single). Does not create overlay patches or grow sections[]. " +
+    "sections.N.* patches an existing slot only — missing index fails (reload, or edit template.{locale}.yml with layout_target type_template). Does not create overlay patches or grow sections[]. " +
     "field_path routing: sections.* and safe top-level → locale; seo.main_keyword|seo.pillar_path|seo.is_pillar → locale seo: (never _common.yml, no meta_target); " +
     "seo.include_in_clustering (MCP-only boolean, never YAML) expands to pillar_path/is_pillar — requires content-type seo_monitoring.enabled; " +
     "on=true needs non-empty seo.pillar_path or seo.is_pillar:true after merge; on=false → pillar_path:null + is_pillar:false; " +
@@ -2148,11 +2446,14 @@ export function registerPageTools(
         field_path: z.string().describe(
           "Dot path: sections.0.title, meta.description, seo.main_keyword, seo.include_in_clustering, title, …",
         ),
-        value: z.unknown().describe("New value"),
+        value: z.unknown().optional().describe("New value (required unless reset:true)"),
+        reset: z.boolean().optional().describe(
+          "When true, clear this field (inherit lower layer). Do not send value or meta_target on this item.",
+        ),
         meta_target: z.enum(["locale", "common"]).optional().describe(
           "Required for unknown meta.* keys. Known meta auto-routes.",
         ),
-      })).min(1).describe("Field updates (min 1). At most one distinct sections.N index."),
+      })).min(1).describe("Field updates (min 1). At most one distinct sections.N index. Each item is set (value) or reset (reset:true)."),
       contentType: z.string().optional().describe("Content type hint. Omit to auto-detect."),
       variant: z.string().optional().describe("Variant slug to write locale fields to."),
       confirm_live_edit: z.boolean().optional().describe("Confirm live overwrite when versioning.yml exists and variant is omitted."),
@@ -2161,12 +2462,36 @@ export function registerPageTools(
       confirm_new_values: z.boolean().optional().describe(
         "Set true after principal approval when setting category (or other URL param) to a slug not yet used by peers of this locale.",
       ),
+      create_redirect: z.boolean().optional().describe(
+        "When renaming live slug (field_path slug): required if published_at is >= 24h ago. Adds old URL to meta.redirects.",
+      ),
+      report: z
+        .string()
+        .describe(AGENT_REPORT_MUTATE_DESC),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start — groups this write for staff monitoring."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, updates: inputUpdates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, confirm_new_values, site }) => {
+    async ({ slug, locale, updates: inputUpdates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, confirm_new_values, create_redirect, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
+      const trimmedReport = typeof report === "string" ? report.trim() : "";
+      if (trimmedReport.length < 80) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "report_required",
+            code: trimmedReport ? "report_too_short" : "report_required",
+            message:
+              "report required (min 80 characters): explain what you are changing and why. " +
+              "For copy you set, list plain values (Title: …); do not paste JSON/YAML.",
+          },
+          [],
+        );
+      }
       try {
         assertSafeSegment(slug, "slug");
         assertSafeLocale(locale);
@@ -2227,50 +2552,48 @@ export function registerPageTools(
         return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
 
-      const categoryUpdate = updates.find((u) => u.field_path === "category");
-      if (categoryUpdate) {
-        const urlParams = listExtraUrlPatternParams(resolved.config.url_pattern);
-        if (urlParams.includes("category")) {
-          const catValue = extractParamSlug(categoryUpdate.value);
-          if (catValue) {
-            const peerGate = validateUrlParamPeerValues(
-              contentPath,
-              resolved.contentType,
-              resolved.config,
-              { [locale]: { category: catValue } },
-              confirm_new_values,
-            );
-            if (peerGate) {
-              return actionRequired(
-                {
-                  success: false,
-                  action_required: "confirm_new_url_param_value",
-                  code: "confirm_new_url_param_value",
-                  message:
-                    `New category '${catValue}' for ${locale} is not used by any ${locale} peer. ` +
-                    `Observed: [${peerGate.observed_values.slice(0, 40).join(", ")}]. ` +
-                    "Get principal approval, then retry with confirm_new_values: true or pick an observed slug.",
-                  ...peerGate,
-                  contentType: resolved.contentType,
-                  slug,
-                },
-                [
-                  {
-                    tool: "update_fields",
-                    reason: "Retry with confirm_new_values: true or an observed category",
-                    args_hint: { slug, locale, contentType: resolved.contentType, updates: inputUpdates, confirm_new_values: true, site },
-                    priority: "required",
-                  },
-                  {
-                    tool: "get_content_type_info",
-                    reason: "Inspect observed_values_by_locale.category",
-                    args_hint: { contentType: resolved.contentType, site },
-                    priority: "recommended",
-                  },
-                ],
-              );
-            }
-          }
+      const urlParams = listExtraUrlPatternParams(resolved.config.url_pattern);
+      for (const param of urlParams) {
+        const paramUpdate = updates.find((u) => u.field_path === param);
+        if (!paramUpdate) continue;
+        const paramValue = extractParamSlug(paramUpdate.value);
+        if (!paramValue) continue;
+        const peerGate = validateUrlParamPeerValues(
+          contentPath,
+          resolved.contentType,
+          resolved.config,
+          { [locale]: { [param]: paramValue } },
+          confirm_new_values,
+        );
+        if (peerGate) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "confirm_new_url_param_value",
+              code: "confirm_new_url_param_value",
+              message:
+                `New value '${paramValue}' for URL param '${param}' (${locale}) is not used by any ${locale} peer. ` +
+                `Observed: [${peerGate.observed_values.slice(0, 40).join(", ")}]. ` +
+                "Get principal approval, then retry with confirm_new_values: true or pick an observed slug.",
+              ...peerGate,
+              contentType: resolved.contentType,
+              slug,
+            },
+            [
+              {
+                tool: "update_fields",
+                reason: "Retry with confirm_new_values: true or an observed URL param value",
+                args_hint: { slug, locale, contentType: resolved.contentType, updates: inputUpdates, confirm_new_values: true, site },
+                priority: "required",
+              },
+              {
+                tool: "get_content_type_info",
+                reason: `Inspect observed_values_by_locale.${param}`,
+                args_hint: { contentType: resolved.contentType, site },
+                priority: "recommended",
+              },
+            ],
+          );
         }
       }
 
@@ -2290,21 +2613,37 @@ export function registerPageTools(
         if (isSeoPath(u.field_path) && u.meta_target) {
           return fail("seo.* always writes the locale file; do not pass meta_target.");
         }
-        if (!u.field_path.startsWith("meta.")) continue;
+        if (!u.field_path.startsWith("meta.") || u.reset === true) continue;
         const key = u.field_path.slice(5).split(".")[0];
         if (!ALL_KNOWN_META_FIELDS.has(key) && !u.meta_target) {
           return fail(`Unknown meta field '${key}' requires meta_target: "locale" | "common"`);
         }
       }
 
-      const needsSeo = updates.some((u) => u.field_path.startsWith("meta.") || isSeoPath(u.field_path));
-      const needsContent = updates.some((u) => !u.field_path.startsWith("meta.") && !isSeoPath(u.field_path));
+      for (const u of updates) {
+        if (u.reset === true) {
+          if (u.value !== undefined || u.meta_target !== undefined) {
+            return fail(
+              `Reset item for '${u.field_path}' must not include value or meta_target (reset:true clears the field).`,
+            );
+          }
+        } else if (u.value === undefined) {
+          return fail(`value is required for '${u.field_path}' unless reset:true`);
+        }
+      }
+
+      const resetUpdates = updates.filter((u) => u.reset === true);
+      const setUpdates = updates.filter((u) => u.reset !== true);
+
       const liveSlugUpdate = !variant
-        ? updates.find((u) => u.field_path === "slug" && typeof u.value === "string")
+        ? setUpdates.find((u) => u.field_path === "slug" && typeof u.value === "string")
         : undefined;
       if (mcpToken) {
-        if (needsSeo && !(await checkCap(mcpToken, "seo_edit"))) {
-          return denyResponse("seo_edit");
+        const allForCap = updates; // both reset and set
+        const needsSeo = allForCap.some((u) => u.field_path.startsWith("meta.") || isSeoPath(u.field_path));
+        const needsContent = allForCap.some((u) => !u.field_path.startsWith("meta.") && !isSeoPath(u.field_path));
+        if (needsSeo && !(await checkCap(mcpToken, "seo_edit", resolved.contentType))) {
+          return denyResponse("seo_edit", resolved.contentType);
         }
         if (needsContent && !(await checkCap(mcpToken, "content_edit_text", resolved.contentType))) {
           return denyResponse("content_edit_text", resolved.contentType);
@@ -2325,6 +2664,91 @@ export function registerPageTools(
         extraArgsHint: { updates: inputUpdates, layout_target, confirm_layout_target },
       });
       if (liveGate) return liveGate;
+
+      if (resetUpdates.length > 0) {
+        const ct = resolved.contentType;
+        const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+        const resetResults: Array<{
+          field_path: string;
+          noop: boolean;
+          path?: string;
+          storage?: string;
+        }> = [];
+        for (const u of resetUpdates) {
+          try {
+            const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
+            const res = await fetch(url, {
+              method: "POST",
+              headers: internalHeaders(mcpToken),
+              body: JSON.stringify({ field: u.field_path, locale, variant: variant || undefined }),
+            });
+            const data = await res.json() as {
+              error?: string;
+              noop?: boolean;
+              path?: string;
+              storage?: string;
+            };
+            if (!res.ok) {
+              return fail(data.error || `field-reset failed for '${u.field_path}': ${res.status}`);
+            }
+            resetResults.push({
+              field_path: u.field_path,
+              noop: !!data.noop,
+              ...(data.path ? { path: data.path } : {}),
+              ...(data.storage ? { storage: data.storage } : {}),
+            });
+          } catch (e) {
+            return fail(`field-reset failed for '${u.field_path}': ${(e as Error).message}`);
+          }
+        }
+
+        if (setUpdates.length === 0) {
+          const hasSeo = resetUpdates.some(
+            (u) => u.field_path.startsWith("meta.") || isSeoPath(u.field_path),
+          );
+          const hasContent = resetUpdates.some(
+            (u) => !u.field_path.startsWith("meta.") && !isSeoPath(u.field_path),
+          );
+          const next_actions: NextAction[] = [];
+          if (hasContent) {
+            next_actions.push({
+              tool: "get_entry_fields",
+              reason: "Confirm provenance after reset",
+              args_hint: {
+                slug,
+                contentType: ct,
+                locale,
+                ...(variant ? { variant } : {}),
+                ...(site ? { site } : {}),
+              },
+              priority: "recommended",
+            });
+          }
+          if (hasSeo) {
+            next_actions.push({
+              tool: "get_entry_seo",
+              reason: "Confirm SEO/meta after reset",
+              args_hint: {
+                slug,
+                contentType: ct,
+                locale,
+                ...(variant ? { variant } : {}),
+                ...(site ? { site } : {}),
+              },
+              priority: "recommended",
+            });
+          }
+          return ok(
+            {
+              message: `Reset ${resetResults.length} field(s) on ${ct}/${slug}`,
+              resets: resetResults,
+            },
+            { warnings: [], next_actions },
+          );
+        }
+
+        updates = setUpdates;
+      }
 
       const touchesSections = updates.some((u) => u.field_path.startsWith("sections."));
       const layoutGate = resolveLayoutTargetGate({
@@ -2366,7 +2790,7 @@ export function registerPageTools(
         contentRoot: contentPath,
         updates: updates.map((u) => ({
           field_path: u.field_path,
-          value: u.value,
+          value: u.value as unknown,
           ...(u.meta_target ? { meta_target: u.meta_target } : {}),
         })),
         currentSeo,
@@ -2507,12 +2931,16 @@ export function registerPageTools(
         ...variantWarningsIfNeeded(variant),
         ...clusterToggleWarnings,
       ];
+      {
+        const sessWarn = missingSessionWarning(agent_session_id);
+        if (sessWarn) warnings.push(sessWarn);
+      }
       let renameResult: Record<string, unknown> | null = null;
       if (touchesSections) {
         warnings.push({
           code: "section_index_no_create",
           message:
-            "sections.N.* patches an existing slot only (this file or single.{locale}.yml). Missing index fails — reload get_entry_fields or use layout_target type_single. Does not create overlay patches. Merge: server/section-merge.ts.",
+            "sections.N.* patches an existing slot only (this file or template.{locale}.yml). Missing index fails — reload get_entry_fields or use layout_target type_template. Does not create overlay patches. Merge: server/section-merge.ts.",
         });
       }
       if (variant && commonEntries.length > 0) {
@@ -2526,7 +2954,16 @@ export function registerPageTools(
       if (localeEntries.length > 0) {
         const ops = localeEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
         const apiResult = await callEditSectionsApi(
-          { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations: ops },
+          {
+            contentType: resolved.contentType,
+            slug,
+            locale,
+            variant,
+            layoutTarget,
+            operations: ops,
+            report: trimmedReport,
+            agent_session_id,
+          },
           mcpToken,
           domain,
         );
@@ -2539,7 +2976,13 @@ export function registerPageTools(
       if (commonEntries.length > 0) {
         const ops = commonEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
         const apiErr = await callEditCommonApi(
-          { contentType: resolved.contentType, slug, operations: ops },
+          {
+            contentType: resolved.contentType,
+            slug,
+            operations: ops,
+            report: trimmedReport,
+            agent_session_id,
+          },
           mcpToken,
           domain,
         );
@@ -2581,7 +3024,8 @@ export function registerPageTools(
             folderSlug: slug,
             locale,
             newSlug: slugRenameValue,
-            createRedirect: false,
+            createRedirect: !!create_redirect,
+            enforceRedirectPolicy: true,
           },
           mcpToken,
           domain,
@@ -2745,7 +3189,7 @@ export function registerPageTools(
     "For one entry (or meta+body/section together) use update_fields instead.\n\n" +
     "Server coalesces cache/sitemap/CI/redirect flush once after the batch; skips entry-preview capture. " +
     "Per-slug live-gate failures continue the batch; fix circular traps with update_fields.\n\n" +
-    "Max 50 unique slugs. Duplicate slugs rejected.\n\n" +
+    "Max 50 unique slugs. Duplicate slugs rejected. contentType is required (all slugs must belong to that type).\n\n" +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
     "IMPORTANT — versioning: pass confirm_live_edit: true when any slug has versioning.yml and you intend live edits.",
     {
@@ -2756,7 +3200,7 @@ export function registerPageTools(
         value: z.unknown().describe("New value"),
         meta_target: z.enum(["locale", "common"]).optional().describe("Required for unknown meta keys"),
       })).min(1).describe("Meta updates applied identically to every slug"),
-      contentType: z.string().optional().describe("Optional type hint when auto-detect is ambiguous"),
+      contentType: z.string().describe("Content type for all slugs (required; cross-type batches are rejected)"),
       variant: z.string().optional().describe("Optional variant for locale-routed meta (common meta ignores variant)"),
       confirm_live_edit: z.boolean().optional().describe("Confirm live overwrite for versioned slugs"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
@@ -2767,7 +3211,7 @@ export function registerPageTools(
       const { domain } = siteResult;
       try {
         assertSafeLocale(locale);
-        if (contentType) assertSafeSegment(contentType, "contentType");
+        assertSafeSegment(contentType, "contentType");
         if (variant) assertSafeSegment(variant, "variant");
         for (const s of slugs) assertSafeSegment(s, "slug");
       } catch (e) {
@@ -2787,8 +3231,8 @@ export function registerPageTools(
         }
       }
 
-      if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) {
-        return denyResponse("seo_edit");
+      if (mcpToken && !(await checkCap(mcpToken, "seo_edit", contentType))) {
+        return denyResponse("seo_edit", contentType);
       }
 
       try {
@@ -2806,7 +3250,7 @@ export function registerPageTools(
               value: u.value,
               ...(u.meta_target ? { meta_target: u.meta_target } : {}),
             })),
-            ...(contentType ? { contentType } : {}),
+            contentType,
             ...(variant ? { variant } : {}),
             ...(confirm_live_edit ? { confirm_live_edit: true } : {}),
           }),
@@ -2898,19 +3342,23 @@ export function registerPageTools(
   // update_entry_field — DB override OR CT mapped fields (one level per call)
   mcp.tool(
     "update_entry_field",
-    "Set one mapping field at exactly one level. " +
+    "Set or reset one mapping field at exactly one level. " +
+    "Set-mode: pass value. Reset-mode: reset:true (no value) clears the override via field-reset (inherit lower layer). " +
     "Precedence: ct_override > db_override > original (DB types). " +
     "level=content_type → PUT .../field-overrides (URL name is historical): " +
     "static types write a top-level root key on the layer YAML file; DB-backed types write the field_overrides bag. " +
     "Optional variant targets {variant}.{locale}.yml (must exist; missing file fails — no live fallback). " +
     "All-draft entries without variant auto-resolve to draft.{locale}.yml when no live file exists. " +
     "level=database → db/{dbSlug}/overrides.json (listings + pages; all locales). " +
-    "Never both levels in one call. Inspect with get_entry_fields first. Not for SEO meta.* (use update_fields or update_meta_fields).",
+    "Never both levels in one call. Inspect with get_entry_fields first. Not for SEO meta.* / seo.* (use update_fields).",
     {
       slug: z.string().describe("Entry slug"),
       contentType: z.string().optional().describe("Content type hint. Omit to auto-detect."),
       field: z.string().describe("Mapping field name, e.g. 'title' or 'author_name'"),
-      value: z.unknown().describe("New value for the field"),
+      value: z.unknown().optional().describe("New value (required unless reset:true)"),
+      reset: z.boolean().optional().describe(
+        "When true, clear this field (inherit lower layer). Do not send value.",
+      ),
       level: z.enum(["database", "content_type"]).describe(
         "database = overrides.json. content_type = mapped field on locale/variant YAML (static: root key; DB: field_overrides bag)."
       ),
@@ -2923,7 +3371,7 @@ export function registerPageTools(
         ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, contentType, field, value, level, locale, variant, site }) => {
+    async ({ slug, contentType, field, value, reset, level, locale, variant, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
@@ -2946,8 +3394,20 @@ export function registerPageTools(
           "purchasable is a computed system field (from _ecommerce.yml). Do not write it. Edit the sidecar or use get_product_funnel / update_product_funnel.",
         );
       }
-      if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) {
-        return denyResponse("seo_edit");
+      if (isKnownSeoFieldPath(field) || field === `${SEO_YAML_KEY}.pillar`) {
+        return fail(
+          `SEO field '${field}' is not supported by update_entry_field. Use update_fields with value or reset:true.`,
+        );
+      }
+      if (reset === true) {
+        if (value !== undefined) {
+          return fail("reset:true must not include value");
+        }
+      } else if (value === undefined) {
+        return fail("value is required unless reset:true");
+      }
+      if (mcpToken && !(await checkCap(mcpToken, "content_edit_text", resolved.contentType))) {
+        return denyResponse("content_edit_text", resolved.contentType);
       }
 
       const ct = resolved.contentType;
@@ -2963,6 +3423,78 @@ export function registerPageTools(
       };
 
       try {
+        if (reset === true) {
+          const layerFile = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
+          const dbPath = `db/${dbSlug || "<database>"}/overrides.json`;
+          const ctPath = `${ctDir}/${slug}/${layerFile}`;
+          const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: internalHeaders(mcpToken),
+            body: JSON.stringify({ field, locale, variant: variant || undefined }),
+          });
+          const data = await res.json() as {
+            error?: string;
+            storage?: string;
+            path?: string;
+            noop?: boolean;
+            message?: string;
+          };
+          if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
+          const writtenPath = data.path || ctPath;
+          const storage = data.storage || (isStatic ? "root_key" : "field_overrides");
+          if (isStatic) {
+            return ok(
+              {
+                message: data.noop
+                  ? `No-op reset for ${ct}/${slug}.${field} (key not on layer; may live only on _common.yml)`
+                  : `Reset static ${ct}/${slug}.${field} on ${writtenPath}`,
+                storage,
+                path: writtenPath,
+                noop: !!data.noop,
+              },
+              {
+                warnings: [
+                  {
+                    code: data.noop ? "static_reset_noop" : "static_reset_layer_only",
+                    message: data.noop
+                      ? `Key absent on ${writtenPath}; reset does not rewrite _common.yml.`
+                      : `Deleted root key on ${writtenPath} only. Does not touch _common.yml.`,
+                  },
+                ],
+                side_effects: data.noop
+                  ? [{ kind: "other", summary: `storage=${storage}; noop` }]
+                  : [
+                      { kind: "wrote_file", summary: `${writtenPath}#${field}` },
+                      { kind: "other", summary: `storage=${storage}` },
+                    ],
+                next_actions: [getHint],
+              },
+            );
+          }
+          return ok(
+            { message: `Reset ${ct}/${slug}.${field} → cleared ${dbPath} + ${writtenPath}#field_overrides` },
+            {
+              warnings: [
+                {
+                  code: "reset_clears_both_layers",
+                  message: `Cleared DB override (${dbPath}) and CT field_overrides on ${writtenPath} for this field. Baseline restored.`,
+                },
+              ],
+              side_effects: [
+                { kind: "wrote_file", summary: dbPath },
+                { kind: "wrote_file", summary: `${writtenPath}#field_overrides` },
+                { kind: "cache", summary: "Database item cache / listings may refresh for this slug" },
+                { kind: "other", summary: `storage=${storage}` },
+              ],
+              next_actions: [{
+                ...getHint,
+                reason: "Confirm provenance is original after reset",
+              }],
+            },
+          );
+        }
+
         if (level === "database") {
           const relPath = `db/${dbSlug || "<database>"}/overrides.json`;
           const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/db-overrides/${encodeURIComponent(slug)}${q}`;
@@ -3075,7 +3607,7 @@ export function registerPageTools(
     "Static types: values come from root keys on the layer file (entry_default); leftover field_overrides bags are still applied until migrated. " +
     "DB types: ct_override = field_overrides bag; db_override = overrides.json. " +
     "Includes MCP-only seo.include_in_clustering (boolean; never YAML) when the type has seo fields — writable only if seo_monitoring.enabled. " +
-    "Optional variant reads {variant}.{locale}.yml. Use before update_entry_field / reset_entry_field. Requires content_view.",
+    "Optional variant reads {variant}.{locale}.yml. Use before update_fields / update_entry_field (value or reset:true). Requires content_view.",
     {
       slug: z.string(),
       contentType: z.string().optional(),
@@ -3243,120 +3775,6 @@ export function registerPageTools(
     },
   );
 
-  mcp.tool(
-    "reset_entry_field",
-    "Reset a mapping field. " +
-    "DB-backed: clears overrides.json and CT field_overrides for that field. " +
-    "Static: deletes the root key only if present on this layer file (no-op when value comes only from _common.yml). " +
-    "Optional variant targets that layer. API path remains field-reset.",
-    {
-      slug: z.string(),
-      contentType: z.string().optional(),
-      field: z.string(),
-      locale: z.string().default("en"),
-      variant: z.string().optional().describe("Optional variant layer to reset"),
-      site: z.string().optional().describe(SITE_PARAM_DESC),
-    },
-    async ({ slug, contentType, field, locale, variant, site }) => {
-      const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const { domain } = siteResult;
-      try {
-        if (variant) assertSafeSegment(variant, "variant");
-      } catch (e) {
-        return fail((e as Error).message);
-      }
-      const resolved = resolveContentType(slug, contentType, siteResult.contentPath, { allowSharedLayout: true });
-      if (!resolved) return fail(`Page not found for slug '${slug}'`);
-      if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) return denyResponse("seo_edit");
-      const ct = resolved.contentType;
-      const ctDir = getDirectory(ct, resolved.config);
-      const dbSlug = resolved.config.database?.slug as string | undefined;
-      const isStatic = !dbSlug;
-      const layerFile = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
-      const dbPath = `db/${dbSlug || "<database>"}/overrides.json`;
-      const ctPath = `${ctDir}/${slug}/${layerFile}`;
-      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
-      try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
-        const res = await fetch(url, {
-          method: "POST",
-          headers: internalHeaders(mcpToken),
-          body: JSON.stringify({ field, locale, variant: variant || undefined }),
-        });
-        const data = await res.json() as {
-          error?: string;
-          storage?: string;
-          path?: string;
-          noop?: boolean;
-          message?: string;
-        };
-        if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
-        const writtenPath = data.path || ctPath;
-        const storage = data.storage || (isStatic ? "root_key" : "field_overrides");
-        if (isStatic) {
-          return ok(
-            {
-              message: data.noop
-                ? `No-op reset for ${ct}/${slug}.${field} (key not on layer; may live only on _common.yml)`
-                : `Reset static ${ct}/${slug}.${field} on ${writtenPath}`,
-              storage,
-              path: writtenPath,
-              noop: !!data.noop,
-            },
-            {
-              warnings: [
-                {
-                  code: data.noop ? "static_reset_noop" : "static_reset_layer_only",
-                  message: data.noop
-                    ? `Key absent on ${writtenPath}; reset does not rewrite _common.yml.`
-                    : `Deleted root key on ${writtenPath} only. Does not touch _common.yml.`,
-                },
-              ],
-              side_effects: data.noop
-                ? [{ kind: "other", summary: `storage=${storage}; noop` }]
-                : [
-                    { kind: "wrote_file", summary: `${writtenPath}#${field}` },
-                    { kind: "other", summary: `storage=${storage}` },
-                  ],
-              next_actions: [{
-                tool: "get_entry_fields",
-                reason: "Confirm provenance after reset",
-                args_hint: { slug, contentType: ct, locale, ...(variant ? { variant } : {}) },
-                priority: "recommended",
-              }],
-            },
-          );
-        }
-        return ok(
-          { message: `Reset ${ct}/${slug}.${field} → cleared ${dbPath} + ${writtenPath}#field_overrides` },
-          {
-            warnings: [
-              {
-                code: "reset_clears_both_layers",
-                message: `Cleared DB override (${dbPath}) and CT field_overrides on ${writtenPath} for this field. Baseline restored.`,
-              },
-            ],
-            side_effects: [
-              { kind: "wrote_file", summary: dbPath },
-              { kind: "wrote_file", summary: `${writtenPath}#field_overrides` },
-              { kind: "cache", summary: "Database item cache / listings may refresh for this slug" },
-              { kind: "other", summary: `storage=${storage}` },
-            ],
-            next_actions: [{
-              tool: "get_entry_fields",
-              reason: "Confirm provenance is original after reset",
-              args_hint: { slug, contentType: ct, locale, ...(variant ? { variant } : {}) },
-              priority: "recommended",
-            }],
-          },
-        );
-      } catch (e) {
-        return fail((e as Error).message);
-      }
-    },
-  );
-
   // list_variants
   mcp.tool(
     "list_variants",
@@ -3516,15 +3934,15 @@ export function registerPageTools(
             locale: data.locale,
             filePath: data.filePath,
             versioningSlug,
-            templateMode: versioningSlug === "single",
+            templateMode: versioningSlug === "single" || versioningSlug === "template",
             seededFromDraft: data.seededFromDraft === true,
           },
           {
             warnings: [...VARIANT_WARNINGS],
             side_effects: [{
               kind: "variant_isolated",
-              summary: versioningSlug === "single"
-                ? "Created template draft (shared by all attached entries); live single.*.yml unchanged"
+              summary: versioningSlug === "single" || versioningSlug === "template"
+                ? "Created template draft (shared by all attached entries); live template.*.yml unchanged"
                 : data.seededFromDraft
                   ? "Created additional draft from existing draft; still unpublished"
                   : "Created draft only; live locale YAML unchanged",
@@ -3535,10 +3953,10 @@ export function registerPageTools(
               reason: "Edit the draft with variant set; live bindings/shared-layout will not run until publish/promote + live edits.",
               args_hint: {
                 contentType,
-                slug: versioningSlug === "single" ? slug : slug,
+                slug: versioningSlug === "single" || versioningSlug === "template" ? slug : slug,
                 locale,
                 variant: data.variantSlug ?? variantSlug,
-                layout_target: versioningSlug === "single" ? "type_single" : undefined,
+                layout_target: versioningSlug === "single" || versioningSlug === "template" ? "type_template" : undefined,
               },
             }],
           },
@@ -3563,11 +3981,31 @@ export function registerPageTools(
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
       slug: z.string().describe("Page slug"),
       variantSlug: z.string().default("draft").describe("Draft variant to publish, e.g. 'draft'"),
+      report: z
+        .string()
+        .describe(AGENT_REPORT_MUTATE_DESC),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, variantSlug, site }) => {
+    async ({ contentType, slug, variantSlug, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
+
+      const trimmedReport = typeof report === "string" ? report.trim() : "";
+      if (trimmedReport.length < 80) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "report_required",
+            code: trimmedReport ? "report_too_short" : "report_required",
+            message: "report required (min 80 characters).",
+          },
+          [],
+        );
+      }
       const { domain } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
@@ -3589,8 +4027,8 @@ export function registerPageTools(
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/publish${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken),
-          body: JSON.stringify({ variantSlug }),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          body: JSON.stringify({ variantSlug, report: trimmedReport }),
         });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
@@ -3621,6 +4059,9 @@ export function registerPageTools(
           },
           {
             warnings: [
+              ...(missingSessionWarning(agent_session_id)
+                ? [missingSessionWarning(agent_session_id)!]
+                : []),
               {
                 code: "page_now_live",
                 message: "Page is live for the listed locales and will appear in the sitemap. Confirm with the user before publishing in the future.",
@@ -3661,11 +4102,31 @@ export function registerPageTools(
       slug: z.string().describe("Page slug"),
       variantSlug: z.string().describe("Slug of the variant to promote, e.g. 'draft-v2'"),
       locale: z.string().default("en").describe("Locale of the variant to promote, e.g. 'en' or 'es'"),
+      report: z
+        .string()
+        .describe(AGENT_REPORT_MUTATE_DESC),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, variantSlug, locale, site }) => {
+    async ({ contentType, slug, variantSlug, locale, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
+
+      const trimmedReport = typeof report === "string" ? report.trim() : "";
+      if (trimmedReport.length < 80) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "report_required",
+            code: trimmedReport ? "report_too_short" : "report_required",
+            message: "report required (min 80 characters).",
+          },
+          [],
+        );
+      }
       const { contentPath, domain } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
@@ -3693,7 +4154,8 @@ export function registerPageTools(
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/promote/${encodeURIComponent(variantSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          body: JSON.stringify({ report: trimmedReport }),
         });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
@@ -3724,10 +4186,15 @@ export function registerPageTools(
             }]
           : [];
         next_actions.push(diagnosticsAfterGoLiveNextAction(slug, site));
-        return ok(
-          { message: `Variant '${variantSlug}' promoted to live for ${contentType}/${slug} (${locale})` },
-          { warnings: promoteWarnings(sharedLayout), next_actions },
-        );
+        {
+          const promoteWarns = promoteWarnings(sharedLayout);
+          const sessWarn = missingSessionWarning(agent_session_id);
+          if (sessWarn) promoteWarns.unshift(sessWarn);
+          return ok(
+            { message: `Variant '${variantSlug}' promoted to live for ${contentType}/${slug} (${locale})` },
+            { warnings: promoteWarns, next_actions },
+          );
+        }
       } catch (e) {
         return fail(`Failed to promote variant: ${(e as Error).message}`);
       }
@@ -3768,13 +4235,13 @@ export function registerPageTools(
       const config = configs[contentType];
       const sharedLayout = config ? isSharedLayoutConfig(config) : false;
       const { isEntryDetached } = await import("../../server/shared-layout-entry.js");
-      const detached = sharedLayout && slug !== "single"
+      const detached = sharedLayout && slug !== "single" && slug !== "template"
         ? isEntryDetached(contentType, slug, contentPath)
         : false;
-      const templateBlocked = slug === "single" || (sharedLayout && !detached);
+      const templateBlocked = (slug === "single" || slug === "template") || (sharedLayout && !detached);
 
       if (templateBlocked) {
-        const next_actions: NextAction[] = slug === "single"
+        const next_actions: NextAction[] = (slug === "single" || slug === "template")
           ? []
           : [
               {
@@ -3799,7 +4266,7 @@ export function registerPageTools(
             locale,
             warnings: [{
               code: "template_blast_radius",
-              message: "Converting single.{locale}.yml would unpublish that template locale for every attached entry. This tool does not convert the shared template.",
+              message: "Converting template.{locale}.yml would unpublish that template locale for every attached entry. This tool does not convert the shared template.",
             }],
             next_actions,
           },
@@ -3891,36 +4358,55 @@ export function registerPageTools(
     "For normal (non-shared-layout) types this creates an unpublished DRAFT: " +
     "writes _common.yml + draft.{locale}.yml + versioning.yml (0% allocation). " +
     "Edit with variant: 'draft', then call publish_draft. Confirm with the principal before publishing.\n" +
-    "Shared-layout / single_template types write exactly ONE live locale immediately (multi-locale create is rejected). " +
-    "Put body/fields on the locale (title, description, content, … per field_mapping); sections must be [] — shell comes from single.{locale}.yml. " +
+    "All content types: exactly ONE locale per create (multi-locale create is rejected). Add translations via translate_entry.\n" +
+    "Shared-layout / single_template types write that one locale live immediately. " +
+    "Put body/fields on the locale (title, description, content, … per field_mapping); sections must be [] — shell comes from template.{locale}.yml. " +
     "Call explain_site topic shared-layout and/or get_content_type_info before creating shared-layout entries. " +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
-    "locales map: locale → { meta?, sections?, …field_mapping keys }. Shared-layout: exactly one locale key.\n" +
-    "Blog category (and other locale-only URL params) must be on the locale object — never _common.yml. " +
+    "locales map: locale → { meta?, sections?, …field_mapping keys }. Exactly one locale key.\n" +
+    "URL pattern params (from url_pattern, e.g. :category) must be on the locale object — never _common.yml. " +
     "Use observed_values_by_locale from get_content_type_info to pick a peer slug for that language.\n" +
     "New URL-param/select values not seen on same-locale peers require confirm_new_values: true after principal approval.\n\n" +
-    "Possible errors: unknown/DB-backed contentType, slug exists, shared-layout multi-locale, missing editor.required fields, sections on shared-layout create, unconfirmed new param values.\n" +
+    "Possible errors: unknown/DB-backed contentType, slug exists, single_locale_create, missing editor.required fields, sections on shared-layout create, unconfirmed new param values.\n" +
     GITHUB_COMMIT_TOOL_BLURB,
     {
       contentType: z.string().describe("Content type from content-types.yml without database.slug, e.g. 'blog', 'program', 'page', 'landing'."),
       slug: z.string().describe("URL-safe slug for the new entry. Must not already exist for this content type."),
       common: z.record(z.unknown()).describe(
-        "Fields written to _common.yml (locale-independent). Do NOT put category here — use the locale object. " +
-        "Other URL params may go here only when identical across all locales (blog category never).",
+        "Fields written to _common.yml (locale-independent). Do NOT put URL pattern params here — use the locale object.",
       ),
       locales: z.record(z.record(z.unknown())).describe(
         "Map of locale → locale YAML fields. Include meta, optional sections, and field_mapping keys (title, description, content, …). " +
-        "Shared-layout: exactly one locale; sections must be [] or omitted.",
+        "Exactly one locale key. Shared-layout: sections must be [] or omitted.",
       ),
       confirm_new_values: z.boolean().optional().describe(
         "Set true only after the principal (human or orchestrator/reviewer) approved inventing a new URL-param/select value not in observed peers.",
       ),
+      report: z
+        .string()
+        .describe(AGENT_REPORT_MUTATE_DESC),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, common, locales, confirm_new_values, site }) => {
+    async ({ contentType, slug, common, locales, confirm_new_values, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
         return siteFailResult(siteResult.error, "create_entry", { contentType, slug, common, locales, confirm_new_values });
+      }
+      const trimmedReport = typeof report === "string" ? report.trim() : "";
+      if (trimmedReport.length < 80) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "report_required",
+            code: trimmedReport ? "report_too_short" : "report_required",
+            message: "report required (min 80 characters).",
+          },
+          [],
+        );
       }
       const { contentPath, contentFolder, domain } = siteResult;
       try {
@@ -3928,6 +4414,11 @@ export function registerPageTools(
         assertSafeSegment(contentType, "contentType");
       } catch (e) {
         return fail((e as Error).message);
+      }
+      if (slug === "single" || slug === "template") {
+        return fail(
+          'Slug "template" and "single" are reserved for the shared-layout shell and cannot be used as entry slugs.',
+        );
       }
 
       const localeKeys = Object.keys(locales);
@@ -3960,15 +4451,14 @@ export function registerPageTools(
       }
 
       const sharedLayoutCreate = isSharedLayoutConfig(config) || !!config.single_template;
-      if (sharedLayoutCreate && localeKeys.length !== 1) {
+      if (localeKeys.length !== 1) {
         return actionRequired(
           {
             success: false,
-            action_required: "shared_layout_single_locale_create",
-            code: "shared_layout_single_locale_create",
+            action_required: "single_locale_create",
+            code: "single_locale_create",
             message:
-              "Shared-layout types go live immediately and must be created with exactly one locale. " +
-              "Create the first locale now; add translations later via translate_entry (draft → promote) with locale fields while attached.",
+              "Create exactly one locale at a time. Add translations later via translate_entry (draft.{locale}.yml) then promote or publish_draft.",
             contentType,
             slug,
             locales_provided: localeKeys,
@@ -4001,7 +4491,7 @@ export function registerPageTools(
               code: "shared_layout_sections_must_be_empty",
               message:
                 "Shared-layout create must use sections: [] (or omit sections). " +
-                "The shell comes from single.{locale}.yml. Put body in locale fields (e.g. content). " +
+                "The shell comes from template.{locale}.yml. Put body in locale fields (e.g. content). " +
                 "Overlays after create use section tools with layout_target.",
               contentType,
               slug,
@@ -4068,17 +4558,16 @@ export function registerPageTools(
         };
       }
 
-      // URL param / select observed gate (locale-scoped for category)
+      // URL pattern params must live on locale YAML only
       const urlParams = listExtraUrlPatternParams(config.url_pattern);
       const commonRecord = { ...(common as Record<string, unknown>) };
-      const localeOnlyOnCommon: string[] = [];
+      const urlParamsOnCommon: string[] = [];
       for (const param of urlParams) {
-        if (!LOCALE_ONLY_URL_PARAMS.has(param)) continue;
-        if (extractParamSlug(commonRecord[param])) localeOnlyOnCommon.push(param);
+        if (extractParamSlug(commonRecord[param])) urlParamsOnCommon.push(param);
         delete commonRecord[param];
       }
-      if (localeOnlyOnCommon.length > 0) {
-        const missingOnLocale = localeOnlyOnCommon.filter((param) =>
+      if (urlParamsOnCommon.length > 0) {
+        const missingOnLocale = urlParamsOnCommon.filter((param) =>
           !Object.entries(normalizedLocales).some(([, v]) => extractParamSlug(v.fields[param])),
         );
         if (missingOnLocale.length > 0) {
@@ -4088,9 +4577,8 @@ export function registerPageTools(
               action_required: "locale_only_url_param_on_common",
               code: "locale_only_url_param_on_common",
               message:
-                `URL param(s) [${missingOnLocale.join(", ")}] must be on the locale object, not _common.yml. ` +
-                "Blog category is language-specific (e.g. en → ai-tools, es → herramientas-ia). " +
-                "Put category on locales.{locale} and retry.",
+                `URL pattern param(s) [${missingOnLocale.join(", ")}] must be on the locale object, not _common.yml. ` +
+                "Put each param on locales.{locale} and retry.",
               params: missingOnLocale,
               contentType,
               slug,
@@ -4104,7 +4592,7 @@ export function registerPageTools(
               },
               {
                 tool: "create_entry",
-                reason: "Retry with category on the locale object (not common)",
+                reason: "Retry with URL pattern params on the locale object (not common)",
                 args_hint: { contentType, slug, common: commonRecord, locales, site },
                 priority: "required",
               },
@@ -4188,7 +4676,7 @@ export function registerPageTools(
 
       const commonData: Record<string, unknown> = { slug, ...commonRecord };
       fs.writeFileSync(path.join(pageDir, "_common.yml"), safeDump(commonData), "utf-8");
-      notifyMcpContentWrite(path.join(pageDir, "_common.yml"), mcpWriteAuthor(mcpToken));
+      notifyMcpContentWrite(path.join(pageDir, "_common.yml"), mcpWriteAuthor(mcpToken), { agent_session_id, report: trimmedReport });
 
       const createdLocales: string[] = [];
       const createdFiles: string[] = ["_common.yml"];
@@ -4209,7 +4697,7 @@ export function registerPageTools(
         });
         const fileName = draftFirst ? `${draftVariant}.${loc}.yml` : `${loc}.yml`;
         fs.writeFileSync(path.join(pageDir, fileName), safeDump(localeData), "utf-8");
-        notifyMcpContentWrite(path.join(pageDir, fileName), mcpWriteAuthor(mcpToken));
+        notifyMcpContentWrite(path.join(pageDir, fileName), mcpWriteAuthor(mcpToken), { agent_session_id, report: trimmedReport });
         createdLocales.push(loc);
         createdFiles.push(fileName);
       }
@@ -4234,6 +4722,10 @@ export function registerPageTools(
       }
 
       const warnings: McpWarning[] = [];
+      {
+        const sessWarn = missingSessionWarning(agent_session_id);
+        if (sessWarn) warnings.push(sessWarn);
+      }
       const ghWarning = githubCommitWarning(commitResult);
       if (ghWarning) warnings.push(ghWarning);
       const side_effects: McpSideEffect[] = [];
@@ -4286,7 +4778,7 @@ export function registerPageTools(
         next_actions.push({
           tool: "get_entry_content",
           priority: "recommended",
-          reason: "Re-read merged content (fields + single.{locale}.yml shell). Prefer update_fields for locale fields — not section shell edits.",
+          reason: "Re-read merged content (fields + template.{locale}.yml shell). Prefer update_fields for locale fields — not section shell edits.",
           args_hint: { contentType, slug, locale: primaryLocale, ...siteHint },
         });
         next_actions.push({
@@ -4507,7 +4999,7 @@ export function registerPageTools(
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
-      if (pathInfo.layer === "type_single") {
+      if (pathInfo.layer === "type_template") {
         const env = sharedStructuralEnvelope({
           tool: "add_section",
           contentType: resolved.contentType,
@@ -4711,7 +5203,7 @@ export function registerPageTools(
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
-      if (pathInfo.layer === "type_single") {
+      if (pathInfo.layer === "type_template") {
         const env = sharedStructuralEnvelope({
           tool: "remove_section",
           contentType: resolved.contentType,
@@ -4873,7 +5365,7 @@ export function registerPageTools(
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
-      if (pathInfo.layer === "type_single") {
+      if (pathInfo.layer === "type_template") {
         const env = sharedStructuralEnvelope({
           tool: "reorder_sections",
           contentType: resolved.contentType,
@@ -5045,7 +5537,7 @@ export function registerPageTools(
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
-      if (pathInfo.layer === "type_single") {
+      if (pathInfo.layer === "type_template") {
         const env = sharedStructuralEnvelope({
           tool: "replace_entry_sections",
           contentType: resolved.contentType,
@@ -5112,11 +5604,11 @@ export function registerPageTools(
     "translate_entry",
     "Write translated content for a target locale. Does NOT perform AI translation — supply the translated payload.\n\n" +
     "Modes (from entry state, not a detach flag):\n" +
-    "- attached shared-layout: locale field_mapping keys + optional meta; sections omit or []. Shell stays on single.{locale}.yml.\n" +
+    "- attached shared-layout: locale field_mapping keys + optional meta; sections omit or []. Shell stays on template.{locale}.yml.\n" +
     "- detached shared-layout or classic page: non-empty sections for new/full shell (fields optional); fields-only merges preserve existing sections.\n" +
-    "New target locale (no live file): writes draft.{locale}.yml at 0% (not public). " +
-    "Empty detached live stub: auto-converts to draft then writes. " +
-    "Existing non-empty live: merges fields/meta (preserves unrelated keys); live SEO/required gates apply.\n" +
+    "New target locale: always writes draft.{locale}.yml (not public). Promote/publish validates URL uniqueness.\n" +
+    "Optional url_slug sets this locale's public URL segment (defaults to entry identity). Do not pass content.slug or content.url — use url_slug.\n" +
+    "Existing non-empty live: merges fields only; fails if url_slug would change the live URL (use update_fields slug + create_redirect for renames).\n" +
     "Custom shell ownership: set_entry_attachment (not this tool). Tiny field tweaks on existing locales: update_fields is fine.\n" +
     "Go live with promote_variant or publish_draft (confirm with the user first).\n" +
     GITHUB_COMMIT_TOOL_BLURB,
@@ -5127,14 +5619,18 @@ export function registerPageTools(
       target_locale: z.string().describe("The locale code to write the translated content to, e.g. 'es' or 'fr'"),
       content: z.record(z.unknown()).describe(
         "Translated payload. Attached: field keys (bio, title, content, …) + optional meta; sections [] or omit. " +
-        "Detached/classic: sections[] for shell translate; or fields-only to merge into an existing locale (preserves sections).",
+        "Detached/classic: sections[] for shell translate; or fields-only to merge into an existing locale (preserves sections). " +
+        "Do not include slug or url — use top-level url_slug.",
+      ),
+      url_slug: z.string().optional().describe(
+        "Optional public URL slug for the target locale (kebab-case). Omitted on merge keeps existing locale slug; omitted on new draft defaults to entry identity.",
       ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
       confirm_new_values: z.boolean().optional().describe(
         "Set true after principal approval when category uses a slug not yet seen on target-locale peers.",
       ),
     },
-    async ({ slug, contentType, source_locale, target_locale, content, site, confirm_new_values }) => {
+    async ({ slug, contentType, source_locale, target_locale, content, url_slug, site, confirm_new_values }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
@@ -5168,14 +5664,29 @@ export function registerPageTools(
         ensureDraftVariantInVersioning,
       } = await import("../../server/convert-empty-locale-to-draft.js");
       const { isEmptyDetachedLocaleEntry } = await import("../../server/empty-locale.js");
+      const { isEmptyLocaleContent } = await import("../../shared/isEmptyLocaleContent.js");
       const { assertLiveEntrySeoAndRequiredFields } = await import("../../server/live-entry-seo-gate.js");
       const { contentIndex } = await import("../../server/content-index.js");
+      const {
+        resolveLocaleUrlSlug,
+        validateLocaleUrlSlugFormat,
+      } = await import("../../server/locale-url-slug.js");
 
       const sharedLayout = isSharedLayoutType(resolved.contentType, contentPath);
       const detached = isEntryDetached(resolved.contentType, slug, contentPath);
       const mode = resolveTranslateMode({ sharedLayout, detached });
 
       const split = splitTranslateContent(content as Record<string, unknown>);
+      if (split.reservedUrlKeys.length > 0) {
+        return fail(
+          `Do not pass ${split.reservedUrlKeys.join(" or ")} in content. Use top-level url_slug instead.`,
+          { code: "use_url_slug_instead", keys: split.reservedUrlKeys },
+        );
+      }
+      if (url_slug !== undefined) {
+        const formatErr = validateLocaleUrlSlugFormat(url_slug.trim());
+        if (formatErr) return fail(formatErr, { code: "invalid_url_slug" });
+      }
       const { allowed: allowedFields, rejected } = filterAllowedFields(split.fields, resolved.config);
 
       if (mode === "attached_fields" && Array.isArray(split.sections) && split.sections.length > 0) {
@@ -5247,29 +5758,45 @@ export function registerPageTools(
       let reason = "live_locale_refresh";
       let autoConverted = false;
 
-      if (!fs.existsSync(liveTargetPath)) {
+      const liveExists = fs.existsSync(liveTargetPath);
+      let liveNonEmpty = false;
+      if (liveExists) {
+        if (
+          isEmptyDetachedLocaleEntry({
+            contentType: resolved.contentType,
+            slug,
+            locale: target_locale,
+            contentRoot: contentPath,
+            ci: contentIndex,
+          })
+        ) {
+          liveNonEmpty = false;
+        } else {
+          try {
+            const mergedLive = contentIndex.loadMergedContent(resolved.contentType, slug, target_locale);
+            liveNonEmpty = !isEmptyLocaleContent((mergedLive?.data ?? {}) as Record<string, unknown>);
+          } catch {
+            liveNonEmpty = true;
+          }
+        }
+      }
+
+      if (!liveNonEmpty) {
+        if (liveExists) {
+          const converted = convertEmptyLiveLocaleToDraft({
+            contentType: resolved.contentType,
+            slug,
+            locale: target_locale,
+            contentRoot: contentPath,
+            ci: contentIndex,
+            author: "mcp-translate_entry",
+          });
+          autoConverted = !!converted;
+          reason = converted ? "empty_live_converted_to_draft" : "new_locale_starts_as_draft";
+        } else {
+          reason = "new_locale_starts_as_draft";
+        }
         writeAsDraft = true;
-        reason = "new_locale_starts_as_draft";
-      } else if (
-        isEmptyDetachedLocaleEntry({
-          contentType: resolved.contentType,
-          slug,
-          locale: target_locale,
-          contentRoot: contentPath,
-          ci: contentIndex,
-        })
-      ) {
-        const converted = convertEmptyLiveLocaleToDraft({
-          contentType: resolved.contentType,
-          slug,
-          locale: target_locale,
-          contentRoot: contentPath,
-          ci: contentIndex,
-          author: "mcp-translate_entry",
-        });
-        writeAsDraft = true;
-        reason = "empty_live_converted_to_draft";
-        autoConverted = !!converted;
       }
 
       const targetFileName = writeAsDraft ? `draft.${target_locale}.yml` : `${target_locale}.yml`;
@@ -5281,9 +5808,46 @@ export function registerPageTools(
         : null;
       const mergeIntoExisting = !!existing;
 
+      const existingLocaleSlug =
+        existing && typeof existing.slug === "string" ? existing.slug : null;
+      const liveLocaleSlug = liveNonEmpty && liveExists
+        ? (() => {
+            try {
+              const raw = safeLoad(fs.readFileSync(liveTargetPath, "utf-8")) as Record<string, unknown> | null;
+              return typeof raw?.slug === "string" ? raw.slug : null;
+            } catch {
+              return null;
+            }
+          })()
+        : null;
+
+      const localeUrlSlug = resolveLocaleUrlSlug({
+        urlSlug: url_slug,
+        existingSlug: mergeIntoExisting ? existingLocaleSlug : null,
+        entryIdentity: slug,
+      });
+
+      if (liveNonEmpty && url_slug !== undefined) {
+        const currentPublicSlug = resolveLocaleUrlSlug({
+          existingSlug: liveLocaleSlug,
+          entryIdentity: slug,
+        });
+        if (localeUrlSlug !== currentPublicSlug) {
+          return fail(
+            `Cannot change live locale URL slug via translate_entry (${currentPublicSlug} → ${localeUrlSlug}). ` +
+            "Use update_fields with field_path slug and create_redirect when required.",
+            {
+              code: "live_slug_change_not_allowed",
+              current_slug: currentPublicSlug,
+              requested_slug: localeUrlSlug,
+            },
+          );
+        }
+      }
+
       const built = buildTranslateLocaleData({
         mode,
-        slug,
+        localeUrlSlug,
         targetLocale: target_locale,
         meta: split.meta,
         sections: split.sections,
@@ -5298,14 +5862,14 @@ export function registerPageTools(
       const localeData = built.localeData;
 
       const urlParams = listExtraUrlPatternParams(resolved.config.url_pattern);
-      if (urlParams.includes("category")) {
-        const catValue = extractParamSlug(localeData.category);
-        if (catValue) {
+      for (const param of urlParams) {
+        const paramValue = extractParamSlug(localeData[param]);
+        if (paramValue) {
           const peerGate = validateUrlParamPeerValues(
             contentPath,
             resolved.contentType,
             resolved.config,
-            { [target_locale]: { category: catValue } },
+            { [target_locale]: { [param]: paramValue } },
             confirm_new_values,
           );
           if (peerGate) {
@@ -5315,8 +5879,8 @@ export function registerPageTools(
                 action_required: "confirm_new_url_param_value",
                 code: "confirm_new_url_param_value",
                 message:
-                  `Category '${catValue}' for ${target_locale} is not used by any ${target_locale} peer. ` +
-                  "Blog category is language-specific — pick an observed slug for the target locale or get principal approval.",
+                  `URL param '${param}' value '${paramValue}' for ${target_locale} is not used by any ${target_locale} peer. ` +
+                  "Pick an observed slug for the target locale or get principal approval.",
                 ...peerGate,
                 contentType: resolved.contentType,
                 slug,
@@ -5324,28 +5888,29 @@ export function registerPageTools(
               [
                 {
                   tool: "translate_entry",
-                  reason: "Retry with confirm_new_values: true or a peer category for the target locale",
+                  reason: "Retry with confirm_new_values: true or a peer URL param for the target locale",
                   args_hint: { slug, contentType: resolved.contentType, source_locale, target_locale, content, confirm_new_values: true, site },
                   priority: "required",
                 },
                 {
                   tool: "get_content_type_info",
-                  reason: "Inspect observed_values_by_locale.category",
+                  reason: `Inspect observed_values_by_locale.${param}`,
                   args_hint: { contentType: resolved.contentType, site },
                   priority: "recommended",
                 },
               ],
             );
           }
-        } else if (resolved.contentType === "blog" && !mergeIntoExisting) {
+        } else if (!mergeIntoExisting) {
           return actionRequired(
             {
               success: false,
-              action_required: "missing_category_on_translate",
-              code: "missing_category_on_translate",
+              action_required: "missing_url_param_on_translate",
+              code: "missing_url_param_on_translate",
               message:
-                `Blog translate to ${target_locale} requires category on the locale payload (language-specific URL slug). ` +
-                "Do not reuse the source locale's category — pick one from observed_values_by_locale for the target locale.",
+                `Translate to ${target_locale} requires URL param '${param}' on the locale payload. ` +
+                "Pick one from observed_values_by_locale for the target locale.",
+              param,
               contentType: resolved.contentType,
               slug,
               target_locale,
@@ -5353,14 +5918,14 @@ export function registerPageTools(
             [
               {
                 tool: "get_content_type_info",
-                reason: "Inspect observed_values_by_locale.category",
+                reason: `Inspect observed_values_by_locale.${param}`,
                 args_hint: { contentType: resolved.contentType, site },
                 priority: "required",
               },
               {
                 tool: "translate_entry",
-                reason: "Retry with category on content for the target locale",
-                args_hint: { slug, contentType: resolved.contentType, source_locale, target_locale, content: { ...content, category: "…" }, site },
+                reason: `Retry with ${param} on content for the target locale`,
+                args_hint: { slug, contentType: resolved.contentType, source_locale, target_locale, content: { ...content, [param]: "…" }, site },
                 priority: "required",
               },
             ],
@@ -5388,6 +5953,13 @@ export function registerPageTools(
         warnings.push({
           code: "translate_fields_rejected",
           message: `Ignored disallowed field keys (not in editor/field_mapping safe set): ${rejected.join(", ")}.`,
+        });
+      }
+      if (url_slug !== undefined && writeAsDraft) {
+        warnings.push({
+          code: "url_slug_on_draft",
+          message:
+            `Draft locale slug set to "${localeUrlSlug}". URL uniqueness is validated at promote/publish, not on draft write.`,
         });
       }
       if (writeAsDraft) {
@@ -5459,7 +6031,7 @@ export function registerPageTools(
         warnings.push({
           code: "attached_shell_unchanged",
           message:
-            "Entry remains attached. Shell still comes from single.{locale}.yml; this write did not bake or detach.",
+            "Entry remains attached. Shell still comes from template.{locale}.yml; this write did not bake or detach.",
         });
       }
       if (writeAsDraft) {
@@ -5529,6 +6101,7 @@ export function registerPageTools(
             ? `Draft translation ${isNew ? "created" : "updated"} at ${resolved.contentType}/${slug}/${targetFileName}`
             : `Translated content ${isNew ? "created" : "updated"} at ${resolved.contentType}/${slug}/${targetFileName}`,
           slug,
+          locale_url_slug: localeUrlSlug,
           contentType: resolved.contentType,
           source_locale,
           target_locale,
@@ -5573,7 +6146,7 @@ export function registerPageTools(
   mcp.tool(
     "set_entry_attachment",
     "Change whether a shared-layout entry owns its page shell.\n\n" +
-    'action "detach": bake single.{locale}.yml into every existing live {locale}.yml and set detached: true. ' +
+    'action "detach": bake template.{locale}.yml into every existing live {locale}.yml and set detached: true. ' +
     "Does not invent missing sibling locales. Not required for field translation (use translate_entry while attached) " +
     "or local section overlays (layout_target: entry).\n\n" +
     'action "reattach": strip entry sections/layout, clear detached, delete entry versioning/variants (lossy). ' +
@@ -5657,7 +6230,7 @@ export function registerPageTools(
               action_required: "confirm_detach",
               code: "confirm_detach",
               message:
-                `Detach will bake single.{locale}.yml into these live locale files: ${liveLocales.join(", ")}. ` +
+                `Detach will bake template.{locale}.yml into these live locale files: ${liveLocales.join(", ")}. ` +
                 "Sets detached: true on _common.yml. Does not invent missing locales. " +
                 "Not needed for field translation (translate_entry while attached) or layout_target: entry overlays.",
               contentType,
@@ -5713,7 +6286,7 @@ export function registerPageTools(
             {
               code: "detach_shell_owned",
               message:
-                "Entry now owns its shell. Template single.* changes no longer apply. " +
+                "Entry now owns its shell. Shared template.* changes no longer apply. " +
                 "translate_entry uses detached_sections mode. Section overlays previously used layout_target: entry — prefer entry-owned section tools now.",
             },
           ];
@@ -5785,7 +6358,7 @@ export function registerPageTools(
             code: "confirm_reattach",
             message:
               "Reattach strips entry sections/layout, clears detached, and deletes entry versioning.yml + variant files " +
-              "(including draft.{locale}.yml). Field/mapping data on locale and _common is kept. Shell returns to single.{locale}.yml.",
+              "(including draft.{locale}.yml). Field/mapping data on locale and _common is kept. Shell returns to template.{locale}.yml.",
             contentType,
             slug,
             locale: previewLocale,
@@ -5841,7 +6414,7 @@ export function registerPageTools(
           {
             code: "reattach_shell_shared",
             message:
-              "Entry is attached again. Shell comes from single.{locale}.yml. translate_entry uses attached_fields mode.",
+              "Entry is attached again. Shell comes from template.{locale}.yml. translate_entry uses attached_fields mode.",
           },
         ];
         if (result.hadTrafficVariants) {
@@ -6025,9 +6598,18 @@ export function registerPageTools(
         .record(z.array(z.string()))
         .optional()
         .describe("When last author would be cleared: blogSlug → replacement author slug[]"),
+      report: z
+        .string()
+        .describe(AGENT_REPORT_MUTATE_DESC),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slugs, confirm, reassignments, site }) => {
+    async ({ contentType, slugs, confirm, reassignments, report, agent_session_id, site }) => {
+      const trimmedReport = typeof report === "string" ? report.trim() : "";
+
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
         return siteFailResult(siteResult.error, "delete_entries", { contentType, slugs });
@@ -6040,14 +6622,30 @@ export function registerPageTools(
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/delete-entries${
           domain ? `?__site=${encodeURIComponent(domain)}` : ""
         }`;
+        if (confirm === true) {
+          const trimmedReport = typeof report === "string" ? report.trim() : "";
+          if (trimmedReport.length < 80) {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "report_required",
+                code: trimmedReport ? "report_too_short" : "report_required",
+                message: "report required (min 80 characters) when confirm:true.",
+              },
+              [],
+            );
+          }
+        }
+        const trimmedReport = typeof report === "string" ? report.trim() : "";
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
           body: JSON.stringify({
             contentType,
             slugs,
             confirm: confirm === true,
             reassignments,
+            ...(trimmedReport ? { report: trimmedReport } : {}),
           }),
         });
         const data = (await res.json()) as Record<string, unknown>;
@@ -6057,13 +6655,48 @@ export function registerPageTools(
           });
         }
         if (confirm !== true) {
+          const previewObj = data.preview as Record<string, unknown> | undefined;
+          const linkBySlug = previewObj?.link_preview_by_slug as
+            | Record<
+                string,
+                {
+                  referrers?: Array<{ entryKey: string }>;
+                  suggestions?: string[];
+                  indexUpdatedAt?: string | null;
+                }
+              >
+            | undefined;
+          const referrersFlat: Array<{ slug: string; entryKey: string }> = [];
+          const suggestions: string[] = [];
+          if (linkBySlug) {
+            for (const [slug, lp] of Object.entries(linkBySlug)) {
+              for (const ref of lp.referrers ?? []) {
+                referrersFlat.push({ slug, entryKey: ref.entryKey });
+              }
+              for (const s of lp.suggestions ?? []) {
+                if (!suggestions.includes(s)) suggestions.push(s);
+              }
+            }
+          }
           return actionRequired(
             {
               success: false,
               action_required: "confirm_delete",
               message: (data.message as string) || "Pass confirm:true to delete",
               preview: data.preview,
+              referrers: referrersFlat,
+              suggestions,
               tool: "delete_entries",
+              ...(referrersFlat.length > 0
+                ? {
+                    warnings: [
+                      {
+                        code: "delete_referrer_links",
+                        message: `${referrersFlat.length} CMS entry link(s) may break after delete — update sources or add redirects.`,
+                      },
+                    ],
+                  }
+                : {}),
             },
             [
               {
@@ -6084,6 +6717,16 @@ export function registerPageTools(
                 args_hint: { topic: "relation-fields" },
                 priority: "recommended",
               },
+              ...(referrersFlat.length > 0
+                ? [
+                    {
+                      tool: "run_entry_diagnostics" as const,
+                      reason: "Refresh link index after fixing survivor hrefs",
+                      args_hint: { scope: "site", validators: ["site-link-index"] },
+                      priority: "recommended" as const,
+                    },
+                  ]
+                : []),
             ],
           );
         }
@@ -6096,6 +6739,9 @@ export function registerPageTools(
           },
           {
             warnings: [
+              ...(missingSessionWarning(agent_session_id)
+                ? [missingSessionWarning(agent_session_id)!]
+                : []),
               {
                 code: "best_effort_bulk",
                 message: "Best-effort bulk: check results[] per slug.",
@@ -6183,12 +6829,8 @@ export function registerPageTools(
       const observed: Record<string, string[]> = {};
       const observedByLocale: Record<string, Record<string, string[]>> = {};
       for (const param of urlParams) {
-        if (LOCALE_ONLY_URL_PARAMS.has(param)) {
-          observedByLocale[param] = observeParamValuesByLocale(contentPath, contentType, config, param);
-          observed[param] = [...new Set(Object.values(observedByLocale[param]).flat())].sort();
-        } else {
-          observed[param] = observeParamValues(contentPath, contentType, config, param);
-        }
+        observedByLocale[param] = observeParamValuesByLocale(contentPath, contentType, config, param);
+        observed[param] = [...new Set(Object.values(observedByLocale[param]).flat())].sort();
       }
       const editor = getEditorConfig(config);
       const relation_fields = Object.entries(editor || {})
@@ -6255,6 +6897,14 @@ export function registerPageTools(
           priority: "required",
         });
       }
+
+      next_actions.push({
+        tool: "update_content_type",
+        reason:
+          "Add/update/remove one schema field via field_action (preview then confirm:true). Requires content_types_manage.",
+        args_hint: { contentType, site, field_action: "add", field_key: "…" },
+        priority: "optional",
+      });
 
       const schema_org_requirements = Array.isArray(
         (config as { schema_org_requirements?: Array<{ schema_type: string }> }).schema_org_requirements,
@@ -6323,7 +6973,13 @@ export function registerPageTools(
               "Type-level purpose/constraints for staff/agents. Context only for field fill_intent — does not replace per-field briefs. " +
               "Any editor.required true|attached requires a valid strategy (non-empty purpose). " +
               "Clear rejected while required fields remain (code: missing_strategy). " +
-              "Not insights_intent. Patch via update_content_type.",
+              "Not insights_intent. Patch via update_content_type (strategy-only call, separate from field_action).",
+            field_patch_note:
+              "Schema fields: MCP update_content_type with field_action add|update|remove (one field per call). " +
+              "Preview (omit confirm) then confirm:true after principal approval. " +
+              "Static add defaults identity mapping; DB add requires field_mapping. " +
+              "remove blocked while field is in indexes or unique_fields. " +
+              "Does not backfill entry values — use update_fields after add.",
             fill_intent_goal_presets: FILL_INTENT_GOAL_PRESET_OPTIONS.map((o) => ({
               value: o.value,
               title: o.title,
@@ -6336,18 +6992,18 @@ export function registerPageTools(
               "(Description is no longer edited in Field Settings and is cleared on Apply; legacy keys may remain until then). " +
               "Content type must also have strategy.purpose (see strategy / update_content_type).",
             relation_fields,
-            immutable_slug: !!(config as { immutable_slug?: boolean }).immutable_slug,
             protected_slugs: (config as { protected_slugs?: string[] }).protected_slugs ?? [],
             indexes: config.indexes ?? [],
             observed_values: observed,
             observed_values_by_locale: observedByLocale,
             observed_values_note:
-              "For locale-only URL params (category on blog), use observed_values_by_locale — pick a slug from the target locale list, not the flat union.",
+              "For URL pattern params, use observed_values_by_locale — pick a slug from the target locale list, not the flat union.",
             create_via: createVia,
             create_via_note: createVia
               ? "Use create_entry (YAML). Shared-layout: one locale, sections []."
               : "Database-backed — create_entry cannot create rows; use DB/admin path.",
             body_model: bodyModelForConfig(config),
+            template_vars_note: templateVarsNoteForBodyModel(bodyModelForConfig(config)),
             ecommerce: ecommerceManager.contentTypeHasEcommerce(contentType)
               ? {
                   enabled: true,
@@ -6383,14 +7039,57 @@ export function registerPageTools(
     }
   );
 
-  // update_content_type — patch allowlisted keys on content-types.yml via PUT .../config
+  const fillIntentSchema = z.object({
+    goal: z.string(),
+    purpose: z.string(),
+    constraints: z.array(z.string()).optional(),
+  });
+
+  const editorHintSchema = z.object({
+    type: z.string().optional(),
+    options: z
+      .array(z.union([z.string(), z.object({ value: z.string(), label: z.string() })]))
+      .optional(),
+    populate_options: z.boolean().optional(),
+    allow_custom_values: z.boolean().optional(),
+    split_comma_values: z.boolean().optional(),
+    cache_images: z.boolean().optional(),
+    description: z.string().optional(),
+    required: z.union([z.boolean(), z.literal("attached")]).optional(),
+    fill_intent: fillIntentSchema.optional(),
+    schema: z.record(z.unknown()).optional(),
+    source: z.string().optional(),
+    value: z.string().optional(),
+    label: z.string().optional(),
+    multiple: z.boolean().optional(),
+  });
+
+  const fieldMappingEntrySchema = z.union([
+    z.string(),
+    z.object({
+      source: z.string(),
+      default: z.union([z.string(), z.null()]),
+    }),
+  ]);
+
+  // update_content_type — strategy, one field, or shared-layout enable/disable
   mcp.tool(
     "update_content_type",
-    "Patch content-types.yml for one content type via the main server config API. " +
-    "v1 allowlist: strategy only ({ purpose, constraints? } or null to clear). " +
-    "Omit keys you do not want to change; at least one allowlisted key is required. " +
-    "Does not edit entries, fill_intent, insights_intent, seo_monitoring, or run schema_org ensure. " +
-    "Clearing strategy while any editor.required true|attached remains fails with code missing_strategy. " +
+    "Patch content-types.yml for one content type via the main server config API.\n\n" +
+    "Modes (one per call — do not combine):\n" +
+    "• strategy — { purpose, constraints? } or null to clear.\n" +
+    "• field_action add|update|remove — one schema field at a time (GET-merge-PUT; sibling fields preserved).\n" +
+    "• single_template true|false — enable/disable shared layout. Enabling requires template_mode " +
+    "keep_existing|from_entry; from_entry needs template_entry_source_slug (and template_entry_source_locale " +
+    "when that entry folder has multiple live locales). Replacing a usable template.*.yml needs confirm:true " +
+    "(omit confirm first for action_required preview). Writes canonical template.{locale}.yml.\n\n" +
+    "Field patches: omit confirm or confirm:false → preview (action_required: confirm_field_change). " +
+    "confirm:true → execute (fresh read before write). Preview-first recommended for human approval; confirm:true without preview is allowed.\n\n" +
+    "Static types: add defaults identity mapping { source: field_key, default: null }. DB-backed: field_mapping required on add.\n" +
+    "Relation editor requires source (content type or database slug); CT/DB name collisions rejected.\n" +
+    "required true|attached needs fill_intent + valid type strategy (separate strategy call first).\n" +
+    "remove blocked while field_key is in indexes or unique_fields — clear in Content Type manage first.\n" +
+    "Does not edit entry YAML (except when from_entry bootstraps template.*.yml), run backfill, or schema_org ensure. " +
     "Requires content_types_manage. Call get_content_type_info first. " +
     MULTI_SITE_TOOL_BLURB,
     {
@@ -6405,11 +7104,71 @@ export function registerPageTools(
         ])
         .optional()
         .describe(
-          "Set strategy object, or null to clear. Omit to leave unchanged. Required fields need a valid strategy.",
+          "Set strategy object, or null to clear. Omit to leave unchanged. Mutually exclusive with field_action / single_template.",
+        ),
+      field_action: z
+        .enum(["add", "update", "remove"])
+        .optional()
+        .describe("Patch one field on field_mapping/editor. Mutually exclusive with strategy / single_template."),
+      field_key: z
+        .string()
+        .optional()
+        .describe("Schema field name, e.g. related_author. Required when field_action is set."),
+      field_mapping: fieldMappingEntrySchema
+        .optional()
+        .describe("Mapping entry for this field only (add/update). DB-backed add requires this."),
+      editor: editorHintSchema
+        .optional()
+        .describe("Editor hint for this field only (add/update). Partial merge on update."),
+      single_template: z
+        .boolean()
+        .optional()
+        .describe(
+          "Enable (true) or disable (false) shared layout. Mutually exclusive with strategy / field_action.",
+        ),
+      template_mode: z
+        .enum(["keep_existing", "from_entry"])
+        .optional()
+        .describe(
+          "Required when single_template:true enables shared layout. keep_existing needs a usable template.*.yml; from_entry needs template_entry_source_slug.",
+        ),
+      template_entry_source_slug: z
+        .string()
+        .optional()
+        .describe("Entry folder slug whose sections seed template.{locale}.yml when template_mode is from_entry."),
+      template_entry_source_locale: z
+        .string()
+        .optional()
+        .describe(
+          "Required when the source entry has more than one live locale file. Omitted when only one locale exists.",
+        ),
+      shared_layout_base_locale: z
+        .string()
+        .optional()
+        .describe("Locale used to align sibling template shells (default: source locale or en)."),
+      confirm: z
+        .boolean()
+        .optional()
+        .describe(
+          "Field patches and template replace: false/omit → preview; true → execute. Strategy patches ignore confirm.",
         ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, strategy, site }) => {
+    async ({
+      contentType,
+      strategy,
+      field_action,
+      field_key,
+      field_mapping,
+      editor,
+      single_template,
+      template_mode,
+      template_entry_source_slug,
+      template_entry_source_locale,
+      shared_layout_base_locale,
+      confirm,
+      site,
+    }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
         return siteFailResult(siteResult.error, "update_content_type", { contentType });
@@ -6424,11 +7183,210 @@ export function registerPageTools(
         return denyResponse("content_types_manage");
       }
 
-      if (strategy === undefined) {
+      const hasStrategy = strategy !== undefined;
+      const hasFieldPatch = field_action !== undefined;
+      const hasSharedToggle = single_template !== undefined;
+      const modeCount = [hasStrategy, hasFieldPatch, hasSharedToggle].filter(Boolean).length;
+
+      if (modeCount > 1) {
         return fail(
-          "No allowlisted patch keys provided. v1 accepts strategy: { purpose, constraints? } or strategy: null.",
-          { allowlisted: ["strategy"], code: "empty_patch" },
+          "Provide exactly one of: strategy, field_action, or single_template in one call.",
+          { code: "ambiguous_patch" },
         );
+      }
+      if (modeCount === 0) {
+        return fail(
+          "No patch keys provided. Use strategy, field_action + field_key, or single_template.",
+          { allowlisted: ["strategy", "field_action", "single_template"], code: "empty_patch" },
+        );
+      }
+
+      if (hasFieldPatch) {
+        if (!field_action) {
+          return fail("field_action is required.", { code: "invalid_field_action" });
+        }
+        return runContentTypeFieldPatch({
+          contentType,
+          field_action,
+          field_key: field_key ?? "",
+          field_mapping: field_mapping as import("../lib/content-type-field-patch.js").FieldMappingEntry | undefined,
+          editor: editor as ContentTypeEditorHint | undefined,
+          confirm,
+          site,
+          domain,
+          contentPath,
+          mcpToken,
+          mainServerPort: MAIN_SERVER_PORT,
+          internalHeaders,
+        });
+      }
+
+      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      const ymlPath = `${path.basename(contentPath)}/content-types.yml`;
+
+      if (hasSharedToggle) {
+        const body: Record<string, unknown> = { single_template: !!single_template };
+        if (single_template === true) {
+          if (template_mode) body.template_mode = template_mode;
+          if (template_entry_source_slug) {
+            body.template_entry_source_slug = template_entry_source_slug;
+          }
+          if (template_entry_source_locale) {
+            body.template_entry_source_locale = template_entry_source_locale;
+          }
+          if (shared_layout_base_locale) {
+            body.shared_layout_base_locale = shared_layout_base_locale;
+          }
+          if (confirm === true) body.confirm = true;
+        }
+        try {
+          const res = await fetch(
+            `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
+            {
+              method: "PUT",
+              headers: { ...internalHeaders(mcpToken), "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            },
+          );
+          const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+          if (!res.ok) {
+            if (data.code === "confirm_template_replace" && data.preview) {
+              return actionRequired(
+                {
+                  action_required: "confirm_template_replace",
+                  message: String(
+                    data.error ?? "Confirm replacing the existing usable shared template.",
+                  ),
+                  contentType,
+                  preview: data.preview,
+                },
+                [
+                  {
+                    tool: "update_content_type",
+                    reason: "Re-call with the same args and confirm: true after principal approval",
+                    args_hint: {
+                      contentType,
+                      single_template: true,
+                      template_mode: template_mode ?? "from_entry",
+                      template_entry_source_slug,
+                      template_entry_source_locale,
+                      shared_layout_base_locale,
+                      confirm: true,
+                      site,
+                    },
+                    priority: "required",
+                  },
+                ],
+              );
+            }
+            if (data.code === "template_entry_source_locale_required") {
+              return actionRequired(
+                {
+                  action_required: "template_entry_source_locale_required",
+                  message: String(data.error ?? "Pass template_entry_source_locale."),
+                  contentType,
+                  locales: data.locales,
+                },
+                [
+                  {
+                    tool: "update_content_type",
+                    reason: "Re-call with template_entry_source_locale set to one of locales",
+                    args_hint: {
+                      contentType,
+                      single_template: true,
+                      template_mode: template_mode ?? "from_entry",
+                      template_entry_source_slug,
+                      template_entry_source_locale: Array.isArray(data.locales)
+                        ? data.locales[0]
+                        : undefined,
+                      site,
+                    },
+                    priority: "required",
+                  },
+                ],
+              );
+            }
+            return fail(String(data.error ?? data.message ?? `update failed (${res.status})`), {
+              code: data.code,
+              ...data,
+            });
+          }
+
+          const enable = data.shared_layout_enable as
+            | {
+                template_mode?: string;
+                written_paths?: string[];
+                source_slug?: string;
+                source_locale?: string;
+              }
+            | undefined;
+          const written = Array.isArray(enable?.written_paths) ? enable!.written_paths! : [];
+          const warnings: McpWarning[] = [
+            {
+              code: "attached_sections_ignored",
+              message:
+                "Attached entries ignore their YAML sections; structure comes from template.{locale}.yml.",
+            },
+            {
+              code: "sibling_copy_may_need_edit",
+              message:
+                "Sibling locale shells may still need copy work after structural align (needs-edit labels).",
+            },
+            {
+              code: "legacy_single_read_fallback",
+              message:
+                "Legacy single.*.yml on disk is read-only fallback; new writes use template.*.yml.",
+            },
+          ];
+          if (data.bindingsDissolved) {
+            warnings.push({
+              code: "bindings_dissolved",
+              message: "Section bindings for this content type were removed (incompatible with shared layout).",
+            });
+          }
+
+          return ok(
+            {
+              message:
+                single_template === false
+                  ? `Disabled shared layout on content type '${contentType}'`
+                  : `Enabled shared layout on content type '${contentType}' (${enable?.template_mode ?? template_mode ?? "unknown"})`,
+              contentType,
+              single_template: !!single_template,
+              shared_layout_enable: enable ?? null,
+              patched: ["single_template"],
+            },
+            {
+              warnings,
+              side_effects: [
+                {
+                  kind: "content_types_yml",
+                  summary: `Updated single_template on ${ymlPath}`,
+                  paths: [ymlPath],
+                },
+                ...(written.length
+                  ? [
+                      {
+                        kind: "shared_template_bootstrap",
+                        summary: "Wrote or aligned shared template shells",
+                        paths: written,
+                      } satisfies McpSideEffect,
+                    ]
+                  : []),
+              ],
+              next_actions: [
+                {
+                  tool: "get_content_type_info",
+                  reason: "Confirm single_template / create_via after enable",
+                  args_hint: { contentType, site },
+                  priority: "recommended",
+                },
+              ],
+            },
+          );
+        } catch (e) {
+          return fail(`Failed to update content type: ${(e as Error).message}`);
+        }
       }
 
       const body: Record<string, unknown> = {};
@@ -6445,8 +7403,6 @@ export function registerPageTools(
         body.strategy = parsed;
       }
 
-      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
-      const ymlPath = `${path.basename(contentPath)}/content-types.yml`;
       try {
         const res = await fetch(
           `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
@@ -6521,7 +7477,7 @@ export function registerPageTools(
     "ensure_content_type_schema_org",
     "Ensure every entry of a content type has a leading schema_org section for the given schema_type " +
     "(e.g. location → LocalBusiness). Seeds missing entries from legacy catalog or miami-usa/madrid-spain templates. " +
-    "Call get_content_type_info first to see coverage. Requires content_edit_structure. " +
+    "Call get_content_type_info first to see coverage. Requires seo_settings. " +
     MULTI_SITE_TOOL_BLURB,
     {
       contentType: z.string().describe("Content type key, e.g. 'location'"),
@@ -6543,8 +7499,8 @@ export function registerPageTools(
       } catch (e) {
         return fail((e as Error).message);
       }
-      if (mcpToken && !(await checkCap(mcpToken, "content_edit_structure", contentType))) {
-        return denyResponse("content_edit_structure", contentType);
+      if (mcpToken && !(await checkCap(mcpToken, "seo_settings"))) {
+        return denyResponse("seo_settings");
       }
 
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
@@ -6652,7 +7608,7 @@ export function registerPageTools(
         const configs = loadContentTypes(contentPath);
         const results: Array<Record<string, unknown>> = [];
 
-        const allowedTypes = grants ? visibleContentTypes(grants, { seoUnlocksAll: true }) : null;
+        const allowedTypes = grants ? visibleContentTypes(grants, { unionSeoEdit: true }) : null;
         let typesToQuery = contentType
           ? (configs[contentType] ? [contentType] : [])
           : Object.keys(configs);

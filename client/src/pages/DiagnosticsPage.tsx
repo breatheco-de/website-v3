@@ -7,8 +7,10 @@ import { Link, useLocation, useSearch } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import {
   Dialog,
   DialogContent,
@@ -60,16 +62,16 @@ function issueLayerLabel(entryKey?: string, file?: string): string | null {
   const base = (file || "").split(/[/\\]/).pop() || "";
   const isVariantPath =
     /^[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base) ||
-    /^single\.[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base);
+    /^(?:template|single)\.[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base);
   if (!isVariantPath) return null;
   const parts = base.replace(/\.ya?ml$/i, "").split(".");
   const variantSlug =
-    parts[0] === "single" && parts.length >= 3
+    (parts[0] === "single" || parts[0] === "template") && parts.length >= 3
       ? parts[1]
       : parts.length >= 2
         ? parts.slice(0, -1).join(".")
         : null;
-  if (!variantSlug || variantSlug === "single") return null;
+  if (!variantSlug || variantSlug === "single" || variantSlug === "template") return null;
   return `variant: ${variantSlug}`;
 }
 import { useDebugAuth } from "@/hooks/useDebugAuth";
@@ -278,6 +280,16 @@ type CachedIssueRow = {
     at: string;
     actor?: { type: "ui" | "mcp"; client?: string; model?: string };
   };
+  attempts?: Array<{
+    by: string;
+    claimedBy?: string;
+    at: string;
+    reason: "released" | "ttl_expired";
+    report?: string;
+    claimedAt?: string;
+    claimReport?: string;
+    actor?: { type: "ui" | "mcp"; client?: string; model?: string };
+  }>;
 };
 
 type JobStartResponse = {
@@ -724,7 +736,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const [pathname, setLocation] = useLocation();
   const searchString = useSearch();
   const view = useMemo(() => parseGlobalHealthSearch(searchString), [searchString]);
-  const { kpi: activeKpiTab, path: pagePathFilter, scope: categoryFilters, validators: validatorFilters } =
+  const { kpi: activeKpiTab, path: pagePathFilter, scope: categoryFilters, validators: validatorFilters, priorAttempts: priorAttemptsFilter } =
     view;
 
   const writeView = useCallback(
@@ -786,6 +798,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const freshKpiView: "issues" | "fresh_urls" =
     activeKpiTab === "coverage" || activeKpiTab === "unique" ? "fresh_urls" : "issues";
   const [jobPanel, setJobPanel] = useState<JobPanelState | null>(null);
+  const [educationOpen, setEducationOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [clearCacheOpen, setClearCacheOpen] = useState(false);
   const [purgeLegacyOpen, setPurgeLegacyOpen] = useState(false);
@@ -1279,6 +1292,11 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     ) {
       return false;
     }
+    if (priorAttemptsFilter) {
+      // Open issues only (1C): soft-completed rows do not match this filter.
+      if (issue.completed) return false;
+      if (!issue.attempts || issue.attempts.length === 0) return false;
+    }
     if (pagePathFilter) {
       const want = normalizeIssuePath(pagePathFilter);
       const got = normalizeIssuePath(issue.url || "");
@@ -1360,49 +1378,66 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   return (
     <div className="space-y-6">
       <Card style={{ borderRadius: "0.8rem" }} data-testid="diagnostics-how-it-works">
-        <CardContent className="p-4 space-y-2 text-sm text-muted-foreground">
-          <p className="text-foreground font-medium">How diagnostics work</p>
-          <p>
-            Global Health shows one shared issue store in{" "}
-            <code className="text-xs">validation-cache.json</code>. Use{" "}
-            <strong className="text-foreground font-medium">Page or URL</strong> to filter by sitemap page;
-            open the live page + DebugBubble for in-context fixes (Page Analysis tab removed).
-            KPI (Errors/Warnings), Page or URL, Error scope, and Validators filters persist in the URL query
-            string so a refresh keeps your view.
-            <strong className="text-foreground font-medium"> Validation Coverage</strong> shows average entry-local
-            validator coverage and fully-covered URLs. Under Refresh, an in-flight
-            job shows while queued/running; otherwise the last <em>site-wide</em> run (Refresh / Hard refresh,
-            not a page save). Refresh / Hard refresh / Re-run validator update the store via a{" "}
-            <strong className="text-foreground font-medium">background worker</strong>; starting a new job asks for
-            confirm and shows the last full site-wide duration. The job panel shows milestones (fixed height, scrolls).
-            Cached issues refresh when the job finishes. Delete cache wipes the store until the next refresh.
-            Remove Legacy Issues drops v4→v5 migration orphans (`validator: legacy`) that normal re-checks never clear.
-            {isDev
-              ? " In development, Download from production copies the GCS sidecar into local validation-cache.json (never uploads)."
-              : ""}{" "}
-            One job runs at a time per site.
-          </p>
-          <button
-            type="button"
-            className="text-xs text-primary underline-offset-2 hover:underline"
-            onClick={() => setShowAdvanced((v) => !v)}
-            data-testid="button-diagnostics-read-more"
-          >
-            {showAdvanced ? "Hide advanced" : "Read more (advanced)"}
-          </button>
-          {showAdvanced && (
-            <ul className="list-disc pl-5 text-xs space-y-1">
-              <li><code>server/services/diagnosticsJobService.ts</code> — parent job orchestration + IPC + confirm gate (<code>needs_confirm</code>)</li>
-              <li><code>scripts/validation/diagnostics-worker.ts</code> — forked worker that runs validators</li>
-              <li><code>{"{contentRoot}/validation-cache.json"}</code> — issue cache (GCS <code>{"{site}/sync/validation-cache.json"}</code> in prod). <code>lastFullRunAt</code> (per URL / any full stamp) vs <code>lastSiteWideRunAt</code> (Refresh / Hard refresh / site-wide validators)</li>
-              <li><code>scripts/validation/shared/runClass.ts</code> — <code>ENTRY_LOCAL_VALIDATOR_NAMES</code> drives coverage denominator</li>
-              <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes + results files (duration stats for confirm dialog)</li>
-              <li><code>client/src/components/diagnostics/global-health-url.ts</code> — Global Health query params (<code>kpi</code>, <code>path</code>, <code>scope</code>, <code>validators</code>)</li>
-              <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code> (<code>confirm: true</code> when starting), <code>GET /api/validation/cache-issues</code>, <code>GET /api/validation/cache-freshness</code>, <code>GET /api/validation/cache-freshness-urls</code>, <code>POST /api/validation/purge-legacy-issues</code>{isDev ? <>, <code>POST /api/validation/pull-from-gcs</code> (dev only)</> : null}</li>
-              <li>MCP <code>run_entry_diagnostics</code> — same confirm gate (<code>confirm_run_diagnostics</code>); mid-run poll returns URLs flushed since job start only</li>
-            </ul>
-          )}
-        </CardContent>
+        <Collapsible open={educationOpen} onOpenChange={setEducationOpen}>
+          <CardContent className="p-4 space-y-2 text-sm text-muted-foreground">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 text-foreground font-medium text-left"
+                aria-expanded={educationOpen}
+                data-testid="button-diagnostics-how-it-works"
+              >
+                <Info className="h-4 w-4 shrink-0" />
+                <span className="flex-1">How diagnostics work</span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${educationOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-2">
+              <p>
+                Global Health shows one shared issue store in{" "}
+                <code className="text-xs">validation-cache.json</code>. Use{" "}
+                <strong className="text-foreground font-medium">Page or URL</strong> to filter by sitemap page;
+                open the live page + DebugBubble for in-context fixes (Page Analysis tab removed).
+                KPI (Errors/Warnings), Page or URL, Error scope, and Validators filters persist in the URL query
+                string so a refresh keeps your view.
+                <strong className="text-foreground font-medium"> Validation Coverage</strong> shows average entry-local
+                validator coverage and fully-covered URLs. Under Refresh, an in-flight
+                job shows while queued/running; otherwise the last <em>site-wide</em> run (Refresh / Hard refresh,
+                not a page save). Refresh / Hard refresh / Re-run validator update the store via a{" "}
+                <strong className="text-foreground font-medium">background worker</strong>; starting a new job asks for
+                confirm and shows the last full site-wide duration. The job panel shows milestones (fixed height, scrolls).
+                Cached issues refresh when the job finishes. Delete cache wipes the store until the next refresh.
+                Remove Legacy Issues drops v4→v5 migration orphans (`validator: legacy`) that normal re-checks never clear.
+                {isDev
+                  ? " In development, Sync with production issues copies the GCS sidecar into local validation-cache.json (never uploads)."
+                  : ""}{" "}
+                One job runs at a time per site.
+              </p>
+              <button
+                type="button"
+                className="text-xs text-primary underline-offset-2 hover:underline"
+                onClick={() => setShowAdvanced((v) => !v)}
+                data-testid="button-diagnostics-read-more"
+              >
+                {showAdvanced ? "Hide advanced" : "Read more (advanced)"}
+              </button>
+              {showAdvanced && (
+                <ul className="list-disc pl-5 text-xs space-y-1">
+                  <li><code>server/services/diagnosticsJobService.ts</code> — parent job orchestration + IPC + confirm gate (<code>needs_confirm</code>)</li>
+                  <li><code>scripts/validation/diagnostics-worker.ts</code> — forked worker that runs validators</li>
+                  <li><code>{"{contentRoot}/validation-cache.json"}</code> — issue cache (GCS <code>{"{site}/sync/validation-cache.json"}</code> in prod). <code>lastFullRunAt</code> (per URL / any full stamp) vs <code>lastSiteWideRunAt</code> (Refresh / Hard refresh / site-wide validators)</li>
+                  <li><code>scripts/validation/shared/runClass.ts</code> — <code>ENTRY_LOCAL_VALIDATOR_NAMES</code> drives coverage denominator</li>
+                  <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes + results files (duration stats for confirm dialog)</li>
+                  <li><code>client/src/components/diagnostics/global-health-url.ts</code> — Global Health query params (<code>kpi</code>, <code>path</code>, <code>scope</code>, <code>validators</code>)</li>
+                  <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code> (<code>confirm: true</code> when starting), <code>GET /api/validation/cache-issues</code>, <code>GET /api/validation/cache-freshness</code>, <code>GET /api/validation/cache-freshness-urls</code>, <code>POST /api/validation/purge-legacy-issues</code>{isDev ? <>, <code>POST /api/validation/pull-from-gcs</code> (dev only)</> : null}</li>
+                  <li>MCP <code>run_entry_diagnostics</code> — same confirm gate (<code>confirm_run_diagnostics</code>); mid-run poll returns URLs flushed since job start only</li>
+                </ul>
+              )}
+            </CollapsibleContent>
+          </CardContent>
+        </Collapsible>
       </Card>
 
       {jobPanel && (
@@ -1536,7 +1571,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                     data-testid="menu-item-pull-production-cache"
                   >
                     <DownloadCloud className="h-4 w-4" />
-                    Download from production
+                    Sync with production issues
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem
@@ -1646,7 +1681,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         <Dialog open={pullProductionOpen} onOpenChange={setPullProductionOpen}>
           <DialogContent data-testid="dialog-pull-production-validation-cache">
             <DialogHeader>
-              <DialogTitle>Load production validation cache?</DialogTitle>
+              <DialogTitle>Sync with production issues?</DialogTitle>
               <DialogDescription>
                 This overwrites local{" "}
                 <code className="text-xs">validation-cache.json</code> with the production GCS
@@ -1673,7 +1708,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                 ) : (
                   <DownloadCloud className="h-4 w-4" />
                 )}
-                Download from production
+                Sync with production issues
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -2030,6 +2065,15 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                   </PopoverContent>
                 </Popover>
               )}
+              <Button
+                variant={priorAttemptsFilter ? "default" : "outline"}
+                size="sm"
+                className="toggle-elevate"
+                onClick={() => patchView({ priorAttempts: !priorAttemptsFilter })}
+                data-testid="button-filter-prior-attempts"
+              >
+                Has prior attempts
+              </Button>
             </div>
           </div>
         </div>
@@ -2152,6 +2196,27 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                           completed {formatIssueActorLine(issue.completed.by, issue.completed.actor)}
                         </span>
                       )}
+                      {!issue.completed &&
+                        issue.attempts &&
+                        issue.attempts.length > 0 && (
+                          <span
+                            className="text-muted-foreground text-[10px]"
+                            data-testid="badge-issue-prior-attempts"
+                            title={
+                              issue.attempts[0]?.reason === "ttl_expired"
+                                ? "Last claim expired (30m)"
+                                : issue.attempts[0]?.report || "Prior attempt"
+                            }
+                          >
+                            tried {issue.attempts.length}×
+                            {issue.attempts[0]
+                              ? ` · ${formatIssueActorLine(
+                                  issue.attempts[0].by,
+                                  issue.attempts[0].actor,
+                                )}`
+                              : ""}
+                          </span>
+                        )}
                       {issue.url ? (
                         <RecheckIssueButton
                           url={issue.url}
@@ -2201,6 +2266,29 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                         formatSitePath={formatSitePath}
                       />
                     )}
+                    {!issue.completed &&
+                      issue.attempts &&
+                      issue.attempts.length > 0 && (
+                        <details className="mt-1 text-[10px] text-muted-foreground" data-testid="details-prior-attempts">
+                          <summary className="cursor-pointer hover:text-foreground">
+                            What went wrong ({issue.attempts.length})
+                          </summary>
+                          <ul className="mt-1 space-y-1 pl-3 list-disc">
+                            {issue.attempts.map((a, ai) => (
+                              <li key={`${a.at}-${ai}`}>
+                                {a.reason === "ttl_expired"
+                                  ? "Claim expired (30m)"
+                                  : "Released"}{" "}
+                                · {formatIssueActorLine(a.by, a.actor)}
+                                {a.claimedBy && a.claimedBy !== a.by
+                                  ? ` (held by ${a.claimedBy})`
+                                  : ""}
+                                {a.report ? ` — ${a.report}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
                     {issue.url && <div className="text-muted-foreground">{issue.url}</div>}
                     {issue.file && (
                       <div className="text-muted-foreground font-mono truncate" title={issue.file}>
@@ -2438,14 +2526,14 @@ export default function DiagnosticsPage() {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <TabsList data-testid="tabs-diagnostics" className="flex flex-wrap h-auto gap-1">
+                  <ToggleButtonBarList data-testid="tabs-diagnostics" className="flex">
                     {DIAGNOSTICS_TABS.map((t) => (
-                      <TabsTrigger key={t.id} value={t.id} data-testid={`tab-${t.id}`} className="gap-1.5">
+                      <ToggleButtonBarTrigger key={t.id} value={t.id} data-testid={`tab-${t.id}`} className="gap-1.5">
                         <t.Icon className="h-3.5 w-3.5" />
                         {t.label}
-                      </TabsTrigger>
+                      </ToggleButtonBarTrigger>
                     ))}
-                  </TabsList>
+                  </ToggleButtonBarList>
                 )}
               </div>
             </div>

@@ -47,14 +47,23 @@ function parseResourceFromPath(filePath: string): {
     return { path: norm, contentType, slug };
   }
   let locale = base;
-  if (base.startsWith("single.")) locale = base.slice("single.".length);
+  if (base.startsWith("template.") || base.startsWith("single.")) {
+    const rest = base.startsWith("template.") ? base.slice("template.".length) : base.slice("single.".length);
+    locale = rest.split(".")[0] || locale;
+  }
   else if (base.includes(".")) locale = base.split(".").pop() || base;
   return { path: norm, contentType, slug, locale };
 }
 
 export function emitContentFileWritten(
   filePath: string,
-  opts?: { author?: string; actor?: EventActor; cause?: string },
+  opts?: {
+    author?: string;
+    actor?: EventActor;
+    cause?: string;
+    agent_session_id?: string;
+    report?: string;
+  },
 ): EmitResult | null {
   const site = resolveSiteFromPath(filePath);
   if (!site) return null;
@@ -65,28 +74,70 @@ export function emitContentFileWritten(
     resource,
     attribution: singleAttribution(opts?.author, opts?.actor),
     cause: opts?.cause,
-    payload: { path: resource.path },
+    agent_session_id: opts?.agent_session_id,
+    payload: {
+      path: resource.path,
+      ...(opts?.report ? { report: opts.report } : {}),
+    },
+  });
+}
+
+export function emitContentEntryDeleted(opts: {
+  site: string;
+  contentType: string;
+  slug: string;
+  locale?: string;
+  entryKeys: string[];
+  deletedPaths: string[];
+  folderRemoved: boolean;
+  localesRemoved?: string[];
+  author?: string;
+  actor?: EventActor;
+  agent_session_id?: string;
+  report?: string;
+}): EmitResult {
+  return emitEvent({
+    site: opts.site,
+    type: "content_entry_deleted",
+    resource: {
+      contentType: opts.contentType,
+      slug: opts.slug,
+      ...(opts.locale ? { locale: opts.locale } : {}),
+    },
+    attribution: singleAttribution(opts.author, opts.actor),
+    agent_session_id: opts.agent_session_id,
+    payload: {
+      entryKeys: opts.entryKeys,
+      deletedPaths: opts.deletedPaths,
+      folderRemoved: opts.folderRemoved,
+      ...(opts.localesRemoved?.length ? { localesRemoved: opts.localesRemoved } : {}),
+      ...(opts.report ? { report: opts.report } : {}),
+    },
   });
 }
 
 export function emitContentBulkSynced(
   site: string,
   files: string[],
-  opts?: { author?: string; actor?: EventActor },
+  opts?: { author?: string; actor?: EventActor; deletedPaths?: string[] },
 ): EmitResult {
   const author = opts?.author ?? "github-pull";
   const actor = opts?.actor ?? { type: "system" as const, source: "github-pull" };
   return emitEvent({
     site,
     type: "content_bulk_synced",
-    payload: { files, count: files.length },
+    payload: {
+      files,
+      count: files.length,
+      ...(opts?.deletedPaths?.length ? { deletedPaths: opts.deletedPaths } : {}),
+    },
     attribution: singleAttribution(author, actor),
   });
 }
 
 export function emitRedirectsChanged(
   filePath: string,
-  opts?: { author?: string; actor?: EventActor },
+  opts?: { author?: string; actor?: EventActor; agent_session_id?: string; report?: string },
 ): EmitResult | null {
   const site = resolveSiteFromPath(filePath);
   if (!site) return null;
@@ -95,7 +146,11 @@ export function emitRedirectsChanged(
     type: "redirects_changed",
     resource: parseResourceFromPath(filePath),
     attribution: singleAttribution(opts?.author, opts?.actor),
-    payload: { path: filePath },
+    agent_session_id: opts?.agent_session_id,
+    payload: {
+      path: filePath,
+      ...(opts?.report ? { report: opts.report } : {}),
+    },
   });
 }
 
@@ -110,12 +165,14 @@ export function emitBindingPropagationStarted(opts: {
   token: number;
   author?: string;
   actor?: EventActor;
+  agent_session_id?: string;
 }): EmitResult {
   return emitEvent({
     site: opts.site,
     type: "binding_propagation_started",
     resource: { groupId: opts.groupId, locale: opts.locale },
     attribution: singleAttribution(opts.author, opts.actor),
+    agent_session_id: opts.agent_session_id,
     payload: {
       groupId: opts.groupId,
       locale: opts.locale,

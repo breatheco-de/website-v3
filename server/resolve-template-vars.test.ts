@@ -87,7 +87,7 @@ describe("resolveAllTemplateVars", () => {
   it("resolves single → meta → param; leaves site vars for the client by default", () => {
     const data = {
       meta: {
-        page_title: "{{ single.title }}",
+        page_title: "{{ entry.title }}",
         description: "Static desc",
       },
       sections: [
@@ -150,8 +150,8 @@ describe("resolveAllTemplateVars", () => {
       sections: [
         {
           type: "hero",
-          data: { headline: "{{ single.title }}" },
-          _variableFields: { "data.headline": "{{ single.title }}" },
+          data: { headline: "{{ entry.title }}" },
+          _variableFields: { "data.headline": "{{ entry.title }}" },
         },
       ],
     };
@@ -166,7 +166,7 @@ describe("resolveAllTemplateVars", () => {
     };
 
     expect(result.sections[0].data.headline).toBe("Course Name");
-    expect(result.sections[0]._variableFields["data.headline"]).toBe("{{ single.title }}");
+    expect(result.sections[0]._variableFields["data.headline"]).toBe("{{ entry.title }}");
   });
 
   it("does not bake page single.* into listing item_template", () => {
@@ -175,14 +175,14 @@ describe("resolveAllTemplateVars", () => {
       sections: [
         {
           type: "list_cards",
-          title: "{{ single.title }}",
+          title: "{{ entry.title }}",
           dynamic_entries: {
             content_type: "blog",
             item_template: {
-              image: "{{ single.image }}",
-              title: "{{ single.title }}",
-              description: "{{ single.description }}",
-              meta_right: "{{ single.updated_at | }}",
+              image: "{{ entry.image }}",
+              title: "{{ entry.title }}",
+              description: "{{ entry.description }}",
+              meta_right: "{{ entry.updated_at | }}",
               cta_text: "Read more",
             },
           },
@@ -203,10 +203,10 @@ describe("resolveAllTemplateVars", () => {
 
     expect(result.sections[0].title).toBe("Blog");
     expect(result.sections[0].dynamic_entries.item_template).toEqual({
-      image: "{{ single.image }}",
-      title: "{{ single.title }}",
-      description: "{{ single.description }}",
-      meta_right: "{{ single.updated_at | }}",
+      image: "{{ entry.image }}",
+      title: "{{ entry.title }}",
+      description: "{{ entry.description }}",
+      meta_right: "{{ entry.updated_at | }}",
       cta_text: "Read more",
     });
   });
@@ -214,10 +214,10 @@ describe("resolveAllTemplateVars", () => {
   it("preserves root-level item_template the same way", () => {
     const data = {
       item_template: {
-        title: "{{ single.title }}",
+        title: "{{ entry.title }}",
         cta_text: "Read more",
       },
-      heading: "{{ single.title }}",
+      heading: "{{ entry.title }}",
     };
 
     const result = resolveAllTemplateVars(data, {
@@ -229,7 +229,7 @@ describe("resolveAllTemplateVars", () => {
 
     expect(result.heading).toBe("Page Title");
     expect(result.item_template).toEqual({
-      title: "{{ single.title }}",
+      title: "{{ entry.title }}",
       cta_text: "Read more",
     });
   });
@@ -237,12 +237,12 @@ describe("resolveAllTemplateVars", () => {
   it("exposes slug/locale/image under plain and underscore keys", () => {
     const result = resolveAllTemplateVars(
       {
-        a: "{{ single.slug }}",
-        b: "{{ single._slug }}",
-        c: "{{ single.locale }}",
-        d: "{{ single._locale }}",
-        e: "{{ single.image }}",
-        f: "{{ single._image }}",
+        a: "{{ entry.slug }}",
+        b: "{{ entry._slug }}",
+        c: "{{ entry.locale }}",
+        d: "{{ entry._locale }}",
+        e: "{{ entry.image }}",
+        f: "{{ entry._image }}",
       },
       {
         singleEntry: { slug: "hello", locale: "en", image: "https://x/y.png" },
@@ -261,7 +261,7 @@ describe("resolveAllTemplateVars", () => {
 
   it("does not expose _hreflangs on the single bag", () => {
     const result = resolveAllTemplateVars(
-      { x: "{{ single._hreflangs }}" },
+      { x: "{{ entry._hreflangs }}" },
       {
         singleEntry: { slug: "a", _hreflangs: { en: "a", es: "b" } },
       },

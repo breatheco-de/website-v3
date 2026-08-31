@@ -553,33 +553,76 @@ export function setDropScrapers(
   return { dropScrapers: resolvedDropScrapers(b.state) };
 }
 
+function ensureHydratedForMutation(site: string, contentRoot?: string): SiteBucket {
+  const b = tryHydrateForWrite(site, contentRoot) ?? ensureLoadedSync(site, contentRoot);
+  if (!b.hydrated) {
+    applyLoadedState(b, loadLocalInto(site, contentRoot));
+    b.hydrated = true;
+  }
+  return b;
+}
+
+function purgeIssuesFromBucket(
+  site: string,
+  b: SiteBucket,
+  shouldRemove: (issue: RuntimeIssueRecord) => boolean,
+): number {
+  const nextIssues: Record<string, RuntimeIssueRecord> = {};
+  let removed = 0;
+  for (const [fp, issue] of Object.entries(b.state.issues)) {
+    if (shouldRemove(issue)) {
+      removed += 1;
+      continue;
+    }
+    nextIssues[fp] = issue;
+  }
+  if (removed === 0) return 0;
+  b.state.issues = nextIssues;
+  b.state.recent = (b.state.recent ?? []).filter((r) => nextIssues[r.fingerprint]);
+  b.state.updatedAt = Date.now();
+  save(site);
+  return removed;
+}
+
+export function deleteRuntimeIssuesByFingerprints(
+  site: string,
+  fingerprints: string[],
+  contentRoot?: string,
+): { removed: number } {
+  const ids = Array.from(
+    new Set(fingerprints.filter((fp): fp is string => typeof fp === "string" && fp.trim().length > 0)),
+  );
+  if (!ids.length) return { removed: 0 };
+  const b = ensureHydratedForMutation(site, contentRoot);
+  const idSet = new Set(ids);
+  const removed = purgeIssuesFromBucket(site, b, (issue) => idSet.has(issue.fingerprint));
+  return { removed };
+}
+
+export function purgeIssuesMatchingIgnoreRules(
+  site: string,
+  contentRoot?: string,
+): { removed: number } {
+  const rules = listIgnoreRules(site, contentRoot);
+  if (!rules.length) return { removed: 0 };
+  const b = ensureHydratedForMutation(site, contentRoot);
+  const removed = purgeIssuesFromBucket(site, b, (issue) =>
+    pathMatchesAnyIgnoreRule(issue.path, rules),
+  );
+  return { removed };
+}
+
 export function addIgnoreRules(
   site: string,
   rules: IgnoreRuleInput[],
-  opts?: { contentRoot?: string; seedPaths?: string[] },
-): { ignored: IgnoreRule[]; removed: number } {
+  opts?: { contentRoot?: string; seedPaths?: string[]; purgeFingerprints?: string[] },
+): { ignored: IgnoreRule[]; removed: number; added: number } {
   const { ignored, added } = addIgnoreRulesToStore(site, rules, opts);
   let removed = 0;
-  if (added.length) {
-    const b = tryHydrateForWrite(site, opts?.contentRoot) ?? ensureLoadedSync(site, opts?.contentRoot);
-    if (!b.hydrated) {
-      applyLoadedState(b, loadLocalInto(site, opts?.contentRoot));
-      b.hydrated = true;
-    }
-    const nextIssues: Record<string, RuntimeIssueRecord> = {};
-    for (const [fp, issue] of Object.entries(b.state.issues)) {
-      if (pathMatchesAnyIgnoreRule(issue.path, added)) {
-        removed += 1;
-        continue;
-      }
-      nextIssues[fp] = issue;
-    }
-    b.state.issues = nextIssues;
-    b.state.recent = (b.state.recent ?? []).filter((r) => nextIssues[r.fingerprint]);
-    b.state.updatedAt = Date.now();
-    save(site);
+  if (opts?.purgeFingerprints?.length) {
+    removed = deleteRuntimeIssuesByFingerprints(site, opts.purgeFingerprints, opts.contentRoot).removed;
   }
-  return { ignored, removed };
+  return { ignored, removed, added: added.length };
 }
 
 export function removeIgnoreRules(

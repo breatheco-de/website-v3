@@ -12,6 +12,7 @@ import { imageRegistrySyncFixer } from "./image-registry-sync";
 import { imageAutoTagsFixer } from "./image-auto-tags";
 import { invalidImageTagsFixer } from "./invalid-image-tags";
 import { orphanedImagesCleanupFixer } from "./orphaned-images-cleanup";
+import { aiUnusedImagesCleanupFixer } from "./ai-unused-images-cleanup";
 import { dbTemplateRestoreFixer } from "./db-template-restore";
 import { bindingCleanupFixer } from "./binding-cleanup";
 import { sharedLayoutSinglesFixer } from "./shared-layout-singles";
@@ -25,6 +26,7 @@ const fixers: Fixer[] = [
   imageAutoTagsFixer,
   invalidImageTagsFixer,
   orphanedImagesCleanupFixer,
+  aiUnusedImagesCleanupFixer,
   dbTemplateRestoreFixer,
   bindingCleanupFixer,
   sharedLayoutSinglesFixer,

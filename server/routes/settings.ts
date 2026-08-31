@@ -1003,12 +1003,19 @@ export function registerSettingsRoutes(app: Express): void {
     const auth = await requireMutatingStaff(req, res);
     if (!auth.authorized) return;
     try {
-      const { conversion_events, webhook, leads_expected_conversion_names, leads_expected_tags } = req.body;
+      const {
+        conversion_events,
+        webhook,
+        leads_expected_conversion_names,
+        leads_expected_tags,
+        bigquery,
+      } = req.body;
       if (
         conversion_events === undefined && webhook === undefined &&
-        leads_expected_conversion_names === undefined && leads_expected_tags === undefined
+        leads_expected_conversion_names === undefined && leads_expected_tags === undefined &&
+        bigquery === undefined
       ) {
-        return res.status(400).json({ error: "Request body must contain conversion_events, webhook, leads_expected_conversion_names or leads_expected_tags" });
+        return res.status(400).json({ error: "Request body must contain conversion_events, webhook, leads_expected_conversion_names, leads_expected_tags or bigquery" });
       }
       if (conversion_events !== undefined && !Array.isArray(conversion_events)) {
         return res.status(400).json({ error: "conversion_events must be an array" });
@@ -1019,15 +1026,59 @@ export function registerSettingsRoutes(app: Express): void {
       if (leads_expected_tags !== undefined && !Array.isArray(leads_expected_tags)) {
         return res.status(400).json({ error: "leads_expected_tags must be an array of strings" });
       }
+      if (bigquery !== undefined && (typeof bigquery !== "object" || bigquery === null || Array.isArray(bigquery))) {
+        return res.status(400).json({ error: "bigquery must be an object" });
+      }
       persistTrackingSettings({
         ...(conversion_events !== undefined ? { conversion_events } : {}),
         ...(webhook !== undefined ? { webhook } : {}),
         ...(leads_expected_conversion_names !== undefined ? { leads_expected_conversion_names } : {}),
         ...(leads_expected_tags !== undefined ? { leads_expected_tags } : {}),
+        ...(bigquery !== undefined ? { bigquery } : {}),
       }, res, auth.author);
       res.json({ success: true, ...getTrackingSettings(getContentRoot(res)) });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.get("/api/settings/tracking/bigquery", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+    const { getBigQueryConfigStatus } = await import("../ecommerce/bigquery-client");
+    res.json(getBigQueryConfigStatus(getContentRoot(res)));
+  });
+
+  app.put("/api/settings/tracking/bigquery", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
+    try {
+      const body = req.body?.bigquery ?? req.body;
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return res.status(400).json({ error: "Request body must be a bigquery object" });
+      }
+      persistTrackingSettings({ bigquery: body }, res, auth.author);
+      const { getBigQueryConfigStatus } = await import("../ecommerce/bigquery-client");
+      res.json({ success: true, ...getBigQueryConfigStatus(getContentRoot(res)) });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.post("/api/settings/tracking/bigquery/test", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+    try {
+      const { testBigQueryConnection } = await import("../ecommerce/bigquery-client");
+      const result = await testBigQueryConnection(getContentRoot(res));
+      res.status(result.ok ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({
+        ok: false,
+        error: err?.message || String(err),
+        elapsed_ms: 0,
+        warnings: [],
+      });
     }
   });
 
@@ -1389,7 +1440,7 @@ export function registerSettingsRoutes(app: Express): void {
   });
 
   app.get("/api/settings/entry-preview", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const contentRoot = getContentRoot(res);
@@ -1431,7 +1482,7 @@ export function registerSettingsRoutes(app: Express): void {
   });
 
   app.put("/api/settings/entry-preview", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const schema = z.object({
@@ -1474,7 +1525,7 @@ export function registerSettingsRoutes(app: Express): void {
    * - example: https://example.com (validates API token / Browser Rendering only)
    */
   app.post("/api/settings/entry-preview/test-screenshot", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const contentRoot = getContentRoot(res);
@@ -1566,7 +1617,7 @@ export function registerSettingsRoutes(app: Express): void {
   });
 
   app.put("/api/settings/search-console", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_edit");
+    const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     try {
       const schema = z.object({

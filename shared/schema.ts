@@ -160,10 +160,12 @@ export {
   aiFlexPathDragAndDropSchema,
   aiFlexPathCourseColorSelectorSchema,
   aiFlexPathSimplifiedSchema,
+  aiFlexPathSectionSchema,
   type AiFlexPathDefault,
   type AiFlexPathDragAndDrop,
   type AiFlexPathCourseColorSelector,
   type AiFlexPathSimplified,
+  type AiFlexPathSection,
 } from "../site_4geeks-com/component-registry/ai_flex_path/v1.0/schema";
 
 // ============================================
@@ -558,6 +560,31 @@ export const imageEntrySchema = z.object({
   source_item: z.string().optional(),
   parentId: z.string().optional(),
   quality_override: z.number().optional(),
+  /** How the asset entered the registry. Missing = legacy non-AI. */
+  origin: z.enum(["upload", "import", "ai"]).optional(),
+  ai: z
+    .object({
+      generated: z.literal(true),
+      /** @deprecated Prefer sidecar; kept optional for legacy rows */
+      model: z.string().optional(),
+      /** @deprecated Prefer sidecar; kept optional for legacy rows */
+      prompt: z.string().optional(),
+      generated_at: z.string().optional(),
+      requested_by: z
+        .object({
+          kind: z.enum(["user", "agent", "system"]),
+          id: z.string().optional(),
+          name: z.string().optional(),
+        })
+        .optional(),
+      /** Public URL or path of AI meta sidecar JSON (prompt/model). */
+      meta_src: z.string().optional(),
+    })
+    .optional(),
+  /** ISO timestamp of last public viewport impression (AI GC grace input). */
+  last_impression_at: z.string().optional(),
+  /** ISO timestamp when the asset was first registered (gallery Newest sort). */
+  registered_at: z.string().optional(),
 });
 
 export const tagDefinitionSchema = z.object({

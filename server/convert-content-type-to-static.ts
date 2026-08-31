@@ -124,7 +124,7 @@ function listSharedTemplateFiles(typeDir: string): string[] {
   if (!fs.existsSync(typeDir)) return [];
   return fs
     .readdirSync(typeDir)
-    .filter((f) => /^single\.[a-z0-9-]+\.ya?ml$/i.test(f))
+    .filter((f) => /^(?:template|single)\.[a-z0-9-]+\.ya?ml$/i.test(f))
     .map((f) => path.join(typeDir, f));
 }
 
@@ -391,8 +391,8 @@ export async function convertContentTypeToStatic(
       skipped,
       message:
         `Will convert ${bySlug.size} slug(s) / ${localeCount} locale file(s) from database "${dbName}" ` +
-        `into ${directory}/, unlink the database, set single_template: true, preserve _common.single.yml, ` +
-        `and delete ${templateFiles.length} single.*.yml template file(s). ` +
+        `into ${directory}/, unlink the database, set single_template: true, preserve _common.template.yml / _common.single.yml, ` +
+        `and delete ${templateFiles.length} template.*.yml / single.*.yml shell file(s). ` +
         `Existing per-entry overlay patches will be merged into full static YAML and overwritten.`,
     };
   }
@@ -415,7 +415,7 @@ export async function convertContentTypeToStatic(
         if (!merged) {
           skipped.push({
             reason: "missing_template",
-            detail: `single.${locale}.yml for ${contentType}`,
+            detail: `template.${locale}.yml for ${contentType}`,
           });
           continue;
         }

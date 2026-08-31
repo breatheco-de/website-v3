@@ -1,11 +1,14 @@
 /**
- * URL-pattern param peer observation (locale-scoped category, etc.).
+ * URL-pattern param peer observation (locale-scoped writes, locale-only observe).
  */
 import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
-import { type ContentTypeConfig } from "./content-types";
-import { isLocaleOnlyUrlParam } from "@shared/urlParamRules";
+import {
+  type ContentTypeConfig,
+  getRawUrlParamValue,
+  listExtraUrlPatternParams,
+} from "./content-types";
 
 function safeLoad(raw: string): Record<string, unknown> | null {
   try {
@@ -16,6 +19,15 @@ function safeLoad(raw: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+/** Extra `:param` names from a content type config (excludes :slug / :locale). */
+export function urlPatternParams(config: ContentTypeConfig): string[] {
+  return listExtraUrlPatternParams(config.url_pattern);
+}
+
+export function isUrlPatternParam(config: ContentTypeConfig, param: string): boolean {
+  return urlPatternParams(config).includes(param);
 }
 
 export function extractParamSlug(value: unknown): string | null {
@@ -42,32 +54,22 @@ export function observeParamValues(
   const dir = path.join(contentPath, dirName);
   if (!fs.existsSync(dir)) return [];
   const seen = new Set<string>();
-  const localeOnly = isLocaleOnlyUrlParam(param);
+  const mapping = config.field_mapping;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     if (entry.name.startsWith("_")) continue;
     const candidates = locale
-      ? localeOnly
-        ? localeYamlCandidatesForObserve(locale).map((f) => path.join(dir, entry.name, f))
-        : [
-            path.join(dir, entry.name, "_common.yml"),
-            ...localeYamlCandidatesForObserve(locale).map((f) => path.join(dir, entry.name, f)),
-          ]
-      : localeOnly
-        ? ["en", "es"].flatMap((loc) =>
-            localeYamlCandidatesForObserve(loc).map((f) => path.join(dir, entry.name, f)),
-          )
-        : [
-            path.join(dir, entry.name, "_common.yml"),
-            path.join(dir, entry.name, "en.yml"),
-            path.join(dir, entry.name, "es.yml"),
-          ];
+      ? localeYamlCandidatesForObserve(locale).map((f) => path.join(dir, entry.name, f))
+      : ["en", "es"].flatMap((loc) =>
+          localeYamlCandidatesForObserve(loc).map((f) => path.join(dir, entry.name, f)),
+        );
     for (const file of candidates) {
       if (!fs.existsSync(file)) continue;
       try {
         const data = safeLoad(fs.readFileSync(file, "utf-8"));
         if (!data) continue;
-        const slug = extractParamSlug(data[param]);
+        const raw = getRawUrlParamValue(data, param, mapping);
+        const slug = extractParamSlug(raw);
         if (slug) seen.add(slug);
       } catch {
         /* skip */
@@ -118,7 +120,7 @@ export function validateUrlParamPeerValues(
 }
 
 export function collectProposedUrlParamValuesByLocale(
-  common: Record<string, unknown>,
+  _common: Record<string, unknown>,
   locales: Record<string, Record<string, unknown>>,
   params: string[],
 ): Record<string, Record<string, string>> {
@@ -126,14 +128,8 @@ export function collectProposedUrlParamValuesByLocale(
   for (const [loc, locData] of Object.entries(locales)) {
     out[loc] = {};
     for (const param of params) {
-      if (isLocaleOnlyUrlParam(param)) {
-        const v = extractParamSlug(locData[param]);
-        if (v) out[loc][param] = v;
-      } else {
-        const fromCommon = extractParamSlug(common[param]);
-        const v = fromCommon ?? extractParamSlug(locData[param]);
-        if (v) out[loc][param] = v;
-      }
+      const v = extractParamSlug(locData[param]);
+      if (v) out[loc][param] = v;
     }
   }
   return out;

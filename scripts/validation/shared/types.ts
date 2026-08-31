@@ -102,6 +102,8 @@ export interface ValidationIssueCompletion {
   completedBy: string;
   completedAt: string;
   actor?: ValidationIssueActor;
+  /** MCP agent summary: what was changed and how. */
+  report?: string;
 }
 
 /** In-progress claim overlay — keyed by StoredValidationIssue.id; TTL-based. */
@@ -110,6 +112,27 @@ export interface ValidationIssueClaim {
   claimedAt: string;
   expiresAt: string;
   actor?: ValidationIssueActor;
+  /** MCP agent rationale for claiming this issue. */
+  report?: string;
+}
+
+/**
+ * Prior claim attempt that was released or expired — keyed by issue id.
+ * Newest-first array; capped by site llm.yml `validation_issues.max_attempts`.
+ */
+export interface ValidationIssueAttempt {
+  /** Who released (or claimer when reason is ttl_expired). */
+  by: string;
+  /** Original claim holder when known. */
+  claimedBy?: string;
+  at: string;
+  actor?: ValidationIssueActor;
+  reason: "released" | "ttl_expired" | "complete_rejected_still_open";
+  /** Required when reason === "released" (what went wrong / why stopping). */
+  report?: string;
+  claimedAt?: string;
+  claimReport?: string;
+  agent_session_id?: string;
 }
 
 export interface EntryRunMeta {
@@ -156,6 +179,11 @@ export interface ValidationCacheFileV5 {
    * cleared on release, TTL expiry, complete, or when the issue id is removed.
    */
   claims?: Record<string, ValidationIssueClaim>;
+  /**
+   * Prior release/TTL attempts: issue id → newest-first list (capped).
+   * Survives same-id rewrite and soft-complete; dropped when issue id is removed.
+   */
+  attempts?: Record<string, ValidationIssueAttempt[]>;
   /** @deprecated Compat projection rebuilt from issues; prefer issues + indexes. */
   pages?: Record<string, PageCacheEntry>;
   databases?: Record<string, DatabaseCacheEntry>;

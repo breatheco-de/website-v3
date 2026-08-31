@@ -118,17 +118,7 @@ export interface GscInspectEnqueueResponse {
   queue: GscInspectQueueStats;
 }
 
-export function gscHeadline(record: GscInspectionRecord | null | undefined, resolved?: GscResolvedUrl): string {
-  if (resolved?.isDraft) return "Not in sitemap (draft)";
-  if (record?.error && !record.verdict && !record.coverageState) return "Error";
-  if (!record) return "Never checked";
-  const verdict = (record.verdict || "").toUpperCase();
-  if (verdict === "PASS") return "Indexed";
-  const coverage = (record.coverageState || "").toLowerCase();
-  if (coverage.includes("submitted and indexed") || coverage === "indexed") return "Indexed";
-  if (record.error) return "Error";
-  return "Not indexed";
-}
+export { gscHeadline } from "@shared/search-engine-status";
 
 export function gscInspectModeLabel(mode: GscInspectMode | null | undefined): string {
   if (mode === "never") return "never inspected";

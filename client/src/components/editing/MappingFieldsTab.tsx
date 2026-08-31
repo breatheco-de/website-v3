@@ -129,14 +129,14 @@ function FieldsEducationBlock({
           <div className="space-y-2">
             <p>
               Fields are the content-type schema (Manage → Fields). Custom fields appear here and as{" "}
-              <code className="text-xs bg-muted px-1 rounded font-mono">{`{{ single.fieldName }}`}</code>.
+              <code className="text-xs bg-muted px-1 rounded font-mono">{`{{ entry.fieldName }}`}</code>.
               SEO cluster fields (
               <code className="text-xs font-mono">{`{{ seo.main_keyword }}`}</code>
               ) live on the <strong>SEO Meta</strong> tab. Use that tab for head keys too (
               <code className="text-xs font-mono">{`{{ meta.* }}`}</code>). System identity is auto-available as{" "}
-              <code className="text-xs font-mono">{`{{ single.slug }}`}</code> /{" "}
-              <code className="text-xs font-mono">{`{{ single.locale }}`}</code> /{" "}
-              <code className="text-xs font-mono">{`{{ single.image }}`}</code> (and underscore forms).{" "}
+              <code className="text-xs font-mono">{`{{ entry.slug }}`}</code> /{" "}
+              <code className="text-xs font-mono">{`{{ entry.locale }}`}</code> /{" "}
+              <code className="text-xs font-mono">{`{{ entry.image }}`}</code> (and underscore forms).{" "}
               <code className="text-xs font-mono">_hreflangs</code> is routing-only. Change DB identity sources on
               Manage → Fields when a database is attached.
             </p>
@@ -238,9 +238,9 @@ function FieldsEducationBlock({
                   <li>
                     Remap sources only on Manage → Fields.{" "}
                     <code className="text-[11px] font-mono">_slug</code> aliases to{" "}
-                    <code className="text-[11px] font-mono">{`{{ single.slug }}`}</code>;{" "}
+                    <code className="text-[11px] font-mono">{`{{ entry.slug }}`}</code>;{" "}
                     <code className="text-[11px] font-mono">_image</code> drives preview/OG and aliases to{" "}
-                    <code className="text-[11px] font-mono">{`{{ single.image }}`}</code>.
+                    <code className="text-[11px] font-mono">{`{{ entry.image }}`}</code>.
                   </li>
                   {!hasDatabase && (
                     <li>

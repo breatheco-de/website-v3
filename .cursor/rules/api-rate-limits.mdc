@@ -1,0 +1,36 @@
+---
+description: New HTTP API routes must declare a rate-limit policy via the api.* helper.
+globs:
+  - server/routes/**/*.ts
+  - server/rate-limit/**/*.ts
+---
+
+# API rate limits
+
+New routes under `/api` **must** register through [`server/rate-limit/api.ts`](server/rate-limit/api.ts) — not raw `app.post("/api/...")`.
+
+```ts
+import { api } from "../rate-limit/api.js";
+
+api.post(app, "/api/example", { rate: "staffWrite" }, handler);
+api.get(app, "/api/health", { rate: "exempt", reason: "health probe" }, handler);
+```
+
+## Policies
+
+| Policy | Use for |
+|---|---|
+| `expensiveAi` | OpenRouter image generation |
+| `expensiveCapture` | Cloudflare Browser Run / entry-preview enqueue |
+| `staffWrite` | Default for staff mutating APIs (future) |
+| `publicRead` | Public read APIs (future) |
+| `auth` | Login / OAuth (future) |
+| `exempt` | Deliberate opt-out — **requires `reason`** |
+
+Limits are per-identity (+ global ceiling on expensive policies). Only **successful 2xx** responses consume quota.
+
+Streaming handlers (e.g. generate-images NDJSON) must call `markRateLimitSuccess(res)` when a billable success completes, or `markRateLimitNoCharge(res)` on cancel/error.
+
+Legacy `app.*` routes are grandfathered; run `npm run check:api-rate` to list offenders. New work uses `api.*`.
+
+Store is in-memory per process (resets on restart). Redis can plug in later via `RateLimitStore`.

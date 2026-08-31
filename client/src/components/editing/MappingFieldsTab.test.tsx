@@ -19,7 +19,7 @@ describe("NotMetaFieldBadge", () => {
   it("documents external meta keys for title and description", () => {
     expect(NOT_META_FIELD_COPY.title.metaKey).toBe("meta.page_title");
     expect(NOT_META_FIELD_COPY.description.metaKey).toBe("meta.description");
-    expect(NOT_META_FIELD_COPY.title.singleVar).toBe("{{ single.title }}");
+    expect(NOT_META_FIELD_COPY.title.singleVar).toBe("{{ entry.title }}");
   });
 
   it("includes SEO Meta CTA test id when onOpenSeoMeta is provided", () => {

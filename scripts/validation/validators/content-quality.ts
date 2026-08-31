@@ -6,6 +6,14 @@ import { isEntryDetached, isSharedLayoutType } from "../../../server/shared-layo
 import { isValidAttachedOverlayPatch } from "@shared/sectionLeftovers";
 import { contentIndex } from "../../../server/content-index";
 import { createPublicUrlResolver } from "../../../server/redirects";
+import {
+  collectOutboundPathsFromData,
+  entryIdFromContentFile,
+  findInternalLinks,
+  type InternalLinkHit,
+} from "../../../server/link-extract";
+import { queueLinkIndexSet } from "../../../server/link-index";
+import { liveFilesForSeo } from "../shared/seoValidationScope";
 import * as path from "path";
 
 const CRITICAL_FIELDS = new Set(["title", "heading", "description", "subtitle", "tagline"]);
@@ -31,67 +39,12 @@ function findEmptyFields(obj: unknown, results: string[], currentPath: string = 
   }
 }
 
-interface InternalLinkHit {
-  link: string;
-  fieldPath: string;
-  /** Section component type when the link sits under sections[i]. */
-  component?: string;
-}
-
-function findInternalLinks(
-  obj: unknown,
-  hits: InternalLinkHit[],
-  currentPath = "",
-  sectionType?: string,
-): void {
-  if (!obj || typeof obj !== "object") {
-    if (typeof obj === "string") {
-      const urlPattern = /(?:^|\s)(\/(?:en|es)\/[^\s"'<>]*)/g;
-      let match: RegExpExecArray | null;
-      while ((match = urlPattern.exec(obj)) !== null) {
-        hits.push({
-          link: match[1],
-          fieldPath: currentPath || "(root)",
-          component: sectionType,
-        });
-      }
-    }
-    return;
-  }
-
-  if (Array.isArray(obj)) {
-    const underSections =
-      currentPath === "sections" || currentPath.endsWith(".sections");
-    obj.forEach((item, index) => {
-      const itemPath = `${currentPath}[${index}]`;
-      let nextSectionType = sectionType;
-      if (
-        underSections &&
-        item &&
-        typeof item === "object" &&
-        !Array.isArray(item)
-      ) {
-        const t = (item as Record<string, unknown>).type;
-        if (typeof t === "string" && t.length > 0) nextSectionType = t;
-      }
-      findInternalLinks(item, hits, itemPath, nextSectionType);
-    });
-    return;
-  }
-
-  const record = obj as Record<string, unknown>;
-  for (const [key, value] of Object.entries(record)) {
-    const fieldPath = currentPath ? `${currentPath}.${key}` : key;
-    findInternalLinks(value, hits, fieldPath, sectionType);
-  }
-}
-
 function isAttachedOverlayFile(
   file: { type: string; slug: string; filePath: string },
   contentRoot?: string,
 ): boolean {
   const base = path.basename(file.filePath);
-  if (base.startsWith("single.")) return false;
+  if (base.startsWith("single.") || base.startsWith("template.")) return false;
   if (!isSharedLayoutType(file.type, contentRoot)) return false;
   if (isEntryDetached(file.type, file.slug, contentRoot)) return false;
   return true;
@@ -116,8 +69,10 @@ export const contentQualityValidator: Validator = {
     let brokenLinks = 0;
 
     const publicUrls = createPublicUrlResolver(contentIndex);
+    const liveFileSet = new Set(liveFilesForSeo(context));
 
     for (const file of context.contentFiles) {
+      if (!liveFileSet.has(file)) continue;
       pagesChecked++;
 
       let parsed: Record<string, unknown> | null = null;
@@ -187,7 +142,7 @@ export const contentQualityValidator: Validator = {
               : `Section at index ${i} is missing a type field (typeless leftover; it does not render)`,
             file: file.filePath,
             suggestion: overlay
-              ? "Delete this stub, or add section_id / _remove if it is an overlay patch for single.{locale}.yml"
+              ? "Delete this stub, or add section_id / _remove if it is an overlay patch for template.{locale}.yml"
               : "Delete the leftover YAML item. It does not render. Do not add a type to a fragment that duplicates a real section.",
           });
         }
@@ -223,6 +178,17 @@ export const contentQualityValidator: Validator = {
             suggestion: `Found at ${hit.fieldPath}. Fix the URL or remove the broken link. Confirm with Redirects → Test a URL.`,
           });
         }
+      }
+
+      try {
+        const outboundPaths = collectOutboundPathsFromData(mergedForEmpty, locale, publicUrls);
+        queueLinkIndexSet(
+          entryIdFromContentFile(file.type, file.slug, locale),
+          outboundPaths,
+          contentRoot,
+        );
+      } catch {
+        /* derived index is best-effort */
       }
     }
 

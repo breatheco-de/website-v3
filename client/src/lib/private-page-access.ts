@@ -12,6 +12,9 @@ export function isPrivateEmbedPath(pathname: string): boolean {
   if (path === "/private/entry-preview-frame" || path.startsWith("/private/entry-preview-frame/")) {
     return true;
   }
+  if (/^\/private\/demo\/[a-f0-9]{32}\/?$/.test(path)) {
+    return true;
+  }
   return /^\/private\/component-showcase\/[^/]+\/preview\/?$/.test(path);
 }
 

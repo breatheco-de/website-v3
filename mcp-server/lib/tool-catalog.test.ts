@@ -10,7 +10,10 @@ import {
 
 const webmaster: CatalogGrant[] = [
   { name: "users_manage" },
-  { name: "seo_edit" },
+  { name: "seo_edit", contentTypes: "*" },
+  { name: "read_redirects" },
+  { name: "edit_redirects" },
+  { name: "seo_settings" },
   { name: "metrics_view" },
   { name: "content_view", contentTypes: "*" },
   { name: "content_edit_text", contentTypes: "*" },
@@ -25,7 +28,9 @@ const blogEditor: CatalogGrant[] = [
   { name: "content_view", contentTypes: ["blog"] },
   { name: "content_edit_text", contentTypes: ["blog"] },
 ];
-const seoOnly: CatalogGrant[] = [{ name: "seo_edit" }];
+const seoOnly: CatalogGrant[] = [{ name: "seo_edit", contentTypes: "*" }];
+const seoBlogOnly: CatalogGrant[] = [{ name: "seo_edit", contentTypes: ["blog"] }];
+const redirectReader: CatalogGrant[] = [{ name: "read_redirects" }];
 
 describe("allowedToolNames", () => {
   it("Metrics Viewer sees only identity tools", () => {
@@ -43,8 +48,12 @@ describe("allowedToolNames", () => {
     expect(names.has("get_entry_content")).toBe(true);
     expect(names.has("get_entry_seo")).toBe(true);
     expect(names.has("explain_site")).toBe(true);
+    expect(names.has("bootstrap_agent")).toBe(true);
     expect(names.has("list_components")).toBe(true);
+    expect(names.has("create_component_section_demo")).toBe(true);
     expect(names.has("get_product_funnel")).toBe(true);
+    expect(names.has("get_product_funnel_analytics")).toBe(true);
+    expect(names.has("get_or_set_image_to_gallery")).toBe(true);
     expect(names.has("update_fields")).toBe(false);
     expect(names.has("create_entry")).toBe(false);
     expect(names.has("test_redirect")).toBe(false);
@@ -70,6 +79,8 @@ describe("allowedToolNames", () => {
     expect(names.has("run_entry_diagnostics")).toBe(true);
     expect(names.has("reindex_database")).toBe(true);
     expect(names.has("test_redirect")).toBe(true);
+    expect(names.has("update_redirect")).toBe(true);
+    expect(names.has("ensure_content_type_schema_org")).toBe(true);
     expect(names.has("update_content_type")).toBe(false);
   });
 
@@ -82,7 +93,7 @@ describe("allowedToolNames", () => {
     expect(names.has("ensure_content_type_schema_org")).toBe(false);
   });
 
-  it("seo_edit-only sees SEO inspect and SEO writes, not YAML body reads", () => {
+  it("seo_edit-only sees SEO inspect and SEO writes, not YAML body reads or redirects", () => {
     const names = new Set(allowedToolNames(seoOnly));
     expect(names.has("get_entry_seo")).toBe(true);
     expect(names.has("list_entry_seo")).toBe(true);
@@ -92,11 +103,26 @@ describe("allowedToolNames", () => {
     expect(names.has("run_entry_diagnostics")).toBe(true);
     expect(names.has("get_diagnostics_job")).toBe(true);
     expect(names.has("update_meta_fields")).toBe(true);
-    expect(names.has("test_redirect")).toBe(true);
     expect(names.has("update_fields")).toBe(true);
+    expect(names.has("test_redirect")).toBe(false);
+    expect(names.has("update_redirect")).toBe(false);
+    expect(names.has("ensure_content_type_schema_org")).toBe(false);
     expect(names.has("get_entry_content")).toBe(false);
     expect(names.has("list_entries")).toBe(false);
     expect(names.has("explain_site")).toBe(false);
+    expect(names.has("reset_entry_field")).toBe(false);
+  });
+
+  it("read_redirects reveals test_redirect only", () => {
+    const names = new Set(allowedToolNames(redirectReader));
+    expect(names.has("test_redirect")).toBe(true);
+    expect(names.has("update_redirect")).toBe(false);
+  });
+
+  it("seo_settings reveals ensure_content_type_schema_org", () => {
+    const names = new Set(allowedToolNames([{ name: "seo_settings" }]));
+    expect(names.has("ensure_content_type_schema_org")).toBe(true);
+    expect(names.has("update_meta_fields")).toBe(false);
   });
 });
 
@@ -110,9 +136,19 @@ describe("visibleContentTypes", () => {
     expect(visibleContentTypes(contentViewer)).toBeNull();
   });
 
-  it("seo_edit unlocks all types for SEO listings", () => {
-    expect(visibleContentTypes(seoOnly, { seoUnlocksAll: true })).toBeNull();
-    expect(visibleContentTypes(seoOnly)).toEqual(new Set());
+  it("unions content_view and seo_edit scopes for SEO listings", () => {
+    expect(visibleContentTypes(seoOnly, { unionSeoEdit: true })).toBeNull();
+    expect(visibleContentTypes(seoBlogOnly, { unionSeoEdit: true })).toEqual(new Set(["blog"]));
+    expect(visibleContentTypes(seoBlogOnly)).toEqual(new Set());
+    expect(
+      visibleContentTypes(
+        [
+          { name: "content_view", contentTypes: ["landing"] },
+          { name: "seo_edit", contentTypes: ["blog"] },
+        ],
+        { unionSeoEdit: true },
+      ),
+    ).toEqual(new Set(["landing", "blog"]));
   });
 });
 
@@ -120,6 +156,7 @@ describe("grantsCanMutateMetrics", () => {
   it("is false for view-only roles", () => {
     expect(grantsCanMutateMetrics(metricsViewer)).toBe(false);
     expect(grantsCanMutateMetrics(contentViewer)).toBe(false);
+    expect(grantsCanMutateMetrics(redirectReader)).toBe(false);
     expect(grantsCanMutateMetrics([...metricsViewer, ...contentViewer])).toBe(false);
   });
 

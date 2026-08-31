@@ -207,7 +207,7 @@ export function staff404ActionCopy(
         title: `Edit the ${facts.typeLabel} templates`,
         description: looking
           ? "Looking for variants…"
-          : `Shared layout (single.*.yml) for every attached ${facts.typeLabel}`,
+          : `Shared layout (template.*.yml) for every attached ${facts.typeLabel}`,
         buttonLabel: "Edit templates",
       };
     }

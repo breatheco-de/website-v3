@@ -39,12 +39,61 @@ describe("pipeline-db runner", () => {
     clearSiteSqliteCacheForTests();
   });
 
-  it("migrates a fresh site to version 6", () => {
+  it("migrates a fresh site to current schema version", () => {
     const site = `${TEST_PREFIX}-fresh-${Date.now()}`;
     rmSite(site);
     const version = ensurePipelineDb(site, { skipBackup: true });
     expect(version).toBe(PIPELINE_SCHEMA_VERSION);
     expect(getPipelineSchemaVersion(site)).toBe(PIPELINE_SCHEMA_VERSION);
+    rmSite(site);
+  });
+
+  it("adds agent_session_id when upgrading from v6-shaped DB", () => {
+    const site = `${TEST_PREFIX}-v6-session-${Date.now()}`;
+    rmSite(site);
+    fs.mkdirSync(siteDir(site), { recursive: true });
+    const raw = new Database(dbPath(site));
+    raw.exec(`
+      CREATE TABLE events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        site TEXT NOT NULL,
+        resource_json TEXT NOT NULL DEFAULT '{}',
+        cause TEXT,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        triggered_by_event_id INTEGER,
+        triggered_by_event_ids_json TEXT,
+        attribution_json TEXT NOT NULL DEFAULT '[]',
+        published INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE pipeline_schema_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO pipeline_schema_version (id, version) VALUES (1, 6);
+      CREATE TABLE pipeline_state (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+      CREATE TABLE leases (
+        resource TEXT PRIMARY KEY,
+        holder TEXT NOT NULL,
+        token INTEGER NOT NULL DEFAULT 1,
+        expires_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_events_triggered_by ON events(triggered_by_event_id);
+    `);
+    raw.close();
+
+    ensurePipelineDb(site, { skipBackup: true });
+    expect(getPipelineSchemaVersion(site)).toBe(PIPELINE_SCHEMA_VERSION);
+    const e = emitEvent({
+      site,
+      type: "agent_session_started",
+      agent_session_id: "sess-test-1",
+      payload: { label: "test" },
+    });
+    expect(e.agent_session_id).toBe("sess-test-1");
+    expect(e.published).toBe(true);
+    expect(listEvents({ site, agentSessionId: "sess-test-1", limit: 5 })).toHaveLength(1);
     rmSite(site);
   });
 

@@ -10,10 +10,10 @@ version: v1.0
 items:
   - label: Blog
     url: /en/blog
-  - label: {{ single.category | category }}
+  - label: {{ entry.category | category }}
     url: /en/blog?taxonomy=category
-  - label: {{ single.slug | slug }}
-tags: {{ single.tags }}
+  - label: {{ entry.slug | slug }}
+tags: {{ entry.tags }}
 `;
 
 describe("findReplaceableTextRange", () => {
@@ -44,7 +44,7 @@ describe("findReplaceableTextRange", () => {
   });
 
   it("returns null when every occurrence is inside a template span", () => {
-    const doc = `label: {{ single.category | category }}\n`;
+    const doc = `label: {{ entry.category | category }}\n`;
     expect(findReplaceableTextRange(doc, "category")).toBeNull();
   });
 
@@ -57,12 +57,12 @@ describe("findReplaceableTextRange", () => {
 
 describe("findTemplateSpans", () => {
   it("detects mid-string templates in URLs", () => {
-    const doc = `url: /en/blog?taxonomy={{ single.category | category }}\n`;
+    const doc = `url: /en/blog?taxonomy={{ entry.category | category }}\n`;
     const spans = findTemplateSpans(doc);
     expect(spans).toHaveLength(1);
-    expect(spans[0].name).toBe("single.category");
+    expect(spans[0].name).toBe("entry.category");
     expect(doc.slice(spans[0].from, spans[0].to)).toBe(
-      "{{ single.category | category }}",
+      "{{ entry.category | category }}",
     );
   });
 });

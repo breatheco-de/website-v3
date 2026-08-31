@@ -3,14 +3,17 @@ import os from "os";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BUILTIN_IGNORE_RULE_INPUTS } from "@shared/runtime-issues-ignore";
+import { fingerprintNotFound } from "@shared/runtime-issues";
 import { gcs } from "./gcs";
 import {
   _resetRuntimeIssuesForTests,
   _setRuntimeIssuesProductionForTests,
   addIgnoreRules,
+  deleteRuntimeIssuesByFingerprints,
   listRuntimeIssues,
   loadRuntimeIssuesForSite,
   pullRuntimeIssuesFromGcs,
+  purgeIssuesMatchingIgnoreRules,
   recordPublicNotFound,
   resetRuntimeIssuesForSite,
   saveIssueProbe,
@@ -333,11 +336,15 @@ describe("runtime-issues-store", () => {
       path: "/us/keep",
       userAgent: CHROME,
     });
+    const oldFp = listRuntimeIssues("site_test", { contentRoot }).issues.find((i) => i.path === "/us/old")!
+      .fingerprint;
     const added = addIgnoreRules("site_test", [{ kind: "exact", path: "/us/old", label: "old" }], {
       contentRoot,
       seedPaths: ["/us/old"],
+      purgeFingerprints: [oldFp],
     });
     expect(added.removed).toBe(1);
+    expect(added.added).toBe(1);
     expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual(["/us/keep"]);
     const reset = resetRuntimeIssuesForSite("site_test", contentRoot);
     expect(Object.keys(reset.issues)).toHaveLength(0);
@@ -346,6 +353,140 @@ describe("runtime-issues-store", () => {
       BUILTIN_RULE_COUNT + 1,
     );
     expect(reset.dropScrapers).toBe(true);
+  });
+
+  it("addIgnoreRules purges selected fingerprints when the rule already exists", () => {
+    const contentRoot = root();
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/us/old",
+      userAgent: CHROME,
+    });
+    const fp = listRuntimeIssues("site_test", { contentRoot }).issues[0].fingerprint;
+    const first = addIgnoreRules(
+      "site_test",
+      [{ kind: "exact", path: "/us/old", label: "old" }],
+      { contentRoot, seedPaths: ["/us/old"] },
+    );
+    expect(first.added).toBe(1);
+    expect(first.removed).toBe(0);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues).toHaveLength(1);
+
+    const second = addIgnoreRules(
+      "site_test",
+      [{ kind: "exact", path: "/us/old", label: "old" }],
+      { contentRoot, seedPaths: ["/us/old"], purgeFingerprints: [fp] },
+    );
+    expect(second.added).toBe(0);
+    expect(second.removed).toBe(1);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues).toHaveLength(0);
+  });
+
+  it("deleteRuntimeIssuesByFingerprints removes only targeted rows", () => {
+    const contentRoot = root();
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/us/a",
+      userAgent: CHROME,
+    });
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/us/b",
+      userAgent: CHROME,
+    });
+    const listed = listRuntimeIssues("site_test", { contentRoot });
+    const fpA = listed.issues.find((i) => i.path === "/us/a")!.fingerprint;
+    const ignoredBefore = listed.ignored.length;
+    const result = deleteRuntimeIssuesByFingerprints("site_test", [fpA], contentRoot);
+    expect(result.removed).toBe(1);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual(["/us/b"]);
+    expect(listRuntimeIssues("site_test", { contentRoot }).ignored).toHaveLength(ignoredBefore);
+  });
+
+  it("deleteRuntimeIssuesByFingerprints returns 0 for empty input", () => {
+    const contentRoot = root();
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/us/a",
+      userAgent: CHROME,
+    });
+    expect(deleteRuntimeIssuesByFingerprints("site_test", [], contentRoot).removed).toBe(0);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues).toHaveLength(1);
+  });
+
+  it("purgeIssuesMatchingIgnoreRules removes rows covered by ignore templates", () => {
+    const contentRoot = root();
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/us/junk",
+      userAgent: CHROME,
+    });
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/us/real",
+      userAgent: CHROME,
+    });
+    addIgnoreRules("site_test", [{ kind: "exact", path: "/us/junk", label: "junk" }], { contentRoot });
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path).sort()).toEqual([
+      "/us/junk",
+      "/us/real",
+    ]);
+
+    const purged = purgeIssuesMatchingIgnoreRules("site_test", contentRoot);
+    expect(purged.removed).toBe(1);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual(["/us/real"]);
+  });
+
+  it("purgeIssuesMatchingIgnoreRules removes stale wp-json rows via builtin prefix", () => {
+    const contentRoot = root();
+    const wpFp = fingerprintNotFound("site_test", "en", "/wp-json/Batch/v1");
+    const realFp = fingerprintNotFound("site_test", "en", "/us/real");
+    const ts = Date.UTC(2026, 7, 14);
+    writeFileSync(
+      getRuntimeIssuesLocalPath("site_test", contentRoot),
+      JSON.stringify({
+        version: 1,
+        updatedAt: ts,
+        issues: {
+          [wpFp]: {
+            fingerprint: wpFp,
+            kind: "http.not_found",
+            path: "/wp-json/Batch/v1",
+            locale: "en",
+            count: 3,
+            firstSeen: ts,
+            lastSeen: ts,
+          },
+          [realFp]: {
+            fingerprint: realFp,
+            kind: "http.not_found",
+            path: "/us/real",
+            locale: "en",
+            count: 1,
+            firstSeen: ts,
+            lastSeen: ts,
+          },
+        },
+        recent: [],
+      }),
+      "utf-8",
+    );
+    _resetRuntimeIssuesForTests();
+
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path).sort()).toEqual([
+      "/us/real",
+      "/wp-json/Batch/v1",
+    ]);
+
+    const purged = purgeIssuesMatchingIgnoreRules("site_test", contentRoot);
+    expect(purged.removed).toBe(1);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual(["/us/real"]);
   });
 
   it("setDropScrapers is future-only and does not delete existing rows", () => {

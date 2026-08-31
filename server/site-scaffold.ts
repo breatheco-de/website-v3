@@ -180,23 +180,23 @@ sections:
     mkdirIfMissing(path.join(folderPath, "blog"));
 
     writeIfMissing(
-      path.join(folderPath, "blog", "_common.single.yml"),
-      `slug: "{{ single.slug }}"\ntitle: "{{ single.title }}"\nmeta:\n  robots: index, follow\n`,
+      path.join(folderPath, "blog", "_common.template.yml"),
+      `slug: "{{ entry.slug }}"\ntitle: "{{ entry.title }}"\nmeta:\n  robots: index, follow\n`,
     );
 
     writeIfMissing(
-      path.join(folderPath, "blog", "single.en.yml"),
+      path.join(folderPath, "blog", "template.en.yml"),
       `meta:
-  page_title: "{{ single.title }}"
-  description: "{{ single.excerpt }}"
+  page_title: "{{ entry.title }}"
+  description: "{{ entry.excerpt }}"
 sections:
   - type: text_block
     version: "1.0"
-    heading: "{{ single.title }}"
-    body: "{{ single.excerpt }}"
+    heading: "{{ entry.title }}"
+    body: "{{ entry.excerpt }}"
   - type: article
     version: "1.0"
-    content: "{{ single.body }}"
+    content: "{{ entry.body }}"
 `,
     );
 

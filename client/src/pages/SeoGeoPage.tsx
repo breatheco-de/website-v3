@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, DownloadCloud, ExternalLink, FileText, Globe, Info, Loader2, MoreVertical, Network, Plus, Star, Unlink } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, DownloadCloud, ExternalLink, FileText, Globe, Info, Loader2, MoreVertical, Network, Plus, Star, Unlink } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,8 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -254,17 +255,6 @@ type ClusterHealth = {
   byLocale: Record<string, ClusterBucketCounts>;
 };
 
-type BrokenClusterRefRow = {
-  slug: string;
-  contentType: string;
-  locale: string;
-  path: string;
-  pillar_path: string;
-  filePath: string;
-  main_keyword: string | null;
-  reason: "hub_not_found" | "hub_not_pillar";
-};
-
 type SeoClusterIssueRow = {
   code: string;
   entryKey?: string;
@@ -416,6 +406,7 @@ function ClusterHealthPanel({
   health,
   clusters,
   onEditSeo,
+  canEditSeoFor,
 }: {
   health: ClusterHealth;
   clusters: {
@@ -425,6 +416,7 @@ function ClusterHealthPanel({
     locale?: string;
   }[];
   onEditSeo: (contentType: string, slug: string, locale: string) => void;
+  canEditSeoFor: (contentType: string) => boolean;
 }) {
   const { stats } = health;
   const [activeBucket, setActiveBucket] = useState<ClusterFilterBucket | null>(null);
@@ -685,6 +677,12 @@ function ClusterHealthPanel({
                         size="sm"
                         className="h-7 px-2 text-xs"
                         data-testid={`button-cluster-bucket-edit-seo-${row.slug}`}
+                        disabled={!canEditSeoFor(row.contentType)}
+                        title={
+                          !canEditSeoFor(row.contentType)
+                            ? `You need seo_edit for content type "${row.contentType}"`
+                            : undefined
+                        }
                         onClick={() => onEditSeo(row.contentType, row.slug, row.locale)}
                       >
                         Edit SEO
@@ -744,49 +742,6 @@ function ClusterHealthPanel({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function BrokenClusterRefsPanel({
-  refs,
-  clusters,
-}: {
-  refs: BrokenClusterRefRow[];
-  clusters: {
-    pillarUrl: string;
-    hubId?: string;
-    keyword?: string | null;
-    locale?: string;
-  }[];
-}) {
-  if (refs.length === 0) return null;
-  return (
-    <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 p-3" data-testid="broken-cluster-refs-list">
-      <p className="text-xs font-medium text-foreground mb-2">Broken cluster references</p>
-      <ul className="space-y-2">
-        {refs.map((row) => (
-          <li key={`${row.contentType}-${row.slug}-${row.locale}`} className="text-xs">
-            <span className="font-mono text-foreground">{row.slug}</span>
-            <span className="text-muted-foreground"> · {row.contentType} · {row.locale.toUpperCase()}</span>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              {row.reason === "hub_not_pillar"
-                ? "Target URL is live but not marked as a pillar hub."
-                : "Target hub URL was not found."}
-              {row.pillar_path ? (
-                <>
-                  {" "}
-                  <code className="font-mono">{row.pillar_path}</code>
-                </>
-              ) : null}
-            </p>
-            <OrphanAssignButton
-              orphan={{ slug: row.slug, contentType: row.contentType, locale: row.locale }}
-              clusters={clusters}
-            />
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
@@ -1375,15 +1330,18 @@ function ClusterMemberRow({
   member,
   hubPillarUrl,
   hubId,
+  clusters,
   gscConfigured,
 }: {
   member: ClusterMember;
   hubPillarUrl: string;
   hubId: string;
+  clusters: SeoOverview["clusters"];
   gscConfigured?: boolean;
 }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const [changeOpen, setChangeOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
   const { data, isLoading, isError, error } = useQuery<ClusterEntryInfo>({
@@ -1472,6 +1430,13 @@ function ClusterMemberRow({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                data-testid={`button-cluster-change-${member.slug}`}
+                onSelect={() => setChangeOpen(true)}
+              >
+                <ArrowRightLeft className="h-3.5 w-3.5" />
+                Change cluster
+              </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 data-testid={`button-cluster-remove-${member.slug}`}
@@ -1572,6 +1537,22 @@ function ClusterMemberRow({
         </PopoverContent>
       </Popover>
 
+      <AssignClusterDialog
+        open={changeOpen}
+        onOpenChange={setChangeOpen}
+        entry={member}
+        clusters={clusters}
+        excludePillarUrl={hubPillarUrl}
+        title="Change cluster"
+        descriptionPrefix="Pick a new hub"
+        successTitle="Moved to cluster"
+        testIdPrefix="cluster-change"
+        onAssigned={() => {
+          invalidateClusterQueries(hubId);
+          setOpen(false);
+        }}
+      />
+
       <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
         <AlertDialogContent data-testid={`dialog-cluster-remove-${member.slug}`}>
           <AlertDialogHeader>
@@ -1601,24 +1582,43 @@ function ClusterMemberRow({
   );
 }
 
-function OrphanAssignButton({
-  orphan,
+function AssignClusterDialog({
+  open,
+  onOpenChange,
+  entry,
   clusters,
+  excludePillarUrl,
+  title,
+  descriptionPrefix,
+  successTitle,
+  testIdPrefix,
+  onAssigned,
 }: {
-  orphan: { slug: string; contentType: string; locale?: string };
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  entry: { slug: string; contentType: string; locale?: string };
   clusters: SeoOverview["clusters"];
+  excludePillarUrl?: string;
+  title: string;
+  descriptionPrefix: string;
+  successTitle: string;
+  testIdPrefix: string;
+  onAssigned?: () => void;
 }) {
   const { toast } = useToast();
-  const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const locale = orphan.locale || "en";
-  const hubs = clusters.filter((c) => (c.locale || "en") === locale);
+  const locale = entry.locale || "en";
+  const hubs = clusters.filter(
+    (c) =>
+      (c.locale || "en") === locale &&
+      (!excludePillarUrl || c.pillarUrl !== excludePillarUrl),
+  );
 
   const assignToHub = async (pillarUrl: string) => {
-    if (!orphan.contentType || !orphan.slug) {
+    if (!entry.contentType || !entry.slug) {
       toast({
         title: "Missing entry metadata",
-        description: "This orphan row is missing content type or slug.",
+        description: "This page is missing content type or slug.",
         variant: "destructive",
       });
       return;
@@ -1626,17 +1626,17 @@ function OrphanAssignButton({
     setSaving(true);
     try {
       await putSeoPillarPath({
-        contentType: orphan.contentType,
-        slug: orphan.slug,
+        contentType: entry.contentType,
+        slug: entry.slug,
         locale,
         pillarPath: pillarUrl,
       });
       toast({
-        title: "Assigned to cluster",
+        title: successTitle,
         description: "Pending Cloud Sync — seo.pillar_path was updated.",
       });
-      invalidateClusterQueries();
-      setOpen(false);
+      onAssigned?.();
+      onOpenChange(false);
     } catch (err) {
       toast({
         title: "Could not assign cluster",
@@ -1649,57 +1649,88 @@ function OrphanAssignButton({
   };
 
   return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="max-w-sm bg-background text-foreground"
+        data-testid={`dialog-${testIdPrefix}-${entry.slug}`}
+      >
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            {descriptionPrefix} ({locale.toUpperCase()}) for{" "}
+            <span className="font-medium text-foreground">{deslugifyLabel(entry.slug)}</span>.
+          </DialogDescription>
+        </DialogHeader>
+        {hubs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {excludePillarUrl
+              ? "No other pillar hubs found for this locale."
+              : "No pillar hubs found for this locale."}
+          </p>
+        ) : (
+          <ScrollArea className="max-h-56">
+            <div className="space-y-1 pr-2">
+              {hubs.map((hub) => (
+                <button
+                  key={hub.hubId || hub.pillarUrl}
+                  type="button"
+                  disabled={saving}
+                  className="w-full text-left rounded-md border border-border px-2 py-1.5 text-xs hover:bg-muted/50 disabled:opacity-50"
+                  onClick={() => void assignToHub(hub.pillarUrl)}
+                  data-testid={`${testIdPrefix}-hub-option-${hub.hubId || hub.pillarUrl}`}
+                >
+                  <span className="font-medium block">
+                    {clusterListLabel(hub.keyword, hub.pillarUrl)}
+                  </span>
+                  <span className="font-mono text-[10px] text-muted-foreground truncate block">
+                    {hub.pillarUrl}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
+        )}
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancel
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function OrphanAssignButton({
+  orphan,
+  clusters,
+}: {
+  orphan: { slug: string; contentType: string; locale?: string };
+  clusters: SeoOverview["clusters"];
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
     <>
       <Button
         variant="outline"
         size="sm"
-        className="h-6 text-[10px] mt-1"
+        className="h-7 px-2 text-xs"
         onClick={() => setOpen(true)}
         data-testid={`button-orphan-assign-${orphan.slug}`}
       >
         Assign to cluster
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-sm bg-background text-foreground" data-testid={`dialog-orphan-assign-${orphan.slug}`}>
-          <DialogHeader>
-            <DialogTitle>Assign to cluster</DialogTitle>
-            <DialogDescription>
-              Pick a hub ({locale.toUpperCase()}) for{" "}
-              <span className="font-medium text-foreground">{deslugifyLabel(orphan.slug)}</span>.
-            </DialogDescription>
-          </DialogHeader>
-          {hubs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No pillar hubs found for this locale.</p>
-          ) : (
-            <ScrollArea className="max-h-56">
-              <div className="space-y-1 pr-2">
-                {hubs.map((hub) => (
-                  <button
-                    key={hub.hubId || hub.pillarUrl}
-                    type="button"
-                    disabled={saving}
-                    className="w-full text-left rounded-md border border-border px-2 py-1.5 text-xs hover:bg-muted/50 disabled:opacity-50"
-                    onClick={() => void assignToHub(hub.pillarUrl)}
-                    data-testid={`orphan-hub-option-${hub.hubId || hub.pillarUrl}`}
-                  >
-                    <span className="font-medium block">
-                      {clusterListLabel(hub.keyword, hub.pillarUrl)}
-                    </span>
-                    <span className="font-mono text-[10px] text-muted-foreground truncate block">
-                      {hub.pillarUrl}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </ScrollArea>
-          )}
-          <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={saving}>
-              Cancel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AssignClusterDialog
+        open={open}
+        onOpenChange={setOpen}
+        entry={orphan}
+        clusters={clusters}
+        title="Assign to cluster"
+        descriptionPrefix="Pick a hub"
+        successTitle="Assigned to cluster"
+        testIdPrefix="orphan-assign"
+        onAssigned={() => invalidateClusterQueries()}
+      />
     </>
   );
 }
@@ -1716,7 +1747,6 @@ interface SeoOverview {
     members?: ClusterMember[];
   }[];
   clusterHealth?: ClusterHealth;
-  brokenClusterRefs?: BrokenClusterRefRow[];
   orphanPages: {
     slug: string;
     contentType: string;
@@ -1724,7 +1754,7 @@ interface SeoOverview {
     filePath: string;
     locale?: string;
     pillar_path?: string;
-    reason?: BrokenClusterRefRow["reason"];
+    reason?: "hub_not_found" | "hub_not_pillar";
   }[];
   featureCoverage: Record<string, number>;
   faqCoverage: { slug: string; contentType: string; locale: string; faqCount: number }[];
@@ -1777,6 +1807,98 @@ const ALL_FEATURES: Record<string, string> = {
   career_support: "Career Support",
   multilingual: "Multilingual",
 };
+
+function SeoOverviewCollapsibleCard({
+  title,
+  icon,
+  titleExtra,
+  summary,
+  actions,
+  alwaysVisible,
+  children,
+  className,
+  testId,
+  contentClassName,
+  toggleTestId,
+}: {
+  title: ReactNode;
+  icon?: ReactNode;
+  titleExtra?: ReactNode;
+  summary?: ReactNode;
+  actions?: ReactNode;
+  alwaysVisible?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  testId?: string;
+  contentClassName?: string;
+  toggleTestId?: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <Card className={className} data-testid={testId}>
+        <CardHeader className="pb-3 space-y-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-left rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    aria-expanded={open}
+                    data-testid={toggleTestId}
+                  >
+                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                      {icon}
+                      {title}
+                    </CardTitle>
+                  </button>
+                </CollapsibleTrigger>
+                {titleExtra}
+              </div>
+              {summary ? (
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="w-full text-left rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    aria-expanded={open}
+                  >
+                    <p className="text-xs text-muted-foreground tabular-nums">{summary}</p>
+                  </button>
+                </CollapsibleTrigger>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {actions}
+              <CollapsibleTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  aria-expanded={open}
+                  aria-label={open ? "Collapse section" : "Expand section"}
+                >
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 text-muted-foreground transition-transform duration-200",
+                      open && "rotate-180",
+                    )}
+                  />
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+          </div>
+          {alwaysVisible}
+        </CardHeader>
+        <CollapsibleContent>
+          <CardContent className={cn("pt-0", contentClassName)}>{children}</CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
+  );
+}
 
 function StatCard({
   label,
@@ -1882,7 +2004,7 @@ function SearchConsoleCoverageCard({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const { toast } = useToast();
   const { hasCapability } = useDebugAuth();
-  const canEdit = hasCapability("seo_edit");
+  const canEdit = hasCapability("seo_settings");
   const isDev = import.meta.env.DEV;
   const types = summary ? Object.keys(summary.byContentType).sort() : [];
   const inspected = summary?.inspected ?? 0;
@@ -2049,76 +2171,100 @@ function SearchConsoleCoverageCard({
     }
   }
 
+  const collapsedSummary =
+    configured === false
+      ? "Not configured"
+      : !summary || inspected === 0
+        ? "No URLs inspected yet"
+        : `${summary.indexed} indexed · ${summary.notIndexed} not indexed · ${summary.neverChecked} never checked`;
+
+  const gscActions = (
+    <>
+      {isDev && canEdit ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="shrink-0"
+          disabled={pullDisabled}
+          onClick={() => setPullConfirmOpen(true)}
+          data-testid="button-gsc-pull-production"
+        >
+          {pulling ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              Loading…
+            </>
+          ) : (
+            <>
+              <DownloadCloud className="h-3.5 w-3.5 mr-1.5" />
+              Load production
+            </>
+          )}
+        </Button>
+      ) : null}
+      {canEdit ? (
+        running ? (
+          <Button
+            size="sm"
+            variant="destructive"
+            className="shrink-0"
+            disabled={stopping}
+            onClick={() => void stopInspect()}
+            data-testid="button-gsc-inspect-stop"
+          >
+            {stopping ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                Stopping…
+              </>
+            ) : (
+              "Stop"
+            )}
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="shrink-0"
+            disabled={inspectDisabled}
+            onClick={() => {
+              setMode(neverChecked > 0 ? "never" : staleCount > 0 ? "stale" : "all");
+              setDialogOpen(true);
+            }}
+            data-testid="button-gsc-inspect-urls"
+          >
+            Inspect URLs
+          </Button>
+        )
+      ) : null}
+    </>
+  );
+
+  const gscProgress =
+    running && queue ? (
+      <div className="space-y-1.5" data-testid="progress-gsc-inspect-queue">
+        <Progress value={progressPct} className="h-2" />
+        <p className="text-xs text-muted-foreground tabular-nums">
+          {processed} of {totalQueued} done
+          {queue.failed > 0 ? ` · ${queue.failed} failed` : ""}
+          {queue.active ? ` · inspecting ${queue.active}` : ""}
+          {queue.mode ? ` · ${gscInspectModeLabel(queue.mode)}` : ""}
+        </p>
+      </div>
+    ) : null;
+
   return (
-    <Card data-testid="card-search-console-coverage">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <Globe className="h-4 w-4" />
-            Search Console coverage
-          </CardTitle>
-          <div className="flex items-center gap-2 shrink-0">
-            {isDev && canEdit ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="shrink-0"
-                disabled={pullDisabled}
-                onClick={() => setPullConfirmOpen(true)}
-                data-testid="button-gsc-pull-production"
-              >
-                {pulling ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                    Loading…
-                  </>
-                ) : (
-                  <>
-                    <DownloadCloud className="h-3.5 w-3.5 mr-1.5" />
-                    Load production
-                  </>
-                )}
-              </Button>
-            ) : null}
-            {canEdit ? (
-              running ? (
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  className="shrink-0"
-                  disabled={stopping}
-                  onClick={() => void stopInspect()}
-                  data-testid="button-gsc-inspect-stop"
-                >
-                  {stopping ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                      Stopping…
-                    </>
-                  ) : (
-                    "Stop"
-                  )}
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="shrink-0"
-                  disabled={inspectDisabled}
-                  onClick={() => {
-                    setMode(neverChecked > 0 ? "never" : staleCount > 0 ? "stale" : "all");
-                    setDialogOpen(true);
-                  }}
-                  data-testid="button-gsc-inspect-urls"
-                >
-                  Inspect URLs
-                </Button>
-              )
-            ) : null}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <>
+    <SeoOverviewCollapsibleCard
+      testId="card-search-console-coverage"
+      toggleTestId="button-toggle-search-console-coverage"
+      icon={<Globe className="h-4 w-4" />}
+      title="Search Console coverage"
+      summary={collapsedSummary}
+      actions={gscActions}
+      alwaysVisible={gscProgress}
+      contentClassName="space-y-3"
+    >
         <p className="text-xs text-muted-foreground">
           Inspect URLs walks the sitemap in the background (one Google call at a time, process-wide, ~1.5s
           apart, max {GSC_INSPECT_MAX_PER_JOB}). It does not re-index and does not freeze the site. Cached
@@ -2177,17 +2323,6 @@ function SearchConsoleCoverageCard({
           <p className="text-xs text-muted-foreground" data-testid="text-gsc-inspect-cancelled">
             Inspect stopped. Rows already written were kept. Use Never inspected to continue missing URLs.
           </p>
-        ) : null}
-        {running && queue ? (
-          <div className="space-y-1.5" data-testid="progress-gsc-inspect-queue">
-            <Progress value={progressPct} className="h-2" />
-            <p className="text-xs text-muted-foreground tabular-nums">
-              {processed} of {totalQueued} done
-              {queue.failed > 0 ? ` · ${queue.failed} failed` : ""}
-              {queue.active ? ` · inspecting ${queue.active}` : ""}
-              {queue.mode ? ` · ${gscInspectModeLabel(queue.mode)}` : ""}
-            </p>
-          </div>
         ) : null}
         {configured === false ? (
           <p className="text-sm text-muted-foreground" data-testid="text-gsc-unconfigured">
@@ -2313,7 +2448,7 @@ function SearchConsoleCoverageCard({
             )}
           </>
         ) : null}
-      </CardContent>
+    </SeoOverviewCollapsibleCard>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-md bg-background text-foreground" data-testid="dialog-gsc-inspect-urls">
@@ -2424,12 +2559,17 @@ function SearchConsoleCoverageCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Card>
+    </>
   );
 }
 
 export function SeoTab({ data }: { data: SeoOverview }) {
   const { toast } = useToast();
+  const { hasCapability } = useDebugAuth();
+  const canEditSeoFor = useCallback(
+    (contentType: string) => hasCapability("seo_edit", contentType),
+    [hasCapability],
+  );
   const [clusterSortBy, setClusterSortBy] = useState<ClusterSortBy>("name");
   const [clusterSortDir, setClusterSortDir] = useState<ClusterSortDir>("asc");
   const [seoModalOpen, setSeoModalOpen] = useState(false);
@@ -2537,14 +2677,13 @@ export function SeoTab({ data }: { data: SeoOverview }) {
 
       <SearchConsoleCoverageCard configured={gsc?.configured} summary={summary} />
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <Crosshair className="h-4 w-4" />
-            Funnel stage distribution
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+      <SeoOverviewCollapsibleCard
+        testId="card-funnel-stage-distribution"
+        toggleTestId="button-toggle-funnel-stage-distribution"
+        icon={<Crosshair className="h-4 w-4" />}
+        title="Funnel stage distribution"
+        summary={`${data.totals.withIntent} with stage · ${Math.max(0, data.totals.totalPages - data.totals.withIntent)} unknown`}
+      >
           {contentTypes.length === 0 ? (
             <p className="text-sm text-muted-foreground">No funnel stage data found</p>
           ) : (
@@ -2585,30 +2724,36 @@ export function SeoTab({ data }: { data: SeoOverview }) {
               </table>
             </div>
           )}
-        </CardContent>
-      </Card>
+      </SeoOverviewCollapsibleCard>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <Network className="h-4 w-4" />
-            Cluster Map
-            <Badge variant="secondary">{data.clusters.length} pillar{data.clusters.length !== 1 ? "s" : ""}</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+      <SeoOverviewCollapsibleCard
+        testId="card-cluster-map"
+        toggleTestId="button-toggle-cluster-map"
+        icon={<Network className="h-4 w-4" />}
+        title="Cluster Map"
+        titleExtra={
+          <Badge variant="secondary">
+            {data.clusters.length} pillar{data.clusters.length !== 1 ? "s" : ""}
+          </Badge>
+        }
+        summary={
+          data.clusterHealth
+            ? `${data.clusterHealth.stats.unclustered} unclustered`
+            : data.clusters.length === 0
+              ? "No clusters yet"
+              : undefined
+        }
+      >
           <ClusterMapHelp />
           {data.clusterHealth ? (
             <ClusterHealthPanel
               health={data.clusterHealth}
               clusters={data.clusters}
+              canEditSeoFor={canEditSeoFor}
               onEditSeo={(contentType, slug, locale) => {
                 void beginEditSeo(contentType, slug, locale, "general");
               }}
             />
-          ) : null}
-          {data.brokenClusterRefs && data.brokenClusterRefs.length > 0 ? (
-            <BrokenClusterRefsPanel refs={data.brokenClusterRefs} clusters={data.clusters} />
           ) : null}
           <IndexWarningsPanel
             onOpenSiteMeta={({ contentType, slug, locale }) => {
@@ -2719,6 +2864,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                             member={member}
                             hubPillarUrl={cluster.pillarUrl}
                             hubId={hubId}
+                            clusters={data.clusters}
                             gscConfigured={gsc?.configured}
                           />
                         ))}
@@ -2751,17 +2897,18 @@ export function SeoTab({ data }: { data: SeoOverview }) {
             </Accordion>
             </>
           )}
-        </CardContent>
-      </Card>
+      </SeoOverviewCollapsibleCard>
 
-      <Card className="col-span-12">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <Star className="h-4 w-4" />
-              Focus Feature Coverage
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+      <SeoOverviewCollapsibleCard
+        className="col-span-12"
+        testId="card-focus-feature-coverage"
+        toggleTestId="button-toggle-focus-feature-coverage"
+        icon={<Star className="h-4 w-4" />}
+        title="Focus Feature Coverage"
+        summary={`${
+          Object.keys(ALL_FEATURES).filter((key) => (data.featureCoverage[key] || 0) > 0).length
+        } of ${Object.keys(ALL_FEATURES).length} features used · ${data.totals.withFocusFeatures} pages tagged`}
+      >
             <div className="space-y-2" data-testid="feature-coverage-list">
               {Object.entries(ALL_FEATURES).map(([key, label]) => {
                 const count = data.featureCoverage[key] || 0;
@@ -2775,8 +2922,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                 );
               })}
             </div>
-          </CardContent>
-        </Card>
+      </SeoOverviewCollapsibleCard>
 
       <ManagedSeoModal
         open={seoModalOpen}
@@ -2989,10 +3135,10 @@ export default function SeoGeoPage() {
                 </h1>
               </div>
             </div>
-            <TabsList data-testid="tabs-seo-geo">
-              <TabsTrigger value="seo" data-testid="tab-seo">SEO</TabsTrigger>
-              <TabsTrigger value="geo" data-testid="tab-geo">GEO</TabsTrigger>
-            </TabsList>
+            <ToggleButtonBarList data-testid="tabs-seo-geo">
+              <ToggleButtonBarTrigger value="seo" data-testid="tab-seo">SEO</ToggleButtonBarTrigger>
+              <ToggleButtonBarTrigger value="geo" data-testid="tab-geo">GEO</ToggleButtonBarTrigger>
+            </ToggleButtonBarList>
           </div>
 
           <TabsContent value="seo">

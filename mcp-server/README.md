@@ -6,9 +6,13 @@ An MCP (Model Context Protocol) server that gives Claude read and write access t
 
 **Multi-site:** call `list_sites` first when more than one domain exists, then pass `site` (the user-named domain from `sites.yml`) on every tool. Never assume the first `sites.yml` entry; matching is case-insensitive.
 
-**Catalog by capability:** in production, `tools/list` on `/mcp` only includes tools the caller’s grants allow (`content_view` for YAML/component/explain reads). `GET /tools` is the full unauthenticated map. After a role change, refresh the MCP server in Cursor — the palette does not update mid-session. `get_current_user` returns `allowed_tools`. Handlers still `checkCap`. Dev does not filter the catalog.
+**Catalog by capability:** in production, `tools/list` on `/mcp` only includes tools the caller’s grants allow (`content_view` for YAML/component/explain reads). `GET /tools` is the full unauthenticated map. After a role change, refresh the MCP server in Cursor — the palette does not update mid-session. `get_current_user` returns `allowed_tools`. Handlers still `checkCap`. Dev does not filter the catalog on plain `/mcp`.
 
-**Shared-layout / `single_template`:** shell lives in `single.{locale}.yml`; create with `create_entry`, locale fields (e.g. `content`), and `sections: []`. See `explain_site` topic `shared-layout`. Call `get_content_type_info` before creating when unsure (`db_backed` vs `single_template`, `create_via`).
+**Role-scoped connectors:** use `/mcp/role/:roleId` (e.g. `/mcp/role/seo_manager`) for a focused tool list. The caller must be **assigned** that CMS role (strict). Catalog and capability checks use that role’s capabilities only. Unknown role → 404; not assigned → 403. Multi-role paths are not supported — use plain `/mcp` for the union of all your roles. OAuth consent shows the role description and tool list; pass `mcp_role` (or a `resource` URL containing `/mcp/role/…`) into `/oauth/authorize`. `get_current_user` returns `active_role`, `role_label`, and `role_description`. Reconnect the host after role or tool-list changes.
+
+**Per-user MCP read/write:** Security → Users has **MCP read** and **MCP write** toggles (independent of CMS roles). Read off → `/mcp` returns 403 even with a valid token. Read on + write off → view/explain tools only (`content_view`, `metrics_view`, `read_redirects`); mutate tools are hidden and `checkCap` denies writes. `get_current_user` returns `mcp_read_enabled` / `mcp_write_enabled`. Missing flags default to both on. CMS login via `/api/debug/validate-token` is unchanged.
+
+**Shared-layout / `single_template`:** shell lives in `template.{locale}.yml` (legacy `single.*` still loads); create with `create_entry`, locale fields (e.g. `content`), and `sections: []`. See `explain_site` topic `shared-layout`. Call `get_content_type_info` before creating when unsure (`db_backed` vs `single_template`, `create_via`).
 
 ## Mutating response envelope
 
@@ -24,7 +28,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 
 **Go-live:** successful `publish_draft` / `promote_variant` include a **required** `next_actions` for `run_entry_diagnostics` (`freshness: "hard"`, scoped `slugs`) — then poll `get_diagnostics_job`. The server does not auto-queue diagnostics on publish.
 
-**Shared layout:** use the same tools with `layout_target` (`auto` \| `entry` \| `type_single`). MCP does **not** auto-fan-out sibling `single.*.yml` files — follow `next_actions`. Live `update_fields` edits that touch exactly one `sections.N` index **do** propagate section bindings (`bound_updates`). Multi-section updates are rejected.
+**Shared layout:** use the same tools with `layout_target` (`auto` \| `entry` \| `type_template` \| `type_single`). MCP does **not** auto-fan-out sibling `template.*.yml` files — follow `next_actions`. Live `update_fields` edits that touch exactly one `sections.N` index **do** propagate section bindings (`bound_updates`). Multi-section updates are rejected.
 
 ## Tools
 
@@ -32,11 +36,12 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 |---|---|
 | `list_sites` | Configured domains + content folders (`sites.yml`) |
 | `explain_site` | Architecture playbooks + live per-site catalogs (conversion_events, CRM tags, locales). Pass `site`. |
+| `bootstrap_agent` | Call once near the start of an MCP content run (Claude.ai / Grok / connectors). Returns technical playbook + conversation conventions (`skill.content` on first call) + 6-day changelog. Later calls: `include_skill_content: false` / `known_skill_version`. Does not refresh host tool list. |
 | `list_entries` | List YAML (non-DB) entries with slug, content type, locales, title, urls |
-| `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, strategy, observed URL-param values, create_via |
+| `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, strategy, observed URL-param values, create_via, body_model, template_vars_note |
 | `get_entry_content` | Merged entry content without meta/SEO |
 | `get_entry_seo` | SEO/meta + resolved schema.org preview + companion/CT gaps for one entry |
-| `update_content_type` | Patch `content-types.yml` (v1: `strategy` only). Cap: `content_types_manage`. Not entry ensure. |
+| `update_content_type` | Patch `content-types.yml`: `strategy`, one field (`field_action` + confirm), or shared layout (`single_template` + `template_mode`). Cap: `content_types_manage`. |
 | `ensure_content_type_schema_org` | Attach seeded schema_org companions for CT `schema_org_requirements` |
 | `list_entry_seo` | SEO listing; **unfiltered = minimal sample**; pass `slugs` for full meta |
 | `create_entry` | Create YAML entry (draft-first or live shared-layout); not for DB-backed types |
@@ -48,13 +53,13 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `run_entry_diagnostics` | Async diagnostics job; cached/completed returns paginated `issues[]` work queue (default 50), not full site dump |
 | `get_diagnostics_job` | Poll diagnostics job; `issues_offset` / `issues_limit` page the issue list only |
 | `get_section_bindings` | Binding-group membership |
-| `list_components` / `get_component_schema` / `get_component_variant` | Component registry |
+| `list_components` / `get_component_schema` / `get_component_variant` / `create_component_section_demo` | Component registry + disposable section demos |
 | `list_databases` / `list_database_items` / `get_database_item` | Local private DB discovery + read (global `index`) |
 | `add_database_item` / `add_database_items` / `update_database_item` / `update_database_items` / `delete_database_item` | Local YAML item CRUD (FAQ database etc.; bulk max 40, best-effort) |
 | `reindex_database` | Vector reindex after item writes (`databases_manage`) |
 | `get_product_funnel` / `update_product_funnel` | Product conversion funnels |
-| `test_redirect` | Inspect one URL: first-match winner + conflicts (`seo_edit`) |
-| `update_redirect` | Add / delete / move one CMS redirect (`seo_edit`; call `test_redirect` first) |
+| `test_redirect` | Inspect one URL: first-match winner + conflicts (`read_redirects`) |
+| `update_redirect` | Add / delete / move one CMS redirect (`edit_redirects`; call `test_redirect` first) |
 
 See `explain_site` topic `local_databases` before FAQ database mutations.
 
@@ -80,19 +85,47 @@ Returns `strategy` / `strategy_valid` / `strategy_note`. When required fields ex
 
 ### `update_content_type`
 
-Patch allowlisted keys on `content-types.yml` via `PUT /api/content-types/:type/config`. **Requires** `content_types_manage`.
+Patch `content-types.yml` via `PUT /api/content-types/:type/config`. **Requires** `content_types_manage`.
 
-**v1 allowlist:** `strategy` only — `{ purpose, constraints? }` or `null` to clear. At least one allowlisted key required. Empty patch → `code: empty_patch`. Clear while required fields remain → API `code: missing_strategy`.
+**Modes (one per call):**
 
-**Non-effects:** does not edit entries, `fill_intent`, `insights_intent`, `seo_monitoring`, or run `ensure_content_type_schema_org`.
+| Mode | Parameters | Execute |
+|---|---|---|
+| Strategy | `strategy`: `{ purpose, constraints? }` or `null` | Immediate PUT |
+| Field patch | `field_action` (`add` \| `update` \| `remove`), `field_key`, optional `field_mapping` / `editor`, `confirm` | Preview when `confirm` omitted/false; `confirm: true` → fresh GET + merge + PUT |
+| Shared layout | `single_template` true\|false; when enabling: `template_mode` (`keep_existing` \| `from_entry`), optional `template_entry_source_slug` / `template_entry_source_locale` / `shared_layout_base_locale` / `confirm` | Server gate; replace preview via `action_required: confirm_template_replace` |
+
+**Field patch rules:**
+
+- One field per call — sibling fields preserved (server-side merge).
+- Do not combine `strategy`, `field_action`, and `single_template` in one call (`code: ambiguous_patch`).
+- Static types: `add` defaults `{ source: field_key, default: null }`. DB-backed: `field_mapping` required on add.
+- Relation `editor.source` required; CT/DB name collisions rejected.
+- `required` true \| `"attached"` needs `fill_intent` + valid type `strategy` (set strategy in a separate call first).
+- `remove` blocked while `field_key` is in `indexes` or `unique_fields` — clear in Content Type manage first.
+- Does not edit entry YAML or auto-backfill — follow `next_actions` (`update_fields`, etc.) after add.
+
+**Shared layout enable:** writes canonical `template.{locale}.yml` (never new `single.*`). Source entry must be fully `{{ entry.* }}`-shaped. See `explain_site` topic `shared-layout`.
+
+**Non-effects:** does not run `ensure_content_type_schema_org` or change `seo_monitoring`.
 
 **Parameters:**
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `contentType` | string | yes | Content type key |
-| `strategy` | object \| null | for v1 yes | Set or clear strategy |
-| `site` | string | multi-site | Domain from `list_sites` |
+| Parameter | Type | Description |
+|---|---|---|
+| `contentType` | string | Content type key |
+| `strategy` | object \| null | Set or clear strategy (mutually exclusive with other modes) |
+| `field_action` | add \| update \| remove | Patch one schema field |
+| `field_key` | string | Schema key |
+| `field_mapping` | string \| `{ source, default }` | Mapping for this field (add/update) |
+| `editor` | object | Editor hint for this field (add/update; partial merge on update) |
+| `single_template` | boolean | Enable/disable shared layout |
+| `template_mode` | keep_existing \| from_entry | Required when enabling |
+| `template_entry_source_slug` | string | Entry to seed shell when `from_entry` |
+| `template_entry_source_locale` | string | When source entry has multiple live locales |
+| `shared_layout_base_locale` | string | Sibling align base |
+| `confirm` | boolean | Field patches / template replace: false/omit → preview; true → execute |
+| `site` | string | Multi-site domain |
 
 ### `get_entry_content`
 
@@ -239,6 +272,25 @@ Gets the field definitions (`variant_props`) and a worked YAML example for a spe
 ```
 
 **Returns:** `{ componentType, variant, variant_props: { <field definitions> }, example: "<worked YAML string>" }`
+
+---
+
+### `create_component_section_demo`
+
+Creates a disposable single-section preview for humans. Pass use-case-specific YAML for exactly one section; the tool validates it, stores it under `.cache/component-section-demos/{hash}.yml`, and returns a production `preview_url` at `/private/demo/{hash}`.
+
+The hash is the only access control (no staff login). Demos are wiped on every production redeploy and are **not** a page publish.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `componentType` | string | yes | Component type name, e.g. `graduates_stats` |
+| `yaml` | string | yes | YAML for exactly one section (or a one-element array / `{ sections: [one] }`) |
+| `version` | string | no | Registry version folder, e.g. `v1.0` |
+| `site` | string | no | Site domain when multiple sites are configured |
+
+**Returns:** `{ hash, preview_url, path, componentType, version }` plus warnings (not a publish; world-readable with URL; wiped on redeploy; single section only).
 
 ---
 

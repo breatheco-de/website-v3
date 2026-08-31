@@ -9,19 +9,19 @@ import {
 } from "./dynamic-entries";
 
 describe("resolveHardcodedEntriesForDynamic", () => {
-  it("resolves {{ single.faq_entries }} to the JSON array from the bag", () => {
+  it("resolves {{ entry.faq_entries }} to the JSON array from the bag", () => {
     const faqs = [
       { question: "What is Art. 4?", answer: "AI literacy obligation." },
     ];
     expect(
-      resolveHardcodedEntriesForDynamic("{{ single.faq_entries | [] }}", {
+      resolveHardcodedEntriesForDynamic("{{ entry.faq_entries | [] }}", {
         faq_entries: faqs,
       }),
     ).toEqual(faqs);
   });
 
   it("returns [] for unresolved binds with [] fallback", () => {
-    expect(resolveHardcodedEntriesForDynamic("{{ single.faq_entries | [] }}")).toEqual(
+    expect(resolveHardcodedEntriesForDynamic("{{ entry.faq_entries | [] }}")).toEqual(
       [],
     );
   });
@@ -37,10 +37,10 @@ describe("resolveHardcodedEntriesForDynamic", () => {
 });
 
 describe("resolveSearchPhraseForDynamic", () => {
-  it("resolves {{ single.title }} for semantic search", () => {
+  it("resolves {{ entry.title }} for semantic search", () => {
     expect(
       resolveSearchPhraseForDynamic(
-        "{{ single.title | ¿Qué significa ser Full Stack? }}",
+        "{{ entry.title | ¿Qué significa ser Full Stack? }}",
         { title: "Qué es el artículo 4 del Reglamento de IA" },
       ),
     ).toBe("Qué es el artículo 4 del Reglamento de IA");
@@ -49,7 +49,7 @@ describe("resolveSearchPhraseForDynamic", () => {
   it("uses pipe fallback when title is missing", () => {
     expect(
       resolveSearchPhraseForDynamic(
-        "{{ single.title | ¿Qué significa ser Full Stack? }}",
+        "{{ entry.title | ¿Qué significa ser Full Stack? }}",
         {},
       ),
     ).toBe("¿Qué significa ser Full Stack?");
@@ -61,10 +61,10 @@ describe("resolveSearchPhraseForDynamic", () => {
 });
 
 describe("location FAQ permanent_filters slug bind", () => {
-  it("resolves {{ single.slug | miami-usa }} to the page slug when singleEntry is provided", async () => {
+  it("resolves {{ entry.slug | miami-usa }} to the page slug when singleEntry is provided", async () => {
     const { resolveSingleTemplateValue } = await import("@shared/json-field");
     expect(
-      resolveSingleTemplateValue("{{ single.slug | miami-usa }}", {
+      resolveSingleTemplateValue("{{ entry.slug | miami-usa }}", {
         slug: "atlanta-usa",
       }),
     ).toBe("atlanta-usa");
@@ -72,7 +72,7 @@ describe("location FAQ permanent_filters slug bind", () => {
 
   it("falls back to miami-usa when singleEntry is missing (the pre-fix location API bug)", async () => {
     const { resolveSingleTemplateValue } = await import("@shared/json-field");
-    expect(resolveSingleTemplateValue("{{ single.slug | miami-usa }}", {})).toBe(
+    expect(resolveSingleTemplateValue("{{ entry.slug | miami-usa }}", {})).toBe(
       "miami-usa",
     );
   });
@@ -117,8 +117,8 @@ describe("applyItemTemplatePreservingUserFilters", () => {
   it("keeps tags from the raw entry when item_template omits them", () => {
     const mapped = applyItemTemplatePreservingUserFilters(
       {
-        title: "{{ single.title }}",
-        taxonomy: "{{ single.category }}",
+        title: "{{ entry.title }}",
+        taxonomy: "{{ entry.category }}",
       },
       {
         title: "Hello",
@@ -137,8 +137,8 @@ describe("applyItemTemplatePreservingUserFilters", () => {
   it("does not overwrite tags already mapped by the template", () => {
     const mapped = applyItemTemplatePreservingUserFilters(
       {
-        title: "{{ single.title }}",
-        tags: "{{ single.category }}",
+        title: "{{ entry.title }}",
+        tags: "{{ entry.category }}",
       },
       {
         title: "Hello",

@@ -1,10 +1,14 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import fs from "fs";
 import {
   buildSidequestDashboardConfig,
+  clearSidequestWorkerPid,
   getEngineStatus,
   getSidequestDashboardInternalAuth,
   isSidequestDashboardEnabled,
   SIDEQUEST_DASHBOARD_BASE_PATH,
+  SIDEQUEST_PID_PATH,
+  writeSidequestWorkerPid,
 } from "./queue";
 
 describe("sidequest dashboard queue config", () => {
@@ -31,18 +35,20 @@ describe("sidequest dashboard queue config", () => {
       if (v === undefined) delete process.env[envKey];
       else process.env[envKey] = v;
     }
+    clearSidequestWorkerPid();
+    vi.restoreAllMocks();
   });
 
-  it("defaults dashboard enabled and returns same-origin path", () => {
+  it("defaults dashboard enabled and returns same-origin path", async () => {
     delete process.env.SIDEQUEST_DASHBOARD_ENABLED;
     expect(isSidequestDashboardEnabled()).toBe(true);
-    expect(getEngineStatus().dashboardUrl).toBe(`${SIDEQUEST_DASHBOARD_BASE_PATH}/`);
+    expect((await getEngineStatus()).dashboardUrl).toBe(`${SIDEQUEST_DASHBOARD_BASE_PATH}/`);
   });
 
-  it("respects SIDEQUEST_DASHBOARD_ENABLED=false", () => {
+  it("respects SIDEQUEST_DASHBOARD_ENABLED=false", async () => {
     process.env.SIDEQUEST_DASHBOARD_ENABLED = "false";
     expect(isSidequestDashboardEnabled()).toBe(false);
-    expect(getEngineStatus().dashboardUrl).toBeUndefined();
+    expect((await getEngineStatus()).dashboardUrl).toBeUndefined();
   });
 
   it("uses env credentials when set", () => {
@@ -80,5 +86,25 @@ describe("sidequest dashboard queue config", () => {
     expect(cfg.enabled).toBe(false);
     expect(cfg.basePath).toBeUndefined();
     expect(cfg.auth).toBeUndefined();
+  });
+
+  it("getEngineStatus reports running when pid file points at a live process", async () => {
+    writeSidequestWorkerPid(process.pid);
+    const status = await getEngineStatus();
+    expect(status.status).toBe("running");
+    expect(status.pid).toBe(process.pid);
+  });
+
+  it("getEngineStatus reports stopped when pid file is missing", async () => {
+    clearSidequestWorkerPid();
+    const status = await getEngineStatus();
+    expect(status.status).toBe("stopped");
+    expect(status.pid).toBeUndefined();
+  });
+
+  it("getEngineStatus reports stopped when pid file points at a dead process", async () => {
+    fs.writeFileSync(SIDEQUEST_PID_PATH, "999999999\n", "utf-8");
+    const status = await getEngineStatus();
+    expect(status.status).toBe("stopped");
   });
 });

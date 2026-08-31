@@ -116,7 +116,7 @@ props:
         description: Keys to exclude. Prefer slug/id when present; otherwise faqItemKey(question).
     description: >-
       Listing query for FAQ items. Typical database: frequently_asked_questions. On location (or program) pages, filter
-      with permanent_filters and value "{{ single.slug }}" so the same bound section works across entries.
+      with permanent_filters and value "{{ entry.slug }}" so the same bound section works across entries.
   hardcoded_entries:
     type: array
     required: false

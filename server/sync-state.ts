@@ -14,6 +14,7 @@ import { gcs } from './gcs';
 import { child } from "./logger";
 import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
 import type { EventActor } from "./events/types";
+import { getContentWriteContext } from "./write-context";
 const log = child({ module: "sync-state" });
 
 function defaultContentFolder(): string {
@@ -411,6 +412,10 @@ export type FileModifiedEvent = {
   contentChanged?: boolean;
   /** New file body when the file still exists (listeners decide domain emits). */
   content?: string;
+  /** MCP agent session correlation (ephemeral — not persisted in sync-state JSON). */
+  agentSessionId?: string;
+  /** MCP write report (ephemeral — stored on content_file_written payload). */
+  report?: string;
 };
 
 const fileModifiedListeners: Set<(evt: FileModifiedEvent) => void> = new Set();
@@ -426,7 +431,12 @@ function notifyFileModifiedListeners(
   relativePath: string,
   author?: string,
   actor?: EventActor,
-  extras?: { contentChanged?: boolean; content?: string },
+  extras?: {
+    contentChanged?: boolean;
+    content?: string;
+    agentSessionId?: string;
+    report?: string;
+  },
 ): void {
   const evt: FileModifiedEvent = {
     filePath: relativePath,
@@ -434,6 +444,8 @@ function notifyFileModifiedListeners(
     actor,
     contentChanged: extras?.contentChanged,
     content: extras?.content,
+    agentSessionId: extras?.agentSessionId,
+    report: extras?.report,
   };
   fileModifiedListeners.forEach((cb) => cb(evt));
 }
@@ -499,7 +511,12 @@ export function markFileAsModified(
   allowedExceptions?: Set<string>,
   contentRoot?: string,
   actor?: EventActor,
+  opts?: { agentSessionId?: string; report?: string },
 ): void {
+  const writeCtx = getContentWriteContext();
+  const effectiveActor = actor ?? writeCtx?.actor;
+  const effectiveSessionId = opts?.agentSessionId ?? writeCtx?.agentSessionId;
+  const effectiveReport = opts?.report ?? writeCtx?.report;
   const relativePath = normalizePath(filePath, contentRoot);
   
   if (!shouldTrackFile(relativePath, allowedExceptions, contentRoot)) {
@@ -533,9 +550,11 @@ export function markFileAsModified(
     if (autoCommitCallback) {
       autoCommitCallback(relativePath, author, allowedExceptions);
     }
-    notifyFileModifiedListeners(relativePath, author || prev?.author, actor, {
+    notifyFileModifiedListeners(relativePath, author || prev?.author, effectiveActor, {
       contentChanged,
       content,
+      agentSessionId: effectiveSessionId,
+      report: effectiveReport,
     });
   } else if (state.files[relativePath]) {
     // File deleted / missing — do not invent a content-change timestamp from a touch.
@@ -549,12 +568,18 @@ export function markFileAsModified(
     if (autoCommitCallback) {
       autoCommitCallback(relativePath, author, allowedExceptions);
     }
-    notifyFileModifiedListeners(relativePath, author || state.files[relativePath].author, actor);
+    notifyFileModifiedListeners(relativePath, author || state.files[relativePath].author, effectiveActor, {
+      agentSessionId: effectiveSessionId,
+      report: effectiveReport,
+    });
   } else if (allowedExceptions instanceof Set && allowedExceptions.has(relativePath)) {
     if (autoCommitCallback) {
       autoCommitCallback(relativePath, author, allowedExceptions);
     }
-    notifyFileModifiedListeners(relativePath, author, actor);
+    notifyFileModifiedListeners(relativePath, author, effectiveActor, {
+      agentSessionId: effectiveSessionId,
+      report: effectiveReport,
+    });
   }
 }
 

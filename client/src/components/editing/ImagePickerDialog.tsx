@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Check, CloudUpload, Crop as CropIcon, FileText, Film, Loader2, Search, Tags, Upload, X } from "lucide-react";
+import { Check, CloudUpload, Crop as CropIcon, FileText, Film, Loader2, Search, Sparkles, Tags, Upload, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactCrop from "react-image-crop";
 import type { Crop } from "react-image-crop";
@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -27,12 +28,19 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import type { ImageRegistry, ImageEntry } from "@shared/schema";
+import { normalizePromptAlt } from "@shared/ai-image-gc";
 import {
   type MediaDoctype,
   acceptAttrForDoctype,
   extensionsForDoctype,
   inferDoctypeFromSrc,
 } from "@shared/media-doctype";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { ChevronDown } from "lucide-react";
 
 interface FamilyUsageEntry {
   filePath: string;
@@ -84,6 +92,18 @@ export interface ImagePickerDialogProps {
    * Restrict browse/upload to this media type. Defaults to `"image"` (current behavior).
    */
   doctype?: MediaDoctype;
+  /** Tab shown when the dialog opens. Defaults to `"browse"`. */
+  initialMode?: "browse" | "upload" | "generate";
+  /**
+   * When true, close the dialog after a successful upload (gallery “add media” flow).
+   * Field pickers leave this unset so upload selects the file and waits for Save.
+   */
+  closeOnSuccessfulUpload?: boolean;
+  /**
+   * Gallery “add media” mode: hide Browse (already in the gallery). Still shows
+   * Upload | Generate for images so staff can AI-create assets here.
+   */
+  uploadOnly?: boolean;
 }
 
 const DOCTYPE_TITLES: Record<MediaDoctype, string> = {
@@ -121,11 +141,15 @@ export function ImagePickerDialog({
   renderPreset,
   renderedSize,
   doctype = "image",
+  initialMode = "browse",
+  closeOnSuccessfulUpload = false,
+  uploadOnly = false,
 }: ImagePickerDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const resolvedTitle = title ?? DOCTYPE_TITLES[doctype];
   const allowCrop = doctype === "image";
+  const effectiveInitialMode = uploadOnly ? "upload" : initialMode;
 
   const { data: imageRegistry } = useQuery<ImageRegistry>({
     queryKey: ["/api/image-registry"],
@@ -145,17 +169,33 @@ export function ImagePickerDialog({
     staleTime: 60000,
   });
 
+  const { data: generateStatus } = useQuery<{
+    ready: boolean;
+    model?: string;
+    error?: string;
+    hint?: string;
+  }>({
+    queryKey: ["/api/media/generate-images/status"],
+    enabled: open && doctype === "image",
+    staleTime: 60000,
+  });
+
   const hasCloudProvider = (mediaStatus?.providers ?? []).some((p) => p !== "local");
+  /** Generate is available for images even in gallery “add media” (uploadOnly) mode. */
+  const showGenerateTab = doctype === "image";
+  /** Tab bar: full Browse|Upload|Generate, or Upload|Generate when adding media. */
+  const showModeTabs = !uploadOnly || showGenerateTab;
 
   const lockedTagFilter = typeof tagFilter === "string" && tagFilter.trim() ? tagFilter.trim() : "";
   const initialDefaultFilter =
     typeof defaultTagFilter === "string" && defaultTagFilter.trim() ? defaultTagFilter.trim() : "";
   const tagFilterSelectable = !lockedTagFilter;
 
-  const [pickerMode, setPickerMode] = useState<"browse" | "upload">("browse");
+  const [pickerMode, setPickerMode] = useState<"browse" | "upload" | "generate">(effectiveInitialMode);
   const [search, setSearch] = useState("");
   const [searchExpanded, setSearchExpanded] = useState(false);
   const [tagsExpanded, setTagsExpanded] = useState(false);
+  const [aiOriginFilter, setAiOriginFilter] = useState<"all" | "ai_only" | "hide_ai">("all");
   const [activeTagFilters, setActiveTagFilters] = useState<string[]>(() => {
     const initial = lockedTagFilter || initialDefaultFilter;
     return initial ? [initial] : [];
@@ -167,6 +207,22 @@ export function ImagePickerDialog({
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [generatePrompt, setGeneratePrompt] = useState("");
+  const [generateAspect, setGenerateAspect] = useState("16:9");
+  const [generating, setGenerating] = useState(false);
+  const [generateAdvancedOpen, setGenerateAdvancedOpen] = useState(false);
+  const [aiCandidates, setAiCandidates] = useState<
+    Array<{ b64: string; mediaType: string; dataUrl: string }>
+  >([]);
+  const [pendingAi, setPendingAi] = useState<{
+    b64: string;
+    mediaType: string;
+    dataUrl: string;
+    prompt: string;
+    model?: string;
+  } | null>(null);
+  const generateAbortRef = useRef<AbortController | null>(null);
+  const GENERATE_N = 4;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -254,14 +310,14 @@ export function ImagePickerDialog({
       setSearch("");
       setSearchExpanded(false);
       setTagsExpanded(false);
-      setPickerMode("browse");
+      setPickerMode(effectiveInitialMode);
       const initial = lockedTagFilter || initialDefaultFilter;
       setActiveTagFilters(initial ? [initial] : []);
     } else {
       setOpenPanelId(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialSrc, initialAlt, lockedTagFilter, initialDefaultFilter]);
+  }, [open, initialSrc, initialAlt, lockedTagFilter, initialDefaultFilter, effectiveInitialMode]);
 
   useEffect(() => {
     setVisibleCount(48);
@@ -332,6 +388,9 @@ export function ImagePickerDialog({
       .filter(([id, img]) => {
         if (img.parentId) return false;
         if (inferDoctypeFromSrc(img.src) !== doctype) return false;
+        const isAi = img.origin === "ai" || img.ai?.generated === true;
+        if (aiOriginFilter === "ai_only" && !isAi) return false;
+        if (aiOriginFilter === "hide_ai" && isAi) return false;
         if (tagSet.size > 0) {
           const hasMatch = img.tags?.some((t) => tagSet.has(t.toLowerCase()));
           if (!hasMatch) return false;
@@ -346,7 +405,150 @@ export function ImagePickerDialog({
       .sort((a, b) => (b[1].usage_count ?? 0) - (a[1].usage_count ?? 0));
   })();
 
-  const selectedDisplaySrc = !selectedSrc ? "" : (imageRegistry?.images?.[selectedSrc]?.src || selectedSrc);
+  const selectedDisplaySrc = !selectedSrc
+    ? ""
+    : pendingAi?.dataUrl && selectedSrc === pendingAi.dataUrl
+      ? pendingAi.dataUrl
+      : imageRegistry?.images?.[selectedSrc]?.src || selectedSrc;
+
+  const handleGenerate = async () => {
+    const prompt = generatePrompt.trim();
+    if (!prompt || generating) return;
+    generateAbortRef.current?.abort();
+    const ac = new AbortController();
+    generateAbortRef.current = ac;
+    setGenerating(true);
+    setAiCandidates([]);
+    setPendingAi(null);
+    let modelFromStream: string | undefined;
+    let gotError: string | undefined;
+    try {
+      const resp = await fetch("/api/media/generate-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          aspect_ratio: generateAspect,
+          n: GENERATE_N,
+        }),
+        signal: ac.signal,
+      });
+
+      const contentType = resp.headers.get("content-type") || "";
+      if (!resp.ok && contentType.includes("application/json")) {
+        const data = (await resp.json().catch(() => ({}))) as {
+          error?: string;
+          hint?: string;
+        };
+        throw new Error(data.error || data.hint || "Generation failed");
+      }
+      if (!resp.ok) {
+        throw new Error(`Generation failed (${resp.status})`);
+      }
+
+      if (!contentType.includes("ndjson") && contentType.includes("application/json")) {
+        // Legacy non-stream fallback
+        const data = (await resp.json()) as {
+          model?: string;
+          candidates?: Array<{ b64: string; mediaType: string }>;
+        };
+        const mapped = (data.candidates ?? []).map((c) => ({
+          ...c,
+          dataUrl: `data:${c.mediaType || "image/webp"};base64,${c.b64}`,
+        }));
+        setAiCandidates(mapped);
+        modelFromStream = data.model;
+        if (mapped.length === 1) {
+          setPendingAi({
+            ...mapped[0],
+            prompt,
+            model: data.model,
+          });
+          setSelectedSrc(mapped[0].dataUrl);
+          setSelectedAlt(normalizePromptAlt(prompt));
+          setSelectedRegistryId(undefined);
+        }
+        return;
+      }
+
+      const reader = resp.body?.getReader();
+      if (!reader) throw new Error("No response body");
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const collected: Array<{ b64: string; mediaType: string; dataUrl: string }> = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          let event: {
+            type?: string;
+            b64?: string;
+            mediaType?: string;
+            model?: string;
+            error?: string;
+            count?: number;
+          };
+          try {
+            event = JSON.parse(trimmed);
+          } catch {
+            continue;
+          }
+          if (event.type === "candidate" && event.b64) {
+            const mediaType = event.mediaType || "image/webp";
+            const item = {
+              b64: event.b64,
+              mediaType,
+              dataUrl: `data:${mediaType};base64,${event.b64}`,
+            };
+            collected.push(item);
+            if (event.model) modelFromStream = event.model;
+            setAiCandidates([...collected]);
+          } else if (event.type === "error") {
+            gotError = event.error || "Generation failed";
+          } else if (event.type === "done" && event.model) {
+            modelFromStream = event.model;
+          }
+        }
+      }
+
+      if (gotError && collected.length === 0) {
+        throw new Error(gotError);
+      }
+      if (collected.length === 1) {
+        setPendingAi({
+          ...collected[0],
+          prompt,
+          model: modelFromStream,
+        });
+        setSelectedSrc(collected[0].dataUrl);
+        setSelectedAlt(normalizePromptAlt(prompt));
+        setSelectedRegistryId(undefined);
+      }
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      toast({
+        title: "Generation failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      if (generateAbortRef.current === ac) generateAbortRef.current = null;
+      setGenerating(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) {
+      generateAbortRef.current?.abort();
+      generateAbortRef.current = null;
+    }
+  }, [open]);
 
   const handleUpload = async (files: FileList | File[]) => {
       if (!files.length) return;
@@ -384,10 +586,6 @@ export function ImagePickerDialog({
           existingId?: string;
         };
         await queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
-        setSelectedSrc(result.src);
-        setSelectedAlt(result.alt);
-        setSelectedRegistryId(result.id);
-        setPickerMode("browse");
         const noun = doctype === "pdf" ? "PDF" : doctype === "video" ? "Video" : "Image";
         toast({
           title: result.duplicate ? `${noun} already exists` : `${noun} uploaded`,
@@ -395,6 +593,15 @@ export function ImagePickerDialog({
             ? `Already registered as "${result.existingId}". Using the existing one.`
             : `Registered as "${result.id}"`,
         });
+        if (closeOnSuccessfulUpload) {
+          await onSave(result.src, result.alt, result.id);
+          onOpenChange(false);
+          return;
+        }
+        setSelectedSrc(result.src);
+        setSelectedAlt(result.alt);
+        setSelectedRegistryId(result.id);
+        setPickerMode("browse");
       } catch (err: unknown) {
         toast({
           title: "Upload failed",
@@ -409,13 +616,76 @@ export function ImagePickerDialog({
   const handleSave = async () => {
     setSaving(true);
     try {
+      let src = selectedSrc;
+      let alt = selectedAlt;
+      let registryId = selectedRegistryId;
+
+      if (pendingAi && (!registryId || src === pendingAi.dataUrl)) {
+        const ext =
+          pendingAi.mediaType.includes("png")
+            ? "png"
+            : pendingAi.mediaType.includes("jpeg") || pendingAi.mediaType.includes("jpg")
+              ? "jpg"
+              : "webp";
+        const bin = atob(pendingAi.b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const blob = new Blob([bytes], { type: pendingAi.mediaType || "image/webp" });
+        const filename = `ai-${Date.now()}.${ext}`;
+        const formData = new FormData();
+        formData.append("file", blob, filename);
+        formData.append("alt", alt || normalizePromptAlt(pendingAi.prompt));
+        formData.append("origin", "ai");
+        formData.append(
+          "ai",
+          JSON.stringify({
+            generated: true,
+            model: pendingAi.model,
+            prompt: pendingAi.prompt,
+            aspect_ratio: generateAspect,
+            generated_at: new Date().toISOString(),
+          }),
+        );
+        if (effectiveTagFilters.length > 0) {
+          formData.append("tags", JSON.stringify(effectiveTagFilters));
+        }
+        const resp = await fetch("/api/image-registry/upload", {
+          method: "POST",
+          body: formData,
+        });
+        if (!resp.ok) {
+          const errData = (await resp.json().catch(() => ({}))) as { error?: string };
+          throw new Error(errData.error || "Failed to save generated image");
+        }
+        const result = (await resp.json()) as {
+          id: string;
+          src: string;
+          alt: string;
+          duplicate?: boolean;
+          existingId?: string;
+        };
+        await queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
+        if (result.duplicate) {
+          toast({
+            title: "Image already exists",
+            description: `Already registered as "${result.existingId}". Using the existing one.`,
+          });
+        }
+        src = result.src;
+        alt = selectedAlt || result.alt;
+        registryId = result.id;
+        setPendingAi(null);
+        setSelectedSrc(src);
+        setSelectedRegistryId(registryId);
+      }
+
       if (
         ensureTagsOnSave &&
         ensureTagsOnSave.length > 0 &&
-        selectedRegistryId
+        registryId
       ) {
         const resp = await fetch(
-          `/api/image-registry/${encodeURIComponent(selectedRegistryId)}/tags`,
+          `/api/image-registry/${encodeURIComponent(registryId)}/tags`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -428,7 +698,7 @@ export function ImagePickerDialog({
         }
         await queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
       }
-      await onSave(selectedSrc, selectedAlt, selectedRegistryId);
+      await onSave(src, alt, registryId);
       onOpenChange(false);
     } catch (err: unknown) {
       toast({
@@ -547,6 +817,8 @@ export function ImagePickerDialog({
   };
 
   const handleClose = () => {
+    setPendingAi(null);
+    setAiCandidates([]);
     onOpenChange(false);
   };
 
@@ -645,33 +917,55 @@ export function ImagePickerDialog({
           </DialogHeader>
 
           <div className="flex-1 overflow-hidden flex flex-col gap-4 py-2">
-            <div className="flex rounded-md border overflow-visible">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className={`flex-1 rounded-none toggle-elevate ${pickerMode === "browse" ? "toggle-elevated bg-muted" : ""}`}
-                onClick={() => setPickerMode("browse")}
-                data-testid="button-picker-browse"
-              >
-                <Search className="h-4 w-4 mr-1.5" />
-                Browse
-              </Button>
-              <div className="w-px bg-border" />
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className={`flex-1 rounded-none toggle-elevate ${pickerMode === "upload" ? "toggle-elevated bg-muted" : ""}`}
-                onClick={() => setPickerMode("upload")}
-                data-testid="button-picker-upload"
-              >
-                <Upload className="h-4 w-4 mr-1.5" />
-                Upload
-              </Button>
-            </div>
+            {showModeTabs && (
+              <div className="flex rounded-md border overflow-visible">
+                {!uploadOnly && (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className={`flex-1 rounded-none toggle-elevate ${pickerMode === "browse" ? "toggle-elevated bg-muted" : ""}`}
+                      onClick={() => setPickerMode("browse")}
+                      data-testid="button-picker-browse"
+                    >
+                      <Search className="h-4 w-4 mr-1.5" />
+                      Browse
+                    </Button>
+                    <div className="w-px bg-border" />
+                  </>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className={`flex-1 rounded-none toggle-elevate ${pickerMode === "upload" ? "toggle-elevated bg-muted" : ""}`}
+                  onClick={() => setPickerMode("upload")}
+                  data-testid="button-picker-upload"
+                >
+                  <Upload className="h-4 w-4 mr-1.5" />
+                  Upload
+                </Button>
+                {showGenerateTab && (
+                  <>
+                    <div className="w-px bg-border" />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className={`flex-1 rounded-none toggle-elevate ${pickerMode === "generate" ? "toggle-elevated bg-muted" : ""}`}
+                      onClick={() => setPickerMode("generate")}
+                      data-testid="button-picker-generate"
+                    >
+                      <Sparkles className="h-4 w-4 mr-1.5" />
+                      Generate
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
 
-            {pickerMode === "browse" ? (
+            {pickerMode === "browse" && !uploadOnly ? (
               <>
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
@@ -763,6 +1057,31 @@ export function ImagePickerDialog({
                         )}
                       </Button>
                     ) : null}
+                    {doctype === "image" && (
+                      <div className="flex rounded-md border overflow-hidden shrink-0" data-testid="ai-origin-filter">
+                        {(
+                          [
+                            ["all", "All"],
+                            ["ai_only", "AI only"],
+                            ["hide_ai", "Hide AI"],
+                          ] as const
+                        ).map(([value, label]) => (
+                          <Button
+                            key={value}
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className={`rounded-none h-9 px-2 text-xs ${
+                              aiOriginFilter === value ? "bg-muted" : ""
+                            }`}
+                            onClick={() => setAiOriginFilter(value)}
+                            data-testid={`button-ai-filter-${value}`}
+                          >
+                            {label}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {tagsExpanded && tagFilterSelectable && availableTags.length > 0 && (
@@ -815,6 +1134,7 @@ export function ImagePickerDialog({
                             <button
                               type="button"
                               onClick={() => {
+                                setPendingAi(null);
                                 setSelectedSrc(img.src);
                                 setSelectedAlt(img.alt || "");
                                 setSelectedRegistryId(id);
@@ -824,6 +1144,15 @@ export function ImagePickerDialog({
                               data-testid={`gallery-image-${id}`}
                             >
                               <div className="relative">
+                                {(img.origin === "ai" || img.ai?.generated) && (
+                                  <span
+                                    className="absolute top-1 right-1 z-[1] rounded bg-background/80 p-0.5"
+                                    title="AI generated"
+                                    data-testid={`badge-ai-${id}`}
+                                  >
+                                    <Sparkles className="h-3 w-3 text-muted-foreground" />
+                                  </span>
+                                )}
                                 {doctype === "pdf" ? (
                                   <div className="aspect-square flex flex-col items-center justify-center gap-1 p-2 bg-muted">
                                     <FileText className="h-6 w-6 text-muted-foreground" />
@@ -975,6 +1304,138 @@ export function ImagePickerDialog({
                   )}
                 </div>
               </>
+            ) : pickerMode === "generate" && showGenerateTab ? (
+              <div className="flex-1 overflow-y-auto min-h-0 space-y-3" data-testid="panel-generate">
+                <p className="text-sm text-muted-foreground">
+                  Describe the image you need. We’ll save it to the gallery when you confirm.
+                </p>
+                {generateStatus && !generateStatus.ready ? (
+                  <div className="rounded-md border border-dashed p-4 space-y-2" data-testid="generate-empty-config">
+                    <p className="text-sm font-medium">Image generation isn’t configured yet</p>
+                    <p className="text-xs text-muted-foreground">
+                      {generateStatus.error || "Set up an image model to generate assets."}
+                    </p>
+                    <Collapsible open={generateAdvancedOpen} onOpenChange={setGenerateAdvancedOpen}>
+                      <CollapsibleTrigger asChild>
+                        <Button type="button" variant="ghost" size="sm" className="h-8 px-0 text-xs">
+                          Read more (advanced)
+                          <ChevronDown className="h-3.5 w-3.5 ml-1" />
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="text-xs text-muted-foreground space-y-1 pt-1">
+                        <p>{generateStatus.hint}</p>
+                        <p>
+                          Model comes from site <code className="bg-muted px-1 rounded">llm.yml</code> (
+                          <code className="bg-muted px-1 rounded">model.image</code>
+                          ). Images are not stored until you Save.
+                        </p>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </div>
+                ) : (
+                  <>
+                    <Textarea
+                      placeholder="A laptop on a desk showing a coding bootcamp dashboard, soft daylight…"
+                      value={generatePrompt}
+                      onChange={(e) => setGeneratePrompt(e.target.value)}
+                      rows={3}
+                      data-testid="input-generate-prompt"
+                    />
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Select value={generateAspect} onValueChange={setGenerateAspect}>
+                        <SelectTrigger className="w-[120px] h-9" data-testid="select-generate-aspect">
+                          <SelectValue placeholder="Aspect" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1:1">1:1</SelectItem>
+                          <SelectItem value="16:9">16:9</SelectItem>
+                          <SelectItem value="4:3">4:3</SelectItem>
+                          <SelectItem value="9:16">9:16</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        onClick={() => void handleGenerate()}
+                        disabled={generating || !generatePrompt.trim()}
+                        data-testid="button-generate-image"
+                      >
+                        {generating ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-4 w-4 mr-2" />
+                        )}
+                        Generate
+                      </Button>
+                    </div>
+                    <Collapsible open={generateAdvancedOpen} onOpenChange={setGenerateAdvancedOpen}>
+                      <CollapsibleTrigger asChild>
+                        <Button type="button" variant="ghost" size="sm" className="h-8 px-0 text-xs">
+                          Read more (advanced)
+                          <ChevronDown className="h-3.5 w-3.5 ml-1" />
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="text-xs text-muted-foreground space-y-1">
+                        <p>
+                          Model:{" "}
+                          <code className="bg-muted px-1 rounded">
+                            {generateStatus?.model || "from llm.yml"}
+                          </code>
+                          . Candidates stay in memory until Save registers one with{" "}
+                          <code className="bg-muted px-1 rounded">origin: ai</code>.
+                        </p>
+                      </CollapsibleContent>
+                    </Collapsible>
+                    {(generating || aiCandidates.length > 0) && (
+                      <div className="grid grid-cols-2 gap-2" data-testid="generate-results">
+                        {Array.from({
+                          length: generating
+                            ? GENERATE_N
+                            : Math.max(aiCandidates.length, 1),
+                        }).map((_, i) => {
+                          const c = aiCandidates[i];
+                          if (!c) {
+                            if (!generating) return null;
+                            return (
+                              <div
+                                key={`sk-${i}`}
+                                className="aspect-video rounded-md bg-muted animate-pulse"
+                                data-testid={`generate-skeleton-${i}`}
+                              />
+                            );
+                          }
+                          const selected = pendingAi?.dataUrl === c.dataUrl;
+                          return (
+                            <button
+                              key={i}
+                              type="button"
+                              className={`rounded-md overflow-hidden border-2 ${
+                                selected ? "border-primary" : "border-transparent hover:border-muted-foreground/40"
+                              }`}
+                              onClick={() => {
+                                setPendingAi({
+                                  ...c,
+                                  prompt: generatePrompt.trim(),
+                                  model: generateStatus?.model,
+                                });
+                                setSelectedSrc(c.dataUrl);
+                                setSelectedAlt(normalizePromptAlt(generatePrompt));
+                                setSelectedRegistryId(undefined);
+                              }}
+                              data-testid={`generate-candidate-${i}`}
+                            >
+                              <img
+                                src={c.dataUrl}
+                                alt={`Generated option ${i + 1}`}
+                                className="w-full aspect-video object-cover"
+                              />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center min-h-[200px]">
                 {hasCloudProvider || mediaStatus?.defaultProvider === "local" ? (
@@ -1057,7 +1518,8 @@ export function ImagePickerDialog({
               </div>
             )}
 
-            {(selectedSrc || selectedDisplaySrc) && (
+            {((!uploadOnly && (selectedSrc || selectedDisplaySrc)) ||
+              (uploadOnly && pendingAi)) && (
               <div className="border-t pt-4">
                 <div className="flex gap-3">
                   <div className="w-16 h-16 rounded-md overflow-hidden bg-muted border flex-shrink-0">
@@ -1134,7 +1596,7 @@ export function ImagePickerDialog({
 
           <DialogFooter className="flex-row gap-2 sm:justify-between">
             <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
-              {onRemove ? (
+              {!uploadOnly && onRemove ? (
                 <Button
                   type="button"
                   variant="destructive"
@@ -1145,7 +1607,8 @@ export function ImagePickerDialog({
                   Remove
                 </Button>
               ) : null}
-              {ensureTagsOnSave &&
+              {!uploadOnly &&
+                ensureTagsOnSave &&
                 ensureTagsOnSave.length > 0 &&
                 selectedSrc &&
                 selectedRegistryId && (
@@ -1173,19 +1636,21 @@ export function ImagePickerDialog({
               >
                 Cancel
               </Button>
-              <Button
-                type="button"
-                onClick={checkFamilyAndSave}
-                disabled={!selectedSrc || saving || bulkModal.checking}
-                data-testid="button-image-save"
-              >
-                {saving || bulkModal.checking ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Check className="h-4 w-4 mr-2" />
-                )}
-                Save
-              </Button>
+              {(!uploadOnly || pendingAi) && (
+                <Button
+                  type="button"
+                  onClick={() => void (uploadOnly ? handleSave() : checkFamilyAndSave())}
+                  disabled={!selectedSrc || saving || bulkModal.checking}
+                  data-testid="button-image-save"
+                >
+                  {saving || bulkModal.checking ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Check className="h-4 w-4 mr-2" />
+                  )}
+                  {uploadOnly ? "Add to gallery" : "Save"}
+                </Button>
+              )}
             </div>
           </DialogFooter>
         </DialogContent>

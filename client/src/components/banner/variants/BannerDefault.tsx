@@ -19,28 +19,14 @@ interface BannerProps {
   data: BannerSectionType;
 }
 
+const CARD_BACKGROUND = {
+  background: "linear-gradient(135deg, #366bff 0%, #4aa5ff 100%)",
+};
+
 export function Banner({ data }: BannerProps) {
-  const { logo, avatars, title, description, cta, background = "gradient" } = data;
+  const { logo, avatars, title, description, cta } = data;
   const [isExpanded, setIsExpanded] = useState(false);
   const handleLinkClick = useInternalNav();
-
-  const getBackgroundStyle = () => {
-    switch (background) {
-      case "gradient":
-        return {
-          background: "linear-gradient(135deg, #366bff 0%, #4aa5ff 100%)",
-        };
-      case "muted":
-        return { backgroundColor: "hsl(var(--muted))" };
-      case "card":
-        return { backgroundColor: "hsl(var(--card))" };
-      case "background":
-      default:
-        return { backgroundColor: "hsl(var(--background))" };
-    }
-  };
-
-  const isGradient = background === "gradient";
 
   const renderAvatars = () => {
     const hasLogo = !!logo;
@@ -103,7 +89,7 @@ export function Banner({ data }: BannerProps) {
       <div className="max-w-6xl mx-auto px-4">
         <div 
           className="relative rounded-[0.8rem] px-6 pt-10 pb-12 md:px-12 md:pt-10 md:pb-16 text-center"
-          style={getBackgroundStyle()}
+          style={CARD_BACKGROUND}
           data-testid="banner-container"
         >
           {renderAvatars()}
@@ -163,14 +149,10 @@ export function Banner({ data }: BannerProps) {
 
           {cta && (
             <Button
-              variant={
-                cta.variant === "primary" ? (isGradient ? "secondary" : "default") :
-                cta.variant === "secondary" ? "secondary" :
-                "outline"
-              }
+              variant={cta.variant === "outline" ? "outline" : "secondary"}
               size="lg"
               asChild
-              className={cta.variant === "outline" && isGradient ? "border-white text-white hover:bg-white/10" : ""}
+              className={cta.variant === "outline" ? "border-white text-white hover:bg-white/10" : ""}
               data-testid="button-banner-cta"
             >
               <a href={cta.url} onClick={handleLinkClick}>{cta.text}</a>

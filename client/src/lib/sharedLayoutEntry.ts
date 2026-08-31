@@ -1,6 +1,28 @@
 /** Client helpers mirroring server shared-layout / versioning slug rules. */
 
-export const TEMPLATE_VERSIONING_SLUG = "single";
+import {
+  TEMPLATE_VERSIONING_SLUG,
+  LEGACY_TEMPLATE_VERSIONING_SLUG,
+  isTemplateVersioningSlug,
+  COMMON_TEMPLATE_RAW_SLUG,
+  LEGACY_COMMON_SINGLE_RAW_SLUG,
+  isCommonTemplateRawSlug,
+  LAYOUT_TARGET_TYPE_TEMPLATE,
+  LAYOUT_TARGET_TYPE_SINGLE,
+  isTypeLayoutTarget,
+} from "@shared/sharedLayoutPaths";
+
+export {
+  TEMPLATE_VERSIONING_SLUG,
+  LEGACY_TEMPLATE_VERSIONING_SLUG,
+  isTemplateVersioningSlug,
+  COMMON_TEMPLATE_RAW_SLUG,
+  LEGACY_COMMON_SINGLE_RAW_SLUG,
+  isCommonTemplateRawSlug,
+  LAYOUT_TARGET_TYPE_TEMPLATE,
+  LAYOUT_TARGET_TYPE_SINGLE,
+  isTypeLayoutTarget,
+};
 
 export function isSharedLayoutType(info: {
   has_database?: boolean;
@@ -11,7 +33,7 @@ export function isSharedLayoutType(info: {
 
 /**
  * Versioning API slug for an entry:
- * - attached shared-layout → `single`
+ * - attached shared-layout → `template`
  * - detached or non-shared → entry slug
  */
 export function versioningContentSlug(
@@ -33,11 +55,16 @@ export function allowEntryStructuralOverrides(opts: {
   return opts.isDetached;
 }
 
-/** PrivatePreview 404 picker is listing the type shell (`single`), not this entry. */
+/** PrivatePreview 404 picker is listing the type shell (`template`), not this entry. */
 export function isPreviewListingSharedTemplate(info: {
   isSharedLayout?: boolean;
   detached?: boolean;
   versioningSlug?: string;
 } | null | undefined): boolean {
-  return !!info?.isSharedLayout && !info.detached && info.versioningSlug === TEMPLATE_VERSIONING_SLUG;
+  return (
+    !!info?.isSharedLayout &&
+    !info.detached &&
+    !!info.versioningSlug &&
+    isTemplateVersioningSlug(info.versioningSlug)
+  );
 }

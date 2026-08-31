@@ -23,6 +23,8 @@ const RUN_CLASS_BY_NAME: Record<string, ValidatorRunClass> = {
   "orphaned-files": "cross-entry",
   "source-name-collisions": "cross-entry",
   "relation-targets": "cross-entry",
+  "site-link-index": "cross-entry",
+  "seo-duplicates": "cross-entry",
   images: "media",
   "image-tags": "media",
   "image-optimization": "media",
@@ -97,6 +99,6 @@ export const ENTRY_LOCAL_VALIDATOR_NAMES = [
   "component-behaviors",
   "cta-tracking",
   "static-field-overrides",
-  "blog-category-locale",
+  "url-param-locale",
   "updated-at",
 ] as const;

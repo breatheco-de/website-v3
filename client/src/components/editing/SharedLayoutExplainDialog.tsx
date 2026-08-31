@@ -33,9 +33,10 @@ export function SharedLayoutExplainDialog({
         </DialogHeader>
         <div className="space-y-3 text-sm text-muted-foreground">
           <p>
-            <strong className="text-foreground">Structure lives in locale singles.</strong>{" "}
-            Each <code className="text-xs">single.&#123;locale&#125;.yml</code> holds the full
-            section list. <code className="text-xs">_common.single.yml</code> is layout defaults
+            <strong className="text-foreground">Structure lives in locale templates.</strong>{" "}
+            Each <code className="text-xs">template.&#123;locale&#125;.yml</code> holds the full
+            section list (legacy <code className="text-xs">single.*</code> still loads).{" "}
+            <code className="text-xs">_common.template.yml</code> is layout defaults
             only (no sections). Type <code className="text-xs">_common.yml</code> must not contain
             sections either.
           </p>
