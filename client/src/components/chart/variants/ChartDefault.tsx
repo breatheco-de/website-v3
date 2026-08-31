@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Geekchart } from "geekchart";
 import { playInView } from "geekchart/observe";
 import type { ChartSection } from "@shared/schema";
 
@@ -25,7 +26,15 @@ export function ChartDefault({ data }: ChartProps) {
     return playInView(rootRef.current ?? document);
   }, [html]);
 
-  if (!html) return null;
+  // No server-enhanced html (the Component Gallery's example preview, a
+  // screenshot job, a page rendered outside the enhancement path): draw in
+  // the browser with the component instead of showing nothing.
+  const body = html ? (
+    <div dangerouslySetInnerHTML={{ __html: html }} />
+  ) : data.source ? (
+    <Geekchart source={data.source} play="once" speed={data.speed ?? undefined} />
+  ) : null;
+  if (!body) return null;
 
   return (
     <div
@@ -34,7 +43,7 @@ export function ChartDefault({ data }: ChartProps) {
       data-testid="section-chart"
     >
       <figure className="geekchart mx-auto max-w-3xl">
-        <div dangerouslySetInnerHTML={{ __html: html }} />
+        {body}
         {caption && (
           <figcaption
             className="mt-3 text-center text-sm text-muted-foreground"
