@@ -3,6 +3,7 @@ import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { useState, useEffect } from "react";
 import type { ComponentProps } from "react";
 import { ChevronRight, User, Clock, Calendar } from "lucide-react";
+import { playInView } from "geekchart/observe";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -858,6 +859,10 @@ function MarkdownRenderer({
       ? [remarkGfm]
       : [remarkGfm, [remarkMath, remarkMathOptions]]
   ) as ComponentProps<typeof ReactMarkdown>["remarkPlugins"];
+
+  // Charts drawn by geekchart (server/markdown-enhance.ts) ship paused and
+  // play once when scrolled 40% into view.
+  useEffect(() => playInView(document), [source]);
 
   const rehypePlugins = (
     isEnhanced
