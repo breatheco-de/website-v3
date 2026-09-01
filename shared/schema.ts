@@ -263,9 +263,9 @@ export {
 } from "./component-registry/breadcrumb/v1.0/schema";
 
 export {
-  chartSectionSchema,
-  type ChartSection,
-} from "./component-registry/chart/v1.0/schema";
+  geekchartSectionSchema,
+  type GeekchartSection,
+} from "./component-registry/geekchart/v1.0/schema";
 
 // Type alias for backward compatibility
 export type FAQItem = import("./component-registry/faq/v1.0/schema").FaqItem;
@@ -881,7 +881,7 @@ import { whyLearnAISectionSchema } from "../site_4geeks-com/component-registry/w
 import { pricingSectionSchema } from "../site_4geeks-com/component-registry/pricing/v1.0/schema";
 import { faqSectionSchema } from "./component-registry/faq/v1.0/schema";
 import { breadcrumbSectionSchema } from "./component-registry/breadcrumb/v1.0/schema";
-import { chartSectionSchema } from "./component-registry/chart/v1.0/schema";
+import { geekchartSectionSchema } from "./component-registry/geekchart/v1.0/schema";
 import { schemaOrgSectionSchema } from "./component-registry/schema_org/v1.0/schema";
 export { schemaOrgSectionSchema, type SchemaOrgSection } from "./component-registry/schema_org/v1.0/schema";
 import { testimonialsSectionSchema } from "../site_4geeks-com/component-registry/testimonials/v1.0/schema";
@@ -1233,7 +1233,7 @@ const baseSectionSchema = z.union([
   pricingSectionSchema,
   faqSectionSchema,
   breadcrumbSectionSchema,
-  chartSectionSchema,
+  geekchartSectionSchema,
   schemaOrgSectionSchema,
   testimonialsSectionSchema,
   whosHiringSectionSchema,

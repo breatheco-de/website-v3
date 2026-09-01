@@ -1,6 +1,6 @@
-name: Chart
+name: Geekchart
 version: "1.0"
-component: Chart
+component: Geekchart
 file: client/src/components/chart/variants/ChartDefault.tsx
 description: An animated mermaid diagram, drawn server-side into a designed SVG.
 when_to_use: |
