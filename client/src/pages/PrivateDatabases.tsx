@@ -3852,6 +3852,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
   const [editingDesc, setEditingDesc] = useState(false);
   const [editDescValue, setEditDescValue] = useState("");
   const [inlineSaving, setInlineSaving] = useState(false);
+  const [sourceEndpointCopied, setSourceEndpointCopied] = useState(false);
 
   const [editMode, setEditMode] = useState(false);
   const [editingItem, setEditingItem] = useState<Record<string, unknown> | null>(null);
@@ -4244,6 +4245,14 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
   const cellClassName = (value: unknown) =>
     value === TRANSFORM_ERROR_SENTINEL ? "text-destructive" : "";
 
+  const copySourceEndpoint = () => {
+    const endpoint = config?.source.api?.endpoint;
+    if (!endpoint) return;
+    navigator.clipboard.writeText(endpoint);
+    setSourceEndpointCopied(true);
+    setTimeout(() => setSourceEndpointCopied(false), 2000);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
@@ -4501,9 +4510,31 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                 </div>
                 <p className="text-sm font-medium">{config?.source.type || "\u2014"}</p>
                 {config?.source.api?.endpoint && (
-                  <p className="text-xs text-muted-foreground truncate" title={config.source.api.endpoint}>
-                    {config.source.api.endpoint}
-                  </p>
+                  <div className="flex items-center gap-1 min-w-0">
+                    <button
+                      type="button"
+                      onClick={copySourceEndpoint}
+                      className="text-xs text-muted-foreground truncate min-w-0 flex-1 text-left hover:text-foreground transition-colors cursor-pointer"
+                      title={sourceEndpointCopied ? "Copied!" : config.source.api.endpoint}
+                      data-testid="text-source-endpoint"
+                    >
+                      {config.source.api.endpoint}
+                    </button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-5 w-5 shrink-0"
+                      title={sourceEndpointCopied ? "Copied!" : "Copy endpoint URL"}
+                      data-testid="button-copy-source-endpoint"
+                      onClick={copySourceEndpoint}
+                    >
+                      {sourceEndpointCopied ? (
+                        <Check className="h-3 w-3" />
+                      ) : (
+                        <Copy className="h-3 w-3" />
+                      )}
+                    </Button>
+                  </div>
                 )}
               </CardContent>
             </Card>
