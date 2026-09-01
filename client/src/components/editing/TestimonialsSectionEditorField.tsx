@@ -23,9 +23,9 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RelatedFeaturesPicker } from "@/components/editing/RelatedFeaturesPicker";
 import {
-  TestimonialItemsPreview,
+  TestimonialsItemsPicker,
   type HardcodedTestimonialItem,
-} from "@/components/editing/TestimonialItemsPreview";
+} from "@/components/editing/TestimonialsItemsPicker";
 import { MAX_RELATED_FEATURES } from "@/lib/faqConstants";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -65,8 +65,13 @@ export interface TestimonialsSectionEditorFieldProps {
   /** `dynamic_entries.hardcoded_entries`, in editor shape. */
   hardcodedItems?: HardcodedTestimonialItem[];
   onHardcodedItemsChange?: (items: HardcodedTestimonialItem[]) => void;
-  /** Server-resolved `items` for this section (manually added first, then bank). */
-  resolvedItems?: TestimonialBankRow[];
+  /** Bank rows for preview API (same order as hardcodedItems). */
+  hardcodedBankRows?: TestimonialBankRow[];
+  ignoredEntries?: string[];
+  onIgnoredEntriesChange?: (keys: string[]) => void;
+  permanentFilters?: Array<{ item_property_slug: string; value: string | string[] }>;
+  resolvedSearchPhrase?: string;
+  singleEntry?: Record<string, unknown>;
   "data-testid"?: string;
 }
 
@@ -93,7 +98,12 @@ export function TestimonialsSectionEditorField({
   onSortChange,
   hardcodedItems = [],
   onHardcodedItemsChange,
-  resolvedItems = [],
+  hardcodedBankRows = [],
+  ignoredEntries = [],
+  onIgnoredEntriesChange,
+  permanentFilters = [],
+  resolvedSearchPhrase,
+  singleEntry,
   "data-testid": testId,
 }: TestimonialsSectionEditorFieldProps) {
   const { toast } = useToast();
@@ -694,16 +704,22 @@ export function TestimonialsSectionEditorField({
           </div>
         )}
 
-        <TestimonialItemsPreview
+        <TestimonialsItemsPicker
+          sectionType={sectionType}
+          locale={locale || "en"}
+          permanentFilters={permanentFilters}
+          searchPhrase={searchPhrase}
+          resolvedSearchPhrase={resolvedSearchPhrase}
+          sort={effectiveSort}
+          limit={effectiveLimit}
           hardcodedItems={supportsHardcoded ? hardcodedItems : []}
+          hardcodedBankRows={supportsHardcoded ? hardcodedBankRows : []}
+          ignoredEntries={ignoredEntries}
+          onIgnoredEntriesChange={onIgnoredEntriesChange}
           onHardcodedItemsChange={
             supportsHardcoded ? onHardcodedItemsChange : undefined
           }
-          resolvedItems={resolvedItems}
-          resolvedHardcodedCount={supportsHardcoded ? hardcodedItems.length : 0}
-          hasTopics={topicCount > 0}
-          hasSearch={hasSearch}
-          locale={locale || "en"}
+          singleEntry={singleEntry}
         />
 
         <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
@@ -788,6 +804,11 @@ export function TestimonialsSectionEditorField({
                 Non-effects: editing this section never writes the bank, never changes
                 who is <span className="text-foreground">featured</span>, and never
                 touches the other locale
+              </p>
+              <p>
+                Hide (section only):{" "}
+                <span className="text-foreground">dynamic_entries.ignored_entries</span>{" "}
+                — person stays in the bank
               </p>
               <p>
                 UI:{" "}

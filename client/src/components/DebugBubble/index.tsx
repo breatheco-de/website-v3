@@ -1819,39 +1819,6 @@ export function DebugBubble() {
     }
   };
 
-  const handleEditYaml = async (url: SitemapUrl) => {
-    const urlPath = new URL(url.loc).pathname;
-    const info = detectContentInfo(urlPath, contentTypesMap);
-    if (!info.type || !info.slug) {
-      toast({ title: "Cannot edit YAML", description: "Unrecognized content type", variant: "destructive" });
-      return;
-    }
-    const pathLocale = url.locale || (urlPath.startsWith('/es/') ? 'es' : urlPath.startsWith('/en/') ? 'en' : 'en');
-    const token = getDebugToken();
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Token ${token}`;
-    try {
-      const res = await fetch(`/api/content/raw-file?contentType=${encodeURIComponent(info.type)}&slug=${encodeURIComponent(info.slug)}&locale=${encodeURIComponent(pathLocale)}`, { headers });
-      if (!res.ok) {
-        toast({ title: "No YAML found", description: "This page has no YAML content files", variant: "destructive" });
-        return;
-      }
-      const data = await res.json();
-      if (!data.exists) {
-        toast({ title: "No YAML found", description: "This page has no YAML content files", variant: "destructive" });
-        return;
-      }
-      setYamlEditorInfo({ contentType: info.type, slug: info.slug, locale: pathLocale });
-      setShowYamlEditor(true);
-      navigate(urlPath);
-      if (editMode && !editMode.isEditMode) {
-        editMode.toggleEditMode();
-      }
-    } catch {
-      toast({ title: "Error", description: "Failed to check YAML files", variant: "destructive" });
-    }
-  };
-
   const handleEditPageMeta = (url: SitemapUrl) => {
     const urlPath = new URL(url.loc).pathname;
     const info = detectContentInfo(urlPath, contentTypesMap);
@@ -2209,7 +2176,6 @@ export function DebugBubble() {
     handleDuplicatePage,
     handleDeletePage,
     handleDownloadYml,
-    handleEditYaml,
     handleEditPageMeta,
     onEditContentTypesYml: () => setShowContentTypesYmlEditor(true),
     handleRefreshCache,

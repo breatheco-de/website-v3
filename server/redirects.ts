@@ -124,6 +124,10 @@ function getRedirectMap(): Map<string, RedirectEntry> {
   return redirectMap;
 }
 
+function stripTrailingSlash(urlPath: string): string {
+  return urlPath.length > 1 && urlPath.endsWith("/") ? urlPath.slice(0, -1) : urlPath;
+}
+
 function normalizePath(urlPath: string): string {
   let normalized = urlPath.toLowerCase();
   if (normalized.length > 1 && normalized.endsWith("/")) {
@@ -332,11 +336,20 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
   }
 
   // Canonical redirect for content types with multi-param URL patterns (e.g. blog
-  // `:category/:slug`). Runs before isKnownUrl so wrong/missing extra params still
-  // redirect — static types can match a pattern by slug alone even when category is wrong.
+  // `:category/:slug`). Known live URLs skip fallback redirects entirely so slug
+  // collisions across content types (program vs blog) are not hijacked; wrong/missing
+  // blog category params on unknown URLs still redirect to the canonical blog path.
   const cleanUrl = req.path.split("?")[0].split("#")[0];
+  const cleanUrlNoSlash = stripTrailingSlash(cleanUrl);
   try {
-    const soft = findCanonicalSoftMatch(cleanUrl, activeCi);
+    if (activeCi.isKnownUrl(cleanUrlNoSlash)) {
+      next();
+      return;
+    }
+  } catch {}
+
+  try {
+    const soft = findCanonicalSoftMatch(cleanUrlNoSlash, activeCi);
     if (soft) {
       const target = soft.canonicalUrl + getQueryString(req);
       sendRedirect(req, res, {
@@ -354,7 +367,7 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
 
   // Custom fallback redirects only fire when no real page exists at this URL.
   try {
-    if (activeCi.isKnownUrl(cleanUrl)) {
+    if (activeCi.isKnownUrl(cleanUrlNoSlash)) {
       next();
       return;
     }
@@ -513,12 +526,17 @@ export function findCanonicalSoftMatch(
   cleanUrl: string,
   ci: typeof contentIndex = contentIndex,
 ): { typeName: string; canonicalUrl: string } | null {
-  const segments = cleanUrl.split("/").filter(Boolean);
+  const normalizedUrl = stripTrailingSlash(cleanUrl);
+  // Do not rewrite URLs that already resolve to a live page (e.g. program and blog
+  // entries can share a locale slug under different content-type URL patterns).
+  if (ci.isKnownUrl(normalizedUrl)) return null;
+
+  const segments = normalizedUrl.split("/").filter(Boolean);
   const lastSegment = segments[segments.length - 1];
   if (!lastSegment) return null;
   const lastSegmentLower = lastSegment.toLowerCase();
 
-  const localeMatch = cleanUrl.match(/^\/([a-z]{2})\//);
+  const localeMatch = normalizedUrl.match(/^\/([a-z]{2})\//);
   const locale = localeMatch?.[1] ?? "en";
 
   for (const [typeName, typeConfig] of Object.entries(getAllConfigs())) {
@@ -577,7 +595,7 @@ export function findCanonicalSoftMatch(
     if (
       matched &&
       canonicalUrl &&
-      canonicalUrl !== cleanUrl &&
+      canonicalUrl !== normalizedUrl &&
       ci.isKnownUrl(canonicalUrl)
     ) {
       return { typeName, canonicalUrl };

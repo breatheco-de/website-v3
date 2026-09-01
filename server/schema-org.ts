@@ -438,6 +438,34 @@ export function getOrganizationDocument(locale: string = "en", contentRoot?: str
   };
 }
 
+/**
+ * Lightweight Organization ref for nested provider/parentOrganization fields.
+ * Omits aggregateRating and other fields so dual-emit can carry the rating once.
+ */
+export function getOrganizationNestedRef(
+  locale: string = "en",
+  contentRoot?: string,
+): Record<string, unknown> | null {
+  const config = loadSchemaConfig(contentRoot);
+  if (!config.organization) return null;
+  const transformed = transformToJsonLd(config.organization, locale);
+  const orgType =
+    (typeof transformed["@type"] === "string" && transformed["@type"]) ||
+    (typeof config.organization.type === "string" && config.organization.type) ||
+    "Organization";
+  const ref: Record<string, unknown> = {
+    "@id": getOrganizationId(contentRoot),
+    "@type": orgType,
+  };
+  if (typeof transformed.name === "string" && transformed.name.trim()) {
+    ref.name = transformed.name;
+  }
+  if (typeof transformed.url === "string" && transformed.url.trim()) {
+    ref.url = transformed.url;
+  }
+  return ref;
+}
+
 /** Site Website template properties (no @context) for prefilling page schema_org sections. */
 export function getWebsiteTemplateProperties(locale: string = "en", contentRoot?: string): Record<string, unknown> | null {
   const config = loadSchemaConfig(contentRoot);
@@ -462,10 +490,8 @@ export function expandOrganizationRefs(
   locale: string,
   contentRoot?: string,
 ): boolean {
-  const orgDoc = getOrganizationDocument(locale, contentRoot);
-  if (!orgDoc) return false;
-  const nested = { ...orgDoc };
-  delete nested["@context"];
+  const nested = getOrganizationNestedRef(locale, contentRoot);
+  if (!nested) return false;
 
   let expanded = false;
   const walk = (node: unknown): unknown => {

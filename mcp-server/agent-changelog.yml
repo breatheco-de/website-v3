@@ -6,6 +6,16 @@ window_days: 6
 
 entries:
   - date: "2026-09-01"
+    summary: "locale-slug-uniqueness validator — SLUG_SHARED_ACROSS_LOCALES warning"
+    agent_impact:
+      - "run_entry_diagnostics and on-save validation warn when two or more locales of the same YAML entry share the same effective public URL slug (locale YAML slug or folder fallback)."
+      - "Applies to non-database content types with per-locale url_pattern (en + es); skips default-only patterns (e.g. landing) and database-backed types."
+      - "Fix: set a different slug on each locale file, or translate_entry with url_slug. Folder name stays entry identity."
+    paths:
+      - scripts/validation/validators/locale-slug-uniqueness.ts
+      - scripts/validation/shared/runClass.ts
+    tools_changed: false
+  - date: "2026-09-01"
     summary: "SEO cluster in-body links — advisory only; HTML href detection in diagnostics"
     agent_impact:
       - "Missing hub/member in-body links (HUB_MISSING_MEMBER_LINKS, MEMBER_MISSING_HUB_LINK) no longer block publish_draft or promote_variant."

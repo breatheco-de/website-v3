@@ -149,7 +149,6 @@ export interface DebugPanelContentProps {
   handleDuplicatePage: (url: SitemapUrl) => void;
   handleDeletePage: (url: SitemapUrl) => void;
   handleDownloadYml: (url: SitemapUrl) => void;
-  handleEditYaml: (url: SitemapUrl) => void;
   handleEditPageMeta: (url: SitemapUrl) => void;
   onEditContentTypesYml: () => void;
   handleRefreshCache: (url: SitemapUrl) => void;
@@ -1324,7 +1323,6 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           handleDuplicatePage={props.handleDuplicatePage}
           handleDeletePage={props.handleDeletePage}
           handleDownloadYml={props.handleDownloadYml}
-          handleEditYaml={props.handleEditYaml}
           handleEditPageMeta={props.handleEditPageMeta}
           handleRefreshCache={props.handleRefreshCache}
           validationSummary={props.validationSummary}

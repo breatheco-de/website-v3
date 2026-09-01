@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-vi.mock("./TestimonialItemsPreview", () => ({
-  TestimonialItemsPreview: () => null,
+vi.mock("./TestimonialsItemsPicker", () => ({
+  TestimonialsItemsPicker: () => null,
 }));
 
 import { TestimonialsSectionEditorField } from "./TestimonialsSectionEditorField";

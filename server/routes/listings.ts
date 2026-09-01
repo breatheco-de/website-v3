@@ -9,6 +9,13 @@ import {
   type ListingPermanentFilter,
 } from "../listing-search";
 import { child } from "../logger";
+import { requireStaffSession } from "./_helpers";
+import { resolveTestimonialsSectionPreview } from "../testimonials-section-preview";
+import {
+  TESTIMONIALS_LIMIT_DEFAULTS,
+  type TestimonialsDynamicEntries,
+  type TestimonialsSectionType,
+} from "@shared/testimonials-listing";
 
 const log = child({ module: "routes/listings" });
 
@@ -80,6 +87,55 @@ export function registerListingsRoutes(app: Express): void {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         log.error({ err }, "listing search error");
+        if (msg.includes("Invalid JSON")) {
+          res.status(400).json({ error: msg });
+          return;
+        }
+        res.status(500).json({ error: msg });
+      }
+    },
+  );
+
+  api.get(
+    app,
+    "/api/listings/testimonials-section-preview",
+    { rate: "publicRead" },
+    async (req, res) => {
+      try {
+        const staff = await requireStaffSession(req, res);
+        if (!staff.authorized) return;
+
+        const sectionType = String(req.query.section_type ?? "").trim() as TestimonialsSectionType;
+        if (!(sectionType in TESTIMONIALS_LIMIT_DEFAULTS)) {
+          res.status(400).json({ error: "Invalid or missing section_type" });
+          return;
+        }
+
+        const locale = String(req.query.locale ?? "en").trim() || "en";
+        const dynamicEntries =
+          parseJsonQueryParam<TestimonialsDynamicEntries>(
+            req.query.dynamic_entries,
+            "dynamic_entries",
+          ) ?? {};
+        const singleEntry = parseJsonQueryParam<Record<string, unknown>>(
+          req.query.single_entry,
+          "single_entry",
+        );
+
+        const contentRoot = getContentRootName(res);
+        const result = await resolveTestimonialsSectionPreview({
+          sectionType,
+          locale,
+          dynamicEntries,
+          singleEntry,
+          contentRoot,
+          db: getDB(res),
+        });
+
+        res.json(result);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.error({ err }, "testimonials section preview error");
         if (msg.includes("Invalid JSON")) {
           res.status(400).json({ error: msg });
           return;

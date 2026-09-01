@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, DownloadCloud, ExternalLink, Globe, Info, Loader2, MoreVertical, Network, Pencil, Plus, Star, Unlink } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Copy, Crosshair, DownloadCloud, ExternalLink, Globe, Info, Loader2, MoreVertical, Network, Pencil, Plus, Star, Unlink } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -90,6 +90,55 @@ function clusterCountBadgeClass(count: number): string | undefined {
   if (count <= 0) return "border-transparent bg-status-busy/15 text-status-busy";
   if (count <= 2) return "border-transparent bg-status-away/15 text-status-away";
   return undefined;
+}
+
+function ClusterPillarPath({ pillarUrl }: { pillarUrl: string }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    void navigator.clipboard.writeText(pillarUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  const iconBtnClass = cn(
+    "shrink-0 inline-flex items-center justify-center h-5 w-5 rounded-sm",
+    "text-muted-foreground hover:text-foreground transition-colors",
+    "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+  );
+
+  return (
+    <div className="flex items-center gap-1 pb-2 min-w-0">
+      <p
+        className="text-[11px] text-muted-foreground font-mono min-w-0 flex-1 truncate"
+        data-testid={`cluster-path-${pillarUrl}`}
+      >
+        {pillarUrl}
+      </p>
+      <a
+        href={pillarUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={iconBtnClass}
+        title="Open page in new tab"
+        aria-label="Open page in new tab"
+        data-testid={`cluster-path-open-${pillarUrl}`}
+      >
+        <ExternalLink className="h-3 w-3" />
+      </a>
+      <button
+        type="button"
+        onClick={handleCopy}
+        className={iconBtnClass}
+        title={copied ? "Copied!" : "Copy path"}
+        aria-label="Copy path"
+        data-testid={`cluster-path-copy-${pillarUrl}`}
+      >
+        {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+      </button>
+    </div>
+  );
 }
 
 type ClusterSortBy = "name" | "page-count";
@@ -2895,12 +2944,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                       </div>
                     </AccordionTrigger>
                     <AccordionContent className="text-xs">
-                      <p
-                        className="text-[11px] text-muted-foreground font-mono pb-2"
-                        data-testid={`cluster-path-${cluster.pillarUrl}`}
-                      >
-                        {cluster.pillarUrl}
-                      </p>
+                      <ClusterPillarPath pillarUrl={cluster.pillarUrl} />
                       {hubId ? <ClusterMissingLinksPanel hubId={hubId} /> : null}
                       <div className="divide-y divide-border" data-testid="cluster-members-list">
                         {members.map((member) => (

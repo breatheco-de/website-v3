@@ -100,5 +100,6 @@ export const ENTRY_LOCAL_VALIDATOR_NAMES = [
   "cta-tracking",
   "static-field-overrides",
   "url-param-locale",
+  "locale-slug-uniqueness",
   "updated-at",
 ] as const;

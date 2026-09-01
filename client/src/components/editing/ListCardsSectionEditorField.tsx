@@ -1,24 +1,35 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   FileText,
+  Filter,
   LayoutList,
   ListOrdered,
   Search,
   Sparkles,
+  X,
 } from "lucide-react";
 import { IconChevronDown } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useContentTypesRaw } from "@/hooks/useContentTypes";
 import { LISTING_SEARCH_MIN_CHARS } from "@shared/listing-search-config";
 import { cn } from "@/lib/utils";
 import {
@@ -88,14 +99,54 @@ export function ListCardsSectionEditorField({
   const [limitOpen, setLimitOpen] = useState(false);
   const [rankingOpen, setRankingOpen] = useState(false);
   const [visitorSearchOpen, setVisitorSearchOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [draftRanking, setDraftRanking] = useState(sectionSearchPhrase);
   const [draftLimit, setDraftLimit] = useState(String(limit && limit > 0 ? limit : 12));
   const [draftFields, setDraftFields] = useState(searchFields.join(", "));
+  const [draftFilterField, setDraftFilterField] = useState("");
+  const [draftFilterValue, setDraftFilterValue] = useState("");
+
+  const { data: contentTypesRaw } = useContentTypesRaw();
+  const contentTypeConfig = contentTypesRaw?.find((c) => c.name === contentType);
+  const dbSlug = database ?? contentTypeConfig?.database_slug ?? null;
+
+  const { data: rawFieldsData, isLoading: rawFieldsLoading } = useQuery<{ fields: string[] }>({
+    queryKey: [`/api/databases/${dbSlug}/raw-fields`],
+    enabled: Boolean(dbSlug),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const filterFieldOptions = useMemo(() => {
+    const fromDb = rawFieldsData?.fields ?? [];
+    const fromCt = contentTypeConfig?.field_mapping_keys ?? [];
+    const merged = dbSlug && fromDb.length > 0 ? fromDb : fromCt;
+    return [...new Set(merged)].sort((a, b) => a.localeCompare(b));
+  }, [rawFieldsData?.fields, contentTypeConfig?.field_mapping_keys, dbSlug]);
 
   useEffect(() => setDraftRanking(sectionSearchPhrase), [sectionSearchPhrase]);
   useEffect(() => setDraftLimit(String(limit && limit > 0 ? limit : 12)), [limit]);
   useEffect(() => setDraftFields(searchFields.join(", ")), [searchFields]);
+
+  const permanentFilterCount = permanentFilters.length;
+
+  const upsertPermanentFilter = (slug: string, value: unknown) => {
+    const without = permanentFilters.filter((f) => f.item_property_slug !== slug);
+    onPermanentFiltersChange([...without, { item_property_slug: slug, value }]);
+  };
+
+  const removePermanentFilter = (slug: string) => {
+    onPermanentFiltersChange(
+      permanentFilters.filter((f) => f.item_property_slug !== slug),
+    );
+  };
+
+  const addDraftPermanentFilter = () => {
+    const slug = draftFilterField.trim();
+    if (!slug) return;
+    upsertPermanentFilter(slug, draftFilterValue.trim());
+    setDraftFilterValue("");
+  };
 
   const headerLabel = contentType
     ? deslugifyContentType(contentType)
@@ -354,6 +405,126 @@ export function ListCardsSectionEditorField({
             </PopoverContent>
           </Popover>
 
+          <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="relative"
+                title={
+                  permanentFilterCount > 0
+                    ? `Permanent filters (${permanentFilterCount})`
+                    : "Permanent filters — entire pool"
+                }
+                data-testid="button-list-cards-permanent-filters"
+              >
+                <Filter className="h-3.5 w-3.5" />
+                {permanentFilterCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+                    {permanentFilterCount}
+                  </span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="w-80 p-0 z-[10001]"
+              align="end"
+              data-testid="popover-list-cards-permanent-filters"
+            >
+              <div className="p-2 border-b space-y-1">
+                <p className="text-xs font-medium text-foreground">Permanent filters</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Limit which rows this section can load from the database. Visitor search and tag
+                  chips narrow further. Value can be plain text or a template.
+                </p>
+              </div>
+              <div className="p-3 space-y-3">
+                {permanentFilterCount === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">None — entire database pool.</p>
+                ) : (
+                  <ul className="space-y-1.5" data-testid="list-cards-permanent-filters-list">
+                    {permanentFilters.map((pf) => (
+                      <li
+                        key={pf.item_property_slug}
+                        className="flex items-center justify-between gap-2 rounded-md border border-input px-2 py-1.5 text-[11px] font-mono"
+                      >
+                        <span className="text-muted-foreground truncate">
+                          {pf.item_property_slug} = {String(pf.value)}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 shrink-0"
+                          onClick={() => removePermanentFilter(pf.item_property_slug)}
+                          data-testid={`button-remove-filter-${pf.item_property_slug}`}
+                          aria-label={`Remove filter ${pf.item_property_slug}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {filterFieldOptions.length === 0 && !rawFieldsLoading ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    Connect a content type or database to pick filter fields.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">Field</Label>
+                      <Select
+                        value={draftFilterField || undefined}
+                        onValueChange={setDraftFilterField}
+                        disabled={rawFieldsLoading || filterFieldOptions.length === 0}
+                      >
+                        <SelectTrigger
+                          className="h-8 text-xs"
+                          data-testid="select-list-cards-filter-field"
+                        >
+                          <SelectValue
+                            placeholder={rawFieldsLoading ? "Loading fields…" : "Select field"}
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {filterFieldOptions.map((field) => (
+                            <SelectItem key={field} value={field} className="text-xs">
+                              {field}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">Value</Label>
+                      <Input
+                        placeholder="e.g. en or {{ single.locale }}"
+                        value={draftFilterValue}
+                        onChange={(e) => setDraftFilterValue(e.target.value)}
+                        className="h-8 text-xs"
+                        data-testid="input-list-cards-filter-value"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs w-full"
+                      disabled={!draftFilterField.trim()}
+                      onClick={addDraftPermanentFilter}
+                      data-testid="button-list-cards-add-filter"
+                    >
+                      Add filter
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+
           <Popover open={limitOpen} onOpenChange={setLimitOpen}>
             <PopoverTrigger asChild>
               <Button
@@ -419,58 +590,8 @@ export function ListCardsSectionEditorField({
 
       <div className="px-3 py-3 space-y-4">
         <p className="text-xs text-muted-foreground">
-          Permanent filters define the subset visitors search within. The preview below matches
-          what loads before someone uses the search box.
+          The preview below shows what loads before a visitor uses search or tag filters.
         </p>
-
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-foreground">Permanent filters</p>
-          {permanentFilters.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground">None — entire database pool.</p>
-          ) : (
-            <ul className="text-[11px] space-y-1 font-mono">
-              {permanentFilters.map((pf, i) => (
-                <li key={i} className="text-muted-foreground">
-                  {pf.item_property_slug} = {String(pf.value)}
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="flex gap-2">
-            <Input
-              placeholder="field slug"
-              className="h-8 text-xs flex-1"
-              id="list-cards-new-filter-slug"
-            />
-            <Input
-              placeholder="value"
-              className="h-8 text-xs flex-1"
-              id="list-cards-new-filter-value"
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs shrink-0"
-              onClick={() => {
-                const slug = (
-                  document.getElementById("list-cards-new-filter-slug") as HTMLInputElement
-                )?.value?.trim();
-                const val = (
-                  document.getElementById("list-cards-new-filter-value") as HTMLInputElement
-                )?.value?.trim();
-                if (!slug) return;
-                onPermanentFiltersChange([
-                  ...permanentFilters,
-                  { item_property_slug: slug, value: val ?? "" },
-                ]);
-              }}
-              data-testid="button-list-cards-add-filter"
-            >
-              Add
-            </Button>
-          </div>
-        </div>
 
         <ListCardsItemsPicker
           contentType={contentType}
@@ -504,7 +625,10 @@ export function ListCardsSectionEditorField({
               <span className="font-medium text-foreground">Visitor search</span> uses URL{" "}
               <span className="font-mono">?q=</span> and does not change YAML.{" "}
               <span className="font-medium text-foreground">Section ranking</span> is{" "}
-              <span className="font-mono">dynamic_entries.search</span>.
+              <span className="font-mono">dynamic_entries.search</span>.{" "}
+              <span className="font-medium text-foreground">Permanent filters</span> write to{" "}
+              <span className="font-mono">dynamic_entries.permanent_filters</span> — field names
+              must match database or content-index columns.
             </p>
             {sort ? (
               <p>

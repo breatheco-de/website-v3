@@ -1,7 +1,7 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Clipboard, Code, Copy, Download, ExternalLink, FileText, Folder, History, Home, Info, MoreVertical, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Clipboard, Copy, Download, ExternalLink, FileText, Folder, History, Home, Info, MoreVertical, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -38,7 +38,6 @@ interface SitemapViewProps {
   handleDuplicatePage: (url: SitemapUrl) => void;
   handleDeletePage: (url: SitemapUrl) => void;
   handleDownloadYml: (url: SitemapUrl) => void;
-  handleEditYaml: (url: SitemapUrl) => void;
   handleEditPageMeta: (url: SitemapUrl) => void;
   handleRefreshCache: (url: SitemapUrl) => void;
   validationSummary: Record<string, { errorCount: number; warningCount: number }>;
@@ -199,7 +198,6 @@ function UrlRowActions({
   handleDuplicatePage,
   handleDeletePage,
   handleDownloadYml,
-  handleEditYaml,
   handleEditPageMeta,
   handleRefreshCache,
 }: {
@@ -211,7 +209,6 @@ function UrlRowActions({
   handleDuplicatePage: (url: SitemapUrl) => void;
   handleDeletePage: (url: SitemapUrl) => void;
   handleDownloadYml: (url: SitemapUrl) => void;
-  handleEditYaml: (url: SitemapUrl) => void;
   handleEditPageMeta: (url: SitemapUrl) => void;
   handleRefreshCache: (url: SitemapUrl) => void;
 }) {
@@ -233,16 +230,10 @@ function UrlRowActions({
           Copy URL
         </DropdownMenuItem>
         {isBlogUrl(url.loc) ? (
-          <>
-            <DropdownMenuItem onClick={() => { window.location.href = "/private/type/blog"; }} className="text-[13px]" data-testid={`menu-blog-manager-${menuTestIdPrefix}${id}`}>
-              <ExternalLink className="h-3.5 w-3.5 mr-2" />
-              Open Blog Manager
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleRefreshCache(url)} className="text-[13px]" data-testid={`menu-refresh-cache-${menuTestIdPrefix}${id}`}>
-              <RefreshCw className="h-3.5 w-3.5 mr-2" />
-              Refresh Cache
-            </DropdownMenuItem>
-          </>
+          <DropdownMenuItem onClick={() => { window.location.href = "/private/type/blog"; }} className="text-[13px]" data-testid={`menu-blog-manager-${menuTestIdPrefix}${id}`}>
+            <ExternalLink className="h-3.5 w-3.5 mr-2" />
+            Open Blog Manager
+          </DropdownMenuItem>
         ) : (
           <>
             <DropdownMenuItem onClick={() => handleDuplicatePage(url)} className="text-[13px]" data-testid={`menu-duplicate-${menuTestIdPrefix}${id}`}>
@@ -253,14 +244,6 @@ function UrlRowActions({
               <Download className="h-3.5 w-3.5 mr-2" />
               Download YAML
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleEditYaml(url)} className="text-[13px]" data-testid={`menu-edit-yaml-${menuTestIdPrefix}${id}`}>
-              <Code className="h-3.5 w-3.5 mr-2" />
-              Edit YAML
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleEditPageMeta(url)} className="text-[13px]" data-testid={`menu-edit-page-meta-${menuTestIdPrefix}${id}`}>
-              <Pencil className="h-3.5 w-3.5 mr-2" />
-              Edit Page Meta
-            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => { window.location.href = `/private/repository-sync?search=${encodeURIComponent(extractSlug(url.loc))}`; }}
               className="text-[13px]"
@@ -269,16 +252,20 @@ function UrlRowActions({
               <History className="h-3.5 w-3.5 mr-2" />
               View Change Log
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleRefreshCache(url)} className="text-[13px]" data-testid={`menu-refresh-cache-${menuTestIdPrefix}${id}`}>
-              <RefreshCw className="h-3.5 w-3.5 mr-2" />
-              Refresh Cache
-            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleDeletePage(url)} className="text-[13px] text-destructive" data-testid={`menu-delete-${menuTestIdPrefix}${id}`}>
               <Trash2 className="h-3.5 w-3.5 mr-2" />
               Delete
             </DropdownMenuItem>
           </>
         )}
+        <DropdownMenuItem onClick={() => handleEditPageMeta(url)} className="text-[13px]" data-testid={`menu-edit-page-meta-${menuTestIdPrefix}${id}`}>
+          <Pencil className="h-3.5 w-3.5 mr-2" />
+          Edit Page Meta
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => handleRefreshCache(url)} className="text-[13px]" data-testid={`menu-refresh-cache-${menuTestIdPrefix}${id}`}>
+          <RefreshCw className="h-3.5 w-3.5 mr-2" />
+          Refresh Cache
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -303,7 +290,6 @@ export function SitemapView({
   handleDuplicatePage,
   handleDeletePage,
   handleDownloadYml,
-  handleEditYaml,
   handleEditPageMeta,
   handleRefreshCache,
   validationSummary,
@@ -585,7 +571,6 @@ export function SitemapView({
                               handleDuplicatePage={handleDuplicatePage}
                               handleDeletePage={handleDeletePage}
                               handleDownloadYml={handleDownloadYml}
-                              handleEditYaml={handleEditYaml}
                               handleEditPageMeta={handleEditPageMeta}
                               handleRefreshCache={handleRefreshCache}
                             />
@@ -628,7 +613,6 @@ export function SitemapView({
                       handleDuplicatePage={handleDuplicatePage}
                       handleDeletePage={handleDeletePage}
                       handleDownloadYml={handleDownloadYml}
-                      handleEditYaml={handleEditYaml}
                       handleEditPageMeta={handleEditPageMeta}
                       handleRefreshCache={handleRefreshCache}
                     />

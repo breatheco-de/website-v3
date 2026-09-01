@@ -88,6 +88,7 @@ import { locations as allLocations, getLocationBySlug } from "@/lib/locations";
 import type { Location } from "@shared/session";
 import { Badge } from "@/components/ui/badge";
 import { normalizeFaqEntries, resolveFaqHardcodedEntries, resolveFaqSearchPhrase } from "@/lib/faqConstants";
+import { resolveTestimonialSearchPhrase } from "@/lib/testimonialsConstants";
 import {
   Popover,
   PopoverContent,
@@ -1773,8 +1774,14 @@ export function SectionEditorPanel({
       sort: typeof de.sort === "string" ? de.sort : undefined,
       hardcodedRows,
       hardcodedItems: hardcodedRows.map(bankRowToEditorItem),
-      resolvedItems: Array.isArray(section.items)
-        ? (section.items as TestimonialBankRow[])
+      ignoredEntries: Array.isArray(de.ignored_entries)
+        ? (de.ignored_entries as string[])
+        : [],
+      permanentFilters: Array.isArray(de.permanent_filters)
+        ? (de.permanent_filters as Array<{
+            item_property_slug: string;
+            value: string | string[];
+          }>)
         : [],
     };
   })();
@@ -3448,6 +3455,20 @@ export function SectionEditorPanel({
                   })
                 }
                 hardcodedItems={testimonialsListing.hardcodedItems}
+                hardcodedBankRows={testimonialsListing.hardcodedRows}
+                ignoredEntries={testimonialsListing.ignoredEntries}
+                onIgnoredEntriesChange={(keys) =>
+                  updateTestimonialsListing((de) => {
+                    if (!keys.length) delete de.ignored_entries;
+                    else de.ignored_entries = keys;
+                  })
+                }
+                permanentFilters={testimonialsListing.permanentFilters}
+                resolvedSearchPhrase={resolveTestimonialSearchPhrase(
+                  testimonialsListing.search,
+                  singleEntry,
+                )}
+                singleEntry={singleEntry}
                 onHardcodedItemsChange={
                   sectionType === "testimonials" || sectionType === "testimonials_slide"
                     ? (entries) => {
@@ -3462,7 +3483,6 @@ export function SectionEditorPanel({
                       }
                     : undefined
                 }
-                resolvedItems={testimonialsListing.resolvedItems}
                 data-testid="props-testimonials-section-editor"
               />
             )}

@@ -141,6 +141,22 @@ describe("findCanonicalSoftMatch", () => {
     });
   });
 
+  it("does not soft-match when the URL is already a known page (cross-type slug collision)", () => {
+    const programUrl = "/es/programas-de-carrera/curso-inteligencia-artificial";
+    const blogUrl = "/es/blog/aprendizaje-potenciado-con-ia/curso-inteligencia-artificial";
+    const ci = makeCi({
+      knownSlugs: {
+        "curso-inteligencia-artificial": { es: blogUrl },
+      },
+    });
+    (ci as { isKnownUrl: (url: string) => boolean }).isKnownUrl = (url: string) =>
+      url === programUrl || url === blogUrl;
+
+    expect(findCanonicalSoftMatch(programUrl, ci)).toBeNull();
+    expect(findCanonicalSoftMatch(blogUrl, ci)).toBeNull();
+    expect(findCanonicalSoftMatch(`${programUrl}/`, ci)).toBeNull();
+  });
+
   it("does not soft-match onto an alternate URL that is not known", () => {
     const ci = makeCi({
       knownSlugs: {

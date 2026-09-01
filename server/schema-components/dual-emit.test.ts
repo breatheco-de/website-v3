@@ -16,6 +16,11 @@ describe("schema_org @organization dual-emit", () => {
   type: EducationalOrganization
   name: Test Org
   url: https://example.org
+  aggregate_rating:
+    rating_value: 4.5
+    review_count: 2500
+    best_rating: 5
+    worst_rating: 1
 website:
   type: WebSite
   name: Test Site
@@ -73,8 +78,27 @@ website:
     expect((courses[0].provider as Record<string, unknown>)["@id"]).toBe(
       "https://example.org/#organization",
     );
+    expect((courses[0].provider as Record<string, unknown>).aggregateRating).toBeUndefined();
+    expect((courses[0].provider as Record<string, unknown>).name).toBe("Test Org");
+
+    const localBusiness = documents.find((d) => d["@type"] === "LocalBusiness");
+    expect(localBusiness).toBeDefined();
+    const parentOrg = localBusiness?.parentOrganization as Record<string, unknown>;
+    expect(parentOrg["@id"]).toBe("https://example.org/#organization");
+    expect(parentOrg.aggregateRating).toBeUndefined();
+
     expect(standaloneOrgs).toHaveLength(1);
+    expect(standaloneOrgs[0].aggregateRating).toEqual({
+      "@type": "AggregateRating",
+      ratingValue: 4.5,
+      reviewCount: 2500,
+      bestRating: 5,
+      worstRating: 1,
+    });
     expect(preview.filter((p) => p.source === "organization")).toHaveLength(1);
     expect(orgs.length + standaloneOrgs.length).toBeGreaterThanOrEqual(1);
+
+    const aggregateRatingCount = JSON.stringify(documents).match(/aggregateRating/g)?.length ?? 0;
+    expect(aggregateRatingCount).toBe(1);
   });
 });
