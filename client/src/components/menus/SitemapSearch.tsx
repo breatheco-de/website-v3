@@ -184,10 +184,14 @@ function SitemapLocaleFilter({
   locale,
   onLocaleChange,
   testId,
+  triggerClassName,
+  title = "Filter pages by language",
 }: {
   locale: string;
   onLocaleChange: (next: string) => void;
   testId?: string;
+  triggerClassName?: string;
+  title?: string;
 }) {
   const { data: localeSettings } = useQuery<{
     supported_locales: Array<{ code: string; label: string }>;
@@ -213,8 +217,11 @@ function SitemapLocaleFilter({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          title="Filter pages by language"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover-elevate"
+          title={title}
+          className={cn(
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover-elevate",
+            triggerClassName,
+          )}
           data-testid={testId ? `${testId}-locale-filter` : "sitemap-locale-filter"}
         >
           {locale ? (
@@ -256,6 +263,8 @@ function SitemapLocaleFilter({
     </DropdownMenu>
   );
 }
+
+export { SitemapLocaleFilter };
 
 export function SitemapSearch({
   value,

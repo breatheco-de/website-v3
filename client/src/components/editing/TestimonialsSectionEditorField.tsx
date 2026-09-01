@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ListOrdered, Plus, Quote, Sparkles, Tags } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { ArrowUpDown, ListOrdered, Plus, Quote, Sparkles, Tags } from "lucide-react";
 import { IconAlertTriangle, IconChevronDown, IconLoader2 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,10 @@ import {
   TESTIMONIALS_DATABASE,
   TESTIMONIALS_LIMIT_DEFAULTS,
   TESTIMONIALS_MAX_LIMIT,
+  TESTIMONIALS_SORT,
+  TESTIMONIALS_SORT_PRESETS,
+  testimonialSortBadge,
+  testimonialSortLabel,
   type TestimonialBankRow,
   type TestimonialsSectionType,
 } from "@shared/testimonials-listing";
@@ -55,6 +59,9 @@ export interface TestimonialsSectionEditorFieldProps {
   /** `dynamic_entries.limit` — total rows, manually added counted first. */
   limit?: number;
   onLimitChange?: (value: number | null) => void;
+  /** `dynamic_entries.sort` — bank row order after manually added entries. */
+  sort?: string;
+  onSortChange?: (value: string | null) => void;
   /** `dynamic_entries.hardcoded_entries`, in editor shape. */
   hardcodedItems?: HardcodedTestimonialItem[];
   onHardcodedItemsChange?: (items: HardcodedTestimonialItem[]) => void;
@@ -82,6 +89,8 @@ export function TestimonialsSectionEditorField({
   sectionType,
   limit,
   onLimitChange,
+  sort,
+  onSortChange,
   hardcodedItems = [],
   onHardcodedItemsChange,
   resolvedItems = [],
@@ -91,6 +100,7 @@ export function TestimonialsSectionEditorField({
   const [topicsOpen, setTopicsOpen] = useState(false);
   const [limitOpen, setLimitOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -129,6 +139,11 @@ export function TestimonialsSectionEditorField({
   const hasSearch = activeSearch.length >= MIN_SEARCH_CHARS;
   const draftSearchTrimmed = draftSearch.trim();
   const canApplySearch = draftSearchTrimmed.length >= MIN_SEARCH_CHARS;
+
+  const effectiveSort = sort?.trim() || TESTIMONIALS_SORT;
+  const sortLabel = testimonialSortLabel(sort, locale || "en");
+  const sortBadge = testimonialSortBadge(sort);
+  const hasNonDefaultSort = effectiveSort !== TESTIMONIALS_SORT;
 
   // Cheap probe (one row) purely to tell staff when semantic search is cold and
   // the section fell back to keyword matching.
@@ -357,6 +372,101 @@ export function TestimonialsSectionEditorField({
             </Popover>
           )}
 
+          {onSortChange && (
+            <Popover open={sortOpen} onOpenChange={setSortOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="relative"
+                  data-testid="button-testimonials-sort"
+                  title={
+                    isSpanish
+                      ? `Orden: ${sortLabel}`
+                      : `Sort: ${sortLabel}`
+                  }
+                >
+                  <ArrowUpDown className="h-3.5 w-3.5" />
+                  <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+                    {sortBadge}
+                  </span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-72 p-0 z-[10001]"
+                align="end"
+                data-testid="popover-testimonials-sort"
+              >
+                <div className="p-2 border-b space-y-1">
+                  <p className="text-xs font-medium text-foreground">
+                    {isSpanish ? "Orden del banco" : "Bank sort order"}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {isSpanish
+                      ? "Elige cómo se ordenan los testimonios del banco después de los que agregues manualmente. Por defecto: prioridad 1 antes que 3."
+                      : "Choose how bank testimonials are ordered after any you add manually. Default: priority 1 before 3."}
+                  </p>
+                  {hasSearch && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {isSpanish
+                        ? "Con búsqueda activa, el significado ordena primero; este criterio desempata el resto."
+                        : "With search active, meaning ranks first; this sort is the tiebreaker for filter-only backfill."}
+                    </p>
+                  )}
+                </div>
+                <div className="p-3 space-y-2">
+                  <div className="flex flex-col gap-1">
+                    {TESTIMONIALS_SORT_PRESETS.map((preset) => {
+                      const label = isSpanish ? preset.labelEs : preset.labelEn;
+                      const selected = effectiveSort === preset.value;
+                      return (
+                        <Button
+                          key={preset.value}
+                          type="button"
+                          size="sm"
+                          variant={selected ? "default" : "outline"}
+                          className="h-8 justify-start text-xs"
+                          onClick={() => {
+                            onSortChange(
+                              preset.value === TESTIMONIALS_SORT
+                                ? TESTIMONIALS_SORT
+                                : preset.value,
+                            );
+                            setSortOpen(false);
+                          }}
+                          data-testid={`button-testimonials-sort-preset-${preset.value.replace(/^-/, "desc-")}`}
+                        >
+                          {label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  {hasNonDefaultSort && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs px-0"
+                      onClick={() => {
+                        onSortChange(TESTIMONIALS_SORT);
+                        setSortOpen(false);
+                      }}
+                      data-testid="button-testimonials-sort-reset"
+                    >
+                      {isSpanish ? "Restablecer por defecto" : "Reset to default"}
+                    </Button>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    {isSpanish
+                      ? "No cambia textos, fotos ni el otro idioma; no escribe en el banco."
+                      : "Does not change text, photos, or the other locale; does not write to the bank."}
+                  </p>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+
           {onLimitChange && (
             <Popover open={limitOpen} onOpenChange={setLimitOpen}>
               <PopoverTrigger asChild>
@@ -546,11 +656,21 @@ export function TestimonialsSectionEditorField({
           </p>
         )}
 
-        {(topicCount > 0 ||
+        {(onSortChange ||
+          topicCount > 0 ||
           hasSearch ||
           hardcodedItems.length > 0 ||
           hasCustomLimit) && (
           <div className="flex items-center gap-2 flex-wrap">
+            {onSortChange && (
+              <Badge
+                variant="secondary"
+                className="text-xs font-normal"
+                data-testid="badge-testimonials-sort"
+              >
+                {isSpanish ? "Orden" : "Sort"}: {sortLabel}
+              </Badge>
+            )}
             {hasCustomLimit && (
               <Badge variant="secondary" className="text-xs font-normal">
                 Limit: {effectiveLimit}
@@ -613,12 +733,20 @@ export function TestimonialsSectionEditorField({
                 <span className="text-foreground">locale</span>
               </p>
               <p>
-                Filters / search / limit:{" "}
+                Filters / search / limit / sort:{" "}
                 <span className="text-foreground">
                   dynamic_entries.permanent_filters
                 </span>
                 , <span className="text-foreground">dynamic_entries.search</span>,{" "}
-                <span className="text-foreground">dynamic_entries.limit</span>
+                <span className="text-foreground">dynamic_entries.limit</span>,{" "}
+                <span className="text-foreground">dynamic_entries.sort</span>
+              </p>
+              <p>
+                Sort: default <span className="text-foreground">priority</span> (1
+                before 3); prefix <span className="text-foreground">-</span> reverses
+                (e.g. <span className="text-foreground">-rating</span>). Per-person rank
+                lives on each bank row&apos;s{" "}
+                <span className="text-foreground">priority</span> field.
               </p>
               <p>
                 Topics: <span className="text-foreground">related_features</span> — a

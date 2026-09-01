@@ -9,6 +9,7 @@ import {
   normalizeToSingleSection,
   parseAndValidateDemoYaml,
   readDemo,
+  readDemoYamlText,
 } from "./component-section-demos";
 
 describe("normalizeToSingleSection", () => {
@@ -129,6 +130,10 @@ describe("createDemo / readDemo", () => {
     expect(loaded).not.toBeNull();
     expect(loaded!.component_type).toBe("faq");
     expect(loaded!.section.title).toBe("Demo FAQ");
+
+    const rawYaml = readDemoYamlText(created.hash, tmp);
+    expect(rawYaml).toContain("component_type: faq");
+    expect(rawYaml).toContain("Demo FAQ");
   });
 
   it("returns null for invalid or missing hashes", () => {

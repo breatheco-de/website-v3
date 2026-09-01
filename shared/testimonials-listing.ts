@@ -12,6 +12,64 @@ export const TESTIMONIALS_DATABASE = "testimonials";
 /** Ascending priority — this bank uses 1 = High, 3 = Low. */
 export const TESTIMONIALS_SORT = "priority";
 
+export interface TestimonialsSortPreset {
+  value: string;
+  labelEn: string;
+  labelEs: string;
+  /** Short badge on the sort icon (e.g. "1" for priority-first). */
+  badge: string;
+}
+
+/** Staff-facing sort options for `dynamic_entries.sort` on testimonials sections. */
+export const TESTIMONIALS_SORT_PRESETS: TestimonialsSortPreset[] = [
+  {
+    value: "priority",
+    labelEn: "Priority (1 first)",
+    labelEs: "Prioridad (1 primero)",
+    badge: "1",
+  },
+  {
+    value: "-priority",
+    labelEn: "Priority (3 first)",
+    labelEs: "Prioridad (3 primero)",
+    badge: "3",
+  },
+  {
+    value: "-rating",
+    labelEn: "Rating (highest first)",
+    labelEs: "Rating (mayor primero)",
+    badge: "R",
+  },
+  {
+    value: "-testimonial_date",
+    labelEn: "Newest first",
+    labelEs: "Más recientes primero",
+    badge: "N",
+  },
+  {
+    value: "testimonial_date",
+    labelEn: "Oldest first",
+    labelEs: "Más antiguos primero",
+    badge: "O",
+  },
+];
+
+export function testimonialSortLabel(
+  sort: string | undefined,
+  locale: string,
+): string {
+  const effective = sort?.trim() || TESTIMONIALS_SORT;
+  const preset = TESTIMONIALS_SORT_PRESETS.find((p) => p.value === effective);
+  if (preset) return locale === "es" ? preset.labelEs : preset.labelEn;
+  return effective;
+}
+
+export function testimonialSortBadge(sort: string | undefined): string {
+  const effective = sort?.trim() || TESTIMONIALS_SORT;
+  const preset = TESTIMONIALS_SORT_PRESETS.find((p) => p.value === effective);
+  return preset?.badge ?? effective.charAt(0).toUpperCase();
+}
+
 export type TestimonialsSectionType =
   | "testimonials"
   | "testimonials_grid"

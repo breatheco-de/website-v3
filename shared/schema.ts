@@ -1125,6 +1125,18 @@ export const userFilterSchema = z.object({
 export type PermanentFilter = z.infer<typeof permanentFilterSchema>;
 export type UserFilter = z.infer<typeof userFilterSchema>;
 
+export {
+  listingSearchConfigSchema,
+  listingSearchMetaConfigSchema,
+  listingDynamicMetaSchema,
+  normalizeListingSearchConfig,
+  LISTING_SEARCH_MIN_CHARS,
+  DEFAULT_LISTING_SEARCH_CARD_FIELDS,
+  type ListingSearchConfig,
+  type ListingSearchMetaConfig,
+  type ListingDynamicMeta,
+} from "./listing-search-config";
+
 const listingCardItemSchema = z.object({
   image: z.string().optional(),
   title: z.string().optional(),
@@ -1147,10 +1159,13 @@ export const listCardsSectionSchema = z.object({
   layout: z.object({
     columns: z.number().optional(),
   }).optional(),
-  search: z.object({
-    enabled: z.boolean().optional(),
-    placeholder: z.string().optional(),
-  }).optional(),
+  search: z
+    .object({
+      enabled: z.boolean().optional(),
+      placeholder: z.string().optional(),
+      fields: z.array(z.string()).optional(),
+    })
+    .optional(),
   pagination: z.object({
     page_size: z.number().optional(),
     page_label: z.string().optional(),
@@ -1181,11 +1196,25 @@ export const listCardsSectionSchema = z.object({
   }).optional(),
   item_template: z.record(z.string(), z.unknown()).optional(),
   hardcoded_entries: z.array(z.unknown()).optional(),
-  _dynamic_meta: z.object({
-    content_type: z.string().optional(),
-    total: z.number().optional(),
-    locale: z.string().optional(),
-  }).optional(),
+  _dynamic_meta: z
+    .object({
+      content_type: z.string().optional(),
+      database: z.string().nullable().optional(),
+      total: z.number().optional(),
+      locale: z.string().optional(),
+      semantic_search_enabled: z.boolean().optional(),
+      search_config: z
+        .object({
+          enabled: z.boolean().optional(),
+          placeholder: z.string().optional(),
+          fields: z.array(z.string()).optional(),
+          permanent_filters: z.array(permanentFilterSchema).optional(),
+          item_template: z.record(z.string(), z.unknown()).optional(),
+          sort: z.string().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
 });
 
 export type ListCardsSection = z.infer<typeof listCardsSectionSchema>;

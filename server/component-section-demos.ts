@@ -353,3 +353,15 @@ export function readDemo(hash: string, cwd = process.cwd()): DemoRecord | null {
     return null;
   }
 }
+
+/** Raw on-disk YAML for a demo (exact bytes written at create time). */
+export function readDemoYamlText(hash: string, cwd = process.cwd()): string | null {
+  if (!DEMO_HASH_RE.test(hash)) return null;
+  const filePath = demoFilePath(hash, cwd);
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    return fs.readFileSync(filePath, "utf8");
+  } catch {
+    return null;
+  }
+}

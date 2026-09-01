@@ -1,8 +1,12 @@
-import { useState, useEffect } from "react";
-import { RefreshCw } from "lucide-react";
+import { lazy, Suspense, useState, useEffect } from "react";
+import { Code, FileText, Loader2, RefreshCw } from "lucide-react";
 import { useParams } from "wouter";
 import { SectionRenderer } from "@/components/SectionRenderer";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { Section } from "@shared/schema";
+
+const LazyYamlEditor = lazy(() => import("@/components/editing/YamlEditor"));
 
 const DEMO_HASH_RE = /^[a-f0-9]{32}$/;
 
@@ -25,6 +29,8 @@ export default function ComponentSectionDemoPage() {
   const { hash } = useParams<{ hash: string }>();
   const [sections, setSections] = useState<Section[]>([]);
   const [componentType, setComponentType] = useState<string | null>(null);
+  const [yamlText, setYamlText] = useState<string>("");
+  const [showYaml, setShowYaml] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,6 +76,7 @@ export default function ComponentSectionDemoPage() {
         setComponentType(
           typeof data.componentType === "string" ? data.componentType : null,
         );
+        setYamlText(typeof data.yaml === "string" ? data.yaml : "");
         setSections(sanitizeDemoSections([section]));
       })
       .catch((e: Error) => {
@@ -103,10 +110,22 @@ export default function ComponentSectionDemoPage() {
 
   return (
     <div className="bg-background min-h-screen" data-testid="component-section-demo">
-      <div className="sticky top-0 z-50 border-b bg-background/90 backdrop-blur px-4 py-2 text-xs text-muted-foreground">
-        Temporary section preview
-        {componentType ? ` (${componentType})` : ""} — not published site content. Link expires on
-        redeploy.
+      <div className="sticky top-0 z-50 flex items-center justify-between gap-3 border-b bg-background/90 backdrop-blur px-4 py-2">
+        <p className="text-xs text-muted-foreground">
+          Temporary section preview
+          {componentType ? ` (${componentType})` : ""} — not published site content. Link expires on
+          redeploy.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowYaml(true)}
+          disabled={!yamlText}
+          data-testid="button-view-demo-yaml"
+        >
+          <FileText className="h-3.5 w-3.5 mr-1" />
+          View YAML
+        </Button>
       </div>
       {sections.length > 0 ? (
         <SectionRenderer sections={sections} />
@@ -115,6 +134,33 @@ export default function ComponentSectionDemoPage() {
           No content to display
         </div>
       )}
+
+      <Dialog open={showYaml} onOpenChange={setShowYaml}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Code className="h-5 w-5" />
+              {componentType ? `${componentType} section` : "Section"} — YAML
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto rounded border">
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center h-40">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              }
+            >
+              <LazyYamlEditor
+                value={yamlText}
+                readOnly
+                highlightActiveLine={false}
+                className="text-sm"
+              />
+            </Suspense>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

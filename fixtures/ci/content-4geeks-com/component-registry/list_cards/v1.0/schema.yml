@@ -8,7 +8,10 @@ when_to_use: |
 behaviors:
   listing:
     source: dynamic_entries
-    notes: Mapping fields + queries render cards from a content type / DB.
+    notes: >
+      Mapping fields + queries render cards from a content type / DB. Visitor search (search.enabled,
+      search.fields) searches the permanent_filters subset via ?q= when enabled. Section ranking phrase
+      is dynamic_entries.search (SSR only). FAQ/testimonials use the same search shape; default enabled false.
 variants:
   - name: default
     description: Standard card grid with image, title, description, badge, metadata, and CTA link
@@ -65,15 +68,21 @@ properties:
         description: Number of grid columns (1-4)
   - name: search
     type: object
-    description: Search input settings
+    description: Visitor live search (URL ?q=). Searches within permanent_filters subset when enabled.
     properties:
       - name: enabled
         type: boolean
         default: false
-        description: Show a text search input
+        description: Show visitor search input (semantic when DB has vector search)
       - name: placeholder
         type: string
         description: Placeholder text for the search input
+      - name: fields
+        type: array
+        description: DB fields mapped from visitor input (keyword fallback + documents intent)
+        items:
+          - name: field
+            type: string
   - name: pagination
     type: object
     description: Pagination settings and labels
@@ -112,6 +121,11 @@ properties:
       - name: limit
         type: number
         description: Maximum number of entries to fetch
+      - name: search
+        type: string
+        description: >
+          Section ranking phrase (SSR only). Reorders items on initial page load — not the visitor
+          ?q= box (see search.enabled). Same pattern as FAQ sparkles ranking.
       - name: permanent_filters
         type: array
         description: Server-side equality filters applied before the items reach the client. Each entry matches items where item_property_slug equals value.

@@ -40,6 +40,7 @@ export interface SchemaOrgBehavior {
 
 export interface ListingBehavior {
   source: string;
+  /** Advisory; see registry schema.yml for visitor search + dynamic_entries.search docs. */
   notes?: string;
 }
 

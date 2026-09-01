@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
-import { ArrowRight, Calendar, ChevronLeft, ChevronRight, Search, User } from "lucide-react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { ArrowRight, Calendar, ChevronLeft, ChevronRight, Loader2, Search, User } from "lucide-react";
 import { useLocation, useSearch } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -10,8 +11,19 @@ import { useInternalNav } from "@/hooks/useInternalNav";
 import { deslugifyLabel } from "@shared/relation-field";
 import {
   collectEditorFieldTokens,
-  itemHasEditorFieldToken,
 } from "@shared/editor-field-values";
+import {
+  normalizeListingSearchConfig,
+  type ListingDynamicMeta,
+} from "@shared/listing-search-config";
+import {
+  buildListingSearchUrl,
+  computeListingSearchPool,
+  applyListingUserFilters,
+  syncListingQueryParam,
+  LISTING_SEARCH_MIN_CHARS,
+  type ListingSearchApiResponse,
+} from "@/lib/listing-search";
 
 interface PermanentFilter {
   item_property_slug: string;
@@ -53,6 +65,7 @@ interface ListingCardsData {
   search?: {
     enabled?: boolean;
     placeholder?: string;
+    fields?: string[];
   };
   pagination?: {
     page_size?: number;
@@ -80,11 +93,8 @@ interface ListingCardsData {
   of_label?: string;
   page_info_template?: string;
   items_label?: string;
-  _dynamic_meta?: {
-    content_type?: string;
-    total?: number;
-    locale?: string;
-  };
+  hardcoded_entries?: unknown[];
+  _dynamic_meta?: ListingDynamicMeta;
 }
 
 function formatCategoryLabel(slug: string): string {
@@ -144,6 +154,14 @@ function getFieldStringValue(item: Record<string, unknown>, slug: string): strin
   return String(raw);
 }
 
+function applyUserFilters(
+  source: ListingItem[],
+  userFilters: UserFilter[],
+  userFilterValues: Record<string, string>,
+): ListingItem[] {
+  return applyListingUserFilters(source, userFilters, userFilterValues);
+}
+
 export default function ListingCards({ data }: { data: ListingCardsData }) {
   const [location, setLocation] = useLocation();
   const searchString = useSearch();
@@ -152,19 +170,84 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
   const items = data.items || [];
   const columns = data.layout?.columns ?? data.columns ?? 3;
   const perPage = data.pagination?.page_size ?? data.page_size ?? 0;
-  const showSearch = data.search?.enabled ?? data.show_search ?? false;
-  const searchPlaceholder = data.search?.placeholder ?? data.search_placeholder ?? "Search...";
+  const listingSearch = normalizeListingSearchConfig(data);
+  const showSearch = listingSearch.enabled === true;
+  const searchPlaceholder =
+    listingSearch.placeholder ??
+    data.search?.placeholder ??
+    data.search_placeholder ??
+    "Search...";
+  const searchFieldKeys = listingSearch.fields;
   const emptyText = data.pagination?.empty_text ?? data.empty_text ?? "No items found.";
   const pageLabel = data.pagination?.page_label ?? data.page_label ?? "Page";
   const ofLabel = data.pagination?.of_label ?? data.of_label ?? "of";
   const itemsLabel = data.pagination?.items_label ?? data.items_label ?? "items";
+
+  const dynamicMeta = data._dynamic_meta;
+  const searchConfig = dynamicMeta?.search_config;
+  const listingDatabase =
+    dynamicMeta?.database ?? data.dynamic_entries?.database ?? null;
+  const listingLocale = dynamicMeta?.locale ?? "en";
+  const contentType =
+    dynamicMeta?.content_type ?? data.dynamic_entries?.content_type;
+
+  const hardcodedCount =
+    data.dynamic_entries?.hardcoded_entries?.length ??
+    data.hardcoded_entries?.length ??
+    0;
+  const hardcodedItems = hardcodedCount > 0 ? items.slice(0, hardcodedCount) : [];
+  const ssrDbItems = hardcodedCount > 0 ? items.slice(hardcodedCount) : items;
 
   const userFilters = data.dynamic_entries?.user_filters || [];
   const userFilterSlugs = userFilters.map((uf) => uf.item_property_slug);
 
   const params = new URLSearchParams(searchString);
   const currentPage = Math.max(1, parseInt(params.get("page") || "1", 10));
-  const [searchQuery, setSearchQuery] = useState("");
+  const urlQuery = params.get("q") || "";
+  const [searchInput, setSearchInput] = useState(urlQuery);
+  const [debouncedQuery, setDebouncedQuery] = useState(urlQuery.trim());
+
+  useEffect(() => {
+    setSearchInput(urlQuery);
+  }, [urlQuery]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedQuery(searchInput.trim()), 300);
+    return () => window.clearTimeout(handle);
+  }, [searchInput]);
+
+  const activeSearchQuery = debouncedQuery;
+  const hasActiveSearch = activeSearchQuery.length >= LISTING_SEARCH_MIN_CHARS;
+  const useSemanticSearch = hasActiveSearch && Boolean(listingDatabase);
+
+  const listingSearchUrl = useMemo(() => {
+    if (!useSemanticSearch) return null;
+    return buildListingSearchUrl({
+      database: listingDatabase,
+      contentType,
+      locale: listingLocale,
+      q: activeSearchQuery,
+      searchConfig,
+    });
+  }, [
+    useSemanticSearch,
+    listingDatabase,
+    contentType,
+    listingLocale,
+    activeSearchQuery,
+    searchConfig,
+  ]);
+
+  const { data: searchResults, isFetching: searchFetching } = useQuery<ListingSearchApiResponse>({
+    queryKey: [listingSearchUrl],
+    queryFn: async () => {
+      const res = await fetch(listingSearchUrl!, { credentials: "include" });
+      if (!res.ok) throw new Error("Listing search failed");
+      return res.json() as Promise<ListingSearchApiResponse>;
+    },
+    enabled: Boolean(listingSearchUrl),
+    staleTime: 60_000,
+  });
 
   // URL is source of truth for filters (shareable / back-forward). Falls back to YAML default_value.
   const userFilterValues = (() => {
@@ -202,62 +285,94 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
     return opts;
   })();
 
-  const userFiltered = (() => {
-    if (!userFilters.length) return items;
-    return items.filter(item =>
-      userFilters.every(f => {
-        const val = userFilterValues[f.item_property_slug];
-        if (!val) return true;
-        if (f.component_renderer === "tags") {
-          return itemHasEditorFieldToken(
-            item as Record<string, unknown>,
-            f.item_property_slug,
-            val,
-            { splitComma: f.split_comma_values === true },
-          );
-        }
-        const itemVal = getFieldStringValue(item as Record<string, unknown>, f.item_property_slug);
-        if (f.component_renderer === "text-input") {
-          return itemVal.toLowerCase().includes(val.toLowerCase());
-        }
-        return itemVal === val;
-      })
-    );
-  })();
+  const userFiltered = useMemo(
+    () => applyUserFilters(items, userFilters, userFilterValues),
+    [items, userFilters, userFilterValues],
+  );
 
-  const filteredBySearch = (() => {
-    if (!searchQuery.trim()) return userFiltered;
-    const query = searchQuery.toLowerCase();
-    return userFiltered.filter(item =>
-      (item.title || "").toLowerCase().includes(query) ||
-      (item.description || "").toLowerCase().includes(query) ||
-      (typeof item.taxonomy === "string" ? item.taxonomy : "").toLowerCase().includes(query) ||
-      (typeof item.badge === "string" ? item.badge : "").toLowerCase().includes(query)
-    );
-  })();
+  const searchPool = useMemo(
+    (): ListingItem[] =>
+      computeListingSearchPool({
+        hasActiveSearch,
+        userFiltered: userFiltered as Record<string, unknown>[],
+        useSemanticSearch: useSemanticSearch && Boolean(searchResults?.items),
+        apiItems: searchResults?.items ?? null,
+        hardcodedItems: hardcodedItems as Record<string, unknown>[],
+        ssrDbItems: ssrDbItems as Record<string, unknown>[],
+        activeSearchQuery,
+        searchFieldKeys: searchFieldKeys ?? undefined,
+        userFilters,
+        userFilterValues,
+      }) as ListingItem[],
+    [
+      hasActiveSearch,
+      userFiltered,
+      useSemanticSearch,
+      searchResults?.items,
+      hardcodedItems,
+      ssrDbItems,
+      activeSearchQuery,
+      searchFieldKeys,
+      userFilters,
+      userFilterValues,
+    ],
+  );
 
-  const totalItems = filteredBySearch.length;
+  const displayItems = hasActiveSearch ? searchPool : userFiltered;
+  const totalItems = displayItems.length;
   const totalPages = perPage > 0 ? Math.ceil(totalItems / perPage) : 1;
-  const paginatedItems = perPage > 0
-    ? filteredBySearch.slice((currentPage - 1) * perPage, currentPage * perPage)
-    : filteredBySearch;
+  const safePage = Math.min(currentPage, Math.max(1, totalPages));
+  const paginatedItems =
+    perPage > 0
+      ? displayItems.slice((safePage - 1) * perPage, safePage * perPage)
+      : displayItems;
 
-  const buildPageUrl = (page: number) => {
+  const buildListingUrl = useCallback(
+    (patch: (p: URLSearchParams) => void) => {
+      const p = new URLSearchParams(searchString);
+      for (const slug of userFilterSlugs) {
+        const val = userFilterValues[slug];
+        if (val) p.set(slug, val);
+        else p.delete(slug);
+      }
+      const q = searchInput.trim();
+      if (q) p.set("q", q);
+      else p.delete("q");
+      patch(p);
+      const qs = p.toString();
+      return `${location.split("?")[0]}${qs ? `?${qs}` : ""}`;
+    },
+    [searchString, userFilterSlugs, userFilterValues, searchInput, location],
+  );
+
+  const buildPageUrl = (page: number) =>
+    buildListingUrl((p) => {
+      if (page > 1) p.set("page", String(page));
+      else p.delete("page");
+    });
+
+  const handlePageChange = (page: number) => {
+    setLocation(buildPageUrl(page));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    if (safePage !== currentPage && totalPages > 0) {
+      setLocation(buildPageUrl(safePage), { replace: true });
+    }
+  }, [safePage, currentPage, totalPages]);
+
+  const setListingSearch = (value: string) => {
+    setSearchInput(value);
     const p = new URLSearchParams(searchString);
     for (const slug of userFilterSlugs) {
       const val = userFilterValues[slug];
       if (val) p.set(slug, val);
       else p.delete(slug);
     }
-    if (page > 1) p.set("page", String(page));
-    else p.delete("page");
+    syncListingQueryParam(p, value);
     const qs = p.toString();
-    return `${location.split("?")[0]}${qs ? `?${qs}` : ""}`;
-  };
-
-  const handlePageChange = (page: number) => {
-    setLocation(buildPageUrl(page));
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setLocation(`${location.split("?")[0]}${qs ? `?${qs}` : ""}`, { replace: true });
   };
 
   useEffect(() => {
@@ -305,12 +420,18 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
     const p = new URLSearchParams(searchString);
     if (value) p.set(slug, value);
     else p.delete(slug);
-    // Changing filters resets pagination
+    const q = searchInput.trim();
+    if (q) p.set("q", q);
+    else p.delete("q");
     p.delete("page");
     const qs = p.toString();
     const next = `${location.split("?")[0]}${qs ? `?${qs}` : ""}`;
     setLocation(next, opts?.replace ? { replace: true } : undefined);
   };
+
+  const hasTagFilters = userFilters.some((f) => f.component_renderer === "tags");
+  const showSearchFilterBanner = hasActiveSearch && hasTagFilters;
+  const listLoading = useSemanticSearch && searchFetching && !searchResults;
 
   const pageNumbers = (() => {
     const pages: (number | "...")[] = [];
@@ -383,8 +504,8 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     placeholder={searchPlaceholder}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    value={searchInput}
+                    onChange={(e) => setListingSearch(e.target.value)}
                     className="pl-10"
                     data-testid="input-listing-search"
                   />
@@ -411,6 +532,15 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
                 </Select>
               ))}
             </div>
+          )}
+
+          {showSearchFilterBanner && (
+            <p
+              className="text-xs text-muted-foreground mb-2"
+              data-testid="text-listing-search-filter-banner"
+            >
+              Category filters narrow these search results.
+            </p>
           )}
 
           {userFilters.filter(f => f.component_renderer === "tags").map(uf => (
@@ -440,7 +570,15 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
         </div>
       )}
 
-      {paginatedItems.length === 0 ? (
+      {listLoading ? (
+        <div
+          className="flex items-center justify-center gap-2 py-16 text-muted-foreground"
+          data-testid="listing-search-loading"
+        >
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">Searching…</span>
+        </div>
+      ) : paginatedItems.length === 0 ? (
         <div className="text-center py-16" data-testid="text-listing-empty">
           <p className="text-muted-foreground text-lg">
             {emptyText}
@@ -571,7 +709,7 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
                       }}
                     >
                       <Button
-                        variant={p === currentPage ? "default" : "outline"}
+                        variant={p === safePage ? "default" : "outline"}
                         size="icon"
                         data-testid={`button-page-${p}`}
                       >
@@ -604,7 +742,7 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
                       .replace("{page}", String(currentPage))
                       .replace("{totalPages}", String(totalPages))
                       .replace("{total}", String(totalItems))
-                  : <>{pageLabel} {currentPage} {ofLabel} {totalPages} · {totalItems} {itemsLabel}</>}
+                  : <>{pageLabel} {safePage} {ofLabel} {totalPages} · {totalItems} {itemsLabel}</>}
               </div>
             </>
           )}

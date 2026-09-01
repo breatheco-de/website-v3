@@ -213,6 +213,8 @@ export interface SearchDatabaseItemsOptions {
   locale?: string;
   db?: DatabaseManager;
   contentFolder?: string;
+  /** Override keyword fallback fields (e.g. from listing search.fields). */
+  keywordFields?: string[];
 }
 
 /**
@@ -355,11 +357,13 @@ export async function searchDatabaseItems(
   // Keyword fallback — do not cache (5B)
   const qLower = normalizedQ;
   const searchFieldsConfig = (config as { search_fields?: string[] }).search_fields;
-  const keywordFields = searchFieldsConfig?.length
-    ? searchFieldsConfig
-    : vsConfig?.fields?.length
-      ? vsConfig.fields
-      : null;
+  const keywordFields = options.keywordFields?.length
+    ? options.keywordFields
+    : searchFieldsConfig?.length
+      ? searchFieldsConfig
+      : vsConfig?.fields?.length
+        ? vsConfig.fields
+        : null;
   let fallback = allItems.filter((item) => {
     const fieldsToCheck = keywordFields ?? Object.keys(item);
     return fieldsToCheck.some((f) => {

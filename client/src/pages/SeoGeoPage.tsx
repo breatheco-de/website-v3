@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, DownloadCloud, ExternalLink, FileText, Globe, Info, Loader2, MoreVertical, Network, Pencil, Plus, Star, Unlink } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, DownloadCloud, ExternalLink, Globe, Info, Loader2, MoreVertical, Network, Pencil, Plus, Star, Unlink } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -70,7 +70,8 @@ import { apiRequestWithAuth, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { deslugifyLabel } from "@shared/relation-field";
 import { formatSitePath } from "@shared/formatSitePath";
-import { SitemapSearch } from "@/components/menus/SitemapSearch";
+import { SitemapSearch, SitemapLocaleFilter } from "@/components/menus/SitemapSearch";
+import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 import type { SitemapSearchEntry } from "@/lib/sitemapSearch";
 import { useMutation } from "@tanstack/react-query";
 
@@ -1407,7 +1408,10 @@ function ClusterMemberRow({
         >
           <PopoverTrigger asChild>
             <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left">
-              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <LocaleFlag
+                locale={member.locale || "en"}
+                className="h-3 w-4 shrink-0 rounded-sm"
+              />
               <span className="text-xs font-medium text-foreground min-w-0 flex-1 truncate">
                 {deslugifyLabel(member.slug)}
               </span>
@@ -2589,6 +2593,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
   );
   const [clusterSortBy, setClusterSortBy] = useState<ClusterSortBy>("name");
   const [clusterSortDir, setClusterSortDir] = useState<ClusterSortDir>("asc");
+  const [clusterLocaleFilter, setClusterLocaleFilter] = useState("");
   const [seoModalOpen, setSeoModalOpen] = useState(false);
   const [seoModalTarget, setSeoModalTarget] = useState<ManagedSeoModalTarget | null>(null);
   const [seoPickerOpen, setSeoPickerOpen] = useState(false);
@@ -2626,6 +2631,9 @@ export function SeoTab({ data }: { data: SeoOverview }) {
     }
     return clusterSortDir === "asc" ? cmp : -cmp;
   });
+  const filteredClusters = clusterLocaleFilter
+    ? sortedClusters.filter((cluster) => (cluster.locale || "en") === clusterLocaleFilter)
+    : sortedClusters;
 
   const beginEditSeo = useCallback(
     async (
@@ -2789,9 +2797,16 @@ export function SeoTab({ data }: { data: SeoOverview }) {
           ) : (
             <>
             <div
-              className="flex items-center justify-end mb-2"
+              className="flex items-center justify-end gap-2 mb-2"
               data-testid="cluster-sort-bar"
             >
+              <SitemapLocaleFilter
+                locale={clusterLocaleFilter}
+                onLocaleChange={setClusterLocaleFilter}
+                testId="cluster"
+                title="Filter clusters by language"
+                triggerClassName="h-7 w-7 rounded-md border border-border hover:bg-muted/40"
+              />
               <div className="inline-flex rounded-md border border-border overflow-hidden">
                 {CLUSTER_SORT_FIELDS.map((field, index) => {
                   const active = field.value === clusterSortBy;
@@ -2828,8 +2843,17 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                 })}
               </div>
             </div>
+            {filteredClusters.length === 0 ? (
+              <p
+                className="text-sm text-muted-foreground py-6 text-center"
+                data-testid="clusters-locale-empty"
+              >
+                No clusters for {clusterLocaleFilter.toUpperCase()}. Clear the language filter to see
+                all hubs.
+              </p>
+            ) : (
             <Accordion type="multiple">
-              {sortedClusters
+              {filteredClusters
                 .map((cluster) => {
                   const hubId = cluster.hubId || cluster.pillarUrl;
                   const hubLocale = cluster.locale || "en";
@@ -2858,6 +2882,10 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                     <AccordionTrigger className="text-xs py-2 hover:no-underline">
                       <div className="flex items-center gap-2 text-left">
                         <Network className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <LocaleFlag
+                          locale={hubLocale}
+                          className="h-3 w-4 shrink-0 rounded-sm"
+                        />
                         <span className="text-xs font-medium text-foreground">
                           {clusterListLabel(cluster.keyword, cluster.pillarUrl)}
                         </span>
@@ -2916,6 +2944,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                   );
                 })}
             </Accordion>
+            )}
             </>
           )}
       </SeoOverviewCollapsibleCard>

@@ -20,6 +20,19 @@ props:
     type: string
     required: true
     example: Frequently Asked Questions
+  search:
+    type: object
+    required: false
+    description: Visitor live search (?q=). Default enabled false — use dynamic_entries.search for SSR ranking.
+    properties:
+      - name: enabled
+        type: boolean
+        default: false
+      - name: placeholder
+        type: string
+      - name: fields
+        type: array
+        description: DB fields for visitor search mapping
   items:
     type: array
     required: false

@@ -1,6 +1,8 @@
 import { databaseManager, type DatabaseManager } from "./database";
 import { contentIndex, type ContentIndex } from "./content-index";
 import { getContentTypeConfig, resolveContentTypeUrl } from "./content-types";
+import { isSemanticSearchEnabled, resolveListingDatabase } from "./listing-search";
+import { normalizeListingSearchConfig } from "@shared/listing-search-config";
 import { queryEntries, type QueryFilter, applyFilters, applyMatchCountSort } from "./query-entries";
 import { child } from "./logger";
 import { resolveSingleTemplateValue } from "@shared/json-field";
@@ -270,8 +272,13 @@ export async function resolveDynamicEntries(
         dynamicEntries.search,
         singleEntry,
       );
+      const resolvedDatabase = resolveListingDatabase(
+        contentType || undefined,
+        dynamicEntries.database,
+        contentRoot,
+      );
       const useSearch =
-        Boolean(dynamicEntries.database) &&
+        Boolean(resolvedDatabase) &&
         searchPhrase.length >= MIN_SEARCH_CHARS;
 
       let items: Record<string, unknown>[];
@@ -286,7 +293,7 @@ export async function resolveDynamicEntries(
         const remainingSlots =
           limit != null ? Math.max(0, limit - hardcodedCount) : SEARCH_CACHE_CEILING;
 
-        const searchResult = await searchDatabaseItems(dynamicEntries.database!, searchPhrase, {
+        const searchResult = await searchDatabaseItems(resolvedDatabase!, searchPhrase, {
           limit: SEARCH_CACHE_CEILING,
           locale,
           db,
@@ -300,7 +307,7 @@ export async function resolveDynamicEntries(
         // Filter-only pool for 1B backfill (and when search ∩ filters is short)
         const filterOnlyResult = await queryEntries(
           {
-            from: { database: dynamicEntries.database! },
+            from: { database: resolvedDatabase! },
             locale,
             filters,
             sort: dynamicEntries.sort,
@@ -341,7 +348,7 @@ export async function resolveDynamicEntries(
 
         const from = contentType
           ? ({ contentType } as const)
-          : ({ database: dynamicEntries.database! } as const);
+          : ({ database: resolvedDatabase! } as const);
 
         const result = await queryEntries(
           {
@@ -406,6 +413,15 @@ export async function resolveDynamicEntries(
         limit,
       );
 
+      const listingSearch = normalizeListingSearchConfig(
+        sec as { search?: { enabled?: boolean; placeholder?: string; fields?: string[] }; show_search?: boolean; search_placeholder?: string },
+      );
+      const resolvedPermanentFilters =
+        dynamicEntries.permanent_filters?.map((pf) => ({
+          item_property_slug: pf.item_property_slug,
+          value: resolveAgainstSingle(pf.value, singleEntry),
+        })) ?? [];
+
       resolved.push({
         ...sec,
         // Keep resolved array on the section so FAQ UI / schema see it before
@@ -418,8 +434,20 @@ export async function resolveDynamicEntries(
         items: finalItems,
         _dynamic_meta: {
           content_type: contentType || dynamicEntries.database,
+          database: resolvedDatabase,
           total: finalItems.length,
           locale,
+          semantic_search_enabled: resolvedDatabase
+            ? isSemanticSearchEnabled(resolvedDatabase, db)
+            : false,
+          search_config: {
+            enabled: listingSearch.enabled,
+            placeholder: listingSearch.placeholder,
+            fields: listingSearch.fields,
+            permanent_filters: resolvedPermanentFilters,
+            item_template: itemTemplate,
+            sort: dynamicEntries.sort,
+          },
         },
       });
     } catch (err) {

@@ -682,7 +682,7 @@ export function loadAllFieldEditors(contentFolder?: string): AllFieldEditors {
               const editorType = entryMatch[3];
               // Parse base type (e.g., "color-picker:background" -> "color-picker")
               const baseType = editorType.split(":")[0];
-              if (["icon-picker", "color-picker", "image-picker", "image-with-style-picker", "link-picker", "rich-text-editor", "markdown", "boolean-toggle", "variant-picker", "video-picker", "cta-picker", "cta-tracking", "string-picker", "font-size-picker", "related-features-picker", "faq-visibility-editor", "faq-section-editor", "db-field-values-picker", "form-settings"].includes(baseType)) {
+              if (["icon-picker", "color-picker", "image-picker", "image-with-style-picker", "link-picker", "rich-text-editor", "markdown", "boolean-toggle", "variant-picker", "video-picker", "cta-picker", "cta-tracking", "string-picker", "font-size-picker", "related-features-picker", "faq-visibility-editor", "faq-section-editor", "list-cards-section-editor", "db-field-values-picker", "form-settings"].includes(baseType)) {
                 entries[fieldPath] = editorType as EditorType;
               }
             }

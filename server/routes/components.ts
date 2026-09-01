@@ -233,6 +233,7 @@ import {
   createDemo,
   parseAndValidateDemoYaml,
   readDemo,
+  readDemoYamlText,
 } from "../component-section-demos";
 import { child } from "../logger";
 const log = child({ module: "routes/components" });
@@ -264,12 +265,14 @@ export function registerComponentsRoutes(app: Express): void {
       res.status(404).json({ error: "Demo not found" });
       return;
     }
+    const yamlText = readDemoYamlText(hash);
     res.json({
       hash,
       componentType: demo.component_type,
       version: demo.version,
       createdAt: demo.created_at,
       section: demo.section,
+      yaml: yamlText ?? undefined,
     });
   });
 

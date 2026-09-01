@@ -239,6 +239,7 @@ import { registerFormsRoutes } from "./forms";
 import { registerSettingsRoutes } from "./settings";
 import { registerContentRoutes } from "./content";
 import { registerDatabasesRoutes } from "./databases";
+import { registerListingsRoutes } from "./listings";
 import { registerSectionsRoutes } from "./sections";
 import { registerSeoRoutes } from "./seo";
 import { registerAdminRoutes } from "./admin";
@@ -319,6 +320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerSettingsRoutes(app);
   registerContentRoutes(app);
   registerDatabasesRoutes(app);
+  registerListingsRoutes(app);
   registerSectionsRoutes(app);
   registerSeoRoutes(app);
   registerAdminRoutes(app);

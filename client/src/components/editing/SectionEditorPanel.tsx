@@ -67,6 +67,9 @@ import {
 import { TableContentEditor } from "./TableContentEditor";
 import { FaqItemsPicker } from "./FaqItemsPicker";
 import { FaqSectionEditorField } from "./FaqSectionEditorField";
+import { ListCardsSectionEditorField } from "./ListCardsSectionEditorField";
+import type { ListCardsPreviewItem } from "./ListCardsItemsPicker";
+import { normalizeListingSearchConfig, type ListingDynamicMeta } from "@shared/listing-search-config";
 import { SchemaOrgSectionEditorField } from "./SchemaOrgSectionEditorField";
 import { DbFieldValuesPicker } from "./DbFieldValuesPicker";
 import { restoreVariableFieldsForEditor, mergeSavedSectionForLivePreview, detectUnboundTemplatePaths, findFieldPathForExpression } from "./restoreVariableFieldsForEditor";
@@ -1767,6 +1770,7 @@ export function SectionEditorPanel({
       topics: readTestimonialTopics(de),
       search: typeof de.search === "string" ? de.search : "",
       limit: typeof de.limit === "number" && de.limit > 0 ? de.limit : undefined,
+      sort: typeof de.sort === "string" ? de.sort : undefined,
       hardcodedRows,
       hardcodedItems: hardcodedRows.map(bankRowToEditorItem),
       resolvedItems: Array.isArray(section.items)
@@ -1812,6 +1816,122 @@ export function SectionEditorPanel({
       if (onPreviewChange) onPreviewChange(migrated as Section);
     } catch (error) {
       console.error("Error updating testimonials dynamic_entries:", error);
+    }
+  };
+
+  const listCardsListing = (() => {
+    const section = (parsedSection ?? {}) as Record<string, unknown>;
+    const de = (section.dynamic_entries ?? {}) as Record<string, unknown>;
+    const meta = section._dynamic_meta as ListingDynamicMeta | undefined;
+    const listingSearch = normalizeListingSearchConfig(
+      section as {
+        search?: { enabled?: boolean; placeholder?: string; fields?: string[] };
+        show_search?: boolean;
+        search_placeholder?: string;
+      },
+    );
+    const permanentFilters = Array.isArray(de.permanent_filters)
+      ? (de.permanent_filters as Array<{ item_property_slug: string; value: unknown }>)
+      : [];
+    const hardcodedRaw =
+      (Array.isArray(de.hardcoded_entries) ? de.hardcoded_entries : null) ??
+      (Array.isArray(section.hardcoded_entries) ? section.hardcoded_entries : []);
+    return {
+      hasDynamicEntries: Boolean(de.content_type || de.database),
+      contentType: typeof de.content_type === "string" ? de.content_type : undefined,
+      database:
+        meta?.database ??
+        (typeof de.database === "string" ? de.database : null),
+      semanticSearchEnabled: meta?.semantic_search_enabled,
+      searchEnabled: listingSearch.enabled === true,
+      searchPlaceholder: listingSearch.placeholder ?? "",
+      searchFields: listingSearch.fields ?? [],
+      sectionSearchPhrase: typeof de.search === "string" ? de.search : "",
+      limit: typeof de.limit === "number" && de.limit > 0 ? de.limit : undefined,
+      sort: typeof de.sort === "string" ? de.sort : undefined,
+      permanentFilters,
+      itemTemplate:
+        de.item_template && typeof de.item_template === "object"
+          ? (de.item_template as Record<string, unknown>)
+          : undefined,
+      userFilters: Array.isArray(de.user_filters)
+        ? (de.user_filters as Array<{ item_property_slug: string; component_renderer: string }>)
+        : undefined,
+      hardcodedItems: hardcodedRaw as ListCardsPreviewItem[],
+      resolvedItems: Array.isArray(section.items)
+        ? (section.items as ListCardsPreviewItem[])
+        : [],
+    };
+  })();
+
+  const updateListCardsListing = (
+    mutate: (section: Record<string, unknown>, dynamicEntries: Record<string, unknown>) => void,
+  ) => {
+    try {
+      const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") return;
+
+      pushUndoState(yamlContent);
+
+      if (
+        Array.isArray(parsed.items) &&
+        (parsed.items as unknown[]).length > 0 &&
+        !parsed.dynamic_entries &&
+        !parsed.hardcoded_entries
+      ) {
+        parsed.hardcoded_entries = parsed.items;
+        delete parsed.items;
+      }
+
+      if (!parsed.dynamic_entries || typeof parsed.dynamic_entries !== "object") {
+        parsed.dynamic_entries = {};
+      }
+      const de = parsed.dynamic_entries as Record<string, unknown>;
+      mutate(parsed, de);
+
+      const newYaml = safeYamlDump(parsed, {
+        lineWidth: -1,
+        noRefs: true,
+        quotingType: '"',
+      });
+      setYamlContent(newYaml);
+      setHasChanges(true);
+      setParseError(null);
+      if (onPreviewChange) onPreviewChange(parsed as Section);
+    } catch (error) {
+      console.error("Error updating list_cards listing:", error);
+    }
+  };
+
+  const updateListCardsSearch = (patch: {
+    enabled?: boolean;
+    placeholder?: string;
+    fields?: string[];
+  }) => {
+    try {
+      const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") return;
+      pushUndoState(yamlContent);
+      const search =
+        parsed.search && typeof parsed.search === "object"
+          ? { ...(parsed.search as Record<string, unknown>) }
+          : {};
+      if (patch.enabled !== undefined) search.enabled = patch.enabled;
+      if (patch.placeholder !== undefined) search.placeholder = patch.placeholder;
+      if (patch.fields !== undefined) {
+        if (patch.fields.length) search.fields = patch.fields;
+        else delete search.fields;
+      }
+      if (Object.keys(search).length) parsed.search = search;
+      else delete parsed.search;
+      if (patch.enabled === true) delete parsed.show_search;
+      const newYaml = safeYamlDump(parsed, { lineWidth: -1, noRefs: true, quotingType: '"' });
+      setYamlContent(newYaml);
+      setHasChanges(true);
+      setParseError(null);
+      if (onPreviewChange) onPreviewChange(parsed as Section);
+    } catch (error) {
+      console.error("Error updating list_cards search:", error);
     }
   };
 
@@ -3317,6 +3437,16 @@ export function SectionEditorPanel({
                     else de.limit = value;
                   })
                 }
+                sort={testimonialsListing.sort}
+                onSortChange={(value) =>
+                  updateTestimonialsListing((de) => {
+                    if (value == null || value === TESTIMONIALS_SORT) {
+                      de.sort = TESTIMONIALS_SORT;
+                    } else {
+                      de.sort = value;
+                    }
+                  })
+                }
                 hardcodedItems={testimonialsListing.hardcodedItems}
                 onHardcodedItemsChange={
                   sectionType === "testimonials" || sectionType === "testimonials_slide"
@@ -3334,6 +3464,55 @@ export function SectionEditorPanel({
                 }
                 resolvedItems={testimonialsListing.resolvedItems}
                 data-testid="props-testimonials-section-editor"
+              />
+            )}
+            {sectionType === "list_cards" && (
+              <ListCardsSectionEditorField
+                hasDynamicEntries={listCardsListing.hasDynamicEntries}
+                contentType={listCardsListing.contentType}
+                database={listCardsListing.database}
+                semanticSearchEnabled={listCardsListing.semanticSearchEnabled}
+                locale={locale || "en"}
+                searchEnabled={listCardsListing.searchEnabled}
+                onSearchEnabledChange={(enabled) =>
+                  updateListCardsSearch({ enabled })
+                }
+                searchPlaceholder={listCardsListing.searchPlaceholder}
+                onSearchPlaceholderChange={(value) =>
+                  updateListCardsSearch({ placeholder: value })
+                }
+                searchFields={listCardsListing.searchFields}
+                onSearchFieldsChange={(fields) =>
+                  updateListCardsSearch({ fields })
+                }
+                sectionSearchPhrase={listCardsListing.sectionSearchPhrase}
+                onSectionSearchChange={(value) =>
+                  updateListCardsListing((_parsed, de) => {
+                    if (value == null || !value.trim()) delete de.search;
+                    else de.search = value.trim();
+                  })
+                }
+                permanentFilters={listCardsListing.permanentFilters}
+                onPermanentFiltersChange={(filters) =>
+                  updateListCardsListing((_parsed, de) => {
+                    if (filters.length) de.permanent_filters = filters;
+                    else delete de.permanent_filters;
+                  })
+                }
+                limit={listCardsListing.limit}
+                onLimitChange={(value) =>
+                  updateListCardsListing((_parsed, de) => {
+                    if (value == null || value <= 0) delete de.limit;
+                    else de.limit = value;
+                  })
+                }
+                sort={listCardsListing.sort}
+                itemTemplate={listCardsListing.itemTemplate}
+                userFilters={listCardsListing.userFilters}
+                hardcodedItems={listCardsListing.hardcodedItems}
+                resolvedItems={listCardsListing.resolvedItems}
+                unsaved={hasChanges}
+                data-testid="props-list-cards-section-editor"
               />
             )}
             {sectionType === "dynamic_table" && (

@@ -6,6 +6,7 @@
  * Section-level `related_features` is rejected — use permanent_filters instead.
  */
 import { z } from "zod";
+import { listingSearchConfigSchema } from "@shared/listing-search-config";
 
 export const relatedFeaturesEnum = z.enum([
   "online-platform",
@@ -86,6 +87,8 @@ export const faqDynamicEntriesSchema = z.object({
 export const faqSectionSchema = z.object({
   type: z.literal("faq"),
   title: z.string(),
+  /** Visitor live search (URL ?q=). Off by default — use dynamic_entries.search for SSR ranking. */
+  search: listingSearchConfigSchema.optional(),
   /** Runtime-resolved by resolveDynamicEntries; not the primary authored source. */
   items: z.array(faqSimpleItemSchema).optional(),
   dynamic_entries: faqDynamicEntriesSchema.optional(),
