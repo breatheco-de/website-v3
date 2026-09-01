@@ -36,6 +36,5 @@ describe("validationScope", () => {
     expect(flags.runFull).toBe(true);
     expect(flags.metaKeys).toBeNull();
     expect(flags.runSchemaOrgCompanion).toBe(true);
-    expect(flags.runClusterLinks).toBe(true);
   });
 });

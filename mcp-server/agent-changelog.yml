@@ -5,6 +5,18 @@
 window_days: 6
 
 entries:
+  - date: "2026-09-01"
+    summary: "SEO cluster in-body links — advisory only; HTML href detection in diagnostics"
+    agent_impact:
+      - "Missing hub/member in-body links (HUB_MISSING_MEMBER_LINKS, MEMBER_MISSING_HUB_LINK) no longer block publish_draft or promote_variant."
+      - "seo-cluster-links validator reports those codes as warnings via run_entry_diagnostics (SEO category), same severity as ORPHAN_PAGE."
+      - "Diagnostics path collection now parses HTML <a href> in blog content fields — not only markdown ](/path) and url-shaped YAML keys."
+    paths:
+      - server/live-entry-seo-gate.ts
+      - scripts/validation/validators/seo-cluster-links.ts
+      - server/cluster-hub-links.ts
+      - mcp-server/explain/content_system.md
+    tools_changed: false
   - date: "2026-08-31"
     summary: "get_product_funnel_analytics — per-page conversions + ecommerce intent (drop CTAs)"
     agent_impact:

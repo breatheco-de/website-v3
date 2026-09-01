@@ -115,7 +115,7 @@ export function checkMemberBackLink(opts: {
 }
 
 /**
- * Evaluate cluster link rules for one entry (publish gate / targeted check).
+ * Evaluate cluster link rules for one entry (diagnostics / cluster-diagnostics API).
  * Skips when type monitoring is off or entry opted out of clustering.
  */
 export function evaluateClusterLinksForEntry(opts: {

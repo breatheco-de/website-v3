@@ -29,7 +29,7 @@ export const seoClusterLinksValidator: Validator = {
 
   async run(context: ValidationContext): Promise<ValidatorResult> {
     const startTime = Date.now();
-    const errors: ValidationIssue[] = [];
+    const warnings: ValidationIssue[] = [];
     const contentRoot = context.contentRoot;
     const index = loadSeoIndex(contentRoot);
     const liveFiles = liveFilesForSeo(context);
@@ -63,8 +63,8 @@ export const seoClusterLinksValidator: Validator = {
           ci: contentIndex,
         });
         if (issue) {
-          errors.push({
-            type: "error",
+          warnings.push({
+            type: "warning",
             code: HUB_MISSING_MEMBER_LINKS,
             message: `${issue.message} ${CLUSTER_LINK_ANCHOR_ONLY_HINT}`,
             file: file.filePath,
@@ -91,8 +91,8 @@ export const seoClusterLinksValidator: Validator = {
         ci: contentIndex,
       });
       if (back) {
-        errors.push({
-          type: "error",
+        warnings.push({
+          type: "warning",
           code: MEMBER_MISSING_HUB_LINK,
           message: `${back.message} ${CLUSTER_LINK_ANCHOR_ONLY_HINT}`,
           file: file.filePath,
@@ -107,9 +107,9 @@ export const seoClusterLinksValidator: Validator = {
     return {
       name: this.name,
       description: this.description,
-      status: errors.length > 0 ? "failed" : "passed",
-      errors,
-      warnings: [],
+      status: warnings.length > 0 ? "warning" : "passed",
+      errors: [],
+      warnings,
       duration,
       category: this.category,
       artifacts: { hubsChecked, membersChecked, anchorOnly: true },

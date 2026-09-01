@@ -40,9 +40,6 @@ vi.mock("./content-index", () => ({
     refreshCustomRedirects: () => [],
   },
 }));
-vi.mock("./seo-cluster-link-check", () => ({
-  evaluateClusterLinksForEntry: () => null,
-}));
 vi.mock("./schema-org-requirements", () => ({
   formatSchemaOrgCompanionGateError: (opts: { sections: unknown }) => {
     const sections = Array.isArray(opts.sections) ? opts.sections : [];
@@ -259,6 +256,27 @@ describe("evaluateLiveEntrySeoAndRequiredFields", () => {
     expect(failure?.missing_fields).toEqual(
       expect.arrayContaining(["meta.page_title", "meta.description"]),
     );
+  });
+
+  it("publish does not block on missing cluster hub back-link", () => {
+    const failure = evaluateLiveEntrySeoAndRequiredFields({
+      contentType: "blog",
+      slug: "spoke",
+      locale: "en",
+      pageData: {
+        meta: {
+          page_title: "Spoke article",
+          description: "A helpful spoke article for SEO cluster testing.",
+        },
+        title: "Spoke article",
+        description: "A helpful spoke article for SEO cluster testing.",
+        content: "No hub link in body",
+        seo: { pillar_path: "/en/blog/hub", is_pillar: false },
+      },
+      intent: "publish",
+      isDraftWrite: false,
+    });
+    expect(failure).toBeNull();
   });
 
   it("publish fails when full meta replace drops title and description", () => {

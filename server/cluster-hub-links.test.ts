@@ -64,4 +64,24 @@ describe("cluster-hub-links", () => {
       }),
     ).toBe(false);
   });
+
+  it("collectInternalPathsFromData extracts HTML anchor hrefs from content", () => {
+    const paths = collectInternalPathsFromData({
+      content: '<a href="https://4geeks.com/es/blog/hub">Hub</a>',
+    });
+    expect(paths).toContain("/es/blog/hub");
+  });
+
+  it("pageLinksToHub detects HTML-only blog body links", () => {
+    expect(
+      pageLinksToHub({
+        sourcePaths: collectInternalPathsFromData({
+          content: '<p>Read <a href="/es/blog/herramientas-ia/que-es-grok-bot">hub</a></p>',
+        }),
+        hubPath: "/es/blog/herramientas-ia/que-es-grok-bot",
+        locale: "es",
+        ci: stubCi,
+      }),
+    ).toBe(true);
+  });
 });

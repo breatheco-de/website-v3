@@ -97,6 +97,9 @@ export function collectInternalPathsFromData(data: unknown): string[] {
       while ((m = MD_LINK_RE.exec(t)) !== null) {
         add(m[1]);
       }
+      for (const href of extractHrefPaths(t)) {
+        add(href);
+      }
       return;
     }
     if (Array.isArray(node)) {

@@ -46,7 +46,6 @@ import {
   formatFormFieldSourceErrors,
 } from "@shared/validateFormFieldSources";
 import { getTrackingSettings } from "./settings";
-import { evaluateClusterLinksForEntry } from "./seo-cluster-link-check";
 
 export type LiveSeoGateOptions = {
   contentType: string;
@@ -72,9 +71,7 @@ export type LiveSeoGateFailure = {
   code:
     | LiveRequiredFieldsCode
     | "empty_detached_locale"
-    | "schema_org_companion"
-    | "HUB_MISSING_MEMBER_LINKS"
-    | "MEMBER_MISSING_HUB_LINK";
+    | "schema_org_companion";
   /** Field paths that must be set together (meta.* and/or editor.required keys). */
   missing_fields?: string[];
 };
@@ -268,23 +265,6 @@ export function evaluateLiveEntrySeoAndRequiredFields(
         .filter((i) => i.severity === "error" && i.relationField)
         .map((i) => i.relationField!),
     };
-  }
-
-  if (flags.runClusterLinks) {
-    const clusterIssue = evaluateClusterLinksForEntry({
-      contentType,
-      slug,
-      locale,
-      pageData: { ...singleEntry, ...resolvedPage },
-      contentRoot,
-      ci: contentIndex,
-    });
-    if (clusterIssue) {
-      return {
-        message: clusterIssue.message,
-        code: clusterIssue.code,
-      };
-    }
   }
 
   return null;
