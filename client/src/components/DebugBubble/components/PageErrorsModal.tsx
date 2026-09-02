@@ -83,7 +83,11 @@ interface PageErrorsModalProps {
     label: string;
     prefillUrlPrefix?: string;
   }) => void;
+  /** When opening the modal, start on this tab (e.g. from Page Details health strip). */
+  preferredTab?: PageErrorsTab;
 }
+
+export type PageErrorsTab = "errors" | "warnings" | "crawlers" | "completed";
 
 type PageIssue = NonNullable<PageDiagnostics["issues"]>[number];
 
@@ -103,17 +107,20 @@ function LocaleFlag({ locale }: { locale: string }) {
   return <FlagComponent className="h-3.5 w-auto rounded-sm" title={locale === "es" ? "Spanish" : "English"} />;
 }
 
-function TabCountBadge({
+export function TabCountBadge({
   count,
   variant,
   testId,
   crawlerState,
+  zeroAsCount = false,
 }: {
   count?: number;
   variant?: "error" | "warning";
   testId: string;
   /** When set, badge follows crawler semantics (ok / problems / loading / none). */
   crawlerState?: CrawlerBadgeState;
+  /** When true, show 0 instead of a checkmark for zero error/warning counts. */
+  zeroAsCount?: boolean;
 }) {
   if (crawlerState) {
     const { kind, count: problemCount } = crawlerState;
@@ -154,7 +161,7 @@ function TabCountBadge({
       )}
       data-testid={testId}
     >
-      {isZero ? <IconCheck className="h-3 w-3" stroke={2.5} aria-hidden /> : n}
+      {isZero ? (zeroAsCount ? 0 : <IconCheck className="h-3 w-3" stroke={2.5} aria-hidden />) : n}
     </span>
   );
 }
@@ -368,6 +375,14 @@ function IssueMessageWithLinks({
   return <>{parts}</>;
 }
 
+function sortCompletedIssues(issues: PageIssue[]): PageIssue[] {
+  return [...issues].sort((a, b) => {
+    const atA = a.completed?.at ? new Date(a.completed.at).getTime() : 0;
+    const atB = b.completed?.at ? new Date(b.completed.at).getTime() : 0;
+    return atB - atA;
+  });
+}
+
 function IssueCard({
   issue,
   index,
@@ -375,6 +390,7 @@ function IssueCard({
   formatSitePath,
   onUpdateIssue,
   togglePending,
+  showSeverityBadge = false,
 }: {
   issue: PageIssue;
   index: number;
@@ -385,6 +401,8 @@ function IssueCard({
     action: "claim" | "release" | "complete" | "uncomplete",
   ) => void;
   togglePending?: boolean;
+  /** When true, show Error/Warning badge (used on Completed tab). */
+  showSeverityBadge?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const isError = variant === "error";
@@ -426,16 +444,30 @@ function IssueCard({
                 data-testid={`modal-${variant}-${index}-toggle`}
                 aria-expanded={open}
               >
-                <div
-                  className={
-                    isCompleted
-                      ? "font-mono font-medium text-muted-foreground text-xs"
-                      : isError
-                        ? "font-mono font-medium text-destructive text-xs"
-                        : "font-mono font-medium text-amber-700 dark:text-amber-300 text-xs"
-                  }
-                >
-                  {issue.code}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <div
+                    className={
+                      isCompleted
+                        ? "font-mono font-medium text-muted-foreground text-xs"
+                        : isError
+                          ? "font-mono font-medium text-destructive text-xs"
+                          : "font-mono font-medium text-amber-700 dark:text-amber-300 text-xs"
+                    }
+                  >
+                    {issue.code}
+                  </div>
+                  {showSeverityBadge && (
+                    <span
+                      className={cn(
+                        "rounded px-1 py-0 text-[10px] font-semibold uppercase tracking-wide",
+                        isError
+                          ? "bg-destructive/15 text-destructive"
+                          : "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+                      )}
+                    >
+                      {isError ? "Error" : "Warning"}
+                    </span>
+                  )}
                 </div>
               </button>
             </CollapsibleTrigger>
@@ -457,12 +489,28 @@ function IssueCard({
               </p>
             )}
             {issue.completed && (
-              <p
-                className="mt-1 text-[11px] text-muted-foreground"
-                data-testid={`modal-${variant}-${index}-completed-by`}
-              >
-                Completed by {formatIssueActorLine(issue.completed.by, issue.completed.actor)}
-              </p>
+              <div className="mt-1 space-y-1" data-testid={`modal-${variant}-${index}-completed-meta`}>
+                <p
+                  className="text-[11px] text-muted-foreground"
+                  data-testid={`modal-${variant}-${index}-completed-by`}
+                >
+                  Completed by {formatIssueActorLine(issue.completed.by, issue.completed.actor)}
+                  {issue.completed.at ? (
+                    <span className="opacity-80">
+                      {" "}
+                      · {new Date(issue.completed.at).toLocaleString()}
+                    </span>
+                  ) : null}
+                </p>
+                {issue.completed.report ? (
+                  <p
+                    className="text-[11px] text-muted-foreground border-l-2 border-border/80 pl-2"
+                    data-testid={`modal-${variant}-${index}-completed-report`}
+                  >
+                    {issue.completed.report}
+                  </p>
+                ) : null}
+              </div>
             )}
           </div>
           <div className="flex shrink-0 flex-col items-end self-stretch">
@@ -611,13 +659,12 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
     error = null,
     onRefreshDiagnostics,
     onSolveWithAi,
+    preferredTab,
   } = props;
 
   const [isRunningValidation, setIsRunningValidation] = useState(false);
-  const [activeTab, setActiveTab] = useState<"errors" | "warnings" | "crawlers">("errors");
+  const [activeTab, setActiveTab] = useState<PageErrorsTab>("errors");
   const [openPageMenuOpen, setOpenPageMenuOpen] = useState(false);
-  const [completedErrorsOpen, setCompletedErrorsOpen] = useState(false);
-  const [completedWarningsOpen, setCompletedWarningsOpen] = useState(false);
   const [togglingIssueId, setTogglingIssueId] = useState<string | null>(null);
   const [releaseTarget, setReleaseTarget] = useState<PageIssue | null>(null);
   const [releaseReport, setReleaseReport] = useState("");
@@ -632,8 +679,10 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   const allWarnings = pageDiagnostics?.issues?.filter((i) => i.type === "warning") ?? [];
   const errors = allErrors.filter((i) => !i.completed);
   const warnings = allWarnings.filter((i) => !i.completed);
-  const completedErrors = allErrors.filter((i) => i.completed);
-  const completedWarnings = allWarnings.filter((i) => i.completed);
+  const completedIssues = sortCompletedIssues([
+    ...allErrors.filter((i) => i.completed),
+    ...allWarnings.filter((i) => i.completed),
+  ]);
   const canSolveWithAi = Boolean(pageDiagnostics && (errors.length > 0 || warnings.length > 0));
   const solvePrompt = pageDiagnostics ? buildSolveWithAiPrompt(pageDiagnostics) : "";
   const openPageUrl = pageUrl ?? pageDiagnostics?.url;
@@ -771,8 +820,12 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
 
   useEffect(() => {
     if (!open || !pageDiagnostics) return;
-    setActiveTab(errors.length > 0 ? "errors" : "warnings");
-  }, [open, pageDiagnostics?.url, pageDiagnostics?.entryKey, errors.length, warnings.length]);
+    if (preferredTab) {
+      setActiveTab(preferredTab);
+    } else {
+      setActiveTab(errors.length > 0 ? "errors" : "warnings");
+    }
+  }, [open, pageDiagnostics?.url, pageDiagnostics?.entryKey, errors.length, warnings.length, preferredTab]);
 
   async function handleRunValidation() {
     if (isRunningValidation) return;
@@ -908,7 +961,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
           <div className="space-y-4">
             <Tabs
               value={activeTab}
-              onValueChange={(v) => setActiveTab(v as "errors" | "warnings" | "crawlers")}
+              onValueChange={(v) => setActiveTab(v as PageErrorsTab)}
               className="w-full"
             >
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -934,6 +987,14 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                     <TabCountBadge
                       crawlerState={crawlerBadge}
                       testId="text-modal-crawler-error-count"
+                    />
+                  </ToggleButtonBarTrigger>
+                  <ToggleButtonBarTrigger value="completed" data-testid="tab-completed" className="gap-1.5">
+                    Completed
+                    <TabCountBadge
+                      count={completedIssues.length}
+                      testId="text-modal-completed-count"
+                      zeroAsCount
                     />
                   </ToggleButtonBarTrigger>
                 </ToggleButtonBarList>
@@ -970,7 +1031,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                         </>
                       )}
                     </Button>
-                  ) : (
+                  ) : activeTab !== "completed" ? (
                     <Button
                       variant="outline"
                       size="sm"
@@ -998,7 +1059,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                         </>
                       )}
                     </Button>
-                  )}
+                  ) : null}
                 </div>
               </div>
 
@@ -1011,7 +1072,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                     "This variant isn’t published (0% traffic). Diagnostics run after you assign traffic. Redirects stay on the live locale file only."}
                 </p>
               ) : (
-                activeTab !== "crawlers" && (pageDiagnostics.cached ? (
+                activeTab !== "crawlers" && activeTab !== "completed" && (pageDiagnostics.cached ? (
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-2" data-testid="text-cached-staleness">
                   <IconClock className="h-3.5 w-3.5" />
                   Validated {formatStaleness(pageDiagnostics.cached.lastRunAt)}
@@ -1030,9 +1091,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                     className="p-3 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground"
                     data-testid="modal-errors-empty"
                   >
-                    {completedErrors.length > 0
-                      ? "No open errors for this entry."
-                      : "No errors for this entry."}
+                    No open errors for this entry.
                   </div>
                 ) : (
                   errors.map((issue, i) => (
@@ -1047,41 +1106,6 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                     />
                   ))
                 )}
-                {completedErrors.length > 0 && (
-                  <Collapsible
-                    open={completedErrorsOpen}
-                    onOpenChange={setCompletedErrorsOpen}
-                  >
-                    <CollapsibleTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-1.5 pt-2 text-xs text-muted-foreground hover:text-foreground"
-                        data-testid="toggle-completed-errors"
-                      >
-                        <IconChevronDown
-                          className={cn(
-                            "h-3.5 w-3.5 transition-transform",
-                            completedErrorsOpen && "rotate-180",
-                          )}
-                        />
-                        Completed ({completedErrors.length})
-                      </button>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="space-y-2 pt-2">
-                      {completedErrors.map((issue, i) => (
-                        <IssueCard
-                          key={issue.id ?? `completed-error-${issue.code}-${i}`}
-                          issue={issue}
-                          index={errors.length + i}
-                          variant="error"
-                          formatSitePath={formatSitePath}
-                          onUpdateIssue={handleUpdateIssue}
-                          togglePending={togglingIssueId === issue.id}
-                        />
-                      ))}
-                    </CollapsibleContent>
-                  </Collapsible>
-                )}
               </TabsContent>
               )}
 
@@ -1092,9 +1116,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                     className="p-3 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground"
                     data-testid="modal-warnings-empty"
                   >
-                    {completedWarnings.length > 0
-                      ? "No open warnings for this entry."
-                      : "No warnings for this entry."}
+                    No open warnings for this entry.
                   </div>
                 ) : (
                   warnings.map((issue, i) => (
@@ -1109,40 +1131,35 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                     />
                   ))
                 )}
-                {completedWarnings.length > 0 && (
-                  <Collapsible
-                    open={completedWarningsOpen}
-                    onOpenChange={setCompletedWarningsOpen}
+              </TabsContent>
+              )}
+
+              {!unpublishedVariant && (
+              <TabsContent value="completed" className="mt-3 space-y-2">
+                <p className="text-xs text-muted-foreground" data-testid="text-completed-education">
+                  Issues marked fixed for this page. Re-validate to confirm they stay resolved — if a
+                  check still fails, the issue reopens on the Errors or Warnings tab.
+                </p>
+                {completedIssues.length === 0 ? (
+                  <div
+                    className="p-3 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground"
+                    data-testid="modal-completed-empty"
                   >
-                    <CollapsibleTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-1.5 pt-2 text-xs text-muted-foreground hover:text-foreground"
-                        data-testid="toggle-completed-warnings"
-                      >
-                        <IconChevronDown
-                          className={cn(
-                            "h-3.5 w-3.5 transition-transform",
-                            completedWarningsOpen && "rotate-180",
-                          )}
-                        />
-                        Completed ({completedWarnings.length})
-                      </button>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="space-y-2 pt-2">
-                      {completedWarnings.map((issue, i) => (
-                        <IssueCard
-                          key={issue.id ?? `completed-warning-${issue.code}-${i}`}
-                          issue={issue}
-                          index={warnings.length + i}
-                          variant="warning"
-                          formatSitePath={formatSitePath}
-                          onUpdateIssue={handleUpdateIssue}
-                          togglePending={togglingIssueId === issue.id}
-                        />
-                      ))}
-                    </CollapsibleContent>
-                  </Collapsible>
+                    No completed issues for this entry.
+                  </div>
+                ) : (
+                  completedIssues.map((issue, i) => (
+                    <IssueCard
+                      key={issue.id ?? `completed-${issue.code}-${i}`}
+                      issue={issue}
+                      index={i}
+                      variant={issue.type === "error" ? "error" : "warning"}
+                      formatSitePath={formatSitePath}
+                      onUpdateIssue={handleUpdateIssue}
+                      togglePending={togglingIssueId === issue.id}
+                      showSeverityBadge
+                    />
+                  ))
                 )}
               </TabsContent>
               )}

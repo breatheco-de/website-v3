@@ -809,6 +809,52 @@ export function registerAdminRoutes(app: Express): void {
     });
   });
 
+  /** Dev-only: replace local event log with production history (never uploads). */
+  app.post("/api/admin/events/pull-production", async (req, res) => {
+    if (process.env.NODE_ENV === "production") {
+      res.status(403).json({
+        error: "dev_only",
+        message: "Pulling production event history is only available in development.",
+      });
+      return;
+    }
+
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    const site =
+      (typeof req.body?.site === "string" && req.body.site) ||
+      (req.query.site as string) ||
+      res.locals.site?.contentRootName;
+    if (!site) {
+      res.status(400).json({ error: "Missing site" });
+      return;
+    }
+
+    const productionOrigin =
+      typeof req.body?.productionOrigin === "string" ? req.body.productionOrigin : undefined;
+
+    try {
+      const { pullProductionEvents } = await import("../events/pull-production");
+      const result = await pullProductionEvents(site, auth.token, productionOrigin);
+      if (!result.success) {
+        res.status(400).json({
+          error: result.reason ?? "Failed to pull production event history",
+          ...result,
+        });
+        return;
+      }
+      res.json({
+        ...result,
+        education:
+          "Replaced the local event log with production rows (newest pages up to 5,000). All rows are marked published so Sidequest is not woken. Does not upload anything to production.",
+      });
+    } catch (err) {
+      log.error({ err, site }, "Failed to pull production event history");
+      res.status(500).json({ error: "Failed to pull production event history" });
+    }
+  });
+
   app.get("/api/admin/pipeline/status", async (req, res) => {
     const auth = await requireStaffSession(req, res);
     if (!auth.authorized) return;

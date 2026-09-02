@@ -76,7 +76,7 @@ import { ConfirmPullFileModal } from "./components/ConfirmPullFileModal";
 import { FileDiffModal } from "./components/FileDiffModal";
 import { DeletePageModal } from "./components/DeletePageModal";
 import { CreateContentModal } from "./components/CreateContentModal";
-import { PageErrorsModal, PER_PAGE_VALIDATORS } from "./components/PageErrorsModal";
+import { PageErrorsModal, PER_PAGE_VALIDATORS, type PageErrorsTab } from "./components/PageErrorsModal";
 import { fetchPageDiagnostics } from "@/lib/fetchPageDiagnostics";
 import { SeoModal } from "./components/SeoModal";
 import { SiteManagerModal } from "./components/SiteManagerModal";
@@ -374,6 +374,7 @@ export function DebugBubble() {
   
   // Page diagnostics state
   const [pageErrorsModalOpen, setPageErrorsModalOpen] = useState(false);
+  const [pageErrorsPreferredTab, setPageErrorsPreferredTab] = useState<PageErrorsTab>("errors");
   const [pageDiagnostics, setPageDiagnostics] = useState<PageDiagnostics | null>(null);
   const [pageDiagnosticsLoading, setPageDiagnosticsLoading] = useState(false);
   const [pageDiagnosticsError, setPageDiagnosticsError] = useState<string | null>(null);
@@ -589,6 +590,11 @@ export function DebugBubble() {
   const pageWarningCount = !pageDiagnostics
     ? 0
     : (pageDiagnostics.issues?.filter((i) => i.type === "warning" && !i.completed).length || 0);
+
+  const openPageErrorsModal = (tab: PageErrorsTab = "errors") => {
+    setPageErrorsPreferredTab(tab);
+    setPageErrorsModalOpen(true);
+  };
 
   // Auto-enable edit mode after successful token validation
   useEffect(() => {
@@ -2182,6 +2188,11 @@ export function DebugBubble() {
     validationSummary,
     onOpenDiagnosticsForUrl: handleOpenDiagnosticsForUrl,
     contentLocale: pageDiagnostics?.locale || null,
+    pageErrorCount,
+    pageWarningCount,
+    pageDiagnosticsLoading,
+    pageDiagnosticsUrl: pageDiagnostics?.url ?? resolvedPublicPageUrl ?? null,
+    onOpenPageErrors: openPageErrorsModal,
     currentLang,
     toggleLanguage,
     theme,
@@ -2332,7 +2343,7 @@ export function DebugBubble() {
             )}
             {(pageErrorCount > 0 || pageWarningCount > 0 || pageDiagnostics?.dirty) && (
               <button
-                onClick={() => setPageErrorsModalOpen(true)}
+                onClick={() => openPageErrorsModal()}
                 className="absolute left-full ml-6 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
                 style={{
                   top: pillTop((hasCommitIndicator ? 1 : 0) + (hasSystemAlerts ? 1 : 0)),
@@ -2540,6 +2551,7 @@ export function DebugBubble() {
         loading={pageDiagnosticsLoading}
         error={pageDiagnosticsError}
         onRefreshDiagnostics={refreshPageDiagnostics}
+        preferredTab={pageErrorsPreferredTab}
         onSolveWithAi={({ agentId, setupTab, label, prompt, prefillUrlPrefix }) => {
           setPageErrorsModalOpen(false);
           setMcpRequiredAgentId(agentId);

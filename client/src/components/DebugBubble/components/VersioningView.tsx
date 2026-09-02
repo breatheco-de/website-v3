@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Link2, Loader2, Unlink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -17,6 +18,8 @@ import { emitVariantCreated, emitVariantDeleted, emitVariantPromoted } from "@/l
 import { TEMPLATE_VERSIONING_SLUG, versioningContentSlug } from "@/lib/sharedLayoutEntry";
 import type { MenuView, ContentInfo, VersioningResponse } from "../types";
 import { STORAGE_KEY, OPEN_STORAGE_KEY } from "../types";
+import { PageHealthIndicators } from "./PageHealthIndicators";
+import type { PageErrorsTab } from "./PageErrorsModal";
 
 interface VersioningViewProps {
   setMenuView: (v: MenuView) => void;
@@ -33,6 +36,11 @@ interface VersioningViewProps {
   detachBusy?: boolean;
   onRequestDetach?: () => void;
   onRequestReattach?: () => void;
+  pageErrorCount?: number;
+  pageWarningCount?: number;
+  pageDiagnosticsLoading?: boolean;
+  pageDiagnosticsUrl?: string | null;
+  onOpenPageErrors?: (tab: PageErrorsTab) => void;
 }
 
 function DefaultLiveRowActions({
@@ -154,6 +162,11 @@ export function VersioningView({
   detachBusy,
   onRequestDetach,
   onRequestReattach,
+  pageErrorCount = 0,
+  pageWarningCount = 0,
+  pageDiagnosticsLoading = false,
+  pageDiagnosticsUrl,
+  onOpenPageErrors,
 }: VersioningViewProps) {
   const { toast } = useToast();
   const locales = versioningData?.versioning ? Object.keys(versioningData.versioning) : [];
@@ -174,7 +187,7 @@ export function VersioningView({
         })
       : contentInfo.slug) ||
     "";
-  const versionsTitle = isTemplateVersioning ? "Template Versions" : "Page Versions";
+  const versionsTitle = isTemplateVersioning ? "Template Versions" : "Page Details";
   const contentTypeLabel = contentInfo.label || contentInfo.type || "entries";
   const isDraftEntry = !!versioningData?.isDraft || versioningData?.hasLiveDefault === false;
   const liveLocales = (() => {
@@ -189,6 +202,17 @@ export function VersioningView({
       return versioningData.availableLocales ?? [];
     }
     return [] as string[];
+  })();
+  const availableVariantCount = (() => {
+    if (!versioningData?.versioning) return 0;
+    let total = 0;
+    for (const locale of Object.keys(versioningData.versioning)) {
+      total += versioningData.versioning[locale].variants.length;
+    }
+    if (!isDraftEntry) {
+      total += Object.keys(versioningData.versioning).length;
+    }
+    return total;
   })();
 
   const searchString = useSearch();
@@ -674,17 +698,46 @@ export function VersioningView({
   return (
     <>
       <div className="px-3 py-2 border-b">
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3">
           <button
             onClick={() => showRestorePanel ? setShowRestorePanel(false) : setMenuView("main")}
-            className="p-1 rounded-md hover-elevate"
+            className="p-1 rounded-md hover-elevate shrink-0"
             data-testid="button-back-to-main-versioning"
           >
             <IconArrowLeft className="h-4 w-4" />
           </button>
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-sm">{showRestorePanel ? "Restore History" : versionsTitle}</h3>
-            <p className="text-xs text-muted-foreground truncate">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-semibold text-sm min-w-0 truncate">
+                {showRestorePanel ? "Restore History" : versionsTitle}
+              </h3>
+              {!showRestorePanel && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {onOpenPageErrors && (
+                    <PageHealthIndicators
+                      errorCount={pageErrorCount}
+                      warningCount={pageWarningCount}
+                      loading={pageDiagnosticsLoading}
+                      pageUrl={pageDiagnosticsUrl}
+                      onOpenTab={onOpenPageErrors}
+                    />
+                  )}
+                  {!(isSharedLayout && isDetached) && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 gap-1 text-xs"
+                      onClick={handleOpenRestorePanel}
+                      data-testid="button-open-restore-panel"
+                    >
+                      <IconHistory className="h-3 w-3" />
+                      Restore
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
               {contentInfo.type ? (
                 <a
                   href={`/private/type/${contentInfo.type}`}
@@ -701,37 +754,9 @@ export function VersioningView({
                 contentInfo.label
               )}
               : {contentInfo.slug}
-              {isDetached ? " · Detached" : isTemplateVersioning ? " · Shared template" : ""}
+              {isTemplateVersioning ? " · Shared template" : ""}
             </p>
           </div>
-          {!showRestorePanel && (
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 gap-1 text-xs"
-                onClick={() => {
-                  setCreateVersionLocale(dialogLocales[0] ?? "en");
-                  setCreateVersionSlug("");
-                  setCreateVersionOpen(true);
-                }}
-                data-testid="button-new-version"
-              >
-                <IconPlus className="h-3 w-3" />
-                New
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 gap-1 text-xs"
-                onClick={handleOpenRestorePanel}
-                data-testid="button-open-restore-panel"
-              >
-                <IconHistory className="h-3 w-3" />
-                Restore
-              </Button>
-            </div>
-          )}
         </div>
       </div>
 
@@ -793,29 +818,77 @@ export function VersioningView({
       )}
 
       {!showRestorePanel && isSharedLayout && isDetached && (
-        <div className="px-3 py-2 border-b bg-muted/40 flex items-start gap-2">
-          <p className="text-xs text-muted-foreground flex-1 min-w-0" data-testid="text-detached-versions-notice">
-            Detached from the {contentTypeLabel} template — versions are independent.
-            New translation locales should start as a draft (not a live empty stub) and only go public after promote/publish.
-            Empty detached locales 404 publicly and show under Manage → Errors.
+        <div className="px-3 pt-2 pb-1 bg-muted/40 flex items-center justify-between gap-2">
+          <p className="font-semibold text-sm text-foreground min-w-0 truncate" data-testid="text-detached-variant-count">
+            {availableVariantCount === 1 ? "1 Variant available" : `${availableVariantCount} Variants available`}
           </p>
-          {onRequestReattach && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 shrink-0 text-xs px-2 gap-1"
-              disabled={detachBusy}
-              onClick={onRequestReattach}
-              data-testid="button-versioning-reattach"
-            >
-              {detachBusy ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Link2 className="h-3 w-3 text-status-online" />
-              )}
-              Re-attach
-            </Button>
-          )}
+          <div className="flex items-center gap-1 shrink-0">
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-[18px] w-[18px] shrink-0"
+                    onClick={handleOpenRestorePanel}
+                    data-testid="button-open-restore-panel"
+                    aria-label="Restore history"
+                  >
+                    <IconHistory className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p>Restore history</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex"
+                  data-testid="badge-detached"
+                  aria-label="Detached from shared template — click for details"
+                >
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 cursor-pointer">
+                    Detached
+                  </Badge>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className="w-72 text-xs space-y-2 z-[10001]"
+                data-testid="text-detached-versions-notice"
+              >
+                <p className="font-medium text-foreground">
+                  Detached from the {contentTypeLabel} template
+                </p>
+                <p className="text-muted-foreground">
+                  Versions are independent. New locales start as drafts—promote to publish.
+                </p>
+                <p className="text-muted-foreground">
+                  Empty locales 404 publicly (Manage → Errors).
+                </p>
+              </PopoverContent>
+            </Popover>
+            {onRequestReattach && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-[18px] min-h-[18px] shrink-0 text-[10px] leading-none px-1.5 py-0 gap-0.5"
+                disabled={detachBusy}
+                onClick={onRequestReattach}
+                data-testid="button-versioning-reattach"
+              >
+                {detachBusy ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Link2 className="h-3 w-3 text-status-online" />
+                )}
+                Re-attach
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
@@ -890,7 +963,7 @@ export function VersioningView({
 
       {!showRestorePanel && (
       <div className="overflow-y-auto overflow-x-hidden max-h-[570px] min-h-[246px]">
-        <div className="p-2 space-y-1">
+        <div className="px-2 pb-2 pt-1 space-y-1">
           {isDraftEntry && versioningData?.hasVersioningFile && (
             <div
               className="mx-1 mb-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground space-y-1"
@@ -1041,7 +1114,7 @@ export function VersioningView({
               const localeData = versioningData!.versioning![locale];
               const isEditing = editingLocale === locale;
               return (
-                <div key={locale} className="px-2 py-2">
+                <div key={locale} className="px-2 pb-2 pt-1">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs text-muted-foreground">
@@ -1068,14 +1141,28 @@ export function VersioningView({
                       )}
                     </div>
                     {!isDraftEntry && (!isEditing ? (
-                      <button
-                        onClick={() => openEditAllocations(locale)}
-                        className="p-1 rounded-md hover-elevate text-muted-foreground"
-                        title="Edit traffic allocation"
-                        data-testid={`button-edit-allocations-${locale}`}
-                      >
-                        <IconPencil className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          onClick={() => {
+                            setCreateVersionLocale(locale);
+                            setCreateVersionSlug("");
+                            setCreateVersionOpen(true);
+                          }}
+                          className="p-1 rounded-md hover-elevate text-muted-foreground"
+                          title="New version"
+                          data-testid={`button-new-version-${locale}`}
+                        >
+                          <IconPlus className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => openEditAllocations(locale)}
+                          className="p-1 rounded-md hover-elevate text-muted-foreground"
+                          title="Edit traffic allocation"
+                          data-testid={`button-edit-allocations-${locale}`}
+                        >
+                          <IconPencil className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     ) : (
                       <div className="flex items-center gap-1">
                         <Badge

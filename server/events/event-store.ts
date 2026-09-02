@@ -525,6 +525,51 @@ export function clearAllEvents(site: string): number {
   return info.changes;
 }
 
+/**
+ * Replace the entire event log with a production snapshot (dev pull).
+ * Preserves ids and timestamps; forces published=1 so the dispatcher is not woken.
+ */
+export function replaceEventsFromSnapshot(site: string, events: ContentEvent[]): number {
+  ensureSchema(site);
+  const db = getSiteSqlite(site);
+  const sorted = [...events].sort((a, b) => a.id - b.id);
+
+  const insert = db.prepare(`
+    INSERT INTO events (
+      id, type, site, resource_json, cause, payload_json,
+      triggered_by_event_id, triggered_by_event_ids_json, attribution_json,
+      agent_session_id, published, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+  `);
+
+  const run = db.transaction(() => {
+    db.prepare("DELETE FROM events").run();
+    for (const ev of sorted) {
+      insert.run(
+        ev.id,
+        ev.type,
+        site,
+        JSON.stringify(ev.resource ?? {}),
+        ev.cause ?? null,
+        JSON.stringify(ev.payload ?? {}),
+        ev.triggeredByEventId ?? null,
+        ev.triggeredByEventIds?.length ? JSON.stringify(ev.triggeredByEventIds) : null,
+        JSON.stringify(ev.attribution ?? []),
+        ev.agent_session_id ?? null,
+        ev.created_at,
+      );
+    }
+    db.prepare("DELETE FROM sqlite_sequence WHERE name = 'events'").run();
+    const maxId = sorted.length > 0 ? sorted[sorted.length - 1]!.id : 0;
+    if (maxId > 0) {
+      db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('events', ?)").run(maxId);
+    }
+  });
+
+  run();
+  return sorted.length;
+}
+
 /** Dev-only: wipe event logs for all configured sites (orphan audit rows, stale queues). */
 export function wipeAllSiteEventStores(sites: string[]): number {
   let total = 0;

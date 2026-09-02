@@ -225,7 +225,12 @@ export interface PageDiagnostics {
     file?: string;
     details?: { path?: string; expected?: string; received?: string };
     validationCacheBuiltAt?: string;
-    completed?: { by: string; at: string; actor?: { type: "ui" | "mcp"; client?: string; model?: string } } | null;
+    completed?: {
+      by: string;
+      at: string;
+      actor?: { type: "ui" | "mcp"; client?: string; model?: string };
+      report?: string;
+    } | null;
     claimed?: {
       by: string;
       at: string;

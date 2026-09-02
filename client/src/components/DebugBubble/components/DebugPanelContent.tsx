@@ -18,6 +18,7 @@ import type { PreviewBreakpoint } from "@/contexts/EditModeContext";
 import { isVisualEditPath } from "@/lib/visual-edit-path";
 import { useEnterVisualEditMode } from "@/hooks/useEnterVisualEditMode";
 import { GitHubSyncChip } from "./GitHubSyncChip";
+import type { PageErrorsTab } from "./PageErrorsModal";
 import {
   AnimatedEllipsis,
   PipelineCounts,
@@ -131,6 +132,12 @@ export interface DebugPanelContentProps {
   onRequestDeletePage?: (opts: { locale: string; liveLocales: string[] }) => void;
   onOpenTemplateYaml?: () => void;
   handleLinkClick: (href: string) => void;
+
+  pageErrorCount?: number;
+  pageWarningCount?: number;
+  pageDiagnosticsLoading?: boolean;
+  pageDiagnosticsUrl?: string | null;
+  onOpenPageErrors?: (tab: PageErrorsTab) => void;
 
   sitemapUrls: SitemapUrl[];
   sitemapLoading: boolean;
@@ -623,11 +630,6 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
             <h3 className="font-semibold text-sm">Dev Tools</h3>
           </div>
           <div className="flex items-center gap-2">
-            {props.contentInfo.type && props.contentInfo.slug && props.pageIsSharedLayout && props.pageIsDetached && (
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0" data-testid="badge-detached">
-                Detached
-              </Badge>
-            )}
             {props.contentInfo.type && props.contentInfo.slug && (
               <button
                 onClick={(e) => {
@@ -1259,6 +1261,11 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           detachBusy={props.detachBusy}
           onRequestDetach={openDetachConfirm}
           onRequestReattach={openReattachConfirm}
+          pageErrorCount={props.pageErrorCount}
+          pageWarningCount={props.pageWarningCount}
+          pageDiagnosticsLoading={props.pageDiagnosticsLoading}
+          pageDiagnosticsUrl={props.pageDiagnosticsUrl}
+          onOpenPageErrors={props.onOpenPageErrors}
         />
       ) : props.menuView === "menus" ? (
         <>

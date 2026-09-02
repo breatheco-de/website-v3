@@ -14,6 +14,7 @@ import {
   IconAlertTriangle,
   IconCheck,
   IconChecklist,
+  IconChevronDown,
   IconCircleCheck,
   IconClipboardText,
   IconClock,
@@ -76,13 +77,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { apiFetch, apiRequestWithAuth } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { SidequestDiagnosticsPanel } from "@/components/pipeline/SidequestDiagnosticsPanel";
 import { useSidequestDiagnostics } from "@/hooks/useSidequestDiagnostics";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
-import { useToast } from "@/hooks/use-toast";
 
 type PipelineStatus = {
   engine: {
@@ -1084,8 +1091,11 @@ function EventLogPanel({
   const [expanded, setExpanded] = useState<number | null>(null);
   const [newIds, setNewIds] = useState<ReadonlySet<number>>(new Set());
   const [clearLogOpen, setClearLogOpen] = useState(false);
+  const [pullProductionOpen, setPullProductionOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [seedingDemo, setSeedingDemo] = useState(false);
+  const [pullingProduction, setPullingProduction] = useState(false);
+  const { toast } = useToast();
   /** Jump-to-latest / programmatic window only — pan does not round-trip through React. */
   const [rangeCommand, setRangeCommand] = useState<VisibleTimeRange | null>(null);
   const reduceMotion = useReducedMotion() ?? false;
@@ -1291,6 +1301,35 @@ function EventLogPanel({
       setSeedingDemo(false);
     }
   }, [site, loadEvents]);
+
+  const pullProductionEvents = useCallback(async () => {
+    if (!import.meta.env.DEV) return;
+    setPullingProduction(true);
+    try {
+      const res = await apiRequestWithAuth("POST", "/api/admin/events/pull-production", { site });
+      const data = (await res.json()) as {
+        imported?: number;
+        productionOrigin?: string;
+        reason?: string;
+        error?: string;
+      };
+      setPullProductionOpen(false);
+      await loadEvents();
+      setRangeCommand(jumpToLatestRange());
+      toast({
+        title: "Production history loaded",
+        description: `Imported ${data.imported ?? 0} events from ${data.productionOrigin ?? "production"}.`,
+      });
+    } catch (err) {
+      toast({
+        title: "Could not load production history",
+        description: err instanceof Error ? err.message : "Download failed.",
+        variant: "destructive",
+      });
+    } finally {
+      setPullingProduction(false);
+    }
+  }, [site, loadEvents, toast]);
 
   useEffect(() => {
     return () => {
@@ -1589,23 +1628,51 @@ function EventLogPanel({
         <span className="hidden sm:inline">Clear log</span>
       </Button>
       {import.meta.env.DEV ? (
-        <Button
-          variant="outline"
-          size="sm"
-          className={darkBarBtn}
-          disabled={seedingDemo || clearing}
-          onClick={() => void seedDemoEvents()}
-          aria-label={seedingDemo ? "Seeding demo events" : "Seed demo"}
-          data-testid="button-seed-demo-events"
-          title="Dev only: inject fake timeline events, then drip three live ones for pop-in"
-        >
-          {seedingDemo ? (
-            <IconLoader2 className="h-4 w-4 animate-spin sm:mr-2" />
-          ) : (
-            <IconFlask className="h-4 w-4 sm:mr-2" />
-          )}
-          <span className="hidden sm:inline">{seedingDemo ? "Seeding…" : "Seed demo"}</span>
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className={darkBarBtn}
+              disabled={seedingDemo || pullingProduction || clearing}
+              aria-label={
+                seedingDemo
+                  ? "Seeding demo events"
+                  : pullingProduction
+                    ? "Downloading production history"
+                    : "Seed demo"
+              }
+              data-testid="button-seed-demo-events"
+              title="Dev only: seed mock events or download production history"
+            >
+              {seedingDemo || pullingProduction ? (
+                <IconLoader2 className="h-4 w-4 animate-spin sm:mr-2" />
+              ) : (
+                <IconFlask className="h-4 w-4 sm:mr-2" />
+              )}
+              <span className="hidden sm:inline">
+                {seedingDemo ? "Seeding…" : pullingProduction ? "Downloading…" : "Seed demo"}
+              </span>
+              <IconChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => void seedDemoEvents()}
+              data-testid="menu-item-seed-mock-events"
+            >
+              <IconFlask className="h-4 w-4" />
+              Seed mock events
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setPullProductionOpen(true)}
+              data-testid="menu-item-pull-production-events"
+            >
+              <IconCloudDownload className="h-4 w-4" />
+              Download from production
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ) : null}
     </>
   );
@@ -1657,6 +1724,34 @@ function EventLogPanel({
                 <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : null}
               Clear log
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={pullProductionOpen} onOpenChange={setPullProductionOpen}>
+        <AlertDialogContent data-testid="dialog-pull-production-events">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Download production history?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This replaces your local event log with up to 5,000 rows from production (using your
+              staff login). Imported rows are marked published so Sidequest is not woken locally.
+              Nothing is uploaded back to production.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pullingProduction}>Cancel</AlertDialogCancel>
+            <Button
+              disabled={pullingProduction}
+              onClick={() => void pullProductionEvents()}
+              data-testid="button-confirm-pull-production-events"
+            >
+              {pullingProduction ? (
+                <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <IconCloudDownload className="h-4 w-4 mr-2" />
+              )}
+              Download from production
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
