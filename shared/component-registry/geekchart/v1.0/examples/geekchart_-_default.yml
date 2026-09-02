@@ -1,6 +1,6 @@
-name: chart - default
+name: geekchart - default
 yaml: |
-  - type: chart
+  - type: geekchart
     version: "1.0"
     source: |
       flowchart LR

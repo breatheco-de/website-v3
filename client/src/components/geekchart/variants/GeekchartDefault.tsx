@@ -1,22 +1,22 @@
 import { useEffect, useRef } from "react";
 import { Geekchart } from "geekchart";
 import { playInView } from "geekchart/observe";
-import type { ChartSection } from "@shared/schema";
+import type { GeekchartSection } from "@shared/schema";
 
-interface ChartProps {
-  data: ChartSection;
+interface GeekchartSectionProps {
+  data: GeekchartSection;
 }
 
 /**
  * `html` is not part of chartSectionSchema — it is added server-side by
- * server/markdown-enhance.ts's enhanceChartSection right before the page is
+ * server/markdown-enhance.ts's enhanceGeekchartSection right before the page is
  * sent, same rendering geekchart does for a ```mermaid fence inside an
  * article. Empty when the source failed to render (logged server-side).
  */
-type ChartSectionWithHtml = ChartSection & { html?: string };
+type GeekchartSectionWithHtml = GeekchartSection & { html?: string };
 
-export function ChartDefault({ data }: ChartProps) {
-  const { caption, html } = data as ChartSectionWithHtml;
+export function GeekchartDefault({ data }: GeekchartSectionProps) {
+  const { caption, html } = data as GeekchartSectionWithHtml;
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Charts ship paused (`play: 'in-view'`) and start once scrolled into view,
@@ -40,14 +40,14 @@ export function ChartDefault({ data }: ChartProps) {
     <div
       ref={rootRef}
       className="w-full px-4 py-8 md:px-6 lg:px-8"
-      data-testid="section-chart"
+      data-testid="section-geekchart"
     >
       <figure className="geekchart mx-auto max-w-3xl">
         {body}
         {caption && (
           <figcaption
             className="mt-3 text-center text-sm text-muted-foreground"
-            data-testid="text-chart-caption"
+            data-testid="text-geekchart-caption"
           >
             {caption}
           </figcaption>
@@ -57,4 +57,4 @@ export function ChartDefault({ data }: ChartProps) {
   );
 }
 
-export default ChartDefault;
+export default GeekchartDefault;

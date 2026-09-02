@@ -342,7 +342,7 @@ export async function enhanceMarkdownToHtml(markdown: string): Promise<string> {
  * in-article chart. Failure leaves `html` empty and logs; it never throws,
  * so one bad diagram never breaks the page it's on.
  */
-async function enhanceChartSection(section: Record<string, unknown>): Promise<void> {
+async function enhanceGeekchartSection(section: Record<string, unknown>): Promise<void> {
   const source = typeof section.source === "string" ? section.source.trim() : "";
   section.html = "";
   if (!source) return;
@@ -353,7 +353,7 @@ async function enhanceChartSection(section: Record<string, unknown>): Promise<vo
       ...(duration ? { duration } : {}),
     });
   } catch (err) {
-    log.warn({ err }, "[MarkdownEnhance] chart section failed to render; leaving html empty");
+    log.warn({ err }, "[MarkdownEnhance] geekchart section failed to render; leaving html empty");
   }
 }
 
@@ -368,8 +368,8 @@ export async function enhanceArticleSectionsInPage(
     sections.map(async (section) => {
       if (!section || typeof section !== "object") return;
       const s = section as Record<string, unknown>;
-      if (s.type === "chart") {
-        await enhanceChartSection(s);
+      if (s.type === "geekchart") {
+        await enhanceGeekchartSection(s);
         return;
       }
       if (s.type !== "article") return;
