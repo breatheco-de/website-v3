@@ -120,6 +120,35 @@ export interface ValidationIssueClaim {
  * Prior claim attempt that was released or expired — keyed by issue id.
  * Newest-first array; capped by site llm.yml `validation_issues.max_attempts`.
  */
+/** Append-only resolved issue snapshot (validation-resolved-archive.json). */
+export interface ResolvedIssueArchiveRow {
+  issueId: string;
+  entryKey: string;
+  url?: string;
+  code: string;
+  message: string;
+  severity: "error" | "warning";
+  validator?: string;
+  category?: string;
+  file?: string;
+  suggestion?: string;
+  resolvedAt: string;
+  resolvedBy: string;
+  actor?: ValidationIssueActor;
+  report?: string;
+  agent_session_id?: string;
+  resolution: "verified_gone" | "soft_complete";
+  reopenedAt?: string;
+}
+
+export interface ResolvedIssuesArchiveFileV1 {
+  meta: {
+    version: 1;
+    migratedCompletions?: boolean;
+  };
+  rows: ResolvedIssueArchiveRow[];
+}
+
 export interface ValidationIssueAttempt {
   /** Who released (or claimer when reason is ttl_expired). */
   by: string;

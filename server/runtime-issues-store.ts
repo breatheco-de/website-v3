@@ -29,6 +29,9 @@ import {
   unionSources,
   resolvedDropScrapers,
   MAX_RECENT,
+  hasStaffQueryParams,
+  parseRuntimeQueryAttribution,
+  mergeQueryAttribution,
   type RuntimeIssuesState,
   type RuntimeIssueRecord,
 } from "@shared/runtime-issues";
@@ -228,6 +231,7 @@ export interface RecordNotFoundInput {
   hostname?: string;
   referrer?: string | null;
   userAgent?: string | null;
+  querySearch?: string;
   ts?: number;
 }
 
@@ -236,6 +240,7 @@ export interface RecordNotFoundInput {
  * Returns false if hard-dropped or the store is not hydrated yet (prod+GCS boot).
  */
 export function recordPublicNotFound(input: RecordNotFoundInput): boolean {
+  if (hasStaffQueryParams(input.querySearch)) return false;
   const pathNorm = normalizeRuntimePath(input.path);
   if (pathNorm.startsWith("/api/") || pathNorm.startsWith("/private/")) return false;
   const site = input.site || "default";
@@ -250,10 +255,12 @@ export function recordPublicNotFound(input: RecordNotFoundInput): boolean {
   const sampleReferrer = stripReferrerQuery(input.referrer);
   const classified = classifyRuntimeHit(pathNorm, input.userAgent, input.referrer);
   const seoHit = hitHasSeoSignal(classified.tags);
+  const incomingAttribution = parseRuntimeQueryAttribution(input.querySearch);
 
   const existing = b.state.issues[fingerprint];
   const byHour = incrementByHour(existing?.byHour, ts, classified.tags);
   const sources = unionSources(existing?.sources, classified.tags);
+  const queryAttribution = mergeQueryAttribution(existing?.queryAttribution, incomingAttribution);
   const next: RuntimeIssueRecord = existing
     ? {
         ...existing,
@@ -267,6 +274,7 @@ export function recordPublicNotFound(input: RecordNotFoundInput): boolean {
         likelyBot: existing.likelyBot || classified.likelyBot,
         sources,
         byHour,
+        queryAttribution,
       }
     : {
         fingerprint,
@@ -282,6 +290,7 @@ export function recordPublicNotFound(input: RecordNotFoundInput): boolean {
         likelyBot: classified.likelyBot,
         sources,
         byHour,
+        queryAttribution,
       };
 
   b.state.issues[fingerprint] = next;

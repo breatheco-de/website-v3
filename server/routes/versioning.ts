@@ -153,6 +153,13 @@ import {
   variantTemplateBasename,
   isReservedTemplateVariantSlug,
 } from "../shared-layout-paths";
+import {
+  isVariantRegisteredInVersioning,
+  parseCleanupOrphanFlag,
+  pruneVersioningAfterVariantRemove,
+  variantTrafficBlock,
+  variantTrafficErrorMessage,
+} from "../versioning/delete-variant.js";
 import { ensurePublishedAtOnce } from "../published-at";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveSingleVars } from "../single-resolver";
@@ -1200,6 +1207,11 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
+    const cleanupOrphan = parseCleanupOrphanFlag(
+      req.query.cleanup_orphan,
+      (req.body as { cleanup_orphan?: boolean } | undefined)?.cleanup_orphan,
+    );
+
     const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
     const contentDir = path.resolve(versioningManager.getVersioningContentDir(contentType, resolved.slug));
     const root = getContentRoot(res);
@@ -1217,13 +1229,39 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
-    if (!fs.existsSync(variantFilePath)) {
-      res.status(404).json({
-        error: resolved.templateMode
-          ? `Variant file ${variantTemplateBasename(variantSlug, locale)} not found`
-          : `Variant file ${variantSlug}.${locale}.yml not found`,
+    const existingVersioning = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
+    const traffic = variantTrafficBlock(existingVersioning, locale, variantSlug);
+    if (traffic.blocked) {
+      res.status(400).json({
+        code: "VARIANT_HAS_TRAFFIC",
+        error: variantTrafficErrorMessage(traffic.allocation),
+        variantSlug,
+        locale,
+        allocation: traffic.allocation,
       });
       return;
+    }
+
+    const fileExists = fs.existsSync(variantFilePath);
+    const registered = isVariantRegisteredInVersioning(existingVersioning, locale, variantSlug);
+
+    if (!fileExists) {
+      if (!cleanupOrphan) {
+        res.status(404).json({
+          error: resolved.templateMode
+            ? `Variant file ${variantTemplateBasename(variantSlug, locale)} not found`
+            : `Variant file ${variantSlug}.${locale}.yml not found`,
+        });
+        return;
+      }
+      if (!registered) {
+        res.status(404).json({
+          error: resolved.templateMode
+            ? `Variant file ${variantTemplateBasename(variantSlug, locale)} not found and not registered in versioning.yml`
+            : `Variant file ${variantSlug}.${locale}.yml not found and not registered in versioning.yml`,
+        });
+        return;
+      }
     }
 
     try {
@@ -1232,21 +1270,40 @@ export function registerVersioningRoutes(app: Express): void {
         usesDraftFirstCreate(contentType, root) &&
         !hasAnyLiveLocale(contentDir, false);
 
-      fs.unlinkSync(variantFilePath);
-      if (resolved.templateMode) {
-        markFileAsModified(`${folder}/${variantTemplateBasename(variantSlug, locale)}`, auth.author || "api", undefined, root);
+      let orphanCleaned = false;
+      if (fileExists) {
+        fs.unlinkSync(variantFilePath);
+        if (resolved.templateMode) {
+          markFileAsModified(`${folder}/${variantTemplateBasename(variantSlug, locale)}`, auth.author || "api", undefined, root);
+        } else {
+          markFileAsModified(`${folder}/${resolved.slug}/${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
+        }
       } else {
-        markFileAsModified(`${folder}/${resolved.slug}/${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
+        orphanCleaned = true;
       }
 
-      const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
-      const localeData = existing[locale];
-      if (localeData) {
-        const updatedVariants = (localeData.variants || []).filter((v) => v.slug !== variantSlug);
-        versioningManager.updateVersioning(contentType, resolved.slug, {
-          ...existing,
-          [locale]: { variants: updatedVariants },
-        });
+      const versioningRelPath = resolved.templateMode
+        ? `${folder}/versioning.yml`
+        : `${folder}/${resolved.slug}/versioning.yml`;
+
+      let versioningEmptied = false;
+      if (registered || fileExists) {
+        const { data: pruned, isEmpty } = pruneVersioningAfterVariantRemove(
+          existingVersioning,
+          locale,
+          variantSlug,
+        );
+        versioningEmptied = isEmpty;
+        if (isEmpty) {
+          versioningManager.deleteVersioningConfig(
+            contentType,
+            resolved.slug,
+            auth.author || "api",
+            root,
+          );
+        } else {
+          versioningManager.updateVersioning(contentType, resolved.slug, pruned);
+        }
       }
 
       // Deleting the last draft on an unpublished entry removes the whole entry
@@ -1264,6 +1321,7 @@ export function registerVersioningRoutes(app: Express): void {
         res.json({
           success: true,
           entryDeleted: true,
+          orphanCleaned,
           message: "Last draft deleted; unpublished entry removed.",
         });
         return;
@@ -1282,9 +1340,12 @@ export function registerVersioningRoutes(app: Express): void {
         ? getLocaleEntries().map((l: { code: string }) => l.code)
         : getCI(res).getAvailableLocalesOrVariants(contentType as ContentType, resolved.slug);
       res.json({
-        hasVersioningFile: true,
+        success: true,
+        hasVersioningFile: !versioningEmptied && Object.keys(updated).length > 0,
         versioning: updated,
         availableLocales,
+        orphanCleaned,
+        versioningFilePath: versioningRelPath,
       });
     } catch (error) {
       res.status(500).json({ error: String(error) });

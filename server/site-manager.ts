@@ -6,6 +6,7 @@ import { getSiteConfigs, hasMultipleSites, type SiteConfig } from "./site-config
 import { ContentIndex } from "./content-index";
 import { MediaGallery } from "./media-gallery";
 import { ValidationCacheService } from "./services/validationCacheService";
+import { ResolvedIssuesArchiveService } from "./services/resolvedIssuesArchiveService";
 import { failInterruptedEnvelopes } from "./services/diagnosticsJobService";
 import { AutoCommitQueue } from "./auto-commit";
 import { VersioningManager } from "./versioning/VersioningManager";
@@ -26,6 +27,7 @@ export interface SiteContext {
   contentRoot: string;
   contentRootName: string;
   validationCache: ValidationCacheService;
+  resolvedIssuesArchive: ResolvedIssuesArchiveService;
   autoCommitQueue: AutoCommitQueue;
   versioningManager: VersioningManager;
   database: DatabaseManager;
@@ -72,7 +74,8 @@ function constructSiteContextMap(): { map: Map<string, SiteContext>; defaultSite
     const mg = new MediaGallery(config.contentFolder);
     const database = new DatabaseManager(contentRoot, mg);
     const ci = new ContentIndex(config.contentFolder, database);
-    const validationCache = new ValidationCacheService(contentRoot);
+    const resolvedIssuesArchive = new ResolvedIssuesArchiveService(contentRoot);
+    const validationCache = new ValidationCacheService(contentRoot, resolvedIssuesArchive);
     failInterruptedEnvelopes(contentRoot);
     const autoCommitQueue = new AutoCommitQueue(contentRootName);
     const versioningManager = new VersioningManager(contentRoot);
@@ -82,7 +85,7 @@ function constructSiteContextMap(): { map: Map<string, SiteContext>; defaultSite
     const variableManager = getVariableManager(contentRoot);
     const entryPreviewManager = new EntryPreviewManager(contentRoot, mg);
     isFirstSite = false;
-    const ctx: SiteContext = { config, contentIndex: ci, mediaGallery: mg, contentRoot, contentRootName, validationCache, autoCommitQueue, versioningManager, database, conversationStore, syncLog, variableManager, entryPreviewManager };
+    const ctx: SiteContext = { config, contentIndex: ci, mediaGallery: mg, contentRoot, contentRootName, validationCache, resolvedIssuesArchive, autoCommitQueue, versioningManager, database, conversationStore, syncLog, variableManager, entryPreviewManager };
     map.set(config.domain, ctx);
     log.info(`[SiteManager] Registered site domain="${config.domain}" contentFolder="${config.contentFolder}"`);
   }

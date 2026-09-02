@@ -84,6 +84,7 @@ import {
   REORDER_NO_BINDING_FANOUT,
   CREATE_ENTRY_SHARED_LAYOUT_WARNING,
 } from "../lib/shared-layout.js";
+import { isTemplateVersioningSlug, variantTemplateBasename } from "@shared/sharedLayoutPaths";
 import {
   hintsAfterAddArticle,
   hintsAfterReplaceSections,
@@ -4201,6 +4202,263 @@ export function registerPageTools(
         return fail(`Failed to promote variant: ${(e as Error).message}`);
       }
     }
+  );
+
+  mcp.tool(
+    "delete_variant",
+    "Discard a draft/A-B variant: permanently deletes {variantSlug}.{locale}.yml and removes it from versioning.yml. " +
+    "Does not change live {locale}.yml on a published entry. " +
+    "Deleting the last draft file on an unpublished entry removes the whole entry folder (entryDeleted). " +
+    "Per-locale only — deleting en does not delete the same variantSlug on es. " +
+    "Blocked when the variant has traffic allocated (VARIANT_HAS_TRAFFIC); staff must remove allocation first. " +
+    "Shared-layout template variants (versioning slug template/single) require confirm_template_delete: true. " +
+    "When the variant file is already gone but versioning.yml still lists the slug, pass cleanup_orphan: true. " +
+    "Confirm with the user before calling. Requires confirm: true and report (min 80 chars). Cap: content_delete_variant.",
+    {
+      contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
+      slug: z.string().describe("Page slug"),
+      variantSlug: z.string().describe("Slug of the variant to delete, e.g. 'draft-v2'"),
+      locale: z.string().default("en").describe("Locale of the variant file to delete, e.g. 'en' or 'es'"),
+      confirm: z.boolean().describe("Must be true to perform delete."),
+      report: z.string().describe(AGENT_REPORT_MUTATE_DESC),
+      confirm_template_delete: z
+        .boolean()
+        .optional()
+        .describe(
+          "Required when versioning resolves to the shared template (slug template/single). Confirms blast radius on all attached entries.",
+        ),
+      cleanup_orphan: z
+        .boolean()
+        .optional()
+        .describe(
+          "When true, remove a versioning.yml row even if the variant YAML file is already missing on disk.",
+        ),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start."),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({
+      contentType,
+      slug,
+      variantSlug,
+      locale,
+      confirm,
+      report,
+      confirm_template_delete,
+      cleanup_orphan,
+      agent_session_id,
+      site,
+    }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
+
+      if (confirm !== true) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "confirm_required",
+            code: "confirm_required",
+            message: "confirm: true is required to delete a variant.",
+          },
+          [],
+        );
+      }
+
+      const trimmedReport = typeof report === "string" ? report.trim() : "";
+      if (trimmedReport.length < 80) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "report_required",
+            code: trimmedReport ? "report_too_short" : "report_required",
+            message: "report required (min 80 characters).",
+          },
+          [],
+        );
+      }
+
+      const { domain, contentPath } = siteResult;
+      try {
+        assertSafeSegment(contentType, "contentType");
+        assertSafeSegment(slug, "slug");
+        assertSafeSegment(variantSlug, "variantSlug");
+        assertSafeLocale(locale);
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+
+      if (mcpToken) {
+        if (!await checkCap(mcpToken, "content_delete_variant", contentType)) {
+          return denyResponse("content_delete_variant", contentType);
+        }
+      }
+
+      const versioningSlug = versioningApiSlug(contentType, slug, contentPath);
+      const templateMode = isTemplateVersioningSlug(versioningSlug);
+      if (templateMode && confirm_template_delete !== true) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "confirm_template_delete",
+            code: "confirm_template_delete",
+            message:
+              "Deleting a shared-layout template variant affects every attached entry. Re-call with confirm_template_delete: true after user confirmation.",
+            contentType,
+            slug,
+            versioningSlug,
+            warnings: [
+              {
+                code: "shared_layout_template_delete",
+                message:
+                  "This delete targets the type template shell (template/single), not one entry. Live template locale files are unchanged; only the named template variant file is removed.",
+              },
+            ],
+          },
+          [],
+        );
+      }
+
+      try {
+        const q = new URLSearchParams();
+        if (domain) q.set("__site", domain);
+        if (cleanup_orphan === true) q.set("cleanup_orphan", "true");
+        const qs = q.toString();
+        const url =
+          `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/` +
+          `${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/${encodeURIComponent(variantSlug)}` +
+          (qs ? `?${qs}` : "");
+        const res = await fetch(url, {
+          method: "DELETE",
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+        });
+        const data = await res.json() as Record<string, unknown>;
+        if (!res.ok) {
+          const code = data.code as string | undefined;
+          const errMsg = (data.error as string) || `Server error: ${res.status}`;
+          if (code === "VARIANT_HAS_TRAFFIC") {
+            return fail(errMsg, {
+              code,
+              contentType,
+              slug,
+              locale,
+              variantSlug,
+              allocation: data.allocation,
+              warnings: [{
+                code: "variant_has_traffic",
+                message:
+                  "Variant has traffic allocated and cannot be deleted. A staff member must remove the allocation in Versioning before retrying.",
+              }],
+              next_actions: [],
+            });
+          }
+          const next_actions: NextAction[] =
+            res.status === 404 && cleanup_orphan !== true
+              ? [{
+                  tool: "delete_variant",
+                  reason: "Variant file missing — if versioning.yml still lists this slug, re-call with cleanup_orphan: true",
+                  args_hint: {
+                    contentType,
+                    slug,
+                    variantSlug,
+                    locale,
+                    confirm: true,
+                    cleanup_orphan: true,
+                    site,
+                  },
+                  priority: "recommended",
+                }]
+              : [];
+          return fail(errMsg, { code, contentType, slug, locale, variantSlug, next_actions });
+        }
+
+        const entryDeleted = data.entryDeleted === true;
+        const orphanCleaned = data.orphanCleaned === true;
+        const versioning = data.versioning as Record<string, { variants?: Array<{ slug: string }> }> | undefined;
+        const warnings: McpWarning[] = [
+          {
+            code: "live_unchanged",
+            message: entryDeleted
+              ? "Unpublished entry folder was removed."
+              : "Live locale YAML was not modified by this delete.",
+          },
+        ];
+        if (entryDeleted) {
+          warnings.push({
+            code: "entry_deleted",
+            message: "Last draft variant deleted; the unpublished entry folder was removed entirely.",
+          });
+        }
+        if (templateMode) {
+          warnings.push({
+            code: "shared_layout_template_delete",
+            message:
+              "Deleted a template variant file. Attached entries still inherit the live template shell; sibling entries were not auto-updated.",
+          });
+        }
+        if (versioning) {
+          const siblingLocales: string[] = [];
+          for (const [loc, locData] of Object.entries(versioning)) {
+            if (loc === locale) continue;
+            if (locData?.variants?.some((v) => v.slug === variantSlug)) {
+              siblingLocales.push(loc);
+            }
+          }
+          if (siblingLocales.length > 0) {
+            warnings.push({
+              code: "sibling_locale_variant_remains",
+              message:
+                `Variant "${variantSlug}" still exists for locale(s): ${siblingLocales.join(", ")}. ` +
+                "publish_draft requires that variant on all remaining draft locales.",
+            });
+          }
+        }
+
+        const configs = loadContentTypes(contentPath);
+        const config = configs[contentType];
+        const typeDir = config ? getDirectory(contentType, config) : contentType;
+        const variantRelPath = templateMode
+          ? `${typeDir}/${variantTemplateBasename(variantSlug, locale)}`
+          : `${typeDir}/${slug}/${variantSlug}.${locale}.yml`;
+
+        const side_effects: McpSideEffect[] = [{
+          kind: orphanCleaned ? "orphan_cleaned" : "variant_deleted",
+          summary: orphanCleaned
+            ? "Removed orphan variant row from versioning.yml"
+            : `Deleted variant file ${variantSlug}.${locale}.yml`,
+          paths: [variantRelPath],
+        }];
+
+        const sessWarn = missingSessionWarning(agent_session_id);
+        if (sessWarn) warnings.unshift(sessWarn);
+
+        const next_actions: NextAction[] = entryDeleted
+          ? []
+          : [{
+              tool: "list_variants",
+              priority: "recommended",
+              reason: "Confirm remaining variants and traffic after delete.",
+              args_hint: { contentType, slug, site },
+            }];
+
+        return ok(
+          {
+            variantSlug,
+            locale,
+            contentType,
+            slug,
+            versioningSlug,
+            entryDeleted,
+            orphanCleaned,
+            hasVersioningFile: data.hasVersioningFile,
+          },
+          { warnings, side_effects, next_actions },
+        );
+      } catch (e) {
+        return fail(`Failed to delete variant: ${(e as Error).message}`);
+      }
+    },
   );
 
   mcp.tool(

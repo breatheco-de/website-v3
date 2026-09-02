@@ -9,6 +9,7 @@ import {
 /** Query keys for runtime-issue view state. Add a key here when adding a filter. */
 export const RUNTIME_ISSUE_SEARCH_KEYS = {
   pagesOnly: "pagesOnly",
+  queryParams: "queryParams",
   path: "path",
   referrer: "referrer",
   locale: "locale",
@@ -35,6 +36,7 @@ export const RUNTIME_ISSUE_VIEW_DEFAULTS: RuntimeIssueViewState = {
     locale: FILTER_ALL,
     device: FILTER_ALL,
     pagesOnly: true,
+    queryParamsOnly: false,
     windowDays: 30,
     tz: defaultRuntimeTz(),
     source: FILTER_ALL,
@@ -94,6 +96,10 @@ export function parseRuntimeIssueSearch(search: string): RuntimeIssueViewState {
         params.get(RUNTIME_ISSUE_SEARCH_KEYS.pagesOnly),
         RUNTIME_ISSUE_VIEW_DEFAULTS.filters.pagesOnly,
       ),
+      queryParamsOnly: parseBool(
+        params.get(RUNTIME_ISSUE_SEARCH_KEYS.queryParams),
+        RUNTIME_ISSUE_VIEW_DEFAULTS.filters.queryParamsOnly,
+      ),
       windowDays: parseWindowDays(params.get(RUNTIME_ISSUE_SEARCH_KEYS.window)),
       tz: parseTz(params.get(RUNTIME_ISSUE_SEARCH_KEYS.tz)),
       source: source && source !== FILTER_ALL ? source : FILTER_ALL,
@@ -124,6 +130,12 @@ export function serializeRuntimeIssueSearch(
   const d = RUNTIME_ISSUE_VIEW_DEFAULTS;
 
   setBool(params, RUNTIME_ISSUE_SEARCH_KEYS.pagesOnly, view.filters.pagesOnly, d.filters.pagesOnly);
+  setBool(
+    params,
+    RUNTIME_ISSUE_SEARCH_KEYS.queryParams,
+    view.filters.queryParamsOnly,
+    d.filters.queryParamsOnly,
+  );
   setOmitEmpty(params, RUNTIME_ISSUE_SEARCH_KEYS.path, view.filters.pathQuery.trim());
   setOmitEmpty(params, RUNTIME_ISSUE_SEARCH_KEYS.referrer, view.filters.referrerQuery.trim());
   setOmitEmpty(params, RUNTIME_ISSUE_SEARCH_KEYS.locale, view.filters.locale, FILTER_ALL);

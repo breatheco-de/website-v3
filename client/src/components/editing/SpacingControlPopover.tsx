@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { emitContentUpdated } from "@/lib/contentEvents";
+import { isTemplateVersioningSlug } from "@/lib/sharedLayoutEntry";
 import type { Section, SectionLayout, ResponsiveSpacing } from "@shared/schema";
 
 interface SpacingControlPopoverProps {
@@ -326,7 +327,11 @@ export function SpacingControlPopover({
     setIsSaving(true);
     const operations: Promise<{ success: boolean; error?: string }>[] = [];
 
-    const spacingLayoutTarget = variant ? "type_template" : undefined;
+    // Template shell variants → template.{variant}.{locale}.yml (type_template).
+    // Entry drafts (?variant=draft on a real slug) must not use type_template — the
+    // server forwards section layout keys to the live template.{locale}.yml instead.
+    const spacingLayoutTarget =
+      variant && slug && isTemplateVersioningSlug(slug) ? "type_template" : undefined;
 
     if (sectionAbove) {
       const originalAbove = parseSpacingValue(sectionAbove);

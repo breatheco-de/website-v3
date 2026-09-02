@@ -97,6 +97,10 @@ function getValidationCache(res: Response) {
   return (res.locals.site as any)?.validationCache ?? getValidationCacheService();
 }
 
+function getResolvedIssuesArchive(res: Response) {
+  return (res.locals.site as SiteContext | undefined)?.resolvedIssuesArchive ?? null;
+}
+
 /** Locale YAML sections win over _common when both define sections. */
 function loadSectionsNearContentFile(filePath: string): unknown[] {
   try {
@@ -583,7 +587,19 @@ export function registerValidationRoutes(app: Express): void {
       }
 
       const cache = getValidationCache(res);
+      const archive = getResolvedIssuesArchive(res);
       const result = await cache.pullFromBucket();
+      let archiveResult: { pulled: boolean; rowCount: number; gcsKey: string } | null = null;
+      if (archive) {
+        const pulled = await archive.pullFromBucket();
+        if (pulled.pulled) {
+          archiveResult = {
+            pulled: true,
+            rowCount: pulled.rowCount,
+            gcsKey: pulled.gcsKey,
+          };
+        }
+      }
       if (!result.success || !result.pulled) {
         res.status(result.reason?.includes("unavailable") ? 503 : 404).json({
           success: false,
@@ -600,7 +616,12 @@ export function registerValidationRoutes(app: Express): void {
         pulled: true,
         gcsKey: result.gcsKey,
         issueCount: result.issueCount,
-        message: `Loaded ${result.issueCount} issue(s) from ${result.gcsKey} into local validation-cache.json.`,
+        archive: archiveResult,
+        message: `Loaded ${result.issueCount} issue(s) from ${result.gcsKey} into local validation-cache.json.${
+          archiveResult
+            ? ` Loaded ${archiveResult.rowCount} resolved row(s) from ${archiveResult.gcsKey}.`
+            : ""
+        }`,
       });
     } catch (error) {
       log.error({ err: error }, "pull-from-gcs error:");
@@ -782,6 +803,20 @@ export function registerValidationRoutes(app: Express): void {
     const severityRaw = typeof req.query.severity === "string" ? req.query.severity : undefined;
     const severity =
       severityRaw === "error" || severityRaw === "warning" ? severityRaw : undefined;
+    const parseCsv = (raw: unknown): string[] | undefined => {
+      if (typeof raw !== "string" || !raw.trim()) return undefined;
+      const seen = new Set<string>();
+      const out: string[] = [];
+      for (const part of raw.split(",")) {
+        const v = part.trim();
+        if (!v || seen.has(v)) continue;
+        seen.add(v);
+        out.push(v);
+      }
+      return out.length > 0 ? out : undefined;
+    };
+    const triedRaw = req.query.priorAttempts ?? req.query.tried;
+    const priorAttempts = triedRaw === "1" || triedRaw === "true";
     const filters = {
       entryKey: typeof req.query.entryKey === "string" ? req.query.entryKey : undefined,
       url: typeof req.query.url === "string" ? req.query.url : undefined,
@@ -791,12 +826,54 @@ export function registerValidationRoutes(app: Express): void {
       database: typeof req.query.database === "string" ? req.query.database : undefined,
       file: typeof req.query.file === "string" ? req.query.file : undefined,
       validator: typeof req.query.validator === "string" ? req.query.validator : undefined,
+      validators: parseCsv(req.query.validators),
       category: typeof req.query.category === "string" ? req.query.category : undefined,
+      categories: parseCsv(req.query.categories),
       code: typeof req.query.code === "string" ? req.query.code : undefined,
       severity,
+      search: typeof req.query.search === "string" ? req.query.search : undefined,
+      urlPath:
+        typeof req.query.urlPath === "string"
+          ? req.query.urlPath
+          : typeof req.query.path === "string"
+            ? req.query.path
+            : undefined,
+      priorAttempts: priorAttempts || undefined,
     };
-    const { issues, facets } = listCacheIssues(getValidationCache(res), filters);
-    res.json({ issues, facets });
+    const result = listCacheIssues(getValidationCache(res), filters);
+    res.json(result);
+  });
+
+  app.get("/api/validation/resolved-issues", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+    const archive = getResolvedIssuesArchive(res);
+    if (!archive) {
+      res.status(400).json({ error: "Missing site archive context" });
+      return;
+    }
+    const severityRaw = typeof req.query.severity === "string" ? req.query.severity : undefined;
+    const severity =
+      severityRaw === "error" || severityRaw === "warning" ? severityRaw : undefined;
+    const includeReopenedRaw = req.query.includeReopened;
+    const includeReopened =
+      includeReopenedRaw === "false" || includeReopenedRaw === "0" ? false : true;
+    const limitRaw = req.query.limit ? Number(req.query.limit) : 50;
+    const offsetRaw = req.query.offset ? Number(req.query.offset) : 0;
+    const filters = {
+      entryKey: typeof req.query.entryKey === "string" ? req.query.entryKey : undefined,
+      url: typeof req.query.url === "string" ? req.query.url : undefined,
+      severity,
+      validator: typeof req.query.validator === "string" ? req.query.validator : undefined,
+      category: typeof req.query.category === "string" ? req.query.category : undefined,
+      code: typeof req.query.code === "string" ? req.query.code : undefined,
+      search: typeof req.query.search === "string" ? req.query.search : undefined,
+      includeReopened,
+      limit: Number.isFinite(limitRaw) ? limitRaw : 50,
+      offset: Number.isFinite(offsetRaw) ? offsetRaw : 0,
+    };
+    const result = archive.list(filters);
+    res.json(result);
   });
 
   app.post("/api/validation/cache-issues/update", async (req, res) => {
@@ -861,6 +938,7 @@ export function registerValidationRoutes(app: Express): void {
       const issueBefore = cache.getIssueById(issueId);
       const verified = await verifiedCompleteIssue({
         cache,
+        archive: getResolvedIssuesArchive(res),
         ci: getCI(res),
         contentRoot: getContentRoot(res),
         issueId,
@@ -970,6 +1048,7 @@ export function registerValidationRoutes(app: Express): void {
     const agent_session_id = resolveAgentSessionId(req);
     const verified = await verifiedCompleteIssue({
       cache,
+      archive: getResolvedIssuesArchive(res),
       ci: getCI(res),
       contentRoot: getContentRoot(res),
       issueId,

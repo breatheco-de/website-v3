@@ -101,6 +101,20 @@ export function RuntimeIssueListFiltersDialog({
           <p className="text-xs text-muted-foreground -mt-2">
             Hides file URLs (.js, images, and other assets), including Internal ones.
           </p>
+          <div className="flex items-center gap-2" data-testid="toggle-query-params-only">
+            <Switch
+              id="query-params-only"
+              checked={draft.queryParamsOnly}
+              onCheckedChange={(checked) => patchDraft({ queryParamsOnly: checked })}
+            />
+            <Label htmlFor="query-params-only" className="text-sm">
+              With query params only
+            </Label>
+          </div>
+          <p className="text-xs text-muted-foreground -mt-2">
+            Shows paths where the 404 URL had recorded query string data (UTM, gclid, etc.). Older rows
+            without params appear only after new hits.
+          </p>
           <div className="space-y-1">
             <Label htmlFor="runtime-path-filter" className="text-xs text-muted-foreground">
               Path

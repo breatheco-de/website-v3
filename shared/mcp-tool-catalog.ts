@@ -72,6 +72,7 @@ export const TOOL_GATES: Record<string, ToolGate> = {
   },
 
   create_variant: { kind: "anyCap", caps: ["content_create_variant"] },
+  delete_variant: { kind: "anyCap", caps: ["content_delete_variant"] },
   publish_draft: { kind: "anyCap", caps: ["content_promote_variant"] },
   promote_variant: { kind: "anyCap", caps: ["content_promote_variant"] },
   convert_to_draft: { kind: "anyCap", caps: ["content_promote_variant"] },

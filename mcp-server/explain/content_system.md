@@ -50,7 +50,7 @@ All marketing content lives under the site folder from `sites.yml` (`content_fol
 
 - **Draft entry:** folder has **no** live `{locale}.yml`. Content lives in `{variant}.{locale}.yml` (often `draft.en.yml`) + `versioning.yml` at 0%. ContentIndex skips it → public 404, not in sitemap. Create/duplicate (non-shared-layout) start this way. Publish with `publish_draft` (all remaining draft locales at once).
 - **Live / published:** at least one `{locale}.yml` exists. Routable and sitemap-eligible (unless `robots: noindex`).
-- **Variant (of a live page):** `{variant}.{locale}.yml` beside a live `{locale}.yml`, registered in `versioning.yml`. Traffic allocation allowed. `promote_variant` replaces live for one locale. Soft guidance: confirm with the user before promote/publish.
+- **Variant (of a live page):** `{variant}.{locale}.yml` beside a live `{locale}.yml`, registered in `versioning.yml`. Traffic allocation allowed. `promote_variant` replaces live for one locale; `delete_variant` discards one locale's variant file (per-locale; blocked when allocation > 0% — staff must remove traffic first). Deleting the last draft on an unpublished entry removes the whole folder. Soft guidance: confirm with the user before promote/publish/delete.
 - **All content types:** **Create/duplicate seeds exactly one locale** — multi-locale create is rejected (`create_entry`, `/api/content/create`, Create Content UI). Add translations via `translate_entry` → `draft.{locale}.yml` → promote/publish. Shared-layout types still go live immediately on first create; classic types may use draft-first create.
 
 ## Merge behavior

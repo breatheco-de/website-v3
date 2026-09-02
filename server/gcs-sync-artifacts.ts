@@ -20,6 +20,7 @@ import {
   syncStateReadKeys,
   userStoreReadKeys,
   validationCacheReadKeys,
+  validationResolvedArchiveReadKeys,
   versioningStateReadKeys,
 } from "@shared/gcsKeys";
 import { getSiteConfigs } from "./site-config";
@@ -35,6 +36,7 @@ export const SYNC_ARTIFACT_KINDS = [
   "versioning-state",
   "form-state",
   "validation-cache",
+  "validation-resolved-archive",
   "gsc-url-inspection",
   "runtime-issues",
   "sites-yml",
@@ -210,6 +212,19 @@ export function resolveArtifactMeta(
         localPath: path.join(contentRootFor(folder), "validation-cache.json"),
       };
     }
+    case "validation-resolved-archive": {
+      const folder = siteFolder!;
+      return {
+        kind,
+        label: "Resolved issues archive",
+        requiresSiteFolder: true,
+        confirmMutations: false,
+        contentType: "application/json",
+        gcsKey: siteSyncGcsKey(folder, SYNC_FILENAMES.validationResolvedArchive),
+        readKeys: validationResolvedArchiveReadKeys(folder),
+        localPath: path.join(contentRootFor(folder), SYNC_FILENAMES.validationResolvedArchive),
+      };
+    }
     case "gsc-url-inspection": {
       const folder = siteFolder!;
       return {
@@ -251,6 +266,7 @@ export function artifactKindFromInventoryId(id: string): SyncArtifactKind | null
   if (id.startsWith("versioning-")) return "versioning-state";
   if (id.startsWith("form-state-")) return "form-state";
   if (id.startsWith("validation-cache-")) return "validation-cache";
+  if (id.startsWith("validation-resolved-archive-")) return "validation-resolved-archive";
   if (id.startsWith("gsc-url-inspection-")) return "gsc-url-inspection";
   if (id.startsWith("runtime-issues-")) return "runtime-issues";
   return null;
@@ -399,6 +415,25 @@ export async function uploadSyncArtifact(
           uploaded: true,
           gcsKey: result.gcsKey,
           message: `Uploaded validation cache to ${result.gcsKey}.`,
+        };
+      }
+      case "validation-resolved-archive": {
+        const ctx = requireSite(siteFolder);
+        const result = await ctx.resolvedIssuesArchive.forceUploadToBucket();
+        if (!result.success) {
+          return {
+            success: false,
+            message: result.reason ?? "Could not upload resolved issues archive.",
+            gcsKey: result.gcsKey,
+            reason: result.reason,
+            uploaded: false,
+          };
+        }
+        return {
+          success: true,
+          uploaded: true,
+          gcsKey: result.gcsKey,
+          message: `Uploaded resolved issues archive to ${result.gcsKey}.`,
         };
       }
       case "gsc-url-inspection": {
@@ -572,6 +607,27 @@ export async function downloadSyncArtifact(
           source: "gcs",
           gcsKey: meta.gcsKey,
           message: "Validation cache refreshed from GCS.",
+        };
+      }
+      case "validation-resolved-archive": {
+        const ctx = requireSite(siteFolder);
+        if (process.env.NODE_ENV !== "production") {
+          const pulled = await ctx.resolvedIssuesArchive.pullFromBucket();
+          return {
+            success: pulled.success,
+            source: pulled.pulled ? "gcs" : "local",
+            gcsKey: pulled.gcsKey || meta.gcsKey,
+            message: pulled.pulled
+              ? `Resolved archive loaded from production (${pulled.rowCount} rows).`
+              : pulled.reason ?? "Resolved archive could not be loaded from GCS.",
+          };
+        }
+        await ctx.resolvedIssuesArchive.loadFromBucket();
+        return {
+          success: true,
+          source: "gcs",
+          gcsKey: meta.gcsKey,
+          message: "Resolved issues archive refreshed from GCS.",
         };
       }
       case "gsc-url-inspection": {

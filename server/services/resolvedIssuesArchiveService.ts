@@ -1,0 +1,501 @@
+/**
+ * Append-only archive of successfully resolved validation issues.
+ * Persists to validation-resolved-archive.json + GCS in production.
+ */
+
+import * as fs from "fs";
+import * as path from "path";
+import type {
+  ResolvedIssueArchiveRow,
+  ResolvedIssuesArchiveFileV1,
+  StoredValidationIssue,
+  ValidationIssueActor,
+} from "../../scripts/validation/shared/types";
+import {
+  siteSyncGcsKey,
+  SYNC_FILENAMES,
+  validationResolvedArchiveReadKeys,
+} from "@shared/gcsKeys";
+import { gcs } from "../gcs";
+import { child } from "../logger";
+import type { ValidationCacheService } from "./validationCacheService";
+
+const log = child({ module: "resolvedIssuesArchive" });
+
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+export const ARCHIVE_MAX_ROWS = 2000;
+export const STAFF_DEFAULT_REPORT = "Marked fixed in UI.";
+
+export type ResolvedIssuesListFilters = {
+  entryKey?: string;
+  url?: string;
+  severity?: "error" | "warning";
+  validator?: string;
+  category?: string;
+  code?: string;
+  search?: string;
+  includeReopened?: boolean;
+  limit?: number;
+  offset?: number;
+};
+
+export type ResolvedIssuesSummary = {
+  total: number;
+  errors: number;
+  warnings: number;
+  reopened: number;
+  resolvedCount: number;
+};
+
+function entryKeyFromIssue(issue: StoredValidationIssue): string {
+  const target = issue.targets.find((t) => t.type === "entry") as
+    | { type: "entry"; entryKey?: string }
+    | undefined;
+  return target?.entryKey ?? "";
+}
+
+function urlFromIssue(issue: StoredValidationIssue): string | undefined {
+  const target = issue.targets.find((t) => t.type === "entry") as
+    | { type: "entry"; url?: string }
+    | undefined;
+  return target?.url;
+}
+
+function emptyArchiveFile(): ResolvedIssuesArchiveFileV1 {
+  return { meta: { version: 1 }, rows: [] };
+}
+
+function readArchiveFile(filePath: string): ResolvedIssuesArchiveFileV1 {
+  if (!fs.existsSync(filePath)) return emptyArchiveFile();
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as ResolvedIssuesArchiveFileV1;
+    if (!parsed || parsed.meta?.version !== 1 || !Array.isArray(parsed.rows)) {
+      return emptyArchiveFile();
+    }
+    return parsed;
+  } catch {
+    return emptyArchiveFile();
+  }
+}
+
+export function issueToArchiveRow(
+  issue: StoredValidationIssue,
+  args: {
+    resolvedBy: string;
+    resolvedAt?: string;
+    actor?: ValidationIssueActor;
+    report?: string;
+    agent_session_id?: string;
+    resolution: ResolvedIssueArchiveRow["resolution"];
+  },
+): ResolvedIssueArchiveRow {
+  return {
+    issueId: issue.id,
+    entryKey: entryKeyFromIssue(issue),
+    url: urlFromIssue(issue),
+    code: issue.code,
+    message: issue.message,
+    severity: issue.severity === "error" ? "error" : "warning",
+    validator: issue.validator,
+    category: issue.category,
+    file: issue.file,
+    suggestion: issue.suggestion,
+    resolvedAt: args.resolvedAt ?? new Date().toISOString(),
+    resolvedBy: args.resolvedBy,
+    ...(args.actor ? { actor: args.actor } : {}),
+    ...(args.report ? { report: args.report } : {}),
+    ...(args.agent_session_id ? { agent_session_id: args.agent_session_id } : {}),
+    resolution: args.resolution,
+  };
+}
+
+export class ResolvedIssuesArchiveService {
+  private rows: ResolvedIssueArchiveRow[] = [];
+  private meta: ResolvedIssuesArchiveFileV1["meta"] = { version: 1 };
+  private writeQueue: Promise<void> = Promise.resolve();
+  private archiveFile: string;
+  private contentFolder: string;
+  private skipGcsUpload = false;
+
+  constructor(contentRoot: string) {
+    this.archiveFile = path.join(contentRoot, SYNC_FILENAMES.validationResolvedArchive);
+    this.contentFolder = path.relative(process.cwd(), contentRoot);
+    this.loadFromDisk();
+  }
+
+  setSkipGcsUpload(skip: boolean): void {
+    this.skipGcsUpload = skip;
+  }
+
+  private gcsKey(): string {
+    return siteSyncGcsKey(this.contentFolder, SYNC_FILENAMES.validationResolvedArchive);
+  }
+
+  private loadFromDisk(): void {
+    const data = readArchiveFile(this.archiveFile);
+    this.meta = data.meta ?? { version: 1 };
+    this.rows = data.rows ?? [];
+  }
+
+  private buildFile(): ResolvedIssuesArchiveFileV1 {
+    return { meta: this.meta, rows: this.rows };
+  }
+
+  private writeLocalFile(): void {
+    fs.writeFileSync(this.archiveFile, JSON.stringify(this.buildFile(), null, 2) + "\n", "utf-8");
+  }
+
+  private saveToBucket(): void {
+    if (!IS_PRODUCTION || !gcs.available || this.skipGcsUpload) return;
+    const content = JSON.stringify(this.buildFile(), null, 2) + "\n";
+    gcs.debouncedUpload(this.gcsKey(), Buffer.from(content, "utf-8"), "application/json", 30_000);
+  }
+
+  flush(): Promise<void> {
+    this.writeQueue = this.writeQueue.then(() => this.doFlush()).catch((err) => {
+      log.error({ err }, "[ResolvedArchive] Flush error");
+    });
+    return this.writeQueue;
+  }
+
+  private async doFlush(): Promise<void> {
+    try {
+      this.writeLocalFile();
+    } catch (err) {
+      log.error({ err }, "[ResolvedArchive] Failed to write archive file");
+      return;
+    }
+    this.saveToBucket();
+  }
+
+  private enforceCap(): void {
+    if (this.rows.length <= ARCHIVE_MAX_ROWS) return;
+    const pruned = this.rows.length - ARCHIVE_MAX_ROWS;
+    this.rows = this.rows.slice(0, ARCHIVE_MAX_ROWS);
+    log.debug({ pruned, cap: ARCHIVE_MAX_ROWS }, "[ResolvedArchive] Pruned oldest rows");
+  }
+
+  async appendResolved(
+    issue: StoredValidationIssue,
+    args: {
+      resolvedBy: string;
+      actor?: ValidationIssueActor;
+      report?: string;
+      agent_session_id?: string;
+      resolution: ResolvedIssueArchiveRow["resolution"];
+    },
+  ): Promise<void> {
+    const report =
+      args.report ??
+      (args.actor?.type !== "mcp" ? STAFF_DEFAULT_REPORT : undefined);
+    this.rows.unshift(
+      issueToArchiveRow(issue, {
+        resolvedBy: args.resolvedBy,
+        actor: args.actor,
+        report,
+        agent_session_id: args.agent_session_id,
+        resolution: args.resolution,
+      }),
+    );
+    this.enforceCap();
+    await this.flush();
+  }
+
+  async appendResolvedBatch(
+    issues: StoredValidationIssue[],
+    args: {
+      resolvedBy: string;
+      actor?: ValidationIssueActor;
+      report?: string;
+      agent_session_id?: string;
+      resolution: ResolvedIssueArchiveRow["resolution"];
+    },
+  ): Promise<void> {
+    if (issues.length === 0) return;
+    const report =
+      args.report ??
+      (args.actor?.type !== "mcp" ? STAFF_DEFAULT_REPORT : undefined);
+    const resolvedAt = new Date().toISOString();
+    const newRows = issues.map((issue) =>
+      issueToArchiveRow(issue, {
+        resolvedBy: args.resolvedBy,
+        resolvedAt,
+        actor: args.actor,
+        report,
+        agent_session_id: args.agent_session_id,
+        resolution: args.resolution,
+      }),
+    );
+    this.rows.unshift(...newRows);
+    this.enforceCap();
+    await this.flush();
+  }
+
+  async markReopened(issueId: string, reopenedAt?: string): Promise<boolean> {
+    const at = reopenedAt ?? new Date().toISOString();
+    const idx = this.rows.findIndex((r) => r.issueId === issueId && !r.reopenedAt);
+    if (idx < 0) return false;
+    this.rows[idx] = { ...this.rows[idx]!, reopenedAt: at };
+    await this.flush();
+    return true;
+  }
+
+  onOpenIssueInserted(issueId: string): void {
+    void this.markReopened(issueId).catch((err) => {
+      log.warn({ err, issueId }, "[ResolvedArchive] markReopened on insert failed");
+    });
+  }
+
+  async migrateFromCompletionsOverlay(cache: ValidationCacheService): Promise<number> {
+    if (this.meta.migratedCompletions) return 0;
+    const completions = cache.getCompletions();
+    let migrated = 0;
+    for (const [issueId, completion] of Object.entries(completions)) {
+      const issue = cache.getIssueById(issueId);
+      if (!issue) continue;
+      this.rows.unshift(
+        issueToArchiveRow(issue, {
+          resolvedBy: completion.completedBy,
+          resolvedAt: completion.completedAt,
+          actor: completion.actor,
+          report: completion.report ?? STAFF_DEFAULT_REPORT,
+          resolution: "soft_complete",
+        }),
+      );
+      migrated += 1;
+    }
+    if (migrated > 0) {
+      this.enforceCap();
+    }
+    this.meta = { ...this.meta, migratedCompletions: true };
+    await this.flush();
+    if (migrated > 0) {
+      log.info({ migrated }, "[ResolvedArchive] Migrated soft-completions overlay");
+    }
+    return migrated;
+  }
+
+  private filterRows(filters?: ResolvedIssuesListFilters): ResolvedIssueArchiveRow[] {
+    let rows = [...this.rows];
+    if (filters?.includeReopened === false) {
+      rows = rows.filter((r) => !r.reopenedAt);
+    }
+    if (filters?.entryKey) {
+      rows = rows.filter((r) => r.entryKey === filters.entryKey);
+    }
+    if (filters?.url) {
+      const want = filters.url.replace(/\/$/, "");
+      rows = rows.filter((r) => {
+        const got = (r.url ?? "").replace(/\/$/, "");
+        return got === want || got.endsWith(want) || want.endsWith(got);
+      });
+    }
+    if (filters?.severity) {
+      rows = rows.filter((r) => r.severity === filters.severity);
+    }
+    if (filters?.validator) {
+      rows = rows.filter((r) => r.validator === filters.validator);
+    }
+    if (filters?.category) {
+      rows = rows.filter((r) => r.category === filters.category);
+    }
+    if (filters?.code) {
+      rows = rows.filter((r) => r.code === filters.code);
+    }
+    if (filters?.search?.trim()) {
+      const q = filters.search.trim().toLowerCase();
+      rows = rows.filter((r) => {
+        const hay = [r.message, r.code, r.url, r.validator, r.category, r.report]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    return rows;
+  }
+
+  summary(filters?: Omit<ResolvedIssuesListFilters, "limit" | "offset">): ResolvedIssuesSummary {
+    const rows = this.filterRows({ ...filters, includeReopened: true });
+    const errors = rows.filter((r) => r.severity === "error").length;
+    const warnings = rows.filter((r) => r.severity === "warning").length;
+    const reopened = rows.filter((r) => r.reopenedAt).length;
+    const resolvedCount = rows.filter((r) => !r.reopenedAt).length;
+    return {
+      total: rows.length,
+      errors,
+      warnings,
+      reopened,
+      resolvedCount,
+    };
+  }
+
+  list(filters?: ResolvedIssuesListFilters): {
+    rows: ResolvedIssueArchiveRow[];
+    total: number;
+    summary: ResolvedIssuesSummary;
+  } {
+    const filtered = this.filterRows(filters);
+    const total = filtered.length;
+    const offset = Math.max(0, filters?.offset ?? 0);
+    const limit = Math.min(200, Math.max(1, filters?.limit ?? 50));
+    const rows = filtered.slice(offset, offset + limit);
+    const summary = this.summary(filters);
+    return { rows, total, summary };
+  }
+
+  async loadFromBucket(): Promise<void> {
+    if (!IS_PRODUCTION || !gcs.available) return;
+    try {
+      const result = await gcs.downloadFirstExisting(
+        validationResolvedArchiveReadKeys(this.contentFolder),
+      );
+      if (!result) return;
+      const parsed = JSON.parse(result.data.toString("utf-8")) as ResolvedIssuesArchiveFileV1;
+      if (!parsed || parsed.meta?.version !== 1 || !Array.isArray(parsed.rows)) return;
+      this.meta = parsed.meta;
+      this.rows = parsed.rows;
+      this.writeLocalFile();
+      log.info(`[ResolvedArchive] Loaded ${this.rows.length} rows from GCS`);
+    } catch (err) {
+      log.error({ err }, "[ResolvedArchive] Error loading from bucket");
+    }
+  }
+
+  async pullFromBucket(): Promise<{
+    success: boolean;
+    pulled: boolean;
+    gcsKey: string;
+    rowCount: number;
+    reason?: string;
+  }> {
+    const gcsKey = this.gcsKey();
+    const currentCount = () => this.rows.length;
+
+    if (IS_PRODUCTION) {
+      return {
+        success: false,
+        pulled: false,
+        gcsKey,
+        rowCount: currentCount(),
+        reason:
+          "Pull production is only available in development. This host already uses the production archive.",
+      };
+    }
+
+    if (!gcs.available) {
+      gcs.initBootstrapFromEnv();
+    }
+    if (!gcs.available) {
+      return {
+        success: false,
+        pulled: false,
+        gcsKey,
+        rowCount: currentCount(),
+        reason: "GCS is unavailable — missing GCS_BUCKET_NAME or credentials.",
+      };
+    }
+
+    try {
+      const result = await gcs.downloadFirstExisting(
+        validationResolvedArchiveReadKeys(this.contentFolder),
+      );
+      if (!result) {
+        return {
+          success: false,
+          pulled: false,
+          gcsKey,
+          rowCount: currentCount(),
+          reason: "No validation-resolved-archive.json found in GCS.",
+        };
+      }
+
+      const parsed = JSON.parse(result.data.toString("utf-8")) as ResolvedIssuesArchiveFileV1;
+      if (!parsed || parsed.meta?.version !== 1 || !Array.isArray(parsed.rows)) {
+        return {
+          success: false,
+          pulled: false,
+          gcsKey,
+          rowCount: currentCount(),
+          reason: "GCS validation-resolved-archive.json is invalid.",
+        };
+      }
+
+      this.meta = parsed.meta;
+      this.rows = parsed.rows;
+      this.writeLocalFile();
+      return {
+        success: true,
+        pulled: true,
+        gcsKey: result.key ?? gcsKey,
+        rowCount: this.rows.length,
+      };
+    } catch (err) {
+      log.error({ err }, "[ResolvedArchive] pullFromBucket failed");
+      return {
+        success: false,
+        pulled: false,
+        gcsKey,
+        rowCount: currentCount(),
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  getLocalPath(): string {
+    return this.archiveFile;
+  }
+
+  getGcsObjectKey(): string {
+    return this.gcsKey();
+  }
+
+  async forceUploadToBucket(): Promise<{
+    success: boolean;
+    uploaded: boolean;
+    gcsKey: string;
+    reason?: string;
+  }> {
+    const gcsKey = this.gcsKey();
+    if (!IS_PRODUCTION) {
+      return {
+        success: false,
+        uploaded: false,
+        gcsKey,
+        reason: "GCS sync only runs in production (NODE_ENV=production).",
+      };
+    }
+    if (!gcs.available) {
+      gcs.initBootstrapFromEnv();
+    }
+    if (!gcs.available) {
+      return {
+        success: false,
+        uploaded: false,
+        gcsKey,
+        reason: "GCS is unavailable — missing GCS_BUCKET_NAME or credentials.",
+      };
+    }
+    if (!fs.existsSync(this.archiveFile) && this.rows.length === 0) {
+      return {
+        success: false,
+        uploaded: false,
+        gcsKey,
+        reason: "No local resolved archive file found to upload.",
+      };
+    }
+    this.writeLocalFile();
+    const content = JSON.stringify(this.buildFile(), null, 2) + "\n";
+    await gcs.upload(gcsKey, Buffer.from(content, "utf-8"), "application/json");
+    log.info("[ResolvedArchive] Re-uploaded archive to GCS via admin action");
+    return { success: true, uploaded: true, gcsKey };
+  }
+}
+
+export async function loadResolvedArchivesFromBucket(): Promise<void> {
+  const { getSiteContextMap } = await import("../site-manager");
+  await Promise.all(
+    [...getSiteContextMap().values()].map((ctx) => ctx.resolvedIssuesArchive.loadFromBucket()),
+  );
+}

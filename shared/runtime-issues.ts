@@ -478,6 +478,194 @@ export function unionSources(existing: string[] | undefined, tags: readonly stri
   return Array.from(new Set([...(existing ?? []), ...tags]));
 }
 
+export type RuntimeQueryAttribution = {
+  source?: string[];
+  medium?: string[];
+  campaign?: string[];
+  other?: Record<string, string[]>;
+};
+
+export const STAFF_QUERY_KEYS = new Set([
+  "force_variant",
+  "variant",
+  "edit",
+  "edit_mode",
+  "debug",
+  "__site",
+]);
+
+const SENSITIVE_QUERY_KEY_PARTS = [
+  "token",
+  "password",
+  "secret",
+  "email",
+  "auth",
+  "code",
+  "apikey",
+  "api_key",
+  "session",
+  "credential",
+] as const;
+
+export const QUERY_ATTRIBUTION_MAX_VALUES_PER_KEY = 8;
+export const QUERY_ATTRIBUTION_MAX_VALUE_LEN = 120;
+
+function decodeQueryValue(raw: string): string {
+  try {
+    return decodeURIComponent(raw.replace(/\+/g, " "));
+  } catch {
+    return raw;
+  }
+}
+
+function truncateQueryValue(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= QUERY_ATTRIBUTION_MAX_VALUE_LEN) return trimmed;
+  return `${trimmed.slice(0, QUERY_ATTRIBUTION_MAX_VALUE_LEN)}…`;
+}
+
+export function isSensitiveQueryKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  return SENSITIVE_QUERY_KEY_PARTS.some((part) => lower.includes(part));
+}
+
+export function hasStaffQueryParams(search: string | undefined | null): boolean {
+  if (!search?.trim()) return false;
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  if (!raw.trim()) return false;
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(raw);
+  } catch {
+    return false;
+  }
+  for (const [key, value] of params.entries()) {
+    const k = key.toLowerCase();
+    if (STAFF_QUERY_KEYS.has(k)) return true;
+    if (k === "cache" && value.toLowerCase() === "false") return true;
+  }
+  return false;
+}
+
+function unionStringArrays(
+  a: string[] | undefined,
+  b: string[] | undefined,
+  maxPerKey: number,
+): string[] | undefined {
+  const merged = Array.from(new Set([...(a ?? []), ...(b ?? [])])).filter(Boolean);
+  if (merged.length === 0) return undefined;
+  return merged.slice(0, maxPerKey);
+}
+
+function unionOtherMaps(
+  a: Record<string, string[]> | undefined,
+  b: Record<string, string[]> | undefined,
+  maxPerKey: number,
+): Record<string, string[]> | undefined {
+  const keys = new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})]);
+  if (keys.size === 0) return undefined;
+  const next: Record<string, string[]> = {};
+  for (const key of keys) {
+    const merged = unionStringArrays(a?.[key], b?.[key], maxPerKey);
+    if (merged?.length) next[key] = merged;
+  }
+  return Object.keys(next).length ? next : undefined;
+}
+
+export function parseRuntimeQueryAttribution(
+  search: string | undefined | null,
+): RuntimeQueryAttribution | undefined {
+  if (!search?.trim()) return undefined;
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  if (!raw.trim()) return undefined;
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(raw);
+  } catch {
+    return undefined;
+  }
+
+  const source: string[] = [];
+  const medium: string[] = [];
+  const campaign: string[] = [];
+  const other: Record<string, string[]> = {};
+
+  for (const [key, rawValue] of params.entries()) {
+    const k = key.toLowerCase();
+    if (STAFF_QUERY_KEYS.has(k)) continue;
+    if (k === "cache" && rawValue.toLowerCase() === "false") continue;
+    if (isSensitiveQueryKey(k)) continue;
+    const value = truncateQueryValue(decodeQueryValue(rawValue));
+    if (!value) continue;
+
+    if (k === "utm_source") {
+      if (!source.includes(value)) source.push(value);
+      continue;
+    }
+    if (k === "utm_medium") {
+      if (!medium.includes(value)) medium.push(value);
+      continue;
+    }
+    if (k === "utm_campaign") {
+      if (!campaign.includes(value)) campaign.push(value);
+      continue;
+    }
+
+    const list = other[k] ?? [];
+    if (!list.includes(value)) list.push(value);
+    other[k] = list;
+  }
+
+  const out: RuntimeQueryAttribution = {};
+  if (source.length) out.source = source;
+  if (medium.length) out.medium = medium;
+  if (campaign.length) out.campaign = campaign;
+  if (Object.keys(other).length) out.other = other;
+  return Object.keys(out).length ? out : undefined;
+}
+
+export function mergeQueryAttribution(
+  a: RuntimeQueryAttribution | undefined,
+  b: RuntimeQueryAttribution | undefined,
+  maxPerKey = QUERY_ATTRIBUTION_MAX_VALUES_PER_KEY,
+): RuntimeQueryAttribution | undefined {
+  if (!a && !b) return undefined;
+  const out: RuntimeQueryAttribution = {};
+  const source = unionStringArrays(a?.source, b?.source, maxPerKey);
+  const medium = unionStringArrays(a?.medium, b?.medium, maxPerKey);
+  const campaign = unionStringArrays(a?.campaign, b?.campaign, maxPerKey);
+  const other = unionOtherMaps(a?.other, b?.other, maxPerKey);
+  if (source) out.source = source;
+  if (medium) out.medium = medium;
+  if (campaign) out.campaign = campaign;
+  if (other) out.other = other;
+  return Object.keys(out).length ? out : undefined;
+}
+
+export function hasQueryAttribution(q: RuntimeQueryAttribution | undefined | null): boolean {
+  if (!q) return false;
+  if (q.source?.length || q.medium?.length || q.campaign?.length) return true;
+  return Object.keys(q.other ?? {}).length > 0;
+}
+
+/** utm_* keys first, then alphabetical (for param popover / CSV). */
+export function sortParamKeysForDisplay(keys: string[]): string[] {
+  return [...keys].sort((a, b) => {
+    const aUtm = a.startsWith("utm_");
+    const bUtm = b.startsWith("utm_");
+    if (aUtm && !bUtm) return -1;
+    if (!aUtm && bUtm) return 1;
+    return a.localeCompare(b);
+  });
+}
+
+export const runtimeQueryAttributionSchema = z.object({
+  source: z.array(z.string()).optional(),
+  medium: z.array(z.string()).optional(),
+  campaign: z.array(z.string()).optional(),
+  other: z.record(z.string(), z.array(z.string())).optional(),
+});
+
 export const hourCountsSchema = z.record(z.string(), z.number());
 
 export const RUNTIME_ISSUE_PROBE_STATUSES = [
@@ -530,6 +718,7 @@ export const runtimeIssueRecordSchema = z.object({
   sources: z.array(z.string()).optional(),
   byHour: z.record(z.string(), hourCountsSchema).optional(),
   lastProbe: runtimeIssueProbeSchema.optional(),
+  queryAttribution: runtimeQueryAttributionSchema.optional(),
 });
 
 export type RuntimeIssueRecord = z.infer<typeof runtimeIssueRecordSchema>;

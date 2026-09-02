@@ -6,6 +6,7 @@ export const SYNC_FILENAMES = {
   versioningState: "versioning-state.json",
   formState: "form-state.json",
   validationCache: "validation-cache.json",
+  validationResolvedArchive: "validation-resolved-archive.json",
   usersState: "users-state.json",
   runtimeIssuesState: "runtime-issues-state.json",
   runtimeIssuesIgnore: "runtime-issues-ignore.json",
@@ -118,6 +119,10 @@ export function formStateReadKeys(site: string, isDefaultSite: boolean): string[
 
 export function validationCacheReadKeys(site: string): string[] {
   return [siteSyncGcsKey(site, SYNC_FILENAMES.validationCache)];
+}
+
+export function validationResolvedArchiveReadKeys(site: string): string[] {
+  return [siteSyncGcsKey(site, SYNC_FILENAMES.validationResolvedArchive)];
 }
 
 export function gscUrlInspectionReadKeys(site: string): string[] {

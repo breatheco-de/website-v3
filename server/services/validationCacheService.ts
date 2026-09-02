@@ -25,6 +25,7 @@ import type {
   ValidatorResult,
 } from "../../scripts/validation/shared/types";
 import type { ValidationScope } from "../../scripts/validation/shared/runClass";
+import { issuePathMatches } from "../../shared/normalizeIssuePath";
 import {
   getValidatorRunClass,
   isCrossEntryValidator,
@@ -44,6 +45,8 @@ import {
 } from "./validationCacheMerge";
 import { emitValidationIssueWorkflowEvent, resolveSiteForIssue } from "../validation-events";
 import { resolveValidationIssueMaxAttempts } from "../ai/validationIssuesConfig";
+import type { ResolvedIssuesArchiveService } from "./resolvedIssuesArchiveService";
+import { STAFF_DEFAULT_REPORT } from "./resolvedIssuesArchiveService";
 
 const log = child({ module: "validationCacheService" });
 
@@ -314,12 +317,19 @@ export class ValidationCacheService {
   private contentFolder: string;
   /** When true, flush writes local file only (diagnostics worker; parent owns GCS). */
   private skipGcsUpload = false;
+  private archive: ResolvedIssuesArchiveService | null;
 
-  constructor(contentRoot: string) {
+  constructor(contentRoot: string, archive: ResolvedIssuesArchiveService | null = null) {
     this.contentRoot = contentRoot;
+    this.archive = archive;
     this.cacheFile = path.join(contentRoot, "validation-cache.json");
     this.contentFolder = path.relative(process.cwd(), contentRoot);
     this.loadFromDisk();
+    if (this.archive) {
+      void this.archive.migrateFromCompletionsOverlay(this).catch((err) => {
+        log.warn({ err }, "[ValidationCache] Archive completions migration failed");
+      });
+    }
   }
 
   /** Site folder name (e.g. site_4geeks-com) for admin events. */
@@ -553,6 +563,23 @@ export class ValidationCacheService {
     };
     this.completions[issueId] = completion;
     delete this.claims[issueId];
+    if (this.archive) {
+      const issue = this.issues[issueId];
+      if (issue) {
+        const archiveReport =
+          report ?? (actor?.type !== "mcp" ? STAFF_DEFAULT_REPORT : undefined);
+        void this.archive
+          .appendResolved(issue, {
+            resolvedBy: completedBy,
+            actor,
+            report: archiveReport,
+            resolution: "soft_complete",
+          })
+          .catch((err) => {
+            log.warn({ err, issueId }, "[ValidationCache] Archive soft-complete failed");
+          });
+      }
+    }
     await this.flush();
     return { ok: true, completion };
   }
@@ -567,6 +594,11 @@ export class ValidationCacheService {
       return { ok: true };
     }
     delete this.completions[issueId];
+    if (this.archive) {
+      void this.archive.markReopened(issueId).catch((err) => {
+        log.warn({ err, issueId }, "[ValidationCache] Archive markReopened failed");
+      });
+    }
     await this.flush();
     return { ok: true };
   }
@@ -976,10 +1008,18 @@ export class ValidationCacheService {
             author: priorCompletion.completedBy,
             priorCompletion,
           });
+          if (this.archive) {
+            void this.archive.markReopened(stored.id).catch((err) => {
+              log.warn({ err, issueId: stored.id }, "[ValidationCache] Archive reopen failed");
+            });
+          }
         }
         // Fresh write resurfaces: clear soft-complete for this id.
         delete this.completions[stored.id];
         this.issues[stored.id] = stored;
+        if (this.archive) {
+          this.archive.onOpenIssueInserted(stored.id);
+        }
       }
 
       if (isEntryLocalValidator(v.name) && entryKeySet) {
@@ -1444,12 +1484,44 @@ export type ListCacheIssuesFilters = {
   media?: string;
   database?: string;
   file?: string;
+  /** Single validator (backward compat). */
   validator?: string;
+  /** OR match on validator names. */
+  validators?: string[];
+  /** Single category (backward compat). */
   category?: string;
+  /** OR match on issue.category. */
+  categories?: string[];
   code?: string;
   severity?: "error" | "warning";
+  search?: string;
+  /** Fuzzy page URL/path filter (Global Health). */
+  urlPath?: string;
+  /** Open issues with prior release/TTL attempts only. */
+  priorAttempts?: boolean;
   /** When true, include soft-completed issues (default: open only). */
   includeCompleted?: boolean;
+};
+
+export type CacheIssuesTotals = {
+  open: number;
+  filtered: number;
+  errors: number;
+  warnings: number;
+  uniqueUrls: number;
+  /** Open-issue totals before list filters (for KPI bar). */
+  openErrors: number;
+  openWarnings: number;
+  openUniqueUrls: number;
+  /** Open issues tagged validator legacy (migration orphans). */
+  legacy: number;
+};
+
+export type CacheIssuesListResult = {
+  issues: CacheIssueListRow[];
+  facets: CacheIssueFacets;
+  facetsAll: CacheIssueFacets;
+  totals: CacheIssuesTotals;
 };
 
 function uniqueSorted(values: Iterable<string>): string[] {
@@ -1469,58 +1541,10 @@ export function buildCacheIssueFacets(rows: CacheIssueListRow[]): CacheIssueFace
   };
 }
 
-export function listCacheIssuesFromStore(
+function buildCacheIssueRowsFromIssues(
   cache: ValidationCacheService,
-  filters?: ListCacheIssuesFilters,
-): { issues: CacheIssueListRow[]; facets: CacheIssueFacets } {
-  let issues = cache.getAllIssues();
-
-  if (filters?.entryKey) {
-    issues = cache.getIssuesByEntryKey(filters.entryKey);
-  } else if (filters?.url) {
-    const ek = cache.resolveEntryKeyFromUrl(filters.url);
-    issues = ek ? cache.getIssuesByEntryKey(ek) : [];
-  } else if (filters?.scope) {
-    issues = cache.getIssuesByScope(filters.scope);
-  } else if (filters?.redirect) {
-    issues = cache
-      .getAllIssues()
-      .filter((i) =>
-        i.targets.some((t) => t.type === "redirect" && t.from === filters.redirect),
-      );
-  } else if (filters?.media) {
-    issues = cache
-      .getAllIssues()
-      .filter((i) =>
-        i.targets.some((t) => t.type === "media" && t.imageId === filters.media),
-      );
-  } else if (filters?.database) {
-    issues = cache
-      .getAllIssues()
-      .filter((i) =>
-        i.targets.some((t) => t.type === "database" && t.dbSlug === filters.database),
-      );
-  } else if (filters?.file) {
-    issues = cache.getAllIssues().filter((i) => i.file === filters.file);
-  }
-
-  if (filters?.validator) {
-    issues = issues.filter((i) => i.validator === filters.validator);
-  }
-  if (filters?.category) {
-    issues = issues.filter((i) => i.category === filters.category);
-  }
-  if (filters?.code) {
-    issues = issues.filter((i) => i.code === filters.code);
-  }
-  if (filters?.severity) {
-    issues = issues.filter((i) => i.severity === filters.severity);
-  }
-
-  if (!filters?.includeCompleted) {
-    issues = issues.filter((i) => !cache.isIssueCompleted(i.id));
-  }
-
+  issues: StoredValidationIssue[],
+): CacheIssueListRow[] {
   const out: CacheIssueListRow[] = [];
 
   for (const issue of issues) {
@@ -1573,7 +1597,154 @@ export function listCacheIssuesFromStore(
       });
     }
   }
-  return { issues: out, facets: buildCacheIssueFacets(out) };
+  return out;
+}
+
+function computeCacheIssuesTotals(rows: CacheIssueListRow[]): CacheIssuesTotals {
+  const urls = new Set<string>();
+  let errors = 0;
+  let warnings = 0;
+  let legacy = 0;
+  for (const r of rows) {
+    if (r.severity === "error") errors += 1;
+    else if (r.severity === "warning") warnings += 1;
+    if (r.validator === "legacy") legacy += 1;
+    if (r.url) urls.add(r.url);
+  }
+  return {
+    open: rows.length,
+    filtered: rows.length,
+    errors,
+    warnings,
+    uniqueUrls: urls.size,
+    openErrors: errors,
+    openWarnings: warnings,
+    openUniqueUrls: urls.size,
+    legacy,
+  };
+}
+
+export function applyCacheIssueRowFilters(
+  rows: CacheIssueListRow[],
+  filters?: ListCacheIssuesFilters,
+): CacheIssueListRow[] {
+  if (!filters) return rows;
+  let out = rows;
+
+  if (filters.severity) {
+    out = out.filter((r) => r.severity === filters.severity);
+  }
+
+  const validatorSet =
+    filters.validators && filters.validators.length > 0
+      ? new Set(filters.validators)
+      : filters.validator
+        ? new Set([filters.validator])
+        : null;
+  if (validatorSet) {
+    out = out.filter((r) => validatorSet.has(r.validator || "unknown"));
+  }
+
+  const categorySet =
+    filters.categories && filters.categories.length > 0
+      ? new Set(filters.categories)
+      : filters.category
+        ? new Set([filters.category])
+        : null;
+  if (categorySet) {
+    out = out.filter((r) => categorySet.has(r.category || "unknown"));
+  }
+
+  if (filters.code) {
+    out = out.filter((r) => r.code === filters.code);
+  }
+
+  if (filters.search?.trim()) {
+    const q = filters.search.trim().toLowerCase();
+    out = out.filter((r) => {
+      const hay = [r.message, r.code, r.url, r.validator, r.category]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }
+
+  if (filters.urlPath?.trim()) {
+    const want = filters.urlPath.trim();
+    out = out.filter((r) => issuePathMatches(want, r.url || ""));
+  }
+
+  if (filters.priorAttempts) {
+    out = out.filter((r) => !r.completed && r.attempts && r.attempts.length > 0);
+  }
+
+  return out;
+}
+
+export function listCacheIssuesFromStore(
+  cache: ValidationCacheService,
+  filters?: ListCacheIssuesFilters,
+): CacheIssuesListResult {
+  let issues = cache.getAllIssues();
+
+  if (filters?.entryKey) {
+    issues = cache.getIssuesByEntryKey(filters.entryKey);
+  } else if (filters?.url) {
+    const ek = cache.resolveEntryKeyFromUrl(filters.url);
+    issues = ek ? cache.getIssuesByEntryKey(ek) : [];
+  } else if (filters?.scope) {
+    issues = cache.getIssuesByScope(filters.scope);
+  } else if (filters?.redirect) {
+    issues = cache
+      .getAllIssues()
+      .filter((i) =>
+        i.targets.some((t) => t.type === "redirect" && t.from === filters.redirect),
+      );
+  } else if (filters?.media) {
+    issues = cache
+      .getAllIssues()
+      .filter((i) =>
+        i.targets.some((t) => t.type === "media" && t.imageId === filters.media),
+      );
+  } else if (filters?.database) {
+    issues = cache
+      .getAllIssues()
+      .filter((i) =>
+        i.targets.some((t) => t.type === "database" && t.dbSlug === filters.database),
+      );
+  } else if (filters?.file) {
+    issues = cache.getAllIssues().filter((i) => i.file === filters.file);
+  }
+
+  if (!filters?.includeCompleted) {
+    issues = issues.filter((i) => !cache.isIssueCompleted(i.id));
+  }
+
+  const baseRows = buildCacheIssueRowsFromIssues(cache, issues);
+  const facetsAll = buildCacheIssueFacets(baseRows);
+  const openTotals = computeCacheIssuesTotals(baseRows);
+
+  const filteredRows = applyCacheIssueRowFilters(baseRows, filters);
+  const facets = buildCacheIssueFacets(filteredRows);
+  const filteredTotals = computeCacheIssuesTotals(filteredRows);
+
+  return {
+    issues: filteredRows,
+    facets,
+    facetsAll,
+    totals: {
+      open: openTotals.open,
+      filtered: filteredTotals.filtered,
+      errors: filteredTotals.errors,
+      warnings: filteredTotals.warnings,
+      uniqueUrls: filteredTotals.uniqueUrls,
+      openErrors: openTotals.openErrors,
+      openWarnings: openTotals.openWarnings,
+      openUniqueUrls: openTotals.openUniqueUrls,
+      legacy: openTotals.legacy,
+    },
+  };
 }
 
 let _defaultInstance: ValidationCacheService | null = null;

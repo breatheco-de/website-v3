@@ -310,6 +310,34 @@ function unionContentTypeScopes(
 }
 
 /**
+ * Add content_delete_variant to custom roles that can create variants but cannot delete them.
+ * Mirrors content_create_variant scope. Built-in roles are skipped.
+ */
+export function ensureDeleteVariantOnCreateVariantRoles(
+  roles: Record<string, RoleDefinition>,
+): boolean {
+  let changed = false;
+  for (const [roleId, role] of Object.entries(roles)) {
+    if (isBuiltInRole(roleId)) continue;
+    if (!role?.capabilities) continue;
+    const createGrant = role.capabilities.find((g) => g.name === "content_create_variant");
+    if (!createGrant) continue;
+    if (role.capabilities.some((g) => g.name === "content_delete_variant")) continue;
+    role.capabilities = [
+      ...role.capabilities,
+      {
+        name: "content_delete_variant",
+        ...(createGrant.contentTypes !== undefined
+          ? { contentTypes: createGrant.contentTypes }
+          : {}),
+      },
+    ];
+    changed = true;
+  }
+  return changed;
+}
+
+/**
  * Add content_view to custom editor roles that have mutate caps but no view grant.
  * Built-in roles are skipped (synced from code). Returns true if any role changed.
  *
@@ -391,6 +419,9 @@ function finishLoad(persist: "local" | "all"): void {
   }
   if (ensureContentViewOnEditorRoles(state.roles)) {
     log.info("[UserStore] Migrated custom roles: added content_view from editor capabilities");
+  }
+  if (ensureDeleteVariantOnCreateVariantRoles(state.roles)) {
+    log.info("[UserStore] Migrated custom roles: added content_delete_variant from content_create_variant");
   }
   if (persist === "all") save();
   else saveLocal();

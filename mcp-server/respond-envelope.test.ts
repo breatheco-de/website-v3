@@ -11,6 +11,7 @@ const MUTATING_TOOLS = [
   "update_fields",
   "update_meta_fields",
   "create_variant",
+  "delete_variant",
   "promote_variant",
   "convert_to_draft",
   "publish_draft",

@@ -22,6 +22,12 @@ import {
   windowHitCount,
   aggregateHitsByDay,
   MAX_ISSUES_PER_SITE,
+  hasStaffQueryParams,
+  isSensitiveQueryKey,
+  parseRuntimeQueryAttribution,
+  mergeQueryAttribution,
+  sortParamKeysForDisplay,
+  hasQueryAttribution,
 } from "./runtime-issues";
 
 const CHROME =
@@ -417,5 +423,81 @@ describe("dropScrapers state", () => {
     const pruned = pruneRuntimeIssuesState(state, now);
     expect(pruned.issues["http.not_found|s|en|/us/keep"]).toBeDefined();
     expect(pruned.dropScrapers).toBe(false);
+  });
+});
+
+describe("hasStaffQueryParams", () => {
+  it("detects staff preview keys", () => {
+    expect(hasStaffQueryParams("force_variant=draft-a")).toBe(true);
+    expect(hasStaffQueryParams("?variant=draft-a&utm_source=google")).toBe(true);
+    expect(hasStaffQueryParams("edit=1")).toBe(true);
+    expect(hasStaffQueryParams("cache=false")).toBe(true);
+  });
+
+  it("allows normal marketing params", () => {
+    expect(hasStaffQueryParams("utm_source=google&utm_campaign=test")).toBe(false);
+    expect(hasStaffQueryParams("")).toBe(false);
+  });
+});
+
+describe("parseRuntimeQueryAttribution", () => {
+  it("splits utm source/medium/campaign and other keys", () => {
+    const parsed = parseRuntimeQueryAttribution(
+      "utm_source=meta&utm_medium=paid&utm_campaign=q1&gclid=abc&utm_content=hero",
+    );
+    expect(parsed?.source).toEqual(["meta"]);
+    expect(parsed?.medium).toEqual(["paid"]);
+    expect(parsed?.campaign).toEqual(["q1"]);
+    expect(parsed?.other?.gclid).toEqual(["abc"]);
+    expect(parsed?.other?.utm_content).toEqual(["hero"]);
+  });
+
+  it("normalizes keys and decodes values", () => {
+    const parsed = parseRuntimeQueryAttribution("UTM_SOURCE=Google%20Ads");
+    expect(parsed?.source).toEqual(["Google Ads"]);
+  });
+
+  it("drops sensitive keys", () => {
+    const parsed = parseRuntimeQueryAttribution("utm_source=meta&token=secret&ref=abc");
+    expect(parsed?.source).toEqual(["meta"]);
+    expect(parsed?.other?.token).toBeUndefined();
+    expect(parsed?.other?.ref).toEqual(["abc"]);
+  });
+
+  it("isSensitiveQueryKey matches substrings", () => {
+    expect(isSensitiveQueryKey("access_token")).toBe(true);
+    expect(isSensitiveQueryKey("gclid")).toBe(false);
+  });
+});
+
+describe("mergeQueryAttribution", () => {
+  it("unions distinct values per key", () => {
+    const merged = mergeQueryAttribution(
+      { campaign: ["a"], other: { gclid: ["1"] } },
+      { campaign: ["b"], other: { gclid: ["2"], ref: ["x"] } },
+    );
+    expect(merged?.campaign).toEqual(["a", "b"]);
+    expect(merged?.other?.gclid).toEqual(["1", "2"]);
+    expect(merged?.other?.ref).toEqual(["x"]);
+  });
+});
+
+describe("hasQueryAttribution", () => {
+  it("detects any captured query fields", () => {
+    expect(hasQueryAttribution(undefined)).toBe(false);
+    expect(hasQueryAttribution({ source: ["meta"] })).toBe(true);
+    expect(hasQueryAttribution({ other: { gclid: ["abc"] } })).toBe(true);
+    expect(hasQueryAttribution({})).toBe(false);
+  });
+});
+
+describe("sortParamKeysForDisplay", () => {
+  it("puts utm_* keys first", () => {
+    expect(sortParamKeysForDisplay(["gclid", "utm_content", "ref", "utm_term"])).toEqual([
+      "utm_content",
+      "utm_term",
+      "gclid",
+      "ref",
+    ]);
   });
 });

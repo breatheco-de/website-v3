@@ -2,11 +2,13 @@ import {
   isAssetPath,
   SOURCE_LABELS,
   windowHitCount,
+  hasQueryAttribution,
   type ByHour,
+  type RuntimeQueryAttribution,
   type RuntimeSourceTag,
 } from "@shared/runtime-issues";
 
-export { isAssetPath, SOURCE_LABELS };
+export { isAssetPath, SOURCE_LABELS, hasQueryAttribution };
 
 export const FILTER_ALL = "__all__";
 
@@ -53,6 +55,7 @@ export interface RuntimeIssueFilterRow {
   count: number;
   lastSeen: number;
   count30?: number;
+  queryAttribution?: RuntimeQueryAttribution;
 }
 
 export interface RuntimeIssueFilters {
@@ -61,6 +64,7 @@ export interface RuntimeIssueFilters {
   locale: string;
   device: string;
   pagesOnly: boolean;
+  queryParamsOnly: boolean;
   windowDays: 7 | 30;
   tz: string;
   source: string;
@@ -116,6 +120,7 @@ export function filterRuntimeIssues<T extends RuntimeIssueFilterRow>(
     if (filters.source !== FILTER_ALL && filters.source) {
       if (windowHitCount(issue, windowDays, tz, now, filters.source) <= 0) return false;
     }
+    if (filters.queryParamsOnly && !hasQueryAttribution(issue.queryAttribution)) return false;
     return true;
   });
 }
@@ -132,6 +137,7 @@ export function countActiveListFilters(filters: RuntimeIssueFilters): number {
   if (filters.locale !== FILTER_ALL) n += 1;
   if (filters.device !== FILTER_ALL) n += 1;
   if (filters.source !== FILTER_ALL) n += 1;
+  if (filters.queryParamsOnly) n += 1;
   if (filters.windowDays !== 30) n += 1;
   return n;
 }

@@ -5,6 +5,18 @@
 window_days: 6
 
 entries:
+  - date: "2026-09-02"
+    summary: "delete_variant MCP tool — discard drafts without promoting"
+    agent_impact:
+      - "New delete_variant: confirm:true + report (min 80). Deletes {variantSlug}.{locale}.yml; live unchanged unless last draft on unpublished entry (entryDeleted)."
+      - "VARIANT_HAS_TRAFFIC when allocation > 0 — staff must remove traffic in Versioning first. Template deletes need confirm_template_delete:true. cleanup_orphan:true strips versioning rows when the file is already gone."
+      - "Reconnect MCP after deploy so tools/list includes delete_variant."
+    paths:
+      - mcp-server/tools/pages.ts
+      - server/routes/versioning.ts
+      - server/versioning/delete-variant.ts
+      - shared/mcp-tool-catalog.ts
+    tools_changed: true
   - date: "2026-09-01"
     summary: "Structural section tools accept report + agent_session_id"
     agent_impact:

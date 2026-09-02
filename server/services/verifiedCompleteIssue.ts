@@ -23,6 +23,7 @@ import {
   ValidationCacheService,
   completionToApiRow,
 } from "./validationCacheService";
+import type { ResolvedIssuesArchiveService } from "./resolvedIssuesArchiveService";
 import { child } from "../logger";
 
 const log = child({ module: "verifiedCompleteIssue" });
@@ -146,6 +147,7 @@ function clearedSiblingIds(
  */
 export async function verifiedCompleteIssue(args: {
   cache: ValidationCacheService;
+  archive?: ResolvedIssuesArchiveService | null;
   ci: ContentIndex;
   contentRoot: string;
   issueId: string;
@@ -154,7 +156,7 @@ export async function verifiedCompleteIssue(args: {
   report?: string;
   agent_session_id?: string;
 }): Promise<VerifiedCompleteResult> {
-  const { cache, issueId, author, actor, report, agent_session_id } = args;
+  const { cache, archive, issueId, author, actor, report, agent_session_id } = args;
   const issue = cache.getIssueById(issueId);
   if (!issue) {
     return { ok: false, error: `Unknown issue id: ${issueId}`, code: "unknown_issue", status: 404 };
@@ -162,10 +164,12 @@ export async function verifiedCompleteIssue(args: {
 
   const entryKeys = entryKeysForIssue(issue);
   const primaryEntryKey = entryKeys[0];
-  const openBefore =
+  const openBeforeIssues =
     primaryEntryKey != null
-      ? cache.getOpenIssuesByEntryKey(primaryEntryKey).map((i) => i.id)
-      : [issueId];
+      ? cache.getOpenIssuesByEntryKey(primaryEntryKey)
+      : [issue];
+  const snapshotById = new Map(openBeforeIssues.map((i) => [i.id, i]));
+  const openBefore = openBeforeIssues.map((i) => i.id);
 
   if (DUPLICATE_CODES.has(issue.code)) {
     const dup = await applySeoDuplicatesRevalidation({
@@ -227,6 +231,35 @@ export async function verifiedCompleteIssue(args: {
   );
   const auto_completed_ids = clearedSiblingIds(openBefore, openAfter, issueId);
 
+  const archiveClearedIssues = (): StoredValidationIssue[] => {
+    const clearedIds = openBefore.filter((id) => !openAfter.has(id));
+    const out: StoredValidationIssue[] = [];
+    for (const id of clearedIds) {
+      const snap = snapshotById.get(id);
+      if (snap) out.push(snap);
+    }
+    if (out.length === 0 && !openAfter.has(issueId)) {
+      out.push(issue);
+    }
+    return out;
+  };
+
+  const archiveReport =
+    report ?? (actor?.type !== "mcp" ? "Marked fixed in UI." : undefined);
+
+  const writeArchive = async () => {
+    if (!archive) return;
+    const issues = archiveClearedIssues().filter((i) => !cache.getIssueById(i.id));
+    if (issues.length === 0) return;
+    await archive.appendResolvedBatch(issues, {
+      resolvedBy: author,
+      actor,
+      report: archiveReport,
+      agent_session_id,
+      resolution: "verified_gone",
+    });
+  };
+
   // Target row was removed by revalidation — soft-complete overlay is optional audit;
   // completeIssue requires the row. Record a synthetic completion for the API envelope.
   const completion: ValidationIssueCompletion = {
@@ -247,6 +280,7 @@ export async function verifiedCompleteIssue(args: {
         await cache.completeIssue(id, author, actor, report);
       }
     }
+    await writeArchive();
     return {
       ok: true,
       action: "complete",
@@ -255,6 +289,8 @@ export async function verifiedCompleteIssue(args: {
       auto_completed_ids,
     };
   }
+
+  await writeArchive();
 
   return {
     ok: true,

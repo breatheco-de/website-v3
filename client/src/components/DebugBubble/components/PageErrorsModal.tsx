@@ -383,6 +383,45 @@ function sortCompletedIssues(issues: PageIssue[]): PageIssue[] {
   });
 }
 
+type ResolvedArchiveApiRow = {
+  issueId: string;
+  entryKey: string;
+  url?: string;
+  code: string;
+  message: string;
+  severity: "error" | "warning";
+  validator?: string;
+  category?: string;
+  file?: string;
+  suggestion?: string;
+  resolvedAt: string;
+  resolvedBy: string;
+  actor?: { type: "ui" | "mcp"; client?: string; model?: string };
+  report?: string;
+  reopenedAt?: string;
+};
+
+function archiveRowToPageIssue(row: ResolvedArchiveApiRow): PageIssue {
+  return {
+    id: row.issueId,
+    type: row.severity,
+    code: row.code,
+    message: row.message,
+    category: row.category,
+    suggestion: row.suggestion,
+    validator: row.validator,
+    file: row.file,
+    completed: {
+      by: row.resolvedBy,
+      at: row.resolvedAt,
+      actor: row.actor,
+      report: row.report,
+    },
+    reopenedAt: row.reopenedAt,
+    archiveOnly: true,
+  };
+}
+
 function IssueCard({
   issue,
   index,
@@ -409,7 +448,7 @@ function IssueCard({
   const cacheBuiltAt = issue.validationCacheBuiltAt;
   const isCompleted = Boolean(issue.completed);
   const isClaimed = Boolean(issue.claimed);
-  const canAct = Boolean(issue.id && onUpdateIssue);
+  const canAct = Boolean(issue.id && onUpdateIssue && !issue.archiveOnly);
   const hasDetails = Boolean(
     issue.details?.expected ||
       issue.suggestion ||
@@ -468,6 +507,14 @@ function IssueCard({
                       {isError ? "Error" : "Warning"}
                     </span>
                   )}
+                  {issue.reopenedAt ? (
+                    <span
+                      className="rounded px-1 py-0 text-[10px] font-semibold uppercase tracking-wide bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                      data-testid={`modal-${variant}-${index}-reopened-badge`}
+                    >
+                      Reopened
+                    </span>
+                  ) : null}
                 </div>
               </button>
             </CollapsibleTrigger>
@@ -679,10 +726,34 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   const allWarnings = pageDiagnostics?.issues?.filter((i) => i.type === "warning") ?? [];
   const errors = allErrors.filter((i) => !i.completed);
   const warnings = allWarnings.filter((i) => !i.completed);
-  const completedIssues = sortCompletedIssues([
-    ...allErrors.filter((i) => i.completed),
-    ...allWarnings.filter((i) => i.completed),
-  ]);
+  const entryKey = pageDiagnostics?.entryKey;
+
+  const resolvedArchiveQuery = useQuery<{
+    rows: ResolvedArchiveApiRow[];
+    total: number;
+  }>({
+    queryKey: ["/api/validation/resolved-issues", entryKey],
+    enabled: open && Boolean(entryKey),
+    queryFn: async () => {
+      const token = getDebugToken();
+      const params = new URLSearchParams({
+        entryKey: entryKey!,
+        limit: "50",
+      });
+      const res = await fetch(`/api/validation/resolved-issues?${params.toString()}`, {
+        headers: {
+          ...getSessionHeaders(),
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+      });
+      if (!res.ok) throw new Error("Failed to load resolved issues");
+      return res.json() as Promise<{ rows: ResolvedArchiveApiRow[]; total: number }>;
+    },
+  });
+
+  const completedIssues = sortCompletedIssues(
+    (resolvedArchiveQuery.data?.rows ?? []).map(archiveRowToPageIssue),
+  );
   const canSolveWithAi = Boolean(pageDiagnostics && (errors.length > 0 || warnings.length > 0));
   const solvePrompt = pageDiagnostics ? buildSolveWithAiPrompt(pageDiagnostics) : "";
   const openPageUrl = pageUrl ?? pageDiagnostics?.url;
@@ -730,7 +801,12 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
       setReleaseReport("");
       await onRefreshDiagnostics?.();
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
-      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-issues"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-issues"], exact: false });
+      if (entryKey) {
+        void queryClient.invalidateQueries({
+          queryKey: ["/api/validation/resolved-issues", entryKey],
+        });
+      }
     } catch (err) {
       const titles: Record<typeof action, string> = {
         claim: "Could not claim issue",
@@ -1137,10 +1213,22 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
               {!unpublishedVariant && (
               <TabsContent value="completed" className="mt-3 space-y-2">
                 <p className="text-xs text-muted-foreground" data-testid="text-completed-education">
-                  Issues marked fixed for this page. Re-validate to confirm they stay resolved — if a
-                  check still fails, the issue reopens on the Errors or Warnings tab.
+                  History of issues marked fixed for this page (including fixes that removed them from
+                  Errors/Warnings). Reopened means diagnostics found the problem again.
                 </p>
-                {completedIssues.length === 0 ? (
+                {resolvedArchiveQuery.isLoading && entryKey ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground p-3">
+                    <IconLoader2 className="h-4 w-4 animate-spin" />
+                    Loading resolved history…
+                  </div>
+                ) : !entryKey ? (
+                  <div
+                    className="p-3 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground"
+                    data-testid="modal-completed-no-entry"
+                  >
+                    No entry key for this page — resolved history is unavailable.
+                  </div>
+                ) : completedIssues.length === 0 ? (
                   <div
                     className="p-3 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground"
                     data-testid="modal-completed-empty"

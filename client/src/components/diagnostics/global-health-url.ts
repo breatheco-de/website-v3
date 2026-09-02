@@ -18,7 +18,7 @@ export const GLOBAL_HEALTH_SCOPE_KEYS = [
 ] as const;
 
 export type GlobalHealthScopeKey = (typeof GLOBAL_HEALTH_SCOPE_KEYS)[number];
-export type GlobalHealthKpi = "errors" | "warnings" | "coverage" | "unique" | null;
+export type GlobalHealthKpi = "errors" | "warnings" | "coverage" | "unique" | "completed" | null;
 
 export interface GlobalHealthViewState {
   kpi: GlobalHealthKpi;
@@ -38,7 +38,7 @@ export const GLOBAL_HEALTH_VIEW_DEFAULTS: GlobalHealthViewState = {
 };
 
 const SCOPE_SET = new Set<string>(GLOBAL_HEALTH_SCOPE_KEYS);
-const KPI_SET = new Set<string>(["errors", "warnings", "coverage", "unique"]);
+const KPI_SET = new Set<string>(["errors", "warnings", "coverage", "unique", "completed"]);
 
 function parseKpi(raw: string | null): GlobalHealthKpi {
   if (!raw || !KPI_SET.has(raw)) return null;
@@ -101,4 +101,20 @@ export function serializeGlobalHealthSearch(
   else params.set(GLOBAL_HEALTH_SEARCH_KEYS.tried, "1");
 
   return params.toString();
+}
+
+/** Build GET /api/validation/cache-issues query params for Global Health. */
+export function buildCacheIssuesQuery(
+  view: GlobalHealthViewState,
+  search = "",
+): URLSearchParams {
+  const params = new URLSearchParams();
+  if (view.kpi === "errors") params.set("severity", "error");
+  else if (view.kpi === "warnings") params.set("severity", "warning");
+  if (view.path.trim()) params.set("urlPath", view.path.trim());
+  if (view.scope.length > 0) params.set("categories", view.scope.join(","));
+  if (view.validators.length > 0) params.set("validators", view.validators.join(","));
+  if (view.priorAttempts) params.set("priorAttempts", "1");
+  if (search.trim()) params.set("search", search.trim());
+  return params;
 }

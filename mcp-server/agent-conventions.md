@@ -6,7 +6,7 @@ description: >-
   sites). This is a living list that grows as he corrects or refines how he
   wants these conversations to go. Always check these conventions before and
   after any 4Geeks.com Website MCP write (add_section, update_fields,
-  replace_entry_sections, create_entry, publish_draft, promote_variant,
+  replace_entry_sections, create_entry, publish_draft, promote_variant, delete_variant,
   translate_entry, etc.) — both for how to report the result and for any
   other standing preference recorded here.
 ---

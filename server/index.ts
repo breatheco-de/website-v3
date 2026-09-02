@@ -23,6 +23,7 @@ import {
 } from "./runtime-issues-store";
 import { loadFormStateFromBucket, updateFormStateForFile } from "./form-state";
 import { loadValidationCachesFromBucket, shutdownValidationCaches } from "./services/validationCacheService";
+import { loadResolvedArchivesFromBucket } from "./services/resolvedIssuesArchiveService";
 import { loadGscInspectionStoresFromBucket } from "./gsc-url-inspection";
 import { emitEntryEventsFromFileChange } from "./content-events";
 import { startEventPruneTimer, wipeAllSiteEventStores } from "./events/event-store";
@@ -522,6 +523,9 @@ app.use((req, res, next) => {
 
         await loadValidationCachesFromBucket().catch((err) => {
           logger.error({ err, worker: "ValidationCache" }, "failed to load validation caches from GCS");
+        });
+        await loadResolvedArchivesFromBucket().catch((err) => {
+          logger.error({ err, worker: "ResolvedArchive" }, "failed to load resolved archives from GCS");
         });
 
         const { loadLinkIndexesFromBucket } = await import("./link-index");

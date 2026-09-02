@@ -4,6 +4,7 @@ import {
   RUNTIME_ISSUES_CSV_HEADERS,
   buildRuntimeIssuesCsv,
   csvEscape,
+  formatOtherParamsForCsv,
   runtimeIssuesCsvFilename,
   type RuntimeIssueCsvRow,
 } from "./runtime-issues-csv";
@@ -82,6 +83,10 @@ describe("buildRuntimeIssuesCsv", () => {
         "2026-08-13T15:30:00.000Z",
         "2026-08-01T10:00:00.000Z",
         "https://google.com/search",
+        "",
+        "",
+        "",
+        "",
         "desktop",
         "",
         "http.not_found",
@@ -95,6 +100,34 @@ describe("buildRuntimeIssuesCsv", () => {
         "",
       ].join(","),
     );
+  });
+
+  it("writes query attribution columns", () => {
+    const csv = buildRuntimeIssuesCsv([
+      row({
+        queryAttribution: {
+          source: ["meta"],
+          medium: ["paid"],
+          campaign: ["q1", "q2"],
+          other: { gclid: ["abc"], utm_content: ["hero"] },
+        },
+      }),
+    ]);
+    const data = csv.slice(CSV_BOM.length).split("\n")[1];
+    expect(data).toContain("meta");
+    expect(data).toContain("paid");
+    expect(data).toContain("q1;q2");
+    expect(data).toContain("utm_content=hero;gclid=abc");
+  });
+
+  it("formatOtherParamsForCsv sorts utm_* keys first", () => {
+    expect(
+      formatOtherParamsForCsv({
+        gclid: ["abc"],
+        utm_content: ["hero"],
+        ref: ["x"],
+      }),
+    ).toBe("utm_content=hero;gclid=abc;ref=x");
   });
 
   it("writes probe status and destination for a successful redirect", () => {

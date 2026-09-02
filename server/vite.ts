@@ -43,14 +43,17 @@ import { recordPublicNotFound } from "./runtime-issues-store";
 
 function maybeRecordPublicNotFound(req: Request, res: Response, status: number): void {
   if (status !== 404) return;
-  const pathOnly = (req.originalUrl || req.url || "/").split("?")[0].split("#")[0];
+  const rawUrl = req.originalUrl || req.url || "/";
+  const pathOnly = rawUrl.split("?")[0].split("#")[0];
   if (pathOnly.startsWith("/api/") || pathOnly.startsWith("/private/")) return;
+  const querySearch = rawUrl.includes("?") ? rawUrl.split("?")[1].split("#")[0] : "";
   const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string; config?: { domain?: string } } }).site;
   try {
     recordPublicNotFound({
       site: site?.contentRootName || "default",
       contentRoot: site?.contentRoot,
       path: pathOnly,
+      querySearch,
       hostname: req.hostname || site?.config?.domain,
       referrer: typeof req.get === "function" ? req.get("referer") : undefined,
       userAgent: typeof req.get === "function" ? req.get("user-agent") : undefined,

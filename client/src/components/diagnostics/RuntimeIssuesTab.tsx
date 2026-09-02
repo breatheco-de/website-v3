@@ -81,12 +81,13 @@ import {
   type RuntimeIssueViewState,
 } from "./runtime-issues-url";
 import { RuntimeIssueSourceBadge } from "./RuntimeIssueSourceBadge";
+import { RuntimeIssueQueryBadges } from "./RuntimeIssueQueryBadges";
 import { RuntimeIssuesSparkline } from "./RuntimeIssuesSparkline";
 import { referrerDisplayHost } from "./runtime-issues-referrer";
 import { RuntimeIssueListFiltersDialog } from "./RuntimeIssueListFiltersDialog";
 import { RuntimeIssueIngestionFiltersDialog } from "./RuntimeIssueIngestionFiltersDialog";
 import { RuntimeIssueIgnoreRulesDialog } from "./RuntimeIssueIgnoreRulesDialog";
-import type { ByHour, RuntimeIssueProbe } from "@shared/runtime-issues";
+import type { ByHour, RuntimeIssueProbe, RuntimeQueryAttribution } from "@shared/runtime-issues";
 import type { IgnoreRule, IgnoreRuleInput } from "@shared/runtime-issues-ignore";
 import { aggregateHitsByDay, isRuntimeIssueProbeSuccess, localePrefixFromPath } from "@shared/runtime-issues";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
@@ -111,6 +112,7 @@ interface RuntimeIssueRow {
   count30?: number;
   lastProbe?: RuntimeIssueProbe;
   cmsReferrerCount?: number;
+  queryAttribution?: RuntimeQueryAttribution;
 }
 
 interface RuntimeIssuesResponse {
@@ -1243,7 +1245,8 @@ export default function RuntimeIssuesTab() {
                 <p className="text-xs text-muted-foreground">
                   Daily 404 hits for your current list filters (same window and timezone as Count). The
                   chart and totals include all matching paths; the table shows {RUNTIME_ISSUES_PAGE_SIZE}{" "}
-                  per page.
+                  per page. Query badges show params from the 404 URL; paths are grouped without the query
+                  string. New hits only — existing rows update when traffic arrives after deploy.
                 </p>
               </div>
             </div>
@@ -1635,6 +1638,10 @@ export default function RuntimeIssuesTab() {
                         />
                         <RuntimeIssueReferrerBadge
                           referrer={issue.sampleReferrer}
+                          fingerprint={issue.fingerprint}
+                        />
+                        <RuntimeIssueQueryBadges
+                          attribution={issue.queryAttribution}
                           fingerprint={issue.fingerprint}
                         />
                       </span>

@@ -8,6 +8,10 @@ export const RUNTIME_ISSUES_CSV_HEADERS = [
   "last_seen",
   "first_seen",
   "referrer",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "other_params",
   "ua",
   "sources",
   "kind",
@@ -21,7 +25,8 @@ export const RUNTIME_ISSUES_CSV_HEADERS = [
   "last_test_at",
 ] as const;
 
-import type { RuntimeIssueProbe } from "@shared/runtime-issues";
+import type { RuntimeIssueProbe, RuntimeQueryAttribution } from "@shared/runtime-issues";
+import { sortParamKeysForDisplay } from "@shared/runtime-issues";
 
 export const CSV_BOM = "\uFEFF";
 
@@ -42,6 +47,7 @@ export interface RuntimeIssueCsvRow {
   windowDays?: 7 | 30;
   tz?: string;
   lastProbe?: RuntimeIssueProbe;
+  queryAttribution?: RuntimeQueryAttribution;
 }
 
 export function csvEscape(value: string | number | boolean | undefined): string {
@@ -68,6 +74,14 @@ export function runtimeIssuesCsvFilename(
   return `runtime-issues-${site}-${day}-${tzPart}.csv`;
 }
 
+export function formatOtherParamsForCsv(other: Record<string, string[]> | undefined): string {
+  if (!other) return "";
+  const keys = sortParamKeysForDisplay(Object.keys(other));
+  return keys
+    .flatMap((key) => (other[key] ?? []).map((value) => `${key}=${value}`))
+    .join(";");
+}
+
 export function buildRuntimeIssuesCsv(rows: RuntimeIssueCsvRow[], meta?: { windowDays?: 7 | 30; tz?: string }): string {
   const windowDays = meta?.windowDays ?? rows[0]?.windowDays ?? 30;
   const tz = meta?.tz ?? rows[0]?.tz ?? "";
@@ -84,6 +98,10 @@ export function buildRuntimeIssuesCsv(rows: RuntimeIssueCsvRow[], meta?: { windo
         new Date(r.lastSeen).toISOString(),
         new Date(r.firstSeen).toISOString(),
         r.sampleReferrer ?? "",
+        (r.queryAttribution?.source ?? []).join(";"),
+        (r.queryAttribution?.medium ?? []).join(";"),
+        (r.queryAttribution?.campaign ?? []).join(";"),
+        formatOtherParamsForCsv(r.queryAttribution?.other),
         r.uaBucket ?? "",
         (r.sources ?? []).join("|"),
         r.kind,

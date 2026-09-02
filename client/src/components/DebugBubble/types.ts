@@ -247,6 +247,10 @@ export interface PageDiagnostics {
       claimReport?: string;
       actor?: { type: "ui" | "mcp"; client?: string; model?: string };
     }>;
+    /** Set when loaded from resolved-issues archive and diagnostics found it again. */
+    reopenedAt?: string;
+    /** Archive history row — no claim/complete actions in UI. */
+    archiveOnly?: boolean;
   }>;
   /** @deprecated Removed — use issue counts from the shared store. */
   score?: { total: number; seo: number; schema: number; content: number };

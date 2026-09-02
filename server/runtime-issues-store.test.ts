@@ -62,6 +62,58 @@ describe("runtime-issues-store", () => {
     expect(listed.issues[0].byHour?.["2026-08-14T15"]?.search_crawler).toBe(1);
   });
 
+  it("merges query attribution on the same path", () => {
+    const contentRoot = root();
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/en/scholarship/foo",
+      querySearch: "utm_source=meta&utm_campaign=q1",
+      userAgent: CHROME,
+    });
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/en/scholarship/foo",
+      querySearch: "utm_campaign=q2&gclid=abc",
+      userAgent: CHROME,
+    });
+    const listed = listRuntimeIssues("site_test", { contentRoot });
+    expect(listed.issues).toHaveLength(1);
+    expect(listed.issues[0].queryAttribution?.source).toEqual(["meta"]);
+    expect(listed.issues[0].queryAttribution?.campaign).toEqual(["q1", "q2"]);
+    expect(listed.issues[0].queryAttribution?.other?.gclid).toEqual(["abc"]);
+  });
+
+  it("does not ingest staff preview query params", () => {
+    const contentRoot = root();
+    expect(
+      recordPublicNotFound({
+        site: "site_test",
+        contentRoot,
+        path: "/en/scholarship/foo",
+        querySearch: "force_variant=draft-a",
+        userAgent: CHROME,
+      }),
+    ).toBe(false);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues).toHaveLength(0);
+  });
+
+  it("drops sensitive query keys from attribution", () => {
+    const contentRoot = root();
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/en/missing",
+      querySearch: "utm_source=meta&token=secret&ref=abc",
+      userAgent: CHROME,
+    });
+    const listed = listRuntimeIssues("site_test", { contentRoot });
+    expect(listed.issues[0].queryAttribution?.source).toEqual(["meta"]);
+    expect(listed.issues[0].queryAttribution?.other?.token).toBeUndefined();
+    expect(listed.issues[0].queryAttribution?.other?.ref).toEqual(["abc"]);
+  });
+
   it("drops curl and hashed JS", () => {
     const contentRoot = root();
     expect(

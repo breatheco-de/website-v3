@@ -24,6 +24,7 @@ function row(
     count: number;
     lastSeen: number;
     byHour?: ReturnType<typeof incrementByHour>;
+    queryAttribution?: import("@shared/runtime-issues").RuntimeQueryAttribution;
   }> = {},
 ) {
   const lastSeen = overrides.lastSeen ?? Date.now();
@@ -37,6 +38,7 @@ function row(
     count: overrides.count ?? 1,
     lastSeen,
     byHour: overrides.byHour,
+    queryAttribution: overrides.queryAttribution,
   };
 }
 
@@ -46,6 +48,7 @@ const none: RuntimeIssueFilters = {
   locale: FILTER_ALL,
   device: FILTER_ALL,
   pagesOnly: true,
+  queryParamsOnly: false,
   windowDays: 30,
   tz: "UTC",
   source: FILTER_ALL,
@@ -146,6 +149,20 @@ describe("filterRuntimeIssues", () => {
     });
     expect(filtered.map((i) => i.fingerprint)).toEqual(["new"]);
   });
+
+  it("queryParamsOnly keeps rows with recorded query attribution", () => {
+    const mixed = [
+      ...issues,
+      row({
+        fingerprint: "with-params",
+        path: "/en/campaign",
+        queryAttribution: { source: ["meta"], other: { gclid: ["abc"] } },
+      }),
+    ];
+    expect(filterRuntimeIssues(mixed, { ...none, queryParamsOnly: true }).map((i) => i.fingerprint)).toEqual([
+      "with-params",
+    ]);
+  });
 });
 
 describe("applyRuntimeIssueView", () => {
@@ -229,6 +246,7 @@ describe("countActiveListFilters", () => {
   it("counts pagesOnly-off and a 7-day window as non-defaults", () => {
     expect(countActiveListFilters(none)).toBe(0);
     expect(countActiveListFilters({ ...none, pagesOnly: false })).toBe(1);
+    expect(countActiveListFilters({ ...none, queryParamsOnly: true })).toBe(1);
     expect(countActiveListFilters({ ...none, windowDays: 7, pagesOnly: false })).toBe(2);
   });
 });

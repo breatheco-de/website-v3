@@ -622,6 +622,24 @@ export class VersioningManager {
     log.info(`[Versioning] Updated versioning.yml for ${contentType}/${slug} — queued for auto-commit (${configPath})`);
   }
 
+  /** Remove versioning.yml when no variants remain. */
+  public deleteVersioningConfig(
+    contentType: string,
+    slug: string,
+    author = "system",
+    contentRoot?: string,
+  ): boolean {
+    const configPath = this.getVersioningFilePath(contentType, slug);
+    if (!fs.existsSync(configPath)) return false;
+    fs.unlinkSync(configPath);
+    const cacheKey = `${contentType}:${slug}`;
+    this.configCache.delete(cacheKey);
+    this.contentCache.clear();
+    markFileAsModified(configPath, author, undefined, contentRoot);
+    log.info(`[Versioning] Deleted versioning.yml for ${contentType}/${slug} (${configPath})`);
+    return true;
+  }
+
   /**
    * Invalidate the content cache for a specific variant after an external write.
    * Call this whenever a variant file is saved to disk outside VersioningManager.

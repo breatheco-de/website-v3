@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ensureContentViewOnEditorRoles,
+  ensureDeleteVariantOnCreateVariantRoles,
   grantsCanMutateMetrics,
   migrateSeoEditSplit,
   type RoleDefinition,
@@ -83,6 +84,34 @@ describe("ensureContentViewOnEditorRoles", () => {
     expect(ensureContentViewOnEditorRoles(roles)).toBe(false);
     expect(roles.user_admin.capabilities.some((g) => g.name === "content_view")).toBe(false);
     expect(roles.already.capabilities.filter((g) => g.name === "content_view")).toHaveLength(1);
+  });
+});
+
+describe("ensureDeleteVariantOnCreateVariantRoles", () => {
+  it("adds content_delete_variant with same scope as content_create_variant", () => {
+    const roles: Record<string, RoleDefinition> = {
+      variant_editor: {
+        label: "Variant editor",
+        capabilities: [
+          { name: "content_create_variant", contentTypes: ["blog", "landing"] },
+          { name: "content_edit_text", contentTypes: ["blog"] },
+        ],
+      },
+    };
+    expect(ensureDeleteVariantOnCreateVariantRoles(roles)).toBe(true);
+    const del = roles.variant_editor.capabilities.find((g) => g.name === "content_delete_variant");
+    expect(del?.contentTypes).toEqual(["blog", "landing"]);
+    expect(ensureDeleteVariantOnCreateVariantRoles(roles)).toBe(false);
+  });
+
+  it("skips built-in roles", () => {
+    const roles: Record<string, RoleDefinition> = {
+      platform_steward: {
+        label: "Platform Steward",
+        capabilities: [{ name: "content_create_variant", contentTypes: "*" }],
+      },
+    };
+    expect(ensureDeleteVariantOnCreateVariantRoles(roles)).toBe(false);
   });
 });
 

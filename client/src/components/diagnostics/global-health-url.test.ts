@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GLOBAL_HEALTH_VIEW_DEFAULTS,
+  buildCacheIssuesQuery,
   parseGlobalHealthSearch,
   serializeGlobalHealthSearch,
 } from "./global-health-url";
@@ -22,6 +23,10 @@ describe("parseGlobalHealthSearch", () => {
       validators: ["meta", "seo-depth"],
       priorAttempts: true,
     });
+  });
+
+  it("parses completed kpi", () => {
+    expect(parseGlobalHealthSearch("kpi=completed").kpi).toBe("completed");
   });
 
   it("ignores unknown kpi and scope keys", () => {
@@ -71,5 +76,31 @@ describe("serializeGlobalHealthSearch", () => {
       "kpi=coverage&path=/x&scope=forms,bindings&validators=section-variants&tried=1",
     );
     expect(parseGlobalHealthSearch(serializeGlobalHealthSearch(view))).toEqual(view);
+  });
+});
+
+describe("buildCacheIssuesQuery", () => {
+  it("maps view state to cache-issues query params", () => {
+    const params = buildCacheIssuesQuery(
+      {
+        kpi: "errors",
+        path: "/es/blog",
+        scope: ["seo", "content"],
+        validators: ["schema-completeness", "meta"],
+        priorAttempts: true,
+      },
+      "empty field",
+    );
+    expect(params.get("severity")).toBe("error");
+    expect(params.get("urlPath")).toBe("/es/blog");
+    expect(params.get("categories")).toBe("seo,content");
+    expect(params.get("validators")).toBe("schema-completeness,meta");
+    expect(params.get("priorAttempts")).toBe("1");
+    expect(params.get("search")).toBe("empty field");
+  });
+
+  it("omits defaults", () => {
+    const params = buildCacheIssuesQuery(GLOBAL_HEALTH_VIEW_DEFAULTS);
+    expect(params.toString()).toBe("");
   });
 });

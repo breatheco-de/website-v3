@@ -18,6 +18,11 @@ describe("parseRuntimeIssueSearch", () => {
     expect("hideBots" in view).toBe(false);
   });
 
+  it("parses queryParams=1", () => {
+    expect(parseRuntimeIssueSearch("queryParams=1").filters.queryParamsOnly).toBe(true);
+    expect(parseRuntimeIssueSearch("").filters.queryParamsOnly).toBe(false);
+  });
+
   it("parses path, referrer, locale, device, sort, dir", () => {
     const view = parseRuntimeIssueSearch(
       "path=%2Fen&referrer=google&locale=es&device=mobile&sort=lastSeen&dir=asc",
@@ -69,6 +74,17 @@ describe("serializeRuntimeIssueSearch", () => {
     expect(params.has("dir")).toBe(false);
     expect(params.has("device")).toBe(false);
     expect(params.has("page")).toBe(false);
+  });
+
+  it("writes queryParams when enabled", () => {
+    const qs = serializeRuntimeIssueSearch({
+      ...RUNTIME_ISSUE_VIEW_DEFAULTS,
+      filters: {
+        ...RUNTIME_ISSUE_VIEW_DEFAULTS.filters,
+        queryParamsOnly: true,
+      },
+    });
+    expect(new URLSearchParams(qs).get("queryParams")).toBe("1");
   });
 
   it("writes page when it is not 1", () => {
