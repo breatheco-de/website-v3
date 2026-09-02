@@ -8,8 +8,8 @@
  */
 import { z } from "zod";
 
-export const chartSectionSchema = z.object({
-  type: z.literal("chart"),
+export const geekchartSectionSchema = z.object({
+  type: z.literal("geekchart"),
   version: z.string().optional(),
   source: z.string().min(1).describe("Mermaid diagram source (e.g. 'flowchart LR\\n  A --> B')"),
   caption: z.string().optional().describe("Optional caption shown below the chart"),
@@ -22,4 +22,4 @@ export const chartSectionSchema = z.object({
     .describe("How long the build animation takes, in seconds (e.g. 6). Left empty, the chart plays at its designed pace."),
 });
 
-export type ChartSection = z.infer<typeof chartSectionSchema>;
+export type GeekchartSection = z.infer<typeof geekchartSectionSchema>;

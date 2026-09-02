@@ -77,12 +77,12 @@ describe("mermaid fence options", () => {
   });
 });
 
-describe("chart sections get server-rendered html", () => {
-  it("sets html to an inline svg for a chart section", async () => {
+describe("geekgeekchart sections get server-rendered html", () => {
+  it("sets html to an inline svg for a geekchart section", async () => {
     const pageData = {
       sections: [
         {
-          type: "chart",
+          type: "geekchart",
           source: "flowchart LR\n  A[Prompt] --> B[Answer]",
           caption: "How it works",
         },
@@ -95,7 +95,7 @@ describe("chart sections get server-rendered html", () => {
 
   it("passes duration (seconds) through to the chart render", async () => {
     const pageData = {
-      sections: [{ type: "chart", source: "flowchart LR\n  A --> B", duration: 60 }],
+      sections: [{ type: "geekchart", source: "flowchart LR\n  A --> B", duration: 60 }],
     };
     await enhanceArticleSectionsInPage(pageData);
     const section = pageData.sections[0] as { html?: string };
@@ -106,7 +106,7 @@ describe("chart sections get server-rendered html", () => {
 
   it("leaves html empty and does not throw when the source cannot be drawn", async () => {
     const pageData = {
-      sections: [{ type: "chart", source: "this is not a diagram" }],
+      sections: [{ type: "geekchart", source: "this is not a diagram" }],
     };
     await expect(enhanceArticleSectionsInPage(pageData)).resolves.toBeUndefined();
     const section = pageData.sections[0] as { html?: string };
