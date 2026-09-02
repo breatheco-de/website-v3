@@ -6,7 +6,7 @@ import { validateDocumentSectionsIdentity } from "@shared/validateSectionIdentit
 import { normalizeFunnelBlock } from "@shared/funnel";
 import { readFunnelBlockFromFile, commonYmlPath } from "./funnel-fields";
 import { getDefaultContentRoot } from "./site-config";
-import { getTrackingSettings } from "./settings";
+import { getTrackingSettings, getAuthSettings } from "./settings";
 import { loadAllFieldEditors, getComponentInfo } from "./component-registry";
 import { ecommerceManager } from "./ecommerce/ecommerce-manager";
 import { contentIndex } from "./content-index";
@@ -36,9 +36,10 @@ export function validateDocIdentity(
     contentRoot?: string;
   },
 ): string | null {
-  const conversionNames = getTrackingSettings().conversion_events.map((e) => e.name);
-  const allFieldEditors = loadAllFieldEditors();
   const root = opts.contentRoot ?? getDefaultContentRoot();
+  const conversionNames = getTrackingSettings(root).conversion_events.map((e) => e.name);
+  const signupFieldMap = getAuthSettings(root).signup?.field_map;
+  const allFieldEditors = loadAllFieldEditors();
   const funnel = normalizeFunnelBlock(
     readFunnelBlockFromFile(commonYmlPath(opts.contentType, opts.contentSlug, root)),
   );
@@ -50,6 +51,7 @@ export function validateDocIdentity(
     contentSlug: opts.contentSlug,
     funnel,
     conversionNames,
+    signupFieldMap,
     resolveProduct: makeProductResolver(),
     skipIdentityIndexes: opts.skipIdentityIndexes,
     onlyValidateIndexes: opts.onlyValidateIndexes,

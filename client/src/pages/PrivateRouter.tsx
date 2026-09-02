@@ -37,6 +37,7 @@ const McpServerPage = lazy(() => import("@/pages/McpServerPage"));
 const ErrorLogPage = lazy(() => import("@/pages/ErrorLogPage"));
 const BackgroundPipelinePage = lazy(() => import("@/pages/BackgroundPipelinePage"));
 const PrivateOverlays = lazy(() => import("@/pages/PrivateOverlays"));
+const VariablesPage = lazy(() => import("@/pages/VariablesPage"));
 
 function LoadingFallback() {
   return (
@@ -113,6 +114,7 @@ export default function PrivateRouter() {
           <Route path="/private/diagnostics/:tab" component={DiagnosticsPage} />
           <Route path="/private/diagnostics" component={DiagnosticsPage} />
           <Route path="/private/redirects" component={PrivateRedirects} />
+          <Route path="/private/variables" component={VariablesPage} />
           <Route path="/private/media-gallery" component={MediaGallery} />
           <Route path="/private/menu-editor/:menuName" component={MenuEditor} />
           <Route path="/private/molecules-showcase" component={MoleculesShowcase} />

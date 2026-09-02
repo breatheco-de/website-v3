@@ -24,6 +24,8 @@ export interface TemplateSpan {
   to: number;
   expr: string;
   name: string;
+  /** Text after `|` in `{{ name | default }}`, if any. */
+  defaultValue?: string;
 }
 
 export interface VariableWidgetPluginOptions {
@@ -38,14 +40,61 @@ function findTemplateSpans(text: string): TemplateSpan[] {
   let match: RegExpExecArray | null;
   variablePattern.lastIndex = 0;
   while ((match = variablePattern.exec(text)) !== null) {
+    const defaultRaw = match[2]?.trim();
     spans.push({
       from: match.index,
       to: match.index + match[0].length,
       expr: match[0],
       name: match[1].trim(),
+      ...(defaultRaw ? { defaultValue: defaultRaw } : {}),
     });
   }
   return spans;
+}
+
+/** Label shown inside the variable pill (includes `| default` when present). */
+export function formatVariablePillLabel(span: Pick<TemplateSpan, "name" | "defaultValue">): string {
+  return span.defaultValue ? `${span.name} | ${span.defaultValue}` : span.name;
+}
+
+/** Floating tip (body-mounted) — native `title` does not show inside CM contenteditable. */
+function attachFloatingTooltip(host: HTMLElement, text: string): void {
+  let tip: HTMLElement | null = null;
+  let showTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const hide = () => {
+    if (showTimer) {
+      clearTimeout(showTimer);
+      showTimer = null;
+    }
+    tip?.remove();
+    tip = null;
+  };
+
+  const show = () => {
+    hide();
+    tip = document.createElement("div");
+    tip.className = "cm-variable-pill-tooltip";
+    tip.textContent = text;
+    tip.setAttribute("role", "tooltip");
+    document.body.appendChild(tip);
+    const rect = host.getBoundingClientRect();
+    const tipRect = tip.getBoundingClientRect();
+    const left = Math.min(
+      Math.max(8, rect.left + rect.width / 2 - tipRect.width / 2),
+      window.innerWidth - tipRect.width - 8,
+    );
+    const above = rect.top - tipRect.height - 8;
+    const top = above >= 8 ? above : rect.bottom + 8;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+  };
+
+  host.addEventListener("mouseenter", () => {
+    showTimer = setTimeout(show, 400);
+  });
+  host.addEventListener("mouseleave", hide);
+  host.addEventListener("mousedown", hide);
 }
 
 function spansOverlap(
@@ -115,12 +164,15 @@ class VariablePillWidget extends WidgetType {
   toDOM(): HTMLElement {
     const pill = document.createElement("span");
     pill.className = "cm-variable-pill";
-    pill.title =
-      "Template binding — value comes from entry data. Click × to replace with static text.";
+    // Native `title` is unreliable inside CodeMirror's contenteditable — use a floating tip.
+    const tipText = this.span.defaultValue
+      ? `Template binding — value comes from entry data; falls back to “${this.span.defaultValue}” if empty. Click × to replace with static text.`
+      : "Template binding — value comes from entry data. Click × to replace with static text.";
+    attachFloatingTooltip(pill, tipText);
 
     const label = document.createElement("span");
     label.className = "cm-variable-pill-label";
-    label.textContent = this.span.name;
+    label.textContent = formatVariablePillLabel(this.span);
     pill.appendChild(label);
 
     if (!this.readOnly) {

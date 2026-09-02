@@ -7,6 +7,8 @@ import {
   validateFormSection,
   validateRequiredConversionName,
 } from "./validateFormSection";
+import { validateSignupFormFields } from "./authSignupFieldMap";
+import type { AuthSignupFieldMapEntry } from "./authSignupFieldMap";
 import {
   resolveBoundCtaPaths,
   validateCtaPurchasable,
@@ -27,6 +29,8 @@ export type SectionIdentityOpts = {
   contentSlug?: string;
   funnel?: FunnelBlock | null;
   conversionNames?: string[];
+  /** Site auth.signup.field_map for is_signup validation */
+  signupFieldMap?: AuthSignupFieldMapEntry[] | null;
   resolveProduct: ProductResolveFn;
   sectionIndex?: number;
   /** Skip conversion/CTA/product identity checks (e.g. freshly duplicated section). */
@@ -51,6 +55,27 @@ export function validateSectionIdentity(
   const formSettingsPath = resolveBoundFormSettingsPath(opts.fieldEditors, variant);
   const convErr = validateRequiredConversionName(section, formSettingsPath);
   if (convErr) return convErr;
+
+  if (formSettingsPath != null) {
+    const formObj = (() => {
+      if (!formSettingsPath) return section;
+      const parts = formSettingsPath.split(".").filter(Boolean);
+      let current: unknown = section;
+      for (const part of parts) {
+        if (!current || typeof current !== "object" || Array.isArray(current)) return null;
+        current = (current as Record<string, unknown>)[part];
+      }
+      if (!current || typeof current !== "object" || Array.isArray(current)) return null;
+      return current as Record<string, unknown>;
+    })();
+    const formLabel = formSettingsPath ? formSettingsPath : "form";
+    const signupErr = validateSignupFormFields(
+      formObj,
+      opts.signupFieldMap,
+      formLabel,
+    );
+    if (signupErr) return signupErr;
+  }
 
   const ctaPaths = resolveBoundCtaPaths(opts.fieldEditors, variant);
   const trackingErr = validateCtaTracking(section, ctaPaths);
@@ -86,6 +111,7 @@ export type DocumentIdentityOpts = {
   contentSlug?: string;
   funnel?: FunnelBlock | null;
   conversionNames?: string[];
+  signupFieldMap?: AuthSignupFieldMapEntry[] | null;
   resolveProduct: ProductResolveFn;
   skipIdentityIndexes?: Set<number>;
   /**
@@ -164,6 +190,7 @@ export function validateDocumentSectionsIdentity(
       contentSlug: opts.contentSlug,
       funnel: opts.funnel,
       conversionNames: opts.conversionNames,
+      signupFieldMap: opts.signupFieldMap,
       resolveProduct: opts.resolveProduct,
       sectionIndex: i,
       skipIdentity: opts.skipIdentityIndexes?.has(i),

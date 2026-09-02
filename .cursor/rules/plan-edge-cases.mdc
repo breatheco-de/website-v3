@@ -1,5 +1,5 @@
 ---
-description: Before locking a plan, present missing edge cases in chat (problem, options, recommendation) and wait for the user's decision
+description: Before locking a plan, present missing edge cases in chat in plain English (problem, options, recommendation) and wait for the user's decision
 alwaysApply: true
 ---
 
@@ -7,14 +7,46 @@ alwaysApply: true
 
 When creating or updating a plan (Plan mode / CreatePlan), present missing edge cases **in the conversation first**. Do not bury them only inside the plan file. The user must be able to pick an option or propose a new one before the plan is treated as decided.
 
-For each non-obvious gap (failure modes, empty states, locales, permissions, dual write paths, migrations, rollback, staff vs public, MCP vs UI):
+## How to present each case (required)
 
-1. **Problem** — what can go wrong or what we have not specified
-2. **Options** — 2–3 concrete choices
-3. **Recommendation** — pick one and why
+Write for a smart non-expert reading chat — not for someone who already knows the codebase. Prefer staff words (live, draft, publish, empty, fail, overwrite) over schema keys, file paths, and internal names unless the choice *is* about those.
 
-Ask the user to choose, reject, or add an option. Wait for that reply before locking the related part of the plan.
+For each non-obvious gap (failure modes, empty states, locales, permissions, dual write paths, migrations, rollback, staff vs public, MCP vs UI), use this shape:
+
+1. **Title** — short, human label (e.g. “What if there is no draft yet?”), not a code identifier.
+2. **Problem** — 2–4 sentences in plain English:
+   - What situation can happen (or what we have not decided)
+   - Who it affects (staff, public visitors, agents, both)
+   - What goes wrong or stays ambiguous if we leave it unspecified (broken save, wrong locale, silent overwrite, confusing empty UI, etc.)
+   - Do **not** open with file paths, API names, or merge rules; those belong in options or a short “technical note” only when needed to choose.
+3. **Options** — 2–3 concrete choices. For each option, one line on **what the user/system does** and one on **what happens as a result** (including what does *not* change). Avoid option labels that are only identifiers (`force: true`, `pullSingleFile`); translate first, then add the technical hook in parentheses if useful.
+4. **Recommendation** — pick one and explain **why** in plain cause/effect (safer, matches how X already works, fewer surprises for staff). One short paragraph max.
+
+Then ask the user to choose, reject, or add an option. Wait for that reply before locking the related part of the plan.
 
 After they decide, record the choice in the plan as a decided constraint — not as an open question. If they have not answered yet, keep it in chat; do not assume the recommendation.
+
+## Anti-patterns
+
+| Anti-pattern | Do instead |
+|---|---|
+| One vague sentence: “Handle locale fallback?” | Spell out: when the EN file is missing / empty, does the page 404, show ES, or hide the section? |
+| Options that are only code knobs (`abort`, `force sync`, `skip`) | Name the human outcome: stop and ask; overwrite remote; leave remote as-is and only push this file |
+| Jargon-first problem (“dual write path / MCP vs UI”) | Start with: “Staff can save in the UI while an agent writes the same file — who wins?” |
+| Assuming the reader knows the subsystem | Say what breaks for whom if we guess wrong |
+
+## Exemplar (good)
+
+**What if publish runs while someone else is still editing?**
+
+Staff A has the page open with unsaved edits. Staff B (or an agent) publishes a newer version from elsewhere. If we do not decide this, A’s next save can quietly overwrite B’s publish or fail with a cryptic error.
+
+- **Option A — Block the save:** Warn A that the live version changed; they must reload or explicitly overwrite. Safest; slightly more friction.
+- **Option B — Last write wins:** A’s save replaces whatever is on disk/remote. Simple; can lose B’s publish without A noticing.
+- **Option C — Save as draft only:** A can keep editing a draft; publishing still requires a fresh check. Extra step; avoids clobbering live.
+
+**Recommendation:** Option A — we already treat conflicts as something staff should see, and silent overwrite is the costly failure.
+
+## Scope
 
 Skip trivia. Do not invent fake edge cases for typo/CSS/dependency plans. Prefer a few high-leverage cases over a long laundry list.

@@ -16,6 +16,7 @@ import {
   validateFormSection,
   validateRequiredConversionName,
 } from "../../../shared/validateFormSection";
+import { validateSignupFormFields } from "../../../shared/authSignupFieldMap";
 import { validateFormFieldSources } from "../../../shared/validateFormFieldSources";
 import { resolveBoundFormSettingsPath } from "../../../shared/wipeOnDuplicate";
 import {
@@ -23,7 +24,7 @@ import {
   getContentTypeConfig,
   getType,
 } from "../../../server/content-types";
-import { getTrackingSettings } from "../../../server/settings";
+import { getTrackingSettings, getAuthSettings } from "../../../server/settings";
 import { loadAllFieldEditors } from "../../../server/component-registry";
 import { escapeTemplateVars, unescapeObjectVars } from "../../../shared/templateVars";
 import { getDefaultContentRoot } from "../../../server/site-config";
@@ -84,6 +85,7 @@ export const formsValidator: Validator = {
     const errors: ValidationIssue[] = [];
     const warnings: ValidationIssue[] = [];
     const conversionNames = getTrackingSettings().conversion_events.map((e) => e.name);
+    const signupFieldMap = getAuthSettings().signup?.field_map;
     const allFieldEditors = loadAllFieldEditors();
 
     for (const fullDir of CONTENT_DIRS) {
@@ -155,6 +157,31 @@ export const formsValidator: Validator = {
               file: relativePath,
               suggestion: requiredErr,
             });
+          }
+
+          if (formSettingsPath != null) {
+            const formObj = (() => {
+              if (!formSettingsPath) return sec;
+              const parts = formSettingsPath.split(".").filter(Boolean);
+              let current: unknown = sec;
+              for (const part of parts) {
+                if (!current || typeof current !== "object" || Array.isArray(current)) return null;
+                current = (current as Record<string, unknown>)[part];
+              }
+              if (!current || typeof current !== "object" || Array.isArray(current)) return null;
+              return current as Record<string, unknown>;
+            })();
+            const formLabel = formSettingsPath || "form";
+            const signupErr = validateSignupFormFields(formObj, signupFieldMap, formLabel);
+            if (signupErr) {
+              errors.push({
+                type: "error",
+                code: "FORM_SIGNUP_FIELD_MAP",
+                message: `sections[${i}]: ${signupErr}. File: ${relativePath}`,
+                file: relativePath,
+                suggestion: signupErr,
+              });
+            }
           }
         }
       }

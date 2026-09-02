@@ -66,6 +66,7 @@ import { COUNTRY_OPTIONS, REGION_OPTIONS } from "@/lib/geoData";
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useDebugAuth } from "@/hooks/useDebugAuth";
 import type { Overlay, OverlayButton, OverlayConfig } from "@/hooks/useOverlays";
 import {
   isOverlayDismissible,
@@ -73,6 +74,44 @@ import {
 } from "@/hooks/useOverlays";
 import { LinkPicker } from "@/components/editing/LinkPicker";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
+
+function parseApiError(err: unknown, fallback: string): string {
+  const raw = err instanceof Error ? err.message : "";
+  const jsonMatch = raw.match(/^\d+:\s*(\{[\s\S]*\})$/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[1]) as { error?: string };
+      if (parsed.error) return parsed.error;
+    } catch {
+      // keep fallback
+    }
+  }
+  return fallback;
+}
+
+function overlayConfigPayload(overlay: Overlay) {
+  return {
+    enabled: overlay.enabled,
+    component: overlay.component,
+    trigger: overlay.trigger,
+    targeting: overlay.targeting,
+    frequency: overlay.frequency,
+    dismissible: overlay.dismissible,
+  };
+}
+
+function isContentDirty(draft: Overlay, baseline: Overlay | null): boolean {
+  if (!baseline) return true;
+  return JSON.stringify(draft.content) !== JSON.stringify(baseline.content);
+}
+
+function isConfigDirty(draft: Overlay, baseline: Overlay | null): boolean {
+  if (!baseline) return true;
+  return (
+    JSON.stringify(overlayConfigPayload(draft)) !==
+    JSON.stringify(overlayConfigPayload(baseline))
+  );
+}
 
 const OverlaysYmlEditorPanel = lazy(() => import("@/components/editing/OverlaysYmlEditorPanel"));
 
@@ -158,7 +197,7 @@ function geoTargetingLabel(overlay: Overlay): string {
 function newOverlay(): Overlay {
   return {
     id: `overlay-${Date.now()}`,
-    enabled: true,
+    enabled: false,
     trigger: { event: "page_load", delay: 0 },
     targeting: { pages: "all", geo: {} },
     frequency: "once",
@@ -377,11 +416,18 @@ type SheetTab = "content" | "conditions";
 
 export default function PrivateOverlays() {
   const { toast } = useToast();
+  const { hasCapability } = useDebugAuth();
+  const canEditContent = hasCapability("overlays_edit_content");
+  const canConfigure = hasCapability("overlays_configure");
+  const canMutate = canEditContent || canConfigure;
+
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [expandedPreviewId, setExpandedPreviewId] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [sheetDraft, setSheetDraft] = useState<Overlay | null>(null);
+  const [sheetBaseline, setSheetBaseline] = useState<Overlay | null>(null);
   const [sheetTab, setSheetTab] = useState<SheetTab>("content");
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
   const [sheetSaving, setSheetSaving] = useState(false);
@@ -396,56 +442,105 @@ export default function PrivateOverlays() {
 
   const overlays: Overlay[] = data?.overlays ?? [];
 
-  async function saveAll(updated: Overlay[]): Promise<boolean> {
-    setSaving(true);
+  async function invalidateOverlays() {
+    await queryClient.invalidateQueries({ queryKey: ["/api/overlays"] });
+  }
+
+  async function putConfig(id: string, overlay: Overlay): Promise<boolean> {
     try {
-      await apiRequest("PUT", "/api/overlays", { overlays: updated });
-      await queryClient.invalidateQueries({ queryKey: ["/api/overlays"] });
-      toast({ title: "Overlays saved" });
+      await apiRequest("PUT", `/api/overlays/${encodeURIComponent(id)}/config`, overlayConfigPayload(overlay));
+      await invalidateOverlays();
       return true;
     } catch (err) {
-      const raw = err instanceof Error ? err.message : "";
-      const jsonMatch = raw.match(/^\d+:\s*(\{[\s\S]*\})$/);
-      let description = "Failed to save overlays";
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[1]) as { error?: string };
-          if (parsed.error) description = parsed.error;
-        } catch {
-          // keep default
-        }
-      }
-      toast({ title: "Failed to save overlays", description, variant: "destructive" });
+      toast({
+        title: "Failed to save configuration",
+        description: parseApiError(err, "Failed to save overlay configuration"),
+        variant: "destructive",
+      });
       return false;
+    }
+  }
+
+  async function putContent(id: string, overlay: Overlay): Promise<boolean> {
+    try {
+      await apiRequest("PUT", `/api/overlays/${encodeURIComponent(id)}/content`, {
+        content: overlay.content,
+      });
+      await invalidateOverlays();
+      return true;
+    } catch (err) {
+      toast({
+        title: "Failed to save content",
+        description: parseApiError(err, "Failed to save overlay content"),
+        variant: "destructive",
+      });
+      return false;
+    }
+  }
+
+  async function postOverlay(overlay: Overlay): Promise<boolean> {
+    try {
+      await apiRequest("POST", "/api/overlays", overlay);
+      await invalidateOverlays();
+      return true;
+    } catch (err) {
+      toast({
+        title: "Failed to create overlay",
+        description: parseApiError(err, "Failed to create overlay"),
+        variant: "destructive",
+      });
+      return false;
+    }
+  }
+
+  async function toggleEnabled(overlay: Overlay) {
+    if (!canConfigure) return;
+    setSaving(true);
+    try {
+      const ok = await putConfig(overlay.id, { ...overlay, enabled: !overlay.enabled });
+      if (ok) toast({ title: overlay.enabled ? "Overlay disabled" : "Overlay enabled" });
     } finally {
       setSaving(false);
     }
   }
 
-  async function toggleEnabled(overlay: Overlay) {
-    const updated = overlays.map((o) =>
-      o.id === overlay.id ? { ...o, enabled: !o.enabled } : o
-    );
-    await saveAll(updated);
-  }
-
   async function changeComponent(overlay: Overlay, component: Overlay["component"]) {
-    const updated = overlays.map((o) =>
-      o.id === overlay.id ? { ...o, component } : o
-    );
-    await saveAll(updated);
+    if (!canConfigure) return;
+    setSaving(true);
+    try {
+      const ok = await putConfig(overlay.id, { ...overlay, component });
+      if (ok) toast({ title: "Component updated" });
+    } finally {
+      setSaving(false);
+    }
   }
 
   function openSheet(overlay: Overlay | null) {
     const draft = overlay ? structuredClone(overlay) : newOverlay();
     setSheetDraft(draft);
-    setSheetTab("content");
+    setSheetBaseline(overlay ? structuredClone(overlay) : null);
+    setSheetTab(canEditContent && !canConfigure ? "content" : overlay ? "content" : "conditions");
     setEditingButtonIndex(null);
   }
 
-  function closeSheet() {
+  function discardSheet() {
     setSheetDraft(null);
+    setSheetBaseline(null);
     setEditingButtonIndex(null);
+  }
+
+  function requestCloseSheet() {
+    if (!sheetDraft) {
+      discardSheet();
+      return;
+    }
+    const contentDirty = canEditContent && isContentDirty(sheetDraft, sheetBaseline);
+    const configDirty = canConfigure && isConfigDirty(sheetDraft, sheetBaseline);
+    if (contentDirty || configDirty) {
+      const ok = window.confirm("You have unsaved changes. Discard them?");
+      if (!ok) return;
+    }
+    discardSheet();
   }
 
   function handleTabChange(tab: string) {
@@ -453,22 +548,22 @@ export default function PrivateOverlays() {
   }
 
   function patchContent(partial: Partial<Overlay["content"]>) {
-    if (!sheetDraft) return;
+    if (!sheetDraft || !canEditContent) return;
     setSheetDraft({ ...sheetDraft, content: { ...sheetDraft.content, ...partial } });
   }
 
   function patchOverlay(partial: Partial<Overlay>) {
-    if (!sheetDraft) return;
+    if (!sheetDraft || !canConfigure) return;
     setSheetDraft({ ...sheetDraft, ...partial });
   }
 
   function patchTrigger(partial: Partial<Overlay["trigger"]>) {
-    if (!sheetDraft) return;
+    if (!sheetDraft || !canConfigure) return;
     setSheetDraft({ ...sheetDraft, trigger: { ...sheetDraft.trigger, ...partial } });
   }
 
   function patchGeo(partial: Partial<NonNullable<Overlay["targeting"]["geo"]>>) {
-    if (!sheetDraft) return;
+    if (!sheetDraft || !canConfigure) return;
     setSheetDraft({
       ...sheetDraft,
       targeting: {
@@ -485,28 +580,83 @@ export default function PrivateOverlays() {
       toast({ title: "Overlay ID is required", variant: "destructive" });
       return;
     }
-    const blockingError = overlayBlockingSaveError(toSave);
-    if (blockingError) {
-      toast({ title: "Cannot save", description: blockingError, variant: "destructive" });
+
+    const isNew = !overlays.find((o) => o.id === sheetDraft.id);
+    const contentDirty = isContentDirty(toSave, sheetBaseline);
+    const configDirty = isConfigDirty(toSave, sheetBaseline);
+
+    const shouldSaveContent = canEditContent && contentDirty && !isNew;
+    const shouldSaveConfig = canConfigure && (isNew || configDirty);
+    // Both caps + new: create (config+content body) then content if also dirty after create with content in POST
+    // New overlay: POST includes content; if both caps, one POST is enough when creating
+    const shouldCreate = canConfigure && isNew;
+
+    if (!shouldSaveContent && !shouldSaveConfig && !shouldCreate) {
+      toast({ title: "No changes to save" });
       return;
     }
+
+    if ((shouldSaveConfig || shouldCreate) && overlayBlockingSaveError(toSave)) {
+      toast({
+        title: "Cannot save",
+        description: overlayBlockingSaveError(toSave)!,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (shouldSaveContent && overlayBlockingSaveError(toSave)) {
+      toast({
+        title: "Cannot save",
+        description: overlayBlockingSaveError(toSave)!,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setSheetSaving(true);
     try {
-      const isNew = !overlays.find((o) => o.id === sheetDraft.id);
-      const updated = isNew
-        ? [...overlays, toSave]
-        : overlays.map((o) => (o.id === sheetDraft.id ? toSave : o));
-      const ok = await saveAll(updated);
-      if (ok) closeSheet();
+      if (shouldCreate) {
+        const created = await postOverlay({ ...toSave, enabled: false });
+        if (!created) return;
+        // POST already stored content; if configure-only created empty shell with content edits from someone with both caps, content is in POST body
+        toast({ title: "Overlay created (disabled until you enable it)" });
+        discardSheet();
+        return;
+      }
+
+      let ok = true;
+      if (shouldSaveContent) {
+        ok = await putContent(toSave.id, toSave);
+      }
+      if (ok && shouldSaveConfig) {
+        ok = await putConfig(toSave.id, toSave);
+      }
+      if (ok) {
+        toast({ title: "Overlay saved" });
+        discardSheet();
+      }
     } finally {
       setSheetSaving(false);
     }
   }
 
   async function deleteOverlay(id: string) {
-    const updated = overlays.filter((o) => o.id !== id);
-    await saveAll(updated);
-    setConfirmDeleteId(null);
+    if (!canConfigure) return;
+    setSaving(true);
+    try {
+      await apiRequest("DELETE", `/api/overlays/${encodeURIComponent(id)}`);
+      await invalidateOverlays();
+      toast({ title: "Overlay deleted" });
+      setConfirmDeleteId(null);
+    } catch (err) {
+      toast({
+        title: "Failed to delete overlay",
+        description: parseApiError(err, "Failed to delete overlay"),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
   }
 
   const geo = sheetDraft?.targeting.geo ?? {};
@@ -520,7 +670,16 @@ export default function PrivateOverlays() {
     : [];
   const isNewOverlay = sheetDraft ? !overlays.find((o) => o.id === sheetDraft.id) : false;
   const sheetBlockingError = sheetDraft ? overlayBlockingSaveError(sheetDraft) : null;
-  const sheetSaveDisabled = sheetSaving || !!sheetBlockingError;
+  const contentDirty = sheetDraft ? isContentDirty(sheetDraft, sheetBaseline) : false;
+  const configDirty = sheetDraft ? isConfigDirty(sheetDraft, sheetBaseline) : false;
+  const canSaveSheet =
+    canMutate &&
+    !sheetSaving &&
+    !sheetBlockingError &&
+    (isNewOverlay
+      ? canConfigure
+      : (canEditContent && contentDirty) || (canConfigure && configDirty));
+  const sheetSaveDisabled = !canSaveSheet;
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 space-y-6">
@@ -537,25 +696,68 @@ export default function PrivateOverlays() {
               Modals &amp; CTA Overlays
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Event-triggered overlays — configure triggers, page targeting, geo targeting, and frequency.
+              This page separates copy (what the modal says) from configuration (who sees it, when, and on/off).
+              New overlays start off until you enable them.
+              {canEditContent && canConfigure
+                ? " If you can edit both, Save writes both unsaved parts."
+                : " Locked controls mean your role lacks that permission."}
             </p>
+            <button
+              type="button"
+              className="text-xs text-primary underline-offset-2 hover:underline mt-1"
+              onClick={() => setShowAdvanced((v) => !v)}
+              data-testid="button-overlays-read-more"
+            >
+              {showAdvanced ? "Hide advanced" : "Read more (advanced)"}
+            </button>
+            {showAdvanced && (
+              <ul className="mt-1.5 list-disc pl-5 text-[11px] text-muted-foreground space-y-1" data-testid="overlays-advanced-help">
+                <li>
+                  Capabilities: <code className="text-[10px]">overlays_edit_content</code> (copy) and{" "}
+                  <code className="text-[10px]">overlays_configure</code> (targeting, triggers, enable)
+                </li>
+                <li>
+                  APIs: <code className="text-[10px]">PUT …/content</code> vs{" "}
+                  <code className="text-[10px]">PUT …/config</code> (plus create/delete)
+                </li>
+                <li>
+                  YAML editor is configure-only and can change copy; file is{" "}
+                  <code className="text-[10px]">site_*/overlays.yml</code>
+                </li>
+              </ul>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
             onClick={() => setShowYmlEditor(true)}
+            disabled={!canConfigure}
+            title={!canConfigure ? "You need the overlays_configure capability" : undefined}
             data-testid="button-edit-overlays-yml"
           >
             <IconCode size={16} />
             Code
           </Button>
-          <Button onClick={() => openSheet(null)} data-testid="button-create-overlay">
+          <Button
+            onClick={() => openSheet(null)}
+            disabled={!canConfigure}
+            title={!canConfigure ? "You need the overlays_configure capability" : undefined}
+            data-testid="button-create-overlay"
+          >
             <IconPlus size={16} />
             New overlay
           </Button>
         </div>
       </div>
+
+      {!canMutate && !isLoading && (
+        <p className="text-sm text-muted-foreground border rounded-md px-3 py-2" data-testid="text-overlays-readonly">
+          You can view overlays but not edit them. Ask for{" "}
+          <code className="text-xs">overlays_edit_content</code> and/or{" "}
+          <code className="text-xs">overlays_configure</code>.
+        </p>
+      )}
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
@@ -568,7 +770,9 @@ export default function PrivateOverlays() {
             <IconLayersIntersect size={32} className="mx-auto mb-3 opacity-40" />
             <p className="font-medium">No overlays configured</p>
             <p className="text-sm mt-1">
-              Click &ldquo;New overlay&rdquo; to create your first modal, banner, or slide-in.
+              {canConfigure
+                ? "Click “New overlay” to create your first modal, banner, or slide-in."
+                : "No overlays yet. Someone with configure access can create one."}
             </p>
           </CardContent>
         </Card>
@@ -585,7 +789,8 @@ export default function PrivateOverlays() {
                     </Badge>
                     <DropdownMenu>
                       <DropdownMenuTrigger
-                        className="whitespace-nowrap inline-flex items-center gap-1 rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 hover-elevate [border-color:var(--badge-outline)] shadow-xs cursor-pointer"
+                        disabled={!canConfigure || saving}
+                        className="whitespace-nowrap inline-flex items-center gap-1 rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 hover-elevate [border-color:var(--badge-outline)] shadow-xs cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
                         data-testid={`badge-component-${overlay.id}`}
                       >
                         {COMPONENT_LABELS[overlay.component] ?? overlay.component}
@@ -634,7 +839,8 @@ export default function PrivateOverlays() {
                     onCheckedChange={() => toggleEnabled(overlay)}
                     aria-label="Toggle enabled"
                     data-testid={`switch-overlay-enabled-${overlay.id}`}
-                    disabled={saving}
+                    disabled={saving || !canConfigure}
+                    title={!canConfigure ? "You need the overlays_configure capability" : undefined}
                   />
                   <Button
                     size="icon"
@@ -654,7 +860,7 @@ export default function PrivateOverlays() {
                     size="icon"
                     variant="ghost"
                     onClick={() => openSheet(overlay)}
-                    title="Edit overlay"
+                    title={canMutate ? "Edit overlay" : "View overlay"}
                     data-testid={`button-edit-overlay-${overlay.id}`}
                   >
                     <IconPencil size={16} />
@@ -663,6 +869,8 @@ export default function PrivateOverlays() {
                     size="icon"
                     variant="ghost"
                     onClick={() => setConfirmDeleteId(overlay.id)}
+                    disabled={!canConfigure}
+                    title={!canConfigure ? "You need the overlays_configure capability" : undefined}
                     data-testid={`button-delete-overlay-${overlay.id}`}
                   >
                     <IconTrash size={16} />
@@ -732,7 +940,7 @@ export default function PrivateOverlays() {
       </Dialog>
 
       {/* 3-tab overlay editor sheet */}
-      <Sheet open={!!sheetDraft} onOpenChange={(open) => { if (!open) closeSheet(); }}>
+      <Sheet open={!!sheetDraft} onOpenChange={(open) => { if (!open) requestCloseSheet(); }}>
         <SheetContent ref={setSheetContainer as React.Ref<HTMLDivElement>} side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
           <SheetHeader className="px-6 pt-6 pb-4 shrink-0">
             <SheetTitle className="flex items-center gap-2">
@@ -741,8 +949,8 @@ export default function PrivateOverlays() {
             </SheetTitle>
             <SheetDescription>
               {isNewOverlay
-                ? "Configure content, conditions, and trigger settings for the new overlay."
-                : "Edit content, conditions, or raw YAML for this overlay."}
+                ? "Starts disabled. Set conditions (and copy if you can), then enable it from the list when ready."
+                : "Edit copy and/or conditions based on your permissions. Save writes unsaved parts you are allowed to change."}
             </SheetDescription>
           </SheetHeader>
 
@@ -772,18 +980,21 @@ export default function PrivateOverlays() {
                       value={sheetDraft.content.title}
                       onChange={(e) => patchContent({ title: e.target.value })}
                       placeholder="Enter a headline"
+                      disabled={!canEditContent}
                       data-testid="input-overlay-title"
                     />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Body</Label>
-                    <RichTextArea
-                      value={sheetDraft.content.body}
-                      onChange={(html) => patchContent({ body: html })}
-                      placeholder="Supporting copy"
-                      minHeight="80px"
-                      data-testid="input-overlay-body"
-                    />
+                    <div className={!canEditContent ? "pointer-events-none opacity-70" : undefined}>
+                      <RichTextArea
+                        value={sheetDraft.content.body}
+                        onChange={(html) => patchContent({ body: html })}
+                        placeholder="Supporting copy"
+                        minHeight="80px"
+                        data-testid="input-overlay-body"
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -792,6 +1003,7 @@ export default function PrivateOverlays() {
                         type="button"
                         variant="outline"
                         size="sm"
+                        disabled={!canEditContent}
                         onClick={() => {
                           const next = [
                             ...(sheetDraft.content.buttons ?? []),
@@ -953,31 +1165,6 @@ export default function PrivateOverlays() {
                     </div>
                   </div>
 
-                  <div className="space-y-2 rounded-md border p-3 bg-muted/20">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="space-y-0.5 min-w-0">
-                        <Label htmlFor="overlay-dismissible">Allow close without answering</Label>
-                        <p className="text-xs text-muted-foreground">
-                          When off, visitors must use a button — X and backdrop (modals) will not dismiss.
-                        </p>
-                      </div>
-                      <Switch
-                        id="overlay-dismissible"
-                        checked={isOverlayDismissible(sheetDraft)}
-                        onCheckedChange={(checked) => patchOverlay({ dismissible: checked })}
-                        data-testid="switch-overlay-dismissible"
-                      />
-                    </div>
-                    {sheetBlockingError && (
-                      <p
-                        className="text-xs text-destructive"
-                        data-testid="text-overlay-blocking-error"
-                      >
-                        {sheetBlockingError}
-                      </p>
-                    )}
-                  </div>
-
                   <div className="space-y-1.5">
                     <Label>Image <span className="text-muted-foreground font-normal">(optional)</span></Label>
                     <div className="flex items-center gap-3">
@@ -998,6 +1185,7 @@ export default function PrivateOverlays() {
                           type="button"
                           variant="outline"
                           size="sm"
+                          disabled={!canEditContent}
                           onClick={() => setImagePickerOpen(true)}
                           data-testid="button-overlay-choose-image"
                         >
@@ -1008,6 +1196,7 @@ export default function PrivateOverlays() {
                             type="button"
                             variant="ghost"
                             size="sm"
+                            disabled={!canEditContent}
                             onClick={() => patchContent({ image_id: undefined })}
                             data-testid="button-overlay-remove-image"
                           >
@@ -1036,14 +1225,46 @@ export default function PrivateOverlays() {
             <TabsContent value="conditions" style={{ height: "calc(100vh - 242px)" }} className="overflow-y-auto overflow-x-hidden px-6 py-4 mt-0">
               {sheetDraft && (
                 <div className="space-y-5">
+                  {!canConfigure && (
+                    <p className="text-xs text-muted-foreground" data-testid="text-conditions-readonly">
+                      Configuration is read-only — you need the overlays_configure capability.
+                    </p>
+                  )}
+                  <div className="space-y-2 rounded-md border p-3 bg-muted/20">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="space-y-0.5 min-w-0">
+                        <Label htmlFor="overlay-dismissible">Allow close without answering</Label>
+                        <p className="text-xs text-muted-foreground">
+                          When off, visitors must use a button — X and backdrop (modals) will not dismiss.
+                          You can save this while the overlay is disabled; enabling requires a labeled button.
+                        </p>
+                      </div>
+                      <Switch
+                        id="overlay-dismissible"
+                        checked={isOverlayDismissible(sheetDraft)}
+                        onCheckedChange={(checked) => patchOverlay({ dismissible: checked })}
+                        disabled={!canConfigure}
+                        data-testid="switch-overlay-dismissible"
+                      />
+                    </div>
+                    {sheetBlockingError && (
+                      <p
+                        className="text-xs text-destructive"
+                        data-testid="text-overlay-blocking-error"
+                      >
+                        {sheetBlockingError}
+                      </p>
+                    )}
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <Label>Component type</Label>
                       <Select
                         value={sheetDraft.component}
                         onValueChange={(v) => patchOverlay({ component: v as Overlay["component"] })}
+                        disabled={!canConfigure}
                       >
-                        <SelectTrigger data-testid="select-overlay-component">
+                        <SelectTrigger data-testid="select-overlay-component" disabled={!canConfigure}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1075,6 +1296,7 @@ export default function PrivateOverlays() {
                         onValueChange={(v) =>
                           patchTrigger({ event: v as Overlay["trigger"]["event"] })
                         }
+                        disabled={!canConfigure}
                       >
                         <SelectTrigger data-testid="select-overlay-trigger">
                           <SelectValue />
@@ -1122,6 +1344,7 @@ export default function PrivateOverlays() {
                           })
                         }
                         placeholder={sheetDraft.trigger.event === "scroll_depth" ? "50" : "2000"}
+                        disabled={!canConfigure}
                         data-testid="input-overlay-delay"
                       />
                     </div>
@@ -1133,6 +1356,7 @@ export default function PrivateOverlays() {
                       <Select
                         value={sheetDraft.frequency}
                         onValueChange={(v) => patchOverlay({ frequency: v as Overlay["frequency"] })}
+                        disabled={!canConfigure}
                       >
                         <SelectTrigger data-testid="select-overlay-frequency">
                           <SelectValue />
@@ -1171,6 +1395,7 @@ export default function PrivateOverlays() {
                             },
                           })
                         }
+                        disabled={!canConfigure}
                       >
                         <SelectTrigger data-testid="select-overlay-pages">
                           <SelectValue />
@@ -1184,7 +1409,7 @@ export default function PrivateOverlays() {
                   </div>
 
                   {!pagesIsAll && (
-                    <div className="space-y-2">
+                    <div className={`space-y-2 ${!canConfigure ? "pointer-events-none opacity-70" : ""}`}>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                           <Label>Include on</Label>
@@ -1231,7 +1456,7 @@ export default function PrivateOverlays() {
                     </div>
                   )}
 
-                  <div className="border-t pt-4 space-y-4">
+                  <div className={`border-t pt-4 space-y-4 ${!canConfigure ? "pointer-events-none opacity-70" : ""}`}>
                     <p className="text-sm font-medium text-muted-foreground">Geo targeting <span className="font-normal">(all optional)</span></p>
                     <SearchableMultiSelect
                       label="Countries"
@@ -1274,7 +1499,7 @@ export default function PrivateOverlays() {
           <div className="px-6 py-4 border-t flex justify-end gap-2 shrink-0">
             <Button
               variant="ghost"
-              onClick={closeSheet}
+              onClick={requestCloseSheet}
               data-testid="button-cancel-sheet"
             >
               <IconX size={16} />
@@ -1283,6 +1508,11 @@ export default function PrivateOverlays() {
             <Button
               onClick={saveSheet}
               disabled={sheetSaveDisabled}
+              title={
+                !canMutate
+                  ? "You need overlays_edit_content or overlays_configure"
+                  : sheetBlockingError || undefined
+              }
               data-testid="button-save-sheet"
             >
               {sheetSaving ? (
@@ -1290,13 +1520,21 @@ export default function PrivateOverlays() {
               ) : (
                 <IconCheck size={16} />
               )}
-              Save
+              {isNewOverlay
+                ? "Create"
+                : canEditContent && canConfigure && contentDirty && configDirty
+                  ? "Save all"
+                  : canEditContent && contentDirty && !(canConfigure && configDirty)
+                    ? "Save content"
+                    : canConfigure && configDirty
+                      ? "Save conditions"
+                      : "Save"}
             </Button>
           </div>
         </SheetContent>
       </Sheet>
 
-      {showYmlEditor && (
+      {showYmlEditor && canConfigure && (
         <Suspense fallback={null}>
           <OverlaysYmlEditorPanel
             onClose={() => setShowYmlEditor(false)}

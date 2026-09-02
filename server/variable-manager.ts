@@ -483,6 +483,23 @@ class VariableManager {
     return true;
   }
 
+  /** Remove an entire non-reserved variable definition from variables.yml. */
+  deleteDefinition(name: string): void {
+    this.ensureInitialized();
+    if (isBrandVariable(name) || name.startsWith("reserved.")) {
+      throw new Error(`Variable "${name}" is reserved and cannot be deleted`);
+    }
+    const def = this.variables[name];
+    if (!def) {
+      throw new Error(`Variable "${name}" does not exist`);
+    }
+    if (def.isReserved) {
+      throw new Error(`Variable "${name}" is reserved and cannot be deleted`);
+    }
+    delete this.variables[name];
+    this.save();
+  }
+
   renameVariable(oldName: string, newName: string): void {
     this.ensureInitialized();
     if (isBrandVariable(oldName) || this.variables[oldName]?.isReserved) {

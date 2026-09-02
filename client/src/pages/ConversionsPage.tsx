@@ -14,6 +14,7 @@ import {
   IconSend,
   IconTargetArrow,
   IconTrash,
+  IconUserCheck,
   IconX,
 } from "@tabler/icons-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -902,6 +903,36 @@ function ConversionsPageInner() {
               )}
             </div>
           </CardContent>
+        </Card>
+
+        {/* Signup / login endpoints live under Consumer Auth — not conversion webhooks */}
+        <Card data-testid="card-signup-login-webhook">
+          <CardHeader className="pb-3">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0 space-y-1">
+                <div className="flex items-center gap-2">
+                  <IconUserCheck className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <CardTitle className="text-base">Signup and Login Webhook</CardTitle>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Account signup and login are not conversion webhooks. When a form has Require
+                  Signup enabled, guests are registered through Consumer Auth (path + field map) —
+                  configured separately from the conversion webhook above.
+                </p>
+              </div>
+              <Link href="/private/security/auth">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  data-testid="button-configure-signup-login"
+                >
+                  Configure
+                  <IconExternalLink className="h-3.5 w-3.5" />
+                </Button>
+              </Link>
+            </div>
+          </CardHeader>
         </Card>
 
         <Card>

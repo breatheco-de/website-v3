@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import CodeMirror from "@uiw/react-codemirror";
 import { json as jsonLang } from "@codemirror/lang-json";
@@ -17,6 +17,7 @@ import {
   IconExternalLink,
   IconChevronDown,
   IconPencil,
+  IconPlus,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,9 +43,21 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { createVariableWidgetPlugin } from "@/lib/cm-variable-widgets";
+import {
+  AUTH_SIGNUP_FORM_FIELD_PRESETS,
+  AUTH_SIGNUP_SESSION_FIELD_PRESETS,
+  DEFAULT_AUTH_SIGNUP_FIELD_MAP,
+  buildSignupPayloadPreviewJson,
+  buildSignupTestPayloadFromFieldMap,
+  isFormSource,
+  isSignupFieldMapReady,
+  type AuthSignupFieldMapEntry,
+} from "@shared/authSignupFieldMap";
 
 type AuthHttpMethod = "GET" | "POST" | "PUT";
 
@@ -61,10 +74,12 @@ export interface AuthSettingsResponse {
     payload?: Record<string, unknown>;
   };
   signup?: AuthEndpoint & {
+    field_map?: AuthSignupFieldMapEntry[];
     payload?: Record<string, unknown>;
   };
   profile?: AuthEndpoint;
   signup_configured: boolean;
+  signup_field_map_ready?: boolean;
 }
 
 type TestTarget = "login_url" | "login" | "signup" | "profile";
@@ -83,29 +98,6 @@ const DEFAULT_LOGIN_PAYLOAD_TEXT = JSON.stringify(
   {
     email: "bob@gmail.com",
     password: "********",
-  },
-  null,
-  2,
-);
-
-const DEFAULT_SIGNUP_PAYLOAD_TEXT = JSON.stringify(
-  {
-    first_name: "bob",
-    last_name: "dylan",
-    email: "bob@gmail.com",
-    phone: "+574589459854",
-    course: "",
-    country: "Colombia",
-    city: "Bogotá",
-    plan: "ai-fluency",
-    language: "en",
-    has_marketing_consent: true,
-    conversion_info: {
-      user_agent: "Mozilla/5.0 …",
-      landing_url: "/login",
-      conversion_url: "/interactive-exercise/python-beginner-exercises",
-      internal_cta_placement: "navbar-bootcamp-options-start-practicing-with-challenges",
-    },
   },
   null,
   2,
@@ -170,8 +162,10 @@ export function AuthTab() {
   const [loginPayloadError, setLoginPayloadError] = useState<string | null>(null);
   const [signupPath, setSignupPath] = useState("");
   const [signupMethod, setSignupMethod] = useState<AuthHttpMethod>("POST");
-  const [signupPayloadText, setSignupPayloadText] = useState(DEFAULT_SIGNUP_PAYLOAD_TEXT);
-  const [signupPayloadError, setSignupPayloadError] = useState<string | null>(null);
+  const [signupFieldMap, setSignupFieldMap] = useState<AuthSignupFieldMapEntry[]>(
+    () => [...DEFAULT_AUTH_SIGNUP_FIELD_MAP],
+  );
+  const [signupPreviewOpen, setSignupPreviewOpen] = useState(false);
   const [profilePath, setProfilePath] = useState("");
   const [profileMethod, setProfileMethod] = useState<AuthHttpMethod>("GET");
   const [saving, setSaving] = useState(false);
@@ -188,6 +182,12 @@ export function AuthTab() {
   const [testRunning, setTestRunning] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
 
+  const signupPreviewJson = useMemo(
+    () => buildSignupPayloadPreviewJson(signupFieldMap),
+    [signupFieldMap],
+  );
+  const signupMapReady = isSignupFieldMapReady(signupFieldMap);
+
   useEffect(() => {
     if (!data) return;
     setHost(data.host || "");
@@ -202,19 +202,48 @@ export function AuthTab() {
     );
     setSignupPath(data.signup?.path || "");
     setSignupMethod(asMethod(data.signup?.method, "POST"));
-    setSignupPayloadText(
-      data.signup?.payload
-        ? JSON.stringify(data.signup.payload, null, 2)
-        : DEFAULT_SIGNUP_PAYLOAD_TEXT,
+    setSignupFieldMap(
+      data.signup?.field_map?.length
+        ? data.signup.field_map.map((e) => ({ ...e }))
+        : [...DEFAULT_AUTH_SIGNUP_FIELD_MAP],
     );
     setProfilePath(data.profile?.path || "");
     setProfileMethod(asMethod(data.profile?.method, "GET"));
     setLoginPayloadError(null);
-    setSignupPayloadError(null);
     setDirty(false);
   }, [data]);
 
   const markDirty = () => setDirty(true);
+
+  const updateSignupFieldMapRow = (
+    index: number,
+    patch: Partial<AuthSignupFieldMapEntry>,
+  ) => {
+    setSignupFieldMap((prev) =>
+      prev.map((row, i) => {
+        if (i !== index) return row;
+        const next = { ...row, ...patch };
+        if (!isFormSource(next.from)) {
+          delete next.required;
+        }
+        return next;
+      }),
+    );
+    markDirty();
+  };
+
+  const addSignupFieldMapRow = () => {
+    setSignupFieldMap((prev) => [
+      ...prev,
+      { key: "", from: "form.email" },
+    ]);
+    markDirty();
+  };
+
+  const removeSignupFieldMapRow = (index: number) => {
+    setSignupFieldMap((prev) => prev.filter((_, i) => i !== index));
+    markDirty();
+  };
 
   const parsePayload = (
     text: string,
@@ -245,15 +274,6 @@ export function AuthTab() {
       setLoginPayloadOpen(true);
       return;
     }
-    const signupPayload = parsePayload(signupPayloadText, setSignupPayloadError);
-    if (!signupPayload) {
-      toast({
-        title: "Invalid signup payload",
-        description: signupPayloadError || "Fix the JSON first",
-        variant: "destructive",
-      });
-      return;
-    }
     setSaving(true);
     try {
       await apiRequest("PUT", "/api/settings/auth", {
@@ -268,7 +288,7 @@ export function AuthTab() {
         signup: {
           path: signupPath.trim(),
           method: signupMethod,
-          payload: signupPayload,
+          field_map: signupFieldMap,
         },
         profile: {
           path: profilePath.trim(),
@@ -309,7 +329,9 @@ export function AuthTab() {
     setTestPayloadOpen(false);
     setTestCallback(typeof window !== "undefined" ? window.location.href : "");
     if (target === "signup") {
-      setTestPayloadText(signupPayloadText || DEFAULT_SIGNUP_PAYLOAD_TEXT);
+      setTestPayloadText(
+        JSON.stringify(buildSignupTestPayloadFromFieldMap(signupFieldMap), null, 2),
+      );
     } else if (target === "login") {
       setTestPayloadText(loginPayloadText || DEFAULT_LOGIN_PAYLOAD_TEXT);
       try {
@@ -447,7 +469,7 @@ export function AuthTab() {
             ? "Test Profile Path"
             : "Test";
 
-  const payloadErrors = Boolean(loginPayloadError || signupPayloadError);
+  const payloadErrors = Boolean(loginPayloadError);
 
   return (
     <>
@@ -760,7 +782,9 @@ export function AuthTab() {
                       <CardTitle className="text-sm">Signup</CardTitle>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Endpoint and example payload posted when a form with Require Signup runs for a guest.
+                      Keys sent when a form has Require Signup. Map each key to a form or session
+                      value. Mark required only for form sources — every signup form must then
+                      require that field.
                     </p>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -808,45 +832,195 @@ export function AuthTab() {
                       </p>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <Label htmlFor="auth-signup-payload" className="text-sm font-medium">
-                        Example signup payload
-                      </Label>
+                    {signupPath.trim() && !signupMapReady ? (
                       <div
-                        id="auth-signup-payload"
-                        className="min-w-0 w-full max-w-full overflow-hidden rounded-md border border-input"
-                        data-testid="textarea-auth-signup-payload"
+                        className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs"
+                        data-testid="text-auth-signup-map-empty"
                       >
-                        <CodeMirror
-                          value={signupPayloadText}
-                          height="338px"
-                          width="100%"
-                          extensions={[jsonLang(), EditorView.lineWrapping]}
-                          theme={oneDark}
-                          onChange={(value) => {
-                            setSignupPayloadText(value);
-                            parsePayload(value, setSignupPayloadError);
-                            markDirty();
-                          }}
-                          basicSetup={{
-                            lineNumbers: true,
-                            foldGutter: true,
-                            highlightActiveLine: true,
-                          }}
-                          className="min-w-0 max-w-full text-xs [&_.cm-editor]:max-w-full [&_.cm-editor]:rounded-md [&_.cm-scroller]:overflow-auto"
-                        />
+                        <IconAlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-500" />
+                        <span>
+                          Add at least one field mapping below. Forms cannot enable Require Signup
+                          until the map has rows.
+                        </span>
                       </div>
-                      {signupPayloadError ? (
-                        <p className="text-xs text-destructive" data-testid="text-auth-payload-error">
-                          {signupPayloadError}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          Template sent to the signup endpoint. Live form values (email, name, phone, …)
-                          are merged over this object on submit.
-                        </p>
-                      )}
+                    ) : null}
+
+                    <div className="space-y-2" data-testid="auth-signup-field-map">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label className="text-sm font-medium">Field map</Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={addSignupFieldMapRow}
+                          data-testid="button-auth-signup-add-field"
+                        >
+                          <IconPlus className="h-3.5 w-3.5 mr-1" />
+                          Add field
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
+                        {signupFieldMap.map((row, index) => {
+                          const formFrom = isFormSource(row.from);
+                          return (
+                            <div
+                              key={index}
+                              className="rounded-md border p-2 space-y-2"
+                              data-testid={`auth-signup-field-row-${index}`}
+                            >
+                              <div className="flex gap-2 items-start">
+                                <div className="flex-1 space-y-1 min-w-0">
+                                  <Label className="text-xs text-muted-foreground">Payload key</Label>
+                                  <Input
+                                    value={row.key}
+                                    onChange={(e) =>
+                                      updateSignupFieldMapRow(index, { key: e.target.value })
+                                    }
+                                    placeholder="plan"
+                                    className="font-mono text-sm h-8"
+                                    data-testid={`input-auth-signup-key-${index}`}
+                                  />
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="shrink-0 mt-5"
+                                  onClick={() => removeSignupFieldMapRow(index)}
+                                  data-testid={`button-auth-signup-remove-${index}`}
+                                >
+                                  <IconTrash className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs text-muted-foreground">From</Label>
+                                <Select
+                                  value={row.from}
+                                  onValueChange={(v) =>
+                                    updateSignupFieldMapRow(index, { from: v })
+                                  }
+                                >
+                                  <SelectTrigger
+                                    className="font-mono text-xs h-8"
+                                    data-testid={`select-auth-signup-from-${index}`}
+                                  >
+                                    <SelectValue placeholder="form.email" />
+                                  </SelectTrigger>
+                                  <SelectContent className="max-h-72">
+                                    <div className="px-2 py-1 text-[10px] uppercase text-muted-foreground">
+                                      Form
+                                    </div>
+                                    {AUTH_SIGNUP_FORM_FIELD_PRESETS.map((name) => (
+                                      <SelectItem
+                                        key={`form.${name}`}
+                                        value={`form.${name}`}
+                                        className="font-mono text-xs"
+                                      >
+                                        form.{name}
+                                      </SelectItem>
+                                    ))}
+                                    <div className="px-2 py-1 text-[10px] uppercase text-muted-foreground">
+                                      Session
+                                    </div>
+                                    {AUTH_SIGNUP_SESSION_FIELD_PRESETS.map((name) => (
+                                      <SelectItem
+                                        key={`session.${name}`}
+                                        value={`session.${name}`}
+                                        className="font-mono text-xs"
+                                      >
+                                        session.{name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Input
+                                  value={row.from}
+                                  onChange={(e) =>
+                                    updateSignupFieldMapRow(index, { from: e.target.value })
+                                  }
+                                  placeholder="form.custom_field or session.geo.country"
+                                  className="font-mono text-xs h-8"
+                                  data-testid={`input-auth-signup-from-custom-${index}`}
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Pick a preset or type a custom form.* / session.* path.
+                                </p>
+                              </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <Label
+                                  htmlFor={`auth-signup-required-${index}`}
+                                  className={cn(
+                                    "text-xs",
+                                    !formFrom && "text-muted-foreground",
+                                  )}
+                                >
+                                  Required on signup forms
+                                </Label>
+                                <Switch
+                                  id={`auth-signup-required-${index}`}
+                                  checked={formFrom && row.required === true}
+                                  disabled={!formFrom}
+                                  onCheckedChange={(checked) =>
+                                    updateSignupFieldMapRow(index, {
+                                      required: checked || undefined,
+                                    })
+                                  }
+                                  data-testid={`switch-auth-signup-required-${index}`}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
+
+                    <Collapsible open={signupPreviewOpen} onOpenChange={setSignupPreviewOpen}>
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hover-elevate rounded w-full text-left"
+                          data-testid="button-toggle-signup-payload-preview"
+                        >
+                          {signupPreviewOpen ? (
+                            <IconChevronDown className="h-3.5 w-3.5" />
+                          ) : (
+                            <IconChevronDown className="h-3.5 w-3.5 -rotate-90" />
+                          )}
+                          Example signup payload
+                        </button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="mt-2 space-y-2">
+                        <div
+                          className="min-w-0 w-full max-w-full overflow-hidden rounded-md border border-input"
+                          data-testid="preview-auth-signup-payload"
+                        >
+                          <CodeMirror
+                            value={signupPreviewJson}
+                            height="280px"
+                            width="100%"
+                            editable={false}
+                            extensions={[
+                              jsonLang(),
+                              EditorView.lineWrapping,
+                              ...createVariableWidgetPlugin({ readOnly: true }),
+                            ]}
+                            theme={oneDark}
+                            basicSetup={{
+                              lineNumbers: true,
+                              foldGutter: true,
+                              highlightActiveLine: false,
+                            }}
+                            className="min-w-0 max-w-full text-xs [&_.cm-editor]:max-w-full [&_.cm-editor]:rounded-md [&_.cm-scroller]:overflow-auto"
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground" data-testid="text-auth-conversion-info-note">
+                          Auto-generated from the field map (read-only).{" "}
+                          <code className="text-xs">conversion_info</code> is always built and
+                          appended automatically at submit time — the sample object above is for
+                          illustration only.
+                        </p>
+                      </CollapsibleContent>
+                    </Collapsible>
                   </CardContent>
                 </Card>
               </div>

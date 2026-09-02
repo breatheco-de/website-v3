@@ -89,10 +89,35 @@ Ecommerce **on** for a content type = that type has **at least one** product in 
 - Navbar is not an offer catalog.
 - Do not hardcode `content_type === "program"`.
 
+## Require Signup (`is_signup`)
+
+Site contract lives in `settings.yml` → `auth.signup.field_map` (Consumer Auth UI at `/private/security/auth`).
+
+Each row: `{ key, from: "form.*" | "session.*", required? }`. `required` is only valid for `form.*` sources.
+
+When `is_signup: true`:
+
+- Site `field_map` must be non-empty (else section save / MCP / forms validator fail).
+- Every `form.<name>` in the map must be present on the form; required map rows need `fields.<name>.required: true`.
+- Hidden plan default for free signup:
+
+```yaml
+fields:
+  plan:
+    visible: false
+    required: true
+    default: "{{ global.default_free_signup_plan | 4geeks-basic-subscription }}"
+```
+
+Live submit builds the body from the map only (no legacy payload merge). `conversion_info` is always appended in code — not editable in the map.
+
+No magic aliases: `payload.course` ← `form.program` only if that mapping row exists.
+
 ## Paths
 
 - Parse: `shared/parseFormFieldSource.ts`
 - Catalog API: `server/query-options.ts`
 - Index: `server/ecommerce/ecommerce-index.ts`
 - Runtime: `client/src/components/lead_form/variants/LeadFormDefault.tsx`
-- Staff UI: `client/src/components/editing/FormFieldsCard.tsx`
+- Signup field map: `shared/authSignupFieldMap.ts`
+- Staff UI: `client/src/components/editing/FormFieldsCard.tsx` / `client/src/components/settings/AuthTab.tsx`

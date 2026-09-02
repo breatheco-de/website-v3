@@ -28,6 +28,11 @@ import {
   DEFAULT_ECOMMERCE_PRODUCT_FIELD,
   resolveConversionProduct,
 } from "@shared/resolveConversionProduct";
+import {
+  buildSignupPayloadFromFieldMap,
+  isSignupFieldMapReady,
+  type AuthSignupFieldMapEntry,
+} from "@shared/authSignupFieldMap";
 import { resolveFormDefaults } from "@shared/resolveFormDefaults";
 import { resolveConsentCopy, extraConsentYamlFieldsFromObject, consentKeyFromYamlField, isBlankConsentHtml, parseConsentSettingsResponse, shouldShowFallbackConsent } from "@shared/consent-settings";
 import { RichTextContent } from "@/components/ui/rich-text-content";
@@ -705,15 +710,19 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const isSignupRequested = data.is_signup === true;
   const { data: authSettings } = useQuery<{
     signup_configured: boolean;
+    signup_field_map_ready?: boolean;
     host?: string;
     login?: { url?: string };
-    signup?: { payload?: Record<string, unknown> };
+    signup?: { field_map?: AuthSignupFieldMapEntry[] };
   }>({
     queryKey: ["/api/settings/auth"],
     enabled: isSignupRequested,
     staleTime: 5 * 60 * 1000,
   });
-  const signupActive = isSignupRequested && authSettings?.signup_configured === true;
+  const signupActive =
+    isSignupRequested &&
+    authSettings?.signup_configured === true &&
+    isSignupFieldMapReady(authSettings?.signup?.field_map);
 
   const {
     profile: authProfile,
@@ -1362,39 +1371,49 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       // Signup mode: guests are registered first via the site auth endpoint;
       // logged-in users skip this and go straight to the lead/conversion flow.
       if (signupActive && !isLoggedIn) {
-        const liveSignup = {
-          first_name: values.first_name,
-          last_name: values.last_name,
-          email: values.email,
-          phone: values.phone,
-          course: fields.program || "",
-          country: session.geo?.country || "",
-          city: session.geo?.city || "",
-          plan: fields.plan,
+        const fieldMap = authSettings?.signup?.field_map ?? [];
+        const formCtx: Record<string, unknown> = {
+          ...values,
+          ...fields,
+          consent_email: effectiveEmailConsent,
+          consent_sms: consent_sms || false,
+          consent_whatsapp: effectiveWhatsappConsent,
+        };
+        const sessionCtx: Record<string, unknown> = {
           language: session.language,
-          has_marketing_consent: effectiveEmailConsent,
-          conversion_info: {
-            user_agent: navigator.userAgent,
-            landing_url:
-              session.landing_page || utm.utm_url || window.location.pathname,
-            conversion_url: window.location.pathname,
-            ...(utm.utm_placement ? { internal_cta_placement: utm.utm_placement } : {}),
+          browserLang: session.browserLang,
+          landing_page: session.landing_page,
+          conversion_page: session.conversion_page,
+          userId: session.userId,
+          geo: session.geo ?? {},
+          location: sessionLocation ?? {},
+          utm: {
+            utm_source: utm.utm_source,
+            utm_medium: utm.utm_medium,
+            utm_campaign: utm.utm_campaign,
+            utm_content: utm.utm_content,
+            utm_term: utm.utm_term,
+            utm_url: utm.utm_url,
+            utm_placement: utm.utm_placement,
+            utm_plan: utm.utm_plan,
+            coupon: utm.coupon,
+            referral_key: utm.referral_key,
+            referral: utm.referral,
+            ref: utm.ref,
           },
         };
-        // Merge live values over the site auth example payload template
-        const template = authSettings?.signup?.payload || {};
-        const templateInfo =
-          template.conversion_info && typeof template.conversion_info === "object"
-            ? (template.conversion_info as Record<string, unknown>)
-            : {};
-        const signupPayload = {
-          ...template,
-          ...liveSignup,
-          conversion_info: {
-            ...templateInfo,
-            ...liveSignup.conversion_info,
-          },
+        const conversion_info: Record<string, unknown> = {
+          user_agent: navigator.userAgent,
+          landing_url:
+            session.landing_page || utm.utm_url || window.location.pathname,
+          conversion_url: window.location.pathname,
+          ...(utm.utm_placement ? { internal_cta_placement: utm.utm_placement } : {}),
         };
+        const signupPayload = buildSignupPayloadFromFieldMap(
+          fieldMap,
+          { form: formCtx, session: sessionCtx },
+          conversion_info,
+        );
         const signupRes = await apiRequest("POST", "/api/auth/signup", signupPayload);
         try {
           const signupJson = (await signupRes.json()) as {

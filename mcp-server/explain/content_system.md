@@ -104,6 +104,8 @@ Content files may reference template expressions that are resolved at **delivery
 | `{{ brand.* }}` | Protected site identity in `variables.yml` (Brand Settings) | `{{ brand.logo }}`, `{{ brand.title }}` |
 | `{{ global.* }}` / `reserved.*` | Other site variables in `variables.yml` | `{{ global.campus_phone }}` |
 
+Staff maintain globals (and browse brand/reserved read-only) at **`/private/variables`**. Usage indexing tracks dotted tokens (`global.*`, `brand.*`, `entry.*`, …). Brand/legal edits stay in Settings → Brand / Legal. Menu YAML is not in the usage index yet.
+
 Resolve order at page delivery: **entry (incl. legacy single) → meta → param**. Site vars (`brand`/`global`) stay for React `SectionRenderer` (edit mode can preserve `{{ }}`); pass `skipSiteVars: false` only for non-React consumers (menus, schema.org, SEO, entry preview). Editors keep unresolved templates on write paths.
 
 **Mental model:** `{{ entry.* }}` is the **current entry’s field bag** (`field_mapping`) — not the shared shell filename. Shared-layout shells live in `template.{locale}.yml` (legacy `single.*` still loads; filename ≠ namespace). SEO Meta tab = SEO head only (`meta.*`). Mapping remaps are for DB columns and `function:` fields. New schema fields need a default; if no entry has the key yet, warn “new field”.

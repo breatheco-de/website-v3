@@ -103,6 +103,19 @@ const REGISTRY = [
     description: "Add, change, or remove URL redirects for pages and the site.",
   },
   {
+    name: "overlays_edit_content",
+    label: "Edit overlay copy",
+    scoped: false,
+    description: "Edit overlay / modal copy (title, body, buttons, image). Does not control who sees it or when.",
+  },
+  {
+    name: "overlays_configure",
+    label: "Configure overlays",
+    scoped: false,
+    description:
+      "Create, enable/disable, and configure overlay targeting, triggers, and display settings.",
+  },
+  {
     name: "seo_settings",
     label: "Manage SEO settings",
     scoped: false,

@@ -23,6 +23,7 @@ export interface VariableDefinition {
   by_locale?: Record<string, string>;
   by_region?: Record<string, string>;
   by_location?: Record<string, string>;
+  isReserved?: boolean;
 }
 
 export interface VariableContext {

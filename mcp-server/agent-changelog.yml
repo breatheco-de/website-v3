@@ -6,6 +6,28 @@ window_days: 6
 
 entries:
   - date: "2026-09-02"
+    summary: "auth.signup.field_map — Require Signup payload contract"
+    agent_impact:
+      - "is_signup forms must satisfy settings.yml auth.signup.field_map (non-empty). Required form.* rows need fields.<name>.required: true on the form."
+      - "Hidden plan default: fields.plan.default: \"{{ global.default_free_signup_plan | 4geeks-basic-subscription }}\". conversion_info is always appended by runtime — not in the map."
+      - "No magic aliases (course←program only if mapped). Empty field_map blocks enabling is_signup; configure at /private/security/auth."
+    paths:
+      - shared/authSignupFieldMap.ts
+      - mcp-server/explain/lead-forms.md
+      - client/src/components/settings/AuthTab.tsx
+    tools_changed: false
+  - date: "2026-09-02"
+    summary: "Staff Variables dashboard + dotted template usage indexing"
+    agent_impact:
+      - "Staff manage site globals at /private/variables (mock location+locale, usage-gated delete). Brand/legal stay Settings-only."
+      - "ContentIndex usage now indexes dotted tokens (global.*, brand.*, entry.*, …); prefer that when reasoning about where a global is referenced."
+      - "No new MCP variable mutate tools this pass — still use content YAML / existing HTTP if needed."
+    paths:
+      - client/src/pages/VariablesPage.tsx
+      - server/content-index.ts
+      - mcp-server/explain/content_system.md
+    tools_changed: false
+  - date: "2026-09-02"
     summary: "delete_variant MCP tool — discard drafts without promoting"
     agent_impact:
       - "New delete_variant: confirm:true + report (min 80). Deletes {variantSlug}.{locale}.yml; live unchanged unless last draft on unpublished entry (entryDeleted)."

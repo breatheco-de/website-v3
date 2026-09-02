@@ -36,9 +36,16 @@ import {
 import { loadAllFieldEditors } from "./component-registry";
 const log = child({ module: "content-index" });
 
-
-
-/** Backward-compat: resolves from CONTENT_FOLDER env var or falls back to the canonical content folder name. */
+/** Extract `{{ name }}` / `{{ ns.field | fallback }}` token names (supports dotted namespaces). */
+export function extractTemplateVariableNames(rawContent: string): string[] {
+  const regex = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|[^}]*)?\}\}/g;
+  const names: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(rawContent)) !== null) {
+    names.push(match[1]);
+  }
+  return names;
+}/** Backward-compat: resolves from CONTENT_FOLDER env var or falls back to the canonical content folder name. */
 export const MARKETING_CONTENT_PATH = getDefaultContentRoot();
 
 function stripNullValues<T>(obj: T): T {
@@ -643,10 +650,8 @@ export class ContentIndex {
   }
 
   private extractVariableReferences(rawContent: string, filePath: string): void {
-    const regex = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\|[^}]*)?\}\}/g;
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(rawContent)) !== null) {
-      this.addVariableRef(match[1], filePath);
+    for (const name of extractTemplateVariableNames(rawContent)) {
+      this.addVariableRef(name, filePath);
     }
   }
 
@@ -1423,6 +1428,16 @@ export class ContentIndex {
     this.ensureInitialized();
     const refs = this.variableUsage.get(variableName);
     return refs ? Array.from(refs) : [];
+  }
+
+  /** Per-variable file reference counts (for dashboard list without N+1). */
+  getVariableUsageSummary(): Record<string, number> {
+    this.ensureInitialized();
+    const counts: Record<string, number> = {};
+    for (const [name, files] of this.variableUsage) {
+      counts[name] = files.size;
+    }
+    return counts;
   }
 
   getRedirects(): RedirectEntry[] {

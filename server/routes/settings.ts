@@ -146,6 +146,7 @@ import {
   getAuthSettings,
   updateAuthSettings,
   isSignupConfigured,
+  isSignupFieldMapReady,
   getEntryPreviewSettings,
   updateEntryPreviewSettings,
   DEFAULT_ENTRY_PREVIEW_SETTINGS,
@@ -164,6 +165,10 @@ import {
 import type { ProgressEvent } from "../../scripts/validation/fixers/types";
 import { gcs } from "../gcs";
 import { z } from "zod";
+import {
+  buildSignupTestPayloadFromFieldMap,
+  type AuthSignupFieldMapEntry,
+} from "@shared/authSignupFieldMap";
 import {
   generateSsrSchemaHtml,
   generateDatabaseSsrHtml,
@@ -401,6 +406,17 @@ export function registerSettingsRoutes(app: Express): void {
     res.json(getVM(res).getDefinitions());
   });
 
+  // Must be registered before /api/variables/:name/* so "usage-summary" is not a :name.
+  app.get("/api/variables/usage-summary", (_req, res) => {
+    try {
+      res.json({ counts: getCI(res).getVariableUsageSummary() });
+    } catch (err: any) {
+      res
+        .status(500)
+        .json({ error: err?.message || "Failed to get variable usage summary" });
+    }
+  });
+
   app.put("/api/variables/:name", (req, res) => {
     try {
       const { name } = req.params;
@@ -497,7 +513,7 @@ export function registerSettingsRoutes(app: Express): void {
   app.delete("/api/variables/:name", (req, res) => {
     try {
       const { name } = req.params;
-      const body = req.body;
+      const body = req.body || {};
 
       const defToDelete = getVM(res).getDefinition(name);
       if (defToDelete?.isReserved) {
@@ -505,6 +521,22 @@ export function registerSettingsRoutes(app: Express): void {
           ? "Manage it in Settings → Brand."
           : "Manage it in Settings → Legal.";
         return res.status(403).json({ error: `Variable "${name}" is reserved and cannot be deleted. ${hint}` });
+      }
+
+      if (body.action === "delete_definition") {
+        const files = getCI(res).getVariableUsage(name);
+        if (files.length > 0) {
+          return res.status(409).json({
+            error: `Variable "${name}" is still used in ${files.length} file(s). Remove references first.`,
+            files,
+            count: files.length,
+          });
+        }
+        getVM(res).deleteDefinition(name);
+        return res.json({
+          success: true,
+          definitions: getVM(res).getDefinitions(),
+        });
       }
 
       if (body.level) {
@@ -766,6 +798,7 @@ export function registerSettingsRoutes(app: Express): void {
       ...auth,
       host: auth.host || effectiveHost || undefined,
       signup_configured: isSignupConfigured(contentRoot),
+      signup_field_map_ready: isSignupFieldMapReady(auth.signup?.field_map),
       login_page_url: loginPageUrl || undefined,
     });
   });
@@ -786,6 +819,15 @@ export function registerSettingsRoutes(app: Express): void {
         }).optional(),
         signup: endpointSchema.extend({
           payload: z.record(z.unknown()).optional(),
+          field_map: z
+            .array(
+              z.object({
+                key: z.string(),
+                from: z.string(),
+                required: z.boolean().optional(),
+              }),
+            )
+            .optional(),
         }).optional(),
         profile: endpointSchema.optional(),
       }).nullable();
@@ -798,6 +840,7 @@ export function registerSettingsRoutes(app: Express): void {
         success: true,
         ...updated,
         signup_configured: isSignupConfigured(getContentRoot(res)),
+        signup_field_map_ready: isSignupFieldMapReady(updated.signup?.field_map),
       });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
@@ -915,23 +958,31 @@ export function registerSettingsRoutes(app: Express): void {
             ? req.body.payload
             : signupOverride.payload && typeof signupOverride.payload === "object" && !Array.isArray(signupOverride.payload)
               ? signupOverride.payload
-              : saved.signup?.payload || {
-                  first_name: "Test",
-                  last_name: "User",
-                  email: `auth-test-${Date.now()}@example.com`,
-                  phone: "",
-                  course: "",
-                  country: "",
-                  city: "",
-                  plan: "",
-                  language: "en",
-                  has_marketing_consent: false,
-                  conversion_info: {
-                    user_agent: "website-v3-auth-test",
-                    landing_url: "/private/security/auth",
-                    conversion_url: "/private/security/auth",
-                  },
-                };
+              : (() => {
+                  const map = Array.isArray((signupOverride as { field_map?: unknown }).field_map)
+                    ? ((signupOverride as { field_map: AuthSignupFieldMapEntry[] }).field_map)
+                    : saved.signup?.field_map;
+                  if (Array.isArray(map) && map.length > 0) {
+                    return buildSignupTestPayloadFromFieldMap(map);
+                  }
+                  return {
+                    first_name: "Test",
+                    last_name: "User",
+                    email: `auth-test-${Date.now()}@example.com`,
+                    phone: "",
+                    course: "",
+                    country: "",
+                    city: "",
+                    plan: "4geeks-basic-subscription",
+                    language: "en",
+                    has_marketing_consent: false,
+                    conversion_info: {
+                      user_agent: "website-v3-auth-test",
+                      landing_url: "/private/security/auth",
+                      conversion_url: "/private/security/auth",
+                    },
+                  };
+                })();
         if (method === "GET") {
           url = flattenScalarsToQuery(url, payload as Record<string, unknown>);
         } else {

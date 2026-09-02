@@ -886,6 +886,23 @@
   color: hsl(var(--destructive));
 }
 
+/* Body-mounted tip for CM variable pills (native title is blocked in contenteditable). */
+.cm-variable-pill-tooltip {
+  position: fixed;
+  z-index: 10050;
+  max-width: min(20rem, calc(100vw - 1rem));
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.375rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 4px 12px hsl(var(--foreground) / 0.12);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  pointer-events: none;
+  white-space: normal;
+}
+
 .cm-variable-delim {
   color: hsl(var(--primary) / 0.5);
   font-weight: 600;

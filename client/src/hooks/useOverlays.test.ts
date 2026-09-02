@@ -84,23 +84,40 @@ describe("overlay blocking save validation", () => {
     expect(overlayBlockingSaveError({ id: "a", content: { buttons: [] } })).toBeNull();
   });
 
-  it("rejects blocking overlays with no labeled button", () => {
+  it("allows disabled blocking overlays without labeled buttons", () => {
     expect(
       overlayBlockingSaveError({
         id: "a",
+        enabled: false,
         dismissible: false,
         content: { buttons: [{ label: "  " }] },
       }),
-    ).toMatch(/at least one button/i);
+    ).toBeNull();
+  });
+
+  it("rejects enabled blocking overlays with no labeled button", () => {
+    expect(
+      overlayBlockingSaveError({
+        id: "a",
+        enabled: true,
+        dismissible: false,
+        content: { buttons: [{ label: "  " }] },
+      }),
+    ).toMatch(/before it can be enabled/i);
     expect(overlayHasLabeledButton({ content: { buttons: [{ label: "OK" }] } })).toBe(true);
   });
 
   it("validateOverlaysConfig scans the array", () => {
     expect(
       validateOverlaysConfig({
-        overlays: [{ id: "x", dismissible: false, content: { buttons: [] } }],
+        overlays: [{ id: "x", enabled: true, dismissible: false, content: { buttons: [] } }],
       }),
-    ).toMatch(/at least one button/i);
+    ).toMatch(/before it can be enabled/i);
+    expect(
+      validateOverlaysConfig({
+        overlays: [{ id: "x", enabled: false, dismissible: false, content: { buttons: [] } }],
+      }),
+    ).toBeNull();
     expect(validateOverlaysConfig({ overlays: [] })).toBeNull();
   });
 });

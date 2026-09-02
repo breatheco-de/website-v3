@@ -21,7 +21,8 @@ yaml: |
         required: false
       plan:
         visible: false
-        default: ai-fluency
+        required: true
+        default: "{{ global.default_free_signup_plan | 4geeks-basic-subscription }}"
     success:
       message: "Welcome! Your account is ready."
     messages:

@@ -1,14 +1,16 @@
-import { IconUserPlus, IconAlertTriangle, IconExternalLink } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
+import { IconUserPlus, IconAlertTriangle, IconExternalLink } from "@tabler/icons-react";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { isSignupFieldMapReady, type AuthSignupFieldMapEntry } from "@shared/authSignupFieldMap";
 
 interface AuthSettingsResponse {
   host?: string;
   login?: { url?: string; path?: string };
-  signup?: { path?: string };
+  signup?: { path?: string; field_map?: AuthSignupFieldMapEntry[] };
   profile?: { path?: string };
   signup_configured: boolean;
+  signup_field_map_ready?: boolean;
 }
 
 export interface RequireSignupCardProps {
@@ -19,7 +21,7 @@ export interface RequireSignupCardProps {
 
 /**
  * Toggle for the form-level `is_signup` flag. When site auth (settings.yml `auth`)
- * is not configured, the switch is disabled and the copy links to the settings page.
+ * is not configured, or the signup field_map is empty, the switch is disabled.
  */
 export function RequireSignupCard({
   enabled,
@@ -31,7 +33,11 @@ export function RequireSignupCard({
   });
 
   const configured = authSettings?.signup_configured === true;
-  const disabled = isLoading || !configured;
+  const mapReady =
+    authSettings?.signup_field_map_ready === true ||
+    isSignupFieldMapReady(authSettings?.signup?.field_map);
+  const canEnable = configured && mapReady;
+  const disabled = isLoading || !canEnable;
 
   return (
     <div
@@ -71,6 +77,24 @@ export function RequireSignupCard({
               <IconExternalLink className="h-3 w-3" />
             </a>
             {enabled ? " — this form has the flag set, but signup will not run until auth is configured." : ""}
+          </p>
+        </div>
+      ) : !isLoading && configured && !mapReady ? (
+        <div className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
+          <IconAlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <p data-testid={`text-${testIdPrefix}-empty-map`}>
+            Signup field map is empty.{" "}
+            <a
+              href="/private/security/auth"
+              className="underline hover:no-underline inline-flex items-center gap-0.5"
+              data-testid={`link-${testIdPrefix}-field-map`}
+            >
+              Add field mappings in Consumer Auth
+              <IconExternalLink className="h-3 w-3" />
+            </a>
+            {enabled
+              ? " — Require Signup stays blocked until the map has at least one row."
+              : " before enabling Require Signup."}
           </p>
         </div>
       ) : (

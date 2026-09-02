@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Bot, Brain, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Globe, Home, Image, Languages, Map, Menu, MessageCircle, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Bot, Brain, Braces, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Globe, Home, Image, Languages, Map, Menu, MessageCircle, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
 import { IconServer, IconShoppingBag, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle, IconSwitchHorizontal } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
@@ -824,6 +824,13 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 onClick={() => props.setMenuView("content-types")}
                 indicator="chevron"
                 testId="button-content-types-menu"
+              />
+              <MenuItem
+                icon={Braces}
+                label="Variables"
+                href="/private/variables"
+                indicator="arrow"
+                testId="link-variables-page"
               />
               <MenuItem
                 icon={Image}

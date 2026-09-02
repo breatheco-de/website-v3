@@ -135,6 +135,7 @@ const BUILT_IN_PLATFORM_STEWARD_ROLE: RoleDefinition = {
     { name: "seo_edit", contentTypes: "*" },
     { name: "read_redirects" },
     { name: "edit_redirects" },
+    { name: "overlays_configure" },
     { name: "seo_settings" },
     { name: "components_manage" },
   ],

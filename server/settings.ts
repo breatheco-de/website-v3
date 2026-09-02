@@ -5,6 +5,22 @@ import yaml from "js-yaml";
 import { child } from "./logger";
 import { normalizeConsentFallbackKey } from "@shared/consent-settings";
 import { validateConversionEventIntent } from "@shared/conversionEventIntent";
+import {
+  type AuthSignupFieldMapEntry,
+  parseAuthSignupFieldMap,
+  normalizeAuthSignupFieldMapInput,
+  isSignupFieldMapReady,
+  DEFAULT_AUTH_SIGNUP_FIELD_MAP,
+  buildSignupPayloadPreviewJson,
+} from "@shared/authSignupFieldMap";
+
+export type { AuthSignupFieldMapEntry };
+export {
+  isSignupFieldMapReady,
+  DEFAULT_AUTH_SIGNUP_FIELD_MAP,
+  buildSignupPayloadPreviewJson,
+};
+
 const log = child({ module: "settings" });
 
 
@@ -183,8 +199,13 @@ export interface AuthSettings {
     payload?: Record<string, unknown>;
   };
   signup?: AuthEndpoint & {
-    /** Template merged with live form values on is_signup submit */
+    /**
+     * @deprecated Legacy example JSON — no longer written on save; live signup
+     * uses field_map. Kept on read for migration only.
+     */
     payload?: Record<string, unknown>;
+    /** Payload key → form.* / session.* map for is_signup submit */
+    field_map?: AuthSignupFieldMapEntry[];
   };
   profile?: AuthEndpoint;
 }
@@ -194,6 +215,7 @@ export const DEFAULT_LOGIN_PAYLOAD: Record<string, unknown> = {
   password: "********",
 };
 
+/** @deprecated Prefer field_map + generated preview. Kept for login-era tests. */
 export const DEFAULT_SIGNUP_PAYLOAD: Record<string, unknown> = {
   first_name: "bob",
   last_name: "dylan",
@@ -202,7 +224,7 @@ export const DEFAULT_SIGNUP_PAYLOAD: Record<string, unknown> = {
   course: "",
   country: "Colombia",
   city: "Bogotá",
-  plan: "ai-fluency",
+  plan: "4geeks-basic-subscription",
   language: "en",
   has_marketing_consent: true,
   conversion_info: {
@@ -274,6 +296,7 @@ export function normalizeAuthSettings(authRaw: Record<string, unknown> | undefin
   const signupPath = authStr(signupRaw?.path) || legacySignupPath;
   const signupMethod = parseAuthMethod(signupRaw?.method);
   const signupPayload = parsePayload(signupRaw?.payload) || legacySignupPayload;
+  const signupFieldMap = parseAuthSignupFieldMap(signupRaw?.field_map);
 
   const profilePath = authStr(profileRaw?.path) || legacyMePath;
   const profileMethod = parseAuthMethod(profileRaw?.method);
@@ -289,11 +312,13 @@ export function normalizeAuthSettings(authRaw: Record<string, unknown> | undefin
       : undefined;
 
   const signup =
-    signupPath || signupMethod || signupPayload
+    signupPath || signupMethod || signupPayload || (signupFieldMap && signupFieldMap.length > 0)
       ? {
           ...(signupPath ? { path: signupPath } : {}),
           ...(signupMethod ? { method: signupMethod } : {}),
+          // Legacy payload still readable until sites are migrated; new saves omit it.
           ...(signupPayload ? { payload: signupPayload } : {}),
+          ...(signupFieldMap && signupFieldMap.length > 0 ? { field_map: signupFieldMap } : {}),
         }
       : undefined;
 
@@ -1246,7 +1271,10 @@ export function updateAuthSettings(
         validatePathOrUrl(String(input.signup.path).trim(), "auth.signup.path");
       }
       validateMethod(input.signup.method, "auth.signup.method");
-      validatePayload(input.signup.payload, "auth.signup.payload");
+      // Legacy payload may still arrive; ignore for persistence (field_map is source of truth).
+      if (input.signup.field_map !== undefined) {
+        normalizeAuthSignupFieldMapInput(input.signup.field_map);
+      }
     }
     if (input.profile) {
       if (input.profile.path !== undefined && input.profile.path !== "") {
@@ -1317,7 +1345,40 @@ export function updateAuthSettings(
         : current.academy;
 
     const nextLogin = mergeEndpoint(input.login, current.login, { includeUrl: true, includePayload: true });
-    const nextSignup = mergeEndpoint(input.signup, current.signup, { includePayload: true });
+    // Signup: persist field_map; do not write legacy payload.
+    let nextSignup: AuthSettings["signup"] | undefined;
+    if (input.signup === undefined) {
+      nextSignup = current.signup
+        ? {
+            ...(current.signup.path ? { path: current.signup.path } : {}),
+            ...(current.signup.method ? { method: current.signup.method } : {}),
+            ...(current.signup.field_map?.length
+              ? { field_map: current.signup.field_map }
+              : {}),
+          }
+        : undefined;
+    } else {
+      const nextPath =
+        input.signup.path !== undefined
+          ? (String(input.signup.path ?? "").trim() || undefined)
+          : current.signup?.path;
+      const nextMethod =
+        input.signup.method !== undefined
+          ? parseAuthMethod(input.signup.method) ?? undefined
+          : current.signup?.method;
+      const nextFieldMap =
+        input.signup.field_map !== undefined
+          ? normalizeAuthSignupFieldMapInput(input.signup.field_map)
+          : current.signup?.field_map ?? [];
+      nextSignup =
+        nextPath || nextMethod || nextFieldMap.length > 0
+          ? {
+              ...(nextPath ? { path: nextPath } : {}),
+              ...(nextMethod ? { method: nextMethod } : {}),
+              ...(nextFieldMap.length > 0 ? { field_map: nextFieldMap } : {}),
+            }
+          : undefined;
+    }
     const nextProfile = mergeEndpoint(input.profile, current.profile, {});
 
     const next: AuthSettings = {

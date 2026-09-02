@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   findReplaceableTextRange,
   findTemplateSpans,
+  formatVariablePillLabel,
 } from "./cm-variable-widgets";
 
 const BLOG_BREADCRUMB_YAML = `type: breadcrumb
@@ -61,8 +62,31 @@ describe("findTemplateSpans", () => {
     const spans = findTemplateSpans(doc);
     expect(spans).toHaveLength(1);
     expect(spans[0].name).toBe("entry.category");
+    expect(spans[0].defaultValue).toBe("category");
     expect(doc.slice(spans[0].from, spans[0].to)).toBe(
       "{{ entry.category | category }}",
     );
+  });
+
+  it("omits defaultValue when there is no pipe", () => {
+    const spans = findTemplateSpans("url: {{ entry.learnpack_url }}\n");
+    expect(spans).toHaveLength(1);
+    expect(spans[0].name).toBe("entry.learnpack_url");
+    expect(spans[0].defaultValue).toBeUndefined();
+  });
+});
+
+describe("formatVariablePillLabel", () => {
+  it("appends | default when present", () => {
+    expect(
+      formatVariablePillLabel({
+        name: "entry.learnpack_url",
+        defaultValue: "https://example.com",
+      }),
+    ).toBe("entry.learnpack_url | https://example.com");
+  });
+
+  it("shows only the binding name without a default", () => {
+    expect(formatVariablePillLabel({ name: "entry.slug" })).toBe("entry.slug");
   });
 });

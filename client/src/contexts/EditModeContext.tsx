@@ -4,6 +4,8 @@ import { editContent } from "@/lib/contentApi";
 import { navigate } from "wouter/use-browser-location";
 import { useContentTypes } from "@/hooks/useContentTypes";
 import { queryClient } from "@/lib/queryClient";
+import { UnresolvedEditModeLinkDialog } from "@/components/editing/UnresolvedEditModeLinkDialog";
+import { prepareEditModeHref } from "@/contexts/editModeHref";
 import {
   DEFAULT_PREVIEW_DEVICE_ID,
   PREVIEW_BREAKPOINT_KEY,
@@ -127,6 +129,8 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
   const [previewBreakpoint, setPreviewBreakpointState] = useState<PreviewBreakpoint>(getStoredPreviewBreakpoint);
   const [previewDeviceId, setPreviewDeviceIdState] = useState<PreviewDeviceId>(getStoredPreviewDeviceId);
   const [promptedPageSlugs, setPromptedPageSlugs] = useState<Set<string>>(new Set());
+  const [unresolvedLinkOpen, setUnresolvedLinkOpen] = useState(false);
+  const [unresolvedLinkVar, setUnresolvedLinkVar] = useState<string | undefined>();
   const contentTypesMap = useContentTypes();
   const contentTypesRef = useRef(contentTypesMap);
 
@@ -263,17 +267,51 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
     void queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
   }, [isEditMode]);
 
+  // Unwrap preserveTemplate hrefs ({{ entry.x | https://… }}) so plain <a> CTAs
+  // do not navigate to /private/preview/…/%7B%7B…. Cmd/middle-click: follow-up
+  // (render-time honest href / InternalLink). Offenders: double_cta, comparison_table,
+  // course_selector, community_support, pricing_plans CTA, MoleculeRenderer CtaButton.
   useEffect(() => {
     if (!isEditMode) return;
 
     const handleClick = (e: MouseEvent) => {
-      const anchor = (e.target as HTMLElement).closest('a');
+      if (e.defaultPrevented || e.button !== 0) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+
+      const anchor = (e.target as HTMLElement).closest("a");
       if (!anchor) return;
 
-      const href = anchor.getAttribute('href');
-      if (!href || href.startsWith('#') || href.startsWith('http') || href.startsWith('mailto:')) return;
+      const rawHref = anchor.getAttribute("href");
+      if (!rawHref) return;
 
-      const previewUrl = publicUrlToPreviewUrl(href, contentTypesRef.current);
+      const prepared = prepareEditModeHref(rawHref);
+
+      if (prepared.kind === "unresolved") {
+        e.preventDefault();
+        e.stopPropagation();
+        setUnresolvedLinkVar(prepared.variableName);
+        setUnresolvedLinkOpen(true);
+        return;
+      }
+
+      if (prepared.kind === "external") {
+        e.preventDefault();
+        e.stopPropagation();
+        const target = anchor.getAttribute("target") || undefined;
+        if (target === "_blank") {
+          window.open(prepared.href, "_blank", "noopener,noreferrer");
+        } else if (target) {
+          window.open(prepared.href, target);
+        } else {
+          window.location.assign(prepared.href);
+        }
+        return;
+      }
+
+      if (prepared.kind === "ignore") return;
+
+      // internal: rewrite public content URLs into /private/preview when possible
+      const previewUrl = publicUrlToPreviewUrl(prepared.href, contentTypesRef.current);
       if (previewUrl) {
         e.preventDefault();
         e.stopPropagation();
@@ -281,8 +319,8 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
       }
     };
 
-    document.addEventListener('click', handleClick, true);
-    return () => document.removeEventListener('click', handleClick, true);
+    document.addEventListener("click", handleClick, true);
+    return () => document.removeEventListener("click", handleClick, true);
   }, [isEditMode]);
 
   useEffect(() => {
@@ -331,6 +369,11 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
   return (
     <EditModeContext.Provider value={value}>
       {children}
+      <UnresolvedEditModeLinkDialog
+        open={unresolvedLinkOpen}
+        onOpenChange={setUnresolvedLinkOpen}
+        variableName={unresolvedLinkVar}
+      />
     </EditModeContext.Provider>
   );
 }
