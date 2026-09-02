@@ -48,6 +48,7 @@ import { urlParamLocaleValidator } from "./url-param-locale";
 import { localeSlugUniquenessValidator } from "./locale-slug-uniqueness";
 import { siteLinkIndexValidator } from "./site-link-index";
 import { siteRelationIndexValidator } from "./site-relation-index";
+import { unassignedVariablesValidator } from "./unassigned-variables";
 
 export const validators: Validator[] = [
   redirectValidator,
@@ -92,6 +93,7 @@ export const validators: Validator[] = [
   updatedAtValidator,
   siteLinkIndexValidator,
   siteRelationIndexValidator,
+  unassignedVariablesValidator,
 ];
 
 /** @deprecated Lighthouse removed from platform diagnostics — use external tools. */

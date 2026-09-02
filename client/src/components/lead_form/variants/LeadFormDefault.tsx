@@ -30,9 +30,12 @@ import {
 } from "@shared/resolveConversionProduct";
 import {
   buildSignupPayloadFromFieldMap,
+  isGlobalEntry,
   isSignupFieldMapReady,
   type AuthSignupFieldMapEntry,
 } from "@shared/authSignupFieldMap";
+import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
+import { resolveVariable } from "@/lib/variable-manager";
 import {
   isAuthConversionName,
   parseAuthConversionEventConfig,
@@ -729,6 +732,8 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     enabled: isSignupRequested,
     staleTime: 5 * 60 * 1000,
   });
+  const { data: variableDefinitions } = useVariableDefinitions();
+  const variableContext = useVariableContext();
   const authConversionCfg = parseAuthConversionEventConfig(
     (trackingSettings ?? {}) as Record<string, unknown>,
   );
@@ -1435,9 +1440,23 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           conversion_url: window.location.pathname,
           ...(utm.utm_placement ? { internal_cta_placement: utm.utm_placement } : {}),
         };
+        const globals: Record<string, string> = {};
+        for (const entry of fieldMap) {
+          if (!isGlobalEntry(entry)) continue;
+          if (!variableDefinitions) {
+            globals[entry.global] = "";
+            continue;
+          }
+          const resolved = resolveVariable(
+            entry.global,
+            variableDefinitions,
+            variableContext,
+          );
+          globals[entry.global] = resolved?.value ?? "";
+        }
         const signupPayload = buildSignupPayloadFromFieldMap(
           fieldMap,
-          { form: formCtx, session: sessionCtx },
+          { form: formCtx, session: sessionCtx, globals },
           conversion_info,
         );
         const signupRes = await apiRequest("POST", "/api/auth/signup", signupPayload);

@@ -191,6 +191,24 @@ describe("validateRequiredConversionName", () => {
       ),
     ).toMatch(/required/);
   });
+
+  it("fails when is_signup is true but conversion_name is missing", () => {
+    expect(
+      validateRequiredConversionName(
+        { type: "lead_form", is_signup: true },
+        "",
+      ),
+    ).toMatch(/required/);
+  });
+
+  it("passes when is_signup is true and conversion_name is null (explicit off)", () => {
+    expect(
+      validateRequiredConversionName(
+        { type: "lead_form", is_signup: true, conversion_name: null },
+        "",
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("showEcommerceEditorTab", () => {

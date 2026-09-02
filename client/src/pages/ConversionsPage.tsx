@@ -322,6 +322,18 @@ function ConversionsPageInner() {
     }
   }, [trackingSettings?.signup_event_name, trackingSettings?.login_event_name]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("addEvent") === "1") {
+      setAddEventOpen(true);
+      params.delete("addEvent");
+      const next = params.toString();
+      const url = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
+      window.history.replaceState({}, "", url);
+    }
+  }, []);
+
   const { data: conversionCounts } = useQuery<Record<string, number>>({
     queryKey: ["/api/form-state/conversion-counts"],
   });

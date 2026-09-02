@@ -841,9 +841,11 @@ export default function StoreProductDetailPage() {
               <KpiCard
                 label="Product conversions (28d)"
                 value={
-                  analyticsLoading
-                    ? "…"
-                    : (analytics?.product?.conversions ?? "—")
+                  analyticsLoading ? (
+                    <MetricsLoadingDots testId="kpi-conversions-loading" />
+                  ) : (
+                    (analytics?.product?.conversions ?? "—")
+                  )
                 }
                 hint="Tagged with this product item_id — not everything on a URL"
                 icon={IconChartBar}
@@ -853,9 +855,11 @@ export default function StoreProductDetailPage() {
               <KpiCard
                 label="Ecommerce intent (28d)"
                 value={
-                  analyticsLoading
-                    ? "…"
-                    : (analytics?.product?.ecommerce_intent ?? "—")
+                  analyticsLoading ? (
+                    <MetricsLoadingDots testId="kpi-ecommerce-intent-loading" />
+                  ) : (
+                    (analytics?.product?.ecommerce_intent ?? "—")
+                  )
                 }
                 hint="view_item / cart / begin-checkout for this product"
                 icon={IconClick}
@@ -1029,6 +1033,7 @@ export default function StoreProductDetailPage() {
                             step={locked}
                             badge="locked product page"
                             metrics={pageMetrics(locked)}
+                            metricsLoading={analyticsLoading}
                           />
                         </div>
                       )}
@@ -1042,6 +1047,7 @@ export default function StoreProductDetailPage() {
                           stageKey={stageKey}
                           pages={pages}
                           getMetrics={pageMetrics}
+                          metricsLoading={analyticsLoading}
                         />
                       )}
                     </FunnelStage>

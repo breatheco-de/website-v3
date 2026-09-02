@@ -47,6 +47,7 @@ import { useDebugAuth, getDebugUserName } from "@/hooks/useDebugAuth";
 import { CAPABILITY_REGISTRY, CONTENT_MUTATE_CAPABILITIES } from "@shared/capabilities";
 import { IconLock } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { AuthTab } from "@/components/settings/AuthTab";
 
 type SecurityTab = "roles" | "users" | "auth" | "captcha";
@@ -358,9 +359,18 @@ function RolesTab() {
   } | null>(null);
   const [editingBuiltinDescRoleId, setEditingBuiltinDescRoleId] = useState<string | null>(null);
   const [builtinDescForm, setBuiltinDescForm] = useState("");
+  const [expandedRoleIds, setExpandedRoleIds] = useState<Set<string>>(() => new Set());
 
   const roles = rolesData ? Object.entries(rolesData) : [];
 
+  function setRoleExpanded(roleId: string, open: boolean) {
+    setExpandedRoleIds((prev) => {
+      const next = new Set(prev);
+      if (open) next.add(roleId);
+      else next.delete(roleId);
+      return next;
+    });
+  }
   useEffect(() => {
     if (!newRoleForm) {
       setDebouncedNewRoleId("");
@@ -694,7 +704,9 @@ function RolesTab() {
   }
 
   return (
-    <div className="space-y-4">
+    <>
+    <Card>
+      <CardContent className="p-card-padding pt-6 space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           Define internal staff roles and assign capabilities to them. These are not related to website consumer users.
@@ -838,47 +850,79 @@ function RolesTab() {
           const isEditingBuiltinDesc = editingBuiltinDescRoleId === roleId;
           const isDeleting = deletingRoleId === roleId;
           const hasCustomMcpDescription = Boolean(builtInDescriptionOverrides[roleId]);
+          const isExpanded =
+            expandedRoleIds.has(roleId) || isEditing || isEditingBuiltinDesc || isDeleting;
           return (
-            <Card key={roleId} data-testid={`card-role-${roleId}`}>
-              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <code className="text-xs font-mono text-muted-foreground shrink-0">{roleId}</code>
-                  {isEditing && editRoleForm ? (
-                    <Input
-                      value={editRoleForm.label}
-                      onChange={(e) => setEditRoleForm({ ...editRoleForm, label: e.target.value })}
-                      className="text-sm font-medium h-7"
-                      data-testid={`input-edit-role-label-${roleId}`}
+            <Collapsible
+              key={roleId}
+              open={isExpanded}
+              onOpenChange={(open) => {
+                if (isEditing || isEditingBuiltinDesc || isDeleting) return;
+                setRoleExpanded(roleId, open);
+              }}
+            >
+            <Card data-testid={`card-role-${roleId}`}>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 px-card-padding py-3 space-y-0">
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 flex-1 min-w-0 text-left rounded-md hover:bg-muted/50 -ml-1 px-1 py-0.5 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    data-testid={`button-toggle-role-${roleId}`}
+                  >
+                    <IconChevronDown
+                      className={cn(
+                        "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                        isExpanded && "rotate-180",
+                      )}
                     />
-                  ) : (
-                    <span className="text-sm font-medium truncate">{role.label}</span>
-                  )}
-                  {isBuiltIn && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Badge variant="secondary" className="text-xs shrink-0 cursor-default gap-1" data-testid="badge-role-managed-by-code">
-                          <IconCode className="h-3 w-3" />
-                          managed by code
-                        </Badge>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="max-w-xs text-center">
-                        Capabilities and labels sync from code on every server start. MCP descriptions can be customized
-                        for agents without changing permissions.
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                  {isBuiltIn && hasCustomMcpDescription && !isEditingBuiltinDesc && (
-                    <Badge variant="outline" className="text-xs shrink-0" data-testid={`badge-custom-mcp-desc-${roleId}`}>
-                      custom MCP description
-                    </Badge>
-                  )}
-                </div>
+                    <code className="text-xs font-mono text-muted-foreground shrink-0">{roleId}</code>
+                    {isEditing && editRoleForm ? (
+                      <Input
+                        value={editRoleForm.label}
+                        onChange={(e) => setEditRoleForm({ ...editRoleForm, label: e.target.value })}
+                        className="text-sm font-medium h-7"
+                        data-testid={`input-edit-role-label-${roleId}`}
+                        onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <span className="text-sm font-medium truncate">{role.label}</span>
+                    )}
+                    {isBuiltIn && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="secondary"
+                            className="text-xs shrink-0 cursor-default gap-1"
+                            data-testid="badge-role-managed-by-code"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <IconCode className="h-3 w-3" />
+                            managed by code
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs text-center">
+                          Capabilities and labels sync from code on every server start. MCP descriptions can be customized
+                          for agents without changing permissions.
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                    {isBuiltIn && hasCustomMcpDescription && !isEditingBuiltinDesc && (
+                      <Badge variant="outline" className="text-xs shrink-0" data-testid={`badge-custom-mcp-desc-${roleId}`}>
+                        custom MCP description
+                      </Badge>
+                    )}
+                  </button>
+                </CollapsibleTrigger>
                 <div className="flex items-center gap-1 shrink-0">
                   {isBuiltIn && !isEditingBuiltinDesc && !isDeleting && (
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => startEditBuiltinDescription(roleId, role)}
+                      onClick={() => {
+                        setRoleExpanded(roleId, true);
+                        startEditBuiltinDescription(roleId, role);
+                      }}
                       data-testid={`button-edit-builtin-desc-${roleId}`}
                       aria-label="Edit MCP description"
                     >
@@ -890,7 +934,10 @@ function RolesTab() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => startEditRole(roleId, role)}
+                        onClick={() => {
+                          setRoleExpanded(roleId, true);
+                          startEditRole(roleId, role);
+                        }}
                         data-testid={`button-edit-role-${roleId}`}
                       >
                         <IconPencil className="h-4 w-4 text-muted-foreground" />
@@ -898,7 +945,10 @@ function RolesTab() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => setDeletingRoleId(roleId)}
+                        onClick={() => {
+                          setRoleExpanded(roleId, true);
+                          setDeletingRoleId(roleId);
+                        }}
                         data-testid={`button-delete-role-${roleId}`}
                       >
                         <IconTrash className="h-4 w-4 text-muted-foreground" />
@@ -950,6 +1000,7 @@ function RolesTab() {
                   )}
                 </div>
               </CardHeader>
+              <CollapsibleContent>
               <CardContent className="pt-0">
                 {isDeleting ? (
                   <div className="flex items-center gap-2 py-1">
@@ -1162,10 +1213,14 @@ function RolesTab() {
                   </>
                 )}
               </CardContent>
+              </CollapsibleContent>
             </Card>
+            </Collapsible>
           );
         })}
       </div>
+      </CardContent>
+      </Card>
 
       <AlertDialog
         open={!!confirmGenerateDescription}
@@ -1204,7 +1259,7 @@ function RolesTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   );
 }
 
@@ -1375,7 +1430,8 @@ function UsersTab() {
   const pending = pendingUsers ?? [];
 
   return (
-    <div className="space-y-4">
+    <Card>
+      <CardContent className="p-card-padding pt-6 space-y-4">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           Manage staff users and pre-register people by email before they log in. These are internal staff accounts only — they have no relation to your real web consumer users.
@@ -1715,7 +1771,8 @@ function UsersTab() {
           <p className="text-sm">No users yet. Pre-register users above, or wait for someone to log in.</p>
         </div>
       )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1896,65 +1953,49 @@ export default function SecurityPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-4 py-8 space-y-4">
-        <div className="flex items-center gap-3 mb-6">
-          <Link href="/private/settings">
-            <Button variant="ghost" size="icon" data-testid="button-back-security">
-              <IconArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-xl font-semibold" data-testid="text-security-title">Security</h1>
-            <p className="text-sm text-muted-foreground">Roles, users and security configuration</p>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div className="flex items-center gap-3 min-w-0">
+            <Link href="/private/settings">
+              <Button variant="ghost" size="icon" data-testid="button-back-security">
+                <IconArrowLeft className="h-4 w-4" />
+              </Button>
+            </Link>
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold" data-testid="text-security-title">Security</h1>
+              <p className="text-sm text-muted-foreground">Roles, users and security configuration</p>
+            </div>
           </div>
-        </div>
 
-        <div
-          className="inline-flex h-10 w-full items-center justify-center rounded-md bg-muted p-1 text-muted-foreground"
-          role="tablist"
-          data-testid="security-tablist"
-        >
-          {SECURITY_TABS.map(({ id, href, label, Icon, requiresManage }) => {
-            const disabled = requiresManage && !canManageUsers;
-            const isActive = activeTab === id;
-            if (disabled) {
+          <ToggleButtonBar
+            value={activeTab}
+            onValueChange={(id) => {
+              const tab = SECURITY_TABS.find((t) => t.id === id);
+              if (!tab) return;
+              if (tab.requiresManage && !canManageUsers) return;
+              setLocation(tab.href);
+            }}
+            listTestId="security-tablist"
+            listClassName="flex"
+          >
+            {SECURITY_TABS.map(({ id, label, Icon, requiresManage }) => {
+              const disabled = requiresManage && !canManageUsers;
               return (
-                <button
+                <ToggleButtonBarTrigger
                   key={id}
-                  type="button"
-                  disabled
-                  role="tab"
-                  aria-selected={false}
-                  className="inline-flex flex-1 items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium opacity-50 cursor-not-allowed"
+                  value={id}
+                  disabled={disabled}
                   data-testid={`tab-${id}`}
+                  className="gap-1.5"
                 >
-                  <Icon className="h-4 w-4 mr-1.5" />
+                  <Icon className="h-3.5 w-3.5" />
                   {label}
-                </button>
+                </ToggleButtonBarTrigger>
               );
-            }
-            return (
-              <Link key={id} href={href} className="flex-1">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  className={cn(
-                    "inline-flex w-full items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                    isActive
-                      ? "bg-background text-foreground shadow-sm"
-                      : "hover:text-foreground",
-                  )}
-                  data-testid={`tab-${id}`}
-                >
-                  <Icon className="h-4 w-4 mr-1.5" />
-                  {label}
-                </button>
-              </Link>
-            );
-          })}
+            })}
+          </ToggleButtonBar>
         </div>
 
-        <div className="mt-4" role="tabpanel">
+        <div role="tabpanel">
           {activeTab === "roles" && (
             canManageUsers ? (
               <RolesTab />

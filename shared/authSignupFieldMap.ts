@@ -1,9 +1,10 @@
 /**
- * Consumer auth signup field_map — maps payload keys to form.* or session.* sources.
+ * Consumer auth signup field_map — maps payload keys to form.* / session.* /
+ * fixed constants / global.* variables.
  * Used by Auth settings, LeadFormDefault signup submit, and is_signup validation.
  */
 
-export type AuthSignupFieldMapEntry = {
+export type AuthSignupFieldMapFromEntry = {
   /** Payload property name sent to the signup endpoint */
   key: string;
   /** Source path: "form.email" | "session.geo.country" | … */
@@ -11,6 +12,23 @@ export type AuthSignupFieldMapEntry = {
   /** Only valid when from starts with "form." */
   required?: boolean;
 };
+
+export type AuthSignupFieldMapConstantEntry = {
+  key: string;
+  /** Non-empty literal included on every signup */
+  constant: string;
+};
+
+export type AuthSignupFieldMapGlobalEntry = {
+  key: string;
+  /** Full variable name, e.g. "global.default_free_signup_plan" */
+  global: string;
+};
+
+export type AuthSignupFieldMapEntry =
+  | AuthSignupFieldMapFromEntry
+  | AuthSignupFieldMapConstantEntry
+  | AuthSignupFieldMapGlobalEntry;
 
 /** Standard lead-form field names offered in the Auth source picker. */
 export const AUTH_SIGNUP_FORM_FIELD_PRESETS = [
@@ -88,12 +106,36 @@ const CONSENT_FORM_FIELDS = new Set([
 
 const BUILTIN_FORM_FIELDS = new Set<string>(AUTH_SIGNUP_FORM_FIELD_PRESETS);
 
+const GLOBAL_VAR_RE = /^global\.[a-zA-Z_][a-zA-Z0-9_.]*$/;
+
 export function isFormSource(from: string): boolean {
   return from.trim().startsWith("form.");
 }
 
 export function isSessionSource(from: string): boolean {
   return from.trim().startsWith("session.");
+}
+
+export function isDynamicFromEntry(
+  entry: AuthSignupFieldMapEntry,
+): entry is AuthSignupFieldMapFromEntry {
+  return "from" in entry && typeof (entry as AuthSignupFieldMapFromEntry).from === "string";
+}
+
+export function isConstantEntry(
+  entry: AuthSignupFieldMapEntry,
+): entry is AuthSignupFieldMapConstantEntry {
+  return "constant" in entry && typeof (entry as AuthSignupFieldMapConstantEntry).constant === "string";
+}
+
+export function isGlobalEntry(
+  entry: AuthSignupFieldMapEntry,
+): entry is AuthSignupFieldMapGlobalEntry {
+  return "global" in entry && typeof (entry as AuthSignupFieldMapGlobalEntry).global === "string";
+}
+
+export function isValidGlobalVarName(name: string): boolean {
+  return GLOBAL_VAR_RE.test(name.trim());
 }
 
 export function formFieldNameFromSource(from: string): string | null {
@@ -110,6 +152,15 @@ export function sessionPathFromSource(from: string): string | null {
   return path || null;
 }
 
+function assertPayloadKey(key: string, fieldLabel: string, index: number): void {
+  if (!key) throw new Error(`${fieldLabel}[${index}].key is required`);
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+    throw new Error(
+      `${fieldLabel}[${index}].key "${key}" must be a simple identifier (letters, digits, underscore)`,
+    );
+  }
+}
+
 export function parseAuthSignupFieldMap(raw: unknown): AuthSignupFieldMapEntry[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const out: AuthSignupFieldMapEntry[] = [];
@@ -117,13 +168,33 @@ export function parseAuthSignupFieldMap(raw: unknown): AuthSignupFieldMapEntry[]
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const row = item as Record<string, unknown>;
     const key = typeof row.key === "string" ? row.key.trim() : "";
+    if (!key) continue;
+
     const from = typeof row.from === "string" ? row.from.trim() : "";
-    if (!key || !from) continue;
-    const entry: AuthSignupFieldMapEntry = { key, from };
-    if (row.required === true && isFormSource(from)) {
-      entry.required = true;
+    const constantRaw = typeof row.constant === "string" ? row.constant : undefined;
+    const globalRaw = typeof row.global === "string" ? row.global.trim() : "";
+
+    if (from && !constantRaw && !globalRaw) {
+      if (!isFormSource(from) && !isSessionSource(from)) continue;
+      const entry: AuthSignupFieldMapFromEntry = { key, from };
+      if (row.required === true && isFormSource(from)) {
+        entry.required = true;
+      }
+      out.push(entry);
+      continue;
     }
-    out.push(entry);
+
+    if (constantRaw !== undefined && !from && !globalRaw) {
+      const constant = constantRaw.trim();
+      if (!constant) continue;
+      out.push({ key, constant });
+      continue;
+    }
+
+    if (globalRaw && !from && constantRaw === undefined) {
+      if (!isValidGlobalVarName(globalRaw)) continue;
+      out.push({ key, global: globalRaw });
+    }
   }
   return out;
 }
@@ -146,13 +217,72 @@ export function normalizeAuthSignupFieldMapInput(
     }
     const row = item as Record<string, unknown>;
     const key = typeof row.key === "string" ? row.key.trim() : "";
-    const from = typeof row.from === "string" ? row.from.trim() : "";
-    if (!key) throw new Error(`${fieldLabel}[${i}].key is required`);
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+    assertPayloadKey(key, fieldLabel, i);
+
+    if (seenKeys.has(key)) {
+      throw new Error(`${fieldLabel}: duplicate key "${key}"`);
+    }
+    seenKeys.add(key);
+
+    const hasFrom = typeof row.from === "string";
+    const hasConstant = Object.prototype.hasOwnProperty.call(row, "constant");
+    const hasGlobal = typeof row.global === "string";
+
+    const kinds =
+      (hasFrom && row.from.trim() ? 1 : 0) +
+      (hasConstant ? 1 : 0) +
+      (hasGlobal && row.global.trim() ? 1 : 0);
+
+    // Empty global / empty from with no other source
+    if (kinds === 0) {
+      if (hasGlobal) {
+        throw new Error(`${fieldLabel}[${i}].global is required`);
+      }
+      if (hasConstant) {
+        throw new Error(`${fieldLabel}[${i}].constant must be a non-empty string`);
+      }
       throw new Error(
-        `${fieldLabel}[${i}].key "${key}" must be a simple identifier (letters, digits, underscore)`,
+        `${fieldLabel}[${i}] must set one of from, constant, or global`,
       );
     }
+    if (kinds > 1) {
+      throw new Error(
+        `${fieldLabel}[${i}] must set exactly one of from, constant, or global`,
+      );
+    }
+
+    if (hasConstant && !hasFrom && !(hasGlobal && row.global.trim())) {
+      const constant =
+        typeof row.constant === "string" ? row.constant.trim() : "";
+      if (!constant) {
+        throw new Error(`${fieldLabel}[${i}].constant must be a non-empty string`);
+      }
+      if (row.required === true) {
+        throw new Error(
+          `${fieldLabel}[${i}]: required is only allowed when from starts with "form."`,
+        );
+      }
+      out.push({ key, constant });
+      continue;
+    }
+
+    if (hasGlobal && row.global.trim() && !hasFrom && !hasConstant) {
+      const global = row.global.trim();
+      if (!isValidGlobalVarName(global)) {
+        throw new Error(
+          `${fieldLabel}[${i}].global "${global}" must match global.<name>`,
+        );
+      }
+      if (row.required === true) {
+        throw new Error(
+          `${fieldLabel}[${i}]: required is only allowed when from starts with "form."`,
+        );
+      }
+      out.push({ key, global });
+      continue;
+    }
+
+    const from = typeof row.from === "string" ? row.from.trim() : "";
     if (!from) throw new Error(`${fieldLabel}[${i}].from is required`);
     if (!isFormSource(from) && !isSessionSource(from)) {
       throw new Error(
@@ -165,10 +295,6 @@ export function normalizeAuthSignupFieldMapInput(
     if (isSessionSource(from) && !sessionPathFromSource(from)) {
       throw new Error(`${fieldLabel}[${i}].from must include a session path`);
     }
-    if (seenKeys.has(key)) {
-      throw new Error(`${fieldLabel}: duplicate key "${key}"`);
-    }
-    seenKeys.add(key);
     const required = row.required === true;
     if (required && !isFormSource(from)) {
       throw new Error(
@@ -198,9 +324,11 @@ function getByPath(root: unknown, dotted: string): unknown {
 export type SignupFieldMapResolveContext = {
   form: Record<string, unknown>;
   session: Record<string, unknown>;
+  /** Pre-resolved global.* values (missing → "") */
+  globals?: Record<string, string>;
 };
 
-/** Resolve one source; missing values become "". */
+/** Resolve one dynamic form/session source; missing values become "". */
 export function resolveSignupSourceValue(
   from: string,
   ctx: SignupFieldMapResolveContext,
@@ -222,6 +350,19 @@ export function resolveSignupSourceValue(
   return "";
 }
 
+export function resolveSignupFieldMapEntry(
+  entry: AuthSignupFieldMapEntry,
+  ctx: SignupFieldMapResolveContext,
+): string | boolean | number {
+  if (isConstantEntry(entry)) return entry.constant;
+  if (isGlobalEntry(entry)) {
+    const v = ctx.globals?.[entry.global];
+    if (v == null) return "";
+    return v;
+  }
+  return resolveSignupSourceValue(entry.from, ctx);
+}
+
 export function buildSignupPayloadFromFieldMap(
   fieldMap: AuthSignupFieldMapEntry[],
   ctx: SignupFieldMapResolveContext,
@@ -229,7 +370,7 @@ export function buildSignupPayloadFromFieldMap(
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   for (const entry of fieldMap) {
-    body[entry.key] = resolveSignupSourceValue(entry.from, ctx);
+    body[entry.key] = resolveSignupFieldMapEntry(entry, ctx);
   }
   body.conversion_info = conversionInfo;
   return body;
@@ -243,13 +384,19 @@ export const SIGNUP_CONVERSION_INFO_PREVIEW = {
   internal_cta_placement: "example-cta",
 };
 
-/** Auto-generated example JSON with {{ form.* }} / {{ session.* }} variables. */
+/** Auto-generated example JSON with {{ form.* }} / {{ session.* }} / literals. */
 export function buildSignupPayloadPreviewJson(
   fieldMap: AuthSignupFieldMapEntry[],
 ): string {
   const obj: Record<string, unknown> = {};
   for (const entry of fieldMap) {
-    obj[entry.key] = `{{ ${entry.from} }}`;
+    if (isConstantEntry(entry)) {
+      obj[entry.key] = entry.constant;
+    } else if (isGlobalEntry(entry)) {
+      obj[entry.key] = `{{ ${entry.global} }}`;
+    } else {
+      obj[entry.key] = `{{ ${entry.from} }}`;
+    }
   }
   obj.conversion_info = SIGNUP_CONVERSION_INFO_PREVIEW;
   return JSON.stringify(obj, null, 2);
@@ -279,9 +426,15 @@ export function buildSignupTestPayloadFromFieldMap(
     location: {},
     utm: {},
   };
+  const globals: Record<string, string> = {};
+  for (const entry of fieldMap) {
+    if (isGlobalEntry(entry)) {
+      globals[entry.global] = globals[entry.global] ?? "";
+    }
+  }
   return buildSignupPayloadFromFieldMap(
     fieldMap,
-    { form: formSamples, session: sessionSamples },
+    { form: formSamples, session: sessionSamples, globals },
     {
       user_agent: "website-v3-auth-test",
       landing_url: "/private/security/auth",
@@ -349,9 +502,7 @@ function consentSatisfied(
           "form.consent_email is required by auth.signup.field_map — enable consent.email or consent.marketing on this form (or add fields.consent_email with required: true)",
       };
     }
-    // Presence: marketing/email consent toggle OR explicit fields entry is enough when not required
     if (!on && !needRequired) {
-      // Optional mapping — still "present" as a form value (checkbox may be off)
       return { ok: true };
     }
     return { ok: true };
@@ -377,7 +528,6 @@ function consentSatisfied(
     return { ok: true };
   }
   if (fieldName === "consent_general") {
-    // Fallback checkbox always available when no other consent — treat as present
     return { ok: true };
   }
   return { ok: true };
@@ -409,7 +559,7 @@ export function validateSignupFormFields(
   const map = fieldMap!;
 
   for (const entry of map) {
-    if (!isFormSource(entry.from)) continue;
+    if (!isDynamicFromEntry(entry) || !isFormSource(entry.from)) continue;
     const name = formFieldNameFromSource(entry.from)!;
     const needRequired = entry.required === true;
 

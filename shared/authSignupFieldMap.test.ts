@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSignupPayloadFromFieldMap,
+  buildSignupPayloadPreviewJson,
   DEFAULT_AUTH_SIGNUP_FIELD_MAP,
   DEFAULT_FREE_SIGNUP_PLAN_EXPR,
   isSignupFieldMapReady,
   normalizeAuthSignupFieldMapInput,
+  parseAuthSignupFieldMap,
   validateSignupFormFields,
 } from "./authSignupFieldMap";
 
@@ -26,16 +28,44 @@ describe("authSignupFieldMap", () => {
     ]);
   });
 
-  it("builds payload from map and always includes conversion_info", () => {
+  it("normalizes constant and global entries", () => {
+    const ok = normalizeAuthSignupFieldMapInput([
+      { key: "source", constant: "website" },
+      { key: "plan", global: "global.default_free_signup_plan" },
+    ]);
+    expect(ok).toEqual([
+      { key: "source", constant: "website" },
+      { key: "plan", global: "global.default_free_signup_plan" },
+    ]);
+  });
+
+  it("rejects empty constant and mixed sources", () => {
+    expect(() =>
+      normalizeAuthSignupFieldMapInput([{ key: "x", constant: "  " }]),
+    ).toThrow(/constant must be a non-empty/);
+    expect(() =>
+      normalizeAuthSignupFieldMapInput([
+        { key: "x", from: "form.email", constant: "a" },
+      ]),
+    ).toThrow(/exactly one/);
+    expect(() =>
+      normalizeAuthSignupFieldMapInput([{ key: "x", global: "brand.logo" }]),
+    ).toThrow(/must match global\./);
+  });
+
+  it("builds payload from map including constant and global", () => {
     const body = buildSignupPayloadFromFieldMap(
       [
         { key: "email", from: "form.email" },
         { key: "course", from: "form.program" },
         { key: "country", from: "session.geo.country" },
+        { key: "source", constant: "website" },
+        { key: "plan", global: "global.default_free_signup_plan" },
       ],
       {
         form: { email: "a@b.com", program: "ai-eng" },
         session: { geo: { country: "" } },
+        globals: { "global.default_free_signup_plan": "4geeks-basic-subscription" },
       },
       { landing_url: "/x" },
     );
@@ -43,8 +73,45 @@ describe("authSignupFieldMap", () => {
       email: "a@b.com",
       course: "ai-eng",
       country: "",
+      source: "website",
+      plan: "4geeks-basic-subscription",
       conversion_info: { landing_url: "/x" },
     });
+  });
+
+  it("missing global resolves to empty string", () => {
+    const body = buildSignupPayloadFromFieldMap(
+      [{ key: "plan", global: "global.missing" }],
+      { form: {}, session: {}, globals: {} },
+      {},
+    );
+    expect(body.plan).toBe("");
+  });
+
+  it("preview json shows literals and template vars", () => {
+    const json = buildSignupPayloadPreviewJson([
+      { key: "email", from: "form.email" },
+      { key: "source", constant: "website" },
+      { key: "plan", global: "global.default_free_signup_plan" },
+    ]);
+    const obj = JSON.parse(json) as Record<string, unknown>;
+    expect(obj.email).toBe("{{ form.email }}");
+    expect(obj.source).toBe("website");
+    expect(obj.plan).toBe("{{ global.default_free_signup_plan }}");
+  });
+
+  it("parseAuthSignupFieldMap accepts discriminated rows", () => {
+    const parsed = parseAuthSignupFieldMap([
+      { key: "a", from: "form.email" },
+      { key: "b", constant: "x" },
+      { key: "c", global: "global.foo" },
+      { key: "skip", constant: "" },
+    ]);
+    expect(parsed).toEqual([
+      { key: "a", from: "form.email" },
+      { key: "b", constant: "x" },
+      { key: "c", global: "global.foo" },
+    ]);
   });
 
   it("validateSignupFormFields fails on empty map", () => {
@@ -89,6 +156,29 @@ describe("authSignupFieldMap", () => {
     const err = validateSignupFormFields(
       { is_signup: true, allow_signup: false, fields: {} },
       [],
+    );
+    expect(err).toBeNull();
+  });
+
+  it("validateSignupFormFields ignores constant/global for form field checks", () => {
+    const err = validateSignupFormFields(
+      {
+        is_signup: true,
+        fields: {
+          email: { visible: true, required: true },
+          plan: {
+            visible: false,
+            required: true,
+            default: DEFAULT_FREE_SIGNUP_PLAN_EXPR,
+          },
+        },
+      },
+      [
+        { key: "email", from: "form.email", required: true },
+        { key: "plan", from: "form.plan", required: true },
+        { key: "source", constant: "website" },
+        { key: "sku", global: "global.default_free_signup_plan" },
+      ],
     );
     expect(err).toBeNull();
   });

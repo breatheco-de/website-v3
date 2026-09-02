@@ -739,6 +739,7 @@ export function SectionEditorPanel({
   const [exampleCopied, setExampleCopied] = useState(false);
   const [locationsPickerOpen, setLocationsPickerOpen] = useState(false);
   const [conversionNameEditing, setConversionNameEditing] = useState(false);
+  const [newConversionEventConfirmOpen, setNewConversionEventConfirmOpen] = useState(false);
   const [tocShareApplying, setTocShareApplying] = useState(false);
   const [consentsEditing, setConsentsEditing] = useState(false);
   const [webhookEditing, setWebhookEditing] = useState(false);
@@ -8047,8 +8048,7 @@ export function SectionEditorPanel({
                 }
                 const missing =
                   !("conversion_name" in formNode) && !routeHasName;
-                const isSignupForm = formNode.is_signup === true;
-                if (!missing || isSignupForm) return null;
+                if (!missing) return null;
                 return (
                   <div
                     className="rounded-md border border-destructive/40 bg-destructive/10 p-3 space-y-1"
@@ -8077,6 +8077,17 @@ export function SectionEditorPanel({
                 const authCfg = parseAuthConversionEventConfig(
                   (trackingSettings ?? {}) as Record<string, unknown>,
                 );
+                const authKind = resolveAuthConversionKind(storedConversionName || null, authCfg);
+                const conversionHelp =
+                  authKind === "signup"
+                    ? "This form’s goal is account signup. The account gate stays on."
+                    : authKind === "login"
+                      ? "This form’s goal is login. Choose below whether new visitors may also create an account."
+                      : isOff
+                        ? "Conversion tracking is off for this form."
+                        : isSignupEnabled
+                          ? "GTM event for the lead/action after the visitor has an account."
+                          : "GTM event fired on form submission. Must match a configured conversion event.";
                 return (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -8124,63 +8135,78 @@ export function SectionEditorPanel({
                         </span>
                       </div>
                     ) : (
-                      <Select
-                        value={isOff ? "__clear__" : storedConversionName || undefined}
-                        onValueChange={(val) => {
-                          const nextName = val === "__clear__" ? null : val;
-                          const prevKind = resolveAuthConversionKind(
-                            typeof rawConversion === "string" ? rawConversion : null,
-                            authCfg,
-                          );
-                          const nextKind = resolveAuthConversionKind(
-                            typeof nextName === "string" ? nextName : null,
-                            authCfg,
-                          );
-                          updatePropertyWithValue(
-                            formProp("conversion_name"),
-                            nextName,
-                          );
-                          if (nextKind === "signup") {
-                            updatePropertyWithValue(formProp("is_signup"), true);
-                            updatePropertyWithValue(formProp("allow_signup"), true);
-                          } else if (nextKind === "login") {
-                            updatePropertyWithValue(formProp("is_signup"), true);
-                            updatePropertyWithValue(formProp("allow_signup"), false);
-                          } else if (prevKind) {
-                            // Leaving an auth goal → clear account gate
-                            updatePropertyWithValue(formProp("is_signup"), undefined);
-                            updatePropertyWithValue(formProp("allow_signup"), undefined);
-                          }
-                          setConversionNameEditing(false);
-                        }}
-                        data-testid="select-conversion-name"
-                        open={conversionNameEditing || (!storedConversionName && !isOff) ? undefined : false}
-                      >
-                        <SelectTrigger className="w-full" data-testid="combobox-conversion-name">
-                          <SelectValue placeholder="Select conversion event…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__clear__" data-testid="conversion-name-option-clear">
-                            <span className="text-muted-foreground">— None (turn off) —</span>
-                          </SelectItem>
-                          {conversionNames.length === 0 && (
-                            <SelectItem value="__loading__" disabled>
-                              {conversionNamesLoading ? "Loading…" : "No events configured"}
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={isOff ? "__clear__" : storedConversionName || undefined}
+                          onValueChange={(val) => {
+                            const nextName = val === "__clear__" ? null : val;
+                            const prevKind = resolveAuthConversionKind(
+                              typeof rawConversion === "string" ? rawConversion : null,
+                              authCfg,
+                            );
+                            const nextKind = resolveAuthConversionKind(
+                              typeof nextName === "string" ? nextName : null,
+                              authCfg,
+                            );
+                            updatePropertyWithValue(
+                              formProp("conversion_name"),
+                              nextName,
+                            );
+                            if (nextName === null) {
+                              // Off → clear account gate (Require account hidden until a name is chosen)
+                              updatePropertyWithValue(formProp("is_signup"), undefined);
+                              updatePropertyWithValue(formProp("allow_signup"), undefined);
+                            } else if (nextKind === "signup") {
+                              updatePropertyWithValue(formProp("is_signup"), true);
+                              updatePropertyWithValue(formProp("allow_signup"), true);
+                            } else if (nextKind === "login") {
+                              updatePropertyWithValue(formProp("is_signup"), true);
+                              updatePropertyWithValue(formProp("allow_signup"), false);
+                            } else if (prevKind) {
+                              // Leaving an auth goal → clear account gate
+                              updatePropertyWithValue(formProp("is_signup"), undefined);
+                              updatePropertyWithValue(formProp("allow_signup"), undefined);
+                            }
+                            setConversionNameEditing(false);
+                          }}
+                          data-testid="select-conversion-name"
+                          open={conversionNameEditing || (!storedConversionName && !isOff) ? undefined : false}
+                        >
+                          <SelectTrigger className="w-full min-w-0 flex-1" data-testid="combobox-conversion-name">
+                            <SelectValue placeholder="Select conversion event…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__clear__" data-testid="conversion-name-option-clear">
+                              <span className="text-muted-foreground">— None (turn off) —</span>
                             </SelectItem>
-                          )}
-                          {conversionNames.map((name) => (
-                            <SelectItem key={name} value={name} data-testid={`conversion-name-option-${name}`}>
-                              {name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                            {conversionNames.length === 0 && (
+                              <SelectItem value="__loading__" disabled>
+                                {conversionNamesLoading ? "Loading…" : "No events configured"}
+                              </SelectItem>
+                            )}
+                            {conversionNames.map((name) => (
+                              <SelectItem key={name} value={name} data-testid={`conversion-name-option-${name}`}>
+                                {name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          className="h-9 w-9 shrink-0"
+                          title="Create a new conversion event"
+                          onClick={() => setNewConversionEventConfirmOpen(true)}
+                          data-testid="button-add-conversion-event-from-form"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
                     )}
 
-                    <p className="text-xs text-muted-foreground">
-                      {isSignupEnabled
-                        ? "Original conversion intent for this form (optional when the account gate is on). Signup and login GTM names are configured on Conversions — not this picker, unless the goal itself is signup/login."
-                        : "GTM event fired on form submission. Must match a configured conversion event."}
+                    <p className="text-xs text-muted-foreground" data-testid="text-conversion-goal-help">
+                      {conversionHelp}
                     </p>
                   </div>
                 );
@@ -8189,30 +8215,37 @@ export function SectionEditorPanel({
               {/* Require account gate (form-level is_signup + allow_signup) */}
               {(() => {
                 const rawConversion = getValueAtFieldPath(parsedSection, formProp("conversion_name"));
-                const storedConversionName =
-                  typeof rawConversion === "string" ? rawConversion : "";
+                const hasRealConversionName =
+                  typeof rawConversion === "string" && rawConversion.trim().length > 0;
+                // Hide until a real catalog name is chosen (missing or Off)
+                if (!hasRealConversionName) return null;
+                const storedConversionName = rawConversion.trim();
                 const authCfg = parseAuthConversionEventConfig(
                   (trackingSettings ?? {}) as Record<string, unknown>,
                 );
                 const authKind = resolveAuthConversionKind(storedConversionName || null, authCfg);
-                const isAuthGoal = authKind !== null;
+                const isLoginGoal = authKind === "login";
+                const isSignupGoal = authKind === "signup";
                 const isSignupEnabled =
-                  getValueAtFieldPath(parsedSection, formProp("is_signup")) === true || isAuthGoal;
+                  getValueAtFieldPath(parsedSection, formProp("is_signup")) === true ||
+                  isLoginGoal ||
+                  isSignupGoal;
                 const allowSignupRaw = getValueAtFieldPath(parsedSection, formProp("allow_signup"));
-                const allowSignup =
-                  authKind === "login"
-                    ? false
-                    : authKind === "signup"
-                      ? true
-                      : allowSignupRaw !== false;
+                // Signup goal → always allow; login goal → default false, honor explicit true; else default true when gated
+                const allowSignup = isSignupGoal
+                  ? true
+                  : isLoginGoal
+                    ? allowSignupRaw === true
+                    : allowSignupRaw !== false;
                 return (
                   <RequireSignupCard
                     enabled={isSignupEnabled}
-                    forceEnabled={isAuthGoal}
-                    hidden={false}
+                    forceEnabled={isLoginGoal || isSignupGoal}
+                    hidden={isSignupGoal}
+                    mode={isLoginGoal ? "loginSimplified" : "full"}
                     allowSignup={allowSignup}
                     onChange={(enabled) => {
-                      if (isAuthGoal) return;
+                      if (isLoginGoal || isSignupGoal) return;
                       updatePropertyWithValue(
                         formProp("is_signup"),
                         enabled ? true : undefined,
@@ -8226,7 +8259,7 @@ export function SectionEditorPanel({
                       }
                     }}
                     onAllowSignupChange={
-                      isAuthGoal
+                      isSignupGoal
                         ? undefined
                         : (allow) => {
                             updatePropertyWithValue(formProp("allow_signup"), allow);
@@ -8988,6 +9021,53 @@ export function SectionEditorPanel({
         itemLabel={iconPickerTarget?.label}
         onSelect={handleIconSelect}
       />
+
+      <Dialog
+        open={newConversionEventConfirmOpen}
+        onOpenChange={setNewConversionEventConfirmOpen}
+      >
+        <DialogContent className="sm:max-w-md" data-testid="dialog-new-conversion-event-confirm">
+          <DialogHeader>
+            <DialogTitle>Create a new conversion event?</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground pt-1">
+                <p>
+                  Prefer reusing an existing conversion from the list. Each new event name
+                  becomes another GTM trigger and reporting dimension — too many makes
+                  analytics harder to trust and harder for agents to pick the right intent.
+                </p>
+                <p>
+                  Only create a new one when the visitor action is genuinely different
+                  (not a slight wording change on the same goal).
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
+            <Button
+              type="button"
+              variant="default"
+              className="w-full"
+              onClick={() => setNewConversionEventConfirmOpen(false)}
+              data-testid="button-new-conversion-cancel"
+            >
+              I&apos;ll pick an existing event
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                setNewConversionEventConfirmOpen(false);
+                window.location.assign("/private/store/conversions?addEvent=1");
+              }}
+              data-testid="button-new-conversion-confirm"
+            >
+              I have to create a new one
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Video Picker Modal */}
       <Dialog

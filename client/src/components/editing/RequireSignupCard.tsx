@@ -1,7 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
-import { IconUserPlus, IconAlertTriangle, IconExternalLink, IconPencil } from "@tabler/icons-react";
+import {
+  IconUserPlus,
+  IconAlertTriangle,
+  IconExternalLink,
+  IconPencil,
+  IconTargetArrow,
+} from "@tabler/icons-react";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { isSignupFieldMapReady, type AuthSignupFieldMapEntry } from "@shared/authSignupFieldMap";
 import {
   DEFAULT_LOGIN_EVENT_NAME,
@@ -24,11 +31,39 @@ export interface RequireSignupCardProps {
   /** When false, guests may only log in (no account create). Default true. */
   allowSignup?: boolean;
   onAllowSignupChange?: (allow: boolean) => void;
-  /** Hide the entire card (auth goal is the conversion itself). */
+  /** Hide the entire card (e.g. conversion goal is signup). */
   hidden?: boolean;
-  /** Force gate on — staff cannot turn it off (conversion goal is signup/login). */
+  /** Force gate on — staff cannot turn it off. */
   forceEnabled?: boolean;
+  /**
+   * full — Require account + allow signups.
+   * loginSimplified — gate always on; only Allow new signups (login conversion goal).
+   */
+  mode?: "full" | "loginSimplified";
   testIdPrefix?: string;
+}
+
+function ConversionEventBadge({
+  name,
+  muted,
+  testId,
+}: {
+  name: string;
+  muted?: boolean;
+  testId?: string;
+}) {
+  return (
+    <Badge
+      variant="secondary"
+      className={`font-mono text-[10px] font-normal gap-1 px-1.5 py-0 h-5 bg-muted text-muted-foreground border-0 ${
+        muted ? "opacity-50 line-through" : ""
+      }`}
+      data-testid={testId}
+    >
+      <IconTargetArrow className="h-2.5 w-2.5 shrink-0" aria-hidden />
+      {name}
+    </Badge>
+  );
 }
 
 /**
@@ -42,6 +77,7 @@ export function RequireSignupCard({
   onAllowSignupChange,
   hidden = false,
   forceEnabled = false,
+  mode = "full",
   testIdPrefix = "form-require-signup",
 }: RequireSignupCardProps) {
   const { data: authSettings, isLoading } = useQuery<AuthSettingsResponse>({
@@ -63,34 +99,77 @@ export function RequireSignupCard({
   const needsFieldMap = allowSignup !== false;
   const canEnable = forceEnabled || (configured && (!needsFieldMap || mapReady));
   const disabled = isLoading || forceEnabled || (!canEnable && !enabled);
+  const loginSimplified = mode === "loginSimplified";
+  const gateOn = loginSimplified || enabled || forceEnabled;
 
   if (hidden) return null;
+
+  const eventNamesRow = gateOn ? (
+    <p
+      className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-1"
+      data-testid={`text-${testIdPrefix}-event-names`}
+    >
+      <span>Fires</span>
+      <ConversionEventBadge
+        name={signupEventName}
+        muted={allowSignup === false}
+        testId={`badge-${testIdPrefix}-signup-event`}
+      />
+      <span>on signup{allowSignup === false ? " (login only)" : ""},</span>
+      <ConversionEventBadge
+        name={loginEventName}
+        testId={`badge-${testIdPrefix}-login-event`}
+      />
+      <span>on login.</span>
+      <a
+        href="/private/store/conversions#signup-login-events"
+        className="underline hover:no-underline inline-flex items-center gap-0.5 shrink-0"
+        data-testid={`link-${testIdPrefix}-edit-events`}
+      >
+        Edit
+        <IconPencil className="h-3 w-3" />
+      </a>
+    </p>
+  ) : null;
 
   return (
     <div
       className="rounded-md border bg-muted/20 p-3 space-y-3 overflow-hidden w-full min-w-0"
       data-testid={`card-${testIdPrefix}`}
     >
-      <div className="flex items-center justify-between gap-3">
+      {!loginSimplified && (
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <IconUserPlus className="h-4 w-4 text-muted-foreground shrink-0" />
+            <Label
+              htmlFor={`switch-${testIdPrefix}`}
+              className="text-sm font-medium truncate"
+            >
+              Require account
+            </Label>
+          </div>
+          <Switch
+            id={`switch-${testIdPrefix}`}
+            checked={gateOn}
+            disabled={disabled}
+            onCheckedChange={onChange}
+            data-testid={`switch-${testIdPrefix}`}
+          />
+        </div>
+      )}
+
+      {loginSimplified && (
         <div className="flex items-center gap-2 min-w-0">
           <IconUserPlus className="h-4 w-4 text-muted-foreground shrink-0" />
-          <Label
-            htmlFor={`switch-${testIdPrefix}`}
-            className="text-sm font-medium truncate"
-          >
-            Require account
-          </Label>
+          <p className="text-sm font-medium" data-testid={`text-${testIdPrefix}-login-title`}>
+            Login goal
+          </p>
         </div>
-        <Switch
-          id={`switch-${testIdPrefix}`}
-          checked={enabled || forceEnabled}
-          disabled={disabled}
-          onCheckedChange={onChange}
-          data-testid={`switch-${testIdPrefix}`}
-        />
-      </div>
+      )}
 
-      {(enabled || forceEnabled) && onAllowSignupChange && (
+      {eventNamesRow}
+
+      {gateOn && onAllowSignupChange && (
         <div className="flex items-center justify-between gap-3 pl-1">
           <div className="min-w-0 space-y-0.5">
             <Label
@@ -108,7 +187,7 @@ export function RequireSignupCard({
           <Switch
             id={`switch-${testIdPrefix}-allow-signup`}
             checked={allowSignup !== false}
-            disabled={forceEnabled}
+            disabled={false}
             onCheckedChange={onAllowSignupChange}
             data-testid={`switch-${testIdPrefix}-allow-signup`}
           />
@@ -151,37 +230,19 @@ export function RequireSignupCard({
               : " before enabling Require account."}
           </p>
         </div>
+      ) : loginSimplified ? (
+        <p className="text-xs text-muted-foreground" data-testid={`text-${testIdPrefix}-help`}>
+          Account gate stays on for a login goal. Turn on Allow new signups if visitors without an
+          account should be able to register here.
+        </p>
       ) : (
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground" data-testid={`text-${testIdPrefix}-help`}>
-            {forceEnabled
-              ? "This conversion goal is account signup or login — the account gate stays on."
-              : enabled
-                ? "Visitors must sign up or log in before this conversion. This is not the signup/login GTM event itself — those names are configured on Conversions."
-                : "Optionally require an account before the conversion goal above."}
-          </p>
-          {(enabled || forceEnabled) && (
-            <p
-              className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1"
-              data-testid={`text-${testIdPrefix}-event-names`}
-            >
-              <span>
-                Fires{" "}
-                <code className="text-[10px] font-mono">{signupEventName}</code> on signup
-                {allowSignup !== false ? "" : " (disabled — login only)"},{" "}
-                <code className="text-[10px] font-mono">{loginEventName}</code> on login.
-              </span>
-              <a
-                href="/private/store/conversions#signup-login-events"
-                className="underline hover:no-underline inline-flex items-center gap-0.5 shrink-0"
-                data-testid={`link-${testIdPrefix}-edit-events`}
-              >
-                Edit
-                <IconPencil className="h-3 w-3" />
-              </a>
-            </p>
-          )}
-        </div>
+        <p className="text-xs text-muted-foreground" data-testid={`text-${testIdPrefix}-help`}>
+          {forceEnabled
+            ? "This conversion goal is account signup or login — the account gate stays on."
+            : enabled
+              ? "Visitors must sign up or log in before this conversion."
+              : "Optionally require an account before the conversion goal above."}
+        </p>
       )}
     </div>
   );

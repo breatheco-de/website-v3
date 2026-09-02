@@ -108,8 +108,7 @@ export function validateRequiredConversionName(
   const form = getFormSettingsObject(section, formSettingsPath);
   // Optional presence for nested form-settings (CTA-only heroes, etc.).
   if (!form) return null;
-  // Account gate: conversion goal is optional (signup-only / login-only forms).
-  if (form.is_signup === true) return null;
+  // Account gate does not waive conversion — name, route name, or explicit null required.
   if (collectConversionNames(form).length > 0) return null;
 
   const label = formSettingsPath ? `${formSettingsPath}.conversion_name` : "conversion_name";

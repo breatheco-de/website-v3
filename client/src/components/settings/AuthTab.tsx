@@ -76,11 +76,15 @@ import {
   DEFAULT_AUTH_SIGNUP_FIELD_MAP,
   buildSignupPayloadPreviewJson,
   buildSignupTestPayloadFromFieldMap,
+  isConstantEntry,
+  isDynamicFromEntry,
   isFormSource,
+  isGlobalEntry,
   isSessionSource,
   isSignupFieldMapReady,
   type AuthSignupFieldMapEntry,
 } from "@shared/authSignupFieldMap";
+import { useVariableDefinitions } from "@/hooks/useVariables";
 
 type AuthHttpMethod = "GET" | "POST" | "PUT";
 
@@ -176,7 +180,7 @@ function isValidSignupFromPath(from: string): boolean {
   return false;
 }
 
-type SignupFieldMapRowIssue = "blank" | "duplicate";
+type SignupFieldMapRowIssue = "blank" | "duplicate" | "empty_constant" | "empty_global";
 
 function getSignupFieldMapIssues(
   rows: AuthSignupFieldMapEntry[],
@@ -193,11 +197,24 @@ function getSignupFieldMapIssues(
     if (prev !== undefined) {
       issues.set(prev, "duplicate");
       issues.set(index, "duplicate");
-    } else {
-      seen.set(key, index);
+      return;
+    }
+    seen.set(key, index);
+    if (isConstantEntry(row) && !row.constant.trim()) {
+      issues.set(index, "empty_constant");
+    } else if (isGlobalEntry(row) && !row.global.trim()) {
+      issues.set(index, "empty_global");
     }
   });
   return issues;
+}
+
+type SignupSourceMode = "from" | "constant" | "global";
+
+function signupRowMode(row: AuthSignupFieldMapEntry): SignupSourceMode {
+  if (isConstantEntry(row)) return "constant";
+  if (isGlobalEntry(row)) return "global";
+  return "from";
 }
 
 function ClickToEditPayloadKey({
@@ -261,7 +278,7 @@ function ClickToEditPayloadKey({
     <button
       type="button"
       className={cn(
-        "text-xs font-mono w-28 flex-shrink-0 text-right truncate rounded-md px-1.5 py-1 hover:bg-muted/60 focus:outline-none focus:ring-1 focus:ring-ring",
+        "group/key inline-flex items-center justify-end gap-1 text-xs font-mono w-28 flex-shrink-0 text-right truncate rounded-md px-1.5 py-1 hover:bg-muted/60 focus:outline-none focus:ring-1 focus:ring-ring",
         hasIssue ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
         !value.trim() && "italic",
       )}
@@ -269,7 +286,11 @@ function ClickToEditPayloadKey({
       onClick={() => setEditing(true)}
       data-testid={`button-auth-signup-key-${index}`}
     >
-      {value.trim() || "key"}
+      <span className="min-w-0 truncate">{value.trim() || "key"}</span>
+      <IconPencil
+        className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/key:opacity-70 group-focus-visible/key:opacity-70"
+        aria-hidden
+      />
     </button>
   );
 }
@@ -420,11 +441,122 @@ function SignupFromCombobox({
   );
 }
 
+function SignupGlobalCombobox({
+  index,
+  value,
+  onChange,
+  globalNames,
+  unknown,
+}: {
+  index: number;
+  value: string;
+  onChange: (next: string) => void;
+  globalNames: string[];
+  unknown: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const commit = (next: string) => {
+    onChange(next.trim());
+    setOpen(false);
+    setSearch("");
+  };
+
+  return (
+    <div className="flex-1 min-w-0 space-y-0.5">
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setSearch("");
+        }}
+        modal={false}
+      >
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className={cn(
+              "h-7 w-full justify-between font-normal px-2",
+              unknown && "border-amber-500/50",
+            )}
+            data-testid={`select-auth-signup-global-${index}`}
+          >
+            <span
+              className={cn(
+                "font-mono text-xs truncate",
+                !value && "text-muted-foreground",
+                unknown && "text-amber-600 dark:text-amber-400",
+              )}
+            >
+              {value || "global.name"}
+            </span>
+            <IconSelector className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-[--radix-popover-trigger-width] min-w-[16rem] p-0"
+          align="start"
+        >
+          <Command shouldFilter={true}>
+            <CommandInput
+              placeholder="Search global.*…"
+              value={search}
+              onValueChange={setSearch}
+              data-testid={`input-auth-signup-global-search-${index}`}
+            />
+            <CommandList className="max-h-64">
+              <CommandEmpty>No global variables found.</CommandEmpty>
+              <CommandGroup heading="Global">
+                {globalNames.map((name) => (
+                  <CommandItem
+                    key={name}
+                    value={name}
+                    onSelect={() => commit(name)}
+                    className="font-mono text-xs"
+                    data-testid={`option-auth-signup-global-${index}-${name.replace(/\./g, "-")}`}
+                  >
+                    <IconCheck
+                      className={cn(
+                        "mr-2 h-3.5 w-3.5 shrink-0",
+                        value === name ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                    {name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {unknown ? (
+        <p
+          className="text-[10px] text-amber-600 dark:text-amber-400"
+          data-testid={`text-auth-signup-global-unknown-${index}`}
+        >
+          Variable not found
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function AuthTab() {
   const { toast } = useToast();
   const { data, isLoading } = useQuery<AuthSettingsResponse>({
     queryKey: ["/api/settings/auth"],
   });
+  const { data: variableDefinitions } = useVariableDefinitions();
+  const globalVarNames = useMemo(() => {
+    if (!variableDefinitions) return [] as string[];
+    return Object.keys(variableDefinitions)
+      .filter((n) => n.startsWith("global."))
+      .sort((a, b) => a.localeCompare(b));
+  }, [variableDefinitions]);
 
   const [host, setHost] = useState("");
   const [academy, setAcademy] = useState("");
@@ -493,28 +625,33 @@ export function AuthTab() {
 
   const markDirty = () => setDirty(true);
 
-  const updateSignupFieldMapRow = (
-    index: number,
-    patch: Partial<AuthSignupFieldMapEntry>,
-  ) => {
+  const replaceSignupFieldMapRow = (index: number, next: AuthSignupFieldMapEntry) => {
+    setSignupFieldMap((prev) => prev.map((row, i) => (i === index ? next : row)));
+    markDirty();
+  };
+
+  const setSignupRowKey = (index: number, key: string) => {
+    setSignupFieldMap((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, key } : row)),
+    );
+    markDirty();
+  };
+
+  const setSignupRowMode = (index: number, mode: SignupSourceMode) => {
     setSignupFieldMap((prev) =>
       prev.map((row, i) => {
         if (i !== index) return row;
-        const next = { ...row, ...patch };
-        if (!isFormSource(next.from)) {
-          delete next.required;
-        }
-        return next;
+        const key = row.key;
+        if (mode === "constant") return { key, constant: "" };
+        if (mode === "global") return { key, global: "" };
+        return { key, from: "form.email" };
       }),
     );
     markDirty();
   };
 
   const addSignupFieldMapRow = () => {
-    setSignupFieldMap((prev) => [
-      ...prev,
-      { key: "", from: "form.email" },
-    ]);
+    setSignupFieldMap((prev) => [...prev, { key: "", from: "form.email" }]);
     markDirty();
   };
 
@@ -553,6 +690,16 @@ export function AuthTab() {
       return;
     }
     if (signupFieldMapIssues.size > 0) {
+      const kinds = new Set(signupFieldMapIssues.values());
+      if (kinds.has("empty_constant") || kinds.has("empty_global")) {
+        toast({
+          title: "Fix empty field map sources",
+          description:
+            "Fixed values cannot be blank, and every Global row needs a global.* variable selected.",
+          variant: "destructive",
+        });
+        return;
+      }
       toast({
         title: "Fix empty or duplicate payload keys",
         description: "Every signup field map row needs a unique non-empty payload key before saving.",
@@ -759,43 +906,10 @@ export function AuthTab() {
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
-          <div className="flex items-center gap-2">
-            <IconUserCheck className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base">Signup & Login</CardTitle>
-          </div>
-          <div className="flex items-center gap-2">
-            {hasAnyValue && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleClear}
-                disabled={clearing || saving}
-                data-testid="button-clear-auth"
-              >
-                {clearing ? (
-                  <IconLoader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                ) : (
-                  <IconTrash className="h-4 w-4 mr-1.5" />
-                )}
-                Clear
-              </Button>
-            )}
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={!dirty || saving || payloadErrors}
-              data-testid="button-save-auth"
-            >
-              {saving ? (
-                <IconLoader2 className="h-4 w-4 mr-1.5 animate-spin" />
-              ) : (
-                <IconDeviceFloppy className="h-4 w-4 mr-1.5" />
-              )}
-              Save
-            </Button>
-          </div>
+      <Card className="pb-20" data-testid="auth-settings-panel">
+        <CardHeader className="flex flex-row items-center gap-2 pb-4">
+          <IconUserCheck className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-base">Signup & Login</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           {isLoading ? (
@@ -832,47 +946,59 @@ export function AuthTab() {
                 </div>
               )}
 
-              <div className="space-y-1.5 max-w-xl">
-                <Label htmlFor="auth-host" className="text-sm font-medium">
-                  API host
-                </Label>
-                <Input
-                  id="auth-host"
-                  value={host}
-                  onChange={(e) => {
-                    setHost(e.target.value);
-                    markDirty();
-                  }}
-                  placeholder="https://breathecode.herokuapp.com"
-                  className="font-mono text-sm"
-                  data-testid="input-auth-host"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Shared base for login/signup/profile paths. Falls back to{" "}
-                  <code className="text-xs">VITE_BREATHECODE_HOST</code> when empty.
-                </p>
-              </div>
-
-              <div className="space-y-1.5 max-w-xl">
-                <Label htmlFor="auth-academy" className="text-sm font-medium">
-                  Academy ID
-                </Label>
-                <Input
-                  id="auth-academy"
-                  value={academy}
-                  onChange={(e) => {
-                    setAcademy(e.target.value);
-                    markDirty();
-                  }}
-                  placeholder="4"
-                  className="font-mono text-sm"
-                  data-testid="input-auth-academy"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Optional. When set, sent as the <code className="text-xs">Academy</code> header
-                  on profile requests (e.g. <code className="text-xs">/v1/auth/user/me</code>).
-                </p>
-              </div>
+              <Card data-testid="card-auth-connection">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Connection</CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Shared API host and optional academy for consumer auth requests.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5 min-w-0">
+                      <Label htmlFor="auth-host" className="text-sm font-medium">
+                        API host
+                      </Label>
+                      <Input
+                        id="auth-host"
+                        value={host}
+                        onChange={(e) => {
+                          setHost(e.target.value);
+                          markDirty();
+                        }}
+                        placeholder="https://breathecode.herokuapp.com"
+                        className="font-mono text-sm"
+                        data-testid="input-auth-host"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Shared base for login/signup/profile paths. Falls back to{" "}
+                        <code className="text-xs">VITE_BREATHECODE_HOST</code> when empty.
+                      </p>
+                    </div>
+                    <div className="space-y-1.5 min-w-0">
+                      <Label htmlFor="auth-academy" className="text-sm font-medium">
+                        Academy ID
+                      </Label>
+                      <Input
+                        id="auth-academy"
+                        value={academy}
+                        onChange={(e) => {
+                          setAcademy(e.target.value);
+                          markDirty();
+                        }}
+                        placeholder="4"
+                        className="font-mono text-sm"
+                        data-testid="input-auth-academy"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Optional. When set, sent as the <code className="text-xs">Academy</code>{" "}
+                        header on profile requests (e.g.{" "}
+                        <code className="text-xs">/v1/auth/user/me</code>).
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
               <div className="grid gap-4 lg:grid-cols-2">
                 <Card data-testid="card-auth-login">
@@ -1146,14 +1272,25 @@ export function AuthTab() {
                         </Button>
                       </div>
                       <p className="text-xs text-muted-foreground" data-testid="text-auth-signup-field-map-intro">
-                        Maps each signup API payload key to a form field or session value.
-                        Forms cannot enable Require Signup until this map has at least one row.
+                        Maps each signup API payload key to a form field, session value, fixed
+                        string, or site global. Forms cannot enable Require Signup until this map
+                        has at least one row.
                       </p>
                       <div className="space-y-1">
                         {signupFieldMap.map((row, index) => {
-                          const formFrom = isFormSource(row.from);
+                          const mode = signupRowMode(row);
+                          const formFrom =
+                            isDynamicFromEntry(row) && isFormSource(row.from);
                           const issue = signupFieldMapIssues.get(index);
-                          const required = formFrom && row.required === true;
+                          const required =
+                            isDynamicFromEntry(row) &&
+                            formFrom &&
+                            row.required === true;
+                          const globalUnknown =
+                            isGlobalEntry(row) &&
+                            !!row.global.trim() &&
+                            !!variableDefinitions &&
+                            !(row.global in variableDefinitions);
                           return (
                             <div
                               key={index}
@@ -1164,19 +1301,76 @@ export function AuthTab() {
                                 <ClickToEditPayloadKey
                                   index={index}
                                   value={row.key}
-                                  hasIssue={!!issue}
-                                  onChange={(key) =>
-                                    updateSignupFieldMapRow(index, { key })
-                                  }
+                                  hasIssue={issue === "blank" || issue === "duplicate"}
+                                  onChange={(key) => setSignupRowKey(index, key)}
                                 />
                                 <IconArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                                <SignupFromCombobox
-                                  index={index}
-                                  value={row.from}
-                                  onChange={(from) =>
-                                    updateSignupFieldMapRow(index, { from })
-                                  }
-                                />
+                                <Select
+                                  value={mode}
+                                  onValueChange={(v) => {
+                                    if (v === "from" || v === "constant" || v === "global") {
+                                      setSignupRowMode(index, v);
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger
+                                    className="h-7 w-[6.5rem] shrink-0 text-xs"
+                                    data-testid={`select-auth-signup-mode-${index}`}
+                                  >
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="from">Form/Session</SelectItem>
+                                    <SelectItem value="constant">Fixed</SelectItem>
+                                    <SelectItem value="global">Global</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                {mode === "from" && isDynamicFromEntry(row) ? (
+                                  <SignupFromCombobox
+                                    index={index}
+                                    value={row.from}
+                                    onChange={(from) =>
+                                      replaceSignupFieldMapRow(index, {
+                                        key: row.key,
+                                        from,
+                                        ...(isFormSource(from) && row.required
+                                          ? { required: true }
+                                          : {}),
+                                      })
+                                    }
+                                  />
+                                ) : null}
+                                {mode === "constant" && isConstantEntry(row) ? (
+                                  <Input
+                                    value={row.constant}
+                                    onChange={(e) =>
+                                      replaceSignupFieldMapRow(index, {
+                                        key: row.key,
+                                        constant: e.target.value,
+                                      })
+                                    }
+                                    placeholder="fixed value"
+                                    className={cn(
+                                      "h-7 flex-1 min-w-0 font-mono text-xs",
+                                      issue === "empty_constant" && "border-amber-500/50",
+                                    )}
+                                    data-testid={`input-auth-signup-constant-${index}`}
+                                  />
+                                ) : null}
+                                {mode === "global" && isGlobalEntry(row) ? (
+                                  <SignupGlobalCombobox
+                                    index={index}
+                                    value={row.global}
+                                    globalNames={globalVarNames}
+                                    unknown={globalUnknown}
+                                    onChange={(global) =>
+                                      replaceSignupFieldMapRow(index, {
+                                        key: row.key,
+                                        global,
+                                      })
+                                    }
+                                  />
+                                ) : null}
                                 <TooltipProvider delayDuration={200}>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -1190,11 +1384,14 @@ export function AuthTab() {
                                             required && "text-primary",
                                           )}
                                           disabled={!formFrom}
-                                          onClick={() =>
-                                            updateSignupFieldMapRow(index, {
-                                              required: required ? undefined : true,
-                                            })
-                                          }
+                                          onClick={() => {
+                                            if (!isDynamicFromEntry(row) || !formFrom) return;
+                                            replaceSignupFieldMapRow(index, {
+                                              key: row.key,
+                                              from: row.from,
+                                              ...(required ? {} : { required: true }),
+                                            });
+                                          }}
                                           data-testid={`switch-auth-signup-required-${index}`}
                                           aria-label={
                                             formFrom
@@ -1242,6 +1439,22 @@ export function AuthTab() {
                                   data-testid={`text-auth-signup-key-duplicate-${index}`}
                                 >
                                   Duplicate payload key
+                                </p>
+                              ) : null}
+                              {issue === "empty_constant" ? (
+                                <p
+                                  className="text-[10px] text-amber-600 dark:text-amber-400 ml-[7.5rem]"
+                                  data-testid={`text-auth-signup-constant-empty-${index}`}
+                                >
+                                  Fixed value cannot be empty
+                                </p>
+                              ) : null}
+                              {issue === "empty_global" ? (
+                                <p
+                                  className="text-[10px] text-amber-600 dark:text-amber-400 ml-[7.5rem]"
+                                  data-testid={`text-auth-signup-global-empty-${index}`}
+                                >
+                                  Select a global.* variable
                                 </p>
                               ) : null}
                             </div>
@@ -1309,6 +1522,59 @@ export function AuthTab() {
           )}
         </CardContent>
       </Card>
+
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-lg"
+        data-testid="auth-save-bar"
+      >
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-end gap-3">
+          <p
+            className="text-xs text-muted-foreground min-w-0 truncate text-right"
+            data-testid="text-auth-save-status"
+          >
+            {saving
+              ? "Saving…"
+              : dirty
+                ? payloadErrors
+                  ? "Fix login payload JSON before saving"
+                  : signupFieldMapIssues.size > 0
+                    ? "Fix field map issues before saving"
+                    : "Unsaved changes"
+                : "All changes saved"}
+          </p>
+          <div className="flex items-center gap-2 shrink-0">
+            {hasAnyValue && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleClear}
+                disabled={clearing || saving}
+                data-testid="button-clear-auth"
+              >
+                {clearing ? (
+                  <IconLoader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                ) : (
+                  <IconTrash className="h-4 w-4 mr-1.5" />
+                )}
+                Clear
+              </Button>
+            )}
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={!dirty || saving || payloadErrors || signupFieldMapIssues.size > 0}
+              data-testid="button-save-auth"
+            >
+              {saving ? (
+                <IconLoader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : (
+                <IconDeviceFloppy className="h-4 w-4 mr-1.5" />
+              )}
+              Save
+            </Button>
+          </div>
+        </div>
+      </div>
 
       <Dialog open={!!testTarget} onOpenChange={(open) => !open && setTestTarget(null)}>
         <DialogContent

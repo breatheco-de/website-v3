@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Bot, Brain, Braces, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Globe, Home, Image, Languages, Map, Menu, MessageCircle, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Bot, Brain, Braces, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Globe, Home, Image, Languages, LogOut, Map, Menu, MessageCircle, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
 import { IconServer, IconShoppingBag, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle, IconSwitchHorizontal } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
@@ -1131,16 +1131,30 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           <div className="border-t p-2 space-y-1">
               <div className="flex items-center justify-between px-3 py-1.5">
                 <div className="flex flex-col">
-                  <div
-                    className="flex items-center gap-2 cursor-pointer hover-elevate rounded px-1 -mx-1"
-                    onClick={() => props.setSessionModalOpen(true)}
-                    data-testid="button-session-header"
-                    title="View session data"
-                  >
-                    <Cookie className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Session</span>
-                    {!props.hasToken && (
-                      <span className="text-xs text-amber-600 dark:text-amber-400">(no auth)</span>
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="flex items-center gap-2 cursor-pointer hover-elevate rounded px-1 -mx-1"
+                      onClick={() => props.setSessionModalOpen(true)}
+                      data-testid="button-session-header"
+                      title="View session data"
+                    >
+                      <Cookie className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Session</span>
+                      {!props.hasToken && (
+                        <span className="text-xs text-amber-600 dark:text-amber-400">(no auth)</span>
+                      )}
+                    </div>
+                    {props.hasToken && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-4 w-4 flex-shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={props.clearToken}
+                        title="Log out (destroy staff session token)"
+                        data-testid="button-panel-staff-session-logout"
+                      >
+                        <LogOut className="h-[5.6px] w-[5.6px]" />
+                      </Button>
                     )}
                   </div>
                   {versionData?.version && (

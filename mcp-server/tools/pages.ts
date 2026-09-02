@@ -2459,7 +2459,7 @@ export function registerPageTools(
     "Required form.* map rows need fields.<name>.required:true. Typical free plan: hidden fields.plan with " +
     "default \"{{ global.default_free_signup_plan | 4geeks-basic-subscription }}\". " +
     "Signup/login GTM names are tracking.signup_event_name / login_event_name (aliases after rename) — not hardcoded. " +
-    "conversion_name is optional when gated (original lead intent); if it equals the auth event, tracking fires once from auth. " +
+    "conversion_name is always required (name or null/Off); gate does not waive it. Prefer signup/login event as conversion_name when that is the goal; if it equals the auth event, tracking fires once from auth. " +
     "Gate is form-level. Call explain_site topic lead-forms. Failures return action_required: fix_signup_field_map.",
     {
       slug: z.string().describe("Page slug"),

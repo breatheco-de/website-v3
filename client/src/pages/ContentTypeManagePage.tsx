@@ -5674,6 +5674,23 @@ export default function ContentTypeManagePage() {
   const [semanticLoading, setSemanticLoading] = useState(false);
   const semanticDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Same route component is reused across /private/type/:contentType — list filters must
+  // not leak. Timeline uses unfiltered meta; the table applies these and can look "empty"
+  // while chips still appear above (orphaned keys are also invisible in the filter popover).
+  useEffect(() => {
+    setSearch("");
+    setDebouncedSearch("");
+    setTagFilters({});
+    setUpdatedSortDir(null);
+    setListPage(1);
+    setSemanticResults(null);
+    setSemanticActive(false);
+    setSemanticLoading(false);
+  }, [contentType]);
+
+  const activeListFilterCount = Object.values(tagFilters).flat().length;
+  const hasActiveListFilters = Boolean(debouncedSearch.trim()) || activeListFilterCount > 0;
+
   const [deleteTypeDialogOpen, setDeleteTypeDialogOpen] = useState(false);
   const [deleteTypeConfirmInput, setDeleteTypeConfirmInput] = useState("");
   const [isDeletingType, setIsDeletingType] = useState(false);
@@ -6317,6 +6334,24 @@ export default function ContentTypeManagePage() {
   const filteredFunnelEntries = funnelEntriesData?.entries || [];
   const funnelListLoading =
     search !== debouncedSearch || funnelEntriesLoading || (funnelEntriesFetching && !funnelEntriesData);
+
+  // Drop filter keys that aren't facets on this type (e.g. leftover from another content type).
+  useEffect(() => {
+    const facets = allItemsData?.facets ?? dbItemsMeta?.facets;
+    if (!facets) return;
+    const allowed = new Set(Object.keys(facets));
+    setTagFilters((prev) => {
+      const keys = Object.keys(prev);
+      if (keys.length === 0) return prev;
+      let changed = false;
+      const next: Record<string, string[]> = {};
+      for (const key of keys) {
+        if (allowed.has(key)) next[key] = prev[key];
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [allItemsData?.facets, dbItemsMeta?.facets, contentType]);
 
   const selectionActive = selectedSlugs.size > 0;
   const selectedSlugList = useMemo(() => [...selectedSlugs], [selectedSlugs]);
@@ -8682,8 +8717,22 @@ export default function ContentTypeManagePage() {
                   </Button>
                 </div>
               ) : filtered.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground" data-testid="text-no-results">
-                  No DB entries found
+                <div className="text-center py-12 text-muted-foreground space-y-2" data-testid="text-no-results">
+                  <p>{hasActiveListFilters ? "No DB entries match the current search/filters" : "No DB entries found"}</p>
+                  {hasActiveListFilters && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSearch("");
+                        setDebouncedSearch("");
+                        setTagFilters({});
+                      }}
+                      data-testid="button-clear-list-filters"
+                    >
+                      Clear search & filters
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <div className="overflow-x-auto">

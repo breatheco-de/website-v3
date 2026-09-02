@@ -41,7 +41,7 @@ export function signupFieldMapActionRequired(
           message:
             "Account gate (is_signup) must satisfy site auth.signup.field_map when allow_signup is not false. " +
             "conversion_info is always appended by runtime. Signup/login GTM names come from tracking.signup_event_name / login_event_name (aliases supported). " +
-            "conversion_name is optional when is_signup — use it for the original lead intent, not as a duplicate of the auth event.",
+            "conversion_name is always required (catalog name or null/Off) — gate does not waive it. Prefer the site signup/login event as conversion_name when that is the form’s goal; if it equals the auth event, tracking fires once from auth.",
         },
       ],
     },
