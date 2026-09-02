@@ -966,6 +966,17 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const cacheTotals = cacheIssuesData?.totals;
   const cacheFacetsAll = cacheIssuesData?.facetsAll;
 
+  /** Unfiltered open-issue totals for KPI bar — stable across list filters and KPI tabs. */
+  const { data: cacheKpiTotalsData } = useQuery<CacheIssuesResponse>({
+    queryKey: ["/api/validation/cache-issues", "global-health", "kpi-totals"],
+    queryFn: async () => {
+      const res = await apiFetch("/api/validation/cache-issues", { credentials: "include" });
+      if (!res.ok) throw new Error(`Failed to load cache issue totals (${res.status})`);
+      return (await res.json()) as CacheIssuesResponse;
+    },
+  });
+  const kpiTotals = cacheKpiTotalsData?.totals;
+
   const { data: resolvedSummaryData } = useQuery<ResolvedIssuesResponse["summary"]>({
     queryKey: ["/api/validation/resolved-issues", "summary"],
     queryFn: async () => {
@@ -1099,6 +1110,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     onSuccess: (outcome) => {
       scheduleHideJobPanel();
       void refetchCacheIssues();
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-issues"], exact: false });
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness"] });
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness-urls"] });
@@ -1412,15 +1424,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     { key: "performance", label: "Performance" },
   ];
 
-  const hasActiveIssueFilters =
-    validatorFilters.length > 0 ||
-    categoryFilters.length > 0 ||
-    pagePathFilter.trim().length > 0 ||
-    search.trim().length > 0 ||
-    priorAttemptsFilter ||
-    activeKpiTab === "errors" ||
-    activeKpiTab === "warnings";
-
   const validatorFilterOptions = (() => {
     const names = new Set<string>();
     for (const v of availableValidators) {
@@ -1436,17 +1439,11 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     });
   })();
 
-  const kpiSummary = hasActiveIssueFilters
-    ? {
-        errors: cacheTotals?.errors ?? 0,
-        warnings: cacheTotals?.warnings ?? 0,
-        urls: cacheTotals?.uniqueUrls ?? 0,
-      }
-    : {
-        errors: cacheTotals?.openErrors ?? 0,
-        warnings: cacheTotals?.openWarnings ?? 0,
-        urls: cacheTotals?.openUniqueUrls ?? 0,
-      };
+  const kpiSummary = {
+    errors: kpiTotals?.openErrors ?? 0,
+    warnings: kpiTotals?.openWarnings ?? 0,
+    urls: kpiTotals?.openUniqueUrls ?? 0,
+  };
 
   const openIssueCount = cacheTotals?.open ?? 0;
   const filteredIssueCount = cacheTotals?.filtered ?? cacheIssues.length;
