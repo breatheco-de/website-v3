@@ -349,14 +349,67 @@ export const DEFAULT_ROBOTS_SETTINGS: RobotsSettings = {
   ],
 };
 
-/** Search Console URL Inspection property (not credentials — those stay env-only). */
+/** Search Console bulk export → BigQuery (non-secret). Credentials via GCS_* env (same as media). */
+export interface SearchConsoleBigQuerySettings {
+  enabled: boolean;
+  project_id: string;
+  dataset_id: string;
+  /** Query location, e.g. US or EU */
+  location: string;
+  /** GSC bulk export table (default searchdata_url_impression) */
+  url_impression_table: string;
+  /** GSC export log table (default ExportLog) */
+  export_log_table: string;
+}
+
+export const DEFAULT_SEARCH_CONSOLE_BIGQUERY: SearchConsoleBigQuerySettings = {
+  enabled: false,
+  project_id: "",
+  dataset_id: "searchconsole",
+  location: "US",
+  url_impression_table: "searchdata_url_impression",
+  export_log_table: "ExportLog",
+};
+
+/** Search Console URL Inspection property + optional BigQuery export pointer (credentials stay env-only). */
 export interface SearchConsoleSettings {
   site_url: string | null;
+  bigquery: SearchConsoleBigQuerySettings;
 }
 
 export const DEFAULT_SEARCH_CONSOLE_SETTINGS: SearchConsoleSettings = {
   site_url: null,
+  bigquery: { ...DEFAULT_SEARCH_CONSOLE_BIGQUERY },
 };
+
+export function parseSearchConsoleBigQuerySettings(
+  raw: unknown,
+  defaults: SearchConsoleBigQuerySettings = DEFAULT_SEARCH_CONSOLE_BIGQUERY,
+): SearchConsoleBigQuerySettings {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ...defaults };
+  }
+  const o = raw as Record<string, unknown>;
+  const urlTable =
+    typeof o.url_impression_table === "string" && o.url_impression_table.trim()
+      ? o.url_impression_table.trim()
+      : defaults.url_impression_table;
+  const exportLog =
+    typeof o.export_log_table === "string" && o.export_log_table.trim()
+      ? o.export_log_table.trim()
+      : defaults.export_log_table;
+  return {
+    enabled: typeof o.enabled === "boolean" ? o.enabled : defaults.enabled,
+    project_id: typeof o.project_id === "string" ? o.project_id.trim() : defaults.project_id,
+    dataset_id: typeof o.dataset_id === "string" ? o.dataset_id.trim() : defaults.dataset_id,
+    location:
+      typeof o.location === "string" && o.location.trim()
+        ? o.location.trim()
+        : defaults.location,
+    url_impression_table: urlTable,
+    export_log_table: exportLog,
+  };
+}
 
 function isLocalGscHostname(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
@@ -410,7 +463,36 @@ export function parseSearchConsoleSettings(raw: unknown): SearchConsoleSettings 
       ? (raw as Record<string, unknown>)
       : {};
   const siteUrl = typeof obj.site_url === "string" && obj.site_url.trim() ? obj.site_url.trim() : null;
-  return { site_url: siteUrl };
+  return {
+    site_url: siteUrl,
+    bigquery: parseSearchConsoleBigQuerySettings(obj.bigquery),
+  };
+}
+
+function serializeSearchConsoleBigQuery(
+  bq: SearchConsoleBigQuerySettings,
+): Record<string, unknown> {
+  return {
+    enabled: bq.enabled,
+    project_id: bq.project_id,
+    dataset_id: bq.dataset_id,
+    location: bq.location,
+    url_impression_table: bq.url_impression_table,
+    export_log_table: bq.export_log_table,
+  };
+}
+
+function writeSearchConsoleBlock(
+  existing: Record<string, unknown>,
+  sc: SearchConsoleSettings,
+): void {
+  const block: Record<string, unknown> = {
+    bigquery: serializeSearchConsoleBigQuery(sc.bigquery),
+  };
+  if (sc.site_url) {
+    block.site_url = sc.site_url;
+  }
+  existing.search_console = block;
 }
 
 /**
@@ -1361,13 +1443,56 @@ export function updateSearchConsoleSettings(
     } catch {}
   }
 
-  const updated: SearchConsoleSettings = { site_url: siteUrl };
-  existing.search_console = { site_url: siteUrl };
+  const current = parseSearchConsoleSettings(existing.search_console);
+  const updated: SearchConsoleSettings = { ...current, site_url: siteUrl };
+  writeSearchConsoleBlock(existing, updated);
 
   const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
   fs.writeFileSync(settingsPath, output, "utf-8");
   resetSettings(resolveSettingsRoot(contentRoot));
   log.info(`[Settings] Updated search_console.site_url=${siteUrl}`);
+  return updated;
+}
+
+export function updateSearchConsoleBigQuerySettings(
+  input: Partial<SearchConsoleBigQuerySettings>,
+  contentRoot?: string,
+): SearchConsoleSettings {
+  const settingsPath = getSettingsPath(contentRoot);
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const raw = fs.readFileSync(settingsPath, "utf-8");
+      existing = (yaml.load(raw) as Record<string, unknown>) || {};
+    } catch {}
+  }
+
+  const current = parseSearchConsoleSettings(existing.search_console);
+  const merged = parseSearchConsoleBigQuerySettings(
+    { ...current.bigquery, ...input },
+    DEFAULT_SEARCH_CONSOLE_BIGQUERY,
+  );
+  if (merged.enabled && (!merged.project_id || !merged.dataset_id)) {
+    throw new Error(
+      "search_console.bigquery.project_id and dataset_id are required when enabled",
+    );
+  }
+  if (merged.url_impression_table && /[^a-zA-Z0-9_]/.test(merged.url_impression_table)) {
+    throw new Error("url_impression_table must be alphanumeric/underscore");
+  }
+  if (merged.export_log_table && /[^a-zA-Z0-9_]/.test(merged.export_log_table)) {
+    throw new Error("export_log_table must be alphanumeric/underscore");
+  }
+
+  const updated: SearchConsoleSettings = { ...current, bigquery: merged };
+  writeSearchConsoleBlock(existing, updated);
+
+  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
+  log.info(
+    `[Settings] Updated search_console.bigquery enabled=${merged.enabled} project=${merged.project_id || "(empty)"}`,
+  );
   return updated;
 }
 

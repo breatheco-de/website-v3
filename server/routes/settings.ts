@@ -141,6 +141,7 @@ import {
   getRobotsSettings,
   updateRobotsSettings,
   updateSearchConsoleSettings,
+  updateSearchConsoleBigQuerySettings,
   buildRobotsTxtContent,
   getAuthSettings,
   updateAuthSettings,
@@ -1633,6 +1634,48 @@ export function registerSettingsRoutes(app: Express): void {
       res.json({ success: true, site_url: searchConsole.site_url });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.get("/api/settings/search-console/bigquery", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    const { getGscBigQueryConfigStatus } = await import("../gsc-bigquery-client");
+    res.json(getGscBigQueryConfigStatus(getContentRoot(res)));
+  });
+
+  app.put("/api/settings/search-console/bigquery", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    try {
+      const body = req.body?.bigquery ?? req.body;
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return res.status(400).json({ error: "Request body must be a bigquery object" });
+      }
+      const contentRoot = getContentRoot(res);
+      updateSearchConsoleBigQuerySettings(body, contentRoot);
+      markFileAsModified("settings.yml", undefined, undefined, contentRoot);
+      const { getGscBigQueryConfigStatus } = await import("../gsc-bigquery-client");
+      res.json({ success: true, ...getGscBigQueryConfigStatus(contentRoot) });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.post("/api/settings/search-console/bigquery/test", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    try {
+      const { testGscBigQueryConnection } = await import("../gsc-bigquery-client");
+      const result = await testGscBigQueryConnection(getContentRoot(res));
+      res.status(result.ok ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({
+        ok: false,
+        error: err?.message || String(err),
+        elapsed_ms: 0,
+        warnings: [],
+      });
     }
   });
 

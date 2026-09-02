@@ -31,6 +31,7 @@ import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { apiRequestWithAuth, queryClient } from "@/lib/queryClient";
 import type { GscInspectionGetResponse, GscSitesResponse } from "@/lib/gscInspection";
 import { gscPermissionLabel, isGscPropertyAccessDenied } from "@/lib/gscInspection";
+import { SearchConsoleBigQueryCard } from "@/components/settings/SearchConsoleBigQueryCard";
 
 function configuredBadge(ok: boolean, okLabel: string, missingLabel: string, testId: string) {
   return ok ? (
@@ -535,6 +536,8 @@ export function SearchConsoleTab() {
           )}
         </CardContent>
       </Card>
+
+      <SearchConsoleBigQueryCard canEdit={canEdit} />
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="gsc-settings-rollup">
         <RollupCard label="Checked / never" value={`${summary.inspected} / ${summary.neverChecked}`} testId="text-gsc-checked" />

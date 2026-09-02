@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Copy, Crosshair, DownloadCloud, ExternalLink, Globe, Info, Loader2, MoreVertical, Network, Pencil, Plus, Star, Unlink } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Copy, Crosshair, DownloadCloud, ExternalLink, Filter, Globe, Info, Loader2, MoreVertical, Network, Pencil, Plus, Star, Unlink } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -2633,6 +2633,73 @@ function SearchConsoleCoverageCard({
   );
 }
 
+export function DiagnosticsFunnelTab({ data }: { data: SeoOverview }) {
+  const contentTypes = Object.keys(data.intentDistribution);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="funnel-totals-grid">
+        <StatCard
+          label="With funnel stage"
+          value={data.totals.withIntent}
+          total={data.totals.totalPages}
+          icon={<Filter className="h-4 w-4" />}
+          testId="stat-card-with-funnel-stage"
+        />
+      </div>
+
+      <SeoOverviewCollapsibleCard
+        testId="card-funnel-stage-distribution"
+        toggleTestId="button-toggle-funnel-stage-distribution"
+        icon={<Filter className="h-4 w-4" />}
+        title="Funnel stage distribution"
+        summary={`${data.totals.withIntent} with stage · ${Math.max(0, data.totals.totalPages - data.totals.withIntent)} unknown`}
+      >
+        {contentTypes.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No funnel stage data found</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs" data-testid="intent-distribution-table">
+              <thead>
+                <tr>
+                  <th className="text-left py-2 pr-4 text-muted-foreground font-medium">Content Type</th>
+                  {ALL_INTENTS.map((intent) => (
+                    <th key={intent} className="text-center py-2 px-2 text-muted-foreground font-medium">
+                      {INTENT_LABELS[intent]}
+                    </th>
+                  ))}
+                  <th className="text-center py-2 px-2 text-muted-foreground font-medium">Unknown</th>
+                </tr>
+              </thead>
+              <tbody>
+                {contentTypes.map((ct) => (
+                  <tr key={ct} className="border-t border-border" data-testid={`intent-row-${ct}`}>
+                    <td className="py-2 pr-4 font-medium text-foreground capitalize">{ct}</td>
+                    {[...ALL_INTENTS, "unknown"].map((intent) => {
+                      const count = data.intentDistribution[ct]?.[intent] || 0;
+                      return (
+                        <td key={intent} className="py-2 px-2 text-center" data-testid={`intent-cell-${ct}-${intent}`}>
+                          {count > 0 ? (
+                            <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium ${INTENT_COLORS[intent]}`}>
+                              {count}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SeoOverviewCollapsibleCard>
+    </div>
+  );
+}
+
 export function SeoTab({ data }: { data: SeoOverview }) {
   const { toast } = useToast();
   const { hasCapability } = useDebugAuth();
@@ -2652,7 +2719,6 @@ export function SeoTab({ data }: { data: SeoOverview }) {
     locale: string;
     initialTab?: SeoModalTab;
   } | null>(null);
-  const contentTypes = Object.keys(data.intentDistribution);
   const { data: gsc } = useQuery<GscInspectionGetResponse>({
     queryKey: ["/api/debug/gsc-inspection"],
     queryFn: async () => {
@@ -2721,7 +2787,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="seo-totals-grid">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="seo-totals-grid">
         <StatCard
           label="Total vs Indexed pages"
           value={summary?.indexed ?? 0}
@@ -2736,7 +2802,6 @@ export function SeoTab({ data }: { data: SeoOverview }) {
           }
           testId="stat-card-total-vs-indexed-pages"
         />
-        <StatCard label="With funnel stage" value={data.totals.withIntent} total={data.totals.totalPages} icon={<Crosshair className="h-4 w-4" />} />
         <StatCard
           label="Keyworded vs Clustered"
           value={data.totals.withPillar}
@@ -2750,55 +2815,6 @@ export function SeoTab({ data }: { data: SeoOverview }) {
       </div>
 
       <SearchConsoleCoverageCard configured={gsc?.configured} summary={summary} />
-
-      <SeoOverviewCollapsibleCard
-        testId="card-funnel-stage-distribution"
-        toggleTestId="button-toggle-funnel-stage-distribution"
-        icon={<Crosshair className="h-4 w-4" />}
-        title="Funnel stage distribution"
-        summary={`${data.totals.withIntent} with stage · ${Math.max(0, data.totals.totalPages - data.totals.withIntent)} unknown`}
-      >
-          {contentTypes.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No funnel stage data found</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs" data-testid="intent-distribution-table">
-                <thead>
-                  <tr>
-                    <th className="text-left py-2 pr-4 text-muted-foreground font-medium">Content Type</th>
-                    {ALL_INTENTS.map((intent) => (
-                      <th key={intent} className="text-center py-2 px-2 text-muted-foreground font-medium">
-                        {INTENT_LABELS[intent]}
-                      </th>
-                    ))}
-                    <th className="text-center py-2 px-2 text-muted-foreground font-medium">Unknown</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {contentTypes.map((ct) => (
-                    <tr key={ct} className="border-t border-border" data-testid={`intent-row-${ct}`}>
-                      <td className="py-2 pr-4 font-medium text-foreground capitalize">{ct}</td>
-                      {[...ALL_INTENTS, "unknown"].map((intent) => {
-                        const count = data.intentDistribution[ct]?.[intent] || 0;
-                        return (
-                          <td key={intent} className="py-2 px-2 text-center" data-testid={`intent-cell-${ct}-${intent}`}>
-                            {count > 0 ? (
-                              <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium ${INTENT_COLORS[intent]}`}>
-                                {count}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-      </SeoOverviewCollapsibleCard>
 
       <SeoOverviewCollapsibleCard
         testId="card-cluster-map"

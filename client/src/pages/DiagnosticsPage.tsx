@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import {AlertTriangle, ArrowLeft, Brain, Check, CircleCheck, ChevronDown, Crosshair, DownloadCloud, Eraser, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, Brain, Check, CircleCheck, ChevronDown, Crosshair, DownloadCloud, Eraser, Filter, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Link, useLocation, useSearch } from "wouter";
@@ -81,7 +81,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { MetricsAccessGate } from "@/components/MetricsAccessGate";
 import LeadsTab from "@/components/diagnostics/LeadsTab";
 import RuntimeIssuesTab from "@/components/diagnostics/RuntimeIssuesTab";
-import { DiagnosticsSeoPanel, DiagnosticsGeoPanel } from "@/components/diagnostics/DiagnosticsSeoGeoPanels";
+import { DiagnosticsSeoPanel, DiagnosticsGeoPanel, DiagnosticsFunnelPanel } from "@/components/diagnostics/DiagnosticsSeoGeoPanels";
 import { SitemapSearch } from "@/components/menus/SitemapSearch";
 import {
   RedirectConflictResolverModal,
@@ -2730,7 +2730,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
 
 
 const DIAGNOSTICS_TABS: {
-  id: "global-health" | "leads" | "runtime-issues" | "seo" | "geo";
+  id: "global-health" | "leads" | "runtime-issues" | "seo" | "geo" | "funnel";
   label: string;
   href: string;
   Icon: LucideIcon;
@@ -2740,6 +2740,7 @@ const DIAGNOSTICS_TABS: {
   { id: "runtime-issues", label: "Runtime", href: "/private/diagnostics/runtime-issues", Icon: AlertTriangle },
   { id: "seo", label: "SEO", href: "/private/diagnostics/seo", Icon: Crosshair },
   { id: "geo", label: "GEO", href: "/private/diagnostics/geo", Icon: Brain },
+  { id: "funnel", label: "Funnel", href: "/private/diagnostics/funnel", Icon: Filter },
 ];
 
 type DiagnosticsTabId = (typeof DIAGNOSTICS_TABS)[number]["id"];
@@ -2749,6 +2750,7 @@ function resolveDiagnosticsTab(pathname: string): DiagnosticsTabId {
   if (pathname.endsWith("/runtime-issues")) return "runtime-issues";
   if (pathname.endsWith("/seo")) return "seo";
   if (pathname.endsWith("/geo")) return "geo";
+  if (pathname.endsWith("/funnel")) return "funnel";
   if (pathname.endsWith("/global-health")) return "global-health";
   return "global-health";
 }
@@ -2829,6 +2831,9 @@ export default function DiagnosticsPage() {
             </TabsContent>
             <TabsContent value="geo">
               <DiagnosticsGeoPanel />
+            </TabsContent>
+            <TabsContent value="funnel">
+              <DiagnosticsFunnelPanel />
             </TabsContent>
           </Tabs>
         </div>

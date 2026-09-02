@@ -4,9 +4,12 @@ import os from "os";
 import path from "path";
 import yaml from "js-yaml";
 import {
+  DEFAULT_SEARCH_CONSOLE_BIGQUERY,
   getSearchConsoleSettings,
   normalizeSearchConsoleSiteUrl,
+  parseSearchConsoleBigQuerySettings,
   resetSettings,
+  updateSearchConsoleBigQuerySettings,
   updateSearchConsoleSettings,
 } from "./settings";
 
@@ -45,7 +48,10 @@ describe("search_console settings.yml", () => {
   it("loads empty YAML as not saved", () => {
     fs.writeFileSync(path.join(tmp, "settings.yml"), "i18n: {}\n", "utf-8");
     resetSettings(tmp);
-    expect(getSearchConsoleSettings(tmp)).toEqual({ site_url: null });
+    expect(getSearchConsoleSettings(tmp)).toEqual({
+      site_url: null,
+      bigquery: { ...DEFAULT_SEARCH_CONSOLE_BIGQUERY },
+    });
   });
 
   it("saves a URL-prefix property and reloads it", () => {
@@ -71,5 +77,57 @@ describe("search_console settings.yml", () => {
     expect(() => updateSearchConsoleSettings({ site_url: "https://localhost:5000/" }, tmp)).toThrow(
       /localhost/i,
     );
+  });
+
+  it("preserves bigquery when saving site_url", () => {
+    updateSearchConsoleBigQuerySettings(
+      {
+        enabled: true,
+        project_id: "my-project",
+        dataset_id: "searchconsole",
+      },
+      tmp,
+    );
+    updateSearchConsoleSettings({ site_url: "https://4geeks.com" }, tmp);
+    resetSettings(tmp);
+    const sc = getSearchConsoleSettings(tmp);
+    expect(sc.site_url).toBe("https://4geeks.com/");
+    expect(sc.bigquery.enabled).toBe(true);
+    expect(sc.bigquery.project_id).toBe("my-project");
+  });
+
+  it("preserves site_url when saving bigquery", () => {
+    updateSearchConsoleSettings({ site_url: "https://4geeks.com" }, tmp);
+    updateSearchConsoleBigQuerySettings(
+      { enabled: true, project_id: "proj", dataset_id: "searchconsole" },
+      tmp,
+    );
+    resetSettings(tmp);
+    const sc = getSearchConsoleSettings(tmp);
+    expect(sc.site_url).toBe("https://4geeks.com/");
+    expect(sc.bigquery.project_id).toBe("proj");
+  });
+
+  it("requires project and dataset when bigquery enabled", () => {
+    expect(() =>
+      updateSearchConsoleBigQuerySettings({ enabled: true, project_id: "", dataset_id: "" }, tmp),
+    ).toThrow(/project_id and dataset_id/i);
+  });
+});
+
+describe("parseSearchConsoleBigQuerySettings", () => {
+  it("returns defaults for missing input", () => {
+    expect(parseSearchConsoleBigQuerySettings(undefined)).toEqual(DEFAULT_SEARCH_CONSOLE_BIGQUERY);
+  });
+
+  it("parses enabled with project and dataset", () => {
+    const parsed = parseSearchConsoleBigQuerySettings({
+      enabled: true,
+      project_id: "p1",
+      dataset_id: "searchconsole",
+    });
+    expect(parsed.enabled).toBe(true);
+    expect(parsed.project_id).toBe("p1");
+    expect(parsed.dataset_id).toBe("searchconsole");
   });
 });

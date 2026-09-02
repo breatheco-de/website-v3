@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { SeoTab, GeoTab } from "@/pages/SeoGeoPage";
+import { SeoTab, GeoTab, DiagnosticsFunnelTab } from "@/pages/SeoGeoPage";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface SeoOverview {
@@ -84,6 +84,17 @@ export function DiagnosticsSeoPanel() {
     return <p className="text-muted-foreground text-sm text-center py-12">Failed to load SEO data</p>;
   }
   return <SeoTab data={overview} />;
+}
+
+export function DiagnosticsFunnelPanel() {
+  const { data: overview, isLoading } = useQuery<SeoOverview>({
+    queryKey: ["/api/seo/overview"],
+  });
+  if (isLoading) return <LoadingSection />;
+  if (!overview) {
+    return <p className="text-muted-foreground text-sm text-center py-12">Failed to load funnel data</p>;
+  }
+  return <DiagnosticsFunnelTab data={overview} />;
 }
 
 export function DiagnosticsGeoPanel() {

@@ -15,6 +15,43 @@ const log = child({ module: "bigquery-client" });
 
 let cached: { key: string; client: BigQuery } | null = null;
 
+function buildBigQueryClient(projectId: string, location?: string): BigQuery | null {
+  const creds = resolveBigQueryCredentials();
+  const key = `${projectId}|${location || ""}|${creds.source}`;
+  if (cached?.key === key) return cached.client;
+  try {
+    const opts: {
+      projectId: string;
+      location?: string;
+      credentials?: Record<string, unknown>;
+      keyFilename?: string;
+    } = {
+      projectId,
+      location: location || undefined,
+    };
+    if (creds.source === "gcs_json") {
+      opts.credentials = creds.credentials;
+    } else if (creds.source === "gcs_key_file") {
+      opts.keyFilename = creds.keyFilename;
+    }
+    const client = new BigQuery(opts);
+    cached = { key, client };
+    return client;
+  } catch (err) {
+    log.error({ err }, "[BigQuery] Failed to create client");
+    return null;
+  }
+}
+
+/** Create a BigQuery client for an arbitrary GCP project (shared credentials). */
+export function createBigQueryClientForProject(
+  projectId: string,
+  location?: string,
+): BigQuery | null {
+  if (!projectId.trim()) return null;
+  return buildBigQueryClient(projectId.trim(), location);
+}
+
 export type BigQueryConfigStatus = {
   configured: boolean;
   enabled: boolean;
@@ -89,31 +126,7 @@ export function getBigQueryClient(contentRoot?: string): BigQuery | null {
   const status = getBigQueryConfigStatus(contentRoot);
   if (!status.configured) return null;
   const { project_id, location } = status.settings;
-  const creds = resolveBigQueryCredentials();
-  const key = `${project_id}|${location || ""}|${creds.source}`;
-  if (cached?.key === key) return cached.client;
-  try {
-    const opts: {
-      projectId: string;
-      location?: string;
-      credentials?: Record<string, unknown>;
-      keyFilename?: string;
-    } = {
-      projectId: project_id,
-      location: location || undefined,
-    };
-    if (creds.source === "gcs_json") {
-      opts.credentials = creds.credentials;
-    } else if (creds.source === "gcs_key_file") {
-      opts.keyFilename = creds.keyFilename;
-    }
-    const client = new BigQuery(opts);
-    cached = { key, client };
-    return client;
-  } catch (err) {
-    log.error({ err }, "[BigQuery] Failed to create client");
-    return null;
-  }
+  return buildBigQueryClient(project_id, location || undefined);
 }
 
 export function fqEventsWildcard(settings: TrackingBigQuerySettings): string {
