@@ -12,7 +12,7 @@ alwaysApply: true
 
 ## Commit Messages
 
-GitHub sync uses `[Author: X] Message`; consider similar clarity for human-authored commits (e.g. conventional commits or brief scope + summary).
+GitHub sync uses `[Author: X] Message` for direct commits; auto-sync MCP writes use `[Author: agent-label] [Auto-sync] staff@email updated files` (staff email stays for token resolution). Set `MCP_AGENT_MODEL` (e.g. `claude-4-sonnet`) so agent commits show `[Author: claude]`.
 
 ## Site content (`site_*`) — exception to “ask before commit”
 

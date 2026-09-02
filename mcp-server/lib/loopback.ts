@@ -9,6 +9,8 @@ const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_K
 export type LoopbackHeaderOpts = {
   agentSessionId?: string;
   omitJsonContentType?: boolean;
+  /** Model slug for [Author: …] in auto-sync commits (e.g. claude-4-sonnet). */
+  model?: string;
 };
 
 export function buildLoopbackHeaders(
@@ -34,6 +36,11 @@ export function buildLoopbackHeaders(
   const session =
     typeof opts?.agentSessionId === "string" ? opts.agentSessionId.trim() : "";
   if (session) headers["x-mcp-agent-session"] = session;
+  const model =
+    typeof opts?.model === "string" && opts.model.trim()
+      ? opts.model.trim()
+      : (process.env.MCP_AGENT_MODEL || "").trim();
+  if (model) headers["x-mcp-model"] = model;
   return headers;
 }
 

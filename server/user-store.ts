@@ -90,6 +90,8 @@ interface UsersState {
   roles: Record<string, RoleDefinition>;
   users: Record<string, UserRecord>;
   pendingUsers?: Record<string, PendingUserRecord>;
+  /** Staff-edited MCP descriptions for built-in roles (capabilities still come from code). */
+  builtInDescriptionOverrides?: Record<string, string>;
 }
 
 // ─── Built-in roles ────────────────────────────────────────────────────────────
@@ -163,6 +165,31 @@ const BUILT_IN_CONTENT_VIEWER_ROLE: RoleDefinition = {
   capabilities: [{ name: "content_view", contentTypes: "*" }],
 };
 
+const BUILT_IN_ROLES_BY_ID: Record<BuiltInRoleId, RoleDefinition> = {
+  user_admin: BUILT_IN_USER_ADMIN_ROLE,
+  platform_steward: BUILT_IN_PLATFORM_STEWARD_ROLE,
+  platform_ops: BUILT_IN_PLATFORM_OPS_ROLE,
+  metrics_viewer: BUILT_IN_METRICS_VIEWER_ROLE,
+  content_viewer: BUILT_IN_CONTENT_VIEWER_ROLE,
+};
+
+function cloneRoleDefinition(def: RoleDefinition): RoleDefinition {
+  return {
+    label: def.label,
+    description: def.description,
+    capabilities: def.capabilities.map((g) => ({
+      name: g.name,
+      ...(g.contentTypes !== undefined ? { contentTypes: g.contentTypes } : {}),
+    })),
+  };
+}
+
+/** Code-shipped definition for a built-in role (before staff description override). */
+export function getBuiltInRoleCodeDefinition(roleId: string): RoleDefinition | null {
+  if (!isBuiltInRole(roleId)) return null;
+  return cloneRoleDefinition(BUILT_IN_ROLES_BY_ID[roleId as BuiltInRoleId]);
+}
+
 const DEFAULT_STATE: UsersState = {
   roles: {
     user_admin: BUILT_IN_USER_ADMIN_ROLE,
@@ -174,14 +201,60 @@ const DEFAULT_STATE: UsersState = {
   users: {},
 };
 
-/** Overwrite built-in roles from code so local/GCS edits cannot drift. */
+/** Overwrite built-in role label/caps from code; merge staff MCP description overrides. */
 function syncBuiltInRoles(): void {
   if (!state.roles) state.roles = {};
-  state.roles.user_admin = BUILT_IN_USER_ADMIN_ROLE;
-  state.roles.platform_steward = BUILT_IN_PLATFORM_STEWARD_ROLE;
-  state.roles.platform_ops = BUILT_IN_PLATFORM_OPS_ROLE;
-  state.roles.metrics_viewer = BUILT_IN_METRICS_VIEWER_ROLE;
-  state.roles.content_viewer = BUILT_IN_CONTENT_VIEWER_ROLE;
+  const overrides = state.builtInDescriptionOverrides ?? {};
+  for (const roleId of BUILT_IN_ROLE_IDS) {
+    const codeDef = cloneRoleDefinition(BUILT_IN_ROLES_BY_ID[roleId]);
+    const override = overrides[roleId]?.trim();
+    state.roles[roleId] = override ? { ...codeDef, description: override } : codeDef;
+  }
+}
+
+export function getBuiltInDescriptionOverrides(): Record<string, string> {
+  ensureLoaded();
+  return { ...(state.builtInDescriptionOverrides ?? {}) };
+}
+
+export function hasBuiltInDescriptionOverride(roleId: string): boolean {
+  ensureLoaded();
+  return Boolean(state.builtInDescriptionOverrides?.[roleId]?.trim());
+}
+
+export function setBuiltInRoleDescription(
+  roleId: string,
+  description: string,
+): { ok: boolean; error?: string } {
+  ensureLoaded();
+  if (!isBuiltInRole(roleId)) {
+    return { ok: false, error: `Role "${roleId}" is not a built-in role` };
+  }
+  const trimmed = description.trim();
+  if (!trimmed) {
+    return { ok: false, error: "Description for AI agents is required" };
+  }
+  if (!state.builtInDescriptionOverrides) state.builtInDescriptionOverrides = {};
+  state.builtInDescriptionOverrides[roleId] = trimmed;
+  syncBuiltInRoles();
+  save();
+  return { ok: true };
+}
+
+export function clearBuiltInRoleDescription(roleId: string): { ok: boolean; error?: string } {
+  ensureLoaded();
+  if (!isBuiltInRole(roleId)) {
+    return { ok: false, error: `Role "${roleId}" is not a built-in role` };
+  }
+  if (state.builtInDescriptionOverrides?.[roleId]) {
+    delete state.builtInDescriptionOverrides[roleId];
+    if (Object.keys(state.builtInDescriptionOverrides).length === 0) {
+      delete state.builtInDescriptionOverrides;
+    }
+  }
+  syncBuiltInRoles();
+  save();
+  return { ok: true };
 }
 
 /**

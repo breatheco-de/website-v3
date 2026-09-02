@@ -10,6 +10,8 @@ import {
   resolveCommitGitHubToken,
   GitHubConnectError,
 } from "./github-user-tokens";
+import { formatAgentAuthorLabel } from "@shared/git-commit-attribution";
+import type { EventActor } from "./events/types";
 
 export type QueueOrCommitResult =
   | { status: 202; queued: true; files: string[]; author: string }
@@ -27,6 +29,8 @@ export async function queueOrCommitFiles(opts: {
   token?: string;
   commitAuthor?: { name: string; email: string };
   logEdit?: (shortPath: string, author: string) => void;
+  actor?: EventActor;
+  agentLabel?: string;
 }): Promise<QueueOrCommitResult> {
   let filesToQueue: string[];
   if (Array.isArray(opts.files) && opts.files.length > 0) {
@@ -40,8 +44,18 @@ export async function queueOrCommitFiles(opts: {
   }
 
   const effectiveAuthor = (opts.author && opts.author.trim()) || "MCP";
+  const agentLabel =
+    opts.agentLabel?.trim() ||
+    (opts.actor ? formatAgentAuthorLabel(opts.actor) : undefined);
   for (const filePath of filesToQueue) {
-    markFileAsModified(filePath, effectiveAuthor, undefined, opts.contentRoot);
+    markFileAsModified(
+      filePath,
+      effectiveAuthor,
+      undefined,
+      opts.contentRoot,
+      opts.actor,
+      { agentLabel },
+    );
   }
 
   if (isAutoCommitEnabled()) {
@@ -82,7 +96,8 @@ export async function queueOrCommitFiles(opts: {
     }
   }
 
-  const finalMsg = `[Author: ${effectiveAuthor}] ${opts.message.trim()}`;
+  const authorTag = agentLabel || effectiveAuthor;
+  const finalMsg = `[Author: ${authorTag}] ${opts.message.trim()}`;
   const result = await commitAndPush(finalMsg, {
     force: !!opts.force,
     files: filesToQueue,

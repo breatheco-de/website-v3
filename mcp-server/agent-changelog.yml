@@ -6,6 +6,16 @@ window_days: 6
 
 entries:
   - date: "2026-09-01"
+    summary: "Structural section tools accept report + agent_session_id"
+    agent_impact:
+      - "add_section, remove_section, reorder_sections, replace_entry_sections now declare report (min 80) and agent_session_id — same as update_fields."
+      - "Missing/short report returns action_required: report_required before the edit-sections API call (not a misleading server error)."
+      - "Reconnect MCP after deploy so tools/list picks up the new parameters."
+    paths:
+      - mcp-server/lib/page-tool-helpers.ts
+      - mcp-server/tools/pages.ts
+    tools_changed: true
+  - date: "2026-09-01"
     summary: "Scoped entry/site pipeline events — legacy coarse write types removed"
     agent_impact:
       - "Writes emit entry_locale_saved (with parts), entry_common_saved, entry_seo_changed, site_redirects_changed, registry_file_saved, site_bulk_synced; deletes emit entry_deleted."

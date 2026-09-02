@@ -26,4 +26,18 @@ describe("resolveEventActor", () => {
     const req = mockReq({ "x-mcp-client": "Cursor" }, `Bearer ${secret}`);
     expect(resolveEventActor(req)).toEqual({ type: "mcp", client: "Cursor" });
   });
+
+  it("includes model from x-mcp-model header on loopback", () => {
+    const secret = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "test-mcp-secret";
+    process.env.MCP_SERVER_SECRET = secret;
+    const req = mockReq(
+      { "x-mcp-client": "Cursor", "x-mcp-model": "claude-4-sonnet" },
+      `Bearer ${secret}`,
+    );
+    expect(resolveEventActor(req)).toEqual({
+      type: "mcp",
+      client: "Cursor",
+      model: "claude-4-sonnet",
+    });
+  });
 });

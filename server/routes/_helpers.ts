@@ -490,7 +490,8 @@ export function resolveIssueActor(
     const clientHeader = req.headers["x-mcp-client"];
     const client =
       typeof clientHeader === "string" && clientHeader.trim() ? clientHeader.trim() : undefined;
-    const model = sanitizeIssueActorModel(opts?.model);
+    const modelHeader = req.headers["x-mcp-model"];
+    const model = sanitizeIssueActorModel(opts?.model ?? modelHeader);
     return {
       type: "mcp",
       ...(client ? { client } : {}),

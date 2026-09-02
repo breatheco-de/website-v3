@@ -208,7 +208,9 @@ import {
   createPushAllRun,
   applyPushAllProgress,
   currentPushAllRun,
+  resolveEventActor,
 } from "./_helpers";
+import { parseAutoSyncCommitAuthor } from "@shared/git-commit-attribution";
 import { child } from "../logger";
 import type { SiteContext } from "../site-manager";
 import type { SyncLogCategory } from "../sync-log";
@@ -741,16 +743,16 @@ export function registerGithubRoutes(app: Express): void {
       const commits = pushPayload.commits || [];
 
       // Extract the real CMS author from commit messages — format: "[Auto-sync] Author Name updated file.yml"
+      // (may be prefixed with [Author: agent-label] for MCP writes).
       // All commits share the same GitHub token so pusher.name is always the same technical user.
-      const autoSyncAuthorRe = /^\[Auto-sync\] (.+?) updated /;
       const realAuthor = (() => {
         const messages = [
           pushPayload.head_commit?.message,
           ...commits.map((c) => c.message),
         ].filter(Boolean) as string[];
         for (const msg of messages) {
-          const m = msg.match(autoSyncAuthorRe);
-          if (m) return m[1];
+          const parsed = parseAutoSyncCommitAuthor(msg);
+          if (parsed) return parsed;
         }
         return null;
       })();
@@ -1448,6 +1450,7 @@ export function registerGithubRoutes(app: Express): void {
           repoUrl: site?.config?.githubRepoUrl,
           token: resolved.token,
           commitAuthor,
+          actor: resolveEventActor(req),
           logEdit: (shortPath, author) => {
             getSyncLogForResponse(res).log("EDIT", `MCP queued edit: ${shortPath}`, author);
           },

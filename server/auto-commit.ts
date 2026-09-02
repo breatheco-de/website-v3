@@ -26,6 +26,7 @@ import {
 import { getAllFolders } from './content-types';
 import { getSiteConfigs, type SiteConfig } from './site-config';
 import { child } from "./logger";
+import { formatAutoSyncCommitMessage } from "@shared/git-commit-attribution";
 const log = child({ module: "auto-commit" });
 
 
@@ -34,6 +35,7 @@ interface PendingFileChange {
   filePath: string;
   author: string;
   timestamp: number;
+  agentLabel?: string;
 }
 
 interface PendingFileInfo {
@@ -176,7 +178,12 @@ function isContentTypeFile(filePath: string): boolean {
  * If auto-commit is disabled, does nothing.
  * Starts/resets the throttle timer.
  */
-export function queueFileChange(filePath: string, author?: string, allowedExceptions?: Set<string>): void {
+export function queueFileChange(
+  filePath: string,
+  author?: string,
+  allowedExceptions?: Set<string>,
+  agentLabel?: string,
+): void {
   if (!isAutoCommitEnabled()) return;
 
   const cwd = process.cwd();
@@ -208,6 +215,7 @@ export function queueFileChange(filePath: string, author?: string, allowedExcept
     filePath: relativePath,
     author: resolvedAuthor,
     timestamp: Date.now(),
+    ...(agentLabel?.trim() ? { agentLabel: agentLabel.trim() } : {}),
   });
 
   if (conflictedFiles.has(relativePath)) {
@@ -324,7 +332,13 @@ async function processQueue(): Promise<void> {
                     `${resolved.githubLogin}@users.noreply.github.com`,
                 }
               : undefined;
-          await commitBatch(withToken.config, author, files, commitAuthor);
+          await commitBatch(
+            withToken.config,
+            author,
+            files,
+            commitAuthor,
+            changes.get(files[0])?.agentLabel,
+          );
         } catch (err) {
           if (err instanceof GitHubConnectError) {
             lastError = err.message;
@@ -390,6 +404,7 @@ async function commitBatch(
   author: string,
   files: string[],
   commitAuthor?: { name: string; email: string },
+  agentLabel?: string,
 ): Promise<void> {
   const { getSiteConfigs } = await import('./site-config');
   const contentRootForLog = (() => {
@@ -416,7 +431,7 @@ async function commitBatch(
   if (existingFiles.length === 0 && deletedFiles.length === 0) return;
 
   const fileNames = files.map(f => stripContentFolderPrefix(f)).join(', ');
-  const message = `[Auto-sync] ${author} updated ${fileNames}`;
+  const message = formatAutoSyncCommitMessage(author, fileNames, agentLabel);
 
   const result = await commitFilesViaTreeAPI(
     config,
@@ -437,7 +452,7 @@ async function commitBatch(
     log.warn(`[AutoCommit] Conflict detected for batch by ${author}, retrying individual files...`);
     const { logSync } = await import("./sync-log");
     logSync('CONFLICT', `Auto-commit conflict by ${author}, retrying individually: ${fileNames}`, author, undefined, contentRootForLog);
-    await retryIndividualFiles(config, author, existingFiles, deletedFiles, contentRootForLog);
+    await retryIndividualFiles(config, author, existingFiles, deletedFiles, contentRootForLog, agentLabel);
   } else {
     lastError = result.error || 'Unknown commit error';
     log.error(`[AutoCommit] Batch commit failed: ${lastError}`);
@@ -448,6 +463,7 @@ async function commitBatch(
         filePath,
         author,
         timestamp: Date.now(),
+        ...(agentLabel ? { agentLabel } : {}),
       });
     }
   }
@@ -459,10 +475,11 @@ async function retryIndividualFiles(
   existingFiles: Array<{ path: string; content: string }>,
   deletedFiles: string[],
   contentRootForLog?: string,
+  agentLabel?: string,
 ): Promise<void> {
   for (const file of existingFiles) {
     const fileName = stripContentFolderPrefix(file.path);
-    const message = `[Auto-sync] ${author} updated ${fileName}`;
+    const message = formatAutoSyncCommitMessage(author, fileName, agentLabel);
 
     const result = await commitSingleFileViaContentsAPI(config, file.path, file.content, message);
 

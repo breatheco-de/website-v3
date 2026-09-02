@@ -3,6 +3,8 @@
  * edit-sections API wrappers, and next_actions builders.
  */
 
+import { z } from "zod";
+import { AGENT_REPORT_MUTATE_DESC } from "./agent-report.js";
 import {
   loadVersioning,
   isSharedLayoutConfig,
@@ -35,6 +37,38 @@ import {
 export const LAYOUT_TARGET_DESC =
   'For shared-layout types (DB-backed or single_template): "auto" (default) may ask confirm_layout_target; ' +
   '"type_template" (alias "type_single") writes template.{locale}.yml (all entries); "entry" writes only this entry overlay.';
+
+/** Zod fields for MCP content mutates that hit edit-sections / edit-common APIs. */
+export const mutateReportZodFields = {
+  report: z.string().describe(AGENT_REPORT_MUTATE_DESC),
+  agent_session_id: z
+    .string()
+    .optional()
+    .describe("Optional. From agent_session start — groups this write for staff monitoring."),
+};
+
+export function requireMutateReport(
+  report: unknown,
+): { ok: true; trimmedReport: string } | { ok: false; result: McpTextResult } {
+  const trimmedReport = typeof report === "string" ? report.trim() : "";
+  if (trimmedReport.length < 80) {
+    return {
+      ok: false,
+      result: actionRequired(
+        {
+          success: false,
+          action_required: "report_required",
+          code: trimmedReport ? "report_too_short" : "report_required",
+          message:
+            "report required (min 80 characters): explain what you are changing and why. " +
+            "For copy you set, list plain values (Title: …); do not paste JSON/YAML.",
+        },
+        [],
+      ),
+    };
+  }
+  return { ok: true, trimmedReport };
+}
 
 export function confirmLiveEditGate(opts: {
   tool: string;

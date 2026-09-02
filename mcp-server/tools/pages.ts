@@ -61,6 +61,8 @@ import {
   variantWarningsIfNeeded,
   wrotePayload,
   sharedStructuralEnvelope,
+  mutateReportZodFields,
+  requireMutateReport,
   type LayoutTarget,
 } from "../lib/page-tool-helpers.js";
 import {
@@ -4861,11 +4863,15 @@ export function registerPageTools(
       confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
       layout_target: layoutTargetSchema,
       confirm_layout_target: confirmLayoutTargetSchema,
+      ...mutateReportZodFields,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, locale, section, index, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
+    async ({ contentType, slug, locale, section, index, variant, confirm_live_edit, layout_target, confirm_layout_target, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
+      const reportCheck = requireMutateReport(report);
+      if (!reportCheck.ok) return reportCheck.result;
+      const { trimmedReport } = reportCheck;
       const { contentPath, domain } = siteResult;
       if (!MCP_SERVER_SECRET) {
         return fail("add_section is unavailable: MCP_SERVER_SECRET is not configured. Set MCP_SERVER_SECRET in your environment before using section-editing tools.");
@@ -4971,6 +4977,8 @@ export function registerPageTools(
             variant,
             layout_target,
             confirm_layout_target,
+            report: trimmedReport,
+            agent_session_id,
             site,
           },
         },
@@ -4985,6 +4993,8 @@ export function registerPageTools(
           variant,
           layoutTarget,
           operations,
+          report: trimmedReport,
+          agent_session_id,
         },
         mcpToken,
         domain,
@@ -4996,6 +5006,10 @@ export function registerPageTools(
         ...variantWarningsIfNeeded(variant),
         ...schemaOrgPageOverrideWarnings(sectionToAdd),
       ];
+      {
+        const sessWarn = missingSessionWarning(agent_session_id);
+        if (sessWarn) warnings.push(sessWarn);
+      }
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
@@ -5104,11 +5118,15 @@ export function registerPageTools(
       confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
       layout_target: layoutTargetSchema,
       confirm_layout_target: confirmLayoutTargetSchema,
+      ...mutateReportZodFields,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, locale, index, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
+    async ({ contentType, slug, locale, index, variant, confirm_live_edit, layout_target, confirm_layout_target, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
+      const reportCheck = requireMutateReport(report);
+      if (!reportCheck.ok) return reportCheck.result;
+      const { trimmedReport } = reportCheck;
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -5193,13 +5211,26 @@ export function registerPageTools(
       }
 
       const apiResult = await callEditSectionsApi(
-        { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations: [{ action: "remove_item", path: "sections", index }] },
+        {
+          contentType: resolved.contentType,
+          slug,
+          locale,
+          variant,
+          layoutTarget,
+          operations: [{ action: "remove_item", path: "sections", index }],
+          report: trimmedReport,
+          agent_session_id,
+        },
         mcpToken,
         domain,
       );
       if ("error" in apiResult) return apiResult.error;
 
       const warnings: McpWarning[] = [REMOVE_SECTION_NO_BINDING_FANOUT, ...variantWarningsIfNeeded(variant)];
+      {
+        const sessWarn = missingSessionWarning(agent_session_id);
+        if (sessWarn) warnings.push(sessWarn);
+      }
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
@@ -5259,11 +5290,15 @@ export function registerPageTools(
       confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
       layout_target: layoutTargetSchema,
       confirm_layout_target: confirmLayoutTargetSchema,
+      ...mutateReportZodFields,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, locale, order, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
+    async ({ contentType, slug, locale, order, variant, confirm_live_edit, layout_target, confirm_layout_target, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
+      const reportCheck = requireMutateReport(report);
+      if (!reportCheck.ok) return reportCheck.result;
+      const { trimmedReport } = reportCheck;
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -5355,13 +5390,26 @@ export function registerPageTools(
       }
 
       const apiResult = await callEditSectionsApi(
-        { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations: [{ action: "replace_all_sections", sections: reorderedSections }] },
+        {
+          contentType: resolved.contentType,
+          slug,
+          locale,
+          variant,
+          layoutTarget,
+          operations: [{ action: "replace_all_sections", sections: reorderedSections }],
+          report: trimmedReport,
+          agent_session_id,
+        },
         mcpToken,
         domain,
       );
       if ("error" in apiResult) return apiResult.error;
 
       const warnings: McpWarning[] = [REORDER_NO_BINDING_FANOUT, ...variantWarningsIfNeeded(variant)];
+      {
+        const sessWarn = missingSessionWarning(agent_session_id);
+        if (sessWarn) warnings.push(sessWarn);
+      }
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
@@ -5427,11 +5475,15 @@ export function registerPageTools(
       confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
       layout_target: layoutTargetSchema,
       confirm_layout_target: confirmLayoutTargetSchema,
+      ...mutateReportZodFields,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, sections, meta, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
+    async ({ slug, locale, sections, meta, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
+      const reportCheck = requireMutateReport(report);
+      if (!reportCheck.ok) return reportCheck.result;
+      const { trimmedReport } = reportCheck;
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -5523,7 +5575,16 @@ export function registerPageTools(
       }
 
       const apiResult = await callEditSectionsApi(
-        { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations },
+        {
+          contentType: resolved.contentType,
+          slug,
+          locale,
+          variant,
+          layoutTarget,
+          operations,
+          report: trimmedReport,
+          agent_session_id,
+        },
         mcpToken,
         domain,
       );
@@ -5534,6 +5595,10 @@ export function registerPageTools(
         UPDATED_AT_STAMP_WARNING,
         ...variantWarningsIfNeeded(variant),
       ];
+      {
+        const sessWarn = missingSessionWarning(agent_session_id);
+        if (sessWarn) warnings.push(sessWarn);
+      }
       appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];

@@ -3254,7 +3254,54 @@ export function registerAdminRoutes(app: Express): void {
   app.get("/api/admin/roles", async (req, res) => {
     const auth = await requireCapability(req, res, "users_manage");
     if (!auth.authorized) return;
-    res.json(userStore.getAllRoles());
+    res.json({
+      roles: userStore.getAllRoles(),
+      builtInDescriptionOverrides: userStore.getBuiltInDescriptionOverrides(),
+    });
+  });
+
+  app.patch("/api/admin/roles/:roleId/builtin-description", async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "users_manage");
+      if (!auth.authorized) return;
+      const { roleId } = req.params;
+      if (!userStore.isBuiltInRole(roleId)) {
+        res.status(400).json({ error: `Role "${roleId}" is not a built-in role` });
+        return;
+      }
+
+      const reset = req.body?.reset === true;
+      if (reset) {
+        const result = userStore.clearBuiltInRoleDescription(roleId);
+        if (!result.ok) {
+          res.status(400).json({ error: result.error });
+          return;
+        }
+        const codeDef = userStore.getBuiltInRoleCodeDefinition(roleId);
+        res.json({
+          ok: true,
+          description: codeDef?.description ?? "",
+          builtInDescriptionOverrides: userStore.getBuiltInDescriptionOverrides(),
+        });
+        return;
+      }
+
+      const description = typeof req.body?.description === "string" ? req.body.description : "";
+      const result = userStore.setBuiltInRoleDescription(roleId, description);
+      if (!result.ok) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({
+        ok: true,
+        description: description.trim(),
+        builtInDescriptionOverrides: userStore.getBuiltInDescriptionOverrides(),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to update built-in role description";
+      log.error({ err, method: req.method, url: req.originalUrl }, "Failed to update built-in role description");
+      res.status(500).json({ error: message });
+    }
   });
 
   function validateRoleCapabilities(

@@ -16,6 +16,10 @@ Anyone who previously held the **webmaster** role is migrated automatically to *
 
 **Temporary:** `/mcp/role/webmaster` aliases to `user_admin` with a deprecation warning.
 
+## Built-in MCP descriptions
+
+Capabilities sync from code; **MCP descriptions** can be customized in Security → Roles (sparkle on built-in cards). Overrides live in `builtInDescriptionOverrides` on the user store (GCS). See [`.cursor/rules/built-in-role-mcp-descriptions.mdc`](.cursor/rules/built-in-role-mcp-descriptions.mdc).
+
 ## Built-in roles
 
 | Role | Purpose |

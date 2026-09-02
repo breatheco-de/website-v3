@@ -1,0 +1,40 @@
+---
+description: Built-in CMS role MCP descriptions — staff overrides vs code defaults
+globs:
+  - server/user-store.ts
+  - client/src/pages/SecurityPage.tsx
+  - server/routes/admin.ts
+  - server/ai/generateRoleDescription.ts
+---
+
+# Built-in role MCP descriptions
+
+Built-in roles (`user_admin`, `platform_steward`, `platform_ops`, `metrics_viewer`, `content_viewer`) sync **label and capabilities** from code on every server start via `syncBuiltInRoles()` in [`server/user-store.ts`](server/user-store.ts).
+
+## Two description surfaces
+
+| Surface | Audience | Where |
+|---|---|---|
+| `RoleDefinition.description` | **MCP agents** (`role_description`, OAuth consent, session instructions) | Code default + optional `builtInDescriptionOverrides` in user store (GCS-backed) |
+| Security UI education blocks | **Staff** | [`SecurityPage.tsx`](client/src/pages/SecurityPage.tsx) — not shown to agents |
+
+Do not paste staff education copy into MCP descriptions.
+
+## Staff overrides (Option B)
+
+- Persisted in `UsersState.builtInDescriptionOverrides` (not in git).
+- Staff edit via Security → Roles → sparkle on built-in cards → `PATCH /api/admin/roles/:roleId/builtin-description`.
+- Reset with `{ reset: true }` to restore code default from `getBuiltInRoleCodeDefinition()`.
+- Use the same **Generate description** AI flow as custom roles (`POST /api/ai/generate-role-description`).
+
+## When changing built-in capabilities in code
+
+1. Update grants in `BUILT_IN_*_ROLE` / `BUILT_IN_ROLES_BY_ID`.
+2. **Regenerate or hand-update** MCP descriptions (Security sparkle, or `generateRoleDescription` with peer contrast).
+3. Code defaults in `description` should still follow [`generateRoleDescription.ts`](server/ai/generateRoleDescription.ts) rules: 2–4 sentences, FOR / NOT FOR, contrast vs sibling built-ins, only tools from `allowedToolNames`.
+
+## Agent-facing shape (match custom roles)
+
+- What `/mcp/role/{id}` is for and not for.
+- Contrast vs closest built-ins (especially `user_admin` vs `platform_steward` vs `platform_ops`).
+- No markdown, bullets, or invented MCP tools.

@@ -68,8 +68,22 @@ describe("queueOrCommitFiles", () => {
       author: "agent",
     });
     expect(markFileAsModified).toHaveBeenCalledTimes(2);
-    expect(markFileAsModified).toHaveBeenCalledWith(FILES[0], "agent", undefined, "site_test");
-    expect(markFileAsModified).toHaveBeenCalledWith(FILES[1], "agent", undefined, "site_test");
+    expect(markFileAsModified).toHaveBeenCalledWith(
+      FILES[0],
+      "agent",
+      undefined,
+      "site_test",
+      undefined,
+      { agentLabel: undefined },
+    );
+    expect(markFileAsModified).toHaveBeenCalledWith(
+      FILES[1],
+      "agent",
+      undefined,
+      "site_test",
+      undefined,
+      { agentLabel: undefined },
+    );
     expect(commitAndPush).not.toHaveBeenCalled();
     expect(logEdit).toHaveBeenCalledTimes(2);
   });

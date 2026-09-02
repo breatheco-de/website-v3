@@ -82,6 +82,11 @@ interface RoleDefinition {
   capabilities: CapabilityGrant[];
 }
 
+interface AdminRolesResponse {
+  roles: Record<string, RoleDefinition>;
+  builtInDescriptionOverrides: Record<string, string>;
+}
+
 interface UserRecord {
   id?: string;
   username: string;
@@ -331,10 +336,12 @@ function parseApiErrorMessage(message: string, fallback: string): string {
 function RolesTab() {
   const { toast } = useToast();
   const { isValidated } = useDebugAuth();
-  const { data: rolesData, isLoading } = useQuery<Record<string, RoleDefinition>>({
+  const { data: rolesResponse, isLoading } = useQuery<AdminRolesResponse>({
     queryKey: ["/api/admin/roles"],
     enabled: isValidated === true,
   });
+  const rolesData = rolesResponse?.roles;
+  const builtInDescriptionOverrides = rolesResponse?.builtInDescriptionOverrides ?? {};
 
   const [newRoleForm, setNewRoleForm] = useState<RoleFormState | null>(null);
   /** When true, label changes no longer overwrite the id (user edited id manually). */
@@ -346,9 +353,11 @@ function RolesTab() {
   const [saving, setSaving] = useState(false);
   const [generatingRoleDescription, setGeneratingRoleDescription] = useState(false);
   const [confirmGenerateDescription, setConfirmGenerateDescription] = useState<{
-    target: "new" | "edit";
+    target: "new" | "edit" | "builtin";
     roleId?: string;
   } | null>(null);
+  const [editingBuiltinDescRoleId, setEditingBuiltinDescRoleId] = useState<string | null>(null);
+  const [builtinDescForm, setBuiltinDescForm] = useState("");
 
   const roles = rolesData ? Object.entries(rolesData) : [];
 
@@ -378,6 +387,81 @@ function RolesTab() {
     setDebouncedNewRoleId("");
     setEditingRoleId(null);
     setEditRoleForm(null);
+    setEditingBuiltinDescRoleId(null);
+    setBuiltinDescForm("");
+  }
+
+  function startEditBuiltinDescription(roleId: string, role: RoleDefinition) {
+    setEditingBuiltinDescRoleId(roleId);
+    setBuiltinDescForm(role.description || "");
+    setEditingRoleId(null);
+    setEditRoleForm(null);
+    setNewRoleForm(null);
+    setNewRoleIdTouched(false);
+  }
+
+  async function saveBuiltinDescription() {
+    if (!editingBuiltinDescRoleId) return;
+    if (!builtinDescForm.trim()) {
+      toast({
+        title: "Description for AI agents is required",
+        description:
+          "Agents use this text to choose which MCP connector (/mcp/role/…) to use and what they should do.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await apiRequest(
+        "PATCH",
+        `/api/admin/roles/${editingBuiltinDescRoleId}/builtin-description`,
+        { description: builtinDescForm.trim() },
+      );
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to save description");
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/roles"] });
+      setEditingBuiltinDescRoleId(null);
+      setBuiltinDescForm("");
+      toast({ title: "MCP description saved" });
+    } catch (err: any) {
+      toast({
+        title: "Failed to save description",
+        description: parseApiErrorMessage(err?.message ?? "", "Failed to save description"),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetBuiltinDescription(roleId: string) {
+    setSaving(true);
+    try {
+      const res = await apiRequest("PATCH", `/api/admin/roles/${roleId}/builtin-description`, {
+        reset: true,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to reset description");
+      }
+      const data = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/roles"] });
+      if (editingBuiltinDescRoleId === roleId) {
+        setBuiltinDescForm(typeof data.description === "string" ? data.description : "");
+      }
+      toast({ title: "Reset to code default" });
+    } catch (err: any) {
+      toast({
+        title: "Failed to reset description",
+        description: parseApiErrorMessage(err?.message ?? "", "Failed to reset description"),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
   }
 
   function startEditRole(roleId: string, role: RoleDefinition) {
@@ -389,6 +473,8 @@ function RolesTab() {
     });
     setNewRoleForm(null);
     setNewRoleIdTouched(false);
+    setEditingBuiltinDescRoleId(null);
+    setBuiltinDescForm("");
   }
 
   async function saveNewRole() {
@@ -519,20 +605,42 @@ function RolesTab() {
     void runGenerateRoleDescription(target, roleId);
   }
 
-  async function runGenerateRoleDescription(target: "new" | "edit", roleId?: string) {
-    const form = target === "new" ? newRoleForm : editRoleForm;
-    if (!form) return;
-
-    const caps = capGrantsFromFormState(form.capabilities);
-    if (caps.length === 0) return;
-
-    if (!form.label.trim()) {
-      toast({
-        title: "Role label is required",
-        description: "Enter a label before generating a description.",
-        variant: "destructive",
-      });
+  function requestGenerateBuiltinDescription(roleId: string) {
+    const role = rolesData?.[roleId];
+    if (!role) return;
+    if (builtinDescForm.trim()) {
+      setConfirmGenerateDescription({ target: "builtin", roleId });
       return;
+    }
+    void runGenerateRoleDescription("builtin", roleId);
+  }
+
+  async function runGenerateRoleDescription(
+    target: "new" | "edit" | "builtin",
+    roleId?: string,
+  ) {
+    let label: string;
+    let caps: CapabilityGrant[];
+
+    if (target === "builtin") {
+      const role = roleId ? rolesData?.[roleId] : undefined;
+      if (!role || !roleId) return;
+      label = role.label;
+      caps = role.capabilities;
+    } else {
+      const form = target === "new" ? newRoleForm : editRoleForm;
+      if (!form) return;
+      caps = capGrantsFromFormState(form.capabilities);
+      if (caps.length === 0) return;
+      label = form.label.trim();
+      if (!label) {
+        toast({
+          title: "Role label is required",
+          description: "Enter a label before generating a description.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     setGeneratingRoleDescription(true);
@@ -541,10 +649,12 @@ function RolesTab() {
         id:
           target === "edit"
             ? roleId
-            : newRoleForm?.id.trim()
-              ? newRoleForm.id.trim()
-              : undefined,
-        label: form.label.trim(),
+            : target === "builtin"
+              ? roleId
+              : newRoleForm?.id.trim()
+                ? newRoleForm.id.trim()
+                : undefined,
+        label,
         capabilities: caps,
       });
       const data = await res.json();
@@ -556,6 +666,8 @@ function RolesTab() {
         setNewRoleForm({ ...newRoleForm, description: data.description });
       } else if (target === "edit" && editRoleForm) {
         setEditRoleForm({ ...editRoleForm, description: data.description });
+      } else if (target === "builtin") {
+        setBuiltinDescForm(data.description);
       }
       toast({ title: "Description generated" });
     } catch (err: any) {
@@ -723,7 +835,9 @@ function RolesTab() {
             roleId === "metrics_viewer" ||
             roleId === "content_viewer";
           const isEditing = editingRoleId === roleId;
+          const isEditingBuiltinDesc = editingBuiltinDescRoleId === roleId;
           const isDeleting = deletingRoleId === roleId;
+          const hasCustomMcpDescription = Boolean(builtInDescriptionOverrides[roleId]);
           return (
             <Card key={roleId} data-testid={`card-role-${roleId}`}>
               <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
@@ -748,12 +862,29 @@ function RolesTab() {
                         </Badge>
                       </TooltipTrigger>
                       <TooltipContent side="top" className="max-w-xs text-center">
-                        This role is defined in source code and synced on every server start. Any manual edits will be overwritten automatically.
+                        Capabilities and labels sync from code on every server start. MCP descriptions can be customized
+                        for agents without changing permissions.
                       </TooltipContent>
                     </Tooltip>
                   )}
+                  {isBuiltIn && hasCustomMcpDescription && !isEditingBuiltinDesc && (
+                    <Badge variant="outline" className="text-xs shrink-0" data-testid={`badge-custom-mcp-desc-${roleId}`}>
+                      custom MCP description
+                    </Badge>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  {isBuiltIn && !isEditingBuiltinDesc && !isDeleting && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => startEditBuiltinDescription(roleId, role)}
+                      data-testid={`button-edit-builtin-desc-${roleId}`}
+                      aria-label="Edit MCP description"
+                    >
+                      <IconSparkles className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                  )}
                   {!isBuiltIn && !isEditing && !isDeleting && (
                     <>
                       <Button
@@ -771,6 +902,29 @@ function RolesTab() {
                         data-testid={`button-delete-role-${roleId}`}
                       >
                         <IconTrash className="h-4 w-4 text-muted-foreground" />
+                      </Button>
+                    </>
+                  )}
+                  {isEditingBuiltinDesc && (
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={saveBuiltinDescription}
+                        disabled={saving}
+                        data-testid={`button-save-builtin-desc-${roleId}`}
+                      >
+                        {saving ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconCheck className="h-4 w-4" />}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setEditingBuiltinDescRoleId(null);
+                          setBuiltinDescForm("");
+                        }}
+                        data-testid={`button-cancel-builtin-desc-${roleId}`}
+                      >
+                        <IconX className="h-4 w-4" />
                       </Button>
                     </>
                   )}
@@ -819,6 +973,30 @@ function RolesTab() {
                       Cancel
                     </Button>
                   </div>
+                ) : isEditingBuiltinDesc ? (
+                  <div className="space-y-3">
+                    <RoleAgentDescriptionField
+                      description={builtinDescForm}
+                      onDescriptionChange={setBuiltinDescForm}
+                      onGenerateClick={() => requestGenerateBuiltinDescription(roleId)}
+                      generating={generatingRoleDescription}
+                      inputTestId={`input-builtin-desc-${roleId}`}
+                      generateTestId={`button-generate-builtin-desc-${roleId}`}
+                      helperExtra="contrast this connector vs other built-in roles"
+                    />
+                    {hasCustomMcpDescription && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={saving}
+                        onClick={() => void resetBuiltinDescription(roleId)}
+                        data-testid={`button-reset-builtin-desc-${roleId}`}
+                      >
+                        Reset to code default
+                      </Button>
+                    )}
+                  </div>
                 ) : isEditing && editRoleForm ? (
                   <div className="space-y-3">
                     <RoleAgentDescriptionField
@@ -851,9 +1029,9 @@ function RolesTab() {
                         Missing description for AI agents — edit this role before using /mcp/role/{roleId}.
                       </p>
                     )}
-                    {isBuiltIn && (
+                    {isBuiltIn && !isEditingBuiltinDesc && (
                       <p className="text-[11px] text-muted-foreground mb-2">
-                        Description is managed in code and cannot be edited here.
+                        Use the sparkle button to edit the MCP agent description. Capabilities cannot be changed here.
                       </p>
                     )}
                     {roleId === "user_admin" && (
@@ -1041,10 +1219,11 @@ function UsersTab() {
     queryKey: ["/api/admin/pending-users"],
     enabled: isValidated === true,
   });
-  const { data: rolesData } = useQuery<Record<string, RoleDefinition>>({
+  const { data: rolesResponse } = useQuery<AdminRolesResponse>({
     queryKey: ["/api/admin/roles"],
     enabled: isValidated === true,
   });
+  const rolesData = rolesResponse?.roles;
 
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [editingUsername, setEditingUsername] = useState<string>("");

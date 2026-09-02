@@ -13,6 +13,7 @@ import { siteSyncGcsKey, SYNC_FILENAMES, syncStateReadKeys } from '@shared/gcsKe
 import { gcs } from './gcs';
 import { child } from "./logger";
 import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
+import { formatAgentAuthorLabel } from "@shared/git-commit-attribution";
 import type { EventActor } from "./events/types";
 import { getContentWriteContext } from "./write-context";
 const log = child({ module: "sync-state" });
@@ -399,12 +400,16 @@ export function getSyncStateLocalPath(contentRoot?: string): string {
   return getSyncStatePath(contentRoot);
 }
 
-let autoCommitCallback: ((filePath: string, author?: string, allowedExceptions?: Set<string>) => void) | null = null;
+let autoCommitCallback:
+  | ((filePath: string, author?: string, allowedExceptions?: Set<string>, agentLabel?: string) => void)
+  | null = null;
 
 /**
  * Register the auto-commit callback. Called once during server init.
  */
-export function setAutoCommitCallback(cb: (filePath: string, author?: string, allowedExceptions?: Set<string>) => void): void {
+export function setAutoCommitCallback(
+  cb: (filePath: string, author?: string, allowedExceptions?: Set<string>, agentLabel?: string) => void,
+): void {
   autoCommitCallback = cb;
 }
 
@@ -515,12 +520,15 @@ export function markFileAsModified(
   allowedExceptions?: Set<string>,
   contentRoot?: string,
   actor?: EventActor,
-  opts?: { agentSessionId?: string; report?: string },
+  opts?: { agentSessionId?: string; report?: string; agentLabel?: string },
 ): void {
   const writeCtx = getContentWriteContext();
   const effectiveActor = actor ?? writeCtx?.actor;
   const effectiveSessionId = opts?.agentSessionId ?? writeCtx?.agentSessionId;
   const effectiveReport = opts?.report ?? writeCtx?.report;
+  const effectiveAgentLabel =
+    opts?.agentLabel?.trim() ||
+    (effectiveActor ? formatAgentAuthorLabel(effectiveActor) : undefined);
   const relativePath = normalizePath(filePath, contentRoot);
   
   if (!shouldTrackFile(relativePath, allowedExceptions, contentRoot)) {
@@ -552,7 +560,7 @@ export function markFileAsModified(
     scheduleDebouncedSaveSyncState(state, contentRoot);
 
     if (autoCommitCallback) {
-      autoCommitCallback(relativePath, author, allowedExceptions);
+      autoCommitCallback(relativePath, author, allowedExceptions, effectiveAgentLabel);
     }
     notifyFileModifiedListeners(relativePath, author || prev?.author, effectiveActor, {
       contentChanged,
@@ -570,7 +578,7 @@ export function markFileAsModified(
     scheduleDebouncedSaveSyncState(state, contentRoot);
 
     if (autoCommitCallback) {
-      autoCommitCallback(relativePath, author, allowedExceptions);
+      autoCommitCallback(relativePath, author, allowedExceptions, effectiveAgentLabel);
     }
     notifyFileModifiedListeners(relativePath, author || state.files[relativePath].author, effectiveActor, {
       agentSessionId: effectiveSessionId,
@@ -578,7 +586,7 @@ export function markFileAsModified(
     });
   } else if (allowedExceptions instanceof Set && allowedExceptions.has(relativePath)) {
     if (autoCommitCallback) {
-      autoCommitCallback(relativePath, author, allowedExceptions);
+      autoCommitCallback(relativePath, author, allowedExceptions, effectiveAgentLabel);
     }
     notifyFileModifiedListeners(relativePath, author, effectiveActor, {
       agentSessionId: effectiveSessionId,
