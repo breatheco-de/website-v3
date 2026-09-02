@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import CodeMirror from "@uiw/react-codemirror";
 import { json as jsonLang } from "@codemirror/lang-json";
@@ -18,6 +18,10 @@ import {
   IconChevronDown,
   IconPencil,
   IconPlus,
+  IconArrowRight,
+  IconAsterisk,
+  IconSelector,
+  IconCheck,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,7 +47,25 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
@@ -55,6 +77,7 @@ import {
   buildSignupPayloadPreviewJson,
   buildSignupTestPayloadFromFieldMap,
   isFormSource,
+  isSessionSource,
   isSignupFieldMapReady,
   type AuthSignupFieldMapEntry,
 } from "@shared/authSignupFieldMap";
@@ -146,6 +169,257 @@ function MethodSelect({
   );
 }
 
+function isValidSignupFromPath(from: string): boolean {
+  const t = from.trim();
+  if (isFormSource(t)) return t.length > "form.".length;
+  if (isSessionSource(t)) return t.length > "session.".length;
+  return false;
+}
+
+type SignupFieldMapRowIssue = "blank" | "duplicate";
+
+function getSignupFieldMapIssues(
+  rows: AuthSignupFieldMapEntry[],
+): Map<number, SignupFieldMapRowIssue> {
+  const issues = new Map<number, SignupFieldMapRowIssue>();
+  const seen = new Map<string, number>();
+  rows.forEach((row, index) => {
+    const key = row.key.trim();
+    if (!key) {
+      issues.set(index, "blank");
+      return;
+    }
+    const prev = seen.get(key);
+    if (prev !== undefined) {
+      issues.set(prev, "duplicate");
+      issues.set(index, "duplicate");
+    } else {
+      seen.set(key, index);
+    }
+  });
+  return issues;
+}
+
+function ClickToEditPayloadKey({
+  index,
+  value,
+  onChange,
+  hasIssue,
+}: {
+  index: number;
+  value: string;
+  onChange: (next: string) => void;
+  hasIssue: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  const commit = () => {
+    onChange(draft.trim());
+    setEditing(false);
+  };
+
+  const cancel = () => {
+    setDraft(value);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <Input
+        ref={inputRef}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            cancel();
+          }
+        }}
+        onBlur={commit}
+        placeholder="payload_key"
+        className="text-xs font-mono h-7 w-28 flex-shrink-0"
+        data-testid={`input-auth-signup-key-${index}`}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        "text-xs font-mono w-28 flex-shrink-0 text-right truncate rounded-md px-1.5 py-1 hover:bg-muted/60 focus:outline-none focus:ring-1 focus:ring-ring",
+        hasIssue ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
+        !value.trim() && "italic",
+      )}
+      title={value.trim() || "Click to set payload key"}
+      onClick={() => setEditing(true)}
+      data-testid={`button-auth-signup-key-${index}`}
+    >
+      {value.trim() || "key"}
+    </button>
+  );
+}
+
+function SignupFromCombobox({
+  index,
+  value,
+  onChange,
+}: {
+  index: number;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const formPresets = useMemo(
+    () => AUTH_SIGNUP_FORM_FIELD_PRESETS.map((name) => `form.${name}`),
+    [],
+  );
+  const sessionPresets = useMemo(
+    () => AUTH_SIGNUP_SESSION_FIELD_PRESETS.map((name) => `session.${name}`),
+    [],
+  );
+  const allPresets = useMemo(
+    () => [...formPresets, ...sessionPresets],
+    [formPresets, sessionPresets],
+  );
+
+  const trimmedSearch = search.trim();
+  const showCustom =
+    isValidSignupFromPath(trimmedSearch) &&
+    !allPresets.includes(trimmedSearch);
+
+  const commit = (next: string) => {
+    onChange(next.trim());
+    setOpen(false);
+    setSearch("");
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setSearch("");
+      }}
+      modal={false}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="h-7 flex-1 min-w-0 justify-between font-normal px-2"
+          data-testid={`select-auth-signup-from-${index}`}
+        >
+          <span
+            className={cn(
+              "font-mono text-xs truncate",
+              !value && "text-muted-foreground",
+            )}
+          >
+            {value || "form.email"}
+          </span>
+          <IconSelector className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[--radix-popover-trigger-width] min-w-[16rem] p-0"
+        align="start"
+      >
+        <Command shouldFilter={true}>
+          <CommandInput
+            placeholder="form.* or session.*…"
+            value={search}
+            onValueChange={setSearch}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && isValidSignupFromPath(trimmedSearch)) {
+                e.preventDefault();
+                commit(trimmedSearch);
+              }
+            }}
+            data-testid={`input-auth-signup-from-search-${index}`}
+          />
+          <CommandList className="max-h-64">
+            <CommandEmpty>
+              {isValidSignupFromPath(trimmedSearch)
+                ? `Press Enter to use “${trimmedSearch}”`
+                : "Type a form.* or session.* path"}
+            </CommandEmpty>
+            {showCustom && (
+              <CommandGroup heading="Custom">
+                <CommandItem
+                  value={`custom-${trimmedSearch}`}
+                  onSelect={() => commit(trimmedSearch)}
+                  className="font-mono text-xs"
+                  data-testid={`option-auth-signup-from-custom-${index}`}
+                >
+                  <IconPlus className="mr-2 h-3.5 w-3.5 shrink-0" />
+                  Use “{trimmedSearch}”
+                </CommandItem>
+              </CommandGroup>
+            )}
+            <CommandGroup heading="Form">
+              {formPresets.map((path) => (
+                <CommandItem
+                  key={path}
+                  value={path}
+                  onSelect={() => commit(path)}
+                  className="font-mono text-xs"
+                  data-testid={`option-auth-signup-from-${index}-${path.replace(/\./g, "-")}`}
+                >
+                  <IconCheck
+                    className={cn(
+                      "mr-2 h-3.5 w-3.5 shrink-0",
+                      value === path ? "opacity-100" : "opacity-0",
+                    )}
+                  />
+                  {path}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+            <CommandGroup heading="Session">
+              {sessionPresets.map((path) => (
+                <CommandItem
+                  key={path}
+                  value={path}
+                  onSelect={() => commit(path)}
+                  className="font-mono text-xs"
+                  data-testid={`option-auth-signup-from-${index}-${path.replace(/\./g, "-")}`}
+                >
+                  <IconCheck
+                    className={cn(
+                      "mr-2 h-3.5 w-3.5 shrink-0",
+                      value === path ? "opacity-100" : "opacity-0",
+                    )}
+                  />
+                  {path}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function AuthTab() {
   const { toast } = useToast();
   const { data, isLoading } = useQuery<AuthSettingsResponse>({
@@ -187,6 +461,10 @@ export function AuthTab() {
     [signupFieldMap],
   );
   const signupMapReady = isSignupFieldMapReady(signupFieldMap);
+  const signupFieldMapIssues = useMemo(
+    () => getSignupFieldMapIssues(signupFieldMap),
+    [signupFieldMap],
+  );
 
   useEffect(() => {
     if (!data) return;
@@ -272,6 +550,14 @@ export function AuthTab() {
         variant: "destructive",
       });
       setLoginPayloadOpen(true);
+      return;
+    }
+    if (signupFieldMapIssues.size > 0) {
+      toast({
+        title: "Fix empty or duplicate payload keys",
+        description: "Every signup field map row needs a unique non-empty payload key before saving.",
+        variant: "destructive",
+      });
       return;
     }
     setSaving(true);
@@ -859,118 +1145,113 @@ export function AuthTab() {
                           Add field
                         </Button>
                       </div>
-                      <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground" data-testid="text-auth-signup-field-map-intro">
+                        Maps each signup API payload key to a form field or session value.
+                        Forms cannot enable Require Signup until this map has at least one row.
+                      </p>
+                      <div className="space-y-1">
                         {signupFieldMap.map((row, index) => {
                           const formFrom = isFormSource(row.from);
+                          const issue = signupFieldMapIssues.get(index);
+                          const required = formFrom && row.required === true;
                           return (
                             <div
                               key={index}
-                              className="rounded-md border p-2 space-y-2"
+                              className="space-y-0.5"
                               data-testid={`auth-signup-field-row-${index}`}
                             >
-                              <div className="flex gap-2 items-start">
-                                <div className="flex-1 space-y-1 min-w-0">
-                                  <Label className="text-xs text-muted-foreground">Payload key</Label>
-                                  <Input
-                                    value={row.key}
-                                    onChange={(e) =>
-                                      updateSignupFieldMapRow(index, { key: e.target.value })
-                                    }
-                                    placeholder="plan"
-                                    className="font-mono text-sm h-8"
-                                    data-testid={`input-auth-signup-key-${index}`}
-                                  />
-                                </div>
+                              <div className="flex items-center gap-2">
+                                <ClickToEditPayloadKey
+                                  index={index}
+                                  value={row.key}
+                                  hasIssue={!!issue}
+                                  onChange={(key) =>
+                                    updateSignupFieldMapRow(index, { key })
+                                  }
+                                />
+                                <IconArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                                <SignupFromCombobox
+                                  index={index}
+                                  value={row.from}
+                                  onChange={(from) =>
+                                    updateSignupFieldMapRow(index, { from })
+                                  }
+                                />
+                                <TooltipProvider delayDuration={200}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="inline-flex flex-shrink-0">
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          className={cn(
+                                            "h-7 w-7",
+                                            required && "text-primary",
+                                          )}
+                                          disabled={!formFrom}
+                                          onClick={() =>
+                                            updateSignupFieldMapRow(index, {
+                                              required: required ? undefined : true,
+                                            })
+                                          }
+                                          data-testid={`switch-auth-signup-required-${index}`}
+                                          aria-label={
+                                            formFrom
+                                              ? required
+                                                ? "Required on signup forms"
+                                                : "Mark required on signup forms"
+                                              : "Only for form.* sources"
+                                          }
+                                        >
+                                          <IconAsterisk className="h-3.5 w-3.5" />
+                                        </Button>
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="text-xs">
+                                      {formFrom
+                                        ? required
+                                          ? "Required on signup forms"
+                                          : "Mark required on signup forms"
+                                        : "Only for form.* sources"}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   size="icon"
-                                  className="shrink-0 mt-5"
+                                  className="h-7 w-7 flex-shrink-0"
                                   onClick={() => removeSignupFieldMapRow(index)}
                                   data-testid={`button-auth-signup-remove-${index}`}
                                 >
                                   <IconTrash className="h-3.5 w-3.5" />
                                 </Button>
                               </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs text-muted-foreground">From</Label>
-                                <Select
-                                  value={row.from}
-                                  onValueChange={(v) =>
-                                    updateSignupFieldMapRow(index, { from: v })
-                                  }
+                              {issue === "blank" ? (
+                                <p
+                                  className="text-[10px] text-amber-600 dark:text-amber-400 ml-[7.5rem]"
+                                  data-testid={`text-auth-signup-key-blank-${index}`}
                                 >
-                                  <SelectTrigger
-                                    className="font-mono text-xs h-8"
-                                    data-testid={`select-auth-signup-from-${index}`}
-                                  >
-                                    <SelectValue placeholder="form.email" />
-                                  </SelectTrigger>
-                                  <SelectContent className="max-h-72">
-                                    <div className="px-2 py-1 text-[10px] uppercase text-muted-foreground">
-                                      Form
-                                    </div>
-                                    {AUTH_SIGNUP_FORM_FIELD_PRESETS.map((name) => (
-                                      <SelectItem
-                                        key={`form.${name}`}
-                                        value={`form.${name}`}
-                                        className="font-mono text-xs"
-                                      >
-                                        form.{name}
-                                      </SelectItem>
-                                    ))}
-                                    <div className="px-2 py-1 text-[10px] uppercase text-muted-foreground">
-                                      Session
-                                    </div>
-                                    {AUTH_SIGNUP_SESSION_FIELD_PRESETS.map((name) => (
-                                      <SelectItem
-                                        key={`session.${name}`}
-                                        value={`session.${name}`}
-                                        className="font-mono text-xs"
-                                      >
-                                        session.{name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <Input
-                                  value={row.from}
-                                  onChange={(e) =>
-                                    updateSignupFieldMapRow(index, { from: e.target.value })
-                                  }
-                                  placeholder="form.custom_field or session.geo.country"
-                                  className="font-mono text-xs h-8"
-                                  data-testid={`input-auth-signup-from-custom-${index}`}
-                                />
-                                <p className="text-[10px] text-muted-foreground">
-                                  Pick a preset or type a custom form.* / session.* path.
+                                  Payload key is required
                                 </p>
-                              </div>
-                              <div className="flex items-center justify-between gap-2">
-                                <Label
-                                  htmlFor={`auth-signup-required-${index}`}
-                                  className={cn(
-                                    "text-xs",
-                                    !formFrom && "text-muted-foreground",
-                                  )}
+                              ) : null}
+                              {issue === "duplicate" ? (
+                                <p
+                                  className="text-[10px] text-amber-600 dark:text-amber-400 ml-[7.5rem]"
+                                  data-testid={`text-auth-signup-key-duplicate-${index}`}
                                 >
-                                  Required on signup forms
-                                </Label>
-                                <Switch
-                                  id={`auth-signup-required-${index}`}
-                                  checked={formFrom && row.required === true}
-                                  disabled={!formFrom}
-                                  onCheckedChange={(checked) =>
-                                    updateSignupFieldMapRow(index, {
-                                      required: checked || undefined,
-                                    })
-                                  }
-                                  data-testid={`switch-auth-signup-required-${index}`}
-                                />
-                              </div>
+                                  Duplicate payload key
+                                </p>
+                              ) : null}
                             </div>
                           );
                         })}
+                        {signupFieldMap.length === 0 ? (
+                          <p className="text-xs text-muted-foreground py-2">
+                            No mappings yet. Add a field to build the signup payload.
+                          </p>
+                        ) : null}
                       </div>
                     </div>
 

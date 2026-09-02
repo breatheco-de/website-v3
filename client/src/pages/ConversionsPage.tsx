@@ -297,6 +297,8 @@ function ConversionsPageInner() {
   const [webhookEditing, setWebhookEditing] = useState(false);
   const [removeWebhookConfirmOpen, setRemoveWebhookConfirmOpen] = useState(false);
   const [samplePayloadOpen, setSamplePayloadOpen] = useState(false);
+  const [signupEventNameDraft, setSignupEventNameDraft] = useState("sign_up");
+  const [loginEventNameDraft, setLoginEventNameDraft] = useState("login");
 
   const { data: trackingSettings } = useQuery<TrackingSettingsResponse>({
     queryKey: ["/api/settings/tracking"],
@@ -310,6 +312,15 @@ function ConversionsPageInner() {
       setWebhookAuthHeader(trackingSettings.webhook.auth_header ?? "");
     }
   }, [trackingSettings?.webhook]);
+
+  useEffect(() => {
+    if (typeof trackingSettings?.signup_event_name === "string" && trackingSettings.signup_event_name) {
+      setSignupEventNameDraft(trackingSettings.signup_event_name);
+    }
+    if (typeof trackingSettings?.login_event_name === "string" && trackingSettings.login_event_name) {
+      setLoginEventNameDraft(trackingSettings.login_event_name);
+    }
+  }, [trackingSettings?.signup_event_name, trackingSettings?.login_event_name]);
 
   const { data: conversionCounts } = useQuery<Record<string, number>>({
     queryKey: ["/api/form-state/conversion-counts"],
@@ -515,6 +526,34 @@ function ConversionsPageInner() {
     },
     onError: (err: Error) => {
       toast({ title: "Failed to save webhook", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const saveAuthEventNamesMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PUT", "/api/settings/tracking", {
+        signup_event_name: signupEventNameDraft.trim(),
+        login_event_name: loginEventNameDraft.trim(),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || "Failed to save");
+      }
+      return res.json() as Promise<TrackingSettingsResponse>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/tracking"] });
+      toast({
+        title: "Signup / login events saved",
+        description: "Previous names are kept as aliases so existing forms still resolve.",
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Failed to save signup / login events",
+        description: err.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -905,19 +944,20 @@ function ConversionsPageInner() {
           </CardContent>
         </Card>
 
-        {/* Signup / login endpoints live under Consumer Auth — not conversion webhooks */}
-        <Card data-testid="card-signup-login-webhook">
+        {/* Signup / login GTM names + Consumer Auth (not conversion webhooks) */}
+        <Card data-testid="card-signup-login-webhook" id="signup-login-events">
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="min-w-0 space-y-1">
                 <div className="flex items-center gap-2">
                   <IconUserCheck className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <CardTitle className="text-base">Signup and Login Webhook</CardTitle>
+                  <CardTitle className="text-base">Signup and Login</CardTitle>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Account signup and login are not conversion webhooks. When a form has Require
-                  Signup enabled, guests are registered through Consumer Auth (path + field map) —
-                  configured separately from the conversion webhook above.
+                  These GTM event names fire when a visitor creates an account or signs in on an
+                  account-gated form — not through the conversion webhook above. Account API path and
+                  field map live under Consumer Auth. Renaming keeps the old name as an alias so
+                  existing forms still match.
                 </p>
               </div>
               <Link href="/private/security/auth">
@@ -927,12 +967,65 @@ function ConversionsPageInner() {
                   className="shrink-0"
                   data-testid="button-configure-signup-login"
                 >
-                  Configure
+                  Consumer Auth
                   <IconExternalLink className="h-3.5 w-3.5" />
                 </Button>
               </Link>
             </div>
           </CardHeader>
+          <CardContent className="space-y-4 pt-0">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="signup-event-name">Signup event name</Label>
+                <Input
+                  id="signup-event-name"
+                  value={signupEventNameDraft}
+                  onChange={(e) => setSignupEventNameDraft(e.target.value)}
+                  disabled={!canMutateMetrics}
+                  placeholder="sign_up"
+                  className="font-mono text-sm"
+                  data-testid="input-signup-event-name"
+                />
+                {(trackingSettings?.signup_event_aliases?.length ?? 0) > 0 && (
+                  <p className="text-xs text-muted-foreground" data-testid="text-signup-aliases">
+                    Aliases:{" "}
+                    {(trackingSettings?.signup_event_aliases ?? []).join(", ")}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="login-event-name">Login event name</Label>
+                <Input
+                  id="login-event-name"
+                  value={loginEventNameDraft}
+                  onChange={(e) => setLoginEventNameDraft(e.target.value)}
+                  disabled={!canMutateMetrics}
+                  placeholder="login"
+                  className="font-mono text-sm"
+                  data-testid="input-login-event-name"
+                />
+                {(trackingSettings?.login_event_aliases?.length ?? 0) > 0 && (
+                  <p className="text-xs text-muted-foreground" data-testid="text-login-aliases">
+                    Aliases:{" "}
+                    {(trackingSettings?.login_event_aliases ?? []).join(", ")}
+                  </p>
+                )}
+              </div>
+            </div>
+            {canMutateMetrics && (
+              <Button
+                size="sm"
+                onClick={() => saveAuthEventNamesMutation.mutate()}
+                disabled={saveAuthEventNamesMutation.isPending}
+                data-testid="button-save-auth-event-names"
+              >
+                {saveAuthEventNamesMutation.isPending ? (
+                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                Save event names
+              </Button>
+            )}
+          </CardContent>
         </Card>
 
         <Card>

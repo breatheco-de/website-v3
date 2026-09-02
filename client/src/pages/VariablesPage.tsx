@@ -243,6 +243,10 @@ function MockLocationCombobox({
   );
 }
 
+function stripContentRootPrefix(filePath: string): string {
+  return filePath.replace(/^site_[^/]+\//, "");
+}
+
 function UsagePopover({
   variableName,
   count,
@@ -274,7 +278,7 @@ function UsagePopover({
           {count}
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-96 p-3 space-y-2" align="end">
+      <PopoverContent className="w-80 p-3 space-y-2" align="end">
         <p className="text-sm font-medium">Used in {count} file{count !== 1 ? "s" : ""}</p>
         <p className="text-xs text-muted-foreground">
           Open each place, remove the variable reference, then you can delete it here.
@@ -286,29 +290,28 @@ function UsagePopover({
           <p className="text-xs text-destructive">Could not load usage list.</p>
         )}
         {data?.files && data.files.length > 0 && (
-          <ul className="max-h-64 overflow-y-auto space-y-1.5">
+          <ul className="max-h-64 overflow-y-auto space-y-0.5">
             {data.files.map((file) => {
               const href = variableUsagePathToStaffHref(file, resolveContentType);
+              const displayPath = stripContentRootPrefix(file);
               return (
                 <li
                   key={file}
-                  className="flex items-start gap-2 rounded-md border border-border px-2 py-1.5"
+                  className="flex items-center gap-1 min-h-0"
                 >
-                  <code className="flex-1 text-[11px] font-mono break-all text-muted-foreground">
-                    {file}
+                  <code className="flex-1 min-w-0 text-[10px] leading-4 font-mono truncate text-muted-foreground" title={file}>
+                    {displayPath}
                   </code>
                   {href ? (
-                    <Button
+                    <button
                       type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 shrink-0 gap-1 px-2"
+                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
                       onClick={() => window.open(href, "_blank", "noopener,noreferrer")}
+                      aria-label={`Open ${displayPath}`}
                       data-testid={`button-open-usage-${file}`}
                     >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      Open
-                    </Button>
+                      <ExternalLink className="h-3 w-3" />
+                    </button>
                   ) : null}
                 </li>
               );

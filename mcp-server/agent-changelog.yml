@@ -6,6 +6,18 @@ window_days: 6
 
 entries:
   - date: "2026-09-02"
+    summary: "Account gate + signup/login GTM events (settings-driven, aliases)"
+    agent_impact:
+      - "tracking.signup_event_name / login_event_name (+ aliases after rename). Runtime fires canonical names; matchers resolve aliases."
+      - "is_signup + allow_signup (login-only when false). conversion_name optional when gated; no double-fire when conversion_name is an auth event."
+      - "MCP identity failures → action_required: fix_signup_field_map. Reconnect tools/list after deploy (update_fields / add_section / replace_entry_sections prose)."
+    paths:
+      - shared/authConversionEvents.ts
+      - mcp-server/lib/signup-field-map-hints.ts
+      - mcp-server/explain/lead-forms.md
+      - mcp-server/tools/pages.ts
+    tools_changed: true
+  - date: "2026-09-02"
     summary: "auth.signup.field_map — Require Signup payload contract"
     agent_impact:
       - "is_signup forms must satisfy settings.yml auth.signup.field_map (non-empty). Required form.* rows need fields.<name>.required: true on the form."

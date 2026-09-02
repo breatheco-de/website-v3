@@ -245,6 +245,10 @@ export interface TrackingSettingsResponse {
   conversion_events: ConversionEventEntry[];
   webhook?: TrackingWebhook;
   has_env_webhook?: boolean;
+  signup_event_name?: string;
+  login_event_name?: string;
+  signup_event_aliases?: string[];
+  login_event_aliases?: string[];
 }
 
 // Extend Window to include dataLayer

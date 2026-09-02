@@ -394,6 +394,8 @@ export function validateSignupFormFields(
 ): string | null {
   if (!form || typeof form !== "object") return null;
   if (form.is_signup !== true) return null;
+  // Login-only gate: no signup API / field_map required
+  if (form.allow_signup === false) return null;
 
   if (!isSignupFieldMapReady(fieldMap)) {
     return (

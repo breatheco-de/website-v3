@@ -9,6 +9,7 @@ import {
 } from "./validateFormSection";
 import { validateSignupFormFields } from "./authSignupFieldMap";
 import type { AuthSignupFieldMapEntry } from "./authSignupFieldMap";
+import type { AuthConversionEventConfig } from "./authConversionEvents";
 import {
   resolveBoundCtaPaths,
   validateCtaPurchasable,
@@ -31,6 +32,8 @@ export type SectionIdentityOpts = {
   conversionNames?: string[];
   /** Site auth.signup.field_map for is_signup validation */
   signupFieldMap?: AuthSignupFieldMapEntry[] | null;
+  /** Signup/login GTM names + aliases (membership for form conversion_name) */
+  authConversion?: AuthConversionEventConfig | null;
   resolveProduct: ProductResolveFn;
   sectionIndex?: number;
   /** Skip conversion/CTA/product identity checks (e.g. freshly duplicated section). */
@@ -46,7 +49,7 @@ export function validateSectionIdentity(
   opts: SectionIdentityOpts,
 ): string | null {
   const conversionNames = opts.conversionNames;
-  const formErr = validateFormSection(section, conversionNames);
+  const formErr = validateFormSection(section, conversionNames, opts.authConversion);
   if (formErr) return formErr;
 
   if (opts.skipIdentity) return null;
@@ -112,6 +115,7 @@ export type DocumentIdentityOpts = {
   funnel?: FunnelBlock | null;
   conversionNames?: string[];
   signupFieldMap?: AuthSignupFieldMapEntry[] | null;
+  authConversion?: AuthConversionEventConfig | null;
   resolveProduct: ProductResolveFn;
   skipIdentityIndexes?: Set<number>;
   /**
@@ -191,6 +195,7 @@ export function validateDocumentSectionsIdentity(
       funnel: opts.funnel,
       conversionNames: opts.conversionNames,
       signupFieldMap: opts.signupFieldMap,
+      authConversion: opts.authConversion,
       resolveProduct: opts.resolveProduct,
       sectionIndex: i,
       skipIdentity: opts.skipIdentityIndexes?.has(i),

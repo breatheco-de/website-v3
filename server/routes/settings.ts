@@ -138,6 +138,7 @@ import {
   updateOptimizationSettings,
   getTrackingSettings,
   updateTrackingSettings,
+  getAuthConversionEventConfig,
   getRobotsSettings,
   updateRobotsSettings,
   updateSearchConsoleSettings,
@@ -169,6 +170,9 @@ import {
   buildSignupTestPayloadFromFieldMap,
   type AuthSignupFieldMapEntry,
 } from "@shared/authSignupFieldMap";
+import {
+  isReservedAuthEventName,
+} from "@shared/authConversionEvents";
 import {
   generateSsrSchemaHtml,
   generateDatabaseSsrHtml,
@@ -1061,13 +1065,22 @@ export function registerSettingsRoutes(app: Express): void {
         leads_expected_conversion_names,
         leads_expected_tags,
         bigquery,
+        signup_event_name,
+        login_event_name,
+        signup_event_aliases,
+        login_event_aliases,
       } = req.body;
       if (
         conversion_events === undefined && webhook === undefined &&
         leads_expected_conversion_names === undefined && leads_expected_tags === undefined &&
-        bigquery === undefined
+        bigquery === undefined &&
+        signup_event_name === undefined && login_event_name === undefined &&
+        signup_event_aliases === undefined && login_event_aliases === undefined
       ) {
-        return res.status(400).json({ error: "Request body must contain conversion_events, webhook, leads_expected_conversion_names, leads_expected_tags or bigquery" });
+        return res.status(400).json({
+          error:
+            "Request body must contain conversion_events, webhook, leads_expected_*, bigquery, or signup/login_event_*",
+        });
       }
       if (conversion_events !== undefined && !Array.isArray(conversion_events)) {
         return res.status(400).json({ error: "conversion_events must be an array" });
@@ -1087,6 +1100,10 @@ export function registerSettingsRoutes(app: Express): void {
         ...(leads_expected_conversion_names !== undefined ? { leads_expected_conversion_names } : {}),
         ...(leads_expected_tags !== undefined ? { leads_expected_tags } : {}),
         ...(bigquery !== undefined ? { bigquery } : {}),
+        ...(signup_event_name !== undefined ? { signup_event_name } : {}),
+        ...(login_event_name !== undefined ? { login_event_name } : {}),
+        ...(signup_event_aliases !== undefined ? { signup_event_aliases } : {}),
+        ...(login_event_aliases !== undefined ? { login_event_aliases } : {}),
       }, res, auth.author);
       res.json({ success: true, ...getTrackingSettings(getContentRoot(res)) });
     } catch (err: any) {
@@ -1368,6 +1385,14 @@ export function registerSettingsRoutes(app: Express): void {
     try {
       const { name } = req.params;
       const current = getTrackingSettings(getContentRoot(res));
+      const authCfg = getAuthConversionEventConfig(getContentRoot(res));
+      if (name === authCfg.signup_event_name || name === authCfg.login_event_name) {
+        return res.status(400).json({
+          error:
+            `Cannot delete "${name}" while it is the site signup or login conversion event. ` +
+            `Change the name on the Signup and Login card first.`,
+        });
+      }
       const filtered = current.conversion_events.filter((e) => e.name !== name);
       persistTrackingSettings({ conversion_events: filtered }, res, auth.author);
       res.json({ success: true });
@@ -1390,6 +1415,18 @@ export function registerSettingsRoutes(app: Express): void {
         return res.status(400).json({ error: "Event name must be snake_case (lowercase letters, digits, underscores, starting with a letter)" });
       }
       const current = getTrackingSettings(getContentRoot(res));
+      const authCfg = getAuthConversionEventConfig(getContentRoot(res));
+      if (name === authCfg.signup_event_name || name === authCfg.login_event_name) {
+        return res.status(400).json({
+          error:
+            `Rename signup/login events from the Signup and Login card so the previous name is kept as an alias.`,
+        });
+      }
+      if (isReservedAuthEventName(trimmed, authCfg)) {
+        return res.status(400).json({
+          error: `"${trimmed}" is reserved as a signup/login event name or alias`,
+        });
+      }
       if (current.conversion_events.some((e) => e.name === trimmed)) {
         return res.status(409).json({ error: `An event named "${trimmed}" already exists` });
       }

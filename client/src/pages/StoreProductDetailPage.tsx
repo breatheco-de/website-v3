@@ -29,6 +29,7 @@ import { apiRequest, apiFetch } from "@/lib/queryClient";
 import type { SitemapSearchEntry } from "@/lib/sitemapSearch";
 import { type ComponentType, type ReactNode } from "react";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
+import { AnimatedEllipsis } from "@/components/DebugBubble/components/PipelineCounts";
 import { cn } from "@/lib/utils";
 import {
   FUNNEL_STAGE_TAPER,
@@ -405,6 +406,237 @@ function MetricHint({
   );
 }
 
+/** Animated dots only — for compact KPI values while BigQuery loads. */
+function TrafficLoadingDots({ testId }: { testId?: string }) {
+  return (
+    <AnimatedEllipsis
+      className="inline-block w-[1.5em] text-left"
+      data-testid={testId}
+    />
+  );
+}
+
+/** Label + animated dots — for session/views/conversions metric rows. */
+function CalculatingTraffic({ testId }: { testId?: string }) {
+  return (
+    <p
+      className="text-[11px] text-muted-foreground tabular-nums"
+      aria-live="polite"
+      data-testid={testId}
+    >
+      Calculating Traffic
+      <AnimatedEllipsis className="inline-block w-[1.5em] text-left" />
+    </p>
+  );
+}
+
+type StepMetrics = {
+  sessions: number;
+  views: number;
+  conversions: number;
+  ecommerce_intent: number;
+  shared?: boolean;
+};
+
+const STAGE_GROUP_THRESHOLD = 8;
+
+/** Awareness always groups; other stages group only when page count exceeds the threshold. */
+function shouldGroupByContentType(stageKey: string, pageCount: number): boolean {
+  if (stageKey === "awareness") return pageCount > 0;
+  return pageCount > STAGE_GROUP_THRESHOLD;
+}
+
+type ContentTypeGroupData = {
+  contentType: string;
+  pages: FunnelStepRow[];
+  metrics: {
+    sessions: number;
+    views: number;
+    conversions: number;
+    ecommerce_intent: number;
+  };
+  sharedCount: number;
+};
+
+function groupPagesByContentType(
+  pages: FunnelStepRow[],
+  getMetrics: (step: FunnelStepRow) => StepMetrics | undefined,
+): ContentTypeGroupData[] {
+  const byType = new Map<string, FunnelStepRow[]>();
+  for (const step of pages) {
+    const list = byType.get(step.content_type) ?? [];
+    list.push(step);
+    byType.set(step.content_type, list);
+  }
+
+  const groups: ContentTypeGroupData[] = [];
+  for (const [contentType, typePages] of byType) {
+    let sessions = 0;
+    let views = 0;
+    let conversions = 0;
+    let ecommerce_intent = 0;
+    let sharedCount = 0;
+    for (const step of typePages) {
+      const m = getMetrics(step);
+      if (!m) continue;
+      sessions += m.sessions;
+      views += m.views;
+      conversions += m.conversions;
+      ecommerce_intent += m.ecommerce_intent;
+      if (m.shared) sharedCount += 1;
+    }
+    const sortedPages = [...typePages].sort((a, b) => {
+      const sa = getMetrics(a)?.sessions ?? 0;
+      const sb = getMetrics(b)?.sessions ?? 0;
+      if (sb !== sa) return sb - sa;
+      return a.slug.localeCompare(b.slug);
+    });
+    groups.push({
+      contentType,
+      pages: sortedPages,
+      metrics: { sessions, views, conversions, ecommerce_intent },
+      sharedCount,
+    });
+  }
+
+  groups.sort((a, b) => {
+    if (b.metrics.sessions !== a.metrics.sessions) {
+      return b.metrics.sessions - a.metrics.sessions;
+    }
+    return a.contentType.localeCompare(b.contentType);
+  });
+  return groups;
+}
+
+function ContentTypeGroup({
+  group,
+  getMetrics,
+}: {
+  group: ContentTypeGroupData;
+  getMetrics: (step: FunnelStepRow) => StepMetrics | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const pageLabel = group.pages.length === 1 ? "1 page" : `${group.pages.length} pages`;
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div
+        className="rounded-md border border-border/80 bg-background/40"
+        data-testid={`funnel-type-group-${group.contentType}`}
+      >
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex w-full items-start gap-2 px-3 py-2.5 text-left hover-elevate rounded-md"
+            aria-expanded={open}
+            data-testid={`button-funnel-type-${group.contentType}`}
+          >
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 shrink-0 text-muted-foreground mt-0.5 transition-transform",
+                open && "rotate-180",
+              )}
+            />
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium font-mono text-sm">{group.contentType}</span>
+                <Badge variant="secondary">{pageLabel}</Badge>
+                {group.sharedCount > 0 && (
+                  <Badge variant="outline">
+                    {group.sharedCount === group.pages.length
+                      ? "Shared"
+                      : `${group.sharedCount} shared`}
+                  </Badge>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground tabular-nums flex flex-wrap items-center gap-x-1 gap-y-0.5">
+                <MetricHint
+                  metricKey="sessions"
+                  value={group.metrics.sessions}
+                  label="sessions"
+                  testId={`metric-type-sessions-${group.contentType}`}
+                />
+                <span aria-hidden>·</span>
+                <MetricHint
+                  metricKey="views"
+                  value={group.metrics.views}
+                  label="views"
+                  testId={`metric-type-views-${group.contentType}`}
+                />
+                <span aria-hidden>·</span>
+                <MetricHint
+                  metricKey="conversions"
+                  value={group.metrics.conversions}
+                  label="conversions"
+                  testId={`metric-type-conversions-${group.contentType}`}
+                />
+                <span aria-hidden>·</span>
+                <MetricHint
+                  metricKey="ecommerce_intent"
+                  value={group.metrics.ecommerce_intent}
+                  label="intent"
+                  testId={`metric-type-intent-${group.contentType}`}
+                />
+              </p>
+            </div>
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="space-y-2 px-2 pb-2 pt-0">
+            {group.pages.map((step) => (
+              <StepCard
+                key={`${step.content_type}/${step.slug}`}
+                step={step}
+                metrics={getMetrics(step)}
+              />
+            ))}
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
+}
+
+function StagePagesList({
+  stageKey,
+  pages,
+  getMetrics,
+}: {
+  stageKey: string;
+  pages: FunnelStepRow[];
+  getMetrics: (step: FunnelStepRow) => StepMetrics | undefined;
+}) {
+  if (shouldGroupByContentType(stageKey, pages.length)) {
+    const groups = groupPagesByContentType(pages, getMetrics);
+    return (
+      <div className="space-y-2">
+        {groups.map((group) => (
+          <ContentTypeGroup key={group.contentType} group={group} getMetrics={getMetrics} />
+        ))}
+      </div>
+    );
+  }
+
+  const sorted = [...pages].sort((a, b) => {
+    const sa = getMetrics(a)?.sessions ?? 0;
+    const sb = getMetrics(b)?.sessions ?? 0;
+    if (sb !== sa) return sb - sa;
+    return a.slug.localeCompare(b.slug);
+  });
+
+  return (
+    <div className="space-y-2">
+      {sorted.map((step) => (
+        <StepCard
+          key={`${step.content_type}/${step.slug}`}
+          step={step}
+          metrics={getMetrics(step)}
+        />
+      ))}
+    </div>
+  );
+}
+
 function StepCard({
   step,
   badge,
@@ -412,13 +644,7 @@ function StepCard({
 }: {
   step: FunnelStepRow;
   badge?: string;
-  metrics?: {
-    sessions: number;
-    views: number;
-    conversions: number;
-    ecommerce_intent: number;
-    shared?: boolean;
-  };
+  metrics?: StepMetrics;
 }) {
   const primaryUrl = step.urls.en || step.urls.es || Object.values(step.urls)[0];
   return (
@@ -726,6 +952,8 @@ export default function StoreProductDetailPage() {
                 <code className="bg-muted px-1 rounded">funnel.stage</code> and{" "}
                 <code className="bg-muted px-1 rounded">funnel.products</code> include this SKU.
                 Use <strong>Add content +</strong> on a stage to attach a page from the sitemap.
+                Awareness is grouped by content type so large lists stay scannable; other stages
+                group the same way once they grow past {STAGE_GROUP_THRESHOLD} pages.
               </p>
 
               {analyticsMode === "stage_flow" ? (
@@ -791,15 +1019,11 @@ export default function StoreProductDetailPage() {
                           from the sitemap.
                         </p>
                       ) : (
-                        <div className="space-y-2">
-                          {pages.map((step) => (
-                            <StepCard
-                              key={`${step.content_type}/${step.slug}`}
-                              step={step}
-                              metrics={pageMetrics(step)}
-                            />
-                          ))}
-                        </div>
+                        <StagePagesList
+                          stageKey={stageKey}
+                          pages={pages}
+                          getMetrics={pageMetrics}
+                        />
                       )}
                     </FunnelStage>
                   );

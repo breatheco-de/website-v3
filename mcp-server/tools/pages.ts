@@ -53,6 +53,10 @@ import { runContentTypeFieldPatch } from "../lib/content-type-field-mcp.js";
 import type { ContentTypeEditorHint } from "../../server/content-types.js";
 import { promoteWarnings, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
 import {
+  isSignupFieldMapError,
+  signupFieldMapActionRequired,
+} from "../lib/signup-field-map-hints.js";
+import {
   ok,
   fail,
   confirmLiveEditGate,
@@ -363,6 +367,15 @@ async function callEditSectionsApi(
               },
             ],
           ),
+        };
+      }
+      if (isSignupFieldMapError(errMsg)) {
+        return {
+          error: signupFieldMapActionRequired(errMsg, {
+            slug: params.slug,
+            locale: params.locale,
+            contentType: params.contentType,
+          }),
         };
       }
       const { editApiErrorResult } = await import("../lib/live-required-fields.js");
@@ -2441,7 +2454,13 @@ export function registerPageTools(
     "For identical meta across many slugs use update_meta_fields instead. Not for section topology (add/remove/reorder).\n" +
     "updated_at: title / meta.page_title / meta.description / section copy or images stamp now on the layer file; seo.* / robots / redirects / og_image do not; variants do not move live lastmod until promote.\n\n" +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
-    "IMPORTANT — versioning: ask before live edit when versioning.yml exists; pass confirm_live_edit: true or variant.",
+    "IMPORTANT — versioning: ask before live edit when versioning.yml exists; pass confirm_live_edit: true or variant.\n\n" +
+    "Account gate (Require Signup): is_signup:true must satisfy auth.signup.field_map when allow_signup is not false. " +
+    "Required form.* map rows need fields.<name>.required:true. Typical free plan: hidden fields.plan with " +
+    "default \"{{ global.default_free_signup_plan | 4geeks-basic-subscription }}\". " +
+    "Signup/login GTM names are tracking.signup_event_name / login_event_name (aliases after rename) — not hardcoded. " +
+    "conversion_name is optional when gated (original lead intent); if it equals the auth event, tracking fires once from auth. " +
+    "Gate is form-level. Call explain_site topic lead-forms. Failures return action_required: fix_signup_field_map.",
     {
       slug: z.string().describe("Page slug"),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
@@ -5110,7 +5129,8 @@ export function registerPageTools(
     "you MUST ask the user before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
     "To edit the live version directly pass confirm_live_edit: true. " +
-    "To edit a variant, call create_variant first and pass the returned slug as the 'variant' parameter here.",
+    "To edit a variant, call create_variant first and pass the returned slug as the 'variant' parameter here.\n\n" +
+    "Account gate: is_signup + allow_signup / field_map — see lead-forms. Failures → fix_signup_field_map.",
     {
       slug: z.string().describe("Page slug"),
       locale: z.string().default("en").describe("Locale code"),
@@ -5722,7 +5742,8 @@ export function registerPageTools(
     "you MUST ask the user before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
     "To edit the live version directly pass confirm_live_edit: true. " +
-    "To edit a variant, call create_variant first and pass the returned slug as the 'variant' parameter here.",
+    "To edit a variant, call create_variant first and pass the returned slug as the 'variant' parameter here.\n\n" +
+    "Account gate: is_signup + allow_signup / field_map — see lead-forms. Failures → fix_signup_field_map.",
     {
       slug: z.string().describe("Page slug"),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),

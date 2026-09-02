@@ -85,6 +85,14 @@ describe("authSignupFieldMap", () => {
     expect(err).toBeNull();
   });
 
+  it("validateSignupFormFields skips when allow_signup is false", () => {
+    const err = validateSignupFormFields(
+      { is_signup: true, allow_signup: false, fields: {} },
+      [],
+    );
+    expect(err).toBeNull();
+  });
+
   it("isSignupFieldMapReady", () => {
     expect(isSignupFieldMapReady([])).toBe(false);
     expect(isSignupFieldMapReady(DEFAULT_AUTH_SIGNUP_FIELD_MAP)).toBe(true);

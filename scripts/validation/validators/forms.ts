@@ -24,7 +24,7 @@ import {
   getContentTypeConfig,
   getType,
 } from "../../../server/content-types";
-import { getTrackingSettings, getAuthSettings } from "../../../server/settings";
+import { getTrackingSettings, getAuthSettings, getAuthConversionEventConfig } from "../../../server/settings";
 import { loadAllFieldEditors } from "../../../server/component-registry";
 import { escapeTemplateVars, unescapeObjectVars } from "../../../shared/templateVars";
 import { getDefaultContentRoot } from "../../../server/site-config";
@@ -85,6 +85,7 @@ export const formsValidator: Validator = {
     const errors: ValidationIssue[] = [];
     const warnings: ValidationIssue[] = [];
     const conversionNames = getTrackingSettings().conversion_events.map((e) => e.name);
+    const authConversion = getAuthConversionEventConfig();
     const signupFieldMap = getAuthSettings().signup?.field_map;
     const allFieldEditors = loadAllFieldEditors();
 
@@ -133,7 +134,7 @@ export const formsValidator: Validator = {
           if (!section || typeof section !== "object" || Array.isArray(section)) continue;
           const sec = section as Record<string, unknown>;
 
-          const err = validateFormSection(sec, conversionNames);
+          const err = validateFormSection(sec, conversionNames, authConversion);
           if (err) {
             errors.push({
               type: "error",

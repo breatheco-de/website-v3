@@ -106,6 +106,10 @@ The following conversion events are tracked and should be configured as GA4 conv
 | `newsletter_signup`        | User signs up for the newsletter             |
 | `contact_us`               | User submits a contact form                  |
 | `outcomes_report`          | User downloads the outcomes report           |
+| `sign_up`                  | Account create on account-gated form (site `tracking.signup_event_name`; aliases after rename) |
+| `login`                    | In-form login on account-gated form (site `tracking.login_event_name`) |
+
+Auth events are configured on Conversions → Signup and Login (`signup_event_name` / `login_event_name`). They push to the dataLayer only (not the lead conversion webhook). When a form’s `conversion_name` is the signup/login event, do not expect a second form-submission push of the same name.
 
 All conversion events include `visitor_id` in the dataLayer push.
 

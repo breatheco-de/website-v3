@@ -21,7 +21,7 @@ import { useSession, useLocation as useSessionLocation, useUTM } from "@/context
 import { useSectionContext } from "@/contexts/SectionContext";
 import { apiRequest, apiFetch } from "@/lib/queryClient";
 import type { Country } from "react-phone-number-input";
-import { trackFormSubmission, resolveWebhook, hashEmail, getEcommerceProductLookup, type ConversionName, type TrackingSettingsResponse } from "@/lib/tracking";
+import { trackFormSubmission, trackConversion, resolveWebhook, hashEmail, getEcommerceProductLookup, type ConversionName, type TrackingSettingsResponse } from "@/lib/tracking";
 import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
 import { usePageFunnel } from "@/contexts/PageFunnelContext";
 import {
@@ -33,6 +33,10 @@ import {
   isSignupFieldMapReady,
   type AuthSignupFieldMapEntry,
 } from "@shared/authSignupFieldMap";
+import {
+  isAuthConversionName,
+  parseAuthConversionEventConfig,
+} from "@shared/authConversionEvents";
 import { resolveFormDefaults } from "@shared/resolveFormDefaults";
 import { resolveConsentCopy, extraConsentYamlFieldsFromObject, consentKeyFromYamlField, isBlankConsentHtml, parseConsentSettingsResponse, shouldShowFallbackConsent } from "@shared/consent-settings";
 import { RichTextContent } from "@/components/ui/rich-text-content";
@@ -182,6 +186,11 @@ export interface LeadFormData {
   ecommerce_product_field?: string;
   /** Signup mode: guests are registered via site auth settings; logged-in users skip known fields. */
   is_signup?: boolean;
+  /**
+   * When is_signup: if false, guests may only log in (no account create).
+   * Default true when omitted.
+   */
+  allow_signup?: boolean;
   /** @deprecated Prefer `fields.plan.default`. Legacy fallback when fields.plan is omitted. */
   plan?: string;
   subtitle?: string;
@@ -708,6 +717,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   // Signup mode (is_signup): active only when site auth settings are configured,
   // so a stale YAML flag can never break submissions.
   const isSignupRequested = data.is_signup === true;
+  const allowSignup = data.allow_signup !== false;
   const { data: authSettings } = useQuery<{
     signup_configured: boolean;
     signup_field_map_ready?: boolean;
@@ -719,8 +729,13 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     enabled: isSignupRequested,
     staleTime: 5 * 60 * 1000,
   });
+  const authConversionCfg = parseAuthConversionEventConfig(
+    (trackingSettings ?? {}) as Record<string, unknown>,
+  );
+  // Account create path: needs field_map. Login-only gate does not.
   const signupActive =
     isSignupRequested &&
+    allowSignup &&
     authSettings?.signup_configured === true &&
     isSignupFieldMapReady(authSettings?.signup?.field_map);
 
@@ -733,8 +748,16 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     enabled: isSignupRequested,
   });
 
+  // Login-only: guests must use in-form login (no account create).
+  useEffect(() => {
+    if (!isSignupRequested || allowSignup || isLoggedIn) return;
+    setLoginMode(true);
+  }, [isSignupRequested, allowSignup, isLoggedIn]);
+
   // Show for any signup form guest (is_signup), even if signup API isn't fully configured.
-  const showSignupLoginPrompt = isSignupRequested && !isLoggedIn && !loginMode;
+  // Hide when login-only (already on login UI) or already in login mode.
+  const showSignupLoginPrompt =
+    isSignupRequested && allowSignup && !isLoggedIn && !loginMode;
 
   const signupLoginPrompt = showSignupLoginPrompt ? (
     <p
@@ -1177,6 +1200,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         setLoginError(locale === "es" ? "Login sin token" : "Login succeeded but no token returned");
         return;
       }
+      trackConversion(authConversionCfg.login_event_name, {
+        email: loginEmail.trim() || undefined,
+      });
       setConsumerToken(data.token);
       setLoginMode(false);
       setLoginPassword("");
@@ -1421,8 +1447,19 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           };
           const newToken = signupJson?.data?.access_token || signupJson?.data?.token;
           if (newToken) setConsumerToken(newToken);
+          trackConversion(authConversionCfg.signup_event_name, {
+            email: typeof values.email === "string" ? values.email : undefined,
+            first_name: typeof values.first_name === "string" ? values.first_name : undefined,
+            last_name: typeof values.last_name === "string" ? values.last_name : undefined,
+            phone: typeof values.phone === "string" ? values.phone : undefined,
+            plan: typeof fields.plan === "string" ? fields.plan : undefined,
+            program: typeof fields.program === "string" ? fields.program : undefined,
+          });
         } catch {
           // Signup succeeded but response was not JSON — continue as guest
+          trackConversion(authConversionCfg.signup_event_name, {
+            email: typeof values.email === "string" ? values.email : undefined,
+          });
         }
       }
 
@@ -1458,14 +1495,17 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     onSuccess: async ({ fields, effective }, variables) => {
       setSubmitError(null);
       setConversionPage(window.location.pathname);
-      // Track conversion if conversion_name is defined
-      if (!effective.conversion_name) {
+      // Track conversion if conversion_name is defined (skip auth events — fired on signup/login)
+      const skipFormConversion =
+        !effective.conversion_name ||
+        isAuthConversionName(effective.conversion_name, authConversionCfg);
+      if (!effective.conversion_name && !isSignupRequested) {
         console.error(
           '[LeadForm] Missing conversion_name in form configuration. ' +
           'Add conversion_name to the form YAML (or a matching route) to enable tracking.'
         );
       }
-      if (effective.conversion_name) {
+      if (effective.conversion_name && !skipFormConversion) {
         await ensureEcommerceProductLookup();
         const productField =
           (typeof data.ecommerce_product_field === "string" && data.ecommerce_product_field.trim()) ||
@@ -1863,12 +1903,16 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   if (loginMode) {
     return (
       <div className={data.className} data-testid="lead-form-login">
-        {formCopy.subtitle && (
+        {(!allowSignup || formCopy.subtitle) && (
           <p
             className="text-sm text-muted-foreground leading-snug mb-3"
             data-testid="text-login-subtitle"
           >
-            {formCopy.subtitle}
+            {!allowSignup
+              ? locale === "es"
+                ? "Inicia sesión con tu cuenta existente. Los visitantes nuevos no pueden registrarse en este formulario."
+                : "Sign in with your existing account. New visitors cannot create an account on this form."
+              : formCopy.subtitle}
           </p>
         )}
         <form
@@ -1919,20 +1963,22 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               formCopy.submit_label
             )}
           </Button>
-          <p className="text-sm text-center text-muted-foreground">
-            <button
-              type="button"
-              className="underline hover:text-foreground"
-              onClick={() => {
-                setLoginMode(false);
-                setLoginError(null);
-                setLoginPassword("");
-              }}
-              data-testid="button-back-to-signup"
-            >
-              {formCopy.back_label}
-            </button>
-          </p>
+          {allowSignup && (
+            <p className="text-sm text-center text-muted-foreground">
+              <button
+                type="button"
+                className="underline hover:text-foreground"
+                onClick={() => {
+                  setLoginMode(false);
+                  setLoginError(null);
+                  setLoginPassword("");
+                }}
+                data-testid="button-back-to-signup"
+              >
+                {formCopy.back_label}
+              </button>
+            </p>
+          )}
         </form>
       </div>
     );

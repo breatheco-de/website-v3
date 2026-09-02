@@ -103,6 +103,11 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { useConversionNames } from "@/lib/tracking";
+import type { TrackingSettingsResponse } from "@/lib/tracking";
+import {
+  parseAuthConversionEventConfig,
+  resolveAuthConversionKind,
+} from "@shared/authConversionEvents";
 import { buildWebhookSamplePayload } from "@/lib/webhookPayload";
 import { useSession } from "@/contexts/SessionContext";
 import { apiRequest } from "@/lib/queryClient";
@@ -140,7 +145,6 @@ import {
   joinFormSettingsPath,
   normalizeFormSettingsPath,
 } from "@shared/joinFormSettingsPath";
-import type { TrackingSettingsResponse } from "@/lib/tracking";
 import { collectExtraConsentYamlFields, consentCardChannels, consentKeyFromYamlField, parseConsentSettingsResponse } from "@shared/consent-settings";
 import { resolveBoundCtaPaths } from "@shared/validateCtaTracking";
 import { showEcommerceEditorTab } from "@shared/wipeOnDuplicate";
@@ -8043,7 +8047,8 @@ export function SectionEditorPanel({
                 }
                 const missing =
                   !("conversion_name" in formNode) && !routeHasName;
-                if (!missing) return null;
+                const isSignupForm = formNode.is_signup === true;
+                if (!missing || isSignupForm) return null;
                 return (
                   <div
                     className="rounded-md border border-destructive/40 bg-destructive/10 p-3 space-y-1"
@@ -8067,6 +8072,11 @@ export function SectionEditorPanel({
                 const storedConversionName =
                   typeof rawConversion === "string" ? rawConversion : "";
                 const showPicker = conversionNameEditing || (!storedConversionName && !isOff);
+                const isSignupEnabled =
+                  getValueAtFieldPath(parsedSection, formProp("is_signup")) === true;
+                const authCfg = parseAuthConversionEventConfig(
+                  (trackingSettings ?? {}) as Record<string, unknown>,
+                );
                 return (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -8075,7 +8085,7 @@ export function SectionEditorPanel({
                         className="text-sm font-medium"
                         data-testid="label-conversion-name"
                       >
-                        Conversion Name
+                        Conversion goal
                       </Label>
                       {(storedConversionName || isOff) && !showPicker && (
                         <Button
@@ -8117,10 +8127,30 @@ export function SectionEditorPanel({
                       <Select
                         value={isOff ? "__clear__" : storedConversionName || undefined}
                         onValueChange={(val) => {
+                          const nextName = val === "__clear__" ? null : val;
+                          const prevKind = resolveAuthConversionKind(
+                            typeof rawConversion === "string" ? rawConversion : null,
+                            authCfg,
+                          );
+                          const nextKind = resolveAuthConversionKind(
+                            typeof nextName === "string" ? nextName : null,
+                            authCfg,
+                          );
                           updatePropertyWithValue(
                             formProp("conversion_name"),
-                            val === "__clear__" ? null : val,
+                            nextName,
                           );
+                          if (nextKind === "signup") {
+                            updatePropertyWithValue(formProp("is_signup"), true);
+                            updatePropertyWithValue(formProp("allow_signup"), true);
+                          } else if (nextKind === "login") {
+                            updatePropertyWithValue(formProp("is_signup"), true);
+                            updatePropertyWithValue(formProp("allow_signup"), false);
+                          } else if (prevKind) {
+                            // Leaving an auth goal → clear account gate
+                            updatePropertyWithValue(formProp("is_signup"), undefined);
+                            updatePropertyWithValue(formProp("allow_signup"), undefined);
+                          }
                           setConversionNameEditing(false);
                         }}
                         data-testid="select-conversion-name"
@@ -8148,26 +8178,60 @@ export function SectionEditorPanel({
                     )}
 
                     <p className="text-xs text-muted-foreground">
-                      GTM event fired on form submission. Must match a configured conversion event.
+                      {isSignupEnabled
+                        ? "Original conversion intent for this form (optional when the account gate is on). Signup and login GTM names are configured on Conversions — not this picker, unless the goal itself is signup/login."
+                        : "GTM event fired on form submission. Must match a configured conversion event."}
                     </p>
                   </div>
                 );
               })()}
 
-              {/* Require Signup toggle (form-level is_signup flag) */}
+              {/* Require account gate (form-level is_signup + allow_signup) */}
               {(() => {
+                const rawConversion = getValueAtFieldPath(parsedSection, formProp("conversion_name"));
+                const storedConversionName =
+                  typeof rawConversion === "string" ? rawConversion : "";
+                const authCfg = parseAuthConversionEventConfig(
+                  (trackingSettings ?? {}) as Record<string, unknown>,
+                );
+                const authKind = resolveAuthConversionKind(storedConversionName || null, authCfg);
+                const isAuthGoal = authKind !== null;
                 const isSignupEnabled =
-                  getValueAtFieldPath(parsedSection, formProp("is_signup")) === true;
+                  getValueAtFieldPath(parsedSection, formProp("is_signup")) === true || isAuthGoal;
+                const allowSignupRaw = getValueAtFieldPath(parsedSection, formProp("allow_signup"));
+                const allowSignup =
+                  authKind === "login"
+                    ? false
+                    : authKind === "signup"
+                      ? true
+                      : allowSignupRaw !== false;
                 return (
                   <RequireSignupCard
                     enabled={isSignupEnabled}
+                    forceEnabled={isAuthGoal}
+                    hidden={false}
+                    allowSignup={allowSignup}
                     onChange={(enabled) => {
-                      // Delete the key when off so the YAML stays clean
+                      if (isAuthGoal) return;
                       updatePropertyWithValue(
                         formProp("is_signup"),
                         enabled ? true : undefined,
                       );
+                      if (!enabled) {
+                        updatePropertyWithValue(formProp("allow_signup"), undefined);
+                      } else if (
+                        getValueAtFieldPath(parsedSection, formProp("allow_signup")) === undefined
+                      ) {
+                        updatePropertyWithValue(formProp("allow_signup"), true);
+                      }
                     }}
+                    onAllowSignupChange={
+                      isAuthGoal
+                        ? undefined
+                        : (allow) => {
+                            updatePropertyWithValue(formProp("allow_signup"), allow);
+                          }
+                    }
                   />
                 );
               })()}

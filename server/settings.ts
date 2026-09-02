@@ -13,6 +13,15 @@ import {
   DEFAULT_AUTH_SIGNUP_FIELD_MAP,
   buildSignupPayloadPreviewJson,
 } from "@shared/authSignupFieldMap";
+import {
+  appendAliasOnRename,
+  DEFAULT_AUTH_CONVERSION_EVENTS,
+  DEFAULT_LOGIN_EVENT_INTENT,
+  DEFAULT_SIGNUP_EVENT_INTENT,
+  parseAuthConversionEventConfig,
+  validateAuthConversionEventConfig,
+  type AuthConversionEventConfig,
+} from "@shared/authConversionEvents";
 
 export type { AuthSignupFieldMapEntry };
 export {
@@ -144,6 +153,14 @@ export interface TrackingSettings {
   /** Allowlist of expected ActiveCampaign tags for the Leads diagnostics (empty = warning disabled). */
   leads_expected_tags?: string[];
   bigquery: TrackingBigQuerySettings;
+  /** Canonical GTM event fired on account create (account-gated forms). */
+  signup_event_name: string;
+  /** Canonical GTM event fired on in-form login. */
+  login_event_name: string;
+  /** Former signup_event_name values after rename — reserved + alias-matched. */
+  signup_event_aliases: string[];
+  /** Former login_event_name values after rename — reserved + alias-matched. */
+  login_event_aliases: string[];
 }
 
 export function parseTrackingBigQuerySettings(
@@ -670,6 +687,9 @@ function loadSettings(contentRoot?: string): SiteSettings {
     tracking: {
       conversion_events: [],
       bigquery: { ...DEFAULT_TRACKING_BIGQUERY },
+      ...DEFAULT_AUTH_CONVERSION_EVENTS,
+      signup_event_aliases: [],
+      login_event_aliases: [],
     },
     robots: { ...DEFAULT_ROBOTS_SETTINGS },
     search_console: { ...DEFAULT_SEARCH_CONSOLE_SETTINGS },
@@ -763,6 +783,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
       }
       return result;
     };
+    const authConv = parseAuthConversionEventConfig(trackingRaw, DEFAULT_AUTH_CONVERSION_EVENTS);
     const tracking: TrackingSettings = {
       conversion_events: Array.isArray(conversionEventsRaw)
         ? (conversionEventsRaw as Array<Record<string, unknown>>)
@@ -822,6 +843,10 @@ function loadSettings(contentRoot?: string): SiteSettings {
         trackingRaw?.bigquery,
         defaults.tracking.bigquery,
       ),
+      signup_event_name: authConv.signup_event_name,
+      login_event_name: authConv.login_event_name,
+      signup_event_aliases: authConv.signup_event_aliases,
+      login_event_aliases: authConv.login_event_aliases,
     };
 
     const robotsRaw = parsed.robots as Record<string, unknown> | undefined;
@@ -1120,6 +1145,16 @@ export function getOptimizationSettings(contentRoot?: string): OptimizationSetti
 
 export function getTrackingSettings(contentRoot?: string): TrackingSettings {
   return loadSettings(contentRoot).tracking;
+}
+
+export function getAuthConversionEventConfig(contentRoot?: string): AuthConversionEventConfig {
+  const t = getTrackingSettings(contentRoot);
+  return {
+    signup_event_name: t.signup_event_name,
+    login_event_name: t.login_event_name,
+    signup_event_aliases: t.signup_event_aliases,
+    login_event_aliases: t.login_event_aliases,
+  };
 }
 
 export function getRobotsSettings(contentRoot?: string): RobotsSettings {
@@ -1563,6 +1598,10 @@ export function updateTrackingSettings(input: {
   leads_expected_conversion_names?: string[];
   leads_expected_tags?: string[];
   bigquery?: Partial<TrackingBigQuerySettings>;
+  signup_event_name?: string;
+  login_event_name?: string;
+  signup_event_aliases?: string[];
+  login_event_aliases?: string[];
 }, contentRoot?: string): void {
   if (input.conversion_events !== undefined && !Array.isArray(input.conversion_events)) {
     throw new Error("conversion_events must be an array");
@@ -1681,6 +1720,90 @@ export function updateTrackingSettings(input: {
     };
   }
 
+  // Auth signup/login GTM event names (+ rename aliases)
+  const currentAuth = parseAuthConversionEventConfig(currentTracking, DEFAULT_AUTH_CONVERSION_EVENTS);
+  let nextAuth: AuthConversionEventConfig = { ...currentAuth };
+  const authNameTouched =
+    input.signup_event_name !== undefined ||
+    input.login_event_name !== undefined ||
+    input.signup_event_aliases !== undefined ||
+    input.login_event_aliases !== undefined;
+
+  if (authNameTouched) {
+    let signupName = currentAuth.signup_event_name;
+    let loginName = currentAuth.login_event_name;
+    let signupAliases = [...currentAuth.signup_event_aliases];
+    let loginAliases = [...currentAuth.login_event_aliases];
+
+    if (typeof input.signup_event_name === "string" && input.signup_event_name.trim()) {
+      const next = input.signup_event_name.trim();
+      signupAliases = appendAliasOnRename(signupName, next, signupAliases);
+      signupName = next;
+    }
+    if (typeof input.login_event_name === "string" && input.login_event_name.trim()) {
+      const next = input.login_event_name.trim();
+      loginAliases = appendAliasOnRename(loginName, next, loginAliases);
+      loginName = next;
+    }
+    if (input.signup_event_aliases !== undefined) {
+      signupAliases = Array.isArray(input.signup_event_aliases)
+        ? input.signup_event_aliases
+            .filter((t): t is string => typeof t === "string" && !!t.trim())
+            .map((t) => t.trim())
+        : signupAliases;
+    }
+    if (input.login_event_aliases !== undefined) {
+      loginAliases = Array.isArray(input.login_event_aliases)
+        ? input.login_event_aliases
+            .filter((t): t is string => typeof t === "string" && !!t.trim())
+            .map((t) => t.trim())
+        : loginAliases;
+    }
+
+    nextAuth = {
+      signup_event_name: signupName,
+      login_event_name: loginName,
+      signup_event_aliases: signupAliases,
+      login_event_aliases: loginAliases,
+    };
+    const authErr = validateAuthConversionEventConfig(nextAuth);
+    if (authErr) throw new Error(authErr);
+  }
+
+  nextTracking.signup_event_name = nextAuth.signup_event_name;
+  nextTracking.login_event_name = nextAuth.login_event_name;
+  nextTracking.signup_event_aliases = nextAuth.signup_event_aliases;
+  nextTracking.login_event_aliases = nextAuth.login_event_aliases;
+
+  // Ensure catalog rows for canonical auth event names
+  {
+    const eventsRaw = nextTracking.conversion_events;
+    let events: ConversionEventEntry[] = Array.isArray(eventsRaw)
+      ? (eventsRaw as ConversionEventEntry[]).filter(
+          (e) => e && typeof e === "object" && typeof (e as ConversionEventEntry).name === "string",
+        )
+      : [];
+
+    const ensureCanonical = (
+      name: string,
+      intent: { description: string; when_to_use: string; when_not_to_use: string },
+    ) => {
+      if (events.some((e) => e.name === name)) return;
+      events = [
+        ...events,
+        {
+          name,
+          description: intent.description,
+          when_to_use: intent.when_to_use,
+          when_not_to_use: intent.when_not_to_use,
+        },
+      ];
+    };
+    ensureCanonical(nextAuth.signup_event_name, DEFAULT_SIGNUP_EVENT_INTENT);
+    ensureCanonical(nextAuth.login_event_name, DEFAULT_LOGIN_EVENT_INTENT);
+    nextTracking.conversion_events = events;
+  }
+
   existing.tracking = nextTracking;
 
   const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
@@ -1691,6 +1814,11 @@ export function updateTrackingSettings(input: {
   }
   if (input.webhook !== undefined) {
     log.info(`[Settings] Updated tracking.webhook: ${input.webhook ? input.webhook.url : "(cleared)"}`);
+  }
+  if (authNameTouched) {
+    log.info(
+      `[Settings] Updated auth conversion events: signup=${nextAuth.signup_event_name} login=${nextAuth.login_event_name}`,
+    );
   }
 }
 

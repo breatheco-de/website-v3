@@ -1,4 +1,8 @@
 import { resolveFormDefaults, type ConversionEventDefaults } from "./resolveFormDefaults";
+import {
+  allReservedAuthEventNames,
+  type AuthConversionEventConfig,
+} from "./authConversionEvents";
 
 /**
  * Resolves a form section's effective settings by merging conversion event defaults.
@@ -104,6 +108,8 @@ export function validateRequiredConversionName(
   const form = getFormSettingsObject(section, formSettingsPath);
   // Optional presence for nested form-settings (CTA-only heroes, etc.).
   if (!form) return null;
+  // Account gate: conversion goal is optional (signup-only / login-only forms).
+  if (form.is_signup === true) return null;
   if (collectConversionNames(form).length > 0) return null;
 
   const label = formSettingsPath ? `${formSettingsPath}.conversion_name` : "conversion_name";
@@ -136,7 +142,8 @@ export function validateRequiredConversionName(
  */
 export function validateFormSection(
   section: Record<string, unknown>,
-  conversionNames?: string[]
+  conversionNames?: string[],
+  authConversion?: AuthConversionEventConfig | null,
 ): string | null {
   if (!("form" in section)) return null;
 
@@ -153,13 +160,20 @@ export function validateFormSection(
 
   const namesToCheck = collectConversionNames(form);
 
-  if (!conversionNames?.length) return null;
+  if (!conversionNames?.length && !authConversion) return null;
+
+  const allowed = new Set(conversionNames ?? []);
+  if (authConversion) {
+    for (const n of allReservedAuthEventNames(authConversion)) {
+      allowed.add(n);
+    }
+  }
 
   for (const raw of namesToCheck) {
     const name = conversionNameForValidation(raw);
     if (name === null) continue;
-    if (!conversionNames.includes(name)) {
-      return `conversion_name "${name}" is not valid. Valid values: ${conversionNames.join(", ")}`;
+    if (allowed.size > 0 && !allowed.has(name)) {
+      return `conversion_name "${name}" is not valid. Valid values: ${[...allowed].join(", ")}`;
     }
   }
 
