@@ -12,6 +12,7 @@ export const SYNC_FILENAMES = {
   gscUrlInspection: "gsc-url-inspection.json",
   linkIndex: "link-index.json",
   relationIndex: "relation-index.json",
+  seoIndex: "seo-index.json",
 } as const;
 
 export type SyncFilename = (typeof SYNC_FILENAMES)[keyof typeof SYNC_FILENAMES];

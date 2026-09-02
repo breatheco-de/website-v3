@@ -43,15 +43,15 @@ describe("event-store", () => {
   });
 
   it("uses rowid as generation", () => {
-    const e1 = emitEvent({ site: TEST_SITE, type: "content_file_written", payload: { n: 1 } });
-    const e2 = emitEvent({ site: TEST_SITE, type: "content_file_written", payload: { n: 2 } });
+    const e1 = emitEvent({ site: TEST_SITE, type: "entry_locale_saved", payload: { n: 1 } });
+    const e2 = emitEvent({ site: TEST_SITE, type: "entry_locale_saved", payload: { n: 2 } });
     expect(e2.id).toBeGreaterThan(e1.id);
     expect(getCurrentGeneration(TEST_SITE)).toBe(e2.id);
   });
 
   it("tracks latest write generation separately from pipeline events", () => {
     const site = `${TEST_SITE}-writes-${Date.now()}`;
-    const write = emitEvent({ site, type: "content_file_written" });
+    const write = emitEvent({ site, type: "entry_locale_saved" });
     emitEvent({ site, type: "validation_results_ready", payload: { entryKey: "blog/a/en" } });
     emitEvent({ site, type: "index_snapshot_ready", payload: { generation: write.id } });
     expect(getLatestWriteGeneration(site)).toBe(write.id);
@@ -60,7 +60,7 @@ describe("event-store", () => {
 
   it("tracks unpublished dispatch events only", () => {
     const site = `${TEST_SITE}-unpub-${Date.now()}`;
-    emitEvent({ site, type: "content_file_written" });
+    emitEvent({ site, type: "entry_locale_saved" });
     const pending = getUnpublishedEvents(site);
     expect(pending.length).toBe(1);
     markEventsPublished(site, [pending[0]!.id]);
@@ -79,7 +79,7 @@ describe("event-store", () => {
     expect(getUnpublishedCount(site)).toBe(0);
     expect(getOldestUnpublishedAgeMs(site)).toBeNull();
 
-    emitEvent({ site, type: "content_file_written" });
+    emitEvent({ site, type: "entry_locale_saved" });
     expect(getUnpublishedCount(site)).toBe(1);
   });
 
@@ -113,7 +113,7 @@ describe("event-store", () => {
   });
 
   it("lists events with filters", () => {
-    emitEvent({ site: TEST_SITE, type: "content_file_written", cause: "test-cause" });
+    emitEvent({ site: TEST_SITE, type: "entry_locale_saved", cause: "test-cause" });
     const listed = listEvents({ site: TEST_SITE, cause: "test-cause", limit: 10 });
     expect(listed.length).toBe(1);
     expect(listed[0]?.cause).toBe("test-cause");
@@ -122,7 +122,7 @@ describe("event-store", () => {
   it("stores attribution and triggered_by fields", () => {
     const parent = emitEvent({
       site: TEST_SITE,
-      type: "content_file_written",
+      type: "entry_locale_saved",
       attribution: singleAttribution("jane.doe", { type: "ui" }),
     });
     const child = emitEvent({
@@ -138,8 +138,8 @@ describe("event-store", () => {
 
   it("lists events by triggeredBy parent id", () => {
     const site = `${TEST_SITE}-trigger-${Date.now()}`;
-    const w1 = emitEvent({ site, type: "content_file_written" });
-    const w2 = emitEvent({ site, type: "content_file_written" });
+    const w1 = emitEvent({ site, type: "entry_locale_saved" });
+    const w2 = emitEvent({ site, type: "entry_locale_saved" });
     emitEvent({
       site,
       type: "index_snapshot_ready",
@@ -152,9 +152,9 @@ describe("event-store", () => {
 
   it("getWriteEventsBetween returns write ids in range", () => {
     const site = `${TEST_SITE}-range-${Date.now()}`;
-    const w1 = emitEvent({ site, type: "content_file_written" });
+    const w1 = emitEvent({ site, type: "entry_locale_saved" });
     emitEvent({ site, type: "validation_results_ready", payload: {} });
-    const w2 = emitEvent({ site, type: "content_file_written" });
+    const w2 = emitEvent({ site, type: "entry_locale_saved" });
     const writes = getWriteEventsBetween(site, w1.id, w2.id);
     expect(writes.map((w) => w.id)).toEqual([w2.id]);
   });
@@ -162,7 +162,7 @@ describe("event-store", () => {
   it("getLastSnapshotGeneration reads latest snapshot payload", () => {
     const site = `${TEST_SITE}-snap-${Date.now()}`;
     expect(getLastSnapshotGeneration(site)).toBe(0);
-    const w = emitEvent({ site, type: "content_file_written" });
+    const w = emitEvent({ site, type: "entry_locale_saved" });
     emitEvent({ site, type: "index_snapshot_ready", payload: { generation: w.id } });
     expect(getLastSnapshotGeneration(site)).toBe(w.id);
   });
@@ -171,7 +171,7 @@ describe("event-store", () => {
     const site = `${TEST_SITE}-entry-${Date.now()}`;
     emitEvent({
       site,
-      type: "content_file_written",
+      type: "entry_locale_saved",
       resource: { contentType: "page", slug: "foo", locale: "en" },
     });
     const latest = getLatestWriteForEntry(site, {
@@ -185,8 +185,8 @@ describe("event-store", () => {
   it("listOpenWritesForEntry excludes writes with matching ready", () => {
     const site = `${TEST_SITE}-open-${Date.now()}`;
     const resource = { contentType: "blog", slug: "a", locale: "en" };
-    const w1 = emitEvent({ site, type: "content_file_written", resource });
-    const w2 = emitEvent({ site, type: "content_file_written", resource });
+    const w1 = emitEvent({ site, type: "entry_locale_saved", resource });
+    const w2 = emitEvent({ site, type: "entry_locale_saved", resource });
     emitEvent({
       site,
       type: "validation_results_ready",
@@ -199,7 +199,7 @@ describe("event-store", () => {
 
   it("clears all events for a site", () => {
     const site = `${TEST_SITE}-clear-${Date.now()}`;
-    emitEvent({ site, type: "content_file_written" });
+    emitEvent({ site, type: "entry_locale_saved" });
     emitEvent({ site, type: "index_snapshot_ready", payload: { generation: 1 } });
     expect(listEvents({ site, limit: 10 }).length).toBe(2);
     const deleted = clearAllEvents(site);
@@ -211,11 +211,11 @@ describe("event-store", () => {
     const site = `${TEST_SITE}-sess-${Date.now()}`;
     emitEvent({
       site,
-      type: "content_file_written",
+      type: "entry_locale_saved",
       agent_session_id: "sess-a",
       payload: { report: "x".repeat(80), path: "a.yml" },
     });
-    emitEvent({ site, type: "content_file_written", payload: { path: "b.yml" } });
+    emitEvent({ site, type: "entry_locale_saved", payload: { path: "b.yml" } });
     expect(listEvents({ site, agentSessionId: "sess-a", limit: 10 })).toHaveLength(1);
     expect(listEvents({ site, unscopedOnly: true, limit: 10 })).toHaveLength(1);
   });
@@ -243,7 +243,7 @@ describe("event-store", () => {
     });
     emitEvent({
       site,
-      type: "content_file_written",
+      type: "entry_locale_saved",
       agent_session_id: sid,
       payload: { report: "r".repeat(80), path: "site_x/pages/foo/en.yml" },
     });
@@ -260,7 +260,7 @@ describe("event-store", () => {
       payload: { report: "summary ".padEnd(80, "y") },
     });
     // bulk sync must not appear as a session write even if somehow tagged — we never tag it
-    emitEvent({ site, type: "content_bulk_synced", payload: { count: 3 } });
+    emitEvent({ site, type: "site_bulk_synced", payload: { count: 3 } });
 
     const sessions = listAgentSessions(site, { limit: 10 });
     expect(sessions.some((s) => s.agent_session_id === sid)).toBe(true);

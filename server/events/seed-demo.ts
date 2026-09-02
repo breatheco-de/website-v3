@@ -37,11 +37,11 @@ function system(source: string): EventAttribution[] {
 function batchSpecs(): SeedSpec[] {
   return [
     {
-      type: "content_file_written",
+      type: "entry_locale_saved",
       offsetMs: -95 * 60_000,
       attribution: mcp("Cursor", "claude-4-sonnet"),
       resource: { contentType: "blog", slug: "demo-post", locale: "en", path: "blog/demo-post/en.yml" },
-      payload: { demo: true, title: "Demo blog save" },
+      payload: { demo: true, parts: ["sections"], layer: "live" },
     },
     {
       type: "index_snapshot_ready",
@@ -90,17 +90,18 @@ function batchSpecs(): SeedSpec[] {
       triggeredByIndex: 4,
     },
     {
-      type: "content_file_written",
+      type: "entry_locale_saved",
       offsetMs: -28 * 60_000,
       attribution: mcp("Cursor", "gemini-2.5-pro"),
       resource: { contentType: "landing", slug: "demo-landing", locale: "es", path: "landings/demo-landing/es.yml" },
-      payload: { demo: true, title: "Landing ES save" },
+      payload: { demo: true, parts: ["meta"], layer: "live" },
     },
     {
-      type: "redirects_changed",
+      type: "site_redirects_changed",
       offsetMs: -12 * 60_000,
       attribution: staff(),
-      payload: { demo: true, added: 1, removed: 0 },
+      resource: { path: "custom-redirects.yml" },
+      payload: { demo: true },
     },
     {
       type: "job_failed",
@@ -109,11 +110,18 @@ function batchSpecs(): SeedSpec[] {
       payload: { demo: true, job: "github_pull", error: "Demo failure for UI — safe to ignore" },
     },
     {
-      type: "content_file_written",
+      type: "entry_seo_changed",
       offsetMs: -45_000,
       attribution: mcp("Cursor", "claude-4-sonnet"),
-      resource: { contentType: "page", slug: "home", locale: "en", path: "pages/home/en.yml" },
-      payload: { demo: true, title: "Home tweak" },
+      resource: { contentType: "page", slug: "home", locale: "en" },
+      payload: { demo: true, path: "pages/home/en.yml" },
+    },
+    {
+      type: "seo_index_ready",
+      offsetMs: -44_000,
+      attribution: system("seo-index-refresh"),
+      triggeredByIndex: 9,
+      payload: { demo: true, mode: "patch", generation: 10 },
     },
     {
       type: "validation_results_ready",
@@ -136,11 +144,12 @@ function liveSpec(tick: number): SeedSpec {
     mcp("DeepSeek", "deepseek-chat"),
   ] as const;
   const types: EventType[] = [
-    "content_file_written",
+    "entry_locale_saved",
     "index_snapshot_ready",
     "validation_results_ready",
     "binding_propagation_done",
-    "redirects_changed",
+    "site_bulk_synced",
+    "seo_index_ready",
   ];
   const attribution = agents[tick % agents.length]!;
   const type = types[tick % types.length]!;
@@ -159,6 +168,8 @@ function liveSpec(tick: number): SeedSpec {
       live: true,
       tick,
       note: "Live drip for pop-in animation",
+      ...(type === "entry_locale_saved" ? { parts: ["sections"], layer: "live" } : {}),
+      ...(type === "site_bulk_synced" ? { count: 3 } : {}),
     },
   };
 }

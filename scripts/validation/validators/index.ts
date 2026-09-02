@@ -100,7 +100,9 @@ export const slowValidators: Validator[] = [];
 export const allValidators = [...validators, ...slowValidators];
 
 export const validatorMap = new Map<string, Validator>(
-  validators.map((v) => [v.name, v])
+  validators
+    .filter((v): v is Validator => typeof v?.name === "string")
+    .map((v) => [v.name, v]),
 );
 
 /** Ensures a validator is in the registry (e.g. after hot reload with a stale validators array). */

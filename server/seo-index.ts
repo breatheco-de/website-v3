@@ -12,6 +12,10 @@ import type { ContentIndex } from "./content-index";
 import { contentIndex } from "./content-index";
 import { getDefaultContentRoot } from "./site-config";
 import { markFileAsModified } from "./sync-state";
+import { runInSaveBatch } from "./events/save-batch-context";
+import { emitEntrySeoChanged } from "./events/emit-entry-events";
+import { buildEntryKey } from "../scripts/validation/shared/entryKey";
+import { getSiteContextMap } from "./site-manager";
 import { child } from "./logger";
 import {
   hasEffectiveSeoSignal,
@@ -705,12 +709,56 @@ export function writeSeoFields(opts: {
       ci,
     });
     indexRebuilt = patch.rebuilt;
-    if (patch.indexPath) filesToMark.push(patch.indexPath);
   }
 
-  const uniqueMarks = Array.from(new Set(filesToMark));
+  const uniqueMarks = Array.from(new Set(filesToMark.filter((f) => !isSeoIndexRelPath(f, contentRoot))));
+  const memberEntryKeys = memberFiles.map((abs) => {
+    const rel = relativeFromCwd(abs);
+    const parsed = rel.match(
+      /\/(programs|landings|locations|pages|blog|workshops|events|courses)\/([^/]+)\/([^/]+)\.ya?ml$/i,
+    );
+    if (!parsed) return null;
+    const folder = parsed[1]!.toLowerCase();
+    const typeMap: Record<string, string> = {
+      programs: "program",
+      landings: "landing",
+      locations: "location",
+      pages: "page",
+      blog: "blog",
+      workshops: "workshop",
+      events: "event",
+      courses: "course",
+    };
+    const contentType = typeMap[folder] ?? folder.replace(/s$/, "");
+    const slug = parsed[2]!;
+    const base = parsed[3]!.replace(/\.ya?ml$/i, "");
+    const locale = base.includes(".") ? base.split(".").pop()! : base;
+    return buildEntryKey(contentType, slug, locale);
+  }).filter((k): k is string => Boolean(k));
+
   for (const f of uniqueMarks) {
-    markFileAsModified(f, opts.author, undefined, contentRoot);
+    if (memberFiles.includes(f)) {
+      runInSaveBatch({ suppressPipelineEmit: true, reason: "hub_seo_rewrite" }, () => {
+        markFileAsModified(f, opts.author, undefined, contentRoot);
+      });
+    } else {
+      markFileAsModified(f, opts.author, undefined, contentRoot);
+    }
+  }
+
+  if (!isVariant) {
+    const rootName = path.basename(contentRootAbs(contentRoot));
+    const relLocale = path.relative(contentRootAbs(contentRoot), filePath).split(path.sep).join("/");
+    emitEntrySeoChanged({
+      site: rootName,
+      contentType: opts.contentType,
+      slug: opts.slug,
+      locale: opts.locale,
+      path: relLocale,
+      author: opts.author,
+      seoIndexSynced: true,
+      ...(memberEntryKeys.length ? { memberEntryKeys } : {}),
+    });
   }
 
   log.info(

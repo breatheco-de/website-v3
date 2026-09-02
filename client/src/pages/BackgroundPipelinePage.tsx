@@ -160,8 +160,22 @@ type EventKindChip = {
 };
 
 const EVENT_KIND_CHIPS: EventKindChip[] = [
-  { id: "writes", label: "Writes", types: ["content_file_written", "redirects_changed"], icon: IconPencil },
-  { id: "deletes", label: "Deletes", types: ["content_entry_deleted"], icon: IconTrash },
+  {
+    id: "writes",
+    label: "Writes",
+    types: [
+      "entry_locale_saved",
+      "entry_common_saved",
+      "entry_seo_changed",
+      "entry_redirects_changed",
+      "site_redirects_changed",
+      "registry_file_saved",
+      "content_file_written",
+      "redirects_changed",
+    ],
+    icon: IconPencil,
+  },
+  { id: "deletes", label: "Deletes", types: ["entry_deleted", "content_entry_deleted"], icon: IconTrash },
   { id: "claims", label: "Claims", types: ["validation_issue_claimed", "validation_issue_released"], icon: IconClipboardText },
   { id: "completes", label: "Completes", types: ["validation_issue_completed"], icon: IconCircleCheck },
   {
@@ -175,9 +189,13 @@ const EVENT_KIND_CHIPS: EventKindChip[] = [
     label: "Background",
     types: [
       "index_snapshot_ready",
+      "seo_index_ready",
       "validation_results_ready",
       "binding_propagation_started",
       "binding_propagation_done",
+      "site_bulk_synced",
+      "entry_locale_promoted",
+      "entry_locale_unpublished",
       "content_bulk_synced",
       "job_failed",
       "ai_image_gc_completed",
@@ -231,6 +249,77 @@ type EventMeta = {
 };
 
 const EVENT_META: Record<string, EventMeta> = {
+  entry_locale_saved: {
+    label: "Locale Saved",
+    description:
+      "A locale YAML file was saved (live or variant). Background index refresh, validation (live only), and sync state follow.",
+    icon: IconPencil,
+    iconClass: "text-primary border-primary/40",
+  },
+  entry_common_saved: {
+    label: "Common Saved",
+    description: "_common.yml changed (funnel, identity, shared sections). Index refresh runs; validation is not re-run for common-only edits.",
+    icon: IconPencil,
+    iconClass: "text-primary border-primary/40",
+  },
+  entry_seo_changed: {
+    label: "SEO Fields Changed",
+    description:
+      "SEO mapping fields changed. Cluster Map index refresh runs unless the save already synced seo-index.json (seoIndexSynced).",
+    icon: IconPencil,
+    iconClass: "text-primary border-primary/40",
+  },
+  entry_redirects_changed: {
+    label: "Entry Redirects Changed",
+    description: "meta.redirects on a locale file changed without a full locale save event.",
+    icon: IconRoute,
+    iconClass: "text-primary border-primary/40",
+  },
+  site_redirects_changed: {
+    label: "Site Redirects Changed",
+    description: "custom-redirects.yml changed. Index refresh and redirect validation follow.",
+    icon: IconRoute,
+    iconClass: "text-primary border-primary/40",
+  },
+  registry_file_saved: {
+    label: "Registry Saved",
+    description: "A component-registry schema or related file changed.",
+    icon: IconPencil,
+    iconClass: "text-primary border-primary/40",
+  },
+  site_bulk_synced: {
+    label: "Bulk Content Sync",
+    description:
+      "Multiple content files updated in one batch (GitHub pull). Index and cluster SEO rebuild; no per-file sync flush.",
+    icon: IconCloudDownload,
+    iconClass: "text-primary border-primary/40",
+  },
+  entry_deleted: {
+    label: "Entry Deleted",
+    description:
+      "A content entry or locale was removed. Index, validation cache, and link index cleanup follow.",
+    icon: IconTrash,
+    iconClass: "text-destructive border-destructive/40",
+  },
+  entry_locale_promoted: {
+    label: "Locale Promoted",
+    description: "A draft variant was promoted to the live locale file.",
+    icon: IconPencil,
+    iconClass: "text-primary border-primary/40",
+  },
+  entry_locale_unpublished: {
+    label: "Locale Unpublished",
+    description: "A live locale was converted back to draft (unpublished).",
+    icon: IconPencil,
+    iconClass: "text-primary border-primary/40",
+  },
+  seo_index_ready: {
+    label: "Cluster Index Updated",
+    description:
+      "seo-index.json was rebuilt or patched in GCS. Cluster Map reflects hub/spoke relationships after this.",
+    icon: IconDatabase,
+    iconClass: "text-emerald-400 border-emerald-400/40",
+  },
   content_file_written: {
     label: "Content Saved",
     description:

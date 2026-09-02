@@ -3,12 +3,14 @@
  */
 
 import type { ContentEvent } from "./events/types";
-import { primaryAuthor } from "./events/types";
+import { INDEX_WRITE_EVENT_TYPES, primaryAuthor } from "./events/types";
 import { buildEntryKey } from "../scripts/validation/shared/entryKey";
 import type { EngineStatusState } from "./jobs/queue";
 
 export const PIPELINE_STALE_THRESHOLD_MS = Number(process.env.EVENT_STALE_THRESHOLD_MS || 5 * 60 * 1000);
 export const PIPELINE_DEGRADED_LAG = 10;
+
+const INDEX_WRITE_TYPE_SET = new Set<string>(INDEX_WRITE_EVENT_TYPES);
 
 export function entryKeyFromEvent(event: ContentEvent): string | null {
   const { contentType, slug, locale } = event.resource;
@@ -28,6 +30,7 @@ export function parseBindingLeaseResource(
 
 export type InFlightWork = {
   indexRefresh: boolean;
+  seoIndexRefresh: boolean;
   validations: Array<{ entryKey: string; sinceMs: number }>;
   propagations: Array<{ groupId: string; locale: string; holder: string; sinceMs: number }>;
 };
@@ -35,6 +38,12 @@ export type InFlightWork = {
 function snapshotCoversWrite(writeEvent: ContentEvent, snapshot: ContentEvent): boolean {
   if (snapshot.triggeredByEventIds?.includes(writeEvent.id)) return true;
   const generation = snapshot.payload.generation as number | undefined;
+  return typeof generation === "number" && generation >= writeEvent.id;
+}
+
+function seoReadyCoversWrite(writeEvent: ContentEvent, ready: ContentEvent): boolean {
+  if (ready.triggeredByEventId === writeEvent.id) return true;
+  const generation = ready.payload.generation as number | undefined;
   return typeof generation === "number" && generation >= writeEvent.id;
 }
 
@@ -54,21 +63,27 @@ function writeNeedsIndexApply(
 export function deriveInFlight(
   recentEvents: ContentEvent[],
   lastAppliedGeneration: number,
+  lastAppliedSeoGeneration = 0,
 ): InFlightWork {
   const now = Date.now();
 
   const indexRefresh = recentEvents.some(
-    (e) =>
-      (e.type === "content_file_written" ||
-        e.type === "content_entry_deleted" ||
-        e.type === "content_bulk_synced" ||
-        e.type === "redirects_changed") &&
-      writeNeedsIndexApply(e, recentEvents, lastAppliedGeneration),
+    (e) => INDEX_WRITE_TYPE_SET.has(e.type) && writeNeedsIndexApply(e, recentEvents, lastAppliedGeneration),
   );
+
+  const seoIndexRefresh = recentEvents.some((e) => {
+    if (e.type !== "entry_seo_changed") return false;
+    if (e.payload.seoIndexSynced === true) return false;
+    if (e.id <= lastAppliedSeoGeneration) return false;
+    const hasReady = recentEvents.some(
+      (r) => r.type === "seo_index_ready" && seoReadyCoversWrite(e, r),
+    );
+    return !hasReady;
+  });
 
   const validationByEntry = new Map<string, { entryKey: string; sinceMs: number; writeId: number }>();
   for (const e of recentEvents) {
-    if (e.type !== "content_file_written") continue;
+    if (e.type !== "entry_locale_saved") continue;
     const entryKey = entryKeyFromEvent(e);
     if (!entryKey) continue;
     const hasReady = recentEvents.some(
@@ -106,6 +121,7 @@ export function deriveInFlight(
 
   return {
     indexRefresh,
+    seoIndexRefresh,
     validations: [...validationByEntry.values()],
     propagations: [...propagationByKey.values()],
   };
@@ -133,6 +149,8 @@ export function derivePipelineOverallStatus(opts: {
   }
   return "ok";
 }
+
+const LIFECYCLE_WRITE_TYPES = new Set<string>(INDEX_WRITE_EVENT_TYPES);
 
 /** Pair lifecycle events for display (started→done, written→snapshot). */
 export function pairLifecycleEvents(events: ContentEvent[]): Array<{
@@ -167,12 +185,7 @@ export function pairLifecycleEvents(events: ContentEvent[]): Array<{
         done,
         durationMs: done ? done.created_at - e.created_at : undefined,
       });
-    } else if (
-      e.type === "content_file_written" ||
-      e.type === "content_entry_deleted" ||
-      e.type === "content_bulk_synced" ||
-      e.type === "redirects_changed"
-    ) {
+    } else if (LIFECYCLE_WRITE_TYPES.has(e.type)) {
       const done = events.find(
         (r) =>
           !usedDone.has(r.id) &&
@@ -183,6 +196,21 @@ export function pairLifecycleEvents(events: ContentEvent[]): Array<{
       pairs.push({
         key: `index:${e.id}`,
         label: "index refresh",
+        started: e,
+        done,
+        durationMs: done ? done.created_at - e.created_at : undefined,
+      });
+    } else if (e.type === "entry_seo_changed" && e.payload.seoIndexSynced !== true) {
+      const done = events.find(
+        (r) =>
+          !usedDone.has(r.id) &&
+          r.type === "seo_index_ready" &&
+          seoReadyCoversWrite(e, r),
+      );
+      if (done) usedDone.add(done.id);
+      pairs.push({
+        key: `seo:${e.id}`,
+        label: "seo cluster index",
         started: e,
         done,
         durationMs: done ? done.created_at - e.created_at : undefined,

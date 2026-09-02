@@ -4,7 +4,7 @@ import { registerRoutes, startBackgroundSync } from "./routes/index";
 import { setupVite, serveStatic, log } from "./vite";
 import { registerDevViteForHubRender } from "./render-hub-html";
 import type { ViteDevServer } from "vite";
-import { fallbackRedirectMiddleware, didRedirectsChange } from "./redirects";
+import { fallbackRedirectMiddleware } from "./redirects";
 import { initialDataMiddleware } from "./initial-data-middleware";
 import compression from "compression";
 import cookieParser from "cookie-parser";
@@ -24,7 +24,7 @@ import {
 import { loadFormStateFromBucket, updateFormStateForFile } from "./form-state";
 import { loadValidationCachesFromBucket, shutdownValidationCaches } from "./services/validationCacheService";
 import { loadGscInspectionStoresFromBucket } from "./gsc-url-inspection";
-import { emitContentFileWritten, emitRedirectsChanged } from "./content-events";
+import { emitEntryEventsFromFileChange } from "./content-events";
 import { startEventPruneTimer, wipeAllSiteEventStores } from "./events/event-store";
 import { startEventDispatcher } from "./events/dispatcher";
 import { registerAllJobs } from "./jobs/register";
@@ -642,41 +642,35 @@ app.use((req, res, next) => {
           }
           const resolvedActor =
             actor ?? (author ? { type: "ui" as const } : { type: "system" as const, source: "content-pipeline" });
-          emitContentFileWritten(filePath, {
+          emitEntryEventsFromFileChange({
+            filePath,
+            prevRaw: lastYamlContentByPath.get(filePath),
+            nextRaw:
+              typeof content === "string"
+                ? content
+                : (() => {
+                    try {
+                      return fs.readFileSync(abs, "utf-8");
+                    } catch {
+                      return "";
+                    }
+                  })(),
             author,
             actor: resolvedActor,
             agent_session_id: agentSessionId,
             report,
           });
-
           if (contentChanged) {
-            const absPath = path.isAbsolute(filePath)
-              ? filePath
-              : path.join(process.cwd(), filePath);
             const next =
               typeof content === "string"
                 ? content
                 : (() => {
                     try {
-                      return fs.readFileSync(absPath, "utf-8");
+                      return fs.readFileSync(abs, "utf-8");
                     } catch {
                       return "";
                     }
                   })();
-            const prev = lastYamlContentByPath.get(filePath);
-            const isCustomRedirects = filePath.endsWith("custom-redirects.yml");
-            if (
-              didRedirectsChange(prev, next, {
-                isCustomRedirectsFile: isCustomRedirects,
-              })
-            ) {
-              emitRedirectsChanged(filePath, {
-                author,
-                actor: resolvedActor,
-                agent_session_id: agentSessionId,
-                report,
-              });
-            }
             lastYamlContentByPath.set(filePath, next);
           }
           break;

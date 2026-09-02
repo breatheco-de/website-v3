@@ -9,9 +9,16 @@ import {
 
 /** Dispatch types handled in server/events/dispatcher.ts switch. */
 const DISPATCHER_HANDLED_TYPES = new Set([
-  "content_file_written",
-  "content_entry_deleted",
-  "content_bulk_synced",
+  "entry_locale_saved",
+  "entry_locale_promoted",
+  "entry_common_saved",
+  "registry_file_saved",
+  "entry_redirects_changed",
+  "entry_seo_changed",
+  "site_redirects_changed",
+  "site_bulk_synced",
+  "entry_deleted",
+  "entry_locale_unpublished",
   "binding_propagation_started",
 ]);
 

@@ -86,8 +86,8 @@ describe("emitValidationSettled", () => {
 
   it("closes the writeEventId and any other open writes for the entry", () => {
     const resource = { contentType: "page", slug: "home", locale: "en" };
-    const w1 = emitEvent({ site, type: "content_file_written", resource });
-    const w2 = emitEvent({ site, type: "content_file_written", resource });
+    const w1 = emitEvent({ site, type: "entry_locale_saved", resource });
+    const w2 = emitEvent({ site, type: "entry_locale_saved", resource });
 
     emitValidationSettled(site, "page/home/en", resource, { skipped: true, reason: "test" }, w1.id);
 

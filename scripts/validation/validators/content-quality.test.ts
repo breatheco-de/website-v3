@@ -6,6 +6,13 @@ import { dump } from "js-yaml";
 import type { ContentFile, ValidationContext } from "../shared/types";
 import { resetRegistry } from "../../../server/content-types";
 
+vi.mock("../../../server/content-index", () => ({
+  contentIndex: {
+    getAvailableLocalesOrVariants: () => [],
+    loadMergedContent: () => ({ data: null }),
+  },
+}));
+
 vi.mock("../../../server/redirects", () => ({
   createPublicUrlResolver: () => ({
     test: () => ({ pageExists: false }),
@@ -14,6 +21,14 @@ vi.mock("../../../server/redirects", () => ({
       return pathOnly === "/en/payment-component" || pathOnly === "/en/apply";
     },
   }),
+}));
+
+vi.mock("../../../server/link-index", () => ({
+  queueLinkIndexSet: vi.fn(),
+}));
+
+vi.mock("../../../server/relation-index", () => ({
+  queueRelationIndexSet: vi.fn(),
 }));
 
 import { contentQualityValidator } from "./content-quality";

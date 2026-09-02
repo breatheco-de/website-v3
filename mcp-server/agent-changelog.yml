@@ -6,6 +6,20 @@ window_days: 6
 
 entries:
   - date: "2026-09-01"
+    summary: "Scoped entry/site pipeline events — legacy coarse write types removed"
+    agent_impact:
+      - "Writes emit entry_locale_saved (with parts), entry_common_saved, entry_seo_changed, site_redirects_changed, registry_file_saved, site_bulk_synced; deletes emit entry_deleted."
+      - "Wait for validation_results_ready after entry_locale_saved (live) and seo_index_ready after entry_seo_changed (unless seoIndexSynced on payload)."
+      - "Promote/unpublish emit entry_locale_promoted / entry_locale_unpublished. MCP writes use markFileAsModified only — same event path as staff UI."
+      - "Legacy SQLite rows (content_file_written, etc.) may still appear in pipeline UI with old headlines; new code never emits them."
+    paths:
+      - server/events/types.ts
+      - server/events/emit-entry-events.ts
+      - server/events/dispatcher.ts
+      - server/jobs/definitions/seo-index-refresh.ts
+      - mcp-server/lib/content-write-notify.ts
+    tools_changed: false
+  - date: "2026-09-01"
     summary: "locale-slug-uniqueness validator — SLUG_SHARED_ACROSS_LOCALES warning"
     agent_impact:
       - "run_entry_diagnostics and on-save validation warn when two or more locales of the same YAML entry share the same effective public URL slug (locale YAML slug or folder fallback)."

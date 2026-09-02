@@ -1480,8 +1480,8 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
 
     if (pulled.length > 0) {
       try {
-        const { emitContentBulkSynced } = await import("./content-events");
-        emitContentBulkSynced(contentFolder, pulled);
+        const { emitSiteBulkSynced } = await import("./content-events");
+        emitSiteBulkSynced(contentFolder, pulled);
       } catch {
         /* non-fatal */
       }
@@ -1495,32 +1495,7 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
       }
     }
 
-    // Keep in-memory redirects/content index in sync with files just written to disk.
-    // Otherwise debug "add redirect" (reads YAML) and "test URL" (reads CI) disagree.
-    if (pulled.length > 0) {
-      try {
-        const { getSiteContextMap } = await import("./site-manager");
-        const { clearRedirectCache } = await import("./redirects");
-        const folder = contentFolder;
-        const siteCtx = Array.from(getSiteContextMap().values()).find(
-          (ctx) => ctx.contentRootName === folder || ctx.contentRoot.endsWith(folder),
-        );
-        if (siteCtx?.contentIndex) {
-          siteCtx.contentIndex.refresh({ syncSlow: true });
-          clearRedirectCache();
-          log.info(
-            `[GitHub] Refreshed ContentIndex + redirect cache for ${siteCtx.contentRootName} after pulling ${pulled.length} file(s)`,
-          );
-        } else {
-          clearRedirectCache();
-        }
-      } catch (e) {
-        log.warn(
-          { err: e },
-          "[GitHub] Failed to refresh ContentIndex after auto-pull — redirect tester may be stale until restart",
-        );
-      }
-    }
+    // Index + redirect cache refresh handled by site_bulk_synced pipeline jobs.
   } catch (error) {
     errors.push(error instanceof Error ? error.message : 'Unknown error');
   }
@@ -3186,8 +3161,8 @@ export async function bootstrapContentFromRemote(opts?: {
     await refreshContentAfterBootstrapPull(contentFolder, pulled + pruneResult.deleted);
     if (pulledFiles.length > 0 || pruneResult.deletedFiles.length > 0) {
       try {
-        const { emitContentBulkSynced } = await import("./content-events");
-        emitContentBulkSynced(contentFolder, pulledFiles, {
+        const { emitSiteBulkSynced } = await import("./content-events");
+        emitSiteBulkSynced(contentFolder, pulledFiles, {
           deletedPaths: pruneResult.deletedFiles,
         });
       } catch {

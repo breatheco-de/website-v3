@@ -14,6 +14,7 @@ import { getSiteContextMap } from "../site-manager";
 import { buildEntryKey } from "../../scripts/validation/shared/entryKey";
 import { setPendingValidationWriteId } from "../pipeline-state";
 import { scheduleOnSaveValidationJob } from "../services/onSaveValidationScheduler";
+import { scheduleRedirectsValidation } from "../services/onSaveValidation";
 import { queueLinkIndexRemove, entryKeysFromDeletedPaths } from "../link-index";
 import { child } from "../logger";
 
@@ -35,6 +36,76 @@ function entryKeyFromEvent(event: ContentEvent): string | null {
   return buildEntryKey(contentType, slug, locale);
 }
 
+function isLiveLocaleEvent(event: ContentEvent): boolean {
+  const layer = event.resource.layer ?? event.payload.layer;
+  if (layer === "variant") return false;
+  if (layer === "live" || layer === "common") return layer === "live";
+  return true;
+}
+
+async function enqueueIndexRefresh(event: ContentEvent, contentRoot: string): Promise<void> {
+  await enqueueJob(
+    "index_refresh",
+    {
+      site: event.site,
+      contentRoot,
+      generation: event.id,
+    },
+    { uniqueKey: `index:${event.site}`, uniqueWithArgs: false },
+  );
+}
+
+async function enqueueSyncStateFlush(site: string, contentRoot: string): Promise<void> {
+  await enqueueJob(
+    "sync_state_flush",
+    { site, contentRoot },
+    { uniqueKey: `sync:${site}`, delayMs: 500 },
+  );
+}
+
+async function enqueueSeoIndexRefresh(
+  event: ContentEvent,
+  contentRoot: string,
+  mode: "patch" | "rebuild",
+  entryKeys?: string[],
+): Promise<void> {
+  await enqueueJob(
+    "seo_index_refresh",
+    {
+      site: event.site,
+      contentRoot,
+      generation: event.id,
+      mode,
+      triggeredByEventId: event.id,
+      ...(entryKeys?.length ? { entryKeys } : {}),
+    },
+    {
+      uniqueKey: `seo-index:${event.site}`,
+      uniqueWithArgs: false,
+      delayMs: mode === "rebuild" ? 5000 : 0,
+    },
+  );
+}
+
+async function maybeScheduleValidation(event: ContentEvent, ctx: NonNullable<ReturnType<typeof resolveSiteContext>>): Promise<void> {
+  const entryKey = entryKeyFromEvent(event);
+  if (!entryKey) return;
+  const { contentType, slug, locale } = event.resource;
+  setPendingValidationWriteId(event.site, entryKey, event.id);
+  ctx.validationCache.markEntryDirty(entryKey);
+  void ctx.validationCache.flush();
+  if (contentType && slug && locale) {
+    scheduleOnSaveValidationJob({
+      site: event.site,
+      contentRoot: ctx.contentRoot,
+      entryKey,
+      contentType,
+      slug,
+      locale,
+    });
+  }
+}
+
 async function dispatchEvent(event: ContentEvent): Promise<void> {
   const ctx = resolveSiteContext(event.site);
   if (!ctx) {
@@ -43,64 +114,55 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
   }
 
   switch (event.type) {
-    case "content_file_written":
-    case "content_bulk_synced": {
-      await enqueueJob(
-        "index_refresh",
-        {
-          site: event.site,
-          contentRoot: ctx.contentRoot,
-          generation: event.id,
-        },
-        { uniqueKey: `index:${event.site}`, uniqueWithArgs: false },
-      );
-      if (event.type === "content_bulk_synced") {
-        const deletedPaths = (event.payload.deletedPaths as string[] | undefined) ?? [];
-        if (deletedPaths.length > 0) {
-          const keys = entryKeysFromDeletedPaths(deletedPaths);
-          if (keys.length > 0) {
-            queueLinkIndexRemove(keys, ctx.contentRoot);
-          }
-        }
+    case "entry_locale_saved":
+    case "entry_locale_promoted": {
+      await enqueueIndexRefresh(event, ctx.contentRoot);
+      if (isLiveLocaleEvent(event)) {
+        await maybeScheduleValidation(event, ctx);
       }
-      if (event.type === "content_file_written") {
-        const entryKey = entryKeyFromEvent(event);
-        if (entryKey) {
-          const { contentType, slug, locale } = event.resource;
-          // Stash latest write id; job settles this (and sibling open writes) when it runs.
-          setPendingValidationWriteId(event.site, entryKey, event.id);
-          // Mark dirty immediately so agents see validation_pending during the 1-min debounce.
-          ctx.validationCache.markEntryDirty(entryKey);
-          void ctx.validationCache.flush();
-          if (contentType && slug && locale) {
-            scheduleOnSaveValidationJob({
-              site: event.site,
-              contentRoot: ctx.contentRoot,
-              entryKey,
-              contentType,
-              slug,
-              locale,
-            });
-          }
-        }
-        await enqueueJob(
-          "sync_state_flush",
-          { site: event.site, contentRoot: ctx.contentRoot },
-          { uniqueKey: `sync:${event.site}`, delayMs: 500 },
-        );
-      }
+      await enqueueSyncStateFlush(event.site, ctx.contentRoot);
       break;
     }
-    case "content_entry_deleted": {
-      await enqueueJob(
-        "index_refresh",
-        {
-          site: event.site,
-          contentRoot: ctx.contentRoot,
-          generation: event.id,
-        },
-        { uniqueKey: `index:${event.site}`, uniqueWithArgs: false },
-      );
+    case "entry_common_saved": {
+      await enqueueIndexRefresh(event, ctx.contentRoot);
+      await enqueueSyncStateFlush(event.site, ctx.contentRoot);
+      break;
+    }
+    case "registry_file_saved":
+    case "entry_redirects_changed": {
+      await enqueueIndexRefresh(event, ctx.contentRoot);
+      break;
+    }
+    case "entry_seo_changed": {
+      if (event.payload.seoIndexSynced === true) break;
+      const memberKeys = (event.payload.memberEntryKeys as string[] | undefined) ?? [];
+      const hubKey = entryKeyFromEvent(event);
+      const keys = hubKey ? [hubKey, ...memberKeys] : memberKeys;
+      await enqueueSeoIndexRefresh(event, ctx.contentRoot, "patch", keys.length ? keys : undefined);
+      break;
+    }
+    case "site_redirects_changed": {
+      await enqueueIndexRefresh(event, ctx.contentRoot);
+      scheduleRedirectsValidation({
+        site: event.site,
+        contentRoot: ctx.contentRoot,
+      });
+      break;
+    }
+    case "site_bulk_synced": {
+      await enqueueIndexRefresh(event, ctx.contentRoot);
+      const deletedPaths = (event.payload.deletedPaths as string[] | undefined) ?? [];
+      if (deletedPaths.length > 0) {
+        const keys = entryKeysFromDeletedPaths(deletedPaths);
+        if (keys.length > 0) {
+          queueLinkIndexRemove(keys, ctx.contentRoot);
+        }
+      }
+      await enqueueSeoIndexRefresh(event, ctx.contentRoot, "rebuild");
+      break;
+    }
+    case "entry_deleted": {
+      await enqueueIndexRefresh(event, ctx.contentRoot);
       const entryKeys = (event.payload.entryKeys as string[] | undefined) ?? [];
       if (entryKeys.length > 0) {
         await enqueueJob(
@@ -113,6 +175,10 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
           { uniqueKey: `delete-cleanup:${event.site}:${entryKeys.join(",")}` },
         );
       }
+      break;
+    }
+    case "entry_locale_unpublished": {
+      await enqueueIndexRefresh(event, ctx.contentRoot);
       break;
     }
     case "binding_propagation_started": {
@@ -177,4 +243,9 @@ export function startEventDispatcher(): void {
     void runDispatchCycle();
   });
   void runDispatchCycle();
+}
+
+/** Test-only: dispatch a single event without outbox bookkeeping. */
+export async function dispatchEventForTest(event: ContentEvent): Promise<void> {
+  await dispatchEvent(event);
 }

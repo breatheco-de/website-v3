@@ -13,6 +13,7 @@ import type {
   EventType,
 } from "./types";
 import {
+  AGENT_SESSION_WRITE_EVENT_TYPES,
   EVENT_TYPE_META,
   INDEX_WRITE_EVENT_TYPES,
   OUTBOX_DISPATCHABLE_EVENT_TYPES,
@@ -209,7 +210,7 @@ export function getEventById(site: string, id: number): ContentEvent | null {
   return row ? rowToEvent(row) : null;
 }
 
-/** Latest content_file_written matching entry resource fields. */
+/** Latest entry_locale_saved matching entry resource fields. */
 export function getLatestWriteForEntry(
   site: string,
   resource: Pick<EventResource, "contentType" | "slug" | "locale">,
@@ -220,7 +221,7 @@ export function getLatestWriteForEntry(
   const db = getSiteSqlite(site);
   const rows = db
     .prepare(
-      `SELECT * FROM events WHERE site = ? AND type = 'content_file_written'
+      `SELECT * FROM events WHERE site = ? AND type = 'entry_locale_saved'
        AND json_extract(resource_json, '$.contentType') = ?
        AND json_extract(resource_json, '$.slug') = ?
        AND json_extract(resource_json, '$.locale') = ?
@@ -232,7 +233,7 @@ export function getLatestWriteForEntry(
 }
 
 /**
- * content_file_written rows for an entry that still lack a matching
+ * entry_locale_saved rows for an entry that still lack a matching
  * validation_results_ready (triggered_by_event_id = write id). Newest first.
  */
 export function listOpenWritesForEntry(
@@ -247,7 +248,7 @@ export function listOpenWritesForEntry(
   const rows = db
     .prepare(
       `SELECT w.* FROM events w
-       WHERE w.site = ? AND w.type = 'content_file_written'
+       WHERE w.site = ? AND w.type = 'entry_locale_saved'
          AND json_extract(w.resource_json, '$.contentType') = ?
          AND json_extract(w.resource_json, '$.slug') = ?
          AND json_extract(w.resource_json, '$.locale') = ?
@@ -358,7 +359,7 @@ export function listAgentSessions(
   const db = getSiteSqlite(site);
   const since = opts?.since ?? Date.now() - 7 * 24 * 60 * 60 * 1000;
   const limit = opts?.limit ?? 20;
-  const writeTypes = ["content_file_written", "content_entry_deleted", "redirects_changed"];
+  const writeTypes = [...AGENT_SESSION_WRITE_EVENT_TYPES];
   const writePlaceholders = writeTypes.map(() => "?").join(", ");
   const rows = db
     .prepare(
@@ -416,11 +417,7 @@ export function getAgentSessionDetail(
 
   const started_at = Math.min(...events.map((e) => e.created_at));
   const ended_at = Math.max(...events.map((e) => e.created_at));
-  const writeTypes = new Set([
-    "content_file_written",
-    "content_entry_deleted",
-    "redirects_changed",
-  ]);
+  const writeTypes = new Set<string>(AGENT_SESSION_WRITE_EVENT_TYPES);
   let write_count = 0;
   let issue_complete_count = 0;
   const files: string[] = [];

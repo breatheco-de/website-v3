@@ -6,6 +6,7 @@ import { getSiteSqlite } from "./db";
 import { ensurePipelineDb } from "./pipeline-db/runner";
 
 const KEY_LAST_APPLIED_INDEX = "last_applied_index";
+const KEY_LAST_APPLIED_SEO = "last_applied_seo_index";
 
 function ensureSchema(site: string): void {
   ensurePipelineDb(site);
@@ -51,7 +52,7 @@ function pendingValidationKey(entryKey: string): string {
 }
 
 /**
- * Stash the content_file_written id for an on_save_validation job.
+ * Stash the entry_locale_saved id for an on_save_validation job.
  * Kept out of Sidequest job args so the 1-min debounce scheduler can update
  * the latest write id while coalescing bursts for the same entryKey.
  * Same SQLite file is visible to the Sidequest jobs bundle.
@@ -86,4 +87,34 @@ export function takePendingValidationWriteId(site: string, entryKey: string): nu
   } catch {
     return null;
   }
+}
+
+export function getPersistedLastAppliedSeoIndex(site: string): LastAppliedIndexState | null {
+  ensureSchema(site);
+  const row = getSiteSqlite(site)
+    .prepare("SELECT value_json FROM pipeline_state WHERE key = ?")
+    .get(KEY_LAST_APPLIED_SEO) as { value_json: string } | undefined;
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.value_json) as LastAppliedIndexState;
+    if (typeof parsed.generation !== "number" || typeof parsed.appliedAt !== "number") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function setPersistedLastAppliedSeoIndex(
+  site: string,
+  generation: number,
+  appliedAt: number,
+): void {
+  ensureSchema(site);
+  const payload: LastAppliedIndexState = { generation, appliedAt };
+  getSiteSqlite(site)
+    .prepare(
+      `INSERT INTO pipeline_state (key, value_json) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+    )
+    .run(KEY_LAST_APPLIED_SEO, JSON.stringify(payload));
 }

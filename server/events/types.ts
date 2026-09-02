@@ -1,9 +1,16 @@
 export const EVENT_TYPES = [
-  "content_file_written",
-  "content_entry_deleted",
-  "content_bulk_synced",
-  "redirects_changed",
+  "entry_locale_saved",
+  "entry_common_saved",
+  "entry_redirects_changed",
+  "entry_seo_changed",
+  "entry_deleted",
+  "site_redirects_changed",
+  "registry_file_saved",
+  "site_bulk_synced",
+  "entry_locale_promoted",
+  "entry_locale_unpublished",
   "index_snapshot_ready",
+  "seo_index_ready",
   "validation_results_ready",
   "validation_issue_claimed",
   "validation_issue_completed",
@@ -31,12 +38,19 @@ export type EventTypeMeta = {
 
 /** Single source of truth for event roles (outbox stall, write generation, dispatcher). */
 export const EVENT_TYPE_META: Record<EventType, EventTypeMeta> = {
-  content_file_written: { outbox: "dispatch", affectsWriteGeneration: true },
-  content_entry_deleted: { outbox: "dispatch", affectsWriteGeneration: true },
-  content_bulk_synced: { outbox: "dispatch", affectsWriteGeneration: true },
+  entry_locale_saved: { outbox: "dispatch", affectsWriteGeneration: true },
+  entry_common_saved: { outbox: "dispatch", affectsWriteGeneration: true },
+  entry_redirects_changed: { outbox: "dispatch", affectsWriteGeneration: true },
+  entry_seo_changed: { outbox: "dispatch", affectsWriteGeneration: true },
+  entry_deleted: { outbox: "dispatch", affectsWriteGeneration: true },
+  site_redirects_changed: { outbox: "dispatch", affectsWriteGeneration: true },
+  registry_file_saved: { outbox: "dispatch", affectsWriteGeneration: true },
+  site_bulk_synced: { outbox: "dispatch", affectsWriteGeneration: true },
+  entry_locale_promoted: { outbox: "dispatch", affectsWriteGeneration: true },
+  entry_locale_unpublished: { outbox: "dispatch", affectsWriteGeneration: true },
   binding_propagation_started: { outbox: "dispatch", affectsWriteGeneration: false },
-  redirects_changed: { outbox: "audit", affectsWriteGeneration: true },
   index_snapshot_ready: { outbox: "audit", affectsWriteGeneration: false },
+  seo_index_ready: { outbox: "audit", affectsWriteGeneration: false },
   validation_results_ready: { outbox: "audit", affectsWriteGeneration: false },
   validation_issue_claimed: { outbox: "audit", affectsWriteGeneration: false },
   validation_issue_completed: { outbox: "audit", affectsWriteGeneration: false },
@@ -66,14 +80,38 @@ export const INDEX_WRITE_EVENT_TYPES = EVENT_TYPES.filter(
 
 export type IndexWriteEventType = Extract<
   EventType,
-  "content_file_written" | "content_entry_deleted" | "content_bulk_synced" | "redirects_changed"
+  | "entry_locale_saved"
+  | "entry_common_saved"
+  | "entry_redirects_changed"
+  | "entry_seo_changed"
+  | "entry_deleted"
+  | "site_redirects_changed"
+  | "registry_file_saved"
+  | "site_bulk_synced"
+  | "entry_locale_promoted"
+  | "entry_locale_unpublished"
 >;
+
+/** Event types counted as content writes for agent session rollups. */
+export const AGENT_SESSION_WRITE_EVENT_TYPES: readonly EventType[] = [
+  "entry_locale_saved",
+  "entry_common_saved",
+  "entry_redirects_changed",
+  "entry_seo_changed",
+  "entry_deleted",
+  "site_redirects_changed",
+  "registry_file_saved",
+  "site_bulk_synced",
+  "entry_locale_promoted",
+  "entry_locale_unpublished",
+];
 
 export type EventResource = {
   path?: string;
   contentType?: string;
   slug?: string;
   locale?: string;
+  layer?: string;
   groupId?: string;
 };
 

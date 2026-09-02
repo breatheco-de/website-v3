@@ -52,7 +52,7 @@ function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
 import type { EditOperation } from "@shared/schema";
 import { normalizeLocale, getSupportedLocales, getDefaultLocale } from "./settings";
 import { markFileAsModified } from "./sync-state";
-import { emitContentEntryDeleted } from "./content-events";
+import { emitEntryDeleted } from "./content-events";
 import { getContentWriteContext } from "./write-context";
 import { buildEntryKey } from "../scripts/validation/shared/entryKey";
 import { contentIndex, ContentIndex } from "./content-index";
@@ -1359,10 +1359,9 @@ export async function editContent(request: ContentEditRequest): Promise<{
     
     fs.writeFileSync(filePath, updatedYaml, "utf-8");
 
-    // Track who modified this file for sync purposes.
-    // markFileAsModified fires fileModifiedListeners, which includes the
-    // VersioningManager listener that invalidates the variant content cache.
-    markFileAsModified(filePath, request.author, undefined, contentRoot);
+    if (Object.keys(seoUpdates).length === 0) {
+      markFileAsModified(filePath, request.author, undefined, contentRoot);
+    }
 
     if (Object.keys(seoUpdates).length > 0) {
       const seoResult = writeSeoFields({
@@ -2761,7 +2760,7 @@ function emitEntryDeletedPipelineEvent(opts: {
   if (opts.entryKeys.length === 0 && opts.deletedPaths.length === 0) return;
   try {
     const writeCtx = getContentWriteContext();
-    emitContentEntryDeleted({
+    emitEntryDeleted({
       site: opts.rootName,
       contentType: opts.type,
       slug: opts.slug,

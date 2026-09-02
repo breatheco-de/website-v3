@@ -30,6 +30,7 @@ import {
   refreshSitemapEntriesForContentKey,
 } from "../sitemap";
 import { markFileAsModified } from "../sync-state";
+import { emitEntryLocalePromoted, emitEntryLocaleUnpublished } from "../content-events";
 import { deepMerge } from "../utils/deepMerge";
 import { assertLocaleUrlAvailable } from "../locale-url-slug";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
@@ -1077,6 +1078,14 @@ export function registerVersioningRoutes(app: Express): void {
       });
       await cache.flush();
 
+      emitEntryLocalePromoted({
+        site: getContentRootName(res),
+        contentType,
+        slug: resolved.slug,
+        locale,
+        author: auth.author || "api",
+      });
+
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: String(error) });
@@ -1136,6 +1145,14 @@ export function registerVersioningRoutes(app: Express): void {
       invalidateContentCaches(contentType, getCI(res));
       getCI(res).refresh();
       refreshSitemapEntriesForContentKey(contentType, resolved.slug, [locale]);
+
+      emitEntryLocaleUnpublished({
+        site: getContentRootName(res),
+        contentType,
+        slug: resolved.slug,
+        locale,
+        author: auth.author || "api",
+      });
 
       res.json({
         success: true,

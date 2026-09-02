@@ -11,8 +11,12 @@ import { collectEntryHtmlPaths, flushAfterContentWrites } from "../content-write
 import {
   getPersistedLastAppliedIndex,
   setPersistedLastAppliedIndex,
+  getPersistedLastAppliedSeoIndex,
+  setPersistedLastAppliedSeoIndex,
 } from "../pipeline-state";
 import { markFileAsModified } from "../sync-state";
+import { runInSaveBatch } from "../events/save-batch-context";
+import { invalidateSeoIndexCache } from "../seo-index";
 import { enqueueJob } from "./queue";
 import { child } from "../logger";
 import {
@@ -30,6 +34,7 @@ const log = child({ module: "job-applier" });
 let timer: ReturnType<typeof setInterval> | null = null;
 
 const lastAppliedSnapshot = new Map<string, { generation: number; appliedAt: number }>();
+const lastAppliedSeoSnapshot = new Map<string, { generation: number; appliedAt: number }>();
 const refreshEnqueuePending = new Set<string>();
 /** Max binding_propagation_done id already applied for CMS side-effects (mark/auto-commit). */
 const lastAppliedBindingDoneId = new Map<string, number>();
@@ -40,6 +45,27 @@ function recordLastApplied(site: string, generation: number): void {
   const state = { generation, appliedAt: Date.now() };
   lastAppliedSnapshot.set(site, state);
   setPersistedLastAppliedIndex(site, generation, state.appliedAt);
+}
+
+function recordLastAppliedSeo(site: string, generation: number): void {
+  const prev = lastAppliedSeoSnapshot.get(site);
+  if (prev && prev.generation >= generation) return;
+  const state = { generation, appliedAt: Date.now() };
+  lastAppliedSeoSnapshot.set(site, state);
+  setPersistedLastAppliedSeoIndex(site, generation, state.appliedAt);
+}
+
+function hydrateLastAppliedSeo(site: string): void {
+  if (lastAppliedSeoSnapshot.has(site)) return;
+  const persisted = getPersistedLastAppliedSeoIndex(site);
+  if (persisted) {
+    lastAppliedSeoSnapshot.set(site, persisted);
+  }
+}
+
+export function getLastAppliedSeoSnapshot(site: string): { generation: number; appliedAt: number } | null {
+  hydrateLastAppliedSeo(site);
+  return lastAppliedSeoSnapshot.get(site) ?? null;
 }
 
 function hydrateLastApplied(site: string): void {
@@ -81,6 +107,7 @@ export function startJobApplier(): void {
     for (const ctx of getSiteContextMap().values()) {
       try {
         hydrateLastApplied(ctx.contentRootName);
+        hydrateLastAppliedSeo(ctx.contentRootName);
         applyPendingSnapshots(
           ctx.contentRootName,
           ctx.contentIndex,
@@ -173,6 +200,18 @@ async function applyPendingSnapshots(
     }
   }
 
+  const seoEvents = listEvents({ site, type: "seo_index_ready", limit: 10 });
+  for (const event of seoEvents) {
+    const generation = event.payload.generation as number | undefined;
+    if (!generation) continue;
+    const lastSeo = getLastAppliedSeoSnapshot(site)?.generation ?? 0;
+    if (generation <= lastSeo) continue;
+    invalidateSeoIndexCache();
+    recordLastAppliedSeo(site, generation);
+    log.info({ site, generation }, "[Applier] seo index cache invalidated");
+    break;
+  }
+
   const bindEvents = listEvents({ site, type: "binding_propagation_done", limit: 5 });
   // Newest first from listEvents — apply oldest-unseen first within the batch.
   const pendingBind = bindEvents
@@ -186,12 +225,14 @@ async function applyPendingSnapshots(
       (typeof event.payload.author === "string" ? event.payload.author : undefined) ||
       primaryAuthor(event);
 
-    // Host-process mark: auto-commit + content_file_written listeners (job bundle cannot).
-    for (const filePath of updatedPaths) {
-      if (typeof filePath === "string" && filePath.length > 0) {
-        markFileAsModified(filePath, author);
+    // Host-process mark: auto-commit + entry event listeners (job bundle cannot).
+    runInSaveBatch({ suppressPipelineEmit: true, reason: "binding_propagation" }, () => {
+      for (const filePath of updatedPaths) {
+        if (typeof filePath === "string" && filePath.length > 0) {
+          markFileAsModified(filePath, author);
+        }
       }
-    }
+    });
 
     if (updatedFiles.length > 0) {
       const locale = (event.payload.locale as string) || "en";

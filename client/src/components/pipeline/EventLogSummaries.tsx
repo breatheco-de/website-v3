@@ -88,6 +88,7 @@ export function formatBindingDoneOutcome(updatedCount: number, errorCount: numbe
 }
 
 const TYPED_DETAIL_TYPES = new Set([
+  "site_bulk_synced",
   "content_bulk_synced",
   "binding_propagation_done",
   "validation_issue_claimed",
@@ -645,8 +646,15 @@ function EventJobFailedSummary({
 
 export function EventSummary({ event }: { event: PipelineContentEvent }) {
   switch (event.type) {
+    case "entry_locale_saved":
+    case "entry_common_saved":
+    case "entry_seo_changed":
+    case "entry_redirects_changed":
+    case "site_redirects_changed":
+    case "registry_file_saved":
     case "content_file_written":
       return <EventContentPathSummary resource={event.resource} payload={event.payload} />;
+    case "entry_deleted":
     case "content_entry_deleted":
       return <EventEntryDeletedSummary resource={event.resource} payload={event.payload} />;
     case "redirects_changed":
@@ -659,10 +667,17 @@ export function EventSummary({ event }: { event: PipelineContentEvent }) {
       );
     case "validation_results_ready":
       return <EventValidationSummary payload={event.payload} />;
+    case "site_bulk_synced":
     case "content_bulk_synced":
       return <EventBulkSyncSummary payload={event.payload} />;
     case "index_snapshot_ready":
       return <EventIndexSnapshotSummary payload={event.payload} />;
+    case "seo_index_ready":
+      return (
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {typeof event.payload?.mode === "string" ? `mode: ${event.payload.mode}` : "Cluster index ready"}
+        </p>
+      );
     case "validation_issue_claimed":
     case "validation_issue_completed":
     case "validation_issue_reopened":

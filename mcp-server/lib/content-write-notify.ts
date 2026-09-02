@@ -1,17 +1,15 @@
-import { emitContentFileWritten } from "../../server/content-events.js";
+import { markFileAsModified } from "../../server/sync-state.js";
 import type { EventActor } from "../../server/events/types.js";
 
-/** Notify the event pipeline after MCP writes YAML to disk. */
+/** Notify sync state after MCP writes YAML to disk (pipeline events via listener). */
 export function notifyMcpContentWrite(
   filePath: string,
   author?: string,
   opts?: { agent_session_id?: string; report?: string; actor?: EventActor },
 ): number | null {
-  const event = emitContentFileWritten(filePath, {
-    author: author ?? "mcp",
-    actor: opts?.actor ?? { type: "mcp" },
-    agent_session_id: opts?.agent_session_id,
+  markFileAsModified(filePath, author ?? "mcp", undefined, undefined, opts?.actor ?? { type: "mcp" }, {
+    agentSessionId: opts?.agent_session_id,
     report: opts?.report,
   });
-  return event?.id ?? null;
+  return null;
 }

@@ -190,6 +190,10 @@ export function shouldTrackFile(filePath: string, allowedExceptions?: Set<string
     return false;
   }
 
+  if (basename === 'seo-index.json') {
+    return false;
+  }
+
   if (basename.startsWith('.') && basename.endsWith('-state.json')) {
     return false;
   }

@@ -9,7 +9,7 @@ import type { PipelineContentEvent } from "@/components/pipeline/EventLogSummari
 function baseEvent(overrides: Partial<PipelineContentEvent>): PipelineContentEvent {
   return {
     id: 42,
-    type: "content_file_written",
+    type: "entry_locale_saved",
     resource: {},
     payload: {},
     attribution: [],
@@ -39,7 +39,7 @@ describe("entryRefFromEvent", () => {
 });
 
 describe("formatEventHeadlinePlain", () => {
-  it("formats content save with agent and entry", () => {
+  it("formats locale save with agent and entry", () => {
     expect(
       formatEventHeadlinePlain(
         baseEvent({
@@ -81,7 +81,7 @@ describe("formatEventHeadlinePlain", () => {
     expect(
       formatEventHeadlinePlain(
         baseEvent({
-          type: "content_bulk_synced",
+          type: "site_bulk_synced",
           payload: { count: 3 },
           attribution: [{ author: "staff.dev", actor: { type: "ui" } }],
         }),

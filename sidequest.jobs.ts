@@ -8,3 +8,4 @@ export { IndexRefreshJob } from "./server/jobs/definitions/index-refresh";
 export { OnSaveValidationJob } from "./server/jobs/definitions/on-save-validation";
 export { SyncStateFlushJob } from "./server/jobs/definitions/sync-state-flush";
 export { BindingPropagationJob } from "./server/jobs/definitions/binding-propagation";
+export { SeoIndexRefreshJob } from "./server/jobs/definitions/seo-index-refresh";

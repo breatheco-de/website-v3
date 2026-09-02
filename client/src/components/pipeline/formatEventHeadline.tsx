@@ -102,6 +102,17 @@ function entryToBadgeProps(entry: ParsedEntryRef) {
 }
 
 const TECHNICAL_LABELS: Record<string, string> = {
+  entry_locale_saved: "Locale Saved",
+  entry_common_saved: "Common Saved",
+  entry_redirects_changed: "Entry Redirects Changed",
+  entry_seo_changed: "SEO Fields Changed",
+  entry_deleted: "Entry Deleted",
+  site_redirects_changed: "Site Redirects Changed",
+  registry_file_saved: "Registry Saved",
+  site_bulk_synced: "Bulk Content Sync",
+  entry_locale_promoted: "Locale Promoted",
+  entry_locale_unpublished: "Locale Unpublished",
+  seo_index_ready: "Cluster Index Updated",
   content_file_written: "Content Saved",
   content_entry_deleted: "Entry Deleted",
   content_bulk_synced: "Bulk Content Sync",
@@ -163,6 +174,49 @@ function sentenceParts(
   const systemActor = resolveActorInfo(event.attribution, true);
 
   switch (event.type) {
+    case "entry_locale_saved":
+      return entry
+        ? { ...withActor(actor, " has updated your"), entry, muted: false }
+        : { ...withActor(actor, " has saved a locale file"), muted: false };
+    case "entry_common_saved":
+      return entry
+        ? { ...withActor(actor, " has updated shared fields on your"), entry, muted: false }
+        : { ...withActor(actor, " has saved common entry fields"), muted: false };
+    case "entry_seo_changed":
+      return entry
+        ? { ...withActor(actor, " has updated SEO for your"), entry, muted: false }
+        : { ...withActor(actor, " has updated SEO fields"), muted: false };
+    case "entry_deleted":
+      return entry
+        ? { ...withActor(actor, " has deleted your"), entry, muted: false }
+        : { ...withActor(actor, " has deleted an entry"), muted: false };
+    case "site_redirects_changed":
+      return { ...withActor(actor, " has updated site redirects"), muted: false };
+    case "registry_file_saved":
+      return { ...withActor(actor, " has updated a registry file"), muted: false };
+    case "site_bulk_synced": {
+      const count = numField(event.payload, "count");
+      const n = count ?? 0;
+      return {
+        ...withActor(
+          actor,
+          n > 0
+            ? ` synced ${n} file${n === 1 ? "" : "s"} from GitHub`
+            : " synced content from GitHub",
+        ),
+        muted: false,
+      };
+    }
+    case "entry_locale_promoted":
+      return entry
+        ? { ...withActor(actor, " has promoted a variant to live for your"), entry, muted: false }
+        : { ...withActor(actor, " has promoted a locale to live"), muted: false };
+    case "entry_locale_unpublished":
+      return entry
+        ? { ...withActor(actor, " has unpublished your"), entry, muted: false }
+        : { ...withActor(actor, " has unpublished a locale"), muted: false };
+    case "seo_index_ready":
+      return { ...withActor(systemActor, " updated the cluster SEO index"), muted: false };
     case "content_file_written":
       return entry
         ? { ...withActor(actor, " has updated your"), entry, muted: false }

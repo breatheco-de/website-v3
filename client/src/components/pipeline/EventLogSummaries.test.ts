@@ -51,7 +51,7 @@ describe("formatBindingDoneOutcome", () => {
 
 describe("eventHasTypedDetails", () => {
   it("returns true for list-heavy event types", () => {
-    expect(eventHasTypedDetails(baseEvent({ type: "content_bulk_synced" }))).toBe(true);
+    expect(eventHasTypedDetails(baseEvent({ type: "site_bulk_synced" }))).toBe(true);
     expect(eventHasTypedDetails(baseEvent({ type: "binding_propagation_done" }))).toBe(true);
     expect(
       eventHasTypedDetails(baseEvent({ type: "validation_issue_claimed", payload: { code: "x" } })),
