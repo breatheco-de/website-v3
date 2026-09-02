@@ -407,7 +407,7 @@ function MetricHint({
 }
 
 /** Animated dots only — for compact KPI values while BigQuery loads. */
-function TrafficLoadingDots({ testId }: { testId?: string }) {
+function MetricsLoadingDots({ testId }: { testId?: string }) {
   return (
     <AnimatedEllipsis
       className="inline-block w-[1.5em] text-left"
@@ -417,14 +417,14 @@ function TrafficLoadingDots({ testId }: { testId?: string }) {
 }
 
 /** Label + animated dots — for session/views/conversions metric rows. */
-function CalculatingTraffic({ testId }: { testId?: string }) {
+function CalculatingMetrics({ testId }: { testId?: string }) {
   return (
     <p
       className="text-[11px] text-muted-foreground tabular-nums"
       aria-live="polite"
       data-testid={testId}
     >
-      Calculating Traffic
+      Calculating metrics
       <AnimatedEllipsis className="inline-block w-[1.5em] text-left" />
     </p>
   );
@@ -511,9 +511,11 @@ function groupPagesByContentType(
 function ContentTypeGroup({
   group,
   getMetrics,
+  metricsLoading,
 }: {
   group: ContentTypeGroupData;
   getMetrics: (step: FunnelStepRow) => StepMetrics | undefined;
+  metricsLoading?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const pageLabel = group.pages.length === 1 ? "1 page" : `${group.pages.length} pages`;
@@ -549,35 +551,39 @@ function ContentTypeGroup({
                   </Badge>
                 )}
               </div>
-              <p className="text-[11px] text-muted-foreground tabular-nums flex flex-wrap items-center gap-x-1 gap-y-0.5">
-                <MetricHint
-                  metricKey="sessions"
-                  value={group.metrics.sessions}
-                  label="sessions"
-                  testId={`metric-type-sessions-${group.contentType}`}
-                />
-                <span aria-hidden>·</span>
-                <MetricHint
-                  metricKey="views"
-                  value={group.metrics.views}
-                  label="views"
-                  testId={`metric-type-views-${group.contentType}`}
-                />
-                <span aria-hidden>·</span>
-                <MetricHint
-                  metricKey="conversions"
-                  value={group.metrics.conversions}
-                  label="conversions"
-                  testId={`metric-type-conversions-${group.contentType}`}
-                />
-                <span aria-hidden>·</span>
-                <MetricHint
-                  metricKey="ecommerce_intent"
-                  value={group.metrics.ecommerce_intent}
-                  label="intent"
-                  testId={`metric-type-intent-${group.contentType}`}
-                />
-              </p>
+              {metricsLoading ? (
+                <CalculatingMetrics testId={`metric-type-loading-${group.contentType}`} />
+              ) : (
+                <p className="text-[11px] text-muted-foreground tabular-nums flex flex-wrap items-center gap-x-1 gap-y-0.5">
+                  <MetricHint
+                    metricKey="sessions"
+                    value={group.metrics.sessions}
+                    label="sessions"
+                    testId={`metric-type-sessions-${group.contentType}`}
+                  />
+                  <span aria-hidden>·</span>
+                  <MetricHint
+                    metricKey="views"
+                    value={group.metrics.views}
+                    label="views"
+                    testId={`metric-type-views-${group.contentType}`}
+                  />
+                  <span aria-hidden>·</span>
+                  <MetricHint
+                    metricKey="conversions"
+                    value={group.metrics.conversions}
+                    label="conversions"
+                    testId={`metric-type-conversions-${group.contentType}`}
+                  />
+                  <span aria-hidden>·</span>
+                  <MetricHint
+                    metricKey="ecommerce_intent"
+                    value={group.metrics.ecommerce_intent}
+                    label="intent"
+                    testId={`metric-type-intent-${group.contentType}`}
+                  />
+                </p>
+              )}
             </div>
           </button>
         </CollapsibleTrigger>
@@ -588,6 +594,7 @@ function ContentTypeGroup({
                 key={`${step.content_type}/${step.slug}`}
                 step={step}
                 metrics={getMetrics(step)}
+                metricsLoading={metricsLoading}
               />
             ))}
           </div>
@@ -601,17 +608,24 @@ function StagePagesList({
   stageKey,
   pages,
   getMetrics,
+  metricsLoading,
 }: {
   stageKey: string;
   pages: FunnelStepRow[];
   getMetrics: (step: FunnelStepRow) => StepMetrics | undefined;
+  metricsLoading?: boolean;
 }) {
   if (shouldGroupByContentType(stageKey, pages.length)) {
     const groups = groupPagesByContentType(pages, getMetrics);
     return (
       <div className="space-y-2">
         {groups.map((group) => (
-          <ContentTypeGroup key={group.contentType} group={group} getMetrics={getMetrics} />
+          <ContentTypeGroup
+            key={group.contentType}
+            group={group}
+            getMetrics={getMetrics}
+            metricsLoading={metricsLoading}
+          />
         ))}
       </div>
     );
@@ -631,6 +645,7 @@ function StagePagesList({
           key={`${step.content_type}/${step.slug}`}
           step={step}
           metrics={getMetrics(step)}
+          metricsLoading={metricsLoading}
         />
       ))}
     </div>
@@ -641,10 +656,12 @@ function StepCard({
   step,
   badge,
   metrics,
+  metricsLoading,
 }: {
   step: FunnelStepRow;
   badge?: string;
   metrics?: StepMetrics;
+  metricsLoading?: boolean;
 }) {
   const primaryUrl = step.urls.en || step.urls.es || Object.values(step.urls)[0];
   return (
@@ -668,7 +685,9 @@ function StepCard({
             </a>
           )}
         </div>
-        {metrics && (
+        {metricsLoading ? (
+          <CalculatingMetrics testId={`metric-loading-${step.slug}`} />
+        ) : metrics ? (
           <p className="text-[11px] text-muted-foreground tabular-nums flex flex-wrap items-center gap-x-1 gap-y-0.5">
             <MetricHint
               metricKey="sessions"
@@ -698,7 +717,7 @@ function StepCard({
               testId={`metric-intent-${step.slug}`}
             />
           </p>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
