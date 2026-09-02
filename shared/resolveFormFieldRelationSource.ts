@@ -204,7 +204,7 @@ export function resolveFormFieldRelationSource(
       relationField,
       formFieldName,
       error: `${formPath} points at "${relationField}", but this content type has no editor.${relationField} field`,
-      staffMessage: `This form looks for a content field named "${relationField}", but that field is not set up on this page type. Ask a webmaster to add it, or change the form to use a catalog source instead.`,
+      staffMessage: `This form looks for a content field named "${relationField}", but that field is not set up on this page type. Ask someone with content-types access to add it, or change the form to use a catalog source instead.`,
     };
   }
 

@@ -400,7 +400,10 @@ export function registerDatabasesRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/migrations/run", (req, res) => {
+  app.post("/api/migrations/run", async (req, res) => {
+    const auth = await requireCapability(req, res, "migrations_run");
+    if (!auth.authorized) return;
+
     const { filename } = req.body || {};
     if (!filename || !/^\d{3}_[\w]+\.ts$/.test(filename)) {
       res.status(400).json({ error: "Invalid migration filename." });

@@ -315,7 +315,7 @@ export async function requireStaffSession(
 
 /**
  * Allow mutates on metrics surfaces (diagnostics jobs, insights rebuild, tracking
- * settings, etc.) for webmasters and any staff with at least one capability other
+ * settings, etc.) for staff with at least one capability other
  * than metrics_view. Metrics-only viewers get 403.
  *
  * Dev mode always allows (same as requireCapability / requireStaffSession).

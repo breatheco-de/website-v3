@@ -6,12 +6,12 @@ vi.mock("../user-manager", () => ({
 }));
 
 vi.mock("../user-store", () => ({
-  hasWebmasterRole: vi.fn(),
+  hasCapability: vi.fn(),
 }));
 
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
-import { requireSidequestWebmaster } from "./sidequest-auth";
+import { requireWorkerManage } from "./sidequest-auth";
 
 function mockRes(): Response {
   const res = {
@@ -29,39 +29,40 @@ function mockRes(): Response {
   return res as unknown as Response;
 }
 
-describe("requireSidequestWebmaster", () => {
+describe("requireWorkerManage", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.stubEnv("NODE_ENV", "production");
   });
 
-  it("returns 403 when user is not webmaster", async () => {
+  it("returns 403 when user lacks worker_manage", async () => {
     vi.mocked(userManager.validateToken).mockResolvedValue({
       valid: true,
       username: "editor",
       email: "editor@test.com",
     });
-    vi.mocked(userStore.hasWebmasterRole).mockReturnValue(false);
+    vi.mocked(userStore.hasCapability).mockReturnValue(false);
 
     const req = { headers: { authorization: "Token abc" } } as Request;
     const res = mockRes();
-    const result = await requireSidequestWebmaster(req, res);
+    const result = await requireWorkerManage(req, res);
     expect(result.authorized).toBe(false);
     expect(res.statusCode).toBe(403);
+    expect(userStore.hasCapability).toHaveBeenCalledWith("editor", "worker_manage");
   });
 
-  it("allows webmaster in production", async () => {
+  it("allows worker_manage in production", async () => {
     vi.mocked(userManager.validateToken).mockResolvedValue({
       valid: true,
-      username: "boss",
-      email: "boss@test.com",
+      username: "ops",
+      email: "ops@test.com",
     });
-    vi.mocked(userStore.hasWebmasterRole).mockReturnValue(true);
+    vi.mocked(userStore.hasCapability).mockReturnValue(true);
 
     const req = { headers: { authorization: "Token abc" } } as Request;
     const res = mockRes();
-    const result = await requireSidequestWebmaster(req, res);
+    const result = await requireWorkerManage(req, res);
     expect(result.authorized).toBe(true);
-    expect(result.username).toBe("boss");
+    expect(result.username).toBe("ops");
   });
 });

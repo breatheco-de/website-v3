@@ -235,7 +235,7 @@ export interface BreathecodeValidationResult {
 /**
  * Validate a Breathecode token by calling the main CMS app's validate-token endpoint.
  * This ensures MCP OAuth uses the same UserManager/UserStore as the CMS,
- * including first-user-webmaster bootstrap and role assignment.
+ * including first-user user_admin bootstrap and role assignment.
  */
 export async function validateBreathecodeToken(
   token: string,

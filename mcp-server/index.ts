@@ -118,6 +118,19 @@ function isValidRoleId(roleId: string): boolean {
   return /^[a-z][a-z0-9_-]*$/.test(roleId);
 }
 
+/** Deprecated connector ids — resolves before role lookup (one-release window). */
+const DEPRECATED_MCP_ROLE_ALIASES: Readonly<Record<string, string>> = {
+  webmaster: "user_admin",
+};
+
+function resolveMcpRoleId(roleId: string): string {
+  const resolved = DEPRECATED_MCP_ROLE_ALIASES[roleId] ?? roleId;
+  if (resolved !== roleId) {
+    console.warn(`[MCP] Deprecated role id '${roleId}' — use '/mcp/role/${resolved}' instead`);
+  }
+  return resolved;
+}
+
 function renderAuthorizePage(opts: {
   nonce: string;
   clientId: string;
@@ -505,7 +518,8 @@ app.get("/oauth/authorize", async (req, res) => {
   }
 
   const roleIdRaw = (mcp_role || parseRoleIdFromResource(resource) || "").toLowerCase();
-  const roleId = roleIdRaw && isValidRoleId(roleIdRaw) ? roleIdRaw : undefined;
+  const roleIdResolved = roleIdRaw && isValidRoleId(roleIdRaw) ? resolveMcpRoleId(roleIdRaw) : undefined;
+  const roleId = roleIdResolved;
   let roleMeta: Awaited<ReturnType<typeof fetchRoleInfo>> = null;
   if (roleId) {
     roleMeta = await fetchRoleInfo(roleId);
@@ -836,7 +850,7 @@ app.all("/mcp", authMiddleware, async (req, res) => {
 });
 
 app.all("/mcp/role/:roleId", authMiddleware, async (req, res) => {
-  const roleId = String(req.params.roleId || "").toLowerCase();
+  const roleId = resolveMcpRoleId(String(req.params.roleId || "").toLowerCase());
   if (!isValidRoleId(roleId)) {
     res.status(404).json({ error: `Invalid or unknown role id '${req.params.roleId}'` });
     return;

@@ -8,8 +8,7 @@ import {
   type CatalogGrant,
 } from "./tool-catalog";
 
-const webmaster: CatalogGrant[] = [
-  { name: "users_manage" },
+const platformSteward: CatalogGrant[] = [
   { name: "seo_edit", contentTypes: "*" },
   { name: "read_redirects" },
   { name: "edit_redirects" },
@@ -20,6 +19,7 @@ const webmaster: CatalogGrant[] = [
   { name: "content_edit_structure", contentTypes: "*" },
   { name: "content_create_entry", contentTypes: "*" },
   { name: "databases_manage" },
+  { name: "components_manage" },
 ];
 
 const metricsViewer: CatalogGrant[] = [{ name: "metrics_view" }];
@@ -72,8 +72,8 @@ describe("allowedToolNames", () => {
     expect(names.has("update_redirect")).toBe(false);
   });
 
-  it("webmaster sees writes and diagnostics", () => {
-    const names = new Set(allowedToolNames(webmaster));
+  it("platform_steward sees writes and diagnostics", () => {
+    const names = new Set(allowedToolNames(platformSteward));
     expect(names.has("update_fields")).toBe(true);
     expect(names.has("create_entry")).toBe(true);
     expect(names.has("run_entry_diagnostics")).toBe(true);
@@ -161,7 +161,7 @@ describe("grantsCanMutateMetrics", () => {
   });
 
   it("is true when any mutating cap is present", () => {
-    expect(grantsCanMutateMetrics(webmaster)).toBe(true);
+    expect(grantsCanMutateMetrics(platformSteward)).toBe(true);
     expect(grantsCanMutateMetrics(blogEditor)).toBe(true);
     expect(grantsCanMutateMetrics(seoOnly)).toBe(true);
   });

@@ -416,7 +416,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.put("/api/admin/sites-yml", async (req, res) => {
-    const auth = await requireCapability(req, res, "webmaster");
+    const auth = await requireCapability(req, res, "sites_manage");
     if (!auth.authorized) return;
 
     try {
@@ -2391,7 +2391,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // ============================================
-  // AI Admin Routes (webmaster capability required)
+  // AI Admin Routes (users_manage capability required)
   // ============================================
 
   let openRouterModelsCache: {
@@ -4071,7 +4071,7 @@ export function registerAdminRoutes(app: Express): void {
   // ============================================================
   app.post("/api/admin/sites/create", async (req, res) => {
     try {
-      const auth = await requireCapability(req, res, "webmaster");
+      const auth = await requireCapability(req, res, "sites_manage");
       if (!auth.authorized) return;
 
       const { name, domain, githubRepoUrl, includeSampleContent, inheritComponentsFrom, fallbackContentFolder } =
@@ -4184,7 +4184,7 @@ export function registerAdminRoutes(app: Express): void {
 
   app.patch("/api/admin/sites/domain", async (req, res) => {
     try {
-      const auth = await requireCapability(req, res, "webmaster");
+      const auth = await requireCapability(req, res, "sites_manage");
       if (!auth.authorized) return;
 
       const { currentDomain, newDomain } = req.body as {
@@ -4259,7 +4259,7 @@ export function registerAdminRoutes(app: Express): void {
 
   app.post("/api/admin/sites/refresh-config", async (req, res) => {
     try {
-      const auth = await requireCapability(req, res, "webmaster");
+      const auth = await requireCapability(req, res, "sites_manage");
       if (!auth.authorized) return;
 
       const { refreshSitesYmlConfig } = await import("../sites-yml-store");

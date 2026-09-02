@@ -461,7 +461,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               </a>
             </p>
             <p className="text-xs text-muted-foreground mb-3">
-              Only users with <code className="bg-muted px-1 rounded">webmaster</code> capability will be able to edit the website.
+              Staff need a role with the right capabilities to edit the website. Assign roles in Security → Roles.
             </p>
             <div className="flex gap-2">
               <input

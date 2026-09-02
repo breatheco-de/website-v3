@@ -340,14 +340,15 @@ export function registerAuthRoutes(app: Express): void {
       }
     }
 
-    const roleDef = userStore.getRole(role);
+    const resolvedRole = userStore.resolveMcpRoleId(role);
+    const roleDef = userStore.getRole(resolvedRole);
     if (!roleDef) {
       res.status(404).json({ error: `Unknown role '${role}'` });
       return;
     }
 
     res.json({
-      roleId: role,
+      roleId: resolvedRole,
       label: roleDef.label,
       description: roleDef.description ?? "",
       capabilities: roleDef.capabilities,
@@ -378,14 +379,15 @@ export function registerAuthRoutes(app: Express): void {
       }
     }
 
-    const roleDef = userStore.getRole(role);
+    const resolvedRole = userStore.resolveMcpRoleId(role);
+    const roleDef = userStore.getRole(resolvedRole);
     if (!roleDef) {
       res.status(404).json({ error: `Unknown role '${role}'` });
       return;
     }
-    if (!userStore.userHasRole(username, role)) {
+    if (!userStore.userHasRole(username, resolvedRole)) {
       res.status(403).json({
-        error: `You are not assigned the role '${role}'. Ask an administrator to assign it before using this connector.`,
+        error: `You are not assigned the role '${resolvedRole}'. Ask an administrator to assign it before using this connector.`,
       });
       return;
     }
@@ -401,7 +403,7 @@ export function registerAuthRoutes(app: Express): void {
     const capabilities = userStore.applyMcpAccessToGrants(roleDef.capabilities ?? [], mcpAccess);
 
     res.json({
-      roleId: role,
+      roleId: resolvedRole,
       label: roleDef.label,
       description: roleDef.description ?? "",
       capabilities,
@@ -427,17 +429,17 @@ export function registerAuthRoutes(app: Express): void {
         return;
       }
 
-      // Auto-register user; grant webmaster if no one currently holds the role
-      const noWebmasterExists = userStore.isFirstUser();
+      // Auto-register user; grant user_admin if no bootstrap admin exists
+      const needsBootstrap = userStore.needsBootstrapAdmin();
       const userRecord = userStore.upsertUser({
         username: profile.username,
         firstName: profile.firstName,
         lastName: profile.lastName,
         email: profile.email,
       });
-      if (noWebmasterExists) {
-        userStore.assignRoles(profile.username, ["webmaster"], profile.email);
-        log.info(`[UserStore] Bootstrap: no webmaster existed — "${profile.username}" auto-assigned webmaster role`);
+      if (needsBootstrap) {
+        userStore.assignRoles(profile.username, ["user_admin"], profile.email);
+        log.info(`[UserStore] Bootstrap: no user_admin existed — "${profile.username}" auto-assigned user_admin role`);
       }
 
       // Claim any pending pre-registration that matches this user's email
@@ -495,7 +497,7 @@ export function registerAuthRoutes(app: Express): void {
         firstName: devRecord?.firstName ?? "Dev",
         lastName: devRecord?.lastName ?? "User",
         email: devRecord?.email ?? "dev@localhost",
-        roles: devRecord?.roles ?? ["webmaster"],
+        roles: devRecord?.roles ?? ["user_admin"],
         capabilities: userStore.getMcpEffectiveCapabilities(devUser),
         mcp_read_enabled: mcpAccess.mcpReadEnabled,
         mcp_write_enabled: mcpAccess.mcpWriteEnabled,

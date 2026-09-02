@@ -19,7 +19,7 @@ describe("built-in MCP role descriptions", () => {
 describe("hasCapabilityInRole", () => {
   it("denies when the user is not assigned the role", () => {
     // Unknown user has no roles
-    expect(hasCapabilityInRole("nobody-xyz-role-test", "webmaster", "seo_edit")).toBe(false);
-    expect(userHasRole("nobody-xyz-role-test", "webmaster")).toBe(false);
+    expect(hasCapabilityInRole("nobody-xyz-role-test", "user_admin", "seo_edit")).toBe(false);
+    expect(userHasRole("nobody-xyz-role-test", "user_admin")).toBe(false);
   });
 });

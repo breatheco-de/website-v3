@@ -689,7 +689,7 @@ function LocksDetailList({ leases }: { leases: PipelineStatus["leases"] }) {
 }
 
 function HealthStrip({ data, site }: { data: PipelineStatus; site?: string }) {
-  const { roles, isDevelopment } = useDebugAuth();
+  const { hasCapability, isDevelopment } = useDebugAuth();
   const { data: sqDiag } = useSidequestDiagnostics(site, !!site);
   const isStuck = sqDiag?.derivedHealth === "running_stuck";
   const engineNeedsHelp = data.engine.status === "stopped" || isStuck;
@@ -701,7 +701,7 @@ function HealthStrip({ data, site }: { data: PipelineStatus; site?: string }) {
   const lockCount = data.leases.length;
   const canOpenSidequest =
     Boolean(data.engine.dashboardUrl) &&
-    (isDevelopment || roles.includes("webmaster"));
+    (isDevelopment || hasCapability("worker_manage"));
 
   const openSidequestDashboard = async () => {
     if (openingDash) return;
@@ -800,9 +800,9 @@ function HealthStrip({ data, site }: { data: PipelineStatus; site?: string }) {
         testId="kpi-pipeline-engine"
         education={{
           simple:
-            "Process health for the dedicated Sidequest worker (not the website process). Running means the worker is up. Stuck? means the PID is alive but the heartbeat file is stale — the event loop may be blocked. Stopped: locally start `npm run sidequest` in another terminal; in production use Diagnostics & logs → Check again or Restart Sidequest (webmaster). Prod restart uses a flag file + systemd path unit (docs/vps.md).",
+            "Process health for the dedicated Sidequest worker (not the website process). Running means the worker is up. Stuck? means the PID is alive but the heartbeat file is stale — the event loop may be blocked. Stopped: locally start `npm run sidequest` in another terminal; in production use Diagnostics & logs → Check again or Restart Sidequest (platform ops / worker_manage). Prod restart uses a flag file + systemd path unit (docs/vps.md).",
           advanced:
-            "Sidequest.js in server/jobs/sidequest-worker.ts; enqueue via server/jobs/queue.ts. Liveness: data/sidequest.pid + data/sidequest.heartbeat (SIDEQUEST_HEARTBEAT_STALE_MS, default 120s). APIs: GET /api/admin/sidequest/diagnostics, POST recheck/restart (webmaster), GET logs → data/logs/sidequest.log. Dashboard: POST /api/admin/sidequest/open, proxy /admin/sidequest.",
+            "Sidequest.js in server/jobs/sidequest-worker.ts; enqueue via server/jobs/queue.ts. Liveness: data/sidequest.pid + data/sidequest.heartbeat (SIDEQUEST_HEARTBEAT_STALE_MS, default 120s). APIs: GET /api/admin/sidequest/diagnostics, POST recheck/restart (worker_manage), GET logs → data/logs/sidequest.log. Dashboard: POST /api/admin/sidequest/open, proxy /admin/sidequest.",
         }}
       />
       <HealthKpiCard

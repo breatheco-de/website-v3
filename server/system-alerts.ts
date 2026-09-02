@@ -273,11 +273,11 @@ export async function collectSystemAlerts(): Promise<SystemAlert[]> {
       let message: string;
       try {
         const diagnostics = await collectSidequestDiagnostics();
-        message = `${diagnostics.summary} Saves still work; use Background pipeline → Check again or Restart Sidequest (webmaster).`;
+        message = `${diagnostics.summary} Saves still work; use Background pipeline → Check again or Restart Sidequest (platform ops).`;
       } catch {
         const isProd = process.env.NODE_ENV === "production";
         message = isProd
-          ? "Index refresh and on-save validation are paused (saves still work). Open Background pipeline for diagnostics, or Restart Sidequest (webmaster)."
+          ? "Index refresh and on-save validation are paused (saves still work). Open Background pipeline for diagnostics, or Restart Sidequest (platform ops)."
           : "Index refresh and on-save validation are paused (saves still work). In a local environment, start Sidequest in another terminal with: npm run sidequest";
       }
       alerts.push({

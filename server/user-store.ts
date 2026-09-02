@@ -94,43 +94,58 @@ interface UsersState {
 
 // ─── Built-in roles ────────────────────────────────────────────────────────────
 
-export const BUILT_IN_ROLE_IDS = ["webmaster", "metrics_viewer", "content_viewer"] as const;
+export const BUILT_IN_ROLE_IDS = [
+  "user_admin",
+  "platform_steward",
+  "platform_ops",
+  "metrics_viewer",
+  "content_viewer",
+] as const;
 export type BuiltInRoleId = (typeof BUILT_IN_ROLE_IDS)[number];
+
+/** Deprecated MCP connector id — resolves to user_admin for one release. */
+export const DEPRECATED_MCP_ROLE_ALIASES: Readonly<Record<string, string>> = {
+  webmaster: "user_admin",
+};
+
+export function resolveMcpRoleId(roleId: string): string {
+  return DEPRECATED_MCP_ROLE_ALIASES[roleId] ?? roleId;
+}
 
 export function isBuiltInRole(roleId: string): boolean {
   return (BUILT_IN_ROLE_IDS as readonly string[]).includes(roleId);
 }
 
-const BUILT_IN_WEBMASTER_ROLE: RoleDefinition = {
-  label: "Webmaster",
+const BUILT_IN_USER_ADMIN_ROLE: RoleDefinition = {
+  label: "User Admin",
   description:
-    "Full CMS access: content, SEO, media, types, databases, users, and diagnostics. Use when no narrower role fits. Prefer a focused /mcp/role/… connector when one exists.",
+    "Assign roles and manage staff access. Use /mcp/role/user_admin only for access tasks — not content, SEO, or infrastructure.",
+  capabilities: [{ name: "users_manage" }],
+};
+
+const BUILT_IN_PLATFORM_STEWARD_ROLE: RoleDefinition = {
+  label: "Platform Steward",
+  description:
+    "Site health: diagnostics, runtime issues, redirects, SEO settings, and content architecture reads. Use /mcp/role/platform_steward — not for user admin or infrastructure.",
   capabilities: [
-    { name: "users_manage" },
-    { name: "theme_edit" },
-    { name: "media_upload" },
-    { name: "media_delete" },
+    { name: "metrics_view" },
+    { name: "content_view", contentTypes: "*" },
     { name: "seo_edit", contentTypes: "*" },
     { name: "read_redirects" },
     { name: "edit_redirects" },
     { name: "seo_settings" },
-    { name: "content_types_manage" },
-    { name: "databases_manage" },
     { name: "components_manage" },
+  ],
+};
+
+const BUILT_IN_PLATFORM_OPS_ROLE: RoleDefinition = {
+  label: "Platform Ops",
+  description:
+    "Infrastructure: sites.yml, new sites, Sidequest restart/dashboard. Use /mcp/role/platform_ops — not for content edits or user management.",
+  capabilities: [
+    { name: "sites_manage" },
+    { name: "worker_manage" },
     { name: "migrations_run" },
-    { name: "metrics_view" },
-    { name: "content_view", contentTypes: "*" },
-    { name: "content_create_entry", contentTypes: "*" },
-    { name: "content_delete_entry", contentTypes: "*" },
-    { name: "content_edit_structure", contentTypes: "*" },
-    { name: "content_edit_default", contentTypes: "*" },
-    { name: "content_create_variant", contentTypes: "*" },
-    { name: "content_edit_variant", contentTypes: "*" },
-    { name: "content_delete_variant", contentTypes: "*" },
-    { name: "content_edit_text", contentTypes: "*" },
-    { name: "content_edit_media", contentTypes: "*" },
-    { name: "content_allocate_traffic", contentTypes: "*" },
-    { name: "content_promote_variant", contentTypes: "*" },
   ],
 };
 
@@ -150,7 +165,9 @@ const BUILT_IN_CONTENT_VIEWER_ROLE: RoleDefinition = {
 
 const DEFAULT_STATE: UsersState = {
   roles: {
-    webmaster: BUILT_IN_WEBMASTER_ROLE,
+    user_admin: BUILT_IN_USER_ADMIN_ROLE,
+    platform_steward: BUILT_IN_PLATFORM_STEWARD_ROLE,
+    platform_ops: BUILT_IN_PLATFORM_OPS_ROLE,
     metrics_viewer: BUILT_IN_METRICS_VIEWER_ROLE,
     content_viewer: BUILT_IN_CONTENT_VIEWER_ROLE,
   },
@@ -160,9 +177,48 @@ const DEFAULT_STATE: UsersState = {
 /** Overwrite built-in roles from code so local/GCS edits cannot drift. */
 function syncBuiltInRoles(): void {
   if (!state.roles) state.roles = {};
-  state.roles.webmaster = BUILT_IN_WEBMASTER_ROLE;
+  state.roles.user_admin = BUILT_IN_USER_ADMIN_ROLE;
+  state.roles.platform_steward = BUILT_IN_PLATFORM_STEWARD_ROLE;
+  state.roles.platform_ops = BUILT_IN_PLATFORM_OPS_ROLE;
   state.roles.metrics_viewer = BUILT_IN_METRICS_VIEWER_ROLE;
   state.roles.content_viewer = BUILT_IN_CONTENT_VIEWER_ROLE;
+}
+
+/**
+ * Migrate legacy webmaster role assignments to user_admin and remove the old role definition.
+ * Idempotent — safe on every load.
+ */
+export function migrateWebmasterToUserAdmin(
+  users: Record<string, UserRecord>,
+  roles: Record<string, RoleDefinition>,
+  pendingUsers?: Record<string, PendingUserRecord>,
+): boolean {
+  let changed = false;
+
+  for (const user of Object.values(users)) {
+    if (!user.roles.includes("webmaster")) continue;
+    const withoutWebmaster = user.roles.filter((r) => r !== "webmaster");
+    user.roles = withoutWebmaster.includes("user_admin")
+      ? withoutWebmaster
+      : [...withoutWebmaster, "user_admin"];
+    changed = true;
+  }
+
+  if (pendingUsers) {
+    for (const pending of Object.values(pendingUsers)) {
+      if (pending.role === "webmaster") {
+        pending.role = "user_admin";
+        changed = true;
+      }
+    }
+  }
+
+  if (roles.webmaster) {
+    delete roles.webmaster;
+    changed = true;
+  }
+
+  return changed;
 }
 
 function unionContentTypeScopes(
@@ -254,6 +310,9 @@ function finishLoad(persist: "local" | "all"): void {
   syncBuiltInRoles();
   if (!state.users) state.users = {};
   backfillMissingUserIds();
+  if (migrateWebmasterToUserAdmin(state.users, state.roles, state.pendingUsers)) {
+    log.info("[UserStore] Migrated webmaster role assignments to user_admin");
+  }
   if (migrateSeoEditSplit(state.roles)) {
     log.info("[UserStore] Migrated custom roles: expanded seo_edit to redirect + settings caps");
   }
@@ -488,20 +547,16 @@ function backfillMissingUserIds(): void {
 // ─── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Returns true if no user currently holds the webmaster role.
- * This ensures the bootstrap grant fires even when stale user records
- * exist from prior deployments that never completed first-login.
+ * Returns true when no user holds user_admin — first login should bootstrap access management.
  */
-export function isFirstUser(): boolean {
+export function needsBootstrapAdmin(): boolean {
   ensureLoaded();
-  return !Object.values(state.users).some((u) => u.roles.includes("webmaster"));
+  return !Object.values(state.users).some((u) => u.roles.includes("user_admin"));
 }
 
-/** True when the user holds the built-in webmaster role (full platform access). */
-export function hasWebmasterRole(username: string, email?: string): boolean {
-  ensureLoaded();
-  const found = findUserEntry(username, email);
-  return found?.user.roles.includes("webmaster") ?? false;
+/** @deprecated Use needsBootstrapAdmin */
+export function isFirstUser(): boolean {
+  return needsBootstrapAdmin();
 }
 
 /**
@@ -759,8 +814,6 @@ export function hasCapability(
   capName: CapabilityName,
   contentType?: string
 ): boolean {
-  if (hasWebmasterRole(username)) return true;
-
   const caps = getEffectiveCapabilities(username);
   return grantAllowsCap(
     caps.find((g) => g.name === capName),
@@ -775,7 +828,7 @@ export function userHasRole(username: string, roleId: string, email?: string): b
 }
 
 /**
- * Capability check against a single role's grants only (no webmaster bypass).
+ * Capability check against a single role's grants only (no union across roles).
  * Returns false if the user is not assigned the role or the role does not exist.
  */
 export function hasCapabilityInRole(
@@ -956,7 +1009,6 @@ export function assignPendingToUser(email: string, username: string): { ok: bool
  */
 export function canMutateMetrics(username: string): boolean {
   ensureLoaded();
-  if (hasWebmasterRole(username)) return true;
   return grantsCanMutateMetrics(getEffectiveCapabilities(username));
 }
 

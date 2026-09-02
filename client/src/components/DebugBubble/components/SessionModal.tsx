@@ -24,7 +24,10 @@ import { CAPABILITY_REGISTRY } from "@shared/capabilities";
 import { cn } from "@/lib/utils";
 
 const BUILT_IN_ROLE_LABELS: Record<string, string> = {
-  webmaster: "Webmaster",
+  webmaster: "Webmaster (deprecated)",
+  user_admin: "User Admin",
+  platform_steward: "Platform Steward",
+  platform_ops: "Platform Ops",
   metrics_viewer: "Metrics Viewer",
   content_viewer: "Content Viewer",
 };

@@ -1,6 +1,6 @@
 /**
  * Short-lived HttpOnly cookie for staff-proxied Sidequest dashboard HTML navigations.
- * Does not store the Breathecode token — mint only after webmaster check.
+ * Does not store the Breathecode token — mint only after worker_manage check.
  */
 
 import * as crypto from "crypto";

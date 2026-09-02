@@ -7,7 +7,7 @@ import { collectSystemAlerts } from "../system-alerts";
 import { requireMutatingStaff, requireStaffSession } from "./_helpers";
 import { collectSidequestDiagnostics, tailSidequestLog } from "../jobs/sidequest-diagnostics";
 import { requestSidequestRestart } from "../jobs/sidequest-restart";
-import { requireSidequestWebmaster } from "../jobs/sidequest-auth";
+import { requireWorkerManage } from "../jobs/sidequest-auth";
 import { child } from "../logger";
 
 const log = child({ module: "sidequest-admin-routes" });
@@ -50,7 +50,7 @@ export function registerSidequestAdminRoutes(app: Express): void {
   });
 
   app.post("/api/admin/sidequest/restart", async (req, res) => {
-    const auth = await requireSidequestWebmaster(req, res);
+    const auth = await requireWorkerManage(req, res);
     if (!auth.authorized) return;
 
     const body = req.body as { confirm?: boolean } | undefined;

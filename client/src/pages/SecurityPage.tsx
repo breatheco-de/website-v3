@@ -716,7 +716,12 @@ function RolesTab() {
           <p className="text-sm text-muted-foreground text-center py-8">No roles defined yet.</p>
         )}
         {roles.map(([roleId, role]) => {
-          const isBuiltIn = roleId === "webmaster" || roleId === "metrics_viewer" || roleId === "content_viewer";
+          const isBuiltIn =
+            roleId === "user_admin" ||
+            roleId === "platform_steward" ||
+            roleId === "platform_ops" ||
+            roleId === "metrics_viewer" ||
+            roleId === "content_viewer";
           const isEditing = editingRoleId === roleId;
           const isDeleting = deletingRoleId === roleId;
           return (
@@ -850,6 +855,66 @@ function RolesTab() {
                       <p className="text-[11px] text-muted-foreground mb-2">
                         Description is managed in code and cannot be edited here.
                       </p>
+                    )}
+                    {roleId === "user_admin" && (
+                      <>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Manage who can access the CMS. Does not edit content, SEO, or server settings.
+                        </p>
+                        <details className="mb-2 group">
+                          <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground list-none flex items-center gap-1">
+                            <IconChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                            Read more (advanced)
+                          </summary>
+                          <div className="mt-2 text-xs text-muted-foreground space-y-1.5 pl-4 border-l border-border">
+                            <p>
+                              Grants only <code className="font-mono">users_manage</code>. First login auto-assigns
+                              this role when no user_admin exists. MCP connector: <code className="font-mono">/mcp/role/user_admin</code>.
+                            </p>
+                          </div>
+                        </details>
+                      </>
+                    )}
+                    {roleId === "platform_steward" && (
+                      <>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Site health: diagnostics, runtime issues, redirects, SEO settings, and content architecture reads.
+                        </p>
+                        <details className="mb-2 group">
+                          <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground list-none flex items-center gap-1">
+                            <IconChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                            Read more (advanced)
+                          </summary>
+                          <div className="mt-2 text-xs text-muted-foreground space-y-1.5 pl-4 border-l border-border">
+                            <p>
+                              Private surfaces include Diagnostics, Runtime issues, Redirects, SEO settings tabs, Component
+                              insights. MCP connector: <code className="font-mono">/mcp/role/platform_steward</code>.
+                            </p>
+                          </div>
+                        </details>
+                      </>
+                    )}
+                    {roleId === "platform_ops" && (
+                      <>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Infrastructure: sites.yml, new sites, Sidequest restart and dashboard.
+                        </p>
+                        <details className="mb-2 group">
+                          <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground list-none flex items-center gap-1">
+                            <IconChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                            Read more (advanced)
+                          </summary>
+                          <div className="mt-2 text-xs text-muted-foreground space-y-1.5 pl-4 border-l border-border">
+                            <p>
+                              Grants <code className="font-mono">sites_manage</code>,{" "}
+                              <code className="font-mono">worker_manage</code>, and{" "}
+                              <code className="font-mono">migrations_run</code>. Prod Sidequest restart uses a flag file
+                              + systemd path unit (docs/vps.md). MCP:{" "}
+                              <code className="font-mono">/mcp/role/platform_ops</code>.
+                            </p>
+                          </div>
+                        </details>
+                      </>
                     )}
                     {roleId === "content_viewer" && (
                       <>
@@ -1719,7 +1784,7 @@ export default function SecurityPage() {
                 <IconLock className="h-10 w-10 opacity-40" />
                 <p className="text-sm font-medium">Access denied</p>
                 <p className="text-xs text-center max-w-xs">
-                  You don't have permission to manage roles and users. Contact a webmaster to request access.
+                  You don't have permission to manage roles and users. Contact a user admin to request access.
                 </p>
               </div>
             )
@@ -1733,7 +1798,7 @@ export default function SecurityPage() {
                 <IconLock className="h-10 w-10 opacity-40" />
                 <p className="text-sm font-medium">Access denied</p>
                 <p className="text-xs text-center max-w-xs">
-                  You don't have permission to manage roles and users. Contact a webmaster to request access.
+                  You don't have permission to manage roles and users. Contact a user admin to request access.
                 </p>
               </div>
             )

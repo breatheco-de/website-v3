@@ -28,7 +28,7 @@ export const SIDEQUEST_PID_PATH = path.join(dataDir, "sidequest.pid");
 /** Worker heartbeat — refreshed every 30s; used for stuck detection. */
 export const SIDEQUEST_HEARTBEAT_PATH = path.join(dataDir, "sidequest.heartbeat");
 
-/** Touched by webmaster restart API; systemd path unit restarts website-sidequest. */
+/** Touched by platform ops restart API; systemd path unit restarts website-sidequest. */
 export const SIDEQUEST_RESTART_FLAG_PATH = path.join(dataDir, "sidequest.restart-requested");
 
 /** Sidequest worker JSON log (tail via admin API). */

@@ -1,5 +1,5 @@
 /**
- * Webmaster auth for Sidequest admin surfaces (dashboard, restart).
+ * worker_manage auth for Sidequest admin surfaces (dashboard, restart).
  */
 
 import type { Request, Response } from "express";
@@ -7,7 +7,7 @@ import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
 import { extractToken } from "../routes/_helpers";
 
-export async function requireSidequestWebmaster(
+export async function requireWorkerManage(
   req: Request,
   res: Response,
 ): Promise<{ authorized: boolean; username: string | null }> {
@@ -39,10 +39,13 @@ export async function requireSidequestWebmaster(
     return { authorized: false, username: null };
   }
 
-  if (!userStore.hasWebmasterRole(profile.username, profile.email)) {
-    res.status(403).json({ error: "Insufficient permissions: webmaster role required" });
+  if (!userStore.hasCapability(profile.username, "worker_manage")) {
+    res.status(403).json({ error: "Insufficient permissions: worker_manage capability required" });
     return { authorized: false, username: profile.username };
   }
 
   return { authorized: true, username: profile.username };
 }
+
+/** @deprecated Use requireWorkerManage */
+export const requireSidequestWebmaster = requireWorkerManage;

@@ -110,8 +110,8 @@ export function SidequestDiagnosticsPanel({
   rechecking = false,
   recheckMessage,
 }: SidequestDiagnosticsPanelProps) {
-  const { roles } = useDebugAuth();
-  const canRestart = roles.includes("webmaster");
+  const { hasCapability } = useDebugAuth();
+  const canRestart = hasCapability("worker_manage");
   const { data, isLoading, refetch, isFetching } = useSidequestDiagnostics(site);
   const [logsOpen, setLogsOpen] = useState(false);
   const { data: logs, refetch: refetchLogs, isFetching: logsFetching } = useSidequestLogs(logsOpen);

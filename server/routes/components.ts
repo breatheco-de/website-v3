@@ -483,7 +483,10 @@ export function registerComponentsRoutes(app: Express): void {
 
   app.post(
     "/api/component-registry/:componentType/create-version",
-    (req, res) => {
+    async (req, res) => {
+      const auth = await requireCapability(req, res, "components_manage");
+      if (!auth.authorized) return;
+
       const { componentType } = req.params;
       const { baseVersion } = req.body;
 
@@ -505,7 +508,10 @@ export function registerComponentsRoutes(app: Express): void {
 
   app.post(
     "/api/component-registry/:componentType/:version/save-example",
-    (req, res) => {
+    async (req, res) => {
+      const auth = await requireCapability(req, res, "components_manage");
+      if (!auth.authorized) return;
+
       const { componentType, version } = req.params;
       const { exampleName, yamlContent } = req.body;
 
@@ -537,7 +543,10 @@ export function registerComponentsRoutes(app: Express): void {
 
   app.post(
     "/api/component-registry/:componentType/:version/examples",
-    (req, res) => {
+    async (req, res) => {
+      const auth = await requireCapability(req, res, "components_manage");
+      if (!auth.authorized) return;
+
       const { componentType, version } = req.params;
       const { yamlContent, sectionId, name, description } = req.body as {
         yamlContent?: string;
@@ -621,7 +630,10 @@ export function registerComponentsRoutes(app: Express): void {
 
   app.delete(
     "/api/component-registry/:componentType/versions/:version/examples/:exampleName",
-    (req, res) => {
+    async (req, res) => {
+      const auth = await requireCapability(req, res, "components_manage");
+      if (!auth.authorized) return;
+
       const { componentType, version, exampleName } = req.params;
       const result = deleteExample(componentType, version, decodeURIComponent(exampleName));
       if (!result.success) {
@@ -638,7 +650,10 @@ export function registerComponentsRoutes(app: Express): void {
 
   app.delete(
     "/api/component-registry/:componentType/variants/:variantName",
-    (req, res) => {
+    async (req, res) => {
+      const auth = await requireCapability(req, res, "components_manage");
+      if (!auth.authorized) return;
+
       const { componentType, variantName } = req.params;
 
       const variantResult = deleteVariant(componentType, decodeURIComponent(variantName));
@@ -693,7 +708,10 @@ export function registerComponentsRoutes(app: Express): void {
     res.send(image);
   });
 
-  app.put("/api/private/component-screenshots/:componentType", express.raw({ type: "image/webp", limit: "5mb" }), (req, res) => {
+  app.put("/api/private/component-screenshots/:componentType", express.raw({ type: "image/webp", limit: "5mb" }), async (req, res) => {
+    const auth = await requireCapability(req, res, "components_manage");
+    if (!auth.authorized) return;
+
     const { componentType } = req.params;
     const version = typeof req.query.version === "string" ? req.query.version : "";
     const example = typeof req.query.example === "string" ? req.query.example : "";
@@ -744,7 +762,10 @@ export function registerComponentsRoutes(app: Express): void {
     });
   });
 
-  app.delete("/api/private/component-screenshots/:componentType", (req, res) => {
+  app.delete("/api/private/component-screenshots/:componentType", async (req, res) => {
+    const auth = await requireCapability(req, res, "components_manage");
+    if (!auth.authorized) return;
+
     const { componentType } = req.params;
     const example =
       typeof req.query.example === "string" && req.query.example.trim()

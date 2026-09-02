@@ -1,5 +1,5 @@
 /**
- * Webmaster-gated Sidequest dashboard: mint cookie + reverse-proxy to localhost dashboard.
+ * Platform-ops-gated Sidequest dashboard: mint cookie + reverse-proxy to localhost dashboard.
  */
 
 import type { Express, Request, Response, NextFunction } from "express";
@@ -11,7 +11,7 @@ import {
   isSidequestDashboardEnabled,
   SIDEQUEST_DASHBOARD_BASE_PATH,
 } from "../jobs/queue";
-import { requireSidequestWebmaster } from "../jobs/sidequest-auth";
+import { requireWorkerManage } from "../jobs/sidequest-auth";
 import {
   mintSidequestDashCookie,
   refreshSidequestDashCookie,
@@ -21,11 +21,11 @@ import { child } from "../logger";
 
 const log = child({ module: "sidequest-dashboard-routes" });
 
-async function requireWebmaster(
+async function requireWorkerManageAuth(
   req: Request,
   res: Response,
 ): Promise<{ authorized: boolean; username: string | null }> {
-  return requireSidequestWebmaster(req, res);
+  return requireWorkerManage(req, res);
 }
 
 async function allowSidequestProxy(
@@ -49,14 +49,14 @@ async function allowSidequestProxy(
   const isDevelopment = process.env.NODE_ENV !== "production";
   const token = extractToken(req);
   if (token || isDevelopment) {
-    const auth = await requireWebmaster(req, res);
+    const auth = await requireWorkerManageAuth(req, res);
     if (!auth.authorized) return;
     mintSidequestDashCookie(res, { username: auth.username ?? undefined });
     next();
     return;
   }
 
-  res.status(401).send("Webmaster login required");
+  res.status(401).send("Platform ops login required (worker_manage)");
 }
 
 export function registerSidequestDashboardRoutes(app: Express): void {
@@ -67,7 +67,7 @@ export function registerSidequestDashboardRoutes(app: Express): void {
         return;
       }
 
-      const auth = await requireWebmaster(req, res);
+      const auth = await requireWorkerManageAuth(req, res);
       if (!auth.authorized) return;
 
       mintSidequestDashCookie(res, { username: auth.username ?? undefined });

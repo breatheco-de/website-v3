@@ -152,6 +152,20 @@ const REGISTRY = [
     description:
       "Read diagnostics, runtime issues, component insights, error log, conversions, and tracking. Does not allow running jobs or changing settings.",
   },
+  {
+    name: "sites_manage",
+    label: "Manage sites registry",
+    scoped: false,
+    description:
+      "Edit sites.yml, create new site scaffolds, and rename domains in the multi-site registry.",
+  },
+  {
+    name: "worker_manage",
+    label: "Manage background worker",
+    scoped: false,
+    description:
+      "Restart the Sidequest job worker and open the proxied Sidequest dashboard.",
+  },
 ] as const;
 
 type RegistryEntry = (typeof REGISTRY)[number];

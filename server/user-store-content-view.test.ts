@@ -66,11 +66,11 @@ describe("ensureContentViewOnEditorRoles", () => {
     });
   });
 
-  it("skips built-in roles and roles that already have content_view", () => {
+  it("skips built-in user_admin", () => {
     const roles: Record<string, RoleDefinition> = {
-      webmaster: {
-        label: "Webmaster",
-        capabilities: [{ name: "content_edit_text", contentTypes: "*" }],
+      user_admin: {
+        label: "User Admin",
+        capabilities: [{ name: "users_manage" }],
       },
       already: {
         label: "Already",
@@ -81,7 +81,7 @@ describe("ensureContentViewOnEditorRoles", () => {
       },
     };
     expect(ensureContentViewOnEditorRoles(roles)).toBe(false);
-    expect(roles.webmaster.capabilities.some((g) => g.name === "content_view")).toBe(false);
+    expect(roles.user_admin.capabilities.some((g) => g.name === "content_view")).toBe(false);
     expect(roles.already.capabilities.filter((g) => g.name === "content_view")).toHaveLength(1);
   });
 });
@@ -121,11 +121,11 @@ describe("migrateSeoEditSplit", () => {
     ]);
   });
 
-  it("skips built-in webmaster", () => {
+  it("skips built-in user_admin", () => {
     const roles: Record<string, RoleDefinition> = {
-      webmaster: {
-        label: "Webmaster",
-        capabilities: [{ name: "seo_edit", contentTypes: "*" }],
+      user_admin: {
+        label: "User Admin",
+        capabilities: [{ name: "users_manage" }],
       },
     };
     expect(migrateSeoEditSplit(roles)).toBe(false);
