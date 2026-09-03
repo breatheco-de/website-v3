@@ -424,6 +424,42 @@ export const DEFAULT_SEARCH_CONSOLE_SETTINGS: SearchConsoleSettings = {
   bigquery: { ...DEFAULT_SEARCH_CONSOLE_BIGQUERY },
 };
 
+/** OpenRush SERP inspect (non-secret). API key stays in OPENRUSH_API_KEY. */
+export interface OpenRushSettings {
+  enabled: boolean;
+  /** Max organic depth / refresh batch size (1–100). */
+  serp_top_n: number;
+  location: string;
+  language: string;
+}
+
+export const DEFAULT_OPENRUSH_SETTINGS: OpenRushSettings = {
+  enabled: false,
+  serp_top_n: 20,
+  location: "United States",
+  language: "English",
+};
+
+export function parseOpenRushSettings(
+  raw: unknown,
+  defaults: OpenRushSettings = DEFAULT_OPENRUSH_SETTINGS,
+): OpenRushSettings {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ...defaults };
+  }
+  const o = raw as Record<string, unknown>;
+  const n = typeof o.serp_top_n === "number" ? o.serp_top_n : Number(o.serp_top_n);
+  const serp_top_n = Number.isFinite(n) ? Math.min(100, Math.max(1, Math.round(n))) : defaults.serp_top_n;
+  return {
+    enabled: typeof o.enabled === "boolean" ? o.enabled : defaults.enabled,
+    serp_top_n,
+    location:
+      typeof o.location === "string" && o.location.trim() ? o.location.trim() : defaults.location,
+    language:
+      typeof o.language === "string" && o.language.trim() ? o.language.trim() : defaults.language,
+  };
+}
+
 export function parseSearchConsoleBigQuerySettings(
   raw: unknown,
   defaults: SearchConsoleBigQuerySettings = DEFAULT_SEARCH_CONSOLE_BIGQUERY,
@@ -601,6 +637,7 @@ interface SiteSettings {
   tracking: TrackingSettings;
   robots: RobotsSettings;
   search_console: SearchConsoleSettings;
+  openrush: OpenRushSettings;
   auth: AuthSettings;
   entry_preview: EntryPreviewSettings;
   consent: SiteConsentSettings;
@@ -693,6 +730,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
     },
     robots: { ...DEFAULT_ROBOTS_SETTINGS },
     search_console: { ...DEFAULT_SEARCH_CONSOLE_SETTINGS },
+    openrush: { ...DEFAULT_OPENRUSH_SETTINGS },
     auth: {},
     entry_preview: { ...DEFAULT_ENTRY_PREVIEW_SETTINGS },
     consent: { fallback: null },
@@ -882,6 +920,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
       tracking,
       robots,
       search_console: parseSearchConsoleSettings(parsed.search_console),
+      openrush: parseOpenRushSettings(parsed.openrush),
       auth,
       entry_preview: parseEntryPreviewSettings(parsed.entry_preview),
       consent: parseSiteConsentSettings(parsed.consent),
@@ -1163,6 +1202,10 @@ export function getRobotsSettings(contentRoot?: string): RobotsSettings {
 
 export function getSearchConsoleSettings(contentRoot?: string): SearchConsoleSettings {
   return loadSettings(contentRoot).search_console;
+}
+
+export function getOpenRushSettings(contentRoot?: string): OpenRushSettings {
+  return loadSettings(contentRoot).openrush;
 }
 
 export function getEntryPreviewSettings(contentRoot?: string): EntryPreviewSettings {
@@ -1590,6 +1633,37 @@ export function updateSearchConsoleBigQuerySettings(
     `[Settings] Updated search_console.bigquery enabled=${merged.enabled} project=${merged.project_id || "(empty)"}`,
   );
   return updated;
+}
+
+export function updateOpenRushSettings(
+  input: Partial<OpenRushSettings>,
+  contentRoot?: string,
+): OpenRushSettings {
+  const settingsPath = getSettingsPath(contentRoot);
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const raw = fs.readFileSync(settingsPath, "utf-8");
+      existing = (yaml.load(raw) as Record<string, unknown>) || {};
+    } catch {}
+  }
+
+  const current = parseOpenRushSettings(existing.openrush);
+  const merged = parseOpenRushSettings({ ...current, ...input }, DEFAULT_OPENRUSH_SETTINGS);
+  existing.openrush = {
+    enabled: merged.enabled,
+    serp_top_n: merged.serp_top_n,
+    location: merged.location,
+    language: merged.language,
+  };
+
+  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
+  log.info(
+    `[Settings] Updated openrush enabled=${merged.enabled} serp_top_n=${merged.serp_top_n}`,
+  );
+  return merged;
 }
 
 export function updateTrackingSettings(input: {

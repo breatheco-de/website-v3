@@ -6,14 +6,16 @@ import {
   IconPhoto,
   IconCode,
   IconSearch,
+  IconWorldSearch,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { OgImageTab } from "@/components/settings/OgImageTab";
 import { SchemaOrgTab } from "@/components/settings/SchemaOrgTab";
 import { SearchConsoleTab } from "@/components/settings/SearchConsoleTab";
+import { OpenRushTab } from "@/components/settings/OpenRushTab";
 
-type SeoGeoTab = "og" | "schema" | "search-console";
+type SeoGeoTab = "og" | "schema" | "search-console" | "openrush";
 
 const SEO_TABS: {
   id: SeoGeoTab;
@@ -24,12 +26,14 @@ const SEO_TABS: {
   { id: "og", href: "/private/settings/seo/og", label: "OG Image", Icon: IconPhoto },
   { id: "schema", href: "/private/settings/seo/schema", label: "Schema org", Icon: IconCode },
   { id: "search-console", href: "/private/settings/seo/search-console", label: "Search Console", Icon: IconBrandGoogle },
+  { id: "openrush", href: "/private/settings/seo/openrush", label: "OpenRush", Icon: IconWorldSearch },
 ];
 
 function resolveSeoTab(pathname: string): SeoGeoTab | null {
   if (pathname === "/private/settings/seo/og") return "og";
   if (pathname === "/private/settings/seo/schema") return "schema";
   if (pathname === "/private/settings/seo/search-console") return "search-console";
+  if (pathname === "/private/settings/seo/openrush") return "openrush";
   return null;
 }
 
@@ -53,68 +57,62 @@ export default function SeoGeoSettingsPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
-        <div className="flex items-start gap-4">
-          <Button variant="ghost" size="icon" asChild data-testid="button-seo-geo-settings-back">
-            <Link href="/private/settings">
-              <IconArrowLeft className="h-5 w-5" />
-            </Link>
-          </Button>
-          <div className="flex-1 space-y-1">
-            <div className="flex items-center gap-2">
-              <IconSearch className="h-5 w-5 text-muted-foreground" />
-              <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-seo-geo-settings-title">
-                SEO/GEO
-              </h1>
+      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+          <div className="flex items-start gap-4 min-w-0 flex-1">
+            <Button variant="ghost" size="icon" asChild data-testid="button-seo-geo-settings-back">
+              <Link href="/private/settings">
+                <IconArrowLeft className="h-5 w-5" />
+              </Link>
+            </Button>
+            <div className="min-w-0 space-y-1">
+              <div className="flex items-center gap-2">
+                <IconSearch className="h-5 w-5 text-muted-foreground" />
+                <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-seo-geo-settings-title">
+                  SEO/GEO
+                </h1>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Open Graph capture credentials, Schema.org site definitions, Search Console inspection,
+                and OpenRush SERP snapshots. Brand logos, social links, and the default social image stay under{" "}
+                <Link href="/private/settings?tab=brand" className="underline underline-offset-2 hover:text-foreground">
+                  General → Brand
+                </Link>
+                .
+              </p>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Open Graph capture credentials, Schema.org site definitions, and Search Console inspection.
-              Brand logos, social links, and the default social image stay under{" "}
-              <Link href="/private/settings?tab=brand" className="underline underline-offset-2 hover:text-foreground">
-                General → Brand
-              </Link>
-              .
-            </p>
           </div>
-        </div>
 
-        <div
-          className="inline-flex h-10 w-full items-center justify-center rounded-md bg-muted p-1 text-muted-foreground"
-          role="tablist"
-          data-testid="seo-geo-settings-tablist"
-        >
-          {SEO_TABS.map(({ id, href, label, Icon }) => {
-            const isActive = activeTab === id;
-            return (
-              <Link key={id} href={href} className="flex-1">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  className={cn(
-                    "inline-flex w-full items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                    isActive
-                      ? "bg-background text-foreground shadow-sm"
-                      : "hover:text-foreground",
-                  )}
-                  data-testid={`tab-seo-${id}`}
-                >
-                  <Icon className="h-4 w-4 mr-1.5" />
-                  {label}
-                </button>
-              </Link>
-            );
-          })}
+          <ToggleButtonBar
+            className="shrink-0"
+            value={activeTab}
+            onValueChange={(id) => {
+              const tab = SEO_TABS.find((t) => t.id === id);
+              if (!tab) return;
+              setLocation(tab.href);
+            }}
+            listTestId="seo-geo-settings-tablist"
+            listClassName="flex"
+          >
+            {SEO_TABS.map(({ id, label, Icon }) => (
+              <ToggleButtonBarTrigger
+                key={id}
+                value={id}
+                data-testid={`tab-seo-${id}`}
+                className="gap-1.5"
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </ToggleButtonBarTrigger>
+            ))}
+          </ToggleButtonBar>
         </div>
 
         <div role="tabpanel">
-          {activeTab === "og" ? (
-            <OgImageTab />
-          ) : activeTab === "schema" ? (
-            <SchemaOrgTab />
-          ) : (
-            <SearchConsoleTab />
-          )}
+          {activeTab === "og" && <OgImageTab />}
+          {activeTab === "schema" && <SchemaOrgTab />}
+          {activeTab === "search-console" && <SearchConsoleTab />}
+          {activeTab === "openrush" && <OpenRushTab />}
         </div>
       </div>
     </div>

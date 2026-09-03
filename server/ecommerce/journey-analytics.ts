@@ -248,7 +248,7 @@ export async function getProductJourneyAnalytics(opts: {
       })),
       {
         code: "configure_at",
-        message: "Configure project/dataset at /private/tracking/bigquery",
+        message: "Configure project/dataset at /private/tracking/ga4",
       },
     ]);
     return payload;
@@ -579,7 +579,7 @@ export async function getProductJourneyAnalytics(opts: {
       { code: "bigquery_query_failed", message },
       {
         code: "configure_at",
-        message: "Check /private/tracking/bigquery and GCS_CREDENTIALS_JSON / ADC",
+        message: "Check /private/tracking/ga4 and GCS_CREDENTIALS_JSON / ADC",
       },
     ]);
   }

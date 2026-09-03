@@ -191,6 +191,7 @@ import {
   BREATHECODE_HOST,
   extractToken,
   requireCapability,
+  requireAnyCapability,
   safeYamlLoad,
   safeYamlDump,
   resolveVariantAssignment,
@@ -252,6 +253,8 @@ import { renderHubHtml } from "../render-hub-html";
 import { findMissingMemberLinks } from "../cluster-hub-links";
 import { readFunnelBlockFromFile, commonYmlPath } from "../funnel-fields";
 import { toSitemapLastmod } from "@shared/normalizeFlexibleDate";
+
+const log = child({ module: "routes/seo" });
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
 function getCI(res: Response): typeof contentIndex {
@@ -1484,6 +1487,93 @@ export function registerSeoRoutes(app: Express): void {
     } catch (error) {
       log.error({ err: error }, "[Update Locations] Error:");
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/seo/organic/opportunities", async (req, res) => {
+    const auth = await requireAnyCapability(req, res, ["metrics_view", "seo_settings"]);
+    if (!auth.authorized) return;
+    try {
+      const decayRaw = String(req.query.decay_window || "7");
+      const decayWindow = decayRaw === "28" ? 28 : 7;
+      const pullLatest = String(req.query.pull_latest || "1") !== "0";
+      const { buildOrganicOpportunities } = await import("../seo-organic-opportunities");
+      const data = await buildOrganicOpportunities({
+        contentRoot: getContentRoot(res),
+        contentFolder: getContentRootName(res),
+        decayWindow,
+        pullLatest,
+      });
+      res.json(data);
+    } catch (err) {
+      log.error({ err }, "organic opportunities failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load opportunities" });
+    }
+  });
+
+  app.post("/api/seo/organic/days/backfill", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    try {
+      const mode = req.body?.mode === "rebuild_60" ? "rebuild_60" : "missing";
+      const since = typeof req.body?.since === "string" && req.body.since.trim() ? req.body.since.trim() : undefined;
+      const { ingestNextMissingDay } = await import("../gsc-organic-days");
+      const result = await ingestNextMissingDay({
+        contentRoot: getContentRoot(res),
+        contentFolder: getContentRootName(res),
+        forceAll: mode === "rebuild_60",
+        since: mode === "rebuild_60" ? since : undefined,
+      });
+      res.status(result.ok ? 200 : 400).json({ ...result, mode });
+    } catch (err) {
+      log.error({ err }, "organic days backfill failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Backfill failed" });
+    }
+  });
+
+  app.post("/api/seo/organic/serp/refresh", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    try {
+      const { isOpenRushConfigured, inspectSerpQuery } = await import("../openrush-client");
+      const contentRoot = getContentRoot(res);
+      const contentFolder = getContentRootName(res);
+      if (!isOpenRushConfigured(contentRoot)) {
+        return res.status(400).json({ error: "OpenRush is not configured" });
+      }
+      const { getOpenRushSettings } = await import("../settings");
+      const settings = getOpenRushSettings(contentRoot);
+      const cap = Math.min(100, Math.max(1, settings.serp_top_n || 20));
+
+      let queries: string[] = [];
+      if (typeof req.body?.query === "string" && req.body.query.trim()) {
+        queries = [req.body.query.trim()];
+      } else if (req.body?.mode === "stale") {
+        const { listPage1Queries } = await import("../seo-organic-opportunities");
+        const { loadSerpCache, listStaleOrMissingQueries } = await import("../openrush-serp-cache");
+        const wanted = listPage1Queries(contentFolder);
+        queries = listStaleOrMissingQueries(wanted, loadSerpCache(contentFolder).entries).slice(0, cap);
+      } else {
+        return res.status(400).json({ error: "Provide { query } or { mode: \"stale\" }" });
+      }
+
+      const results: Array<{ query: string; ok: boolean; error?: string }> = [];
+      for (const query of queries) {
+        const r = await inspectSerpQuery({ query, contentRoot, contentFolder });
+        results.push({ query, ok: r.ok, error: r.error });
+        if (!r.ok && queries.length === 1) {
+          return res.status(400).json({ error: r.error, results });
+        }
+      }
+      res.json({
+        ok: results.every((r) => r.ok),
+        refreshed: results.filter((r) => r.ok).length,
+        remaining_stale: Math.max(0, queries.length - results.filter((r) => r.ok).length),
+        results,
+      });
+    } catch (err) {
+      log.error({ err }, "organic serp refresh failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "SERP refresh failed" });
     }
   });
 

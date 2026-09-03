@@ -96,7 +96,7 @@ export function registerEcommerceTools(
       "Returns per-page sessions/views plus path-scoped lead conversions and ecommerce intent " +
       "(same event set on every stage), stage distinct sessions, shared vs product-specific session counts, " +
       "and product-scoped conversions/ecommerce intent (item_id). Does not imply stage-to-stage flow. " +
-      "Requires content_view. Configure dataset at /private/tracking/bigquery.",
+      "Requires content_view. Configure dataset at /private/tracking/ga4.",
     {
       slug: z.string().describe("Product content slug, e.g. ai-fluency"),
       mode: z
@@ -155,7 +155,7 @@ export function registerEcommerceTools(
                     {
                       tool: "explain_site",
                       args_hint: { topic: "ecommerce" },
-                      reason: "BigQuery may be unconfigured — check tracking.bigquery / staff /private/tracking/bigquery",
+                      reason: "BigQuery may be unconfigured — check tracking.bigquery / staff /private/tracking/ga4",
                     },
                   ]
                 : [],

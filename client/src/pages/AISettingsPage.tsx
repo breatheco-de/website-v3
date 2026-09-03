@@ -497,7 +497,7 @@ export default function AISettingsPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
         <div className="flex items-start gap-4">
           <Button variant="ghost" size="icon" asChild data-testid="button-ai-settings-back">
             <Link href="/private/diagnostics">

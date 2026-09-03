@@ -20,6 +20,7 @@ const platformSteward: CatalogGrant[] = [
   { name: "content_create_entry", contentTypes: "*" },
   { name: "databases_manage" },
   { name: "components_manage" },
+  { name: "content_types_manage" },
 ];
 
 const metricsViewer: CatalogGrant[] = [{ name: "metrics_view" }];
@@ -81,7 +82,8 @@ describe("allowedToolNames", () => {
     expect(names.has("test_redirect")).toBe(true);
     expect(names.has("update_redirect")).toBe(true);
     expect(names.has("ensure_content_type_schema_org")).toBe(true);
-    expect(names.has("update_content_type")).toBe(false);
+    expect(names.has("update_content_type")).toBe(true);
+    expect(names.has("reindex_database")).toBe(true);
   });
 
   it("content_types_manage reveals update_content_type", () => {

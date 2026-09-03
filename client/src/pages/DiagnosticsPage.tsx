@@ -47,6 +47,10 @@ import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import { formatIssueActorLine } from "@/lib/formatIssueActor";
 import { formatSitePathsInText } from "@shared/formatSitePath";
 import {
+  ResolvedIssueRow,
+  type ResolvedArchiveRow,
+} from "@/components/diagnostics/ResolvedIssueRow";
+import {
   parseGlobalHealthSearch,
   serializeGlobalHealthSearch,
   buildCacheIssuesQuery,
@@ -55,6 +59,7 @@ import {
   type GlobalHealthViewState,
 } from "@/components/diagnostics/global-health-url";
 import { normalizeIssuePath } from "@shared/normalizeIssuePath";
+import { resolveDiagnosticsTab, type DiagnosticsTabId } from "@/lib/diagnostics-tab";
 
 function issueLayerLabel(entryKey?: string, file?: string): string | null {
   if (entryKey?.includes("@")) {
@@ -308,24 +313,6 @@ type CachedIssueRow = {
     claimReport?: string;
     actor?: { type: "ui" | "mcp"; client?: string; model?: string };
   }>;
-};
-
-type ResolvedArchiveRow = {
-  issueId: string;
-  entryKey: string;
-  url?: string;
-  severity: "error" | "warning";
-  code: string;
-  message: string;
-  validator?: string;
-  category?: string;
-  suggestion?: string;
-  file?: string;
-  resolvedAt: string;
-  resolvedBy: string;
-  actor?: { type: "ui" | "mcp"; client?: string; model?: string };
-  report?: string;
-  reopenedAt?: string;
 };
 
 type ResolvedIssuesResponse = {
@@ -2488,8 +2475,8 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               Resolved issues ({resolvedTotal})
             </CardTitle>
             <p className="text-xs text-muted-foreground font-normal">
-              History of fixes — not current blockers. Reopened badge means diagnostics found the
-              problem again.
+              History of fixes, not current blockers. Open a row for the suggested fix and what they
+              said they did. Reopened means diagnostics found the problem again.
             </p>
           </CardHeader>
           <CardContent className="max-h-[32rem] overflow-auto space-y-2 !p-0">
@@ -2501,54 +2488,11 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               </p>
             ) : (
               resolvedRows.map((row, idx) => (
-                <div
+                <ResolvedIssueRow
                   key={`${row.issueId}-${row.resolvedAt}-${idx}`}
-                  className="text-xs border-b border-border/60 px-4 py-2 hover:bg-white"
-                  data-testid={`resolved-issue-row-${idx}`}
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={
-                        row.severity === "error"
-                          ? "text-destructive font-medium"
-                          : "text-chart-2 font-medium"
-                      }
-                    >
-                      {row.severity}
-                    </span>
-                    <span className="text-muted-foreground">{row.validator || "unknown"}</span>
-                    {row.category ? (
-                      <Badge variant="outline" className="text-[10px]">
-                        {row.category}
-                      </Badge>
-                    ) : null}
-                    <code>{row.code}</code>
-                    {row.reopenedAt ? (
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                        data-testid="badge-resolved-reopened"
-                      >
-                        Reopened
-                      </Badge>
-                    ) : null}
-                    <span className="text-muted-foreground text-[10px] ml-auto">
-                      resolved {formatDistanceToNow(new Date(row.resolvedAt), { addSuffix: true })}
-                    </span>
-                    <span className="text-muted-foreground text-[10px] w-full sm:w-auto">
-                      by {formatIssueActorLine(row.resolvedBy, row.actor)}
-                    </span>
-                  </div>
-                  <div className="text-foreground mt-0.5">
-                    {formatSitePathsInText(row.message, formatSitePath)}
-                  </div>
-                  {row.report ? (
-                    <p className="text-muted-foreground mt-1 border-l-2 border-border/80 pl-2">
-                      {row.report}
-                    </p>
-                  ) : null}
-                  {row.url ? <div className="text-muted-foreground">{row.url}</div> : null}
-                </div>
+                  row={row}
+                  idx={idx}
+                />
               ))
             )}
             {resolvedTotal > RESOLVED_PAGE_SIZE && (
@@ -2742,18 +2686,6 @@ const DIAGNOSTICS_TABS: {
   { id: "geo", label: "GEO", href: "/private/diagnostics/geo", Icon: Brain },
   { id: "funnel", label: "Funnel", href: "/private/diagnostics/funnel", Icon: Filter },
 ];
-
-type DiagnosticsTabId = (typeof DIAGNOSTICS_TABS)[number]["id"];
-
-function resolveDiagnosticsTab(pathname: string): DiagnosticsTabId {
-  if (pathname.endsWith("/leads")) return "leads";
-  if (pathname.endsWith("/runtime-issues")) return "runtime-issues";
-  if (pathname.endsWith("/seo")) return "seo";
-  if (pathname.endsWith("/geo")) return "geo";
-  if (pathname.endsWith("/funnel")) return "funnel";
-  if (pathname.endsWith("/global-health")) return "global-health";
-  return "global-health";
-}
 
 function tabHref(id: DiagnosticsTabId): string {
   return DIAGNOSTICS_TABS.find((t) => t.id === id)?.href ?? "/private/diagnostics";

@@ -275,6 +275,75 @@ export async function requireCapability(
 }
 
 /**
+ * Like requireCapability, but any one of the listed capabilities is enough.
+ */
+export async function requireAnyCapability(
+  req: Request,
+  res: Response,
+  capNames: CapabilityName[],
+  contentType?: string,
+): Promise<{ authorized: boolean; token: string | null; username: string | null; author: string | null }> {
+  const resolvedContentType: string | undefined =
+    contentType ||
+    (req.params as Record<string, string>).contentType ||
+    (req.params as Record<string, string>).type ||
+    req.body?.contentType ||
+    req.body?.type ||
+    undefined;
+
+  const isDevelopment = process.env.NODE_ENV !== "production";
+  const enforceCapsInDev = process.env.ENFORCE_CAPS_IN_DEV === "1";
+  const token = extractToken(req);
+
+  if (isDevelopment && !enforceCapsInDev) {
+    if (token) {
+      try {
+        const profile = await userManager.validateToken(token);
+        if (profile.valid && profile.username) {
+          return { authorized: true, token, username: profile.username, author: profile.username };
+        }
+      } catch {
+        // Ignore errors in dev
+      }
+    }
+    return { authorized: true, token, username: null, author: null };
+  }
+
+  const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
+  if (MCP_SERVER_SECRET) {
+    const authHeader = req.headers.authorization || "";
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    if (bearerToken === MCP_SERVER_SECRET) {
+      const mcpAuthorHeader = req.headers["x-mcp-author"];
+      const author = typeof mcpAuthorHeader === "string" && mcpAuthorHeader ? mcpAuthorHeader : null;
+      return { authorized: true, token: bearerToken, username: author, author };
+    }
+  }
+
+  if (!token) {
+    res.status(401).json({ error: "Authorization required" });
+    return { authorized: false, token: null, username: null, author: null };
+  }
+
+  const profile = await userManager.validateToken(token);
+  if (!profile.valid || !profile.username) {
+    res.status(401).json({ error: "Your session has expired. Please log in again." });
+    return { authorized: false, token, username: null, author: null };
+  }
+
+  const ok = capNames.some((c) => userStore.hasCapability(profile.username!, c, resolvedContentType));
+  if (!ok) {
+    res.status(403).json({
+      error: `Insufficient permissions: ${capNames.join(" or ")} required`,
+    });
+    return { authorized: false, token, username: profile.username, author: null };
+  }
+
+  const author = await userManager.resolveCommitAuthor(token);
+  return { authorized: true, token, username: profile.username, author };
+}
+
+/**
  * Validates that the request carries a valid Breathecode staff token.
  * Does not require a specific capability — any authenticated staff session is enough.
  */

@@ -271,6 +271,15 @@ export function SearchConsoleTab() {
 
   return (
     <div className="space-y-4" data-testid="tab-panel-search-console">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="gsc-settings-rollup">
+        <RollupCard label="Checked / never" value={`${summary.inspected} / ${summary.neverChecked}`} testId="text-gsc-checked" />
+        <RollupCard label="Indexed" value={summary.indexed} testId="text-gsc-indexed" />
+        <RollupCard label="Not indexed" value={summary.notIndexed} testId="text-gsc-not-indexed" />
+        <RollupCard label="Inspect errors" value={summary.errors} testId="text-gsc-errors" />
+        <RollupCard label="In sitemap" value={summary.sitemapCount} testId="text-gsc-sitemap-count" />
+        <RollupCard label="Last inspect" value={newest} testId="text-gsc-newest" />
+      </div>
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">How Search Console inspection works</CardTitle>
@@ -538,15 +547,6 @@ export function SearchConsoleTab() {
       </Card>
 
       <SearchConsoleBigQueryCard canEdit={canEdit} />
-
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="gsc-settings-rollup">
-        <RollupCard label="Checked / never" value={`${summary.inspected} / ${summary.neverChecked}`} testId="text-gsc-checked" />
-        <RollupCard label="Indexed" value={summary.indexed} testId="text-gsc-indexed" />
-        <RollupCard label="Not indexed" value={summary.notIndexed} testId="text-gsc-not-indexed" />
-        <RollupCard label="Inspect errors" value={summary.errors} testId="text-gsc-errors" />
-        <RollupCard label="In sitemap" value={summary.sitemapCount} testId="text-gsc-sitemap-count" />
-        <RollupCard label="Last inspect" value={newest} testId="text-gsc-newest" />
-      </div>
     </div>
   );
 }

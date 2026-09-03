@@ -9,6 +9,7 @@ import {
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import {
   IconActivity,
   IconAlertTriangle,
@@ -1073,6 +1074,11 @@ const EventRow = memo(function EventRow({
   );
 });
 
+function sessionIdFromSearch(search: string): string {
+  const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  return (params.get("session") ?? "").trim();
+}
+
 function EventLogPanel({
   site,
   failures,
@@ -1080,9 +1086,10 @@ function EventLogPanel({
   site: string;
   failures: ContentEvent[];
 }) {
+  const search = useSearch();
   const [typeFilter, setTypeFilter] = useState("");
   const [kindChips, setKindChips] = useState<ReadonlySet<string>>(new Set());
-  const [sessionFilter, setSessionFilter] = useState("");
+  const [sessionFilter, setSessionFilter] = useState(() => sessionIdFromSearch(search));
   const [agentFilter, setAgentFilter] = useState<"" | AgentId | typeof AGENT_FILTER_OTHER>("");
   const [events, setEvents] = useState<ContentEvent[]>([]);
   const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);

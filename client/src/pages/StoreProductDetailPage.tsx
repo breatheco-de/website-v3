@@ -915,8 +915,8 @@ export default function StoreProductDetailPage() {
                     <>
                       {" "}
                       —{" "}
-                      <Link href="/private/tracking/bigquery" className="text-primary underline">
-                        Configure BigQuery
+                      <Link href="/private/tracking/ga4" className="text-primary underline">
+                        Configure GA4
                       </Link>
                     </>
                   ) : null}
@@ -963,7 +963,7 @@ export default function StoreProductDetailPage() {
                           ))}
                           <li>GET /api/ecommerce/funnel/:slug/analytics</li>
                           <li>server/ecommerce/journey-analytics.ts</li>
-                          <li>/private/tracking/bigquery</li>
+                          <li>/private/tracking/ga4</li>
                         </ul>
                       </details>
                     </CollapsibleContent>

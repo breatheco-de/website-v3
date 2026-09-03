@@ -1998,8 +1998,9 @@ function TrackingPageInner() {
   const [location] = useLocation();
   const isSgtm = location === "/private/tracking/sgtm";
   const isIpn = location === "/private/tracking/ipn";
-  const isBigQuery = location === "/private/tracking/bigquery";
-  const isEvents = !isSgtm && !isIpn && !isBigQuery;
+  const isGa4 =
+    location === "/private/tracking/ga4" || location === "/private/tracking/bigquery";
+  const isEvents = !isSgtm && !isIpn && !isGa4;
 
   return (
     <div className="min-h-screen bg-background">
@@ -2066,18 +2067,18 @@ function TrackingPageInner() {
               </button>
             </Link>
             <div className="w-px h-6 bg-border" />
-            <Link href="/private/tracking/bigquery">
+            <Link href="/private/tracking/ga4">
               <button
                 type="button"
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${
-                  isBigQuery
+                  isGa4
                     ? "bg-secondary text-secondary-foreground font-medium"
                     : "text-muted-foreground hover-elevate"
                 }`}
-                data-testid="button-view-bigquery"
+                data-testid="button-view-ga4"
               >
                 <IconDatabase className="h-3.5 w-3.5" />
-                BigQuery
+                GA4
               </button>
             </Link>
           </div>
@@ -2095,9 +2096,16 @@ function TrackingPageInner() {
               <IpNormalizationSection />
             </div>
           </div>
-        ) : isBigQuery ? (
+        ) : isGa4 ? (
           <div className="space-y-2">
-            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">BigQuery</h2>
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              Google Analytics Integration
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Connect Google Analytics 4 so Store journey metrics can load. Data reaches this app
+              through the GA4 BigQuery export — configure the project and dataset below after you
+              enable that export in Google Analytics.
+            </p>
             <BigQuerySection />
           </div>
         ) : (

@@ -1,6 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link, useLocation } from "wouter";
 import { SeoTab, GeoTab, DiagnosticsFunnelTab } from "@/pages/SeoGeoPage";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DiagnosticsOrganicPanel } from "@/components/diagnostics/DiagnosticsOrganicPanel";
+import { isDiagnosticsSeoOrganic } from "@/lib/diagnostics-tab";
+import { cn } from "@/lib/utils";
 
 interface SeoOverview {
   intentDistribution: Record<string, Record<string, number>>;
@@ -76,6 +80,42 @@ function LoadingSection() {
 }
 
 export function DiagnosticsSeoPanel() {
+  const [pathname] = useLocation();
+  const organic = isDiagnosticsSeoOrganic(pathname);
+
+  return (
+    <div className="space-y-4">
+      <nav
+        className="inline-flex h-auto items-center gap-0.5 rounded-md border border-muted-foreground/20 bg-muted/40 p-0.5"
+        data-testid="seo-subnav"
+      >
+        <Link
+          href="/private/diagnostics/seo"
+          className={cn(
+            "inline-flex items-center justify-center rounded-sm px-2 py-1.5 text-xs font-medium",
+            !organic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+          )}
+          data-testid="seo-subnav-overview"
+        >
+          Overview
+        </Link>
+        <Link
+          href="/private/diagnostics/seo/organic"
+          className={cn(
+            "inline-flex items-center justify-center rounded-sm px-2 py-1.5 text-xs font-medium",
+            organic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+          )}
+          data-testid="seo-subnav-organic"
+        >
+          Organic
+        </Link>
+      </nav>
+      {organic ? <DiagnosticsOrganicPanel /> : <DiagnosticsSeoOverview />}
+    </div>
+  );
+}
+
+function DiagnosticsSeoOverview() {
   const { data: overview, isLoading } = useQuery<SeoOverview>({
     queryKey: ["/api/seo/overview"],
   });

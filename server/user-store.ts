@@ -128,7 +128,7 @@ const BUILT_IN_USER_ADMIN_ROLE: RoleDefinition = {
 const BUILT_IN_PLATFORM_STEWARD_ROLE: RoleDefinition = {
   label: "Platform Steward",
   description:
-    "Site health: diagnostics, runtime issues, redirects, SEO settings, and content architecture reads. Use /mcp/role/platform_steward — not for user admin or infrastructure.",
+    "Site health: diagnostics, runtime issues, redirects, SEO settings, content-type schema, and local databases. Use /mcp/role/platform_steward for update_content_type and reindex_database as well as SEO and redirect writes — not for user admin or infrastructure.",
   capabilities: [
     { name: "metrics_view" },
     { name: "content_view", contentTypes: "*" },
@@ -138,6 +138,8 @@ const BUILT_IN_PLATFORM_STEWARD_ROLE: RoleDefinition = {
     { name: "overlays_configure" },
     { name: "seo_settings" },
     { name: "components_manage" },
+    { name: "content_types_manage" },
+    { name: "databases_manage" },
   ],
 };
 

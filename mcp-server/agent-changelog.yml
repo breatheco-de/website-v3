@@ -6,6 +6,15 @@ window_days: 6
 
 entries:
   - date: "2026-09-02"
+    summary: "platform_steward can update_content_type and reindex_database"
+    agent_impact:
+      - "/mcp/role/platform_steward now includes content_types_manage and databases_manage, so update_content_type and reindex_database appear in tools/list (plus local database CRUD)."
+      - "Reconnect the steward connector after deploy; previous sessions will not pick up the new tools mid-session."
+    paths:
+      - server/user-store.ts
+      - mcp-server/lib/tool-catalog.test.ts
+    tools_changed: true
+  - date: "2026-09-02"
     summary: "conversion_name always required — gate does not waive it"
     agent_impact:
       - "Bound forms need conversion_name (catalog name) or explicit null (Off). is_signup no longer skips identity conversion checks."
@@ -124,7 +133,7 @@ entries:
     summary: "get_product_funnel_analytics — Page performance from GA4 BigQuery"
     agent_impact:
       - "New read tool get_product_funnel_analytics(slug, mode?, days?, site?) — per-page sessions/views/CTAs, stage distinct sessions, product item_id KPIs. Does not imply stage-to-stage flow."
-      - "mode=stage_flow returns not_implemented; use page_performance. Configure tracking.bigquery via staff /private/tracking/bigquery."
+      - "mode=stage_flow returns not_implemented; use page_performance. Configure tracking.bigquery via staff /private/tracking/ga4."
       - "Conversions dual-write item_id when ecommerce_product_field + funnel resolve succeeds — prefer item_id over program for product KPIs."
     paths:
       - mcp-server/tools/ecommerce.ts

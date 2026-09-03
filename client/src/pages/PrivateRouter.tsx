@@ -110,6 +110,7 @@ export default function PrivateRouter() {
           <Route path="/private/type/:contentType" component={ContentTypeManagePage} />
           <Route path="/private/databases" component={PrivateDatabases} />
           <Route path="/private/databases/:name" component={PrivateDatabases} />
+          <Route path="/private/diagnostics/seo/organic" component={DiagnosticsPage} />
           <Route path="/private/diagnostics/seo-geo" component={SeoGeoRedirect} />
           <Route path="/private/diagnostics/:tab" component={DiagnosticsPage} />
           <Route path="/private/diagnostics" component={DiagnosticsPage} />
@@ -128,6 +129,7 @@ export default function PrivateRouter() {
           <Route path="/private/settings/seo/og" component={SeoGeoSettingsPage} />
           <Route path="/private/settings/seo/schema" component={SeoGeoSettingsPage} />
           <Route path="/private/settings/seo/search-console" component={SeoGeoSettingsPage} />
+          <Route path="/private/settings/seo/openrush" component={SeoGeoSettingsPage} />
           <Route path="/private/settings/seo" component={SeoGeoSettingsPage} />
           <Route path="/private/settings" component={SettingsPage} />
           <Route path="/private/sync-log" component={SyncLogRedirect} />
@@ -141,6 +143,7 @@ export default function PrivateRouter() {
           <Route path="/private/store/conversions" component={ConversionsPage} />
           <Route path="/private/tracking/sgtm" component={TrackingPage} />
           <Route path="/private/tracking/ipn" component={TrackingPage} />
+          <Route path="/private/tracking/ga4" component={TrackingPage} />
           <Route path="/private/tracking/bigquery" component={TrackingPage} />
           <Route path="/private/tracking" component={TrackingPage} />
           <Route path="/private/security/roles" component={SecurityPage} />

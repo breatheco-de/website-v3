@@ -6,7 +6,7 @@ Anyone who previously held the **webmaster** role is migrated automatically to *
 
 1. Log in — **Security** (`/private/security`) still works via `user_admin`.
 2. Assign yourself (and other operators):
-   - **platform_steward** — diagnostics, SEO health, redirects, architecture reads
+   - **platform_steward** — diagnostics, SEO health, redirects, content-type schema, local databases
    - **platform_ops** — sites.yml, new sites, Sidequest restart/dashboard
 3. Update MCP connectors:
    - `/mcp/role/user_admin`
@@ -25,7 +25,7 @@ Capabilities sync from code; **MCP descriptions** can be customized in Security 
 | Role | Purpose |
 |---|---|
 | `user_admin` | Staff access management (`users_manage`) |
-| `platform_steward` | Site health and SEO operations |
+| `platform_steward` | Site health, SEO, content-type schema, local databases |
 | `platform_ops` | Multi-site registry and background worker |
 | `metrics_viewer` | Read-only metrics (unchanged) |
 | `content_viewer` | Read-only content/MCP reads (unchanged) |

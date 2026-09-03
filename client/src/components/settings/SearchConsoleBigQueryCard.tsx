@@ -302,8 +302,8 @@ export function SearchConsoleBigQueryCard({ canEdit }: { canEdit: boolean }) {
                 <p className="font-mono text-xs">settings.yml → search_console.bigquery</p>
                 <p className="text-xs">
                   GA4 export is separate — configure at{" "}
-                  <Link href="/private/tracking/bigquery" className="underline underline-offset-2 text-foreground">
-                    Tracking → BigQuery
+                  <Link href="/private/tracking/ga4" className="underline underline-offset-2 text-foreground">
+                    Tracking → GA4
                   </Link>
                   . Data lag is typically 2–3 days; export is daily grain only.
                 </p>

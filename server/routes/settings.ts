@@ -143,6 +143,8 @@ import {
   updateRobotsSettings,
   updateSearchConsoleSettings,
   updateSearchConsoleBigQuerySettings,
+  getOpenRushSettings,
+  updateOpenRushSettings,
   buildRobotsTxtContent,
   getAuthSettings,
   updateAuthSettings,
@@ -1763,6 +1765,58 @@ export function registerSettingsRoutes(app: Express): void {
         error: err?.message || String(err),
         elapsed_ms: 0,
         warnings: [],
+      });
+    }
+  });
+
+  app.get("/api/settings/openrush", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    const settings = getOpenRushSettings(getContentRoot(res));
+    const api_key_configured = Boolean((process.env.OPENRUSH_API_KEY || "").trim());
+    res.json({
+      configured: Boolean(settings.enabled && api_key_configured),
+      api_key_configured,
+      settings,
+    });
+  });
+
+  app.put("/api/settings/openrush", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    try {
+      const body = req.body?.openrush ?? req.body;
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return res.status(400).json({ error: "Request body must be an openrush object" });
+      }
+      const contentRoot = getContentRoot(res);
+      const settings = updateOpenRushSettings(body, contentRoot);
+      markFileAsModified("settings.yml", undefined, undefined, contentRoot);
+      const api_key_configured = Boolean((process.env.OPENRUSH_API_KEY || "").trim());
+      res.json({
+        success: true,
+        configured: Boolean(settings.enabled && api_key_configured),
+        api_key_configured,
+        settings,
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.post("/api/settings/openrush/test", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    try {
+      const { testOpenRushConnection } = await import("../openrush-client");
+      const result = await testOpenRushConnection(getContentRoot(res));
+      res.status(result.ok ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({
+        ok: false,
+        error: err?.message || String(err),
+        elapsed_ms: 0,
+        api_key_configured: Boolean((process.env.OPENRUSH_API_KEY || "").trim()),
       });
     }
   });

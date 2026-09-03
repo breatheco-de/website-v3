@@ -14,6 +14,7 @@ import {
   resolveBigQueryCredentials,
 } from "./ecommerce/bigquery-client";
 import { child } from "./logger";
+import type { GscDayRow } from "./gsc-keep-filter";
 
 const log = child({ module: "gsc-bigquery-client" });
 
@@ -91,6 +92,7 @@ export async function testGscBigQueryConnection(
       credentials_source: status.credentials_source,
     };
   }
+  const settings = parseSearchConsoleBigQuerySettings(status.settings);
   const client = createBigQueryClientForProject(settings.project_id, settings.location);
   if (!client) {
     return {
@@ -101,7 +103,6 @@ export async function testGscBigQueryConnection(
       credentials_source: status.credentials_source,
     };
   }
-  const settings = parseSearchConsoleBigQuerySettings(status.settings);
   const { project_id, dataset_id, location, url_impression_table, export_log_table } = settings;
   try {
     const dataset = client.dataset(dataset_id, { projectId: project_id });
@@ -163,4 +164,53 @@ export async function testGscBigQueryConnection(
       credentials_source: status.credentials_source,
     };
   }
+}
+
+export async function queryUrlImpressionsForDate(
+  date: string,
+  contentRoot?: string,
+): Promise<GscDayRow[]> {
+  const status = getGscBigQueryConfigStatus(contentRoot);
+  if (!status.configured) {
+    throw new Error(status.warnings[0] || "Search Console BigQuery is not configured");
+  }
+  const settings = parseSearchConsoleBigQuerySettings(status.settings);
+  const client = createBigQueryClientForProject(settings.project_id, settings.location);
+  if (!client) {
+    throw new Error("Could not create BigQuery client (check GCS_CREDENTIALS_JSON / ADC)");
+  }
+  const table = settings.url_impression_table || "searchdata_url_impression";
+  const fq = fqTable(settings, table);
+  const [rows] = await client.query({
+    query: `
+      SELECT
+        COALESCE(query, '') AS query,
+        url,
+        SUM(clicks) AS clicks,
+        SUM(impressions) AS impressions,
+        SUM(sum_position) AS sum_position
+      FROM ${fq}
+      WHERE data_date = @d
+        AND search_type = 'WEB'
+      GROUP BY query, url
+    `,
+    params: { d: date },
+    types: { d: "DATE" },
+    location: settings.location || undefined,
+    maximumBytesBilled: "10000000000",
+  });
+  return (rows || []).map((r) => {
+    const rec = r as Record<string, unknown>;
+    const clicks = Number(rec.clicks) || 0;
+    const impressions = Number(rec.impressions) || 0;
+    const sum_position = Number(rec.sum_position) || 0;
+    return {
+      query: typeof rec.query === "string" ? rec.query : "",
+      url: typeof rec.url === "string" ? rec.url : "",
+      clicks,
+      impressions,
+      sum_position,
+      ctr: impressions > 0 ? clicks / impressions : 0,
+    };
+  });
 }

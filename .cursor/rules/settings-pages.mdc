@@ -1,0 +1,94 @@
+---
+description: Layout shell for private Settings and related admin config pages
+globs: client/src/pages/*Settings*.tsx,client/src/pages/SecurityPage.tsx
+alwaysApply: false
+---
+
+# Settings pages layout
+
+Private settings / config shells share one content width so pages do not feel narrower than General Settings.
+
+## Page shell
+
+Outer page: `min-h-screen bg-background` (add `text-foreground` when the page sets it elsewhere).
+
+Inner content container:
+
+```tsx
+<div className="max-w-7xl mx-auto px-4 py-8 space-y-4">
+```
+
+- Use `max-w-7xl` — not `max-w-3xl` / `max-w-4xl` for the page shell.
+- Keep `mx-auto px-4 py-8`; vertical rhythm may be `space-y-4` or `space-y-6`.
+- Dialogs, tooltips, and form fields may still use their own narrower `max-w-*`.
+
+## Header + section tabs (top right)
+
+When a settings page has multiple sections (route tabs or mode switches), put a [`ToggleButtonBar`](client/src/components/ui/toggle-button-bar.tsx) in the **page header row, top right** — same row as back + title, not a full-width bar under the header.
+
+```tsx
+<div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+  <div className="flex items-start gap-4 min-w-0 flex-1">
+    {/* back button + title + short description */}
+  </div>
+
+  <ToggleButtonBar
+    className="shrink-0"
+    value={activeTab}
+    onValueChange={...}
+    listClassName="flex"
+  >
+    {TABS.map(({ id, label, Icon }) => (
+      <ToggleButtonBarTrigger key={id} value={id} className="gap-1.5">
+        <Icon className="h-3.5 w-3.5" />
+        {label}
+      </ToggleButtonBarTrigger>
+    ))}
+  </ToggleButtonBar>
+</div>
+```
+
+- Left: back control, title, optional one-line description (`min-w-0 flex-1`).
+- Right: `ToggleButtonBar` with `shrink-0` so it stays top-right; wrap with `flex-wrap` on narrow viewports.
+- Prefer this over a second full-width tab row under the header (SEO/GEO, Security).
+- Exception: General [`SettingsPage`](client/src/pages/SettingsPage.tsx) keeps a full-width `ToggleButtonBarList` under the title because it hosts many `TabsContent` panels in one page — do not use that as the default for new multi-route settings shells.
+- Visual contract for the bar itself stays in [`ui-and-design.mdc`](ui-and-design.mdc) (Toggle button bars).
+
+## Third-party integrations — Test connection
+
+Every settings surface that wires an external API, cloud credential, or vendor SDK **must** ship a **Test connection** action. Saving YAML or env alone is not enough — staff need a one-click probe that proves credentials and reachability before they leave the page.
+
+### Staff UI
+
+- Label: **Test connection** (loading: **Testing…** with spinner).
+- Place next to **Save** in the connection card actions row (`variant="secondary"`, prefer `IconPlugConnected`), or in the connection card header when Save lives elsewhere (Search Console property card).
+- Disable when the integration is off, required fields are empty, or the user lacks edit capability.
+- Success / failure via toast: short title (`Connection OK` / `Connection failed`) plus a concrete detail (dataset date, coverage state, missing role, HTTP error) — not a bare “ok”.
+- `data-testid` like `button-*-test` / `button-*-test-connection`.
+
+### Server
+
+- Dedicated `POST /api/settings/<integration>/test` (or equivalent staff route) gated by the same capability as Save.
+- Run a real, cheap probe against the vendor (list tables, inspect one URL, ping API with key) — do not only re-validate local YAML.
+- Response shape: `{ ok: boolean, error?: string, ...usefulProbeFields }` with `200` when `ok`, `4xx` when the probe fails for config/auth reasons.
+- Test must **not** persist settings, start long jobs, or spend significant quota when a lighter call exists. Document any unavoidable side effects in staff copy or advanced.
+
+### Exemplars
+
+- OpenRush — [`SearchConsoleOpenRushCard`](client/src/components/settings/SearchConsoleOpenRushCard.tsx) + `POST /api/settings/openrush/test`
+- GSC BigQuery — [`SearchConsoleBigQueryCard`](client/src/components/settings/SearchConsoleBigQueryCard.tsx) + `POST /api/settings/search-console/bigquery/test`
+- Search Console URL Inspection — [`SearchConsoleTab`](client/src/components/settings/SearchConsoleTab.tsx) connection card
+
+### Education layer
+
+- **Staff:** Always-visible copy should say that Save stores config and Test connection verifies the live vendor link (and what it does *not* do — e.g. does not request indexing). Paths and env key names go under **Read more (advanced)**.
+- **Agents:** Mutating MCP tools that change third-party config should mention Test connection (or the probe endpoint) in `next_actions` when relevant.
+
+## Applies to
+
+- [`SettingsPage`](client/src/pages/SettingsPage.tsx) (General) — shell width; tab placement exception above
+- [`SeoGeoSettingsPage`](client/src/pages/SeoGeoSettingsPage.tsx) — header + top-right tabs (canonical)
+- [`AISettingsPage`](client/src/pages/AISettingsPage.tsx)
+- [`SecurityPage`](client/src/pages/SecurityPage.tsx) — header + top-right tabs
+
+Sibling admin surfaces (Tracking, Background Pipeline, Diagnostics) may use a different width when the content warrants it; do not copy their shell onto Settings pages. New third-party cards on those surfaces still follow **Test connection** above.
