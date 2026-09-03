@@ -1,5 +1,0 @@
-export type EditorType = string;
-
-export const fieldEditors: Record<string, EditorType> = {
-  "default:bullet_groups[].icon": "icon-picker",
-};
