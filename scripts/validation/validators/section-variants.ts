@@ -18,6 +18,7 @@ import type {
   ValidationIssue,
 } from "../shared/types";
 import { getDefaultContentFolder } from "../../../server/site-config";
+import { SECTION_VARIANTS_ISSUE_CODES } from "./section-variants.issueCodes";
 
 function registryRoot(contentRoot?: string): string {
   const folder = contentRoot
@@ -111,6 +112,7 @@ function checkSectionsInData(
 
 export const sectionVariantsValidator: Validator = {
   name: "section-variants",
+  issueCodes: SECTION_VARIANTS_ISSUE_CODES,
   description:
     "Validates section-level variant fields against component registry schema keys",
   apiExposed: true,

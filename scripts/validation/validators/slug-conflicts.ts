@@ -1,5 +1,6 @@
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { getAllConfigs } from "../../../server/content-types";
+import { SLUG_CONFLICTS_ISSUE_CODES } from "./slug-conflicts.issueCodes";
 
 function buildUrlFromPattern(
   urlPattern: Record<string, string>,
@@ -15,6 +16,7 @@ function buildUrlFromPattern(
 
 export const slugConflictsValidator: Validator = {
   name: "slug-conflicts",
+  issueCodes: SLUG_CONFLICTS_ISSUE_CODES,
   description: "Detects URL collisions across all non-database content types",
   apiExposed: true,
   estimatedDuration: "fast",

@@ -55,10 +55,11 @@ export interface IssueCodeNextAction {
 /**
  * Per-code catalog entry (defaults). Instance ValidationIssue.suggestion overrides
  * catalog.suggestion when set. Lookup is by validator + code.
+ * Title-only entries are valid; agent guidance is complete when next_actions is non-empty.
  */
 export interface IssueCodeDefinition {
   title: string;
-  summary: string;
+  summary?: string;
   suggestion?: string;
   next_actions?: IssueCodeNextAction[];
 }

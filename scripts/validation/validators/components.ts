@@ -11,6 +11,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
+import { COMPONENTS_ISSUE_CODES } from "./components.issueCodes";
 
 const REGISTRY_PATH = path.join(process.cwd(), "4geeks-com", "component-registry");
 
@@ -30,6 +31,7 @@ interface ExampleData {
 
 export const componentsValidator: Validator = {
   name: "components",
+  issueCodes: COMPONENTS_ISSUE_CODES,
   description: "Validates component registry schemas and examples",
   apiExposed: true,
   estimatedDuration: "medium",

@@ -10,9 +10,11 @@ import {
   validateHeroCourseCompanions,
 } from "../../../server/schema-org-requirements";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
+import { SCHEMA_ORG_COMPANIONS_ISSUE_CODES } from "./schema-org-companions.issueCodes";
 
 export const schemaOrgCompanionsValidator: Validator = {
   name: "schema-org-companions",
+  issueCodes: SCHEMA_ORG_COMPANIONS_ISSUE_CODES,
   description:
     "Validates hero course companions and content-type schema_org_requirements (e.g. location LocalBusiness)",
   apiExposed: true,

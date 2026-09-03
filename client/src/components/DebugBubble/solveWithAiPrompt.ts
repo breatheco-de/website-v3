@@ -1,6 +1,8 @@
 import type { PageDiagnostics } from "./types";
 import type { McpSetupTabId } from "@/components/mcp/mcpUrlHelpers";
 import { getMcpServerUrl } from "@/components/mcp/mcpUrlHelpers";
+import { renderAskAgentPrompt } from "@shared/ask-agent-prompts";
+import "@/lib/askAgentPrompts";
 
 export type SolveWithAiAgentId =
   | "claude-ai"
@@ -103,30 +105,17 @@ export function buildSolveWithAiPrompt(pageDiagnostics: PageDiagnostics): string
 
   const mcpUrl = typeof window !== "undefined" ? getMcpServerUrl() : "/mcp";
 
-  return `Fix validation issues for one page on this site using the 4Geeks CMS MCP server.
-
-## Entry
-- URL: ${pageDiagnostics.url}
-- contentType: ${pageDiagnostics.contentType}
-- slug: ${pageDiagnostics.slug}
-- locale: ${pageDiagnostics.locale}${variantLine}
-- filePath: ${pageDiagnostics.filePath}
-- MCP server: ${mcpUrl}
-
-## Known issues (from staff Page Diagnostics — open work queue only)
-### Errors
-${errorBlock}
-
-### Warnings
-${warningBlock}
-
-## Rules
-1. Use this site’s MCP tools. Authenticate/OAuth if needed.
-2. Call agent_session with action "start", then pass the returned agent_session_id on every mutate. End with agent_session summarize (report min 80) when done.
-3. Treat the Known issues list as authoritative for what to fix. Use get_entry_content / get_entry_fields to inspect YAML paths; use update_fields (and related write tools) to fix — every content mutate needs report (min 80 chars: what/why for this change). When you set copy (titles, subtitles, CTA text, success messages, etc.), list the plain new values in the report (e.g. Title: …; Subtitle: …) — do not paste JSON/YAML or only name fields/tools. Honor next_actions / warnings / side_effects.
-4. Before editing an issue, call update_issue with action "claim", that issue’s id (from validation_issues), and report (why you are claiming it + plan, min 80 chars). Read prior_attempts on the issue first if present (who tried, what went wrong). After fixing, call update_issue with action "complete" and report (what you changed and how, plus plain new values for copy you set, min 80 chars). If you cannot fix it, call update_issue "release" with report (what you tried and why stopping, min 80 chars) so the next agent can learn. Soft-complete only — does not push YAML or run diagnostics. Claims expire after 30 minutes (records a ttl_expired prior_attempt); re-claim to refresh TTL may omit report.
-5. Do NOT call run_entry_diagnostics with confirm:true. Do NOT start or poll a new diagnostics job.
-6. Scope: this contentType + slug + locale only. No unrelated pages. No locale fan-out unless a tool next_action says so.`;
+  return renderAskAgentPrompt("page-diagnostics", {
+    url: pageDiagnostics.url,
+    content_type: pageDiagnostics.contentType,
+    slug: pageDiagnostics.slug,
+    locale: pageDiagnostics.locale,
+    variant_line: variantLine,
+    file_path: pageDiagnostics.filePath,
+    mcp_url: mcpUrl,
+    error_block: errorBlock,
+    warning_block: warningBlock,
+  });
 }
 
 export function buildSolveWithAiPrefillUrl(
@@ -145,19 +134,12 @@ export function buildDraftFeedbackAiPrompt(opts: {
 }): string {
   const mcpUrl = typeof window !== "undefined" ? getMcpServerUrl() : "/mcp";
 
-  return `Review this unpublished draft page and give actionable feedback using the 4Geeks CMS MCP server.
-
-## Draft preview
-- Share link (open in browser): ${opts.shareUrl}
-- contentType: ${opts.contentType}
-- slug: ${opts.slug}
-- locale: ${opts.locale}
-- variant: ${opts.variant}
-- MCP server: ${mcpUrl}
-
-## What I need
-1. Read the draft via MCP (get_entry_content) and/or the share link above.
-2. Comment on clarity, conversion, accuracy, and missing content — especially eligibility, how to apply, and sourced outcomes.
-3. Do NOT publish, allocate traffic, or edit YAML unless I ask.
-4. Scope: this entry only (${opts.contentType}/${opts.slug}, locale ${opts.locale}, variant ${opts.variant}).`;
+  return renderAskAgentPrompt("draft-feedback", {
+    share_url: opts.shareUrl,
+    content_type: opts.contentType,
+    slug: opts.slug,
+    locale: opts.locale,
+    variant: opts.variant,
+    mcp_url: mcpUrl,
+  });
 }

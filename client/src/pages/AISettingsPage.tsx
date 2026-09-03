@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   IconArrowLeft,
   IconCheck,
+  IconChevronDown,
   IconDeviceFloppy,
   IconLoader2,
   IconAlertCircle,
@@ -12,10 +13,12 @@ import {
   IconFileCode,
   IconBrain,
   IconDatabase,
+  IconKey,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -27,6 +30,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { useToast } from "@/hooks/use-toast";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { cn } from "@/lib/utils";
@@ -213,6 +217,8 @@ function LlmsTab() {
   const [selectedChat, setSelectedChat] = useState("");
   const [selectedVision, setSelectedVision] = useState("");
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [showYmlEditor, setShowYmlEditor] = useState(false);
 
   const settingsQuery = useQuery<AISettingsResponse>({
@@ -249,10 +255,41 @@ function LlmsTab() {
   }, [settingsQuery.data]);
 
   const models = modelsQuery.data?.models ?? [];
+  const apiKeyConfigured = Boolean(settingsQuery.data?.provider.api_key_configured);
   const dirty =
     selectedDefault !== (settingsQuery.data?.model_default || "") ||
     selectedChat !== (settingsQuery.data?.model_chat || "") ||
     selectedVision !== (settingsQuery.data?.model_vision || "");
+
+  async function handleTestConnection() {
+    setTesting(true);
+    try {
+      const res = await fetch("/api/admin/ai/openrouter/test", {
+        method: "POST",
+        headers: getSessionHeaders(),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || `Connection failed (${res.status})`);
+      }
+      toast({
+        title: "Connection OK",
+        description:
+          typeof body.models_count === "number"
+            ? `OpenRouter reachable · ${body.models_count.toLocaleString()} models listed.`
+            : "OpenRouter reachable.",
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/ai/openrouter/models"] });
+    } catch (err) {
+      toast({
+        title: "Connection failed",
+        description: err instanceof Error ? err.message : "Could not reach OpenRouter.",
+        variant: "destructive",
+      });
+    } finally {
+      setTesting(false);
+    }
+  }
 
   async function handleSave() {
     if (!selectedDefault.trim()) return;
@@ -275,7 +312,7 @@ function LlmsTab() {
       await queryClient.invalidateQueries({ queryKey: ["/api/admin/ai/knowledge"] });
       toast({
         title: "AI settings saved",
-        description: "Models updated in llm.yml.",
+        description: "Models updated. This does not change the API key or re-test the provider.",
       });
     } catch (err) {
       toast({
@@ -288,179 +325,223 @@ function LlmsTab() {
     }
   }
 
+  if (settingsQuery.isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-muted-foreground py-12 justify-center">
+        <IconLoader2 className="h-5 w-5 animate-spin" />
+        <span className="text-sm">Loading settings…</span>
+      </div>
+    );
+  }
+
+  if (settingsQuery.isError) {
+    return (
+      <Card data-testid="panel-ai-settings-error">
+        <CardContent className="pt-6 flex items-start gap-3 text-destructive">
+          <IconAlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+          <p className="text-sm">
+            {settingsQuery.error instanceof Error
+              ? settingsQuery.error.message
+              : "Failed to load AI settings."}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <>
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <p className="text-sm text-muted-foreground">
-          Configure OpenRouter models used across AI features. Saving writes to llm.yml.
-        </p>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              onClick={() => setShowYmlEditor(true)}
-              data-testid="button-edit-llm-yml"
-            >
-              <IconFileCode className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs">
-            Edit llm.yml
-          </TooltipContent>
-        </Tooltip>
-      </div>
-
-      {settingsQuery.isLoading ? (
-        <div className="flex items-center gap-2 text-muted-foreground py-12 justify-center">
-          <IconLoader2 className="h-5 w-5 animate-spin" />
-          <span className="text-sm">Loading settings…</span>
-        </div>
-      ) : settingsQuery.isError ? (
-        <Card>
-          <CardContent className="pt-6 flex items-start gap-3 text-destructive">
-            <IconAlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-            <p className="text-sm">
-              {settingsQuery.error instanceof Error
-                ? settingsQuery.error.message
-                : "Failed to load AI settings."}
+      <div className="space-y-6">
+        <Card data-testid="panel-ai-provider">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
+            <div className="flex items-center gap-2">
+              <IconKey className="h-5 w-5 text-muted-foreground" />
+              <CardTitle className="text-base">Provider</CardTitle>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setShowYmlEditor(true)}
+                    data-testid="button-edit-llm-yml"
+                  >
+                    <IconFileCode className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  Edit llm.yml
+                </TooltipContent>
+              </Tooltip>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleTestConnection}
+                disabled={testing || !apiKeyConfigured}
+                data-testid="button-ai-openrouter-test-connection"
+              >
+                {testing ? (
+                  <IconLoader2 className="h-4 w-4 animate-spin mr-1.5" />
+                ) : (
+                  <IconPlugConnected className="h-4 w-4 mr-1.5" />
+                )}
+                {testing ? "Testing…" : "Test connection"}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Keys live in the server environment. Save on Models only updates which models are used —
+              Test connection proves the live OpenRouter link without changing settings.
             </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {apiKeyConfigured ? (
+                <Badge
+                  variant="secondary"
+                  className="gap-1 border-transparent bg-green-600/15 text-green-700 dark:bg-green-500/20 dark:text-green-400"
+                  data-testid="badge-api-key-ok"
+                >
+                  <IconCircleCheck className="h-3.5 w-3.5" />
+                  {settingsQuery.data?.provider.api_key_env} configured
+                </Badge>
+              ) : (
+                <Badge variant="destructive" className="gap-1" data-testid="badge-api-key-missing">
+                  <IconAlertCircle className="h-3.5 w-3.5" />
+                  Set {settingsQuery.data?.provider.api_key_env} in environment
+                </Badge>
+              )}
+            </div>
+            <dl className="grid gap-2 text-sm">
+              <div className="flex flex-col sm:flex-row sm:gap-3">
+                <dt className="text-muted-foreground sm:w-32 shrink-0">API key env</dt>
+                <dd className="font-mono text-xs sm:text-sm">{settingsQuery.data?.provider.api_key_env}</dd>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:gap-3">
+                <dt className="text-muted-foreground sm:w-32 shrink-0">Base URL</dt>
+                <dd className="font-mono text-xs sm:text-sm break-all">
+                  {settingsQuery.data?.provider.base_url || "—"}
+                </dd>
+              </div>
+            </dl>
           </CardContent>
         </Card>
-      ) : (
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Provider</CardTitle>
-              <CardDescription>
-                API keys are read from environment variables named in llm.yml (OpenRouter by default).
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                {settingsQuery.data?.provider.api_key_configured ? (
-                  <Badge
-                    variant="secondary"
-                    className="gap-1 border-transparent bg-green-600/15 text-green-700 dark:bg-green-500/20 dark:text-green-400"
-                    data-testid="badge-api-key-ok"
-                  >
-                    <IconCircleCheck className="h-3.5 w-3.5" />
-                    {settingsQuery.data.provider.api_key_env} configured
-                  </Badge>
-                ) : (
-                  <Badge variant="destructive" className="gap-1" data-testid="badge-api-key-missing">
-                    <IconAlertCircle className="h-3.5 w-3.5" />
-                    Set {settingsQuery.data?.provider.api_key_env} in environment
-                  </Badge>
-                )}
-              </div>
-              <dl className="grid gap-2 text-sm">
-                <div className="flex flex-col sm:flex-row sm:gap-3">
-                  <dt className="text-muted-foreground sm:w-32 shrink-0">API key env</dt>
-                  <dd className="font-mono text-xs sm:text-sm">{settingsQuery.data?.provider.api_key_env}</dd>
-                </div>
-                <div className="flex flex-col sm:flex-row sm:gap-3">
-                  <dt className="text-muted-foreground sm:w-32 shrink-0">Base URL</dt>
-                  <dd className="font-mono text-xs sm:text-sm break-all">
-                    {settingsQuery.data?.provider.base_url || "—"}
-                  </dd>
-                </div>
-              </dl>
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader>
+        <Card data-testid="panel-ai-models">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
+            <div className="flex items-center gap-2">
+              <IconBrain className="h-5 w-5 text-muted-foreground" />
               <CardTitle className="text-base">Models</CardTitle>
-              <CardDescription>
-                Choose OpenRouter models for completions, chat, and vision. Each maps to a field in llm.yml.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <p className="text-xs text-muted-foreground rounded-md border border-border bg-muted/30 px-3 py-2">
-                Saving writes <code className="font-mono text-[11px]">model.default</code>,{" "}
-                <code className="font-mono text-[11px]">model.chat</code>, and{" "}
-                <code className="font-mono text-[11px]">model.vision</code> in llm.yml.
-              </p>
-
-              <ModelPicker
-                id="completion-model"
-                label="Completion model"
-                value={selectedDefault}
-                onChange={setSelectedDefault}
-                models={models}
-                loading={modelsQuery.isLoading}
-                disabled={!settingsQuery.data?.provider.api_key_configured}
-              />
-              <p className="text-xs text-muted-foreground -mt-3">
-                Field mapping, content adaptation, table builders, and other non-chat completions.
-              </p>
-
-              <ModelPicker
-                id="chat-model"
-                label="Chat model"
-                value={selectedChat}
-                onChange={setSelectedChat}
-                models={models}
-                loading={modelsQuery.isLoading}
-                disabled={!settingsQuery.data?.provider.api_key_configured}
-                allowEmpty
-                emptyLabel="Use completion model"
-              />
-              <p className="text-xs text-muted-foreground -mt-3">
-                Live chat assistant conversations.
-              </p>
-
-              <ModelPicker
-                id="vision-model"
-                label="Vision model"
-                value={selectedVision}
-                onChange={setSelectedVision}
-                models={models}
-                loading={modelsQuery.isLoading}
-                disabled={!settingsQuery.data?.provider.api_key_configured}
-                allowEmpty
-                emptyLabel="Use completion model"
-              />
-              <p className="text-xs text-muted-foreground -mt-3">
-                Image auto-tagging and other vision tasks.
-              </p>
-
-              {modelsQuery.isError && (
-                <p className="text-xs text-destructive flex items-center gap-1">
-                  <IconAlertCircle className="h-3.5 w-3.5" />
-                  {modelsQuery.error instanceof Error
-                    ? modelsQuery.error.message
-                    : "Could not load OpenRouter models."}
-                </p>
+            </div>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={!dirty || saving || !selectedDefault.trim()}
+              data-testid="button-save-ai-settings"
+            >
+              {saving ? (
+                <IconLoader2 className="h-4 w-4 animate-spin mr-1" />
+              ) : dirty ? (
+                <IconDeviceFloppy className="h-4 w-4 mr-1" />
+              ) : (
+                <IconCheck className="h-4 w-4 mr-1" />
               )}
-              {!settingsQuery.data?.provider.api_key_configured && (
-                <p className="text-xs text-muted-foreground">
-                  Add the API key to your environment, restart the server, then refresh this page to load models.
-                </p>
-              )}
+              {saving ? "Saving…" : dirty ? "Save" : "Saved"}
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <p className="text-sm text-muted-foreground">
+              Choose models for completions, chat, and vision. Saving writes them to the site LLM
+              config; it does not re-test the provider.
+            </p>
 
-              <div className="flex justify-end">
-                <Button
-                  onClick={handleSave}
-                  disabled={!dirty || saving || !selectedDefault.trim()}
-                  data-testid="button-save-ai-settings"
-                >
-                  {saving ? (
-                    <IconLoader2 className="h-4 w-4 animate-spin mr-1" />
-                  ) : dirty ? (
-                    <IconDeviceFloppy className="h-4 w-4 mr-1" />
-                  ) : (
-                    <IconCheck className="h-4 w-4 mr-1" />
-                  )}
-                  {saving ? "Saving…" : dirty ? "Save" : "Saved"}
-                </Button>
+            <ModelPicker
+              id="completion-model"
+              label="Completion model"
+              value={selectedDefault}
+              onChange={setSelectedDefault}
+              models={models}
+              loading={modelsQuery.isLoading}
+              disabled={!apiKeyConfigured}
+            />
+            <p className="text-xs text-muted-foreground -mt-3">
+              Field mapping, content adaptation, table builders, and other non-chat completions.
+            </p>
+
+            <ModelPicker
+              id="chat-model"
+              label="Chat model"
+              value={selectedChat}
+              onChange={setSelectedChat}
+              models={models}
+              loading={modelsQuery.isLoading}
+              disabled={!apiKeyConfigured}
+              allowEmpty
+              emptyLabel="Use completion model"
+            />
+            <p className="text-xs text-muted-foreground -mt-3">Live chat assistant conversations.</p>
+
+            <ModelPicker
+              id="vision-model"
+              label="Vision model"
+              value={selectedVision}
+              onChange={setSelectedVision}
+              models={models}
+              loading={modelsQuery.isLoading}
+              disabled={!apiKeyConfigured}
+              allowEmpty
+              emptyLabel="Use completion model"
+            />
+            <p className="text-xs text-muted-foreground -mt-3">
+              Image auto-tagging and other vision tasks.
+            </p>
+
+            {modelsQuery.isError && (
+              <p className="text-xs text-destructive flex items-center gap-1">
+                <IconAlertCircle className="h-3.5 w-3.5" />
+                {modelsQuery.error instanceof Error
+                  ? modelsQuery.error.message
+                  : "Could not load OpenRouter models."}
+              </p>
+            )}
+            {!apiKeyConfigured && (
+              <p className="text-xs text-muted-foreground">
+                Add the API key to your environment, restart the server, then use Test connection to
+                load models.
+              </p>
+            )}
+
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-xs font-medium text-foreground hover:underline"
+              onClick={() => setShowAdvanced((v) => !v)}
+              data-testid="button-toggle-llms-advanced"
+            >
+              {showAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+              <IconChevronDown
+                className={cn("h-3.5 w-3.5 transition-transform", showAdvanced && "rotate-180")}
+              />
+            </button>
+
+            {showAdvanced && (
+              <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2 text-xs text-muted-foreground">
+                <p>
+                  Saving writes <code className="font-mono text-[11px]">model.default</code>,{" "}
+                  <code className="font-mono text-[11px]">model.chat</code>, and{" "}
+                  <code className="font-mono text-[11px]">model.vision</code> in{" "}
+                  <code className="font-mono text-[11px]">llm.yml</code>. Provider env names come from
+                  the same file; keys stay in the process environment.
+                </p>
+                <p>
+                  Probe: <code className="font-mono text-[11px]">POST /api/admin/ai/openrouter/test</code>{" "}
+                  (lists models; does not persist settings).
+                </p>
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {showYmlEditor && (
         <Suspense fallback={null}>
@@ -497,53 +578,50 @@ export default function AISettingsPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-        <div className="flex items-start gap-4">
-          <Button variant="ghost" size="icon" asChild data-testid="button-ai-settings-back">
-            <Link href="/private/diagnostics">
-              <IconArrowLeft className="h-5 w-5" />
-            </Link>
-          </Button>
-          <div className="flex-1 space-y-1">
-            <div className="flex items-center gap-2">
-              <IconSparkles className="h-5 w-5 text-muted-foreground" />
-              <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-ai-settings-title">
-                AI Settings
-              </h1>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Models, providers, and semantic search infrastructure.
-            </p>
-          </div>
-        </div>
-
-        <div
-          className="inline-flex h-10 w-full items-center justify-center rounded-md bg-muted p-1 text-muted-foreground"
-          role="tablist"
-          data-testid="ai-settings-tablist"
-        >
-          {AI_TABS.map(({ id, href, label, Icon }) => {
-            const isActive = activeTab === id;
-            return (
-              <Link key={id} href={href} className="flex-1">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  className={cn(
-                    "inline-flex w-full items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                    isActive
-                      ? "bg-background text-foreground shadow-sm"
-                      : "hover:text-foreground",
-                  )}
-                  data-testid={`tab-${id}`}
-                >
-                  <Icon className="h-4 w-4 mr-1.5" />
-                  {label}
-                </button>
+      <div className="max-w-7xl mx-auto px-4 pt-8 pb-24 space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+          <div className="flex items-start gap-4 min-w-0 flex-1">
+            <Button variant="ghost" size="icon" asChild data-testid="button-ai-settings-back">
+              <Link href="/private/diagnostics">
+                <IconArrowLeft className="h-5 w-5" />
               </Link>
-            );
-          })}
+            </Button>
+            <div className="min-w-0 space-y-1">
+              <div className="flex items-center gap-2">
+                <IconSparkles className="h-5 w-5 text-muted-foreground" />
+                <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-ai-settings-title">
+                  AI Settings
+                </h1>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Models, providers, and semantic search infrastructure.
+              </p>
+            </div>
+          </div>
+
+          <ToggleButtonBar
+            className="shrink-0"
+            value={activeTab}
+            onValueChange={(id) => {
+              const tab = AI_TABS.find((t) => t.id === id);
+              if (!tab) return;
+              setLocation(tab.href);
+            }}
+            listTestId="ai-settings-tablist"
+            listClassName="flex"
+          >
+            {AI_TABS.map(({ id, label, Icon }) => (
+              <ToggleButtonBarTrigger
+                key={id}
+                value={id}
+                data-testid={`tab-${id}`}
+                className="gap-1.5"
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </ToggleButtonBarTrigger>
+            ))}
+          </ToggleButtonBar>
         </div>
 
         <div role="tabpanel">

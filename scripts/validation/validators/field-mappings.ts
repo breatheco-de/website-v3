@@ -1,9 +1,11 @@
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { getAllConfigs } from "../../../server/content-types";
 import { validateFieldMapping } from "../shared/fieldMappingValidator";
+import { FIELD_MAPPINGS_ISSUE_CODES } from "./field-mappings.issueCodes";
 
 export const fieldMappingsValidator: Validator = {
   name: "field-mappings",
+  issueCodes: FIELD_MAPPINGS_ISSUE_CODES,
   description: "Validates that non-identity field mapping sources exist in all non-database content entries",
   apiExposed: true,
   estimatedDuration: "medium",

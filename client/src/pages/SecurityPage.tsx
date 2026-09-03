@@ -81,6 +81,7 @@ interface RoleDefinition {
   label: string;
   description?: string;
   capabilities: CapabilityGrant[];
+  agentic?: boolean;
 }
 
 interface AdminRolesResponse {
@@ -361,7 +362,9 @@ function RolesTab() {
   const [builtinDescForm, setBuiltinDescForm] = useState("");
   const [expandedRoleIds, setExpandedRoleIds] = useState<Set<string>>(() => new Set());
 
-  const roles = rolesData ? Object.entries(rolesData) : [];
+  const roles = rolesData
+    ? Object.entries(rolesData).filter(([, role]) => !role.agentic)
+    : [];
 
   function setRoleExpanded(roleId: string, open: boolean) {
     setExpandedRoleIds((prev) => {
@@ -1479,7 +1482,10 @@ function UsersTab() {
               >
                 <option value="">Select a role…</option>
                 {allRoles.map(([roleId, role]) => (
-                  <option key={roleId} value={roleId}>{role.label}</option>
+                  <option key={roleId} value={roleId}>
+                    {role.label}
+                    {role.agentic ? " (Agent)" : ""}
+                  </option>
                 ))}
               </select>
             </div>
@@ -1692,8 +1698,20 @@ function UsersTab() {
                           }
                           data-testid={`checkbox-user-role-${user.username}-${roleId}`}
                         />
-                        <label htmlFor={`user-role-${user.username}-${roleId}`} className="text-xs cursor-pointer">
+                        <label
+                          htmlFor={`user-role-${user.username}-${roleId}`}
+                          className="text-xs cursor-pointer inline-flex items-center gap-1.5"
+                        >
                           {role.label}
+                          {role.agentic && (
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] px-1.5 py-0 font-semibold uppercase tracking-wide"
+                              data-testid={`badge-agent-role-${roleId}`}
+                            >
+                              Agent
+                            </Badge>
+                          )}
                         </label>
                       </div>
                     ))}
@@ -1705,8 +1723,11 @@ function UsersTab() {
                       <span className="text-xs text-muted-foreground">No roles assigned</span>
                     ) : (
                       user.roles.map((roleId) => (
-                        <Badge key={roleId} variant="secondary" className="text-xs">
+                        <Badge key={roleId} variant="secondary" className="text-xs gap-1">
                           {rolesData?.[roleId]?.label || roleId}
+                          {rolesData?.[roleId]?.agentic && (
+                            <span className="uppercase tracking-wide text-[10px] opacity-80">Agent</span>
+                          )}
                         </Badge>
                       ))
                     )}
@@ -1955,7 +1976,7 @@ export default function SecurityPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-7xl mx-auto px-4 py-8 space-y-4">
+      <div className="max-w-7xl mx-auto px-4 pt-8 pb-24 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-3 min-w-0">
             <Link href="/private/settings">

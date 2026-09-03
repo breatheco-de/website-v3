@@ -5,6 +5,8 @@ import {
   classifyLowCtr,
   classifyMissingSerp,
   classifyPage2,
+  enrichCmsKnown,
+  gscUrlToPath,
   type AggregatedGscRow,
 } from "./seo-organic-opportunities";
 import { SERP_TTL_MS, serpEntryFresh, type OpenRushSerpEntry } from "./openrush-serp-cache";
@@ -19,6 +21,22 @@ function agg(partial: Partial<AggregatedGscRow> & { query: string; url: string }
     ...partial,
   };
 }
+
+describe("cms_known enrichment", () => {
+  it("gscUrlToPath strips host", () => {
+    expect(gscUrlToPath("https://4geeks.com/en/blog/x")).toBe("/en/blog/x");
+    expect(gscUrlToPath("/en/location/berlin-germany")).toBe("/en/location/berlin-germany");
+  });
+
+  it("enrichCmsKnown sets flag from isKnownUrl", () => {
+    const known = new Set(["/a"]);
+    const out = enrichCmsKnown(
+      [agg({ query: "q", url: "https://example.com/a" }), agg({ query: "q", url: "https://example.com/b" })],
+      (path) => known.has(path),
+    );
+    expect(out.map((r) => r.cms_known)).toEqual([true, false]);
+  });
+});
 
 describe("organic classifiers", () => {
   it("page 2 keeps 11–20 and sorts by impressions", () => {

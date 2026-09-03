@@ -2,9 +2,11 @@ import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } f
 import { DatabaseManager } from "../../../server/database";
 import { getAllJobStates } from "../../../server/db-job-state";
 import { evaluateDatabaseHealth } from "../shared/databaseHealthChecks";
+import { DATABASE_HEALTH_ISSUE_CODES } from "./database-health.issueCodes";
 
 export const databaseHealthValidator: Validator = {
   name: "database-health",
+  issueCodes: DATABASE_HEALTH_ISSUE_CODES,
   description:
     "Checks operational health of content databases (auth, fetch/index jobs, cache, transforms)",
   apiExposed: true,

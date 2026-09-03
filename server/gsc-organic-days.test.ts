@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { CACHE_DIR } from "./db-cache";
 import {
   anyKeepRulesStale,
+  buildKeepContext,
   gscOrganicDaysDir,
   loadOrganicDay,
   pruneOrganicDays,
@@ -12,6 +14,7 @@ import {
 } from "./gsc-organic-days";
 import { KEEP_RULES_VERSION } from "./gsc-keep-filter";
 import { aggregateDayRows } from "./seo-organic-opportunities";
+import { resetSettings } from "./settings";
 
 const FOLDER = "vitest-gsc-organic-days";
 
@@ -97,5 +100,44 @@ describe("gsc organic days + weighted position", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.position).toBeCloseTo(12.5);
     expect(rows[0]!.impressions).toBe(400);
+  });
+});
+
+describe("buildKeepContext hosts", () => {
+  let tmp: string;
+  let prevSiteUrl: string | undefined;
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gsc-keep-ctx-"));
+    prevSiteUrl = process.env.SITE_URL;
+    process.env.SITE_URL = "https://donna-privacy-treating-funeral.trycloudflare.com";
+    resetSettings(tmp);
+  });
+
+  afterEach(() => {
+    if (prevSiteUrl === undefined) delete process.env.SITE_URL;
+    else process.env.SITE_URL = prevSiteUrl;
+    resetSettings(tmp);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("ignores SITE_URL tunnels and uses Search Console site_url", () => {
+    fs.writeFileSync(
+      path.join(tmp, "settings.yml"),
+      `search_console:
+  site_url: sc-domain:4geeks.com
+`,
+      "utf-8",
+    );
+    resetSettings(tmp);
+    const ctx = buildKeepContext(tmp);
+    expect([...ctx.ourHosts]).toEqual(["4geeks.com"]);
+  });
+
+  it("leaves hosts empty when Search Console site_url is unset (do not lock to SITE_URL)", () => {
+    fs.writeFileSync(path.join(tmp, "settings.yml"), "i18n: {}\n", "utf-8");
+    resetSettings(tmp);
+    const ctx = buildKeepContext(tmp);
+    expect(ctx.ourHosts.size).toBe(0);
   });
 });

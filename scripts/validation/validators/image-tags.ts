@@ -6,6 +6,7 @@ import type {
   ValidationContext,
   ValidationIssue,
 } from "../shared/types";
+import { IMAGE_TAGS_ISSUE_CODES } from "./image-tags.issueCodes";
 
 const REGISTRY_PATH = path.join(
   process.cwd(),
@@ -36,6 +37,7 @@ interface Registry {
 
 export const imageTagsValidator: Validator = {
   name: "image-tags",
+  issueCodes: IMAGE_TAGS_ISSUE_CODES,
   description:
     "Reports untagged images, tags not in tagDefinitions, and images missing presets implied by their tags",
   apiExposed: true,

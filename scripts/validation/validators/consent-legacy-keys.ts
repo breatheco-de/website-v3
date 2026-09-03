@@ -19,6 +19,7 @@ import * as path from "path";
 import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { findObsoleteConsentKeys } from "../../../shared/consentLegacyKeys";
+import { CONSENT_LEGACY_KEYS_ISSUE_CODES } from "./consent-legacy-keys.issueCodes";
 
 const MARKETING_CONTENT_DIR = path.join(process.cwd(), "4geeks-com");
 
@@ -40,6 +41,7 @@ function walkYamlFiles(dir: string): string[] {
 
 export const consentLegacyKeysValidator: Validator = {
   name: "consent-legacy-keys",
+  issueCodes: CONSENT_LEGACY_KEYS_ISSUE_CODES,
   description: "Flags obsolete marketing_text / sms_text keys inside consent: blocks",
   apiExposed: true,
   estimatedDuration: "fast",

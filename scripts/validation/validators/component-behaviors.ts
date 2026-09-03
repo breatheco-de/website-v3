@@ -9,6 +9,7 @@ import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { resolveComponentBehaviors } from "../../../shared/component-behaviors";
 import { getDefaultContentRoot } from "../../../server/site-config";
+import { COMPONENT_BEHAVIORS_ISSUE_CODES } from "./component-behaviors.issueCodes";
 
 function findRegistryRoots(): string[] {
   const roots: string[] = [];
@@ -55,6 +56,7 @@ function hasCtaTracking(fieldEditors: Record<string, string>): boolean {
 
 export const componentBehaviorsValidator: Validator = {
   name: "component-behaviors",
+  issueCodes: COMPONENT_BEHAVIORS_ISSUE_CODES,
   description:
     "Ensures component schema.yml declares behaviors for form-settings, listing, schema_org, and ecommerce signals",
   apiExposed: true,

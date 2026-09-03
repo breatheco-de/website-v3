@@ -23,6 +23,12 @@ export const EVENT_TYPES = [
   "agent_session_started",
   "agent_session_note",
   "agent_session_summarized",
+  "proposal_created",
+  "proposal_applied_progress",
+  "proposal_finished",
+  "proposal_acknowledged",
+  "proposal_rejected",
+  "proposal_withdrawn",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -62,6 +68,12 @@ export const EVENT_TYPE_META: Record<EventType, EventTypeMeta> = {
   agent_session_started: { outbox: "audit", affectsWriteGeneration: false },
   agent_session_note: { outbox: "audit", affectsWriteGeneration: false },
   agent_session_summarized: { outbox: "audit", affectsWriteGeneration: false },
+  proposal_created: { outbox: "audit", affectsWriteGeneration: false },
+  proposal_applied_progress: { outbox: "audit", affectsWriteGeneration: false },
+  proposal_finished: { outbox: "audit", affectsWriteGeneration: false },
+  proposal_acknowledged: { outbox: "audit", affectsWriteGeneration: false },
+  proposal_rejected: { outbox: "audit", affectsWriteGeneration: false },
+  proposal_withdrawn: { outbox: "audit", affectsWriteGeneration: false },
 };
 
 export function isOutboxDispatchable(type: EventType): boolean {

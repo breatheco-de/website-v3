@@ -57,7 +57,7 @@ export default function SeoGeoSettingsPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+      <div className="max-w-7xl mx-auto px-4 pt-8 pb-24 space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
           <div className="flex items-start gap-4 min-w-0 flex-1">
             <Button variant="ghost" size="icon" asChild data-testid="button-seo-geo-settings-back">

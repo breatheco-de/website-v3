@@ -8,9 +8,11 @@
 
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
+import { SCHEMA_ISSUE_CODES } from "./schema.issueCodes";
 
 export const schemaValidator: Validator = {
   name: "schema",
+  issueCodes: SCHEMA_ISSUE_CODES,
   description: "Validates Schema.org references exist in schema-org.yml",
   apiExposed: true,
   estimatedDuration: "fast",

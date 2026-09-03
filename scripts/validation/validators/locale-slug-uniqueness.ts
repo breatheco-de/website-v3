@@ -5,6 +5,7 @@
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { getAllConfigs } from "../../../server/content-types";
 import { localeUrlSlugFromPageData } from "../../../server/locale-url-slug";
+import { LOCALE_SLUG_UNIQUENESS_ISSUE_CODES } from "./locale-slug-uniqueness.issueCodes";
 
 function hasPerLocaleUrlPattern(urlPattern?: Record<string, string>): boolean {
   if (!urlPattern) return false;
@@ -75,6 +76,7 @@ function resolveLocaleSlugInfo(
 
 export const localeSlugUniquenessValidator: Validator = {
   name: "locale-slug-uniqueness",
+  issueCodes: LOCALE_SLUG_UNIQUENESS_ISSUE_CODES,
   description:
     "Warns when the same public URL slug is reused across locales of one YAML entry",
   apiExposed: true,

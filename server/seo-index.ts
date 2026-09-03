@@ -51,6 +51,7 @@ export {
   listBrokenClusterRefs,
   isClusterFilterBucket,
   CLUSTER_FILTER_BUCKETS,
+  enrichClusterBucketRowsWithKeywordMetrics,
   type BrokenClusterRefReason,
   type BrokenClusterRefRow,
   type ClusterBucket,

@@ -39,7 +39,7 @@ export type DiagnosticsQueueIssue = {
   slug?: string;
   url?: string;
   file?: string;
-  help?: { title: string; summary: string };
+  help?: { title: string; summary?: string; incomplete?: boolean };
   next_actions?: Array<{ tool: string; reason: string; priority?: string }>;
   staff_context?: string;
 };

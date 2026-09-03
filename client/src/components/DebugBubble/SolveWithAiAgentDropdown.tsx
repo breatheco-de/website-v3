@@ -1,3 +1,4 @@
+import type { ComponentType, SVGProps } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -23,26 +24,39 @@ export type SolveWithAiAgentSelectPayload = {
   prefillUrlPrefix?: string;
 };
 
+type TriggerIcon = ComponentType<SVGProps<SVGSVGElement> & { className?: string }>;
+
 export interface SolveWithAiAgentDropdownProps {
-  label: string;
+  label?: string;
   prompt: string;
   disabled?: boolean;
   onAgentSelect: (payload: SolveWithAiAgentSelectPayload) => void;
   testId?: string;
-  buttonVariant?: "default" | "outline" | "secondary";
+  buttonVariant?: "default" | "outline" | "secondary" | "ghost";
+  /** Compact control for dense tables. */
+  size?: "default" | "sm";
+  /** Leading icon on the trigger; defaults to sparkles. */
+  icon?: TriggerIcon;
+  /** Accessible name when `label` is empty (icon-only). */
+  ariaLabel?: string;
   className?: string;
 }
 
 export function SolveWithAiAgentDropdown({
-  label,
+  label = "",
   prompt,
   disabled = false,
   onAgentSelect,
   testId = "solve-with-ai-agent",
   buttonVariant = "default",
+  size = "default",
+  icon: Icon = IconSparkles,
+  ariaLabel,
   className,
 }: SolveWithAiAgentDropdownProps) {
   const { toast } = useToast();
+  const compact = size === "sm";
+  const visibleLabel = label.trim();
 
   async function handleSelect(agentId: SolveWithAiAgentId) {
     const item = SOLVE_WITH_AI_MENU.find((m) => m.id === agentId);
@@ -75,13 +89,15 @@ export function SolveWithAiAgentDropdown({
         <Button
           type="button"
           variant={buttonVariant}
+          size={compact ? "sm" : "default"}
           disabled={disabled || !prompt.trim()}
-          className={cn(className)}
+          className={cn(compact && "h-7 px-2 text-xs gap-1", className)}
           data-testid={`button-${testId}`}
+          aria-label={visibleLabel ? undefined : (ariaLabel ?? "Agent")}
         >
-          <IconSparkles className="h-4 w-4" />
-          {label}
-          <IconChevronDown className="h-4 w-4 opacity-70" />
+          <Icon className={cn(compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
+          {visibleLabel || null}
+          <IconChevronDown className={cn(compact ? "h-3 w-3 opacity-70" : "h-4 w-4 opacity-70")} />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

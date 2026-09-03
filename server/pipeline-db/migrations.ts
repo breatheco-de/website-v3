@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import type { PipelineMigration } from "./types";
 import { indexExists, tableExists, tableHasColumn } from "./types";
 
-export const PIPELINE_SCHEMA_VERSION = 7;
+export const PIPELINE_SCHEMA_VERSION = 8;
 
 export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
   {
@@ -129,6 +129,56 @@ export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
       db.exec(`
         CREATE INDEX IF NOT EXISTS idx_events_agent_session
         ON events(site, agent_session_id, created_at);
+      `);
+    },
+  },
+  {
+    version: 8,
+    name: "content_proposals",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS content_proposals (
+          id TEXT PRIMARY KEY,
+          site TEXT NOT NULL,
+          fingerprint TEXT NOT NULL,
+          status TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          category TEXT NOT NULL,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          rationale TEXT,
+          documentation_json TEXT NOT NULL DEFAULT '{}',
+          related_issue_ids_json TEXT NOT NULL DEFAULT '[]',
+          proposer_username TEXT NOT NULL,
+          proposer_actor_json TEXT NOT NULL DEFAULT '{}',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          claim_json TEXT,
+          tags_json TEXT NOT NULL DEFAULT '[]',
+          search_text TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS content_proposal_entries (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          proposal_id TEXT NOT NULL,
+          entry_key TEXT NOT NULL,
+          locale TEXT NOT NULL,
+          variant TEXT,
+          status TEXT NOT NULL,
+          ops_json TEXT NOT NULL DEFAULT '[]',
+          baseline_context_json TEXT NOT NULL DEFAULT '{}',
+          last_error TEXT,
+          applied_at INTEGER,
+          applied_by TEXT,
+          FOREIGN KEY (proposal_id) REFERENCES content_proposals(id)
+        );
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_content_proposals_site_status
+          ON content_proposals(site, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_content_proposals_fingerprint
+          ON content_proposals(site, fingerprint, status);
+        CREATE INDEX IF NOT EXISTS idx_content_proposal_entries_proposal
+          ON content_proposal_entries(proposal_id);
       `);
     },
   },

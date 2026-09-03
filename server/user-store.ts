@@ -25,11 +25,22 @@ import {
   type GlobalCapability,
   type CapabilityName,
 } from "../shared/capabilities";
+import {
+  AGENTIC_SWARM_ROLE_IDS,
+  AGENTIC_SWARM_ROLES_BY_ID,
+  isAgenticSwarmRoleId,
+  type AgenticSwarmRoleId,
+} from "../shared/agentic-swarm-roles";
 import { child } from "./logger";
 const log = child({ module: "user-store" });
 
 export type { ScopedCapability, GlobalCapability, CapabilityName };
 export { SCOPED_CAPABILITIES, GLOBAL_CAPABILITIES, ALL_CAPABILITIES, CAPABILITY_REGISTRY };
+export {
+  AGENTIC_SWARM_ROLE_IDS,
+  AGENTIC_SWARM_ROLES_BY_ID,
+  isAgenticSwarmRoleId,
+};
 
 function getLocalPath(): string {
   const platformPath = path.join(process.cwd(), platformUserStoreLocalFilename());
@@ -55,6 +66,8 @@ export interface RoleDefinition {
   label: string;
   description?: string;
   capabilities: CapabilityGrant[];
+  /** True = MCP swarm agent role (hidden from Security Roles list). */
+  agentic?: boolean;
 }
 
 export interface UserRecord {
@@ -116,6 +129,11 @@ export function resolveMcpRoleId(roleId: string): string {
 
 export function isBuiltInRole(roleId: string): boolean {
   return (BUILT_IN_ROLE_IDS as readonly string[]).includes(roleId);
+}
+
+/** Built-in staff roles or code-seeded agentic swarm pack — not deletable from admin. */
+export function isProtectedRole(roleId: string): boolean {
+  return isBuiltInRole(roleId) || isAgenticSwarmRoleId(roleId);
 }
 
 const BUILT_IN_USER_ADMIN_ROLE: RoleDefinition = {
@@ -184,7 +202,46 @@ function cloneRoleDefinition(def: RoleDefinition): RoleDefinition {
       name: g.name,
       ...(g.contentTypes !== undefined ? { contentTypes: g.contentTypes } : {}),
     })),
+    ...(def.agentic ? { agentic: true } : {}),
   };
+}
+
+function agenticSwarmRoleFromCode(roleId: AgenticSwarmRoleId): RoleDefinition {
+  const def = AGENTIC_SWARM_ROLES_BY_ID[roleId];
+  return cloneRoleDefinition({
+    label: def.label,
+    description: def.description,
+    capabilities: def.capabilities.map((g) => ({
+      name: g.name,
+      ...(g.contentTypes !== undefined ? { contentTypes: g.contentTypes } : {}),
+    })),
+    agentic: true,
+  });
+}
+
+/**
+ * Seed / refresh agentic swarm roles from code.
+ * Missing → create. Present with agentic → refresh label/caps/description.
+ * Never marks a non-agentic custom role as agentic.
+ * @returns true when at least one role was newly created (caller should persist).
+ */
+export function ensureAgenticSwarmRoles(roles: Record<string, RoleDefinition>): boolean {
+  let created = false;
+  for (const roleId of AGENTIC_SWARM_ROLE_IDS) {
+    const codeDef = agenticSwarmRoleFromCode(roleId);
+    const existing = roles[roleId];
+    if (!existing) {
+      roles[roleId] = codeDef;
+      created = true;
+      continue;
+    }
+    if (!existing.agentic) {
+      // Do not overwrite a staff custom role that reused the id.
+      continue;
+    }
+    roles[roleId] = codeDef;
+  }
+  return created;
 }
 
 /** Code-shipped definition for a built-in role (before staff description override). */
@@ -321,7 +378,7 @@ export function ensureDeleteVariantOnCreateVariantRoles(
 ): boolean {
   let changed = false;
   for (const [roleId, role] of Object.entries(roles)) {
-    if (isBuiltInRole(roleId)) continue;
+    if (isBuiltInRole(roleId) || role?.agentic || isAgenticSwarmRoleId(roleId)) continue;
     if (!role?.capabilities) continue;
     const createGrant = role.capabilities.find((g) => g.name === "content_create_variant");
     if (!createGrant) continue;
@@ -352,7 +409,7 @@ export function ensureContentViewOnEditorRoles(
 ): boolean {
   let changed = false;
   for (const [roleId, role] of Object.entries(roles)) {
-    if (isBuiltInRole(roleId)) continue;
+    if (isBuiltInRole(roleId) || role?.agentic || isAgenticSwarmRoleId(roleId)) continue;
     if (!role?.capabilities) continue;
     if (role.capabilities.some((g) => g.name === "content_view")) continue;
 
@@ -382,7 +439,7 @@ export function ensureContentViewOnEditorRoles(
 export function migrateSeoEditSplit(roles: Record<string, RoleDefinition>): boolean {
   let changed = false;
   for (const [roleId, role] of Object.entries(roles)) {
-    if (isBuiltInRole(roleId)) continue;
+    if (isBuiltInRole(roleId) || role?.agentic || isAgenticSwarmRoleId(roleId)) continue;
     if (!role?.capabilities) continue;
     const seoGrant = role.capabilities.find((g) => g.name === "seo_edit");
     if (!seoGrant) continue;
@@ -425,6 +482,9 @@ function finishLoad(persist: "local" | "all"): void {
   }
   if (ensureDeleteVariantOnCreateVariantRoles(state.roles)) {
     log.info("[UserStore] Migrated custom roles: added content_delete_variant from content_create_variant");
+  }
+  if (ensureAgenticSwarmRoles(state.roles)) {
+    log.info("[UserStore] Seeded agentic swarm roles");
   }
   if (persist === "all") save();
   else saveLocal();
@@ -580,7 +640,12 @@ function ensureLoaded(): void {
     if (!state.users) state.users = {};
     if (!state.pendingUsers) state.pendingUsers = {};
     backfillMissingUserIds();
+    const seeded = ensureAgenticSwarmRoles(state.roles);
     loaded = true;
+    if (seeded) {
+      log.info("[UserStore] Seeded agentic swarm roles");
+      save();
+    }
   }
 }
 
@@ -1123,6 +1188,9 @@ export function deleteRole(roleId: string): { ok: boolean; error?: string } {
   ensureLoaded();
   if (isBuiltInRole(roleId)) {
     return { ok: false, error: `The built-in ${roleId} role cannot be deleted` };
+  }
+  if (isAgenticSwarmRoleId(roleId)) {
+    return { ok: false, error: `The agentic swarm role ${roleId} cannot be deleted` };
   }
   if (!state.roles[roleId]) {
     return { ok: false, error: "Role not found" };

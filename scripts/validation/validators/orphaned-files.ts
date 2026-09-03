@@ -1,6 +1,7 @@
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import * as fs from "fs";
 import * as path from "path";
+import { ORPHANED_FILES_ISSUE_CODES } from "./orphaned-files.issueCodes";
 
 const CONTENT_ROOT = path.resolve("4geeks-com");
 
@@ -26,6 +27,7 @@ function walkDir(dir: string, results: string[] = []): string[] {
 
 export const orphanedFilesValidator: Validator = {
   name: "orphaned-files",
+  issueCodes: ORPHANED_FILES_ISSUE_CODES,
   description: "Detects orphaned content files left behind by removed systems (e.g. experiments.yml)",
   apiExposed: true,
   estimatedDuration: "fast",

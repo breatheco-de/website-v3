@@ -34,8 +34,10 @@ const StoreEcommercePage = lazy(() => import("@/pages/StoreEcommercePage"));
 const StoreProductDetailPage = lazy(() => import("@/pages/StoreProductDetailPage"));
 const ConversionsPage = lazy(() => import("@/pages/ConversionsPage"));
 const McpServerPage = lazy(() => import("@/pages/McpServerPage"));
+const AgentsOrgChartPage = lazy(() => import("@/pages/AgentsOrgChartPage"));
 const ErrorLogPage = lazy(() => import("@/pages/ErrorLogPage"));
 const BackgroundPipelinePage = lazy(() => import("@/pages/BackgroundPipelinePage"));
+const ProposalsPage = lazy(() => import("@/pages/ProposalsPage"));
 const PrivateOverlays = lazy(() => import("@/pages/PrivateOverlays"));
 const VariablesPage = lazy(() => import("@/pages/VariablesPage"));
 
@@ -75,6 +77,13 @@ function BlogManageRedirect() {
 function SeoGeoRedirect() {
   if (typeof window !== "undefined") {
     window.location.replace("/private/diagnostics/seo");
+  }
+  return null;
+}
+
+function AgentsRedirect() {
+  if (typeof window !== "undefined") {
+    window.location.replace("/private/agents/orgchart");
   }
   return null;
 }
@@ -151,9 +160,15 @@ export default function PrivateRouter() {
           <Route path="/private/security/auth" component={SecurityPage} />
           <Route path="/private/security/captcha" component={SecurityPage} />
           <Route path="/private/security" component={SecurityPage} />
+          <Route path="/private/mcp-server/connection" component={McpServerPage} />
+          <Route path="/private/mcp-server/tools" component={McpServerPage} />
           <Route path="/private/mcp-server" component={McpServerPage} />
+          <Route path="/private/agents/orgchart" component={AgentsOrgChartPage} />
+          <Route path="/private/agents" component={AgentsRedirect} />
           <Route path="/private/error-log" component={ErrorLogPage} />
           <Route path="/private/background-pipeline" component={BackgroundPipelinePage} />
+          <Route path="/private/proposals/:id" component={ProposalsPage} />
+          <Route path="/private/proposals" component={ProposalsPage} />
           <Route path="/private/overlays" component={PrivateOverlays} />
           <Route component={NotFound} />
         </Switch>

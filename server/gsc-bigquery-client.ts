@@ -9,6 +9,7 @@ import {
   parseSearchConsoleBigQuerySettings,
   type SearchConsoleBigQuerySettings,
 } from "./settings";
+import { BigQuery } from "@google-cloud/bigquery";
 import {
   createBigQueryClientForProject,
   resolveBigQueryCredentials,
@@ -194,8 +195,9 @@ export async function queryUrlImpressionsForDate(
         AND search_type = 'WEB'
       GROUP BY query, url
     `,
-    params: { d: date },
-    types: { d: "DATE" },
+    // Pass a BigQuery DATE value — `types: { d: "DATE" }` with a plain string
+    // binds incorrectly and returns zero rows against partitioned GSC tables.
+    params: { d: BigQuery.date(date) },
     location: settings.location || undefined,
     maximumBytesBilled: "10000000000",
   });

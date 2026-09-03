@@ -46,6 +46,9 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `list_entry_seo` | SEO listing; **unfiltered = minimal sample**; pass `slugs` for full meta |
 | `create_entry` | Create YAML entry (draft-first or live shared-layout); not for DB-backed types |
 | `update_fields` | Single-entry field writes (meta + body + one section); `updates[]` length ≥ 1 |
+| `propose_change` | Store an entry-change proposal or issue handoff notes (does not write YAML). Caps: `content_view` or `seo_edit` |
+| `list_proposals` | List / get / search proposals; `issue_id` filters to linked only. Same caps as `propose_change` |
+| `update_proposal` | Lifecycle `action`: claim, release, withdraw, apply, acknowledge, reject. Caps: `content_edit_text` or `seo_edit`; four-eyes on apply/ack/reject |
 | `update_meta_fields` | Multi-entry meta-only bulk (same `updates[]` across `slugs[]`, max 50) |
 | `add_section` / `remove_section` / `reorder_sections` / `replace_entry_sections` | Section topology |
 | `translate_entry` | Translate locale fields (attached) or sections (detached/classic); draft-first for new locales |

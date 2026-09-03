@@ -23,6 +23,7 @@ import {
   type EditorHint,
   type FieldMappingValue,
 } from "@shared/validateEditorFieldTypes";
+import { EDITOR_FIELD_TYPES_ISSUE_CODES } from "./editor-field-types.issueCodes";
 
 function isSharedSingleTemplate(filePath: string): boolean {
   const base = filePath.split(/[/\\]/).pop() || "";
@@ -60,6 +61,7 @@ function mergedEditorForConfig(
 
 export const editorFieldTypesValidator: Validator = {
   name: "editor-field-types",
+  issueCodes: EDITOR_FIELD_TYPES_ISSUE_CODES,
   description:
     "Validates content-type editor types/schemas and that live Field values match those contracts",
   apiExposed: true,

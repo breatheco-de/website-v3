@@ -59,6 +59,25 @@ function CursorSetup({ httpMcpConfig }: SetupSnippets) {
   );
 }
 
+function GenericSetup({ httpMcpConfig }: SetupSnippets) {
+  return (
+    <div className="space-y-4">
+      <McpSetupSteps>
+        <li>
+          Open your AI app&apos;s <span className="text-foreground font-medium">MCP / connectors</span>{" "}
+          settings (wording varies by product).
+        </li>
+        <li>Add a custom HTTP MCP server with this config (URL only — OAuth handles login):</li>
+      </McpSetupSteps>
+      <McpCodeBlock code={httpMcpConfig} testId="text-mcp-config-generic" />
+      <p className="text-xs text-muted-foreground">
+        Complete the OAuth consent page when prompted, then reload tools if they do not appear. Use a named agent
+        above when your app has a dedicated guide.
+      </p>
+    </div>
+  );
+}
+
 function ClaudeCodeSetup({ claudeCodeCli, httpMcpConfig }: SetupSnippets) {
   return (
     <div className="space-y-4">
@@ -288,9 +307,11 @@ const SETUP_BY_TAB: Record<McpSetupTabId, (snippets: SetupSnippets) => ReactNode
   grok: GrokSetup,
   perplexity: PerplexitySetup,
   copilot: CopilotSetup,
+  generic: GenericSetup,
 };
 
-const TAB_LABELS: { id: McpSetupTabId; label: string }[] = [
+/** Shared agent picker labels (wizard agent phase + tab bar). */
+export const MCP_AGENT_SETUP_LABELS: { id: McpSetupTabId; label: string }[] = [
   { id: "cursor", label: "Cursor" },
   { id: "claude-code", label: "Claude Code" },
   { id: "claude-desktop", label: "Claude Desktop" },
@@ -299,6 +320,7 @@ const TAB_LABELS: { id: McpSetupTabId; label: string }[] = [
   { id: "grok", label: "Grok" },
   { id: "perplexity", label: "Perplexity" },
   { id: "copilot", label: "Copilot" },
+  { id: "generic", label: "Generic MCP" },
 ];
 
 export function McpAgentSetupTabs({
@@ -367,14 +389,14 @@ export function McpAgentSetupTabs({
       className={className}
     >
       <ToggleButtonBarList className="w-full" data-testid="tabs-mcp-agent-setup-list">
-        {TAB_LABELS.map(({ id, label }) => (
+        {MCP_AGENT_SETUP_LABELS.map(({ id, label }) => (
           <ToggleButtonBarTrigger key={id} value={id} data-testid={`tab-setup-${id}`}>
             {label}
           </ToggleButtonBarTrigger>
         ))}
       </ToggleButtonBarList>
 
-      {TAB_LABELS.map(({ id }) => {
+      {MCP_AGENT_SETUP_LABELS.map(({ id }) => {
         const Panel = SETUP_BY_TAB[id];
         return (
           <TabsContent key={id} value={id} className="mt-4">

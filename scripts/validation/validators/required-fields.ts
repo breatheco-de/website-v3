@@ -22,6 +22,7 @@ import {
   isSharedLayoutType,
 } from "../../../server/shared-layout-entry";
 import { getTrackingSettings } from "../../../server/settings";
+import { REQUIRED_FIELDS_ISSUE_CODES } from "./required-fields.issueCodes";
 
 function trackingOpts(contentRoot?: string): {
   conversionNames: string[];
@@ -84,6 +85,7 @@ function emitTypeLevelFillIntentIssues(
 
 export const requiredFieldsValidator: Validator = {
   name: "required-fields",
+  issueCodes: REQUIRED_FIELDS_ISSUE_CODES,
   description:
     "Validates editor.required fields (true | attached) are satisfied on live entries, and that required fields declare fill_intent",
   apiExposed: true,

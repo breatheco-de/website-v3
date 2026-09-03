@@ -4,6 +4,7 @@ import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { escapeTemplateVars } from "../../../shared/templateVars";
 import { getAllDirectories } from "../../../server/content-types";
+import { HERO_IMAGE_TAGS_ISSUE_CODES } from "./hero-image-tags.issueCodes";
 
 const MARKETING_CONTENT_DIR = path.join(process.cwd(), "4geeks-com");
 const REGISTRY_PATH = path.join(MARKETING_CONTENT_DIR, "image-registry.json");
@@ -133,6 +134,7 @@ function isUrl(s: string): boolean {
 
 export const heroImageTagsValidator: Validator = {
   name: "hero-image-tags",
+  issueCodes: HERO_IMAGE_TAGS_ISSUE_CODES,
   description: "Checks that images used in hero sections have the 'hero' tag in the registry",
   apiExposed: true,
   estimatedDuration: "medium",

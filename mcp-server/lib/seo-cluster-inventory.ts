@@ -13,12 +13,20 @@ import {
 } from "../../server/seo-index.js";
 import {
   isClusterFilterBucket,
+  enrichClusterBucketRowsWithKeywordMetrics,
   type ClusterFilterBucket,
   type ClusterBucketEntryRow,
 } from "../../server/seo-cluster-stats.js";
+import { resolveKeywordMetrics } from "../../server/openrush-keyword-cache.js";
+import { getDefaultContentFolder } from "../../server/site-config.js";
+import path from "path";
 
 export { isClusterFilterBucket };
 export type { ClusterFilterBucket };
+
+function contentFolderFromRoot(contentRoot: string): string {
+  return path.basename(path.resolve(contentRoot)) || getDefaultContentFolder();
+}
 
 function siblingLocales(
   index: SeoIndex,
@@ -38,6 +46,7 @@ function siblingLocales(
 function memberFromId(
   index: SeoIndex,
   id: string,
+  contentRoot: string,
 ): {
   id: string;
   contentType: string;
@@ -47,11 +56,22 @@ function memberFromId(
   main_keyword: string | null;
   kw_monthly_volume: number | null;
   kw_difficulty: number | null;
+  keyword_metrics: ReturnType<typeof resolveKeywordMetrics>;
   is_pillar: boolean;
   sibling_locales: string[];
 } {
+  const folder = contentFolderFromRoot(contentRoot);
   const row = index.entries[id];
   if (row) {
+    const yamlVol = typeof row.kw_monthly_volume === "number" ? row.kw_monthly_volume : null;
+    const yamlDiff = typeof row.kw_difficulty === "number" ? row.kw_difficulty : null;
+    const keyword_metrics = resolveKeywordMetrics({
+      keyword: row.main_keyword,
+      contentRoot,
+      contentFolder: folder,
+      yamlVolume: yamlVol,
+      yamlDifficulty: yamlDiff,
+    });
     return {
       id,
       contentType: row.content_type,
@@ -59,8 +79,9 @@ function memberFromId(
       locale: row.locale,
       path: row.path || "",
       main_keyword: row.main_keyword ?? null,
-      kw_monthly_volume: typeof row.kw_monthly_volume === "number" ? row.kw_monthly_volume : null,
-      kw_difficulty: typeof row.kw_difficulty === "number" ? row.kw_difficulty : null,
+      kw_monthly_volume: keyword_metrics.kw_monthly_volume,
+      kw_difficulty: keyword_metrics.kw_difficulty,
+      keyword_metrics,
       is_pillar: row.is_pillar === true,
       sibling_locales: siblingLocales(index, row.content_type, row.slug, row.locale),
     };
@@ -69,6 +90,11 @@ function memberFromId(
   const contentType = parts[0] || "unknown";
   const slug = parts.slice(1, -1).join("/") || parts[1] || id;
   const locale = parts[parts.length - 1] || "en";
+  const keyword_metrics = resolveKeywordMetrics({
+    keyword: null,
+    contentRoot,
+    contentFolder: folder,
+  });
   return {
     id,
     contentType,
@@ -78,6 +104,7 @@ function memberFromId(
     main_keyword: null,
     kw_monthly_volume: null,
     kw_difficulty: null,
+    keyword_metrics,
     is_pillar: false,
     sibling_locales: siblingLocales(index, contentType, slug, locale),
   };
@@ -149,6 +176,7 @@ export function buildListSeoClusterEntries(
   pageSize: number;
 } {
   const index = loadSeoIndex(contentRoot);
+  const folder = contentFolderFromRoot(contentRoot);
   const result = listClusterBucketEntries(index, {
     bucket: opts.bucket,
     q: opts.q,
@@ -157,9 +185,13 @@ export function buildListSeoClusterEntries(
     ci: contentIndex,
     contentRoot,
   });
+  const enriched = enrichClusterBucketRowsWithKeywordMetrics(result.items, {
+    contentRoot,
+    contentFolder: folder,
+  });
   return {
     bucket: opts.bucket,
-    items: result.items.map((row) => enrichBucketRow(index, row)),
+    items: enriched.map((row) => enrichBucketRow(index, row)),
     total: result.total,
     page: result.page,
     pageSize: result.pageSize,
@@ -193,6 +225,6 @@ export function buildGetSeoCluster(
     sibling_locales: hub
       ? siblingLocales(index, hub.content_type, hub.slug, hub.locale)
       : [],
-    members: cluster.members.map((id) => memberFromId(index, id)),
+    members: cluster.members.map((id) => memberFromId(index, id, contentRoot)),
   };
 }

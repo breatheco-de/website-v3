@@ -5,11 +5,13 @@
 
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { getContentTypeConfig } from "../../../server/content-types";
+import { STATIC_FIELD_OVERRIDES_ISSUE_CODES } from "./static-field-overrides.issueCodes";
 
 const FIELD_OVERRIDES_KEY = "field_overrides";
 
 export const staticFieldOverridesValidator: Validator = {
   name: "static-field-overrides",
+  issueCodes: STATIC_FIELD_OVERRIDES_ISSUE_CODES,
   description:
     "Errors when static (no-database) entry YAML still contains a field_overrides bag — migrate to root keys",
   apiExposed: true,

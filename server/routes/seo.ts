@@ -224,6 +224,7 @@ import {
   requireStaffSession,
 } from "./_helpers";
 import { child } from "../logger";
+import { api } from "../rate-limit/api";
 import {
   assertInspectBatch,
   buildSummary,
@@ -812,16 +813,26 @@ export function registerSeoRoutes(app: Express): void {
       }
 
       const contentRoot = getContentRoot(res);
+      const contentFolder = getContentRootName(res);
       const { loadSeoIndex, computeClusterHealth, listBrokenClusterRefs } = await import("../seo-index");
+      const {
+        buildOrganicPathTraffic,
+        lookupPathTraffic,
+        sumPathTraffic,
+      } = await import("../gsc-organic-path-traffic");
       const seoIndex = loadSeoIndex(contentRoot);
       const clusterHealth = computeClusterHealth(seoIndex, getCI(res), contentRoot);
       const brokenClusterRefs = listBrokenClusterRefs(seoIndex, getCI(res));
+      const organic = buildOrganicPathTraffic({ contentFolder });
       const clusters = Object.entries(seoIndex.clusters).map(([hubId, cluster]) => {
         const hub = seoIndex.entries[hubId];
         const keyword =
           typeof hub?.main_keyword === "string" && hub.main_keyword.trim()
             ? hub.main_keyword.trim()
             : null;
+        const hubPath = cluster.path || hub?.path || "";
+        const hubTraffic = lookupPathTraffic(organic.byPath, hubPath);
+        const memberTraffics: Array<ReturnType<typeof lookupPathTraffic>> = [];
         const members = cluster.members.map((id) => {
           const base = clusterMemberFromIndex(id, seoIndex.entries[id]);
           const updatedAt = resolveEntryUpdatedAt({
@@ -830,12 +841,16 @@ export function registerSeoRoutes(app: Express): void {
             locale: base.locale,
             contentRoot,
           });
+          const traffic = lookupPathTraffic(organic.byPath, base.path);
+          memberTraffics.push(traffic);
           return {
             ...base,
             updated_at: updatedAt,
             lastmod: toSitemapLastmod(updatedAt, false),
+            ...(traffic ? { traffic } : {}),
           };
         });
+        const clusterTraffic = sumPathTraffic([hubTraffic, ...memberTraffics]);
         return {
           hubId,
           pillarUrl: cluster.path,
@@ -845,6 +860,8 @@ export function registerSeoRoutes(app: Express): void {
           clusterSlugs: members.map((m) => m.slug),
           memberIds: cluster.members,
           clusterCount: cluster.members.length,
+          ...(hubTraffic ? { hubTraffic } : {}),
+          ...(clusterTraffic ? { clusterTraffic } : {}),
         };
       });
       const uniqueOrphans = brokenClusterRefs.map((row) => ({
@@ -870,6 +887,13 @@ export function registerSeoRoutes(app: Express): void {
         faqCoverage,
         schemaCoverage,
         indexRebuilt: !!seoIndex.rebuilt,
+        organicTraffic: {
+          window: organic.window,
+          days_present: organic.days_present,
+          days_in_window: organic.days_in_window,
+          days_expected: organic.days_expected,
+          incomplete: organic.incomplete,
+        },
         totals: {
           totalPages,
           withPillar,
@@ -892,6 +916,7 @@ export function registerSeoRoutes(app: Express): void {
         loadSeoIndex,
         listClusterBucketEntries,
         isClusterFilterBucket,
+        enrichClusterBucketRowsWithKeywordMetrics,
       } = await import("../seo-index");
       if (!isClusterFilterBucket(bucketRaw)) {
         res.status(400).json({
@@ -905,6 +930,7 @@ export function registerSeoRoutes(app: Express): void {
       const pageSizeRaw = parseInt(String(req.query.pageSize || "25"), 10) || 25;
       const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
       const contentRoot = getContentRoot(res);
+      const contentFolder = getContentRootName(res);
       const seoIndex = loadSeoIndex(contentRoot);
       const result = listClusterBucketEntries(seoIndex, {
         bucket: bucketRaw,
@@ -914,7 +940,13 @@ export function registerSeoRoutes(app: Express): void {
         ci: getCI(res),
         contentRoot,
       });
-      res.json(result);
+      res.json({
+        ...result,
+        items: enrichClusterBucketRowsWithKeywordMetrics(result.items, {
+          contentRoot,
+          contentFolder,
+        }),
+      });
     } catch (err) {
       res.status(500).json({ error: "Failed to list cluster entries", message: String(err) });
     }
@@ -990,6 +1022,28 @@ export function registerSeoRoutes(app: Express): void {
         };
       }
 
+      const yamlVol =
+        typeof row?.kw_monthly_volume === "number"
+          ? row.kw_monthly_volume
+          : typeof seo.kw_monthly_volume === "number"
+            ? seo.kw_monthly_volume
+            : null;
+      const yamlDiff =
+        typeof row?.kw_difficulty === "number"
+          ? row.kw_difficulty
+          : typeof seo.kw_difficulty === "number"
+            ? seo.kw_difficulty
+            : null;
+      const mainKeyword = row?.main_keyword || yamlKeyword;
+      const { resolveKeywordMetrics } = await import("../openrush-keyword-cache");
+      const keyword_metrics = resolveKeywordMetrics({
+        keyword: mainKeyword,
+        contentRoot,
+        contentFolder: contentRootName,
+        yamlVolume: yamlVol,
+        yamlDifficulty: yamlDiff,
+      });
+
       res.json({
         id,
         contentType,
@@ -999,19 +1053,10 @@ export function registerSeoRoutes(app: Express): void {
         page_title: pageTitle,
         description,
         path: row?.path || "",
-        main_keyword: row?.main_keyword || yamlKeyword,
-        kw_monthly_volume:
-          typeof row?.kw_monthly_volume === "number"
-            ? row.kw_monthly_volume
-            : typeof seo.kw_monthly_volume === "number"
-              ? seo.kw_monthly_volume
-              : null,
-        kw_difficulty:
-          typeof row?.kw_difficulty === "number"
-            ? row.kw_difficulty
-            : typeof seo.kw_difficulty === "number"
-              ? seo.kw_difficulty
-              : null,
+        main_keyword: mainKeyword,
+        kw_monthly_volume: yamlVol,
+        kw_difficulty: yamlDiff,
+        keyword_metrics,
         is_pillar: row?.is_pillar === true || seo.is_pillar === true,
         pillar_path:
           (typeof row?.pillar_path === "string" && row.pillar_path) ||
@@ -1529,11 +1574,13 @@ export function registerSeoRoutes(app: Express): void {
       const decayWindow = decayRaw === "28" ? 28 : 7;
       const pullLatest = String(req.query.pull_latest || "1") !== "0";
       const { buildOrganicOpportunities } = await import("../seo-organic-opportunities");
+      const ci = getCI(res);
       const data = await buildOrganicOpportunities({
         contentRoot: getContentRoot(res),
         contentFolder: getContentRootName(res),
         decayWindow,
         pullLatest,
+        isKnownUrl: (path) => ci.isKnownUrl(path),
       });
       res.json(data);
     } catch (err) {
@@ -1632,6 +1679,104 @@ export function registerSeoRoutes(app: Express): void {
     } catch (err) {
       log.error({ err }, "organic serp refresh failed");
       res.status(500).json({ error: err instanceof Error ? err.message : "SERP refresh failed" });
+    }
+  });
+
+  /**
+   * Force OpenRush inspect_keyword for an entry’s main keyword.
+   * Upserts shared keyword cache (partial merge); does not write YAML seo.kw_*.
+   */
+  api.post(app, "/api/seo/keyword/refresh", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const contentType = typeof req.body?.contentType === "string" ? req.body.contentType.trim() : "";
+      const slug = typeof req.body?.slug === "string" ? req.body.slug.trim() : "";
+      const locale = normalizeLocale(
+        (typeof req.body?.locale === "string" && req.body.locale) || getDefaultLocale(),
+      );
+      const keywordOverride =
+        typeof req.body?.keyword === "string" && req.body.keyword.trim()
+          ? req.body.keyword.trim()
+          : "";
+      if (!contentType || !slug) {
+        return res.status(400).json({ error: "contentType and slug are required" });
+      }
+      if (!isValidType(contentType)) {
+        return res.status(400).json({
+          error: `Invalid content type. Must be one of: ${getAllFolders().join(", ")}`,
+        });
+      }
+
+      const auth = await requireCapability(req, res, "seo_edit", contentType);
+      if (!auth.authorized) return;
+
+      const {
+        isOpenRushConfigured,
+        inspectKeywordQuery,
+        OPENRUSH_INSPECT_KEYWORD_CREDITS,
+      } = await import("../openrush-client");
+      const contentRoot = getContentRoot(res);
+      const contentFolder = getContentRootName(res);
+      if (!isOpenRushConfigured(contentRoot)) {
+        return res.status(400).json({
+          error: "OpenRush must be activated to refresh keyword metrics",
+          code: "openrush_inactive",
+        });
+      }
+
+      let keyword = keywordOverride;
+      if (!keyword) {
+        const { loadSeoIndex, seoEntryId } = await import("../seo-index");
+        const seoIndex = loadSeoIndex(contentRoot);
+        const row = seoIndex.entries[seoEntryId(contentType, slug, locale)];
+        const merged = getCI(res).loadMergedContent(contentType, slug, locale);
+        const data = (merged.data || {}) as Record<string, unknown>;
+        const seo =
+          data.seo && typeof data.seo === "object" && !Array.isArray(data.seo)
+            ? (data.seo as Record<string, unknown>)
+            : {};
+        const fromYaml =
+          typeof seo.main_keyword === "string" && seo.main_keyword.trim()
+            ? seo.main_keyword.trim()
+            : "";
+        const fromIndex =
+          typeof row?.main_keyword === "string" && row.main_keyword.trim()
+            ? row.main_keyword.trim()
+            : "";
+        keyword = fromYaml || fromIndex;
+      }
+      if (!keyword) {
+        return res.status(400).json({ error: "No keyword configured for this entry" });
+      }
+
+      const inspected = await inspectKeywordQuery({ keyword, contentRoot, contentFolder });
+      if (!inspected.ok || !inspected.metrics) {
+        return res.status(400).json({ error: inspected.error || "OpenRush keyword lookup failed" });
+      }
+
+      const volume = inspected.entry?.monthly_volume ?? inspected.metrics.monthly_volume;
+      const difficulty = inspected.entry?.kw_difficulty ?? inspected.metrics.kw_difficulty;
+      if (volume == null && difficulty == null && !inspected.entry) {
+        return res.status(400).json({
+          error: "OpenRush returned no volume or difficulty for this keyword",
+          keyword,
+          metrics: inspected.metrics,
+        });
+      }
+
+      res.json({
+        ok: true,
+        keyword: inspected.metrics.keyword,
+        kw_monthly_volume: volume,
+        kw_difficulty: difficulty,
+        fetched_at: inspected.entry?.fetched_at ?? null,
+        notes: inspected.entry?.notes ?? null,
+        source: "openrush_cache",
+        credits: OPENRUSH_INSPECT_KEYWORD_CREDITS,
+        credits_note: inspected.credits_note,
+      });
+    } catch (err) {
+      log.error({ err }, "keyword refresh failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Keyword refresh failed" });
     }
   });
 

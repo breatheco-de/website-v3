@@ -20,6 +20,7 @@ import {
 import { queueRelationIndexSet } from "../../../server/relation-index";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
 import * as path from "path";
+import { CONTENT_QUALITY_ISSUE_CODES } from "./content-quality.issueCodes";
 
 const CRITICAL_FIELDS = new Set(["title", "heading", "description", "subtitle", "tagline"]);
 
@@ -57,6 +58,7 @@ function isAttachedOverlayFile(
 
 export const contentQualityValidator: Validator = {
   name: "content-quality",
+  issueCodes: CONTENT_QUALITY_ISSUE_CODES,
   description: "Validates content quality: sections structure, translation coverage, empty fields, and internal links",
   apiExposed: true,
   estimatedDuration: "medium",

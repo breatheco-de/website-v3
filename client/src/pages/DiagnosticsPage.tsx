@@ -7,7 +7,6 @@ import { Link, useLocation, useSearch } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
@@ -221,6 +220,74 @@ function InfoPopover({ children, testId }: { children: React.ReactNode; testId?:
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 space-y-2 text-sm text-muted-foreground">
         {children}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Page-heading education for Diagnostics (paths / job model under Read more). */
+function DiagnosticsHowItWorksPopover() {
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const isDev = import.meta.env.DEV;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0"
+          aria-label="How diagnostics work"
+          data-testid="button-diagnostics-how-it-works"
+        >
+          <Info className="h-4 w-4 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[min(24rem,calc(100vw-2rem))] max-h-[min(28rem,70vh)] overflow-y-auto space-y-2 text-sm text-muted-foreground"
+      >
+        <p className="font-medium text-foreground">How diagnostics work</p>
+        <p>
+          Global Health shows one shared issue store in{" "}
+          <code className="text-xs">validation-cache.json</code>. Use{" "}
+          <strong className="text-foreground font-medium">Page or URL</strong> to filter by sitemap page;
+          open the live page + DebugBubble for in-context fixes (Page Analysis tab removed).
+          KPI (Errors/Warnings), Page or URL, Error scope, and Validators filters persist in the URL query
+          string so a refresh keeps your view.
+          <strong className="text-foreground font-medium"> Validation Coverage</strong> shows average entry-local
+          validator coverage and fully-covered URLs. Under Refresh, an in-flight
+          job shows while queued/running; otherwise the last <em>site-wide</em> run (Refresh / Hard refresh,
+          not a page save). Refresh / Hard refresh / Re-run validator update the store via a{" "}
+          <strong className="text-foreground font-medium">background worker</strong>; starting a new job asks for
+          confirm and shows the last full site-wide duration. The job panel shows milestones (fixed height, scrolls).
+          Cached issues refresh when the job finishes. Delete cache wipes the store until the next refresh.
+          Remove Legacy Issues drops v4→v5 migration orphans (`validator: legacy`) that normal re-checks never clear.
+          {isDev
+            ? " In development, Sync with production issues copies the GCS sidecar into local validation-cache.json (never uploads)."
+            : ""}{" "}
+          One job runs at a time per site.
+        </p>
+        <button
+          type="button"
+          className="text-xs text-primary underline-offset-2 hover:underline"
+          onClick={() => setShowAdvanced((v) => !v)}
+          data-testid="button-diagnostics-read-more"
+        >
+          {showAdvanced ? "Hide advanced" : "Read more (advanced)"}
+        </button>
+        {showAdvanced && (
+          <ul className="list-disc pl-5 text-xs space-y-1">
+            <li><code>server/services/diagnosticsJobService.ts</code> — parent job orchestration + IPC + confirm gate (<code>needs_confirm</code>)</li>
+            <li><code>scripts/validation/diagnostics-worker.ts</code> — forked worker that runs validators</li>
+            <li><code>{"{contentRoot}/validation-cache.json"}</code> — issue cache (GCS <code>{"{site}/sync/validation-cache.json"}</code> in prod). <code>lastFullRunAt</code> (per URL / any full stamp) vs <code>lastSiteWideRunAt</code> (Refresh / Hard refresh / site-wide validators)</li>
+            <li><code>scripts/validation/shared/runClass.ts</code> — <code>ENTRY_LOCAL_VALIDATOR_NAMES</code> drives coverage denominator</li>
+            <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes + results files (duration stats for confirm dialog)</li>
+            <li><code>client/src/components/diagnostics/global-health-url.ts</code> — Global Health query params (<code>kpi</code>, <code>path</code>, <code>scope</code>, <code>validators</code>)</li>
+            <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code> (<code>confirm: true</code> when starting), <code>GET /api/validation/cache-issues</code>, <code>GET /api/validation/cache-freshness</code>, <code>GET /api/validation/cache-freshness-urls</code>, <code>POST /api/validation/purge-legacy-issues</code>{isDev ? <>, <code>POST /api/validation/pull-from-gcs</code> (dev only)</> : null}</li>
+            <li>MCP <code>run_entry_diagnostics</code> — same confirm gate (<code>confirm_run_diagnostics</code>); mid-run poll returns URLs flushed since job start only</li>
+          </ul>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -866,8 +933,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const [resolvedOffset, setResolvedOffset] = useState(0);
   const RESOLVED_PAGE_SIZE = 50;
   const [jobPanel, setJobPanel] = useState<JobPanelState | null>(null);
-  const [educationOpen, setEducationOpen] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [clearCacheOpen, setClearCacheOpen] = useState(false);
   const [purgeLegacyOpen, setPurgeLegacyOpen] = useState(false);
   const [pullProductionOpen, setPullProductionOpen] = useState(false);
@@ -1516,69 +1581,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
 
   return (
     <div className="space-y-6">
-      <Card style={{ borderRadius: "0.8rem" }} data-testid="diagnostics-how-it-works">
-        <Collapsible open={educationOpen} onOpenChange={setEducationOpen}>
-          <CardContent className="p-4 space-y-2 text-sm text-muted-foreground">
-            <CollapsibleTrigger asChild>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 text-foreground font-medium text-left"
-                aria-expanded={educationOpen}
-                data-testid="button-diagnostics-how-it-works"
-              >
-                <Info className="h-4 w-4 shrink-0" />
-                <span className="flex-1">How diagnostics work</span>
-                <ChevronDown
-                  className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${educationOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="space-y-2">
-              <p>
-                Global Health shows one shared issue store in{" "}
-                <code className="text-xs">validation-cache.json</code>. Use{" "}
-                <strong className="text-foreground font-medium">Page or URL</strong> to filter by sitemap page;
-                open the live page + DebugBubble for in-context fixes (Page Analysis tab removed).
-                KPI (Errors/Warnings), Page or URL, Error scope, and Validators filters persist in the URL query
-                string so a refresh keeps your view.
-                <strong className="text-foreground font-medium"> Validation Coverage</strong> shows average entry-local
-                validator coverage and fully-covered URLs. Under Refresh, an in-flight
-                job shows while queued/running; otherwise the last <em>site-wide</em> run (Refresh / Hard refresh,
-                not a page save). Refresh / Hard refresh / Re-run validator update the store via a{" "}
-                <strong className="text-foreground font-medium">background worker</strong>; starting a new job asks for
-                confirm and shows the last full site-wide duration. The job panel shows milestones (fixed height, scrolls).
-                Cached issues refresh when the job finishes. Delete cache wipes the store until the next refresh.
-                Remove Legacy Issues drops v4→v5 migration orphans (`validator: legacy`) that normal re-checks never clear.
-                {isDev
-                  ? " In development, Sync with production issues copies the GCS sidecar into local validation-cache.json (never uploads)."
-                  : ""}{" "}
-                One job runs at a time per site.
-              </p>
-              <button
-                type="button"
-                className="text-xs text-primary underline-offset-2 hover:underline"
-                onClick={() => setShowAdvanced((v) => !v)}
-                data-testid="button-diagnostics-read-more"
-              >
-                {showAdvanced ? "Hide advanced" : "Read more (advanced)"}
-              </button>
-              {showAdvanced && (
-                <ul className="list-disc pl-5 text-xs space-y-1">
-                  <li><code>server/services/diagnosticsJobService.ts</code> — parent job orchestration + IPC + confirm gate (<code>needs_confirm</code>)</li>
-                  <li><code>scripts/validation/diagnostics-worker.ts</code> — forked worker that runs validators</li>
-                  <li><code>{"{contentRoot}/validation-cache.json"}</code> — issue cache (GCS <code>{"{site}/sync/validation-cache.json"}</code> in prod). <code>lastFullRunAt</code> (per URL / any full stamp) vs <code>lastSiteWideRunAt</code> (Refresh / Hard refresh / site-wide validators)</li>
-                  <li><code>scripts/validation/shared/runClass.ts</code> — <code>ENTRY_LOCAL_VALIDATOR_NAMES</code> drives coverage denominator</li>
-                  <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes + results files (duration stats for confirm dialog)</li>
-                  <li><code>client/src/components/diagnostics/global-health-url.ts</code> — Global Health query params (<code>kpi</code>, <code>path</code>, <code>scope</code>, <code>validators</code>)</li>
-                  <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code> (<code>confirm: true</code> when starting), <code>GET /api/validation/cache-issues</code>, <code>GET /api/validation/cache-freshness</code>, <code>GET /api/validation/cache-freshness-urls</code>, <code>POST /api/validation/purge-legacy-issues</code>{isDev ? <>, <code>POST /api/validation/pull-from-gcs</code> (dev only)</> : null}</li>
-                  <li>MCP <code>run_entry_diagnostics</code> — same confirm gate (<code>confirm_run_diagnostics</code>); mid-run poll returns URLs flushed since job start only</li>
-                </ul>
-              )}
-            </CollapsibleContent>
-          </CardContent>
-        </Collapsible>
-      </Card>
-
       {jobPanel && (
         <div
           className="rounded-lg border border-border overflow-hidden"
@@ -2786,6 +2788,7 @@ export default function DiagnosticsPage() {
                   <h1 className="text-lg font-semibold text-foreground" data-testid="text-diagnostics-title">
                     Diagnostics
                   </h1>
+                  <DiagnosticsHowItWorksPopover />
                 </div>
               </div>
               <div className="flex items-center gap-2">

@@ -28,6 +28,7 @@ import { getTrackingSettings, getAuthSettings, getAuthConversionEventConfig } fr
 import { loadAllFieldEditors } from "../../../server/component-registry";
 import { escapeTemplateVars, unescapeObjectVars } from "../../../shared/templateVars";
 import { getDefaultContentRoot } from "../../../server/site-config";
+import { FORMS_ISSUE_CODES } from "./forms.issueCodes";
 
 const CONTENT_ROOT = getDefaultContentRoot();
 const CONTENT_DIRS = getAllDirectories().map((dir) => path.join(CONTENT_ROOT, dir));
@@ -74,6 +75,7 @@ function contentTypeFromPath(filePath: string): string | null {
 
 export const formsValidator: Validator = {
   name: "forms",
+  issueCodes: FORMS_ISSUE_CODES,
   description:
     "Validates form conversion_name and fields.*.source.related_field (publish rules)",
   apiExposed: true,

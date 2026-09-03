@@ -13,6 +13,7 @@ import * as fs from "fs";
 import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { skipCrossEntryVariantRow } from "../shared/draftFiles";
+import { BROKEN_ANCHORS_ISSUE_CODES } from "./broken-anchors.issueCodes";
 
 const ANCHOR_FIELD_EXACT = new Set(["url", "cta_url", "href", "link"]);
 
@@ -63,6 +64,7 @@ function collectAnchorRefs(obj: unknown, fieldPath: string, refs: AnchorRef[]): 
 
 export const brokenAnchorsValidator: Validator = {
   name: "broken-anchors",
+  issueCodes: BROKEN_ANCHORS_ISSUE_CODES,
   description: "Validates that anchor URLs (#section) in content files resolve to a defined section_id",
   apiExposed: true,
   estimatedDuration: "fast",

@@ -71,7 +71,8 @@ export type McpSetupTabId =
   | "chatgpt"
   | "grok"
   | "perplexity"
-  | "copilot";
+  | "copilot"
+  | "generic";
 
 export const MCP_SETUP_TAB_IDS: McpSetupTabId[] = [
   "cursor",
@@ -82,6 +83,7 @@ export const MCP_SETUP_TAB_IDS: McpSetupTabId[] = [
   "grok",
   "perplexity",
   "copilot",
+  "generic",
 ];
 
 export function resolveCloudConnectorUrl(opts: {

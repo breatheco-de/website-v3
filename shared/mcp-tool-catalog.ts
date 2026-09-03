@@ -90,6 +90,9 @@ export const TOOL_GATES: Record<string, ToolGate> = {
   run_entry_diagnostics: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
   get_diagnostics_job: { kind: "canMutateMetrics" },
   update_issue: { kind: "anyCap", caps: ["content_edit_text", "seo_edit"] },
+  propose_change: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
+  list_proposals: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
+  update_proposal: { kind: "anyCap", caps: ["content_edit_text", "seo_edit"] },
 };
 
 export function hasCapAnyScope(grants: CatalogGrant[], cap: string): boolean {

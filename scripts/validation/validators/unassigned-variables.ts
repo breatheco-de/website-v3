@@ -19,6 +19,7 @@ import { getVariableManager } from "../../../server/variable-manager";
 import { getAuthSettings } from "../../../server/settings";
 import { getAllConfigs } from "../../../server/content-types";
 import { isGlobalEntry } from "../../../shared/authSignupFieldMap";
+import { UNASSIGNED_VARIABLES_ISSUE_CODES } from "./unassigned-variables.issueCodes";
 
 const TEMPLATE_RE =
   /\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}/g;
@@ -84,6 +85,7 @@ function isUnassigned(contentRoot: string, name: string): boolean {
 
 export const unassignedVariablesValidator: Validator = {
   name: "unassigned-variables",
+  issueCodes: UNASSIGNED_VARIABLES_ISSUE_CODES,
   description:
     "Flags used global.*/brand.* variables with no assigned default (YAML, signup field_map, OG preview.props)",
   apiExposed: true,

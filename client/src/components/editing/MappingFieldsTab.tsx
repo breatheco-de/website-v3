@@ -410,6 +410,40 @@ function SeoFieldsEditor({
     queryKey: ["/api/seo/overview"],
   });
 
+  const { data: entryKeywordMetrics } = useQuery<{
+    keyword_metrics?: {
+      openrush_configured: boolean;
+      source: string;
+      kw_monthly_volume: number | null;
+      kw_difficulty: number | null;
+      may_not_be_recent: boolean;
+      notes: string | null;
+      fetched_at: string | null;
+      stale: boolean;
+    };
+  }>({
+    queryKey: ["/api/seo/entry", contentType, slug, locale, "keyword-metrics-preview"],
+    enabled: !!contentType && !!slug && !!locale && !isVariantLayer,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const params = new URLSearchParams({ locale });
+      const res = await fetch(
+        `/api/seo/entry/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}?${params}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return {};
+      return res.json();
+    },
+  });
+  const resolvedKm = entryKeywordMetrics?.keyword_metrics;
+  const researchIncompleteForDisplay =
+    researchIncomplete &&
+    !(
+      resolvedKm?.source === "openrush_cache" &&
+      typeof resolvedKm.kw_monthly_volume === "number" &&
+      typeof resolvedKm.kw_difficulty === "number"
+    );
+
   const localeHubs = useMemo(() => {
     const loc = locale.toLowerCase();
     const prefix = `/${loc}/`;
@@ -536,7 +570,9 @@ function SeoFieldsEditor({
               <div>
                 <dt className="text-xs text-muted-foreground">Monthly search volume</dt>
                 <dd className="text-sm text-foreground" data-testid="text-seo-kw-monthly-volume-preview">
-                  {kwMonthlyVolume.trim() ? (
+                  {typeof resolvedKm?.kw_monthly_volume === "number" ? (
+                    resolvedKm.kw_monthly_volume.toLocaleString()
+                  ) : kwMonthlyVolume.trim() ? (
                     Number(kwMonthlyVolume).toLocaleString()
                   ) : (
                     <span className="italic text-muted-foreground font-normal">Not set</span>
@@ -546,12 +582,31 @@ function SeoFieldsEditor({
               <div>
                 <dt className="text-xs text-muted-foreground">Keyword difficulty (0–100)</dt>
                 <dd className="text-sm text-foreground" data-testid="text-seo-kw-difficulty-preview">
-                  {kwDifficulty.trim() || (
+                  {typeof resolvedKm?.kw_difficulty === "number" ? (
+                    resolvedKm.kw_difficulty
+                  ) : kwDifficulty.trim() ? (
+                    kwDifficulty
+                  ) : (
                     <span className="italic text-muted-foreground font-normal">Not set</span>
                   )}
                 </dd>
               </div>
-              {researchIncomplete ? (
+              {resolvedKm?.source === "openrush_cache" ? (
+                <p className="text-xs text-muted-foreground" data-testid="hint-seo-openrush-source">
+                  Live numbers come from OpenRush when it is active. YAML below is the backup if OpenRush is off.
+                </p>
+              ) : null}
+              {resolvedKm?.may_not_be_recent ? (
+                <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="hint-seo-may-not-be-recent">
+                  May not be recent — saved YAML estimates (OpenRush cache empty or inactive).
+                </p>
+              ) : null}
+              {resolvedKm?.notes ? (
+                <p className="text-[11px] text-muted-foreground" data-testid="hint-seo-keyword-notes">
+                  {resolvedKm.notes}
+                </p>
+              ) : null}
+              {researchIncompleteForDisplay ? (
                 <p
                   className="text-xs text-amber-700 dark:text-amber-300 flex items-start gap-1.5"
                   data-testid="hint-seo-research-incomplete-preview"

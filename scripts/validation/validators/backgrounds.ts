@@ -14,6 +14,7 @@ import * as path from "path";
 import * as yaml from "js-yaml";
 import type { Validator, ValidationContext, ValidatorResult, ValidationIssue } from "../shared/types";
 import { getAllDirectories } from "../../../server/content-types";
+import { BACKGROUNDS_ISSUE_CODES } from "./backgrounds.issueCodes";
 
 const THEME_PATH = path.join(process.cwd(), "4geeks-com", "theme.json");
 const CONTENT_DIRS = getAllDirectories().map(dir => `4geeks-com/${dir}`);
@@ -175,6 +176,7 @@ export function validateBackground(value: string, theme: ThemeConfig): { valid: 
 
 export const backgroundsValidator: Validator = {
   name: "backgrounds",
+  issueCodes: BACKGROUNDS_ISSUE_CODES,
   description: "Validates background colors against theme.json definitions",
   apiExposed: true,
   estimatedDuration: "fast",

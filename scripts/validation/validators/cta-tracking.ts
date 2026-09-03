@@ -15,6 +15,7 @@ import { getAllDirectories } from "../../../server/content-types";
 import { loadAllFieldEditors } from "../../../server/component-registry";
 import { ecommerceManager } from "../../../server/ecommerce/ecommerce-manager";
 import { scanEcommerceContent } from "../../../server/ecommerce/ecommerce-index";
+import { CTA_TRACKING_ISSUE_CODES } from "./cta-tracking.issueCodes";
 
 const CONTENT_DIRS = getAllDirectories().map((dir) => `4geeks-com/${dir}`);
 
@@ -51,6 +52,7 @@ function inferContentContext(filePath: string): { contentType?: string; contentS
 
 export const ctaTrackingValidator: Validator = {
   name: "cta-tracking",
+  issueCodes: CTA_TRACKING_ISSUE_CODES,
   description:
     "Validates cta.tracking enum and purchasable product linkage on field-editor cta-tracking paths",
   apiExposed: true,

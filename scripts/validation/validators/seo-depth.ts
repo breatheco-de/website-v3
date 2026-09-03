@@ -1,13 +1,16 @@
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { resolveContentTypeUrl } from "../../../server/content-types";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
+import { SEO_DEPTH_ISSUE_CODES } from "./seo-depth.issueCodes";
 
 /**
  * Entry-local SEO depth: title/description length, OG image, canonical URL.
  * Duplicate title/description checks live in seo-duplicates (cross-entry).
  */
+
 export const seoDepthValidator: Validator = {
   name: "seo-depth",
+  issueCodes: SEO_DEPTH_ISSUE_CODES,
   description: "Validates SEO depth: title/description length, OG image, and canonical URL",
   apiExposed: true,
   estimatedDuration: "fast",

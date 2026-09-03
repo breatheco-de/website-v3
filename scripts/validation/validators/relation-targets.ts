@@ -33,6 +33,7 @@ import {
   relationTargetMissing,
 } from "@shared/validateRelationTargets";
 import { skipCrossEntryVariantRow } from "../shared/draftFiles";
+import { RELATION_TARGETS_ISSUE_CODES } from "./relation-targets.issueCodes";
 
 function isSharedSingleTemplate(filePath: string): boolean {
   const base = filePath.split(/[/\\]/).pop() || "";
@@ -151,6 +152,7 @@ function loadIndexForSource(
 
 export const relationTargetsValidator: Validator = {
   name: "relation-targets",
+  issueCodes: RELATION_TARGETS_ISSUE_CODES,
   description:
     "Validates editor.type: relation pointers resolve to an existing content-type or database entry",
   apiExposed: true,

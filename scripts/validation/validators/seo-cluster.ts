@@ -13,6 +13,7 @@ import { isClusterRequired, isSeoMonitoringEnabled } from "../../../server/seo-m
 import { loadSeoIndex, seoEntryId } from "../../../server/seo-index";
 import { classifyClusterEntry } from "../../../server/seo-cluster-stats";
 import { yamlHasSeoKey } from "../../../server/seo-fields";
+import { resolveKeywordMetrics } from "../../../server/openrush-keyword-cache";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
 import { SEO_CLUSTER_ISSUE_CODES } from "./seo-cluster.issueCodes";
 
@@ -143,14 +144,31 @@ export const seoClusterValidator: Validator = {
         keyword &&
         (!researchMetricPresent(seo.kw_monthly_volume) || !researchMetricPresent(seo.kw_difficulty))
       ) {
-        warnings.push({
-          type: "warning",
-          code: "SEO_KEYWORD_RESEARCH_INCOMPLETE",
-          message: `${file.type} page "${file.slug}" (${file.locale}) has seo.main_keyword but incomplete keyword research (need seo.kw_monthly_volume and seo.kw_difficulty)`,
-          file: file.filePath,
-          suggestion:
-            "Set integer seo.kw_monthly_volume (≥ 0) and seo.kw_difficulty (0–100) for the main keyword, or clear the keyword",
+        const contentRoot = context.contentRoot;
+        const contentFolder = contentRoot
+          ? path.basename(path.resolve(contentRoot))
+          : undefined;
+        const resolved = resolveKeywordMetrics({
+          keyword,
+          contentRoot,
+          contentFolder,
+          yamlVolume: seo.kw_monthly_volume,
+          yamlDifficulty: seo.kw_difficulty,
         });
+        const cacheComplete =
+          resolved.source === "openrush_cache" &&
+          researchMetricPresent(resolved.kw_monthly_volume) &&
+          researchMetricPresent(resolved.kw_difficulty);
+        if (!cacheComplete) {
+          warnings.push({
+            type: "warning",
+            code: "SEO_KEYWORD_RESEARCH_INCOMPLETE",
+            message: `${file.type} page "${file.slug}" (${file.locale}) has seo.main_keyword but incomplete keyword research (need OpenRush cache or seo.kw_monthly_volume and seo.kw_difficulty)`,
+            file: file.filePath,
+            suggestion:
+              "Refresh the keyword from OpenRush (cluster card), or set integer seo.kw_monthly_volume (≥ 0) and seo.kw_difficulty (0–100) as YAML fallback, or clear the keyword",
+          });
+        }
       }
 
       if (seo.is_pillar === true) {

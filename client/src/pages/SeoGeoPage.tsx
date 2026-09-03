@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Copy, Crosshair, DownloadCloud, ExternalLink, Filter, Globe, Info, Loader2, MoreVertical, Network, Pencil, Plus, RefreshCw, Star, Unlink } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Brain, Check, ChevronDown, Copy, Crosshair, DownloadCloud, ExternalLink, Filter, Globe, Info, Loader2, MoreVertical, Network, Pencil, Plus, RefreshCw, Star, Unlink } from "lucide-react";
+import { SiGoogle } from "react-icons/si";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -147,13 +148,375 @@ function ClusterPillarPath({ pillarUrl }: { pillarUrl: string }) {
   );
 }
 
-type ClusterSortBy = "name" | "page-count";
+type ClusterSortBy = "name" | "page-count" | "traffic";
 type ClusterSortDir = "asc" | "desc";
 
 const CLUSTER_SORT_FIELDS: { value: ClusterSortBy; label: string; defaultDir: ClusterSortDir }[] = [
   { value: "name", label: "Name", defaultDir: "asc" },
   { value: "page-count", label: "Page count", defaultDir: "desc" },
+  { value: "traffic", label: "Traffic", defaultDir: "desc" },
 ];
+
+function fmtTrafficClicks(n: number): string {
+  return Math.round(n).toLocaleString();
+}
+
+function fmtTrafficCtr(stats: PathTrafficStats): string {
+  if (stats.impressions <= 0) return "0%";
+  return `${((stats.clicks / stats.impressions) * 100).toFixed(1)}%`;
+}
+
+function fmtTrafficPosition(stats: PathTrafficStats): string {
+  return stats.position.toFixed(1);
+}
+
+type OrganicTrafficMeta = {
+  window: { start: string; end: string } | null;
+  incomplete?: boolean;
+  days_in_window?: number;
+  days_expected?: number;
+};
+
+type OrganicMetricKind = "clicks" | "position" | "ctr";
+
+function organicMetricLabel(
+  kind: OrganicMetricKind,
+  stats: PathTrafficStats,
+  prefix?: string,
+): string {
+  if (kind === "clicks") return `${prefix ?? ""}${fmtTrafficClicks(stats.clicks)} clicks in 28d`;
+  if (kind === "position") return `avg pos ${fmtTrafficPosition(stats)}`;
+  return `CTR ${fmtTrafficCtr(stats)}`;
+}
+
+function organicMetricPopover(
+  kind: OrganicMetricKind,
+  stats: PathTrafficStats,
+  roleLabel: string,
+  daysExpected: number,
+  window: OrganicTrafficMeta["window"],
+): { title: string; body: string } {
+  const windowPart = window ? ` (${window.start} → ${window.end})` : "";
+  if (kind === "clicks") {
+    return {
+      title: `${fmtTrafficClicks(stats.clicks)} Google Search clicks`,
+      body:
+        `People who found ${roleLabel} in Google and clicked through. Counted over the last ` +
+        `${daysExpected} complete days${windowPart}. Also ${fmtTrafficClicks(stats.impressions)} ` +
+        `impressions. This is Search traffic only — not all site visits.`,
+    };
+  }
+  if (kind === "position") {
+    return {
+      title: `Average position ${fmtTrafficPosition(stats)}`,
+      body:
+        `Where ${roleLabel} typically appears in Google results over the last ${daysExpected} ` +
+        `complete days${windowPart}. Lower is better (1 is the top result). Weighted by ` +
+        `impressions across queries.`,
+    };
+  }
+  return {
+    title: `CTR ${fmtTrafficCtr(stats)}`,
+    body:
+      `Click-through rate for ${roleLabel}: clicks ÷ impressions over the last ${daysExpected} ` +
+      `complete days${windowPart}. ` +
+      `${fmtTrafficClicks(stats.clicks)} clicks out of ${fmtTrafficClicks(stats.impressions)} impressions.`,
+  };
+}
+
+function ClusterOrganicMetricBadge({
+  kind,
+  stats,
+  role,
+  prefix,
+  testId,
+  meta,
+}: {
+  kind: OrganicMetricKind;
+  stats: PathTrafficStats;
+  role: "hub" | "spoke" | "cluster";
+  prefix?: string;
+  testId?: string;
+  meta?: OrganicTrafficMeta;
+}) {
+  const incomplete = Boolean(meta?.incomplete);
+  const daysIn = meta?.days_in_window;
+  const daysExpected = meta?.days_expected ?? 28;
+  const roleLabel =
+    role === "hub" ? "this hub page" : role === "cluster" ? "this whole cluster" : "this page";
+  const copy = organicMetricPopover(kind, stats, roleLabel, daysExpected, meta?.window ?? null);
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="shrink-0"
+          data-testid={testId}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Badge
+            variant="secondary"
+            className={cn(
+              "text-[10px] font-medium px-1.5 py-0 h-5 cursor-pointer gap-1 underline-offset-2 hover:underline",
+              "bg-muted text-foreground border border-border shadow-none tabular-nums",
+              incomplete &&
+                "bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/40",
+            )}
+          >
+            {incomplete && kind === "clicks" ? (
+              <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+            ) : null}
+            {organicMetricLabel(kind, stats, prefix)}
+          </Badge>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-72 space-y-2 bg-popover text-popover-foreground"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-xs text-foreground font-medium">{copy.title}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">{copy.body}</p>
+        {incomplete ? (
+          <p
+            className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed flex gap-1.5"
+            data-testid="organic-incomplete-warning"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden />
+            <span>
+              Incomplete window: only {daysIn ?? 0} of {daysExpected} days are loaded. Numbers may
+              be low until the rest is backfilled.
+            </span>
+          </p>
+        ) : null}
+        <Link
+          href="/private/diagnostics/seo/organic"
+          className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 hover:text-primary/80"
+          data-testid="link-organic-diagnostics"
+          onClick={(e) => e.stopPropagation()}
+        >
+          Open organic traffic in Diagnostics
+          <ExternalLink className="h-3 w-3" aria-hidden />
+        </Link>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ClusterOrganicNoDataBadge({
+  role,
+  testId,
+  meta,
+}: {
+  role: "hub" | "spoke" | "cluster";
+  testId?: string;
+  meta?: OrganicTrafficMeta;
+}) {
+  const incomplete = Boolean(meta?.incomplete);
+  const daysIn = meta?.days_in_window;
+  const daysExpected = meta?.days_expected ?? 28;
+  const roleLabel =
+    role === "hub" ? "this hub page" : role === "cluster" ? "this whole cluster" : "this page";
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="shrink-0"
+          data-testid={testId}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Badge
+            variant="secondary"
+            className={cn(
+              "text-[10px] font-medium px-1.5 py-0 h-5 cursor-pointer gap-1 underline-offset-2 hover:underline",
+              "bg-muted text-foreground border border-border shadow-none",
+              incomplete &&
+                "bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/40",
+            )}
+          >
+            {incomplete ? <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden /> : null}
+            No data from GSC
+          </Badge>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-72 space-y-2 bg-popover text-popover-foreground"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-xs text-foreground font-medium">No Google Search traffic yet</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          We do not have Search Console clicks for {roleLabel} in the last {daysExpected} complete
+          days. That usually means Google has not sent visitors yet, the page is too new, or traffic
+          has not been loaded into this dashboard. It does not mean the page is broken.
+        </p>
+        {incomplete ? (
+          <p
+            className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed flex gap-1.5"
+            data-testid="organic-incomplete-warning"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden />
+            <span>
+              Incomplete window: only {daysIn ?? 0} of {daysExpected} days are loaded. Numbers may
+              be low until the rest is backfilled.
+            </span>
+          </p>
+        ) : null}
+        <Link
+          href="/private/diagnostics/seo/organic"
+          className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 hover:text-primary/80"
+          data-testid="link-organic-diagnostics"
+          onClick={(e) => e.stopPropagation()}
+        >
+          Open organic traffic in Diagnostics
+          <ExternalLink className="h-3 w-3" aria-hidden />
+        </Link>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ClusterOrganicTrafficBadges({
+  stats,
+  role,
+  prefix,
+  testIdPrefix,
+  meta,
+}: {
+  stats: PathTrafficStats | undefined;
+  role: "hub" | "spoke" | "cluster";
+  prefix?: string;
+  testIdPrefix: string;
+  meta?: OrganicTrafficMeta;
+}) {
+  if (stats == null) {
+    return <ClusterOrganicNoDataBadge role={role} testId={testIdPrefix} meta={meta} />;
+  }
+  return (
+    <span className="inline-flex items-center gap-1 shrink-0">
+      <ClusterOrganicMetricBadge
+        kind="clicks"
+        stats={stats}
+        role={role}
+        prefix={prefix}
+        meta={meta}
+        testId={testIdPrefix}
+      />
+      <ClusterOrganicMetricBadge
+        kind="position"
+        stats={stats}
+        role={role}
+        meta={meta}
+        testId={`${testIdPrefix}-pos`}
+      />
+      <ClusterOrganicMetricBadge
+        kind="ctr"
+        stats={stats}
+        role={role}
+        meta={meta}
+        testId={`${testIdPrefix}-ctr`}
+      />
+    </span>
+  );
+}
+
+/** Single badge for cluster-wide (hub + spokes) organic averages — replaces three Σ badges. */
+function ClusterHubAveragesBadge({
+  stats,
+  testId,
+  meta,
+}: {
+  stats: PathTrafficStats | undefined;
+  testId: string;
+  meta?: OrganicTrafficMeta;
+}) {
+  if (stats == null) {
+    return <ClusterOrganicNoDataBadge role="cluster" testId={testId} meta={meta} />;
+  }
+
+  const incomplete = Boolean(meta?.incomplete);
+  const daysIn = meta?.days_in_window;
+  const daysExpected = meta?.days_expected ?? 28;
+  const window = meta?.window ?? null;
+  const windowPart = window ? ` (${window.start} → ${window.end})` : "";
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="shrink-0"
+          data-testid={testId}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Badge
+            variant="secondary"
+            className={cn(
+              "text-[10px] font-medium px-1.5 py-0 h-5 cursor-pointer gap-1 underline-offset-2 hover:underline",
+              "bg-muted text-foreground border border-border shadow-none tabular-nums",
+              incomplete &&
+                "bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/40",
+            )}
+          >
+            {incomplete ? <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden /> : null}
+            <span aria-hidden>⌀</span>
+            Hub Averages · {fmtTrafficClicks(stats.clicks)} clicks · pos{" "}
+            {fmtTrafficPosition(stats)} · CTR {fmtTrafficCtr(stats)}
+          </Badge>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-72 space-y-2 bg-popover text-popover-foreground"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-xs text-foreground font-medium">⌀ Hub Averages</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Combined Search traffic for this hub and its cluster pages over the last {daysExpected}{" "}
+          complete days{windowPart}. Position and CTR are impression-weighted averages; clicks are
+          the total across those pages.
+        </p>
+        <ul className="text-xs text-foreground space-y-1 tabular-nums">
+          <li>
+            <span className="text-muted-foreground">⌀ Clicks:</span>{" "}
+            {fmtTrafficClicks(stats.clicks)}
+          </li>
+          <li>
+            <span className="text-muted-foreground">⌀ Avg position:</span>{" "}
+            {fmtTrafficPosition(stats)}
+          </li>
+          <li>
+            <span className="text-muted-foreground">⌀ CTR:</span> {fmtTrafficCtr(stats)}
+          </li>
+        </ul>
+        {incomplete ? (
+          <p
+            className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed flex gap-1.5"
+            data-testid="organic-incomplete-warning"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden />
+            <span>
+              Incomplete window: only {daysIn ?? 0} of {daysExpected} days are loaded. Numbers may
+              be low until the rest is backfilled.
+            </span>
+          </p>
+        ) : null}
+        <Link
+          href="/private/diagnostics/seo/organic"
+          className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 hover:text-primary/80"
+          data-testid="link-organic-diagnostics"
+          onClick={(e) => e.stopPropagation()}
+        >
+          Open organic traffic in Diagnostics
+          <ExternalLink className="h-3 w-3" aria-hidden />
+        </Link>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 function ClusterSortIcon({
   field,
@@ -183,54 +546,103 @@ function compareClustersByName(
   );
 }
 
-function ClusterMapHelp() {
+function ClusterMapHelp({
+  trafficAvailable,
+  incomplete,
+  daysInWindow,
+  daysExpected = 28,
+}: {
+  trafficAvailable?: boolean;
+  incomplete?: boolean;
+  daysInWindow?: number;
+  daysExpected?: number;
+}) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   return (
-    <div className="mb-3 space-y-1.5" data-testid="cluster-map-help">
-      <p className="text-xs text-muted-foreground leading-relaxed">
-        Clusters group a hub page and its supporting pages. Stats below cover content types with{" "}
-        <strong className="font-medium text-foreground">SEO monitoring</strong> enabled in content-type
-        settings. <strong className="font-medium text-foreground">Unclustered</strong> is the setup gap
-        (including pages with no SEO yet). Opt out with{" "}
-        <code className="font-mono text-[10px]">seo.pillar_path: null</code>. Assign members via{" "}
-        <code className="font-mono text-[10px]">seo.pillar_path</code> on locale YAML.
-      </p>
-      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <CollapsibleTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="px-0 h-auto text-xs"
-            data-testid="button-cluster-map-read-more"
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 shrink-0"
+          aria-label="About Cluster Map"
+          data-testid="button-cluster-map-help"
+        >
+          <Info className="h-3.5 w-3.5 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[min(24rem,calc(100vw-2rem))] max-h-[min(28rem,70vh)] overflow-y-auto space-y-2 text-sm text-muted-foreground"
+        data-testid="cluster-map-help"
+      >
+        <p className="font-medium text-foreground">Cluster Map</p>
+        <p className="text-xs leading-relaxed">
+          Clusters group a hub page and its supporting pages. Stats below cover content types with{" "}
+          <strong className="font-medium text-foreground">SEO monitoring</strong> enabled in content-type
+          settings. <strong className="font-medium text-foreground">Unclustered</strong> is the setup gap
+          (including pages with no SEO yet). Opt out with{" "}
+          <code className="font-mono text-[10px]">seo.pillar_path: null</code>. Assign members via{" "}
+          <code className="font-mono text-[10px]">seo.pillar_path</code> on locale YAML.
+        </p>
+        {trafficAvailable === false ? (
+          <p className="text-xs" data-testid="cluster-map-traffic-empty">
+            Google Search clicks are not loaded yet. Backfill organic traffic from Diagnostics when you
+            want cluster traffic next to each hub and page.
+          </p>
+        ) : trafficAvailable ? (
+          <p className="text-xs" data-testid="cluster-map-traffic-help">
+            Click counts are Google Search clicks over the last 28 complete days. The hub shows that
+            page’s clicks; <strong className="font-medium text-foreground">⌀ Hub Averages</strong>{" "}
+            combines the hub and its cluster pages (open the badge for position and CTR). “No data from
+            GSC” means we have no Search Console traffic in cache for that URL.
+          </p>
+        ) : null}
+        {trafficAvailable && incomplete ? (
+          <p
+            className="text-xs text-amber-700 dark:text-amber-400 flex gap-1.5 items-start"
+            data-testid="cluster-map-traffic-incomplete"
           >
-            {advancedOpen ? "Hide advanced details" : "Read more (advanced)"}
-            <ChevronDown
-              className={`h-3.5 w-3.5 ml-1 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
-            />
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="pt-1 space-y-1 text-xs text-muted-foreground">
-          <p>
-            Hub = <code className="font-mono text-[10px]">seo.is_pillar</code> on the locale YAML.
-            Members set <code className="font-mono text-[10px]">seo.pillar_path</code> to that hub URL.
-            Missing or empty path = gap (counted in stats).{" "}
-            <code className="font-mono text-[10px]">pillar_path: null</code> = intentional opt-out.
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden />
+            <span>
+              Incomplete Search traffic window: {daysInWindow ?? 0} of {daysExpected} days loaded.
+              Counts may be low until you backfill the rest in Diagnostics.
+            </span>
           </p>
-          <p>
-            Monitoring is configured per content type in{" "}
-            <code className="font-mono text-[10px]">content-types.yml</code> (
-            <code className="font-mono text-[10px]">seo_monitoring.enabled</code>; omitted = off). DB-backed
-            types can map <code className="font-mono text-[10px]">seo_main_keyword</code> /{" "}
-            <code className="font-mono text-[10px]">seo_pillar_path</code> in field_mapping; locale YAML wins.
-          </p>
-          <p className="font-mono">{"{contentRoot}/seo-index.json"}</p>
-          <p className="font-mono">server/seo-index.ts</p>
-          <p className="font-mono">server/seo-monitoring.ts</p>
-          <p className="font-mono">server/content-types.ts</p>
-          <p className="font-mono">client/src/components/editing/MappingFieldsTab.tsx</p>
-        </CollapsibleContent>
-      </Collapsible>
-    </div>
+        ) : null}
+        <button
+          type="button"
+          className="text-xs text-primary underline-offset-2 hover:underline"
+          onClick={() => setAdvancedOpen((v) => !v)}
+          data-testid="button-cluster-map-read-more"
+        >
+          {advancedOpen ? "Hide advanced details" : "Read more (advanced)"}
+        </button>
+        {advancedOpen ? (
+          <div className="space-y-1 text-xs">
+            <p>
+              Hub = <code className="font-mono text-[10px]">seo.is_pillar</code> on the locale YAML.
+              Members set <code className="font-mono text-[10px]">seo.pillar_path</code> to that hub URL.
+              Missing or empty path = gap (counted in stats).{" "}
+              <code className="font-mono text-[10px]">pillar_path: null</code> = intentional opt-out.
+            </p>
+            <p>
+              Monitoring is configured per content type in{" "}
+              <code className="font-mono text-[10px]">content-types.yml</code> (
+              <code className="font-mono text-[10px]">seo_monitoring.enabled</code>; omitted = off). DB-backed
+              types can map <code className="font-mono text-[10px]">seo_main_keyword</code> /{" "}
+              <code className="font-mono text-[10px]">seo_pillar_path</code> in field_mapping; locale YAML wins.
+            </p>
+            <p className="font-mono">{"{contentRoot}/seo-index.json"}</p>
+            <p className="font-mono">server/seo-index.ts</p>
+            <p className="font-mono">server/seo-monitoring.ts</p>
+            <p className="font-mono">server/content-types.ts</p>
+            <p className="font-mono">client/src/components/editing/MappingFieldsTab.tsx</p>
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -245,6 +657,12 @@ function isSitemapLastmodStale(lastmod: string | null | undefined, nowMs = Date.
   return nowMs - then > TWO_WEEKS_MS;
 }
 
+type PathTrafficStats = {
+  clicks: number;
+  impressions: number;
+  position: number;
+};
+
 type ClusterMember = {
   id: string;
   slug: string;
@@ -254,6 +672,18 @@ type ClusterMember = {
   keyword?: string | null;
   lastmod?: string | null;
   updated_at?: string | null;
+  traffic?: PathTrafficStats;
+};
+
+type KeywordMetricsInfo = {
+  openrush_configured: boolean;
+  source: "openrush_cache" | "yaml_fallback" | "none";
+  kw_monthly_volume: number | null;
+  kw_difficulty: number | null;
+  fetched_at: string | null;
+  stale: boolean;
+  may_not_be_recent: boolean;
+  notes: string | null;
 };
 
 type ClusterEntryInfo = {
@@ -267,6 +697,7 @@ type ClusterEntryInfo = {
   main_keyword: string | null;
   kw_monthly_volume: number | null;
   kw_difficulty: number | null;
+  keyword_metrics?: KeywordMetricsInfo;
   is_pillar: boolean;
   pillar_path: string | null;
   file: string | null;
@@ -278,6 +709,17 @@ type ClusterEntryInfo = {
     stale: boolean;
   };
 };
+
+function formatKeywordFetchedAge(fetchedAt: string | null | undefined, stale?: boolean): string {
+  if (!fetchedAt) return "";
+  const t = Date.parse(fetchedAt);
+  if (Number.isNaN(t)) return "";
+  const days = Math.floor((Date.now() - t) / (24 * 60 * 60 * 1000));
+  if (stale) return days <= 0 ? "stale" : `stale · ${days}d`;
+  if (days <= 0) return "today";
+  if (days === 1) return "1d ago";
+  return `${days}d ago`;
+}
 
 type ClusterDiagnosticsResult = {
   hubId: string;
@@ -364,6 +806,7 @@ type ClusterBucketEntryRow = {
   main_keyword: string | null;
   kw_monthly_volume: number | null;
   kw_difficulty: number | null;
+  keyword_metrics?: KeywordMetricsInfo;
   file: string;
   reason?: "hub_not_found" | "hub_not_pillar";
   pillar_path?: string | null;
@@ -705,6 +1148,9 @@ function ClusterHealthPanel({
                               {typeof row.kw_difficulty === "number" ? row.kw_difficulty : "—"}
                             </span>
                           ) : null}
+                          {row.keyword_metrics?.may_not_be_recent ? (
+                            <span className="text-amber-700 dark:text-amber-300"> · may not be recent</span>
+                          ) : null}
                         </p>
                       ) : null}
                       {row.reason ? (
@@ -996,10 +1442,11 @@ function gscIndexChipClass(state: GscIndexChipState): string {
 }
 
 function GscIndexChipIcon({ state }: { state: GscIndexChipState }) {
-  const className = "h-3 w-3";
-  if (state === "indexed") return <Bot className={className} aria-hidden />;
-  if (state === "not-indexed" || state === "error") return <BotOff className={className} aria-hidden />;
-  return <Bot className={className} aria-hidden />;
+  const className = cn(
+    "h-3 w-3",
+    (state === "not-indexed" || state === "error" || state === "not-configured") && "opacity-70",
+  );
+  return <SiGoogle className={className} aria-hidden />;
 }
 
 function formatLastmodAgo(lastmod: string, now = new Date()): string {
@@ -1394,6 +1841,8 @@ function ClusterMemberRow({
   gscConfigured,
   canEditSeo,
   onEditSeo,
+  trafficAvailable,
+  organicMeta,
 }: {
   member: ClusterMember;
   hubPillarUrl: string;
@@ -1402,13 +1851,17 @@ function ClusterMemberRow({
   gscConfigured?: boolean;
   canEditSeo: boolean;
   onEditSeo: (contentType: string, slug: string, locale: string) => void;
+  trafficAvailable?: boolean;
+  organicMeta?: OrganicTrafficMeta;
 }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [changeOpen, setChangeOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
-  const { data, isLoading, isError, error } = useQuery<ClusterEntryInfo>({
+  const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
+  const [refreshingKeyword, setRefreshingKeyword] = useState(false);
+  const { data, isLoading, isError, error, refetch } = useQuery<ClusterEntryInfo>({
     queryKey: ["/api/seo/entry", member.contentType, member.slug, member.locale],
     enabled: open && !!member.contentType && !!member.slug,
     staleTime: 60_000,
@@ -1430,6 +1883,59 @@ function ClusterMemberRow({
   const heading =
     data?.title || data?.page_title || deslugifyLabel(member.slug);
   const lastmod = data?.lastmod || member.lastmod || null;
+  const keyword = (data?.main_keyword || member.keyword || "").trim();
+  const metrics = data?.keyword_metrics;
+  const displayVolume = metrics?.kw_monthly_volume ?? data?.kw_monthly_volume;
+  const displayDifficulty = metrics?.kw_difficulty ?? data?.kw_difficulty;
+  const hasVolume = typeof displayVolume === "number";
+  const hasDifficulty = typeof displayDifficulty === "number";
+  const openrushConfigured = metrics?.openrush_configured === true;
+  const fetchedAge = formatKeywordFetchedAge(metrics?.fetched_at, metrics?.stale);
+
+  const handleRefreshKeyword = async () => {
+    if (!openrushConfigured) {
+      setRefreshConfirmOpen(false);
+      return;
+    }
+    setRefreshingKeyword(true);
+    try {
+      const author = await resolveAuthorName();
+      const res = await fetch("/api/seo/keyword/refresh", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...getSessionHeaders(),
+        },
+        body: JSON.stringify({
+          contentType: member.contentType,
+          slug: member.slug,
+          locale: member.locale,
+          keyword: keyword || undefined,
+          author: author || undefined,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((body as { error?: string }).error || "Keyword refresh failed");
+      }
+      toast({
+        title: "Keyword metrics updated",
+        description: "Volume and difficulty were refreshed from OpenRush into the shared cache.",
+      });
+      setRefreshConfirmOpen(false);
+      await refetch();
+      invalidateClusterQueries(hubId);
+    } catch (err) {
+      toast({
+        title: "Could not refresh keyword",
+        description: err instanceof Error ? err.message : "Refresh failed",
+        variant: "destructive",
+      });
+    } finally {
+      setRefreshingKeyword(false);
+    }
+  };
 
   const handleRemove = async () => {
     setRemoving(true);
@@ -1474,6 +1980,14 @@ function ClusterMemberRow({
               <span className="text-xs font-medium text-foreground min-w-0 flex-1 truncate">
                 {deslugifyLabel(member.slug)}
               </span>
+              {trafficAvailable ? (
+                <ClusterOrganicTrafficBadges
+                  stats={member.traffic}
+                  role="spoke"
+                  meta={organicMeta}
+                  testIdPrefix={`cluster-member-clicks-${member.slug}`}
+                />
+              ) : null}
               {lastmod ? <ClusterMemberLastmod lastmod={lastmod} prefix="Last published " /> : null}
               {href ? (
                 <ClusterGscIndexChip
@@ -1553,29 +2067,94 @@ function ClusterMemberRow({
                   <p className="text-xs text-muted-foreground mt-1 line-clamp-3">{data.description}</p>
                 ) : null}
               </div>
+              {keyword ? (
+                <div
+                  className="flex items-start gap-1.5 rounded border border-border/60 px-2 py-1.5"
+                  data-testid="cluster-entry-keyword-card"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className="text-xs font-medium text-foreground truncate leading-tight"
+                      title={keyword}
+                    >
+                      {keyword}
+                    </p>
+                    <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">
+                      vol {hasVolume ? displayVolume!.toLocaleString() : "No data"}
+                      {" · "}
+                      KD {hasDifficulty ? displayDifficulty! : "No data"}
+                    </p>
+                    {metrics?.may_not_be_recent ? (
+                      <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                        May not be recent
+                      </p>
+                    ) : null}
+                    {metrics?.notes ? (
+                      <p className="mt-0.5 text-[10px] text-muted-foreground line-clamp-2" title={metrics.notes}>
+                        {metrics.notes}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto min-h-6 shrink-0 flex-col gap-0 px-1.5 py-1 text-muted-foreground hover:text-foreground"
+                    data-testid={`button-cluster-refresh-keyword-${member.slug}`}
+                    disabled={!canEditSeo || refreshingKeyword}
+                    title={
+                      !canEditSeo
+                        ? `You need seo_edit for content type "${member.contentType}"`
+                        : openrushConfigured
+                          ? "Refresh volume & difficulty from OpenRush"
+                          : "OpenRush must be active to refresh"
+                    }
+                    onClick={() => setRefreshConfirmOpen(true)}
+                  >
+                    {refreshingKeyword ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3 w-3" />
+                    )}
+                    {fetchedAge ? (
+                      <span className="text-[9px] leading-none tabular-nums">{fetchedAge}</span>
+                    ) : null}
+                    <span className="sr-only">Refresh keyword metrics</span>
+                  </Button>
+                </div>
+              ) : (
+                <div
+                  className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2"
+                  data-testid="cluster-entry-keyword-missing"
+                  role="status"
+                >
+                  <p className="text-xs text-destructive">No keyword configured</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-6 shrink-0 px-2 text-[10px]"
+                    data-testid={`button-cluster-set-keyword-${member.slug}`}
+                    disabled={!canEditSeo}
+                    title={
+                      !canEditSeo
+                        ? `You need seo_edit for content type "${member.contentType}"`
+                        : undefined
+                    }
+                    onClick={() => {
+                      setOpen(false);
+                      onEditSeo(member.contentType, member.slug, member.locale);
+                    }}
+                  >
+                    Set now
+                  </Button>
+                </div>
+              )}
               <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
                 <dt className="text-muted-foreground">Type</dt>
                 <dd className="text-foreground truncate">{data?.contentType || member.contentType}</dd>
                 <dt className="text-muted-foreground">Locale</dt>
                 <dd className="text-foreground uppercase">{data?.locale || member.locale}</dd>
-                {(data?.main_keyword || member.keyword) && (
-                  <>
-                    <dt className="text-muted-foreground">Keyword</dt>
-                    <dd className="text-foreground truncate">{data?.main_keyword || member.keyword}</dd>
-                  </>
-                )}
-                {typeof data?.kw_monthly_volume === "number" ? (
-                  <>
-                    <dt className="text-muted-foreground">Monthly volume</dt>
-                    <dd className="text-foreground">{data.kw_monthly_volume.toLocaleString()}</dd>
-                  </>
-                ) : null}
-                {typeof data?.kw_difficulty === "number" ? (
-                  <>
-                    <dt className="text-muted-foreground">Difficulty</dt>
-                    <dd className="text-foreground">{data.kw_difficulty}</dd>
-                  </>
-                ) : null}
                 {href ? (
                   <>
                     <dt className="text-muted-foreground">Path</dt>
@@ -1644,6 +2223,53 @@ function ClusterMemberRow({
           setOpen(false);
         }}
       />
+
+      <AlertDialog open={refreshConfirmOpen} onOpenChange={setRefreshConfirmOpen}>
+        <AlertDialogContent data-testid={`dialog-cluster-refresh-keyword-${member.slug}`}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {openrushConfigured ? "Refresh keyword metrics?" : "OpenRush is not active"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {openrushConfigured ? (
+                <>
+                  This fetches volume and difficulty for{" "}
+                  <span className="font-medium text-foreground">{keyword || "this keyword"}</span> from
+                  OpenRush and updates the shared keyword cache (not the page YAML). It will cost{" "}
+                  <span className="font-medium text-foreground">5 OpenRush credits</span>.
+                  {fetchedAge ? (
+                    <>
+                      {" "}
+                      Current cache age: <span className="font-medium text-foreground">{fetchedAge}</span>.
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  Turn on OpenRush in Settings to refresh keyword volume and difficulty automatically from
+                  OpenRush. Until then, saved YAML estimates may not be recent.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={refreshingKeyword}>
+              {openrushConfigured ? "Cancel" : "Close"}
+            </AlertDialogCancel>
+            {openrushConfigured ? (
+              <AlertDialogAction
+                disabled={refreshingKeyword}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void handleRefreshKeyword();
+                }}
+              >
+                {refreshingKeyword ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
+              </AlertDialogAction>
+            ) : null}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
         <AlertDialogContent data-testid={`dialog-cluster-remove-${member.slug}`}>
@@ -1837,6 +2463,8 @@ interface SeoOverview {
     keyword?: string | null;
     locale?: string;
     members?: ClusterMember[];
+    hubTraffic?: PathTrafficStats;
+    clusterTraffic?: PathTrafficStats;
   }[];
   clusterHealth?: ClusterHealth;
   orphanPages: {
@@ -1851,6 +2479,13 @@ interface SeoOverview {
   featureCoverage: Record<string, number>;
   faqCoverage: { slug: string; contentType: string; locale: string; faqCount: number }[];
   schemaCoverage: Record<string, number>;
+  organicTraffic?: {
+    window: { start: string; end: string } | null;
+    days_present: number;
+    days_in_window?: number;
+    days_expected?: number;
+    incomplete?: boolean;
+  };
   totals: {
     totalPages: number;
     withPillar: number;
@@ -2852,10 +3487,23 @@ export function SeoTab({ data }: { data: SeoOverview }) {
   const summary = gsc?.summary;
   const withKeyword = data.totals.withKeyword ?? 0;
   const keywordedNotClustered = Math.max(0, withKeyword - data.totals.withPillar);
+  const organicWindow = data.organicTraffic?.window ?? null;
+  const trafficAvailable = Boolean(organicWindow);
+  const organicMeta: OrganicTrafficMeta = {
+    window: organicWindow,
+    incomplete: data.organicTraffic?.incomplete,
+    days_in_window: data.organicTraffic?.days_in_window,
+    days_expected: data.organicTraffic?.days_expected ?? 28,
+  };
   const sortedClusters = [...data.clusters].sort((a, b) => {
     let cmp = 0;
     if (clusterSortBy === "page-count") {
       cmp = a.clusterCount - b.clusterCount;
+      if (cmp === 0) cmp = compareClustersByName(a, b);
+    } else if (clusterSortBy === "traffic") {
+      const aClicks = a.clusterTraffic?.clicks ?? -1;
+      const bClicks = b.clusterTraffic?.clicks ?? -1;
+      cmp = aClicks - bClicks;
       if (cmp === 0) cmp = compareClustersByName(a, b);
     } else {
       cmp = compareClustersByName(a, b);
@@ -2938,9 +3586,17 @@ export function SeoTab({ data }: { data: SeoOverview }) {
         icon={<Network className="h-4 w-4" />}
         title="Cluster Map"
         titleExtra={
-          <Badge variant="secondary">
-            {data.clusters.length} pillar{data.clusters.length !== 1 ? "s" : ""}
-          </Badge>
+          <>
+            <ClusterMapHelp
+              trafficAvailable={trafficAvailable}
+              incomplete={organicMeta.incomplete}
+              daysInWindow={organicMeta.days_in_window}
+              daysExpected={organicMeta.days_expected}
+            />
+            <Badge variant="secondary">
+              {data.clusters.length} pillar{data.clusters.length !== 1 ? "s" : ""}
+            </Badge>
+          </>
         }
         summary={
           data.clusterHealth
@@ -2951,7 +3607,6 @@ export function SeoTab({ data }: { data: SeoOverview }) {
         }
         actions={<ClusterReindexButton />}
       >
-          <ClusterMapHelp />
           {data.clusterHealth ? (
             <ClusterHealthPanel
               health={data.clusterHealth}
@@ -3062,18 +3717,33 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                     data-testid={`cluster-${cluster.pillarUrl}`}
                   >
                     <AccordionTrigger className="text-xs py-2 hover:no-underline">
-                      <div className="flex items-center gap-2 text-left">
+                      <div className="flex items-center gap-2 text-left min-w-0">
                         <Network className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <LocaleFlag
                           locale={hubLocale}
                           className="h-3 w-4 shrink-0 rounded-sm"
                         />
-                        <span className="text-xs font-medium text-foreground">
+                        <span className="text-xs font-medium text-foreground truncate">
                           {clusterListLabel(cluster.keyword, cluster.pillarUrl)}
                         </span>
                         <Badge variant="secondary" className={clusterCountBadgeClass(cluster.clusterCount)}>
                           {cluster.clusterCount} page{cluster.clusterCount !== 1 ? "s" : ""}
                         </Badge>
+                        {trafficAvailable ? (
+                          <span className="inline-flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                            <ClusterOrganicTrafficBadges
+                              stats={cluster.hubTraffic}
+                              role="hub"
+                              meta={organicMeta}
+                              testIdPrefix={`cluster-hub-clicks-${hubId}`}
+                            />
+                            <ClusterHubAveragesBadge
+                              stats={cluster.clusterTraffic}
+                              meta={organicMeta}
+                              testId={`cluster-hub-averages-${hubId}`}
+                            />
+                          </span>
+                        ) : null}
                       </div>
                     </AccordionTrigger>
                     <AccordionContent className="text-xs">
@@ -3088,6 +3758,8 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                             hubId={hubId}
                             clusters={data.clusters}
                             gscConfigured={gsc?.configured}
+                            trafficAvailable={trafficAvailable}
+                            organicMeta={organicMeta}
                             canEditSeo={canEditSeoFor(member.contentType)}
                             onEditSeo={(contentType, slug, locale) => {
                               void beginEditSeo(contentType, slug, locale, "general");

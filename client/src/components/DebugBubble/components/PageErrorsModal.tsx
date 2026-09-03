@@ -22,6 +22,7 @@ import { isContentFilePath } from "@shared/formatSitePath";
 import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { useToast } from "@/hooks/use-toast";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
+import { apiFetch } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { formatIssueActorLine } from "@/lib/formatIssueActor";
 import {
@@ -422,6 +423,34 @@ function archiveRowToPageIssue(row: ResolvedArchiveApiRow): PageIssue {
   };
 }
 
+function LinkedIssueProposals({ issueId }: { issueId: string }) {
+  const { data } = useQuery({
+    queryKey: ["/api/admin/proposals", "issue", issueId],
+    queryFn: async () => {
+      const res = await apiFetch(
+        `/api/admin/proposals?issue_id=${encodeURIComponent(issueId)}`,
+        { headers: { ...getSessionHeaders() } },
+      );
+      if (!res.ok) return { proposals: [] as Array<{ id: string; title: string; status: string }> };
+      return res.json() as Promise<{
+        proposals: Array<{ id: string; title: string; status: string }>;
+      }>;
+    },
+  });
+  const rows = data?.proposals ?? [];
+  if (rows.length === 0) return null;
+  return (
+    <div className="text-xs space-y-1 pt-1 border-t border-border/50">
+      <div className="font-medium text-foreground">Linked proposals</div>
+      {rows.map((p) => (
+        <Link key={p.id} href={`/private/proposals/${p.id}`} className="block text-primary hover:underline">
+          {p.title} ({p.status})
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 function IssueCard({
   issue,
   index,
@@ -456,6 +485,7 @@ function IssueCard({
       cacheBuiltAt ||
       issue.completed ||
       issue.claimed ||
+      issue.id ||
       (issue.attempts && issue.attempts.length > 0),
   );
 
@@ -688,6 +718,7 @@ function IssueCard({
                   ))}
                 </div>
               )}
+              {issue.id && <LinkedIssueProposals issueId={issue.id} />}
             </div>
           </CollapsibleContent>
         )}

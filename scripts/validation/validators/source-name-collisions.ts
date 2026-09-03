@@ -5,9 +5,11 @@
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { findSourceNameCollisions } from "../../../server/query-options";
 import { databaseManager } from "../../../server/database";
+import { SOURCE_NAME_COLLISIONS_ISSUE_CODES } from "./source-name-collisions.issueCodes";
 
 export const sourceNameCollisionsValidator: Validator = {
   name: "source-name-collisions",
+  issueCodes: SOURCE_NAME_COLLISIONS_ISSUE_CODES,
   description:
     "Detects content-type keys that collide with private database slugs (ambiguous relation source names)",
   apiExposed: true,

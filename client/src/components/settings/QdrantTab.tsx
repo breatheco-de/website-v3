@@ -8,12 +8,12 @@ import {
   IconDatabase,
   IconInfoCircle,
   IconLoader2,
-  IconRefresh,
+  IconPlugConnected,
   IconSparkles,
 } from "@tabler/icons-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { queryClient } from "@/lib/queryClient";
@@ -52,6 +52,7 @@ interface QdrantStatusResponse {
 export function QdrantTab() {
   const { toast } = useToast();
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [reindexing, setReindexing] = useState<string | null>(null);
 
   const statusQuery = useQuery<QdrantStatusResponse>({
@@ -70,8 +71,37 @@ export function QdrantTab() {
   const data = statusQuery.data;
   const semanticDatabases = data?.databases.filter((db) => db.semantic_enabled) ?? [];
 
-  async function handleRetry() {
-    await statusQuery.refetch();
+  async function handleTestConnection() {
+    setTesting(true);
+    try {
+      const res = await fetch("/api/admin/qdrant/test", {
+        method: "POST",
+        headers: getSessionHeaders(),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || `Connection failed (${res.status})`);
+      }
+      toast({
+        title: "Connection OK",
+        description:
+          typeof body.collections_count === "number"
+            ? `${body.host}:${body.port} reachable · ${body.collections_count} collection${
+                body.collections_count === 1 ? "" : "s"
+              }.`
+            : `${body.host}:${body.port} reachable.`,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/qdrant/status"] });
+    } catch (err) {
+      toast({
+        title: "Connection failed",
+        description: err instanceof Error ? err.message : "Could not reach Qdrant.",
+        variant: "destructive",
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/qdrant/status"] });
+    } finally {
+      setTesting(false);
+    }
   }
 
   async function handleReindex(dbName: string) {
@@ -103,32 +133,33 @@ export function QdrantTab() {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="space-y-1">
-              <CardTitle className="text-base">Connection</CardTitle>
-              <CardDescription>
-                Live check against the configured Qdrant vector store used for semantic search.
-              </CardDescription>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRetry}
-              disabled={statusQuery.isFetching}
-              data-testid="button-qdrant-retry-status"
-            >
-              {statusQuery.isFetching ? (
-                <IconLoader2 className="h-4 w-4 animate-spin mr-1.5" />
-              ) : (
-                <IconRefresh className="h-4 w-4 mr-1.5" />
-              )}
-              Retry status check
-            </Button>
+      <Card data-testid="panel-qdrant-connection">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
+          <div className="flex items-center gap-2">
+            <IconPlugConnected className="h-5 w-5 text-muted-foreground" />
+            <CardTitle className="text-base">Connection</CardTitle>
           </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleTestConnection}
+            disabled={testing || statusQuery.isLoading}
+            data-testid="button-qdrant-test-connection"
+          >
+            {testing ? (
+              <IconLoader2 className="h-4 w-4 animate-spin mr-1.5" />
+            ) : (
+              <IconPlugConnected className="h-4 w-4 mr-1.5" />
+            )}
+            {testing ? "Testing…" : "Test connection"}
+          </Button>
         </CardHeader>
         <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Live check against the configured vector store used for semantic search. Test connection
+            does not re-index databases or change settings.
+          </p>
+
           {statusQuery.isLoading && !data ? (
             <div className="flex items-center gap-2 text-muted-foreground py-4">
               <IconLoader2 className="h-4 w-4 animate-spin" />
@@ -216,10 +247,9 @@ export function QdrantTab() {
                     {data.error || "Could not reach Qdrant."}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Start Qdrant (e.g. Docker on port 6333), confirm{" "}
-                    <code className="font-mono text-[11px]">QDRANT_URL</code> matches, then click Retry
-                    status check. Until it is reachable, semantic search falls back to exact keyword
-                    matching.
+                    Start Qdrant (e.g. Docker on port 6333), confirm the configured URL matches, then
+                    click Test connection. Until it is reachable, semantic search falls back to exact
+                    keyword matching.
                   </p>
                 </div>
               )}
@@ -228,17 +258,15 @@ export function QdrantTab() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <IconDatabase className="h-4 w-4 text-muted-foreground" />
-            Collections
-          </CardTitle>
-          <CardDescription>
-            Vector collections in Qdrant. Collection name matches the database name.
-          </CardDescription>
+      <Card data-testid="panel-qdrant-collections">
+        <CardHeader className="flex flex-row items-center gap-2 pb-4">
+          <IconDatabase className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-base">Collections</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Vector collections in Qdrant. Collection name matches the database name.
+          </p>
           {!data?.available ? (
             <p className="text-sm text-muted-foreground">Collections unavailable while Qdrant is unreachable.</p>
           ) : data.collections.length === 0 ? (
@@ -268,17 +296,15 @@ export function QdrantTab() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <IconSparkles className="h-4 w-4 text-muted-foreground" />
-            Semantic databases
-          </CardTitle>
-          <CardDescription>
-            Databases with vector search enabled, plus their index job status.
-          </CardDescription>
+      <Card data-testid="panel-qdrant-semantic-dbs">
+        <CardHeader className="flex flex-row items-center gap-2 pb-4">
+          <IconSparkles className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-base">Semantic databases</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Databases with vector search enabled, plus their index job status.
+          </p>
           {semanticDatabases.length === 0 ? (
             <p className="text-sm text-muted-foreground" data-testid="text-semantic-dbs-empty">
               No databases have semantic search enabled. Open a database → Settings → Field Mappings and
@@ -337,12 +363,10 @@ export function QdrantTab() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
-            How semantic search works
-          </CardTitle>
+      <Card data-testid="panel-qdrant-how-it-works">
+        <CardHeader className="flex flex-row items-center gap-2 pb-4">
+          <IconInfoCircle className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-base">How semantic search works</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
@@ -394,6 +418,9 @@ export function QdrantTab() {
                   </li>
                   <li>
                     Status API: <code className="font-mono text-[11px]">GET /api/admin/qdrant/status</code>
+                  </li>
+                  <li>
+                    Probe: <code className="font-mono text-[11px]">POST /api/admin/qdrant/test</code>
                   </li>
                 </ul>
               </div>

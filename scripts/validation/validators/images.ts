@@ -7,6 +7,7 @@ import {
   resolveRegistryReference,
 } from "../shared/imageRegistrySrc";
 import { mediaGallery } from "../../../server/media-gallery";
+import { IMAGES_ISSUE_CODES } from "./images.issueCodes";
 
 interface ImageRegistryEntry {
   src: string;
@@ -35,6 +36,7 @@ interface ImageRegistry {
 
 export const imagesValidator: Validator = {
   name: "images",
+  issueCodes: IMAGES_ISSUE_CODES,
   description: "Validates image integrity: registry references, file existence, alt text, and orphaned entries",
   apiExposed: true,
   estimatedDuration: "medium",

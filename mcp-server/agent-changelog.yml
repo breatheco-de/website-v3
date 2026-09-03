@@ -6,6 +6,29 @@ window_days: 6
 
 entries:
   - date: "2026-09-03"
+    summary: "keyword_metrics: OpenRush cache over YAML for SEO reads"
+    agent_impact:
+      - "get_entry_seo and list_seo_cluster_entries / get_seo_cluster members include keyword_metrics (source, may_not_be_recent, stale, fetched_at, notes). OpenRush cache wins when configured; YAML seo.kw_* is fallback only."
+      - "Staff Refresh does not write YAML. Partial OpenRush pulls merge into cache and surface notes. SEO_KEYWORD_RESEARCH_INCOMPLETE is skipped when OpenRush cache has both metrics."
+      - "Reconnect MCP so get_entry_seo description mentions keyword_metrics."
+    paths:
+      - server/openrush-keyword-cache.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/seo-cluster-inventory.ts
+      - scripts/validation/validators/seo-cluster.ts
+    tools_changed: true
+  - date: "2026-09-03"
+    summary: "Content proposals: propose_change, list_proposals, update_proposal"
+    agent_impact:
+      - "Read-only agents (content_view) can propose_change and list_proposals. Does not write YAML. update_proposal (apply/acknowledge/reject/claim) needs content_edit_text or seo_edit and a different user than the proposer."
+      - "If you cannot finish an issue, propose_change with related_issue_ids (notes or edits) then update_issue release. Unknown issue ids fail. Multi-entry proposals stay partial until every entry is done."
+      - "Reconnect MCP so tools/list includes the three proposal tools. metrics_viewer / user_admin / platform_ops do not get them."
+    paths:
+      - mcp-server/tools/proposals.ts
+      - shared/mcp-tool-catalog.ts
+      - mcp-server/explain/proposals.md
+    tools_changed: true
+  - date: "2026-09-03"
     summary: "Issue code catalog + cluster soft-block + staff_context markdown"
     agent_impact:
       - "ORPHAN_PAGE / PARTIALLY_SET_CLUSTER issues include help, denser suggestion, next_actions, and optional staff_context from {contentRoot}/validation-issue-context/seo-cluster/{CODE}.md."

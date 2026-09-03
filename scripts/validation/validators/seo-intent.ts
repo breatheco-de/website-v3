@@ -8,6 +8,7 @@ import path from "path";
 import yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
+import { SEO_INTENT_ISSUE_CODES } from "./seo-intent.issueCodes";
 
 interface SeoConfig {
   intents: Record<string, { label: string; description: string }>;
@@ -37,6 +38,7 @@ function loadSeoConfig(contentRoot?: string): SeoConfig | null {
 
 export const seoIntentValidator: Validator = {
   name: "seo-intent",
+  issueCodes: SEO_INTENT_ISSUE_CODES,
   description: "Validates seo.intent and seo.focus_features against seo-config.yml",
   apiExposed: true,
   estimatedDuration: "fast",

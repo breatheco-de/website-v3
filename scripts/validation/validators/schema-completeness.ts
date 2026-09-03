@@ -20,6 +20,7 @@ import {
   getCachedHtml,
 } from "../../../server/html-page-cache";
 import type { PageSchemaCollectResult } from "../../../server/page-schema-collect";
+import { SCHEMA_COMPLETENESS_ISSUE_CODES } from "./schema-completeness.issueCodes";
 
 let _resolvePageSchemaDocuments:
   | ((url: string, ci: typeof defaultContentIndex, contentRoot?: string) => Promise<PageSchemaCollectResult>)
@@ -205,6 +206,7 @@ export function resolvePageSections(file: ContentFile): Array<Record<string, unk
 
 export const schemaCompletenessValidator: Validator = {
   name: "schema-completeness",
+  issueCodes: SCHEMA_COMPLETENESS_ISSUE_CODES,
   description: "Validates Schema.org completeness: rendered output, required fields, placeholders, and FAQ coverage",
   apiExposed: true,
   estimatedDuration: "medium",

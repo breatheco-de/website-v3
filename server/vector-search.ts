@@ -304,6 +304,36 @@ export async function indexItems(
   }
 }
 
+export async function upsertItem(
+  dbName: string,
+  item: Record<string, unknown>,
+  fields: string[],
+): Promise<void> {
+  if (!(await isAvailable())) return;
+  try {
+    await ensureCollection(dbName);
+    const client = getQdrantClient();
+    const name = collectionName(dbName);
+    const text = buildText(item, fields);
+    const [vector] = await generateEmbeddings([text]);
+    await client.upsert(name, {
+      points: [
+        {
+          id: itemId(item, 0),
+          vector,
+          payload: {
+            slug: String(item.slug ?? item.id ?? ""),
+            status: typeof item.status === "string" ? item.status : null,
+          },
+        },
+      ],
+    });
+  } catch (err) {
+    log.warn({ err, dbName }, "[vector-search] upsertItem failed");
+    resetAvailabilityCache();
+  }
+}
+
 export interface SearchResult {
   slug: string;
   score: number;

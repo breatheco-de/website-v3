@@ -13,6 +13,7 @@ import type { Validator, ValidatorResult, ValidationContext, ValidationIssue, Co
 import { getCanonicalUrl } from "../shared/canonicalUrls";
 import { skipCrossEntryVariantRow } from "../shared/draftFiles";
 import { isIndexingBlocked } from "../../../server/settings";
+import { SITEMAP_ISSUE_CODES } from "./sitemap.issueCodes";
 
 const TEMPLATE_EXPR_RE = /\{\{[\s\S]*?\}\}/;
 
@@ -36,6 +37,7 @@ function deriveNormalizedPath(loc: string): string {
 
 export const sitemapValidator: Validator = {
   name: "sitemap",
+  issueCodes: SITEMAP_ISSUE_CODES,
   description: "Validates sitemap entries match actual content files",
   apiExposed: true,
   estimatedDuration: "medium",

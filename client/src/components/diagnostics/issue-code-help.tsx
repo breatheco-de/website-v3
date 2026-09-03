@@ -18,7 +18,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 
 export type IssueCodeDefinitionClient = {
   title: string;
-  summary: string;
+  summary?: string;
   suggestion?: string;
   next_actions?: Array<{ tool: string; reason: string; priority?: string }>;
 };
@@ -104,9 +104,10 @@ export function IssueCodePopover({
   const [open, setOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const cataloged = Boolean(help && validator);
+  const cataloged = Boolean(help?.title && validator);
   const contextQuery = useIssueContext(validator, code, open && cataloged);
   const notes = (contextQuery.data?.content || "").trim();
+  const incomplete = !(help?.next_actions && help.next_actions.length > 0);
 
   if (!cataloged) {
     return <code className={className}>{code}</code>;
@@ -137,7 +138,19 @@ export function IssueCodePopover({
           onPointerDown={(e) => e.stopPropagation()}
         >
           <p className="font-medium text-sm text-foreground">{help!.title}</p>
-          <p className="text-muted-foreground leading-relaxed">{help!.summary}</p>
+          {help!.summary?.trim() ? (
+            <p className="text-muted-foreground leading-relaxed">{help!.summary}</p>
+          ) : (
+            <p className="text-muted-foreground leading-relaxed">No platform summary yet</p>
+          )}
+          {incomplete ? (
+            <p
+              className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-200"
+              data-testid="badge-issue-code-incomplete"
+            >
+              Agent guidance incomplete — add recommended next steps (next_actions) for this code.
+            </p>
+          ) : null}
           <div className="space-y-1 border-t border-border/60 pt-2">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Site agent notes</p>
             {contextQuery.isPending ? (

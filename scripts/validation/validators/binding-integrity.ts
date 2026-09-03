@@ -1,8 +1,10 @@
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { bindingManager } from "../../../server/bindings";
+import { BINDING_INTEGRITY_ISSUE_CODES } from "./binding-integrity.issueCodes";
 
 export const bindingIntegrityValidator: Validator = {
   name: "binding-integrity",
+  issueCodes: BINDING_INTEGRITY_ISSUE_CODES,
   description: "Checks for orphaned section-binding references that point to deleted or moved sections",
   apiExposed: true,
   estimatedDuration: "fast",

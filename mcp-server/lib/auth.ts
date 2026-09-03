@@ -224,18 +224,36 @@ import type { McpTextResult } from "./respond.js";
  * Return the standard MCP error shape for a capability denial.
  * Keeps individual tool handlers concise.
  */
-export function denyResponse(cap: string, contentType?: string): McpTextResult {
+export function denyResponse(
+  cap: string,
+  contentType?: string,
+  extra?: { next_actions?: Array<{ tool: string; reason: string; priority?: string; args_hint?: Record<string, unknown> }> },
+): McpTextResult {
   const scopeMsg = contentType ? ` for content type '${contentType}'` : "";
+  const payload: Record<string, unknown> = {
+    error: "forbidden",
+    message: `Insufficient permissions: capability '${cap}' required${scopeMsg}.`,
+  };
+  if (extra?.next_actions) payload.next_actions = extra.next_actions;
   return {
     content: [
       {
         type: "text" as const,
-        text: JSON.stringify({
-          error: "forbidden",
-          message: `Insufficient permissions: capability '${cap}' required${scopeMsg}.`,
-        }),
+        text: JSON.stringify(payload),
       },
     ],
     isError: true,
   };
+}
+
+export function denyWriteSuggestPropose(cap: string, contentType?: string): McpTextResult {
+  return denyResponse(cap, contentType, {
+    next_actions: [
+      {
+        tool: "propose_change",
+        reason: "You cannot write this content. Store a proposal so someone with edit access can apply it.",
+        priority: "required",
+      },
+    ],
+  });
 }

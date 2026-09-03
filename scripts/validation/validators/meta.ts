@@ -11,6 +11,7 @@ import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } f
 import { validateRequiredMeta } from "../../../shared/validateRequiredMeta";
 import { resolveSingleVars } from "../../../server/single-resolver";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
+import { META_ISSUE_CODES } from "./meta.issueCodes";
 
 const VALID_CHANGE_FREQUENCIES = [
   "always",
@@ -27,6 +28,7 @@ const GLOBAL_VAR_RE = /\{\{\s*global\./;
 
 export const metaValidator: Validator = {
   name: "meta",
+  issueCodes: META_ISSUE_CODES,
   description: "Validates meta properties (page_title, description, priority, change_frequency)",
   apiExposed: true,
   estimatedDuration: "fast",

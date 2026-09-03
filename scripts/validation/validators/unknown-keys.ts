@@ -5,6 +5,7 @@
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { getAllConfigs, getContentTypeConfig } from "../../../server/content-types";
 import { collectUnknownFieldKeys } from "@shared/validateUnknownFieldKeys";
+import { UNKNOWN_KEYS_ISSUE_CODES } from "./unknown-keys.issueCodes";
 
 function isSharedSingleTemplate(filePath: string): boolean {
   const base = filePath.split(/[/\\]/).pop() || "";
@@ -13,6 +14,7 @@ function isSharedSingleTemplate(filePath: string): boolean {
 
 export const unknownKeysValidator: Validator = {
   name: "unknown-keys",
+  issueCodes: UNKNOWN_KEYS_ISSUE_CODES,
   description:
     "Warns when live entry YAML/Fields contain keys that are not in field_mapping or structural allowlist",
   apiExposed: true,

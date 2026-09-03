@@ -5,15 +5,27 @@ import {
   IconDeviceFloppy,
   IconLoader2,
   IconPlugConnected,
+  IconRefresh,
   IconToggleLeft,
   IconToggleRight,
 } from "@tabler/icons-react";
 import { Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch, apiRequest } from "@/lib/queryClient";
 
@@ -35,6 +47,7 @@ type GscBigQueryConfigResponse = {
 
 export function SearchConsoleBigQueryCard({ canEdit }: { canEdit: boolean }) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [enabled, setEnabled] = useState(false);
   const [projectId, setProjectId] = useState("");
   const [datasetId, setDatasetId] = useState("");
@@ -44,10 +57,17 @@ export function SearchConsoleBigQueryCard({ canEdit }: { canEdit: boolean }) {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetProgress, setResetProgress] = useState<{
+    current: number;
+    total: number;
+    date?: string;
+  } | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [credentialsHint, setCredentialsHint] = useState("");
   const [credentialsSource, setCredentialsSource] = useState("");
   const [warnings, setWarnings] = useState<string[]>([]);
+  const resetting = Boolean(resetProgress);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["/api/settings/search-console/bigquery"],
@@ -127,6 +147,55 @@ export function SearchConsoleBigQueryCard({ canEdit }: { canEdit: boolean }) {
     }
   }
 
+  async function resetOrganicCache() {
+    if (!canEdit || resetting) return;
+    setResetConfirmOpen(false);
+    setResetProgress({ current: 0, total: 60 });
+    let since = new Date().toISOString();
+    try {
+      for (;;) {
+        const res = await apiFetch("/api/seo/organic/days/backfill", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "rebuild_60", since }),
+        });
+        const body = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          remaining?: number;
+          days_expected?: number;
+          date?: string;
+          since?: string;
+        };
+        if (body.since) since = body.since;
+        const total = body.days_expected || 60;
+        const remaining = body.remaining ?? 0;
+        setResetProgress({
+          current: total - remaining,
+          total,
+          date: body.date,
+        });
+        if (!res.ok || !body.ok) {
+          throw new Error(body.error || "Could not rebuild Search Console days");
+        }
+        if (remaining <= 0) break;
+      }
+      toast({ title: "Search Console day cache rebuilt" });
+      await queryClient.invalidateQueries({ queryKey: ["/api/seo/organic/opportunities"] });
+    } catch (err: unknown) {
+      toast({
+        title: "Could not reset cache",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setResetProgress(null);
+    }
+  }
+
+  const canResetCache =
+    canEdit && enabled && Boolean(projectId.trim()) && Boolean(datasetId.trim()) && !resetting;
+
   return (
     <Card data-testid="card-gsc-bigquery-settings">
       <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
@@ -166,7 +235,7 @@ export function SearchConsoleBigQueryCard({ canEdit }: { canEdit: boolean }) {
                   setEnabled((v) => !v);
                   setDirty(true);
                 }}
-                disabled={!canEdit}
+                disabled={!canEdit || resetting}
                 className="shrink-0 text-muted-foreground disabled:opacity-50"
                 data-testid="toggle-gsc-bq-enabled"
                 aria-label={enabled ? "Disable Search Console BigQuery" : "Enable Search Console BigQuery"}
@@ -300,21 +369,36 @@ export function SearchConsoleBigQueryCard({ canEdit }: { canEdit: boolean }) {
                   needs read access on the dataset.
                 </p>
                 <p className="font-mono text-xs">settings.yml → search_console.bigquery</p>
+                <p className="font-mono text-xs">.cache/{"{site}"}/gsc-organic-days/YYYY-MM-DD.json</p>
+                <p className="font-mono text-xs">POST /api/seo/organic/days/backfill · mode rebuild_60</p>
                 <p className="text-xs">
                   GA4 export is separate — configure at{" "}
                   <Link href="/private/tracking/ga4" className="underline underline-offset-2 text-foreground">
                     Tracking → GA4
                   </Link>
-                  . Data lag is typically 2–3 days; export is daily grain only.
+                  . Data lag is typically 2–3 days; export is daily grain only. Reset cache re-queries
+                  BigQuery into the local day files; it does not start a Google export or write content YAML.
                 </p>
               </CollapsibleContent>
             </Collapsible>
+
+            {resetProgress && (
+              <div className="space-y-2" data-testid="progress-gsc-bq-reset">
+                <Progress
+                  value={(resetProgress.current / Math.max(1, resetProgress.total)) * 100}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Rebuilding day cache {resetProgress.current} / {resetProgress.total}
+                  {resetProgress.date ? ` · ${resetProgress.date}` : ""}
+                </p>
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center gap-2 pt-2 border-t">
               <Button
                 type="button"
                 onClick={() => void save()}
-                disabled={!canEdit || !dirty || saving}
+                disabled={!canEdit || !dirty || saving || resetting}
                 data-testid="button-gsc-bq-save"
               >
                 {saving ? (
@@ -328,7 +412,7 @@ export function SearchConsoleBigQueryCard({ canEdit }: { canEdit: boolean }) {
                 type="button"
                 variant="secondary"
                 onClick={() => void testConnection()}
-                disabled={testing || !enabled || !projectId.trim() || !datasetId.trim()}
+                disabled={testing || resetting || !enabled || !projectId.trim() || !datasetId.trim()}
                 data-testid="button-gsc-bq-test"
               >
                 {testing ? (
@@ -338,10 +422,59 @@ export function SearchConsoleBigQueryCard({ canEdit }: { canEdit: boolean }) {
                 )}
                 Test connection
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setResetConfirmOpen(true)}
+                disabled={!canResetCache}
+                data-testid="button-gsc-bq-reset-cache"
+              >
+                {resetting ? (
+                  <IconLoader2 className="h-4 w-4 animate-spin mr-1.5" />
+                ) : (
+                  <IconRefresh className="h-4 w-4 mr-1.5" />
+                )}
+                Reset cache
+              </Button>
             </div>
           </>
         )}
       </CardContent>
+
+      <AlertDialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
+        <AlertDialogContent data-testid="dialog-gsc-bq-reset-cache">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset Search Console day cache?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  This re-downloads the last 60 complete days of Search Console performance from
+                  BigQuery into this app’s local cache. Organic opportunity cards will use the
+                  refreshed days when the rebuild finishes.
+                </p>
+                <p>
+                  It does not change these BigQuery settings, start Google’s bulk export, touch URL
+                  Inspection, or edit any page content. Data still lags about 2–3 days behind live
+                  Search Console.
+                </p>
+                <p>The rebuild can take a few minutes. Keep this tab open until it finishes.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-gsc-bq-reset-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void resetOrganicCache();
+              }}
+              data-testid="button-gsc-bq-reset-confirm"
+            >
+              Reset cache
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

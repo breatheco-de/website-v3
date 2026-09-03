@@ -19,7 +19,7 @@ import {
 } from "../lib/content.js";
 import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
 import { notifyMcpContentWrite } from "../lib/content-write-notify.js";
-import { checkCap, denyResponse, denyUnlessContentView, denyUnlessContentViewOrSeo } from "../lib/auth.js";
+import { checkCap, denyResponse, denyWriteSuggestPropose, denyUnlessContentView, denyUnlessContentViewOrSeo } from "../lib/auth.js";
 import {
   grantsCanMutateMetrics,
   hasCapAnyScope,
@@ -1407,7 +1407,9 @@ export function registerPageTools(
   mcp.tool(
     "get_entry_seo",
     "Get the SEO/meta block plus structured-data preview for a page, with the identifying envelope (contentType, slug, locale, locales, urls). " +
-    "Returns meta, seo (locale seo.main_keyword / kw_monthly_volume / kw_difficulty / pillar_path / is_pillar), include_in_clustering (derived: false only when seo.pillar_path is explicit null), " +
+    "Returns meta, seo (locale seo.main_keyword / kw_monthly_volume / kw_difficulty / pillar_path / is_pillar), " +
+    "keyword_metrics (resolved OpenRush cache over YAML when OpenRush is on; source / may_not_be_recent / stale / fetched_at / notes), " +
+    "include_in_clustering (derived: false only when seo.pillar_path is explicit null), " +
     "index (live seo-index.json topic-cluster inventory row — NOT search-engine indexing; omitted for variants), " +
     "optional search_engines when include_search_engines:true (cached Google Search Console + Bing stub; read-only, does not refresh cache or call live APIs), " +
     "validation_issues (open cached SEO-category issues), " +
@@ -1591,6 +1593,23 @@ export function registerPageTools(
         payload.data,
       );
 
+      const seoBlock =
+        payload.data.seo && typeof payload.data.seo === "object" && !Array.isArray(payload.data.seo)
+          ? (payload.data.seo as Record<string, unknown>)
+          : {};
+      const mainKw =
+        typeof seoBlock.main_keyword === "string" && seoBlock.main_keyword.trim()
+          ? seoBlock.main_keyword.trim()
+          : null;
+      const { resolveKeywordMetrics } = await import("../../server/openrush-keyword-cache.js");
+      const keyword_metrics = resolveKeywordMetrics({
+        keyword: mainKw,
+        contentRoot: contentPath,
+        contentFolder,
+        yamlVolume: seoBlock.kw_monthly_volume,
+        yamlDifficulty: seoBlock.kw_difficulty,
+      });
+
       const seoPayload: Record<string, unknown> = {
         contentType: payload.contentType,
         slug: payload.slug,
@@ -1599,6 +1618,7 @@ export function registerPageTools(
         ...(payload.urls ? { urls: payload.urls } : {}),
         meta: payload.data.meta,
         seo: payload.data.seo || {},
+        keyword_metrics,
         include_in_clustering: deriveIncludeInClustering(payload.data.seo),
         index: getSeoIndexEntry(payload.contentType, payload.slug, payload.locale, contentPath) || null,
         schema_org,
@@ -1615,6 +1635,21 @@ export function registerPageTools(
         ),
       };
 
+      const kmWarnings: Array<{ code: string; message: string }> = [];
+      if (keyword_metrics.source === "yaml_fallback") {
+        kmWarnings.push({
+          code: "keyword_metrics_yaml_fallback",
+          message:
+            "keyword_metrics uses YAML seo.kw_* fallback (may not be recent). OpenRush cache wins when configured and present. Refresh from staff SEO Geo does not write YAML.",
+        });
+      }
+      if (keyword_metrics.notes) {
+        kmWarnings.push({
+          code: "keyword_metrics_notes",
+          message: keyword_metrics.notes,
+        });
+      }
+
       if (include_search_engines) {
         const engines = buildSearchEnginesPagePayload({
           contentRoot: contentPath,
@@ -1623,7 +1658,9 @@ export function registerPageTools(
           requestedUrl: pageUrl,
         });
         seoPayload.search_engines = engines.search_engines;
-        seoPayload.warnings = engines.warnings;
+        seoPayload.warnings = [...kmWarnings, ...engines.warnings];
+      } else if (kmWarnings.length) {
+        seoPayload.warnings = kmWarnings;
       }
 
       return { content: [{ type: "text", text: JSON.stringify(seoPayload, null, 2) }] };
@@ -1808,7 +1845,16 @@ export function registerPageTools(
                 summary: `update_issue ${action} for ${issue_id} in validation-cache.json`,
               },
             ],
-            next_actions: [],
+            next_actions: action === "release"
+              ? [
+                  {
+                    tool: "propose_change",
+                    reason: "If you could not finish the issue, leave a notes or edits proposal linked to this issue_id so the next person can apply it.",
+                    priority: "recommended",
+                    args_hint: { related_issue_ids: [issue_id] },
+                  },
+                ]
+              : [],
           },
         );
       } catch (e) {
@@ -2770,10 +2816,10 @@ export function registerPageTools(
         const needsSeo = allForCap.some((u) => u.field_path.startsWith("meta.") || isSeoPath(u.field_path));
         const needsContent = allForCap.some((u) => !u.field_path.startsWith("meta.") && !isSeoPath(u.field_path));
         if (needsSeo && !(await checkCap(mcpToken, "seo_edit", resolved.contentType))) {
-          return denyResponse("seo_edit", resolved.contentType);
+          return denyWriteSuggestPropose("seo_edit", resolved.contentType);
         }
         if (needsContent && !(await checkCap(mcpToken, "content_edit_text", resolved.contentType))) {
-          return denyResponse("content_edit_text", resolved.contentType);
+          return denyWriteSuggestPropose("content_edit_text", resolved.contentType);
         }
         if (liveSlugUpdate && !(await checkCap(mcpToken, "content_edit_structure", resolved.contentType))) {
           return denyResponse("content_edit_structure", resolved.contentType);
@@ -3585,7 +3631,7 @@ export function registerPageTools(
         return fail("value is required unless reset:true");
       }
       if (mcpToken && !(await checkCap(mcpToken, "content_edit_text", resolved.contentType))) {
-        return denyResponse("content_edit_text", resolved.contentType);
+        return denyWriteSuggestPropose("content_edit_text", resolved.contentType);
       }
 
       const ct = resolved.contentType;
@@ -6165,7 +6211,7 @@ export function registerPageTools(
 
       if (mcpToken) {
         if (!await checkCap(mcpToken, "content_edit_text", resolved.contentType)) {
-          return denyResponse("content_edit_text", resolved.contentType);
+          return denyWriteSuggestPropose("content_edit_text", resolved.contentType);
         }
       }
 

@@ -34,12 +34,30 @@ const seoBlogOnly: CatalogGrant[] = [{ name: "seo_edit", contentTypes: ["blog"] 
 const redirectReader: CatalogGrant[] = [{ name: "read_redirects" }];
 
 describe("allowedToolNames", () => {
+  it("user_admin and platform_ops see none of the proposal tools", () => {
+    expect(allowedToolNames([{ name: "users_manage" }])).not.toEqual(
+      expect.arrayContaining(["propose_change", "list_proposals", "update_proposal"]),
+    );
+    const ops = new Set(
+      allowedToolNames([{ name: "sites_manage" }, { name: "worker_manage" }, { name: "migrations_run" }]),
+    );
+    expect(ops.has("propose_change")).toBe(false);
+    expect(ops.has("list_proposals")).toBe(false);
+    expect(ops.has("update_proposal")).toBe(false);
+    const admin = new Set(allowedToolNames([{ name: "users_manage" }]));
+    expect(admin.has("propose_change")).toBe(false);
+    expect(admin.has("update_proposal")).toBe(false);
+  });
+
   it("Metrics Viewer sees only identity tools", () => {
     const names = allowedToolNames(metricsViewer);
     expect(names).toEqual([...IDENTITY_TOOLS].sort());
     expect(names).not.toContain("list_entries");
     expect(names).not.toContain("run_entry_diagnostics");
     expect(names).not.toContain("update_fields");
+    expect(names).not.toContain("propose_change");
+    expect(names).not.toContain("list_proposals");
+    expect(names).not.toContain("update_proposal");
   });
 
   it("Content Viewer sees YAML/component reads, not writes or diagnostics or FAQ", () => {
@@ -61,6 +79,9 @@ describe("allowedToolNames", () => {
     expect(names.has("list_databases")).toBe(false);
     expect(names.has("run_entry_diagnostics")).toBe(true);
     expect(names.has("get_diagnostics_job")).toBe(false);
+    expect(names.has("propose_change")).toBe(true);
+    expect(names.has("list_proposals")).toBe(true);
+    expect(names.has("update_proposal")).toBe(false);
   });
 
   it("blog-only editor sees reads and text writes, not structure/create", () => {
@@ -71,6 +92,9 @@ describe("allowedToolNames", () => {
     expect(names.has("add_section")).toBe(false);
     expect(names.has("create_entry")).toBe(false);
     expect(names.has("update_redirect")).toBe(false);
+    expect(names.has("propose_change")).toBe(true);
+    expect(names.has("list_proposals")).toBe(true);
+    expect(names.has("update_proposal")).toBe(true);
   });
 
   it("platform_steward sees writes and diagnostics", () => {
@@ -84,6 +108,8 @@ describe("allowedToolNames", () => {
     expect(names.has("ensure_content_type_schema_org")).toBe(true);
     expect(names.has("update_content_type")).toBe(true);
     expect(names.has("reindex_database")).toBe(true);
+    expect(names.has("propose_change")).toBe(true);
+    expect(names.has("update_proposal")).toBe(true);
   });
 
   it("content_types_manage reveals update_content_type", () => {
@@ -113,6 +139,9 @@ describe("allowedToolNames", () => {
     expect(names.has("list_entries")).toBe(false);
     expect(names.has("explain_site")).toBe(false);
     expect(names.has("reset_entry_field")).toBe(false);
+    expect(names.has("propose_change")).toBe(true);
+    expect(names.has("list_proposals")).toBe(true);
+    expect(names.has("update_proposal")).toBe(true);
   });
 
   it("read_redirects reveals test_redirect only", () => {

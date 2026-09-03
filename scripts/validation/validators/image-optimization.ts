@@ -3,6 +3,7 @@ import * as path from "path";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { mergeWidths } from "../../../server/image-optimizer";
 import type { Preset } from "../../../server/image-optimizer";
+import { IMAGE_OPTIMIZATION_ISSUE_CODES } from "./image-optimization.issueCodes";
 
 const REGISTRY_PATH = path.join(process.cwd(), "4geeks-com", "image-registry.json");
 
@@ -32,6 +33,7 @@ function missingWidths(
 
 export const imageOptimizationValidator: Validator = {
   name: "image-optimization",
+  issueCodes: IMAGE_OPTIMIZATION_ISSUE_CODES,
   description: "Checks image registry for raster images missing srcset, width, or height optimization data, or whose srcset is missing widths added to their preset",
   apiExposed: true,
   estimatedDuration: "fast",

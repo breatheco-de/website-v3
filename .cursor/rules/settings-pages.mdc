@@ -1,6 +1,6 @@
 ---
 description: Layout shell for private Settings and related admin config pages
-globs: client/src/pages/*Settings*.tsx,client/src/pages/SecurityPage.tsx,client/src/pages/TrackingPage.tsx
+globs: client/src/pages/*Settings*.tsx,client/src/pages/SecurityPage.tsx,client/src/pages/TrackingPage.tsx,client/src/pages/McpServerPage.tsx,client/src/pages/AgentsOrgChartPage.tsx
 alwaysApply: false
 ---
 
@@ -15,12 +15,73 @@ Outer page: `min-h-screen bg-background` (add `text-foreground` when the page se
 Inner content container:
 
 ```tsx
-<div className="max-w-7xl mx-auto px-4 py-8 space-y-4">
+<div className="max-w-7xl mx-auto px-4 pt-8 pb-24 space-y-4">
 ```
 
 - Use `max-w-7xl` — not `max-w-3xl` / `max-w-4xl` for the page shell.
-- Keep `mx-auto px-4 py-8`; vertical rhythm may be `space-y-4` or `space-y-6`.
+- Keep `mx-auto px-4 pt-8`; use **`pb-24` (~96px)** bottom padding so the last card/actions clear the floating DebugBubble. Do not use `py-8` alone — it leaves content under the bubble.
+- Vertical rhythm may be `space-y-4` or `space-y-6`.
 - Dialogs, tooltips, and form fields may still use their own narrower `max-w-*`.
+
+## Page heading — advanced info popover
+
+When a settings page has **Read more (advanced)** content for the *page* (paths, store files, schema keys, under-the-hood), put it in a **Popover** triggered by an info icon **next to the main `h1`** — not a full-width `<details>` block under the header.
+
+```tsx
+<div className="flex items-center gap-2">
+  <SomeIcon className="h-5 w-5 text-muted-foreground" />
+  <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-…-title">
+    Page title
+  </h1>
+  <Popover>
+    <PopoverTrigger asChild>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 shrink-0"
+        aria-label="Read more (advanced)"
+        data-testid="button-…-advanced-info"
+      >
+        <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
+      </Button>
+    </PopoverTrigger>
+    <PopoverContent
+      align="start"
+      className="w-80 space-y-2 text-xs text-muted-foreground leading-relaxed"
+    >
+      <p className="font-medium text-foreground text-sm">Read more (advanced)</p>
+      {/* paths, merge rules, store keys — keep always-visible description plain */}
+    </PopoverContent>
+  </Popover>
+</div>
+```
+
+- Always-visible one-line description stays under the title row (plain English).
+- Skip the icon when there is no advanced content for that page.
+- In-card / in-field advanced still may use a local `<details>` or card-level info popover; this rule is for the **page main heading** only.
+- Exemplar: [`AgentsOrgChartPage`](client/src/pages/AgentsOrgChartPage.tsx). Same pattern on [`DiagnosticsPage`](client/src/pages/DiagnosticsPage.tsx) (How diagnostics work).
+
+## Tab panel cards
+
+Put each tab’s primary content in a [`Card`](client/src/components/ui/card.tsx) — not loose `section` / `div.space-y-*` under the header. Match General Settings / Security / Auth:
+
+```tsx
+<Card data-testid="panel-…">
+  <CardHeader className="flex flex-row items-center gap-2 pb-4">
+    <Icon… className="h-5 w-5 text-muted-foreground" />
+    <CardTitle className="text-base">Section title</CardTitle>
+  </CardHeader>
+  <CardContent className="space-y-6">
+    {/* framing copy, fields, nested cards, actions */}
+  </CardContent>
+</Card>
+```
+
+- Header: icon + `CardTitle` at `text-base`; optional actions (Save / Test connection) on the right with `justify-between`.
+- Body: `CardContent` with `space-y-4` or `space-y-6`. Short framing copy lives inside the card, not above it.
+- Multiple concerns in one tab → stack cards (`space-y-4` / `space-y-6` between them), or nest a secondary card inside `CardContent` when it is a sub-block of the same decision (Auth Connection / Login / Signup).
+- Page-level alerts (unreachable service, missing secret) may sit above the card so they stay visible across tabs; field-level readiness alerts stay inside the relevant card.
+- Exemplars: [`AuthTab`](client/src/components/settings/AuthTab.tsx), [`ServerTab`](client/src/components/settings/ServerTab.tsx), MCP Connection on [`McpServerPage`](client/src/pages/McpServerPage.tsx).
 
 ## Header + section tabs (top right)
 
@@ -91,5 +152,7 @@ Every settings surface that wires an external API, cloud credential, or vendor S
 - [`AISettingsPage`](client/src/pages/AISettingsPage.tsx)
 - [`SecurityPage`](client/src/pages/SecurityPage.tsx) — header + top-right tabs
 - [`TrackingPage`](client/src/pages/TrackingPage.tsx) — header + top-right tabs (same shell)
+- [`McpServerPage`](client/src/pages/McpServerPage.tsx) — header + top-right tabs (Connection / Tools)
+- [`AgentsOrgChartPage`](client/src/pages/AgentsOrgChartPage.tsx) — page-heading advanced popover exemplar
 
 Sibling admin surfaces (Background Pipeline, Diagnostics) may use a different width when the content warrants it; do not copy their shell onto Settings pages. New third-party cards on those surfaces still follow **Test connection** above.

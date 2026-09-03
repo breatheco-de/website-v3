@@ -11,10 +11,15 @@ import {
   type OpenRushOrganicHit,
   type OpenRushSerpEntry,
 } from "./openrush-serp-cache";
+import { upsertKeywordEntry, type OpenRushKeywordEntry } from "./openrush-keyword-cache";
 
 const log = child({ module: "openrush-client" });
 
 const OPENRUSH_SERP_URL = "https://api.openrush.com/v1/tools/inspect_serp";
+const OPENRUSH_KEYWORD_URL = "https://api.openrush.com/v1/tools/inspect_keyword";
+
+/** Official OpenRush credit cost for `inspect_keyword` (see credits docs). */
+export const OPENRUSH_INSPECT_KEYWORD_CREDITS = 5;
 
 export function getOpenRushApiKey(): string {
   return (process.env.OPENRUSH_API_KEY || "").trim();
@@ -140,6 +145,144 @@ function findOurRank(organic: OpenRushOrganicHit[], ourHosts?: Set<string>): num
     if (loc && [...ourHosts].some((h) => h === loc.host)) return hit.rank;
   }
   return null;
+}
+
+export type ParsedInspectKeyword = {
+  keyword: string;
+  monthly_volume: number | null;
+  kw_difficulty: number | null;
+  competition_level: string | number | null;
+  intent: string | null;
+};
+
+function clampDifficulty(n: number): number {
+  const scaled = n > 0 && n <= 1 ? n * 100 : n;
+  return Math.round(Math.min(100, Math.max(0, scaled)));
+}
+
+function mapKeywordDifficulty(data: Record<string, unknown>): number | null {
+  for (const key of ["difficulty", "keyword_difficulty", "kd", "competition_score"]) {
+    const v = data[key];
+    if (typeof v === "number" && Number.isFinite(v)) return clampDifficulty(v);
+  }
+  const comp = data.competition_level ?? data.competition;
+  if (typeof comp === "number" && Number.isFinite(comp)) return clampDifficulty(comp);
+  if (typeof comp === "string" && comp.trim()) {
+    const label = comp.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    const map: Record<string, number> = {
+      low: 20,
+      medium: 50,
+      moderate: 50,
+      high: 80,
+      very_high: 90,
+      very_hard: 90,
+    };
+    return map[label] ?? null;
+  }
+  return null;
+}
+
+function mapMonthlyVolume(data: Record<string, unknown>): number | null {
+  for (const key of ["monthly_volume", "search_volume", "volume", "avg_monthly_searches"]) {
+    const v = data[key];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) return Math.round(v);
+  }
+  return null;
+}
+
+export function parseInspectKeywordData(data: unknown, fallbackKeyword: string): ParsedInspectKeyword {
+  const rec = asRecord(data) || {};
+  const keywordRaw = rec.keyword;
+  const keyword =
+    typeof keywordRaw === "string" && keywordRaw.trim() ? keywordRaw.trim() : fallbackKeyword;
+  const competition = rec.competition_level ?? rec.competition ?? null;
+  const intentRaw = rec.intent;
+  return {
+    keyword,
+    monthly_volume: mapMonthlyVolume(rec),
+    kw_difficulty: mapKeywordDifficulty(rec),
+    competition_level:
+      typeof competition === "string" || typeof competition === "number" ? competition : null,
+    intent: typeof intentRaw === "string" && intentRaw.trim() ? intentRaw.trim() : null,
+  };
+}
+
+export type InspectKeywordResult = {
+  ok: boolean;
+  metrics?: ParsedInspectKeyword;
+  entry?: OpenRushKeywordEntry;
+  error?: string;
+  credits_note?: string;
+};
+
+export async function inspectKeywordQuery(opts: {
+  keyword: string;
+  contentRoot?: string;
+  contentFolder?: string;
+}): Promise<InspectKeywordResult> {
+  const keyword = opts.keyword.trim();
+  if (!keyword) return { ok: false, error: "keyword is required" };
+  const key = getOpenRushApiKey();
+  if (!key) return { ok: false, error: "OPENRUSH_API_KEY is not set" };
+  const settings = getOpenRushSettings(opts.contentRoot);
+  if (!settings.enabled) return { ok: false, error: "OpenRush is disabled in settings" };
+
+  const location = settings.location || "United States";
+  const language = settings.language || "English";
+
+  try {
+    const res = await fetch(OPENRUSH_KEYWORD_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        keyword,
+        location,
+        language,
+      }),
+    });
+    const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!res.ok) {
+      const message =
+        (typeof body?.error === "string" && body.error) ||
+        (typeof body?.message === "string" && body.message) ||
+        `OpenRush HTTP ${res.status}`;
+      return { ok: false, error: message };
+    }
+    const data = body?.data ?? body;
+    const dataRec =
+      data && typeof data === "object" && !Array.isArray(data)
+        ? (data as Record<string, unknown>)
+        : null;
+    const metrics = parseInspectKeywordData(data, keyword);
+    const entry = upsertKeywordEntry(
+      {
+        keyword: metrics.keyword,
+        location,
+        language,
+        monthly_volume: metrics.monthly_volume,
+        kw_difficulty: metrics.kw_difficulty,
+        payload: dataRec,
+      },
+      opts.contentFolder,
+    );
+    return {
+      ok: true,
+      metrics: {
+        ...metrics,
+        monthly_volume: entry.monthly_volume,
+        kw_difficulty: entry.kw_difficulty,
+      },
+      entry,
+      credits_note: `inspect_keyword uses ${OPENRUSH_INSPECT_KEYWORD_CREDITS} OpenRush credits`,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn({ err, keyword }, "[openrush] inspect_keyword failed");
+    return { ok: false, error: message };
+  }
 }
 
 export async function testOpenRushConnection(

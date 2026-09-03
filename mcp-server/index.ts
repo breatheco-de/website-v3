@@ -13,7 +13,7 @@ import { registerExplainTools } from "./tools/explain.js";
 import { registerEcommerceTools } from "./tools/ecommerce.js";
 import { registerDatabaseTools } from "./tools/databases.js";
 import { registerRedirectTools } from "./tools/redirects.js";
-import { registerMediaTools } from "./tools/media.js";
+import { registerProposalTools } from "./tools/proposals.js";
 import {
   registerClient,
   lookupClient,
@@ -309,6 +309,7 @@ async function createMcpServer(
   registerDatabaseTools(mcp, mcpToken);
   registerRedirectTools(mcp, mcpToken);
   registerMediaTools(mcp, mcpToken, grants);
+  registerProposalTools(mcp, mcpToken, grants);
   return mcp;
 }
 

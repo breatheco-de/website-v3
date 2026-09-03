@@ -40,6 +40,18 @@ const CLUSTER_GAP_SUGGESTION =
   "Prefer joining an existing hub (seo.pillar_path). List hubs first. Become a hub (seo.is_pillar: true) or opt out (seo.pillar_path: null) only when that is the real intent — not just to clear this warning.";
 
 export const SEO_CLUSTER_ISSUE_CODES: Record<string, IssueCodeDefinition> = {
+  SEO_KEYWORD_RESEARCH_INCOMPLETE: {
+    title: "Incomplete keyword research",
+  },
+  SEO_BLOCK_ON_COMMON_YML: {
+    title: "SEO block on _common.yml",
+  },
+  INVALID_PILLAR: {
+    title: "Invalid pillar path",
+  },
+  DUPLICATE_PILLAR: {
+    title: "Duplicate hub path",
+  },
   ORPHAN_PAGE: {
     title: "Unclustered page",
     summary:

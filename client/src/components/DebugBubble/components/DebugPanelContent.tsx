@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Bot, Brain, Braces, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Globe, Home, Image, Languages, LogOut, Map, Menu, MessageCircle, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Bot, Brain, Braces, Check, ChevronDown, ChevronRight, ClipboardList, Cookie, Database, Github, Globe, Home, Image, Languages, LogOut, Map, Menu, MessageCircle, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
 import { IconServer, IconShoppingBag, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle, IconSwitchHorizontal } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
@@ -929,6 +929,13 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 testId="link-mcp-server"
               />
               <MenuItem
+                icon={Bot}
+                label="Agents"
+                href="/private/agents/orgchart"
+                indicator="arrow"
+                testId="link-agents"
+              />
+              <MenuItem
                 icon={Pencil}
                 label="Knowledge Editor"
                 href="/private/ai-knowledge"
@@ -968,6 +975,13 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 href="/private/diagnostics"
                 indicator="arrow"
                 testId="link-diagnostics"
+              />
+              <MenuItem
+                icon={ClipboardList}
+                label="Proposals"
+                href="/private/proposals"
+                indicator="arrow"
+                testId="link-proposals"
               />
               <MenuItem
                 icon={IconAlertTriangle}

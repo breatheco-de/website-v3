@@ -17,9 +17,11 @@ import {
   HUB_MISSING_MEMBER_LINKS,
   MEMBER_MISSING_HUB_LINK,
 } from "../../../server/seo-cluster-link-check";
+import { SEO_CLUSTER_LINKS_ISSUE_CODES } from "./seo-cluster-links.issueCodes";
 
 export const seoClusterLinksValidator: Validator = {
   name: "seo-cluster-links",
+  issueCodes: SEO_CLUSTER_LINKS_ISSUE_CODES,
   description:
     "Validates bidirectional SEO cluster links: hub pages link to members; members link back to the hub (anchors / url fields / markdown only)",
   apiExposed: true,

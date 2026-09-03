@@ -64,3 +64,10 @@ the raw content path (e.g. not `scholarship/miami-tech-works`).
 If the page were already live and you edited the live locale directly
 (no `variant` param, `confirm_live_edit: true`), the link would omit
 `?force_variant=draft` entirely.
+
+### 2. If you cannot write, propose — and link issues
+
+When `update_fields` (or another mutate) is forbidden, call `propose_change` instead of pasting JSON in chat. If you cannot complete a validation issue, leave a proposal (`related_issue_ids`) with the edits or the steps you tried, then `update_issue` release.
+
+**Worked example:** missing `content_edit_text` on a blog CTA → `propose_change` with that entry’s `updates[]`, then tell the human a different editor must `update_proposal` with `action: "apply"`.
+

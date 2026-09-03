@@ -13,6 +13,7 @@ import type {
   ValidationIssue,
 } from "../shared/types";
 import { getDefaultContentRoot } from "../../../server/site-config";
+import { FAQS_ISSUE_CODES } from "./faqs.issueCodes";
 
 const SIX_MONTHS_MS = 6 * 30 * 24 * 60 * 60 * 1000;
 
@@ -98,6 +99,7 @@ function validateFaqEntries(
 
 export const faqsValidator: Validator = {
   name: "faqs",
+  issueCodes: FAQS_ISSUE_CODES,
   description:
     "Validates FAQ database entries (frequently_asked_questions) have last_updated within 6 months and at most 2 tags",
   apiExposed: true,

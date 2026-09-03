@@ -37,6 +37,36 @@ export type AggregatedGscRow = {
   ctr: number;
 };
 
+export type WithCmsKnown<T extends { url: string }> = T & { cms_known: boolean };
+
+/** Pathname for contentIndex.isKnownUrl (GSC rows are often absolute URLs). */
+export function gscUrlToPath(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return "/";
+  // Path-only: do not pass through normalizePageUrl (it would treat "en" as hostname).
+  if (trimmed.startsWith("/")) {
+    return trimmed.split("?")[0]!.split("#")[0]!.replace(/\/+$/, "") || "/";
+  }
+  const n = normalizePageUrl(trimmed);
+  if (n?.path) return n.path;
+  try {
+    return new URL(trimmed).pathname.replace(/\/+$/, "") || "/";
+  } catch {
+    const path = trimmed.split("?")[0]?.split("#")[0] || trimmed;
+    return path.startsWith("/") ? path.replace(/\/+$/, "") || "/" : `/${path}`;
+  }
+}
+
+export function enrichCmsKnown<T extends { url: string }>(
+  rows: T[],
+  isKnownUrl: (path: string) => boolean,
+): Array<WithCmsKnown<T>> {
+  return rows.map((r) => ({
+    ...r,
+    cms_known: isKnownUrl(gscUrlToPath(r.url)),
+  }));
+}
+
 export function aggregateDayRows(days: { rows: GscDayRow[] }[]): AggregatedGscRow[] {
   const map = new Map<string, { query: string; url: string; clicks: number; impressions: number; sum_position: number }>();
   for (const day of days) {
@@ -265,9 +295,9 @@ export type OrganicOpportunitiesResponse = {
     decay_prior: { start: string; end: string } | null;
   };
   cards: {
-    page2: AggregatedGscRow[];
-    low_ctr: Array<AggregatedGscRow & { expected_ctr: number; gap: number }>;
-    link_gaps: Array<AggregatedGscRow & { inbound: number }>;
+    page2: Array<WithCmsKnown<AggregatedGscRow>>;
+    low_ctr: Array<WithCmsKnown<AggregatedGscRow & { expected_ctr: number; gap: number }>>;
+    link_gaps: Array<WithCmsKnown<AggregatedGscRow & { inbound: number }>>;
     decay: Array<{
       url: string;
       clicks: number;
@@ -277,7 +307,7 @@ export type OrganicOpportunitiesResponse = {
       click_drop: number;
     }>;
     cannibalization: ReturnType<typeof classifyCannibalization>;
-    missing_serp: SerpOpportunityRow[];
+    missing_serp: Array<WithCmsKnown<SerpOpportunityRow>>;
   };
 };
 
@@ -307,6 +337,8 @@ export async function buildOrganicOpportunities(opts: {
   contentFolder?: string;
   decayWindow: 7 | 28;
   pullLatest?: boolean;
+  /** When set, Ask Agent cards get cms_known from contentIndex.isKnownUrl. */
+  isKnownUrl?: (path: string) => boolean;
 }): Promise<OrganicOpportunitiesResponse> {
   const folder = opts.contentFolder || getDefaultContentFolder();
   const bq = getGscBigQueryConfigStatus(opts.contentRoot);
@@ -343,6 +375,8 @@ export async function buildOrganicOpportunities(opts: {
   const missing_serp = openrush_configured ? classifyMissingSerp(rows7, serp) : [];
   const serp_incomplete = openrush_configured && missing_serp.some((r) => !r.serp_fetched || r.serp_stale);
 
+  const known = opts.isKnownUrl ?? (() => false);
+
   return {
     bq_configured: bq.configured,
     openrush_configured,
@@ -355,12 +389,12 @@ export async function buildOrganicOpportunities(opts: {
     serp_incomplete,
     windows: { d7, d28, decay_current: decayCur, decay_prior: decayPrior },
     cards: {
-      page2: classifyPage2(rows7),
-      low_ctr: classifyLowCtr(rows7),
-      link_gaps: classifyLinkGaps(rows7, opts.contentRoot),
+      page2: enrichCmsKnown(classifyPage2(rows7), known),
+      low_ctr: enrichCmsKnown(classifyLowCtr(rows7), known),
+      link_gaps: enrichCmsKnown(classifyLinkGaps(rows7, opts.contentRoot), known),
       decay: classifyDecay(rowsDecayCur, rowsDecayPrior),
       cannibalization: classifyCannibalization(rows28),
-      missing_serp,
+      missing_serp: enrichCmsKnown(missing_serp, known),
     },
   };
 }

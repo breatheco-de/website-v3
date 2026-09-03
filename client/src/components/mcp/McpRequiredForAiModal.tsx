@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
@@ -19,7 +19,13 @@ import {
 import { SolveWithAiAgentIcon } from "@/components/DebugBubble/SolveWithAiAgentIcon";
 import { IconPlug } from "@tabler/icons-react";
 import { useToast } from "@/hooks/use-toast";
-import { useDebugAuth } from "@/hooks/useDebugAuth";
+import {
+  AGENTIC_SWARM_ROLE_IDS,
+  AGENTIC_SWARM_ROLES_BY_ID,
+  type AgenticSwarmRoleId,
+} from "@shared/agentic-swarm-roles";
+
+const DEFAULT_AGENT_ROLE_ID: AgenticSwarmRoleId = "swarm_orchestrator";
 
 export interface McpRequiredForAiModalProps {
   open: boolean;
@@ -34,6 +40,18 @@ export interface McpRequiredForAiModalProps {
   prompt?: string;
   /** Prefill URL prefix ending with `q=`; omit for copy-prompt-only flow. */
   prefillUrlPrefix?: string;
+  /**
+   * Agentic swarm role for the connector URL (`/mcp/role/:id`).
+   * Defaults to Swarm Orchestrator; organic SEO flows pass `seo_specialist`.
+   */
+  defaultRoleId?: AgenticSwarmRoleId;
+}
+
+function resolveAgentRoleId(roleId: string | undefined): AgenticSwarmRoleId {
+  if (roleId && (AGENTIC_SWARM_ROLE_IDS as readonly string[]).includes(roleId)) {
+    return roleId as AgenticSwarmRoleId;
+  }
+  return DEFAULT_AGENT_ROLE_ID;
 }
 
 export function McpRequiredForAiModal({
@@ -44,12 +62,19 @@ export function McpRequiredForAiModal({
   agentLabel = "AI Agent",
   prompt = "",
   prefillUrlPrefix,
+  defaultRoleId = DEFAULT_AGENT_ROLE_ID,
 }: McpRequiredForAiModalProps) {
   const { toast } = useToast();
-  const { roles: myRoleIds } = useDebugAuth();
-  /** Default All roles for Solve-with-AI; optional focused connector. */
-  const [setupRoleId, setSetupRoleId] = useState<string | null>(null);
+  const [setupRoleId, setSetupRoleId] = useState<string>(
+    () => resolveAgentRoleId(defaultRoleId),
+  );
 
+  useEffect(() => {
+    if (!open) return;
+    setSetupRoleId(resolveAgentRoleId(defaultRoleId));
+  }, [open, defaultRoleId]);
+
+  /** Prefer live labels from the store when available; fall back to code pack. */
   const { data } = useQuery<{
     roles?: { id: string; label: string; description?: string; allowedTools: string[] }[];
   }>({
@@ -58,10 +83,16 @@ export function McpRequiredForAiModal({
     enabled: open,
   });
 
-  const mySetupRoles = useMemo(
-    () => (data?.roles ?? []).filter((r) => myRoleIds.includes(r.id)),
-    [data?.roles, myRoleIds],
-  );
+  const agentSetupRoles = useMemo(() => {
+    const byId = new Map((data?.roles ?? []).map((r) => [r.id, r]));
+    return AGENTIC_SWARM_ROLE_IDS.map((id) => {
+      const live = byId.get(id);
+      return {
+        id,
+        label: live?.label || AGENTIC_SWARM_ROLES_BY_ID[id].label,
+      };
+    });
+  }, [data?.roles]);
 
   const confirmLabel = prefillUrlPrefix
     ? `Fix with ${agentLabel}`
@@ -120,18 +151,20 @@ export function McpRequiredForAiModal({
             <p className="text-sm font-medium text-foreground">
               Setup for {agentLabel}
             </p>
-            {mySetupRoles.length > 0 && (
-              <McpSetupRoleTabs
-                value={setupRoleId}
-                onValueChange={setSetupRoleId}
-                roles={mySetupRoles}
-                listTestId="tabs-mcp-required-setup-role"
-              />
-            )}
+            <McpSetupRoleTabs
+              value={setupRoleId}
+              onValueChange={(id) => {
+                if (id) setSetupRoleId(id);
+              }}
+              roles={agentSetupRoles}
+              includeAllOption={false}
+              placeholder="Select an agent role"
+              listTestId="tabs-mcp-required-setup-role"
+            />
           </div>
           {open ? (
             <McpAgentSetupTabs
-              key={`${defaultTab}-${setupRoleId ?? "all"}`}
+              key={`${defaultTab}-${setupRoleId}`}
               onlyTab={defaultTab}
               roleId={setupRoleId}
             />

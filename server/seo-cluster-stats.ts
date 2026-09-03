@@ -9,6 +9,10 @@ import { createPublicUrlResolver } from "./redirects";
 import { entryCanonicalPath } from "./seo-fields";
 import type { MonitoredSeoGap } from "./seo-monitored-scan";
 import type { SeoIndex, SeoIndexEntry } from "./seo-index";
+import {
+  resolveKeywordMetrics,
+  type ResolvedKeywordMetrics,
+} from "./openrush-keyword-cache";
 
 export type ClusterBucket =
   | "hub"
@@ -210,6 +214,8 @@ export type ClusterBucketEntryRow = {
   main_keyword: string | null;
   kw_monthly_volume: number | null;
   kw_difficulty: number | null;
+  /** Resolved OpenRush-or-YAML metrics when enrichment ran. */
+  keyword_metrics?: ResolvedKeywordMetrics;
   file: string;
   reason?: BrokenClusterRefReason;
   pillar_path?: string | null;
@@ -389,6 +395,28 @@ export function listClusterBucketEntries(
   const items = filtered.slice(start, start + pageSize);
 
   return { items, total, page, pageSize };
+}
+
+/** Overlay OpenRush-resolved metrics onto bucket rows (display + keyword_metrics). */
+export function enrichClusterBucketRowsWithKeywordMetrics(
+  items: ClusterBucketEntryRow[],
+  opts: { contentRoot?: string; contentFolder?: string },
+): ClusterBucketEntryRow[] {
+  return items.map((row) => {
+    const resolved = resolveKeywordMetrics({
+      keyword: row.main_keyword,
+      contentRoot: opts.contentRoot,
+      contentFolder: opts.contentFolder,
+      yamlVolume: row.kw_monthly_volume,
+      yamlDifficulty: row.kw_difficulty,
+    });
+    return {
+      ...row,
+      kw_monthly_volume: resolved.kw_monthly_volume,
+      kw_difficulty: resolved.kw_difficulty,
+      keyword_metrics: resolved,
+    };
+  });
 }
 
 export function isClusterFilterBucket(value: string): value is ClusterFilterBucket {

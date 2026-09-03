@@ -16,6 +16,7 @@ import {
   observeParamValues,
   urlPatternParams,
 } from "../../../server/url-param-peers";
+import { URL_PARAM_LOCALE_ISSUE_CODES } from "./url-param-locale.issueCodes";
 
 function safeLoad(raw: string): Record<string, unknown> | null {
   try {
@@ -41,6 +42,7 @@ function readParamFromFile(filePath: string, param: string, mapping: Record<stri
 
 export const urlParamLocaleValidator: Validator = {
   name: "url-param-locale",
+  issueCodes: URL_PARAM_LOCALE_ISSUE_CODES,
   description:
     "URL-pattern params must be on locale YAML (not _common) and use slugs observed among same-locale peers",
   apiExposed: true,

@@ -17,6 +17,7 @@ import { normalizeUrl, getCanonicalUrl } from "../shared/canonicalUrls";
 import { isLiveRedirectSource } from "../shared/draftFiles";
 import { formatSitePath } from "../../../shared/formatSitePath";
 import { isLocaleHomeAlias } from "@shared/public-app-routes";
+import { REDIRECTS_ISSUE_CODES } from "./redirects.issueCodes";
 
 interface CustomRedirectEntry {
   from: string;
@@ -72,6 +73,7 @@ function loadCustomRedirects(contentRoot?: string): CustomRedirectEntry[] {
 
 export const redirectValidator: Validator = {
   name: "redirects",
+  issueCodes: REDIRECTS_ISSUE_CODES,
   description: "Validates redirect configurations for conflicts, loops, and self-redirects",
   apiExposed: true,
   estimatedDuration: "fast",

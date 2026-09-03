@@ -106,11 +106,9 @@ export function buildKeepContext(contentRoot?: string): {
   keywordKeys: Set<string>;
 } {
   const ourHosts = new Set<string>();
-  const siteUrl = (process.env.SITE_URL || "").trim();
-  if (siteUrl) {
-    const loc = normalizePageUrl(siteUrl);
-    if (loc) ourHosts.add(loc.host);
-  }
+  // Host filter must follow the Search Console property — not SITE_URL.
+  // Local/dev SITE_URL is often a Cloudflare tunnel or localhost; using it
+  // as the only allowed host drops every real 4geeks.com GSC row.
   const sc = getSearchConsoleSettings(contentRoot).site_url;
   if (sc && !sc.toLowerCase().startsWith("sc-domain:")) {
     const loc = normalizePageUrl(sc);

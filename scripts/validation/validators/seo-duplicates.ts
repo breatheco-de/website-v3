@@ -1,12 +1,15 @@
 import type { Validator, ValidatorResult, ValidationContext } from "../shared/types";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
+import { SEO_DUPLICATES_ISSUE_CODES } from "./seo-duplicates.issueCodes";
 
 /**
  * Cross-entry SEO duplicate title/description checks.
  * Must not run in entry-scoped / on-save slices (false clear or false all-clear).
  */
+
 export const seoDuplicatesValidator: Validator = {
   name: "seo-duplicates",
+  issueCodes: SEO_DUPLICATES_ISSUE_CODES,
   description: "Detects duplicate page_title and meta description across live pages",
   apiExposed: true,
   estimatedDuration: "fast",

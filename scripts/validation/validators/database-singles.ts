@@ -13,6 +13,7 @@ import {
 } from "../../../server/shared-layout-paths";
 import { isSharedLayoutType } from "../../../server/shared-layout-entry";
 import { getDefaultContentFolder } from "../../../server/site-config";
+import { DATABASE_SINGLES_ISSUE_CODES } from "./database-singles.issueCodes";
 
 function extractSingleVarNames(content: string): string[] {
   const names: string[] = [];
@@ -51,6 +52,7 @@ function extractByDotPath(obj: unknown, dotPath: string): unknown {
 
 export const databaseSinglesValidator: Validator = {
   name: "database-singles",
+  issueCodes: DATABASE_SINGLES_ISSUE_CODES,
   description: "Validates database-backed content type single templates and detects conflicts",
   apiExposed: true,
   estimatedDuration: "medium",

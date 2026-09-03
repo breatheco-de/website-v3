@@ -10,6 +10,7 @@ import { parseFlexibleDate } from "../../../shared/normalizeFlexibleDate";
 import { resolveSingleVars } from "../../../server/single-resolver";
 import { skipCrossEntryVariantRow } from "../shared/draftFiles";
 import { resolvePageSections } from "./schema-completeness";
+import { UPDATED_AT_ISSUE_CODES } from "./updated-at.issueCodes";
 
 const TEMPLATE_RE = /\{\{[\s\S]*?\}\}/;
 
@@ -29,6 +30,7 @@ function isInvalidUpdatedAt(raw: unknown): boolean {
 
 export const updatedAtValidator: Validator = {
   name: "updated-at",
+  issueCodes: UPDATED_AT_ISSUE_CODES,
   description:
     "Warns when non-empty updated_at values (entry or article section) are unparseable",
   apiExposed: true,

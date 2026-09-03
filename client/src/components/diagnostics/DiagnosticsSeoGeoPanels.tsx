@@ -107,7 +107,7 @@ export function DiagnosticsSeoPanel() {
           )}
           data-testid="seo-subnav-organic"
         >
-          Organic
+          Opportunities
         </Link>
       </nav>
       {organic ? <DiagnosticsOrganicPanel /> : <DiagnosticsSeoOverview />}

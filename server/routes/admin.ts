@@ -261,6 +261,7 @@ import { child } from "../logger";
 import { sqlite } from "../db";
 import { errorLogFingerprint } from "../utils/error-log-fingerprint";
 import { resolveDatabaseBackedRedirectDestination } from "../debug-redirect-db-dest";
+import { api } from "../rate-limit/api.js";
 const log = child({ module: "routes/admin" });
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
@@ -2399,6 +2400,34 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
+  api.post(app, "/api/admin/qdrant/test", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const auth = await requireAdminAuth(req, res);
+      if (!auth.authorized) return;
+
+      const { getStatus } = await import("../vector-search");
+      const status = await getStatus();
+      const payload = {
+        ok: status.available,
+        host: status.host,
+        port: status.port,
+        url: status.url,
+        collections_count: status.collections.length,
+        error: status.error || undefined,
+      };
+      if (!status.available) {
+        return res.status(400).json(payload);
+      }
+      res.json(payload);
+    } catch (err) {
+      log.error({ err }, "[Qdrant Test POST] Error:");
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : "Failed to test Qdrant connection",
+      });
+    }
+  });
+
   // ============================================
   // AI Admin Routes (users_manage capability required)
   // ============================================
@@ -2615,6 +2644,72 @@ export function registerAdminRoutes(app: Express): void {
     } catch (err) {
       log.error({ err }, "[OpenRouter models] Error:");
       res.status(500).json({ error: "Failed to fetch OpenRouter models", models: [] });
+    }
+  });
+
+  /** Live OpenRouter probe — lists models; does not persist settings or spend completion tokens. */
+  api.post(app, "/api/admin/ai/openrouter/test", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const auth = await requireAdminAuth(req, res);
+      if (!auth.authorized) return;
+
+      const llmConfig = loadSiteLLMConfig(res);
+      const provider =
+        typeof llmConfig.provider === "object" && llmConfig.provider !== null
+          ? (llmConfig.provider as Record<string, string>)
+          : {};
+      const apiKeyEnv = provider.api_key_env || "OPENROUTER_API_KEY";
+      const baseUrlEnv = provider.base_url_env || "OPENROUTER_BASE_URL";
+
+      const { resolveLLMApiKey, resolveLLMBaseURL } = await import("../ai/LLMService");
+      const apiKey = resolveLLMApiKey(apiKeyEnv);
+      const baseURL = resolveLLMBaseURL(baseUrlEnv) || "https://openrouter.ai/api/v1";
+
+      if (!apiKey) {
+        return res.status(400).json({
+          ok: false,
+          error: `API key not configured. Set ${apiKeyEnv} in environment.`,
+          api_key_env: apiKeyEnv,
+          base_url: baseURL,
+        });
+      }
+
+      const modelsUrl = `${baseURL.replace(/\/$/, "")}/models`;
+      const orRes = await fetch(modelsUrl, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: "application/json",
+        },
+      });
+
+      if (!orRes.ok) {
+        const body = await orRes.text().catch(() => "");
+        log.error({ status: orRes.status, body: body.slice(0, 500) }, "[OpenRouter test] fetch failed");
+        return res.status(400).json({
+          ok: false,
+          error: `OpenRouter request failed (${orRes.status})`,
+          base_url: baseURL,
+        });
+      }
+
+      const payload = (await orRes.json()) as { data?: unknown[] };
+      const modelsCount = Array.isArray(payload.data) ? payload.data.length : 0;
+
+      // Refresh models cache from a successful probe so the pickers stay current.
+      openRouterModelsCache = null;
+
+      res.json({
+        ok: true,
+        models_count: modelsCount,
+        base_url: baseURL,
+        api_key_env: apiKeyEnv,
+      });
+    } catch (err) {
+      log.error({ err }, "[OpenRouter test] Error:");
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : "Failed to test OpenRouter connection",
+      });
     }
   });
 
@@ -3351,7 +3446,7 @@ export function registerAdminRoutes(app: Express): void {
     try {
       const auth = await requireCapability(req, res, "users_manage");
       if (!auth.authorized) return;
-      const { id, label, description, capabilities } = req.body;
+      const { id, label, description, capabilities, agentic } = req.body;
       if (!id || !label || !Array.isArray(capabilities)) {
         res.status(400).json({ error: "Missing required fields: id, label, capabilities" });
         return;
@@ -3377,7 +3472,12 @@ export function registerAdminRoutes(app: Express): void {
         res.status(400).json({ error: capCheck.error });
         return;
       }
-      userStore.setRole(id, { label, description: desc, capabilities: capCheck.valid! });
+      userStore.setRole(id, {
+        label,
+        description: desc,
+        capabilities: capCheck.valid!,
+        ...(agentic === true ? { agentic: true } : {}),
+      });
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create role";
@@ -3397,7 +3497,13 @@ export function registerAdminRoutes(app: Express): void {
         });
         return;
       }
-      const { label, description, capabilities } = req.body;
+      if (userStore.isAgenticSwarmRoleId(roleId)) {
+        res.status(400).json({
+          error: `The agentic swarm role ${roleId} is managed in code and cannot be updated from the admin UI.`,
+        });
+        return;
+      }
+      const { label, description, capabilities, agentic } = req.body;
       if (!label || !Array.isArray(capabilities)) {
         res.status(400).json({ error: "Missing required fields: label, capabilities" });
         return;
@@ -3416,7 +3522,15 @@ export function registerAdminRoutes(app: Express): void {
         return;
       }
       // create-or-update semantics: PUT creates if not exists, updates if exists
-      userStore.setRole(roleId, { label, description: desc, capabilities: capCheck.valid! });
+      const existing = userStore.getRole(roleId);
+      const keepAgentic =
+        agentic === true || (agentic !== false && existing?.agentic === true);
+      userStore.setRole(roleId, {
+        label,
+        description: desc,
+        capabilities: capCheck.valid!,
+        ...(keepAgentic ? { agentic: true } : {}),
+      });
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update role";
