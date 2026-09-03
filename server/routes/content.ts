@@ -1019,11 +1019,11 @@ export function registerContentRoutes(app: Express): void {
     const sharedAttached =
       isSharedLayoutType(contentType, root) && !isEntryDetached(contentType, slug, root);
 
-    // Attached shared-layout: apply template variant via mergeSingleTemplate
+    // Attached shared-layout: merge template shell + entry fields.
     // Require the entry locale file (same gate as loadMergedSinglePage) so a
-    // missing slug cannot return the empty single.*.yml shell.
-    // Entry-level drafts (translate_entry / convert-to-draft) skip this path
-    // so force_variant can load `{variant}.{locale}.yml` from the entry folder.
+    // missing slug cannot return the empty template.*.yml shell.
+    // Entry-level drafts (translate_entry / convert-to-draft) overlay
+    // `{variant}.{locale}.yml` on the live template — not template.{variant}.yml.
     const entryLevelForceVariant =
       !!forceVariant && hasEntryLevelVersioning(contentType, slug, root);
     const hasLiveLocale =
@@ -1035,16 +1035,19 @@ export function registerContentRoutes(app: Express): void {
         root,
       );
 
-    if (sharedAttached && !entryLevelForceVariant) {
+    if (sharedAttached) {
       if (!hasLiveLocale && !forceVariant) {
         res.status(404).json({ error: `${contentType} entry not found` });
         return;
       }
-      if (hasLiveLocale) {
-        const templateVariant =
-          forceVariant ||
-          resolveAssignedVariantSlug(req, res, contentType, slug, locale) ||
-          undefined;
+      // Entry draft preview, or live locale (+ optional template A/B variant)
+      if (entryLevelForceVariant || hasLiveLocale) {
+        const templateVariant = entryLevelForceVariant
+          ? undefined
+          : forceVariant ||
+            resolveAssignedVariantSlug(req, res, contentType, slug, locale) ||
+            undefined;
+        const entryVariant = entryLevelForceVariant ? forceVariant : undefined;
         const merged = mergeSingleTemplate(
           contentType,
           locale,
@@ -1052,6 +1055,7 @@ export function registerContentRoutes(app: Express): void {
           undefined,
           root,
           templateVariant,
+          entryVariant,
         );
         if (merged) {
           const variantLayout = resolveLayout(contentType, merged, root);

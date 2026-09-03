@@ -104,6 +104,8 @@ Content files may reference template expressions that are resolved at **delivery
 | `{{ brand.* }}` | Protected site identity in `variables.yml` (Brand Settings) | `{{ brand.logo }}`, `{{ brand.title }}` |
 | `{{ global.* }}` / `reserved.*` | Other site variables in `variables.yml` | `{{ global.campus_phone }}` |
 
+**Hiring rate:** use `{{ global.global_job_placement_rate | 84 }}%` for the sitewide claim on programs, pages, locations, landings, and SEO meta. Region overrides in `variables.yml` (default/usa-canada `84`, europe `75`, latam `81`). Do not hardcode `84%` / `75%` / `81%` for that claim. Leave Outcomes year charts, press cohort stats, and cohort-specific FAQ as literals. SEO modal must keep the raw token on save (preview is resolved separately).
+
 Staff maintain globals (and browse brand/reserved read-only) at **`/private/variables`**. Usage indexing tracks dotted tokens (`global.*`, `brand.*`, `entry.*`, …). Brand/legal edits stay in Settings → Brand / Legal. Menu YAML is not in the usage index yet.
 
 Resolve order at page delivery: **entry (incl. legacy single) → meta → param**. Site vars (`brand`/`global`) stay for React `SectionRenderer` (edit mode can preserve `{{ }}`); pass `skipSiteVars: false` only for non-React consumers (menus, schema.org, SEO, entry preview). Editors keep unresolved templates on write paths.

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
-import { AlertTriangle, ArrowDown, ArrowLeftRight, ArrowUp, Check, ChevronLeft, ChevronRight, Clock3, Code, Copy, Eye, History, Link, Loader2, Monitor, MoreVertical, Pencil, Smartphone, Space, Sparkles, Trash2, Unlink, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeftRight, ArrowUp, Check, ChevronLeft, ChevronRight, Clock3, Code, Copy, Eye, History, Link, Loader2, Monitor, MoreVertical, Pencil, Smartphone, Space, Trash2, Unlink, X } from "lucide-react";
 import { IconPin, IconEdit, IconArrowBackUp, IconPencil, IconChevronDown } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import type { Section, SectionLayout, ShowOn, ResponsiveSpacing } from "@shared/schema";
@@ -89,10 +89,6 @@ const SectionEditorPanel = lazy(() =>
 
 const SectionBindingDialog = lazy(() =>
   import("./SectionBindingDialog").then(mod => ({ default: mod.SectionBindingDialog }))
-);
-
-const BindingConfirmDialog = lazy(() =>
-  import("./BindingConfirmDialog").then(mod => ({ default: mod.BindingConfirmDialog }))
 );
 
 const X_SPACING_PRESETS = [
@@ -412,11 +408,6 @@ export function EditableSection({ children, section, index, sectionType, content
   const [isConfirming, setIsConfirming] = useState(false);
   const [showVersionPicker, setShowVersionPicker] = useState(false);
   
-  // AI adaptation state
-  const [isAdapting, setIsAdapting] = useState(false);
-  const [adaptedSection, setAdaptedSection] = useState<Section | null>(null);
-  const [hasAdapted, setHasAdapted] = useState(false);
-  
   // X-spacing popover state
   const [xSpacingOpen, setXSpacingOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
@@ -460,11 +451,6 @@ export function EditableSection({ children, section, index, sectionType, content
   // YAML source modal state
   const [showYamlModal, setShowYamlModal] = useState(false);
   
-  // Review code modal state (for reviewing AI-adapted content before applying)
-  const [showReviewCodeModal, setShowReviewCodeModal] = useState(false);
-  const [reviewCodeYaml, setReviewCodeYaml] = useState("");
-  const [reviewCodeError, setReviewCodeError] = useState<string | null>(null);
-
   // Section history (time-travel) state
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState<{ sha: string; date: string; author: string; subject: string }[]>([]);
@@ -495,15 +481,8 @@ export function EditableSection({ children, section, index, sectionType, content
     return Array.from(new Set(ids.filter(id => !(id in imageRegistry.images))));
   })();
   const boundSiblingCount = isBound ? (bindingData.group!.members.length - 1) : 0;
-  const boundSiblings = (bindingData?.group?.members ?? [])
-    .filter((m) => {
-      const member = m as { contentType: string; slug: string; sectionIndex: number };
-      return !(member.contentType === contentType && member.slug === slug && member.sectionIndex === index);
-    }) as { contentType: string; slug: string; sectionIndex: number }[];
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false);
-  const [bindingConfirmForAI, setBindingConfirmForAI] = useState(false);
   const [anchorCopied, setAnchorCopied] = useState(false);
-  const pendingAIApply = useRef<(() => Promise<void>) | null>(null);
 
   // Gate any section action behind the first-edit prompt when on a promoted page
   const gatedAction = useCallback((action: () => void): void => {
@@ -618,18 +597,10 @@ export function EditableSection({ children, section, index, sectionType, content
       });
   }, [swapPopoverOpen, sectionType, selectedVersion, section]);
 
-  // Reset example index and adaptation state when variant changes
+  // Reset example index when variant changes
   useEffect(() => {
     setSelectedExampleIndex(0);
-    setAdaptedSection(null);
-    setHasAdapted(false);
   }, [selectedVariantIndex]);
-  
-  // Reset adaptation state when example changes
-  useEffect(() => {
-    setAdaptedSection(null);
-    setHasAdapted(false);
-  }, [selectedExampleIndex]);
 
   // Update preview when variant or example changes - parse YAML content locally
   useEffect(() => {
@@ -681,75 +652,6 @@ export function EditableSection({ children, section, index, sectionType, content
     });
   };
 
-  // Handle AI adaptation of the selected variant
-  const handleAdaptWithAI = async () => {
-    if (!currentExample?.yaml || !contentType || !slug || !sectionType) return;
-    
-    setIsAdapting(true);
-    try {
-      const token = getDebugToken();
-      
-      // Map contentType prop format to API format
-      const contentTypeMap: Record<string, string> = {
-        'program': 'programs',
-        'landing': 'landings',
-        'location': 'locations',
-        'page': 'pages'
-      };
-      
-      const res = await fetch('/api/content/adapt-with-ai', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...(token ? { 'X-Debug-Token': token } : {})
-        },
-        body: JSON.stringify({
-          contentType: contentTypeMap[contentType] || contentType,
-          contentSlug: slug,
-          targetComponent: sectionType,
-          targetVersion: selectedVersion || 'v1.0',
-          targetVariant: selectedVariant || currentExample.variant || 'default',
-          sourceYaml: currentExample.yaml,
-          targetExampleYaml: currentExample.yaml // Pass example as reference template for AI
-        })
-      });
-      
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to adapt content with AI');
-      }
-      
-      const data = await res.json();
-      
-      // Parse the adapted YAML (escape template vars like {{ }} before parsing)
-      const adaptedYaml = data.adaptedYaml || data.yaml;
-      if (!adaptedYaml) {
-        throw new Error('No adapted content returned');
-      }
-      
-      const { escaped: escapedAdapted, map: adaptedMap } = escapeTemplateVars(adaptedYaml);
-      const parsed = unescapeObjectVars(yaml.load(escapedAdapted), adaptedMap);
-      let sectionData: Record<string, unknown>;
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        sectionData = parsed[0] as Record<string, unknown>;
-      } else if (parsed && typeof parsed === 'object') {
-        sectionData = parsed as Record<string, unknown>;
-      } else {
-        throw new Error('Invalid adapted content format');
-      }
-      
-      const adapted = { type: sectionType, ...sectionData } as Section;
-      setAdaptedSection(adapted);
-      setHasAdapted(true);
-      toast({ title: "Content adapted", description: "AI has adapted the content. Click 'Review Code' to view, edit, and apply." });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to adapt content';
-      toast({ title: "AI Adaptation Error", description: message, variant: "destructive" });
-    } finally {
-      setIsAdapting(false);
-    }
-  };
-
   const executeSwap = async (sectionToSave: Section) => {
     if (!contentType || !slug) return;
     setIsConfirming(true);
@@ -780,8 +682,6 @@ export function EditableSection({ children, section, index, sectionType, content
       if (!res.ok) throw new Error('Failed to swap section');
       setCurrentSection(sectionToSave);
       setSwapPopoverOpen(false);
-      setAdaptedSection(null);
-      setHasAdapted(false);
       emitContentUpdated({ contentType: contentType!, slug: slug!, locale: locale || 'en' });
       toast({ title: "Section swapped", description: "The section variant has been updated." });
     } catch (err) {
@@ -792,7 +692,7 @@ export function EditableSection({ children, section, index, sectionType, content
   };
 
   const handleConfirmSwap = async () => {
-    const sectionToSave = hasAdapted && adaptedSection ? adaptedSection : previewSection;
+    const sectionToSave = previewSection;
     if (!sectionToSave || !contentType || !slug) return;
 
     if (isSharedTemplate) {
@@ -802,108 +702,6 @@ export function EditableSection({ children, section, index, sectionType, content
     }
 
     await executeSwap(sectionToSave);
-  };
-  
-  // Open review code modal with adapted section YAML
-  const handleOpenReviewCode = () => {
-    if (!adaptedSection) return;
-    // Convert adapted section to YAML for editing
-    const { type, ...sectionData } = adaptedSection as Record<string, unknown>;
-    const yamlStr = yaml.dump(sectionData, { lineWidth: -1, quotingType: '"', forceQuotes: false });
-    setReviewCodeYaml(yamlStr);
-    setReviewCodeError(null); // Clear any previous errors
-    setShowReviewCodeModal(true);
-  };
-  
-  // Core AI apply logic — parse reviewed YAML and save
-  const executeAIApply = async () => {
-    if (!contentType || !slug) return;
-    setIsConfirming(true);
-    setReviewCodeError(null);
-
-    if (pageHistory) {
-      pageHistory.saveCurrentSnapshot(`Antes de aplicar adaptación en sección ${index + 1}`);
-    }
-
-    try {
-      const { escaped: escapedReview, map: reviewMap } = escapeTemplateVars(reviewCodeYaml);
-      const parsed = unescapeObjectVars(yaml.load(escapedReview), reviewMap);
-      let sectionData: Record<string, unknown>;
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        sectionData = parsed[0] as Record<string, unknown>;
-      } else if (parsed && typeof parsed === 'object') {
-        sectionData = parsed as Record<string, unknown>;
-      } else {
-        throw new Error('Invalid YAML format');
-      }
-
-      const sectionToSave = { type: sectionType, ...sectionData } as Section;
-      const token = getDebugToken();
-      const author = await resolveAuthorName();
-      const res = await fetch('/api/content/edit-sections', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'X-Debug-Token': token } : {})
-        },
-        body: JSON.stringify({
-          contentType,
-          slug,
-          locale: locale || 'en',
-          variant: variant || 'default',
-          version: version || 1,
-          author,
-          operations: [{
-            action: 'update_section',
-            index,
-            section: sectionToSave,
-            structural: isSharedTemplate ? true : undefined,
-          }],
-        })
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        setReviewCodeError(errorData.error || 'Failed to apply section');
-        return;
-      }
-
-      setCurrentSection(sectionToSave);
-      setWasLocallyUpdated(true);
-      setShowReviewCodeModal(false);
-      setSwapPopoverOpen(false);
-      setAdaptedSection(null);
-      setHasAdapted(false);
-      emitContentUpdated({ contentType: contentType!, slug: slug!, locale: locale || 'en' });
-      toast({ title: "Section applied", description: "The reviewed section has been saved." });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to apply section';
-      setReviewCodeError(message);
-    } finally {
-      setIsConfirming(false);
-    }
-  };
-
-  // Apply changes from the review code modal — gates through DB template warning (if shared), then binding confirm if bound
-  const handleApplyReviewedCode = async () => {
-    if (!contentType || !slug) return;
-
-    const doApply = async () => {
-      if (isBound && boundSiblings.length > 0) {
-        pendingAIApply.current = executeAIApply;
-        setBindingConfirmForAI(true);
-      } else {
-        await executeAIApply();
-      }
-    };
-
-    if (isSharedTemplate) {
-      pendingSwapFn.current = doApply;
-      setSwapWarnOpen(true);
-      return;
-    }
-
-    await doApply();
   };
   
   const handleXSpacingOpen = (open: boolean) => {
@@ -1801,37 +1599,14 @@ export function EditableSection({ children, section, index, sectionType, content
                 
                 {/* Right: Action buttons */}
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setSwapPopoverOpen(false); setAdaptedSection(null); setHasAdapted(false); }} data-testid={`button-cancel-swap-${index}`} title="Cancel">
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setSwapPopoverOpen(false); }} data-testid={`button-cancel-swap-${index}`} title="Cancel">
                     <X className="h-4 w-4" />
                   </Button>
-                  {hasAdapted ? (
-                    <>
-                      <Button size="sm" variant="outline" className="h-7 px-3" onClick={handleConfirmSwap} disabled={!adaptedSection || isConfirming} data-testid={`button-use-this-${index}`}>
-                        {isConfirming ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Check className="h-3 w-3 mr-1" />}
-                        Use This
-                      </Button>
-                      <Button size="sm" className="h-7 px-3" onClick={handleOpenReviewCode} disabled={!adaptedSection} data-testid={`button-review-code-${index}`}>
-                        <Code className="h-3 w-3 mr-1" />
-                        Review Code
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      {previewSection && (
-                        <Button size="sm" variant="outline" className="h-7 px-3" onClick={handleConfirmSwap} disabled={isConfirming} data-testid={`button-use-this-${index}`}>
-                          {isConfirming ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Check className="h-3 w-3 mr-1" />}
-                          Use This
-                        </Button>
-                      )}
-                      <Button size="sm" className="h-7 px-3" onClick={handleAdaptWithAI} disabled={!previewSection || isAdapting} data-testid={`button-adapt-ai-${index}`}>
-                        {isAdapting ? (
-                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                        ) : (
-                          <Sparkles className="h-3 w-3 mr-1" />
-                        )}
-                        {isAdapting ? 'Adapting...' : 'Adapt'}
-                      </Button>
-                    </>
+                  {previewSection && (
+                    <Button size="sm" variant="outline" className="h-7 px-3" onClick={handleConfirmSwap} disabled={isConfirming} data-testid={`button-use-this-${index}`}>
+                      {isConfirming ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Check className="h-3 w-3 mr-1" />}
+                      Use This
+                    </Button>
                   )}
                 </div>
               </div>
@@ -2170,42 +1945,28 @@ export function EditableSection({ children, section, index, sectionType, content
         ) : swapPopoverOpen ? (
           <>
             {/* Preview indicator banner */}
-            <div className={`absolute top-0 left-0 right-0 z-30 text-xs px-3 py-1.5 ${hasAdapted ? 'bg-green-600' : 'bg-primary/90'} text-primary-foreground`}>
+            <div className="absolute top-0 left-0 right-0 z-30 text-xs px-3 py-1.5 bg-primary/90 text-primary-foreground">
               <span className="font-medium flex items-center gap-2">
                 {isLoadingSwap ? (
                   <>
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Loading preview...
                   </>
-                ) : isAdapting ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Adapting content with AI...
-                  </>
-                ) : hasAdapted ? (
-                  <>
-                    <Sparkles className="h-3 w-3" />
-                    AI Adapted: {selectedVariant || "default"}{examplesForCurrentVariant.length > 1 && currentExample?.name ? ` - ${currentExample.name}` : ""}
-                  </>
                 ) : (
                   <>Preview: {selectedVariant || "default"}{examplesForCurrentVariant.length > 1 && currentExample?.name ? ` - ${currentExample.name}` : ""}</>
                 )}
               </span>
             </div>
-            {/* Render the preview section or original with loading overlay */}
             <div className="pt-8 relative">
-              {hasAdapted && adaptedSection ? (
-                renderSection(adaptedSection, index)
-              ) : previewSection ? (
+              {previewSection ? (
                 renderSection(previewSection, index)
               ) : (
                 <>
                   {renderedContent}
-                  {(isLoadingSwap || isAdapting) && (
+                  {isLoadingSwap && (
                     <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
                       <div className="flex flex-col items-center gap-2">
                         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                        {isAdapting && <span className="text-sm text-muted-foreground">Adapting with AI...</span>}
                       </div>
                     </div>
                   )}
@@ -2261,50 +2022,6 @@ export function EditableSection({ children, section, index, sectionType, content
         </DialogContent>
       </Dialog>
       
-      {/* Review Code Modal - editable YAML for AI-adapted content */}
-      <Dialog open={showReviewCodeModal} onOpenChange={setShowReviewCodeModal}>
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5" />
-              Review AI-Generated Code
-            </DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Review and edit the YAML below. Fix any issues before applying.
-          </p>
-          <div className="flex-1 overflow-auto rounded border min-h-[300px]">
-            <Suspense fallback={<div className="flex items-center justify-center h-40"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
-              <LazyYamlEditor
-                value={reviewCodeYaml}
-                onChange={(value) => setReviewCodeYaml(value)}
-                highlightActiveLine
-                className="text-sm"
-              />
-            </Suspense>
-          </div>
-          {reviewCodeError && (
-            <div className="rounded border border-destructive bg-destructive/10 p-3 text-sm text-destructive max-h-[150px] overflow-auto" data-testid={`error-review-code-${index}`}>
-              <p className="font-medium mb-1">Validation Error:</p>
-              <pre className="whitespace-pre-wrap text-xs">{reviewCodeError}</pre>
-            </div>
-          )}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => setShowReviewCodeModal(false)} data-testid={`button-cancel-review-${index}`}>
-              Cancel
-            </Button>
-            <Button onClick={handleApplyReviewedCode} disabled={isConfirming} data-testid={`button-apply-review-${index}`}>
-              {isConfirming ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <Check className="h-4 w-4 mr-2" />
-              )}
-              Apply Changes
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {/* X Spacing Default Confirmation Dialog */}
       <Dialog open={xDefaultConfirmOpen} onOpenChange={(open) => { if (!open) { setXDefaultConfirmOpen(false); setXDefaultConfirmData(null); } }}>
         <DialogContent className="max-w-md" onClick={(e) => e.stopPropagation()}>
@@ -2338,25 +2055,6 @@ export function EditableSection({ children, section, index, sectionType, content
             locale={locale}
             existingGroup={bindingData?.group as { id: string; name?: string; component: string; locale: string; members: Array<{ contentType: string; slug: string; sectionIndex: number }> } | null}
             onBindingChanged={() => {}}
-          />
-        </Suspense>
-      )}
-
-      {/* Binding confirmation for AI adaptation */}
-      {bindingConfirmForAI && (
-        <Suspense fallback={null}>
-          <BindingConfirmDialog
-            open={bindingConfirmForAI}
-            onOpenChange={setBindingConfirmForAI}
-            boundSiblings={boundSiblings}
-            onConfirm={async () => {
-              if (pendingAIApply.current) {
-                await pendingAIApply.current();
-                pendingAIApply.current = null;
-              }
-            }}
-            confirmLabel="Apply to all"
-            confirmIcon={<Sparkles className="h-4 w-4 mr-2" />}
           />
         </Suspense>
       )}

@@ -880,6 +880,11 @@ export default function VariablesPage() {
                   body: "Site-wide values in this dashboard. Can vary by location, region, or locale.",
                 },
                 {
+                  title: "Hiring rate",
+                  syntax: "{{ global.global_job_placement_rate | 84 }}%",
+                  body: "The sitewide hiring-rate claim for programs, locations, landings, and SEO. It can differ by region; changing it updates wired pages. Keep the token in SEO fields — the preview is not what gets saved.",
+                },
+                {
                   title: "Brand",
                   syntax: "{{ brand.logo }}",
                   body: "Site identity (title, logos). Edit in Settings → Brand.",
@@ -933,6 +938,17 @@ export default function VariablesPage() {
                   match wins. Unused globals can be deleted here; used ones must be cleared from
                   content first (usage index includes dotted names like{" "}
                   <code className="font-mono">global.*</code>).
+                </p>
+                <p>
+                  <code className="font-mono">global.global_job_placement_rate</code> defaults to{" "}
+                  <code className="font-mono">84</code> (usa-canada), with region overrides europe{" "}
+                  <code className="font-mono">75</code> and latam <code className="font-mono">81</code>.
+                  Prefer{" "}
+                  <code className="font-mono">
+                    {"{{ global.global_job_placement_rate | 84 }}%"}
+                  </code>{" "}
+                  (number-only pipe default). Do not hardcode those percentages for the sitewide claim.
+                  Historical Outcomes year charts, press cohort stats, and cohort FAQ stay literal.
                 </p>
                 <p>
                   Menu YAML is not part of the usage index yet — references there may not appear in

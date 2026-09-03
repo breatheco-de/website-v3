@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { toOgLocale } from "@shared/locale";
+import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
+import { resolveTemplateString } from "@/lib/variable-manager";
 
 export interface PageMeta {
   page_title?: string;
@@ -15,7 +17,26 @@ export interface PageMeta {
   alternates?: Record<string, string>;
 }
 
+function resolveMetaString(
+  raw: string | undefined,
+  definitions: ReturnType<typeof useVariableDefinitions>["data"],
+  context: ReturnType<typeof useVariableContext>,
+): string | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  if (!raw.includes("{{")) return raw;
+  if (!definitions) return undefined;
+  const { text } = resolveTemplateString(raw, definitions, context);
+  if (text.includes("{{")) return undefined;
+  return text;
+}
+
 export function usePageMeta(meta: PageMeta | undefined, locale?: string) {
+  const { data: definitions } = useVariableDefinitions();
+  const varContext = useVariableContext();
+  const ctxLocation = varContext.location;
+  const ctxRegion = varContext.region;
+  const ctxLocale = varContext.locale;
+
   useEffect(() => {
     if (!meta) return;
 
@@ -23,9 +44,9 @@ export function usePageMeta(meta: PageMeta | undefined, locale?: string) {
     const addedElements: Element[] = [];
     const modifiedElements: Map<Element, string> = new Map();
 
-    if (meta.page_title && !meta.page_title.includes("{{")) {
-      document.title = meta.page_title;
-    }
+    const resolveCtx = { location: ctxLocation, region: ctxRegion, locale: ctxLocale };
+    const pageTitle = resolveMetaString(meta.page_title, definitions, resolveCtx);
+    const description = resolveMetaString(meta.description, definitions, resolveCtx);
 
     const setMeta = (name: string, content: string, isProperty = false) => {
       const attr = isProperty ? "property" : "name";
@@ -41,10 +62,16 @@ export function usePageMeta(meta: PageMeta | undefined, locale?: string) {
       element.setAttribute("content", content);
     };
 
-    if (meta.description) {
-      setMeta("description", meta.description);
-      setMeta("og:description", meta.description, true);
-      setMeta("twitter:description", meta.description);
+    if (pageTitle) {
+      document.title = pageTitle;
+      setMeta("og:title", pageTitle, true);
+      setMeta("twitter:title", pageTitle);
+    }
+
+    if (description) {
+      setMeta("description", description);
+      setMeta("og:description", description, true);
+      setMeta("twitter:description", description);
     }
 
     if (meta.robots) {
@@ -54,11 +81,6 @@ export function usePageMeta(meta: PageMeta | undefined, locale?: string) {
     if (meta.og_image) {
       setMeta("og:image", meta.og_image, true);
       setMeta("twitter:image", meta.og_image);
-    }
-
-    if (meta.page_title && !meta.page_title.includes("{{")) {
-      setMeta("og:title", meta.page_title, true);
-      setMeta("twitter:title", meta.page_title);
     }
 
     if (locale) {
@@ -149,5 +171,5 @@ export function usePageMeta(meta: PageMeta | undefined, locale?: string) {
         }
       }
     };
-  }, [meta, locale]);
+  }, [meta, locale, definitions, ctxLocation, ctxRegion, ctxLocale]);
 }

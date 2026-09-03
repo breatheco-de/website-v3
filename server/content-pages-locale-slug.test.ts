@@ -105,6 +105,9 @@ async function startServer() {
       contentIndex: ci,
       contentRoot,
       versioningManager,
+      entryPreviewManager: {
+        resolveEffectiveImage: async () => ({ url: null }),
+      },
     } as any;
     next();
   });
@@ -214,5 +217,65 @@ describe("GET /api/versioning and /api/variants locale slugs", () => {
     expect(variants.status).toBe(200);
     expect(variants.body.slug).toBe(FOLDER_SLUG);
     expect(String(variants.body.folderPath)).toContain(FOLDER_SLUG);
+  });
+});
+
+describe("GET /api/content-pages attached entry draft preview", () => {
+  it("merges template sections with draft.{locale}.yml fields", async () => {
+    const blogDir = path.join(contentRoot, "blog");
+    fs.writeFileSync(
+      path.join(blogDir, "template.en.yml"),
+      [
+        "meta:",
+        '  page_title: "{{ entry.title }}"',
+        "sections:",
+        "  - type: hero",
+        "    section_id: hero-1",
+        '    title: "{{ entry.title }}"',
+        "  - type: article",
+        "    section_id: article-1",
+        '    content: "{{ entry.content }}"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    const entryDir = path.join(blogDir, "attached-draft-post");
+    fs.mkdirSync(entryDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(entryDir, "_common.yml"),
+      "category: ai-powered-learning\n",
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(entryDir, "draft.en.yml"),
+      [
+        "slug: attached-draft-post",
+        "title: Attached Draft Title",
+        "content: |",
+        "  Draft article body",
+        "sections: []",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(entryDir, "versioning.yml"),
+      "en:\n  variants:\n    - slug: draft\n      allocation: 0\n",
+      "utf-8",
+    );
+    ci.scanFast();
+
+    const { status, body } = await getJson(
+      "/api/content-pages/blog/attached-draft-post?locale=en&force_variant=draft",
+    );
+    expect(status).toBe(200);
+    expect(body.error).toBeUndefined();
+    expect(body.detached).toBe(false);
+    expect(JSON.stringify(body)).toContain("Attached Draft Title");
+    expect(JSON.stringify(body)).toContain("Draft article body");
+    const sections = body.sections as Array<{ type?: string }>;
+    expect(Array.isArray(sections)).toBe(true);
+    expect(sections.length).toBeGreaterThan(0);
+    expect(sections.map((s) => s.type)).toEqual(expect.arrayContaining(["hero", "article"]));
   });
 });

@@ -95,7 +95,7 @@ Key variables you must configure for a production deployment:
 - `PORT` — the port the server listens on (default `5000`).
 - `GITHUB_SYNC_ENABLED=true` and the full GitHub variable group if you want content edits committed back to the repository.
 - `GCS_BUCKET_NAME` and the full GCS variable group if media should be stored in Google Cloud Storage instead of the local filesystem.
-- `OPENROUTER_API_KEY` if AI-powered features such as field mapping, content adaptation, or the chat assistant should be available.
+- `OPENROUTER_API_KEY` if AI-powered features such as field mapping or the chat assistant should be available.
 
 ---
 
@@ -149,9 +149,9 @@ If you change `api_key_env` or `base_url_env` in `llm.yml`, the server reads the
 
 | Variable | Required | Default | Description | Features enabled | Extra config needed |
 |---|---|---|---|---|---|
-| `OPENROUTER_API_KEY` | No* | — | API key for OpenRouter. This is the variable currently named in `llm.yml` under `provider.api_key_env`. | Field mapping, content adaptation, chat assistant, vision tagging | OpenRouter account at openrouter.ai |
+| `OPENROUTER_API_KEY` | No* | — | API key for OpenRouter. This is the variable currently named in `llm.yml` under `provider.api_key_env`. | Field mapping, chat assistant, vision tagging | OpenRouter account at openrouter.ai |
 | `OPENROUTER_BASE_URL` | No | `https://openrouter.ai/api/v1` | Base URL for the OpenRouter API. Soft-defaulted in code when unset and `llm.yml` names this env var. | Routing LLM calls to OpenRouter | None |
-| `LLM_MODEL` | No | Value from `llm.yml` (`model.default`), currently `openai/gpt-4o-mini` | Overrides the default LLM model for all non-chat completions. Env var takes precedence over `llm.yml`. Prefer AI Settings over this env var. | Model selection for field mapping, meta generation, and content adaptation | None |
+| `LLM_MODEL` | No | Value from `llm.yml` (`model.default`), currently `openai/gpt-4o-mini` | Overrides the default LLM model for all non-chat completions. Env var takes precedence over `llm.yml`. Prefer AI Settings over this env var. | Model selection for field mapping and meta generation | None |
 | `LLM_CHAT_MODEL` | No | Falls back to `LLM_MODEL` | Overrides the LLM model used specifically for the chat assistant. Env var takes precedence over `llm.yml` (`model.chat`). | Model selection for the chat assistant | None |
 
 *A valid API key must be set for the LLM provider named in `llm.yml`. With the default configuration that means `OPENROUTER_API_KEY`.

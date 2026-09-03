@@ -1167,6 +1167,8 @@ export function registerSeoRoutes(app: Express): void {
         }
 
         const singleEntry = (page.singleEntry as Record<string, unknown>) || {};
+        // Editable meta must stay unresolved so Save does not bake site globals.
+        const rawMeta = metaRecord(page);
         const resolvedPage = resolveAllTemplateVars(page, {
           singleEntry,
           contentRoot: getContentRoot(res),
@@ -1174,7 +1176,7 @@ export function registerSeoRoutes(app: Express): void {
           skipSiteVars: false,
         }) as typeof page;
 
-        const meta = (resolvedPage.meta as Record<string, unknown>) || {};
+        const resolvedMeta = (resolvedPage.meta as Record<string, unknown>) || {};
         const dbSections = resolvedPage.sections as Array<Record<string, unknown>> | undefined;
         let faqSchema: Record<string, unknown> | null = null;
         let schemaOrg: Record<string, unknown>[] = [];
@@ -1194,10 +1196,10 @@ export function registerSeoRoutes(app: Express): void {
             contentRoot: getContentRoot(res),
             baseUrl: getBaseUrl(),
             contentType,
-            pageUrl: typeof meta.canonical_url === "string" ? meta.canonical_url : undefined,
-            title: typeof meta.page_title === "string" ? meta.page_title : undefined,
-            description: typeof meta.description === "string" ? meta.description : undefined,
-            image: typeof meta.og_image === "string" ? meta.og_image : undefined,
+            pageUrl: typeof resolvedMeta.canonical_url === "string" ? resolvedMeta.canonical_url : undefined,
+            title: typeof resolvedMeta.page_title === "string" ? resolvedMeta.page_title : undefined,
+            description: typeof resolvedMeta.description === "string" ? resolvedMeta.description : undefined,
+            image: typeof resolvedMeta.og_image === "string" ? resolvedMeta.og_image : undefined,
           });
           schemaOrg = collected.documents;
           schemaOrgDocuments = collected.preview;
@@ -1215,8 +1217,9 @@ export function registerSeoRoutes(app: Express): void {
           | undefined;
 
         res.json({
-          meta,
-          liveMeta: meta,
+          meta: rawMeta,
+          liveMeta: rawMeta,
+          resolvedMeta,
           metaOverrides: [],
           context: "live" as const,
           faqSchema,
@@ -1379,6 +1382,22 @@ export function registerSeoRoutes(app: Express): void {
         title: (pageData.title as string) || "",
         slug: (pageData.slug as string) || slug,
       };
+
+      const region =
+        typeof pageData.region === "string" && pageData.region.trim()
+          ? pageData.region.trim()
+          : undefined;
+      responseData.resolvedMeta = resolveAllTemplateVars(displayMeta, {
+        singleEntry: {
+          ...(pageData as Record<string, unknown>),
+          slug,
+          _slug: slug,
+        },
+        meta: displayMeta,
+        contentRoot,
+        context: { locale, region },
+        skipSiteVars: false,
+      });
 
       if (getType(contentType) === "landing") {
         const commonLocs = Array.isArray(commonData?.locations)

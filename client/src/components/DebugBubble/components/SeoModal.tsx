@@ -21,6 +21,7 @@ import {
 import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { ContentInfo, SeoMeta, SeoLocation, SlugCheckStatus } from "../types";
+import { useResolveString } from "@/hooks/useVariables";
 
 export type SeoModalTab = "general" | "fields" | "funnel" | "schema" | "visibility" | "redirects";
 
@@ -204,6 +205,17 @@ export function SeoModal({
   }, [open]);
 
   const fieldsLocale = locale || contentInfo.locale || "en";
+  const resolveString = useResolveString();
+  const resolvedPageTitle = useMemo(() => {
+    const raw = seoMeta.page_title || "";
+    if (!raw.includes("{{")) return raw;
+    return resolveString(raw).text;
+  }, [seoMeta.page_title, resolveString]);
+  const resolvedDescription = useMemo(() => {
+    const raw = seoMeta.description || "";
+    if (!raw.includes("{{")) return raw;
+    return resolveString(raw).text;
+  }, [seoMeta.description, resolveString]);
   const fieldsTypeLabel =
     contentTypeLabel ||
     (contentInfo.type
@@ -550,10 +562,10 @@ export function SeoModal({
                         {snippetBreadcrumb || "your-site.com"}
                       </p>
                       <p className="text-sm font-medium text-[#1558d6] dark:text-[#8ab4f8] leading-snug line-clamp-1" data-testid="text-serp-title">
-                        {seoMeta.page_title || <span className="text-muted-foreground italic font-normal">No title set — click to edit</span>}
+                        {resolvedPageTitle || <span className="text-muted-foreground italic font-normal">No title set — click to edit</span>}
                       </p>
                       <p className="text-xs text-[#4d5156] dark:text-[#bdc1c6] line-clamp-2 leading-relaxed" data-testid="text-serp-description">
-                        {seoMeta.description || <span className="italic">No description set — click to edit</span>}
+                        {resolvedDescription || <span className="italic">No description set — click to edit</span>}
                       </p>
                     </div>
 
@@ -587,10 +599,10 @@ export function SeoModal({
                       <div className="px-3 py-2 border-t bg-muted/40">
                         <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{snippetDomain || "your-site.com"}</p>
                         <p className="text-xs font-medium line-clamp-1 text-foreground mt-0.5" data-testid="text-og-card-title">
-                          {seoMeta.page_title || <span className="text-muted-foreground italic font-normal">No title</span>}
+                          {resolvedPageTitle || <span className="text-muted-foreground italic font-normal">No title</span>}
                         </p>
                         <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5" data-testid="text-og-card-description">
-                          {seoMeta.description || ""}
+                          {resolvedDescription || ""}
                         </p>
                       </div>
                     </div>
@@ -631,12 +643,18 @@ export function SeoModal({
                         value={seoMeta.page_title}
                         onChange={(e) => setSeoMeta({ ...seoMeta, page_title: e.target.value })}
                         placeholder="e.g. Full Stack Developer Program | 4Geeks"
-                        className="w-full px-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                        className="w-full px-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring font-mono text-[13px]"
                         data-testid="input-seo-page-title"
                         autoFocus
                       />
-                      <p className={`text-xs ${seoMeta.page_title.length > 60 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
-                        {seoMeta.page_title.length}/60 characters (recommended)
+                      {seoMeta.page_title.includes("{{") && (
+                        <p className="text-xs text-muted-foreground" data-testid="text-seo-title-resolved-preview">
+                          Looks like: {resolvedPageTitle.includes("{{") ? "…" : resolvedPageTitle}
+                        </p>
+                      )}
+                      <p className={`text-xs ${(resolvedPageTitle.includes("{{") ? seoMeta.page_title.length : resolvedPageTitle.length) > 60 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+                        {(resolvedPageTitle.includes("{{") ? seoMeta.page_title.length : resolvedPageTitle.length)}/60 characters (recommended)
+                        {seoMeta.page_title.includes("{{") ? " after variables resolve" : ""}
                       </p>
                     </div>
 
@@ -650,11 +668,17 @@ export function SeoModal({
                         onChange={(e) => setSeoMeta({ ...seoMeta, description: e.target.value })}
                         placeholder="e.g. Learn full stack development with unlimited mentorship..."
                         rows={3}
-                        className="w-full px-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                        className="w-full px-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring resize-none font-mono text-[13px]"
                         data-testid="input-seo-description"
                       />
-                      <p className={`text-xs ${seoMeta.description.length > 160 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
-                        {seoMeta.description.length}/160 characters (recommended)
+                      {seoMeta.description.includes("{{") && (
+                        <p className="text-xs text-muted-foreground" data-testid="text-seo-description-resolved-preview">
+                          Looks like: {resolvedDescription.includes("{{") ? "…" : resolvedDescription}
+                        </p>
+                      )}
+                      <p className={`text-xs ${(resolvedDescription.includes("{{") ? seoMeta.description.length : resolvedDescription.length) > 160 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+                        {(resolvedDescription.includes("{{") ? seoMeta.description.length : resolvedDescription.length)}/160 characters (recommended)
+                        {seoMeta.description.includes("{{") ? " after variables resolve" : ""}
                       </p>
                     </div>
 

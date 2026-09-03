@@ -254,3 +254,108 @@ describe("mergeSingleTemplate shell editorial dates", () => {
     expect(merged?.updated_at).toBe("2026-08-20T10:00:00.000Z");
   });
 });
+
+describe("mergeSingleTemplate entryVariant (attached draft preview)", () => {
+  it("overlays draft.{locale}.yml onto the template while keeping shell sections", () => {
+    const blogDir = path.join(contentRoot, "blog");
+    fs.writeFileSync(
+      path.join(blogDir, "template.en.yml"),
+      [
+        "sections:",
+        "  - type: article",
+        "    section_id: article-1",
+        '    content: "{{ entry.content }}"',
+        "  - type: hero",
+        "    section_id: hero-1",
+        '    title: "{{ entry.title }}"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    const entryDir = path.join(blogDir, "draft-only-post");
+    fs.mkdirSync(entryDir, { recursive: true });
+    fs.writeFileSync(path.join(entryDir, "_common.yml"), "category: general\n", "utf-8");
+    fs.writeFileSync(
+      path.join(entryDir, "draft.en.yml"),
+      [
+        "title: Draft Title",
+        "content: Draft body markdown",
+        "sections: []",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const merged = mergeSingleTemplate(
+      "blog",
+      "en",
+      "draft-only-post",
+      undefined,
+      contentRoot,
+      undefined,
+      "draft",
+    );
+    expect(merged).not.toBeNull();
+    expect(merged?.title).toBe("Draft Title");
+    expect(merged?.content).toBe("Draft body markdown");
+    const sections = merged?.sections as Array<{ type?: string; section_id?: string }>;
+    expect(sections?.map((s) => s.type)).toEqual(["article", "hero"]);
+    expect(sections?.some((s) => s.section_id === "article-1")).toBe(true);
+  });
+
+  it("prefers draft fields over a live locale when entryVariant is set", () => {
+    const blogDir = path.join(contentRoot, "blog");
+    fs.writeFileSync(
+      path.join(blogDir, "template.en.yml"),
+      [
+        "sections:",
+        "  - type: article",
+        "    section_id: article-1",
+        '    content: "{{ entry.content }}"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    const entryDir = path.join(blogDir, "live-and-draft");
+    fs.mkdirSync(entryDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(entryDir, "en.yml"),
+      "title: Live Title\ncontent: Live body\nsections: []\n",
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(entryDir, "draft.en.yml"),
+      "title: Draft Title\ncontent: Draft body\nsections: []\n",
+      "utf-8",
+    );
+
+    const merged = mergeSingleTemplate(
+      "blog",
+      "en",
+      "live-and-draft",
+      undefined,
+      contentRoot,
+      undefined,
+      "draft",
+    );
+    expect(merged?.title).toBe("Draft Title");
+    expect(merged?.content).toBe("Draft body");
+    expect((merged?.sections as unknown[])?.length).toBe(1);
+  });
+
+  it("returns null when the requested entry variant file is missing", () => {
+    const blogDir = path.join(contentRoot, "blog");
+    fs.writeFileSync(
+      path.join(blogDir, "template.en.yml"),
+      "sections:\n  - type: article\n    section_id: article-1\n",
+      "utf-8",
+    );
+    const entryDir = path.join(blogDir, "no-draft");
+    fs.mkdirSync(entryDir, { recursive: true });
+    fs.writeFileSync(path.join(entryDir, "en.yml"), "title: Live\nsections: []\n", "utf-8");
+
+    expect(
+      mergeSingleTemplate("blog", "en", "no-draft", undefined, contentRoot, undefined, "draft"),
+    ).toBeNull();
+  });
+});

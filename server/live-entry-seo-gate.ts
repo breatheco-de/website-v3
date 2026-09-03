@@ -8,6 +8,7 @@ import {
   finalizeSingleEntryForTemplates,
   getContentTypeConfig,
 } from "./content-types";
+import { resolveAllTemplateVars } from "./resolve-template-vars";
 import {
   validateRequiredMeta,
   validateRequiredMetaKeys,
@@ -152,7 +153,20 @@ export function evaluateLiveEntrySeoAndRequiredFields(
     string,
     unknown
   >;
-  const meta = resolvedPage.meta;
+
+  // Site globals in meta (e.g. hiring rate) must resolve before the leftover-{{ }} gate.
+  const root = contentRoot ?? getDefaultContentRoot();
+  let region: string | undefined;
+  if (typeof pageForResolve.region === "string" && pageForResolve.region.trim()) {
+    region = pageForResolve.region.trim();
+  }
+  const metaForGate = resolveAllTemplateVars(resolvedPage.meta ?? {}, {
+    singleEntry,
+    meta: (resolvedPage.meta as Record<string, unknown>) || undefined,
+    contentRoot: root,
+    context: { locale, region },
+    skipSiteVars: false,
+  });
 
   let conversionNames: string[] = [];
   let crmTags: string[] = [];
@@ -176,8 +190,8 @@ export function evaluateLiveEntrySeoAndRequiredFields(
 
   const metaResult =
     flags.runFull || flags.metaKeys === null
-      ? validateRequiredMeta(meta)
-      : validateRequiredMetaKeys(meta, flags.metaKeys);
+      ? validateRequiredMeta(metaForGate)
+      : validateRequiredMetaKeys(metaForGate, flags.metaKeys);
 
   const fieldResult =
     flags.runFull || flags.bodyKeys === null

@@ -99,9 +99,7 @@ import { validateFieldSource, validateFieldMapping, extractByDotPath } from "../
 import {
   getFolder,
   getType,
-  isValidType,
   getAllTypes,
-  getAllFolders,
   getAllConfigs,
   getDatabaseName,
   getFieldMapping,
@@ -212,92 +210,6 @@ const log = child({ module: "routes/ai" });
 
 export function registerAiRoutes(app: Express): void {
   // ============================================
-
-  // Adapt content using AI with layered context
-  app.post("/api/content/adapt-with-ai", async (req, res) => {
-    try {
-      const { getContentAdapter } = await import("../ai");
-
-      const {
-        contentType,
-        contentSlug,
-        targetComponent,
-        targetVersion,
-        targetVariant,
-        sourceYaml,
-        targetExampleYaml,
-        targetStructure,
-        userOverrides,
-      } = req.body;
-
-      // Validate required fields
-      if (
-        !contentType ||
-        !contentSlug ||
-        !targetComponent ||
-        !targetVersion ||
-        !sourceYaml
-      ) {
-        res.status(400).json({
-          error: "Missing required fields",
-          required: [
-            "contentType",
-            "contentSlug",
-            "targetComponent",
-            "targetVersion",
-            "sourceYaml",
-          ],
-        });
-        return;
-      }
-
-      // Validate content type
-      if (!isValidType(contentType)) {
-        res.status(400).json({
-          error: "Invalid content type",
-          validTypes: getAllFolders(),
-        });
-        return;
-      }
-
-      const adapter = getContentAdapter();
-      // Use structured output for schema-enforced AI responses
-      const result = await adapter.adaptStructured({
-        contentType,
-        contentSlug,
-        targetComponent,
-        targetVersion,
-        targetVariant,
-        sourceYaml,
-        targetExampleYaml,
-        targetStructure,
-        userOverrides,
-      });
-
-      res.json(result);
-    } catch (error) {
-      log.error({ err: error }, "AI adaptation error:");
-      res.status(500).json({
-        error: "AI adaptation failed",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
-  });
-
-  // Clear AI context cache
-  app.post("/api/content/clear-ai-cache", (_req, res) => {
-    try {
-      const { getContentAdapter } = require("../ai");
-      const adapter = getContentAdapter();
-      adapter.clearCache();
-      res.json({ success: true, message: "AI context cache cleared" });
-    } catch (error) {
-      res.status(500).json({
-        error: "Failed to clear cache",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
-  });
 
   app.post("/api/ai/analyze-data-payload", async (req, res) => {
     try {

@@ -115,6 +115,11 @@ export function mergeSingleTemplate(
   contentRoot?: string,
   /** When set, load `template.{variant}.{locale}.yml` (legacy `single.*`) instead of live shell. */
   templateVariant?: string,
+  /**
+   * When set, overlay `{variant}.{locale}.yml` from the entry folder (e.g. draft preview)
+   * instead of live `{locale}.yml`. Attached entries still apply data-only (ignore sections).
+   */
+  entryVariant?: string,
 ): Record<string, unknown> | null {
   const resolvedRoot = contentRoot ?? getDefaultContentRoot();
   const folder = getFolder(contentType, resolvedRoot);
@@ -220,10 +225,22 @@ export function mergeSingleTemplate(
         const parsed = contentIndex.safeYamlLoad(fs.readFileSync(entryCommonPath, "utf-8"));
         if (parsed) merged = applyPerEntryLayer(merged, parsed, accum, aliases, dataOnly);
       }
-      const entryLocalePath = path.join(entryDir, `${locale}.yml`);
-      if (fs.existsSync(entryLocalePath)) {
+      // Explicit entry variant (e.g. draft preview): use only that file — do not
+      // fall back to live `{locale}.yml`, so a missing draft cannot leak the shell alone.
+      let entryLocalePath: string | null = null;
+      if (entryVariant) {
+        const variantPath = path.join(entryDir, `${entryVariant}.${locale}.yml`);
+        if (fs.existsSync(variantPath)) entryLocalePath = variantPath;
+      } else {
+        const livePath = path.join(entryDir, `${locale}.yml`);
+        if (fs.existsSync(livePath)) entryLocalePath = livePath;
+      }
+      if (entryLocalePath) {
         const parsed = contentIndex.safeYamlLoad(fs.readFileSync(entryLocalePath, "utf-8"));
         if (parsed) merged = applyPerEntryLayer(merged, parsed, accum, aliases, dataOnly);
+      } else if (entryVariant) {
+        // Caller asked for a variant that is not on disk — refuse the shell-only merge.
+        return null;
       }
     }
   }

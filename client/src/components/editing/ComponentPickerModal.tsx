@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { AlertTriangle, ArrowRight, Award, BarChart2, Blocks, Book, Brain, Building2, Check, ClipboardList, Columns, Columns2, CreditCard, FolderCode, HelpCircle, Image, Info, List, ListFilter, MessageSquare, MousePointerClick, PanelBottom, RefreshCw, Rocket, ScatterChart, Search, Sparkles, Star, Table, Trophy, Users, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Award, BarChart2, Blocks, Book, Brain, Building2, Check, ClipboardList, Columns, Columns2, CreditCard, FolderCode, HelpCircle, Image, Info, List, ListFilter, MessageSquare, MousePointerClick, PanelBottom, RefreshCw, Rocket, ScatterChart, Search, Sparkles, Star, Table, Trophy, Users, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import jsYaml from "js-yaml";
 import type { ComponentPairing } from "@shared/schema";
@@ -22,8 +22,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
   Tooltip,
@@ -34,7 +32,7 @@ import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { useToast } from "@/hooks/use-toast";
-import { useContentTypes, useContentTypesRaw, getFolderFromType } from "@/hooks/useContentTypes";
+import { useContentTypesRaw } from "@/hooks/useContentTypes";
 import { emitContentUpdated } from "@/lib/contentEvents";
 import {
   listArticlesOnPage,
@@ -260,8 +258,6 @@ export default function ComponentPickerModal({
   const [selectedExample, setSelectedExample] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
-  const [useAiAdaptation, setUseAiAdaptation] = useState(false);
-  const [isAdapting, setIsAdapting] = useState(false);
   const [selectedRelatedFeatures, setSelectedRelatedFeatures] = useState<string[]>([]);
   const [componentSearch, setComponentSearch] = useState("");
   const [activePickerTab, setActivePickerTab] = useState<"suggested" | "all">("suggested");
@@ -272,7 +268,6 @@ export default function ComponentPickerModal({
   /** Used by the DbTemplateWarningDialog confirm callback (template-only path, no singleEntry). */
   const pendingAddFn = useRef<(() => Promise<void>) | null>(null);
   const { toast } = useToast();
-  const contentTypesMap = useContentTypes();
   const { data: rawContentTypes } = useContentTypesRaw();
 
   const pageSections = useMemo(() => {
@@ -636,63 +631,7 @@ export default function ComponentPickerModal({
     setIsAdding(true);
     
     try {
-      let finalContent = selectedExampleData.content;
-      
-      // If AI adaptation is enabled, call the AI adaptation API
-      if (useAiAdaptation) {
-        setIsAdapting(true);
-        try {
-          // Convert content type to API format
-          const apiContentType = contentTypesMap ? getFolderFromType(contentTypesMap, contentType || "") : contentType || "";
-          
-          // Convert example content to YAML for AI adaptation
-          const sourceYaml = jsYaml.dump(selectedExampleData.content);
-          
-          const token = getDebugToken();
-          const adaptResponse = await fetch("/api/content/adapt-with-ai", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { "Authorization": `Token ${token}` } : {}),
-            },
-            body: JSON.stringify({
-              contentType: apiContentType,
-              contentSlug: slug,
-              targetComponent: selectedComponent.type,
-              targetVersion: selectedVersion,
-              sourceYaml,
-            }),
-          });
-          
-          if (adaptResponse.ok) {
-            const adaptResult = await adaptResponse.json();
-            // Parse the adapted YAML back to an object
-            const { escaped: escapedAdapt, map: adaptMap } = escapeTemplateVars(adaptResult.adaptedYaml);
-            const adaptedContent = unescapeObjectVars(jsYaml.load(escapedAdapt), adaptMap) as Record<string, unknown>;
-            finalContent = adaptedContent;
-            toast({
-              title: "Content adapted with AI",
-              description: `Used ${adaptResult.context.brand} brand context`,
-            });
-          } else {
-            const errorData = await adaptResponse.json().catch(() => ({}));
-            toast({
-              title: "AI adaptation failed",
-              description: errorData.error || "Using original example content",
-              variant: "destructive",
-            });
-          }
-        } catch (adaptError) {
-          console.error("AI adaptation error:", adaptError);
-          toast({
-            title: "AI adaptation error",
-            description: "Using original example content",
-            variant: "destructive",
-          });
-        } finally {
-          setIsAdapting(false);
-        }
-      }
+      const finalContent = selectedExampleData.content;
       
       // For FAQ sections with related_features, use centralized mode (remove inline items)
       let sectionContent = { ...finalContent };
@@ -1197,40 +1136,12 @@ export default function ComponentPickerModal({
                 </div>
               )}
               
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-2">
-                    <Switch 
-                      id="ai-adaptation"
-                      checked={useAiAdaptation}
-                      onCheckedChange={setUseAiAdaptation}
-                      data-testid="switch-ai-adaptation"
-                    />
-                    <Label 
-                      htmlFor="ai-adaptation" 
-                      className="flex items-center gap-1 text-sm cursor-pointer"
-                    >
-                      <Wand2 className="h-4 w-4" />
-                      AI Adapt
-                    </Label>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-xs">
-                  <p>Use AI to adapt the example content to match this page's context, brand voice, and target audience.</p>
-                </TooltipContent>
-              </Tooltip>
-              
               <Button 
                 onClick={handleAddSection}
-                disabled={!selectedExampleData || isAdding || isAdapting}
+                disabled={!selectedExampleData || isAdding}
                 data-testid="button-add-component"
               >
-                {isAdapting ? (
-                  <>
-                    <Wand2 className="h-4 w-4 mr-2 animate-pulse" />
-                    Adapting...
-                  </>
-                ) : isAdding ? (
+                {isAdding ? (
                   <>
                     <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
                     Adding...

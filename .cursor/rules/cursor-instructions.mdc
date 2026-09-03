@@ -57,23 +57,7 @@ app.get("/api/:type/:slug", (req, res) => {
 
 Each has a **component-based section model**: pages contain arrays of `{ type: "hero", variant: "...", data: {...} }` sections rendered dynamically by components.
 
-## AI Content Adaptation
-
-### System Architecture
-Located in [server/ai/](server/ai/):
-- **ContextManager**: Loads brand context (voice, tone, guidelines) from `marketing-content/brand-context.yml`
-- **LLMService**: Wraps OpenAI API with caching and retry logic
-- **ContentAdapter**: Orchestrates context → prompt → LLM → validation flow
-- **SchemaConverter**: Converts Drizzle/Zod schemas to JSON schema for LLM constraints
-
-### Adaptation Flow
-1. **POST `/api/content/adapt-with-ai`** receives `{ componentType, variant, targetContext, targetSchema }`
-2. Builds **layered context**: brand context + content context + component schema
-3. Prompts LLM with constraints (required fields, enums, structure)
-4. Validates output against schema; returns adapted content or error
-5. LLM cache keyed by context hash (avoids duplicate calls)
-
-**Important**: Adaptation respects Zod schema constraints — LLM output is validated before returning to client.
+Do **not** add entry-level `context:` (`when_to_use` / `target_audience` / `goals`) on `_common.yml` or locale YAML — that brief was retired with adapt-with-AI. Prefer content-type `strategy` / field `fill_intent` and component-registry `when_to_use` for authoring guidance. Brand voice remains in `brand-context.yml` (read via `/api/brand-context`).
 
 ## Key Files Reference
 
@@ -83,7 +67,7 @@ Located in [server/ai/](server/ai/):
 - [tsconfig.json](tsconfig.json) — Includes `client/src/**`, `shared/**`, `server/**`
 
 ### Content Patterns
-- [marketing-content/brand-context.yml](marketing-content/brand-context.yml) — Global brand voice/tone (used by AI adaptation)
+- [marketing-content/brand-context.yml](marketing-content/brand-context.yml) — Global brand voice/tone (SEO/GEO and brand readers)
 - [marketing-content/theme.json](marketing-content/theme.json) — Tailwind config override for landing pages
 - [marketing-content/molecules.json](marketing-content/molecules.json) — Reusable UI molecule definitions
 

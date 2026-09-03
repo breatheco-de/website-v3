@@ -622,12 +622,17 @@ export function injectSsrMetaTags(html: string, payload: InitialDataPayload | nu
   if (!meta) return html;
 
   const singleEntry = data.singleEntry as Record<string, unknown> | undefined;
+  const region =
+    typeof data.region === "string" && data.region.trim()
+      ? data.region.trim()
+      : undefined;
   meta = resolveAllTemplateVars(meta, {
     singleEntry,
     meta,
     contentRoot,
     context: {
       locale: typeof data.locale === "string" ? data.locale : undefined,
+      region,
     },
     skipSiteVars: false,
   }) as Record<string, unknown>;

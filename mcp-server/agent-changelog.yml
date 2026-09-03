@@ -6,6 +6,17 @@ window_days: 6
 
 entries:
   - date: "2026-09-02"
+    summary: "Hiring rate via global.global_job_placement_rate (region-aware)"
+    agent_impact:
+      - "Sitewide hiring claim: {{ global.global_job_placement_rate | 84 }}% on programs/pages/locations/landings/SEO. Regions: 84 usa-canada, 75 europe, 81 latam."
+      - "Do not hardcode 84%/75%/81% for that claim. Outcomes year charts, press cohorts, cohort FAQ stay literal."
+      - "SEO editors keep raw tokens; live gate resolves site vars before required-meta checks. Changing the global: side_effects path site_*/variables.yml; other regions unchanged."
+    paths:
+      - site_4geeks-com/variables.yml
+      - mcp-server/explain/content_system.md
+      - client/src/pages/VariablesPage.tsx
+    tools_changed: false
+  - date: "2026-09-02"
     summary: "seo.kw_monthly_volume + seo.kw_difficulty research fields"
     agent_impact:
       - "update_fields / get_entry_seo / get_entry_fields now support seo.kw_monthly_volume (≥0) and seo.kw_difficulty (0–100) on locale seo: — planning estimates, not GSC."
