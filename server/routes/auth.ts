@@ -209,7 +209,6 @@ import {
 import { child } from "../logger";
 import { getAuthSettings, isSignupConfigured } from "../settings";
 import { getDefaultContentRoot } from "../site-config";
-import { grantFreeSubscription } from "@shared/grantFreeSubscription";
 const log = child({ module: "routes/auth" });
 
 function getAuthContentRoot(res: Response): string {
@@ -772,96 +771,6 @@ export function registerAuthRoutes(app: Express): void {
     } catch (error) {
       log.error({ err: error }, "Signup proxy error:");
       res.status(502).json({ error: "Failed to reach signup service" });
-    }
-  });
-
-  /**
-   * Silent free-plan grant after subscribe.
-   * Completes Breathecode checking + pay so LearnPack has consumables.
-   * Does not change the visitor UI flow (still redirects with the same token).
-   */
-  app.post("/api/auth/grant-free-plan", async (req, res) => {
-    try {
-      const authHeader = req.headers.authorization || "";
-      const token = authHeader.replace(/^(Token|Bearer)\s+/i, "").trim();
-      if (!token) {
-        res.status(401).json({ error: "Authorization Token required" });
-        return;
-      }
-
-      const body = (req.body ?? {}) as Record<string, unknown>;
-      const plan = typeof body.plan === "string" ? body.plan.trim() : "";
-      if (!plan) {
-        res.status(400).json({ error: "plan is required", code: "missing_plan" });
-        return;
-      }
-
-      const contentRoot = getAuthContentRoot(res);
-      const auth = getAuthSettings(contentRoot);
-      const host = (auth.host || process.env.VITE_BREATHECODE_HOST || BREATHECODE_HOST || "").replace(
-        /\/$/,
-        "",
-      );
-      if (!host) {
-        res.status(400).json({
-          error: "Auth host is not configured. Set auth.host in settings or VITE_BREATHECODE_HOST.",
-          code: "missing_host",
-        });
-        return;
-      }
-
-      const countryCode =
-        typeof body.country_code === "string" ? body.country_code : undefined;
-      const conversionInfo =
-        body.conversion_info &&
-        typeof body.conversion_info === "object" &&
-        !Array.isArray(body.conversion_info)
-          ? (body.conversion_info as Record<string, unknown>)
-          : {};
-
-      const acceptLanguage = (() => {
-        const sessionLocale = req.get("x-session-locale")?.trim();
-        if (sessionLocale === "en" || sessionLocale === "es") return sessionLocale;
-        const header = req.get("accept-language")?.trim() || "";
-        const short = header.slice(0, 2).toLowerCase();
-        return /^[a-z]{2}$/.test(short) ? short : "en";
-      })();
-
-      const result = await grantFreeSubscription({
-        host,
-        token,
-        plan,
-        countryCode,
-        conversionInfo,
-        acceptLanguage,
-      });
-
-      if (!result.ok) {
-        log.warn(
-          { code: result.code, status: result.status, plan },
-          `[GrantFreePlan] Failed: ${result.error}`,
-        );
-        const httpStatus =
-          result.status && result.status >= 400 && result.status < 600
-            ? result.status
-            : 502;
-        res.status(httpStatus).json({
-          error: result.error,
-          code: result.code,
-          details: result.details,
-        });
-        return;
-      }
-
-      res.json({
-        success: true,
-        status: result.status,
-        subscription_ready: result.subscription_ready,
-        ...(result.idempotent ? { idempotent: true } : {}),
-      });
-    } catch (error) {
-      log.error({ err: error }, "Grant free plan error:");
-      res.status(502).json({ error: "Failed to grant free plan" });
     }
   });
 
