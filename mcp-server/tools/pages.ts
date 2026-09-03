@@ -75,6 +75,8 @@ import {
   expandSeoClusterToggle,
   isSeoIncludeInClusteringPath,
 } from "../lib/seo-cluster-toggle.js";
+import { enrichIssueCatalogFields } from "../lib/issue-code-enrichment.js";
+import { clusterResolutionConfirmRequired } from "../lib/cluster-resolution-gate.js";
 import { isSeoMonitoringEnabled } from "../../server/seo-monitoring.js";
 import type { SeoBlock } from "../../server/seo-fields.js";
 import {
@@ -654,8 +656,12 @@ interface MappedValidationIssue {
   message: string;
   severity: "error" | "warning";
   category: string;
+  validator?: string;
   file?: string;
   suggestion?: string;
+  help?: { title: string; summary: string };
+  next_actions?: Array<{ tool: string; reason: string; priority?: string }>;
+  staff_context?: string;
   completedBy?: string;
   completedAt?: string;
   completedActor?: ValidationIssueActorRef;
@@ -758,14 +764,24 @@ function getCachedValidationIssues(
         const claimActive =
           claim && new Date(claim.expiresAt).getTime() > now ? claim : undefined;
         const priorAttempts = attemptsMap[id];
+        const enriched = enrichIssueCatalogFields({
+          validator: issue.validator,
+          code: issue.code,
+          instanceSuggestion: issue.suggestion,
+          contentRoot: contentPath,
+        });
         all.push({
           id,
           code: issue.code,
           message: issue.message,
           severity: issue.severity === "error" ? "error" : "warning",
           category: issue.category ?? "other",
+          ...(issue.validator ? { validator: issue.validator } : {}),
           ...(issue.file ? { file: issue.file } : {}),
-          ...(issue.suggestion ? { suggestion: issue.suggestion } : {}),
+          ...(enriched.suggestion ? { suggestion: enriched.suggestion } : {}),
+          ...(enriched.help ? { help: enriched.help } : {}),
+          ...(enriched.next_actions?.length ? { next_actions: enriched.next_actions } : {}),
+          ...(enriched.staff_context ? { staff_context: enriched.staff_context } : {}),
           ...(completion
             ? {
                 completedBy: completion.completedBy,
@@ -792,22 +808,46 @@ function getCachedValidationIssues(
       const entry = cache.pages?.[url];
       if (!entry) return empty;
       all = [
-        ...(entry.errors ?? []).map(e => ({
-          code: e.code,
-          message: e.message,
-          severity: "error" as const,
-          category: e.category ?? "other",
-          ...(e.file ? { file: e.file } : {}),
-          ...(e.suggestion ? { suggestion: e.suggestion } : {}),
-        })),
-        ...(entry.warnings ?? []).map(w => ({
-          code: w.code,
-          message: w.message,
-          severity: "warning" as const,
-          category: w.category ?? "other",
-          ...(w.file ? { file: w.file } : {}),
-          ...(w.suggestion ? { suggestion: w.suggestion } : {}),
-        })),
+        ...(entry.errors ?? []).map(e => {
+          const enriched = enrichIssueCatalogFields({
+            validator: e.validator,
+            code: e.code,
+            instanceSuggestion: e.suggestion,
+            contentRoot: contentPath,
+          });
+          return {
+            code: e.code,
+            message: e.message,
+            severity: "error" as const,
+            category: e.category ?? "other",
+            ...(e.validator ? { validator: e.validator } : {}),
+            ...(e.file ? { file: e.file } : {}),
+            ...(enriched.suggestion ? { suggestion: enriched.suggestion } : {}),
+            ...(enriched.help ? { help: enriched.help } : {}),
+            ...(enriched.next_actions?.length ? { next_actions: enriched.next_actions } : {}),
+            ...(enriched.staff_context ? { staff_context: enriched.staff_context } : {}),
+          };
+        }),
+        ...(entry.warnings ?? []).map(w => {
+          const enriched = enrichIssueCatalogFields({
+            validator: w.validator,
+            code: w.code,
+            instanceSuggestion: w.suggestion,
+            contentRoot: contentPath,
+          });
+          return {
+            code: w.code,
+            message: w.message,
+            severity: "warning" as const,
+            category: w.category ?? "other",
+            ...(w.validator ? { validator: w.validator } : {}),
+            ...(w.file ? { file: w.file } : {}),
+            ...(enriched.suggestion ? { suggestion: enriched.suggestion } : {}),
+            ...(enriched.help ? { help: enriched.help } : {}),
+            ...(enriched.next_actions?.length ? { next_actions: enriched.next_actions } : {}),
+            ...(enriched.staff_context ? { staff_context: enriched.staff_context } : {}),
+          };
+        }),
       ];
     }
 
@@ -972,6 +1012,13 @@ async function resolveDiagnosticsIssueQueue(opts: {
     slugs: opts.slugs,
     urls: opts.partialUrls,
   };
+  if (opts.domain) {
+    const site = resolveSiteContext(opts.domain);
+    if (site.ok) queueOpts.contentRoot = site.contentPath;
+  } else {
+    const site = resolveSiteContext(undefined);
+    if (site.ok) queueOpts.contentRoot = site.contentPath;
+  }
   const queue = buildDiagnosticsIssueQueue(rows, queueOpts);
   return { queue, warnings };
 }
@@ -2500,7 +2547,9 @@ export function registerPageTools(
     "research writes: if any of main_keyword|kw_monthly_volume|kw_difficulty is in updates, omitted metrics are forced to null (pass both integers to keep them); " +
     "kw_monthly_volume ≥ 0 integer; kw_difficulty 0–100 integer; planning estimates not GSC; " +
     "on=true needs non-empty seo.pillar_path or seo.is_pillar:true after merge; on=false → pillar_path:null + is_pillar:false; " +
-    "raw seo.pillar_path:null still opts out (warns). meta.robots/priority/change_frequency → _common.yml; " +
+    "raw seo.pillar_path:null still opts out (warns). While ORPHAN_PAGE / PARTIALLY_SET_CLUSTER is open, " +
+    "becoming a hub (is_pillar) or opting out requires confirm_cluster_resolution: true (joining a hub does not). " +
+    "meta.robots/priority/change_frequency → _common.yml; " +
     "other known meta.* → locale; unknown meta.* requires meta_target locale|common.\n\n" +
     "Live gate: live writes need meta.page_title + meta.description; editor.required cannot be cleared on live. Drafts exempt.\n" +
     "CIRCULAR TRAP: if both meta.description and body description are empty, set BOTH in this one updates[] call.\n\n" +
@@ -2537,6 +2586,9 @@ export function registerPageTools(
       confirm_new_values: z.boolean().optional().describe(
         "Set true after principal approval when setting category (or other URL param) to a slug not yet used by peers of this locale.",
       ),
+      confirm_cluster_resolution: z.boolean().optional().describe(
+        "Required when becoming a pillar (seo.is_pillar:true) or opting out of clustering while ORPHAN_PAGE / PARTIALLY_SET_CLUSTER is still open. Prefer joining a hub with seo.pillar_path instead.",
+      ),
       create_redirect: z.boolean().optional().describe(
         "When renaming live slug (field_path slug): required if published_at is >= 24h ago. Adds old URL to meta.redirects.",
       ),
@@ -2549,7 +2601,7 @@ export function registerPageTools(
         .describe("Optional. From agent_session start — groups this write for staff monitoring."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, updates: inputUpdates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, confirm_new_values, create_redirect, report, agent_session_id, site }) => {
+    async ({ slug, locale, updates: inputUpdates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, confirm_new_values, confirm_cluster_resolution, create_redirect, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
@@ -2891,6 +2943,32 @@ export function registerPageTools(
       }
       updates = expanded.updates;
       clusterToggleWarnings.push(...expanded.warnings);
+
+      const clusterGate = clusterResolutionConfirmRequired({
+        contentPath,
+        contentType: resolved.contentType,
+        slug,
+        locale,
+        updates: updates.map((u) => ({
+          field_path: u.field_path,
+          value: u.value as unknown,
+          ...(u.meta_target ? { meta_target: u.meta_target } : {}),
+        })),
+        confirm_cluster_resolution,
+        site,
+      });
+      if (clusterGate.blocked) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: clusterGate.code,
+            code: clusterGate.code,
+            message: clusterGate.message,
+            ...clusterGate.details,
+          },
+          clusterGate.next_actions,
+        );
+      }
 
       if (updates.length === 0) {
         return ok(

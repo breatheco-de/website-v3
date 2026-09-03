@@ -129,6 +129,7 @@ export function listValidators(): ValidatorMetadata[] {
     estimatedDuration: v.estimatedDuration,
     category: v.category,
     runClass: v.runClass ?? getValidatorRunClass(v.name),
+    ...(v.issueCodes ? { issueCodes: v.issueCodes } : {}),
   }));
 }
 

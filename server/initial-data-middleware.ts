@@ -36,6 +36,7 @@ import {
   extractImageRefsFromValue,
   type ImageRefs,
 } from "./image-registry-subset";
+import { buildListingCanonicalHref } from "../shared/listing-canonical";
 
 const DEFAULT_SRCSET_SIZES =
   "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw";
@@ -586,7 +587,12 @@ function replaceMetaContent(html: string, attr: string, attrValue: string, repla
   return html;
 }
 
-export function injectSsrMetaTags(html: string, payload: InitialDataPayload | null, contentRoot?: string): string {
+export function injectSsrMetaTags(
+  html: string,
+  payload: InitialDataPayload | null,
+  contentRoot?: string,
+  requestUrl?: string | null,
+): string {
   if (!payload) return html;
 
   const lang = payload.locale || "en";
@@ -671,6 +677,19 @@ export function injectSsrMetaTags(html: string, payload: InitialDataPayload | nu
     html = replaceMetaContent(html, "name", "robots", robotsValue);
   } else {
     html = html.replace("</head>", `<meta name="robots" content="${escapeAttr(robotsValue)}" />\n</head>`);
+  }
+
+  if (typeof meta.canonical_url === "string" && meta.canonical_url.trim() && !meta.canonical_url.includes("{{")) {
+    const canonicalHref = buildListingCanonicalHref(meta.canonical_url.trim(), requestUrl);
+    const escaped = escapeAttr(canonicalHref);
+    const canonicalTag = `<link rel="canonical" href="${escaped}" />`;
+    if (/\brel\s*=\s*["']canonical["']/i.test(html)) {
+      html = html.replace(
+        /<link\b(?:(?!\/>)[\s\S])*?\brel\s*=\s*["']canonical["'](?:(?!\/>)[\s\S])*?\/?>\s*/gi,
+        "",
+      );
+    }
+    html = html.replace("</head>", `${canonicalTag}\n</head>`);
   }
 
   return html;

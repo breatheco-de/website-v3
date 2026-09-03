@@ -51,6 +51,12 @@ import {
   type ResolvedArchiveRow,
 } from "@/components/diagnostics/ResolvedIssueRow";
 import {
+  buildIssueCodeMap,
+  IssueCodePopover,
+  resolveIssueSuggestionClient,
+  type ValidatorWithIssueCodes,
+} from "@/components/diagnostics/issue-code-help";
+import {
   parseGlobalHealthSearch,
   serializeGlobalHealthSearch,
   buildCacheIssuesQuery,
@@ -1046,11 +1052,15 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   });
 
   const { data: validatorsData } = useQuery<{
-    validators: Array<{ name: string; description?: string; category?: string }>;
+    validators: ValidatorWithIssueCodes[];
   }>({
     queryKey: ["/api/validation/validators"],
   });
   const availableValidators = validatorsData?.validators ?? [];
+  const issueCodeMap = useMemo(
+    () => buildIssueCodeMap(availableValidators),
+    [availableValidators],
+  );
 
   const startJobMutation = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
@@ -2359,7 +2369,15 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                           {issue.category}
                         </Badge>
                       )}
-                      <code>{issue.code}</code>
+                      <IssueCodePopover
+                        code={issue.code}
+                        validator={issue.validator}
+                        help={
+                          issue.validator
+                            ? issueCodeMap.get(`${issue.validator}\0${issue.code}`)
+                            : undefined
+                        }
+                      />
                       {(() => {
                         const label = issueLayerLabel(issue.entryKey, issue.file);
                         if (!label) return null;
@@ -2460,12 +2478,20 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                     <div className="text-foreground mt-0.5">
                       {formatSitePathsInText(issue.message, formatSitePath)}
                     </div>
-                    {issue.suggestion && (
-                      <TruncatableSuggestion
-                        text={issue.suggestion}
-                        formatSitePath={formatSitePath}
-                      />
-                    )}
+                    {(() => {
+                      const suggestionText = resolveIssueSuggestionClient(
+                        issueCodeMap,
+                        issue.validator,
+                        issue.code,
+                        issue.suggestion,
+                      );
+                      return suggestionText ? (
+                        <TruncatableSuggestion
+                          text={suggestionText}
+                          formatSitePath={formatSitePath}
+                        />
+                      ) : null;
+                    })()}
                     {!issue.completed &&
                       issue.attempts &&
                       issue.attempts.length > 0 && (
@@ -2533,6 +2559,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                   key={`${row.issueId}-${row.resolvedAt}-${idx}`}
                   row={row}
                   idx={idx}
+                  issueCodeMap={issueCodeMap}
                 />
               ))
             )}

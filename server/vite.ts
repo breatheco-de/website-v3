@@ -233,7 +233,12 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
       const preloadUrls = resolvePreloadHints(initialDataPayload);
       const preloadTags = buildPreloadTags(preloadUrls);
       html = injectPreloadTags(html, preloadTags);
-      html = injectSsrMetaTags(html, initialDataPayload, (res.locals as any).site?.contentRoot);
+      html = injectSsrMetaTags(
+        html,
+        initialDataPayload,
+        (res.locals as any).site?.contentRoot,
+        url,
+      );
 
       const ssrSchemaHtml = (req as any).ssrSchemaHtml as string | undefined;
       if (ssrSchemaHtml) {
@@ -383,7 +388,12 @@ export function serveStatic(app: Express) {
         const preloadUrls = resolvePreloadHints(initialDataPayload);
         const preloadTags = buildPreloadTags(preloadUrls);
         html = injectPreloadTags(html, preloadTags);
-        html = injectSsrMetaTags(html, initialDataPayload, (res.locals as any).site?.contentRoot);
+        html = injectSsrMetaTags(
+          html,
+          initialDataPayload,
+          (res.locals as any).site?.contentRoot,
+          url,
+        );
 
         if (ssrSchemaHtml) {
           html = injectSsrSchemaHtml(html, ssrSchemaHtml);

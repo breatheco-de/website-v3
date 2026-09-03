@@ -6,6 +6,20 @@ window_days: 6
 
 entries:
   - date: "2026-09-03"
+    summary: "Issue code catalog + cluster soft-block + staff_context markdown"
+    agent_impact:
+      - "ORPHAN_PAGE / PARTIALLY_SET_CLUSTER issues include help, denser suggestion, next_actions, and optional staff_context from {contentRoot}/validation-issue-context/seo-cluster/{CODE}.md."
+      - "While those issues are open, update_fields needs confirm_cluster_resolution: true to set is_pillar or opt out; joining a hub via pillar_path does not."
+      - "Prefer list_seo_clusters then seo.pillar_path. Reconnect MCP for update_fields description."
+    paths:
+      - scripts/validation/validators/seo-cluster.issueCodes.ts
+      - scripts/validation/shared/issueCodeRegistry.ts
+      - mcp-server/lib/cluster-resolution-gate.ts
+      - mcp-server/lib/issue-code-enrichment.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/content_system.md
+    tools_changed: true
+  - date: "2026-09-03"
     summary: "One-slug run_entry_diagnostics is sync (completed in one call)"
     agent_impact:
       - "Exactly one slug + hard/stale → status completed (mode sync) with issues[] in the same call. Do not poll get_diagnostics_job for that path."

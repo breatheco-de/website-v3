@@ -78,6 +78,11 @@ import {
   resolveSiteForIssue,
 } from "../validation-events";
 import { child } from "../logger";
+import {
+  readIssueContext,
+  writeIssueContext,
+} from "../validation-issue-context";
+import { markFileAsModified } from "../sync-state";
 const log = child({ module: "routes/validation" });
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
@@ -160,6 +165,91 @@ export function registerValidationRoutes(app: Express): void {
       validators,
       total: validators.length,
     });
+  });
+
+  app.get("/api/admin/validation/issue-context", async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "metrics_view");
+      if (!auth.authorized) return;
+      const validator = typeof req.query.validator === "string" ? req.query.validator.trim() : "";
+      const code = typeof req.query.code === "string" ? req.query.code.trim() : "";
+      if (!validator || !code) {
+        return res.status(400).json({ error: "validator and code are required" });
+      }
+      const contentRoot = getContentRoot(res);
+      const contentFolder =
+        (res.locals.site as { contentRootName?: string } | undefined)?.contentRootName ??
+        path.basename(contentRoot);
+      try {
+        const data = readIssueContext(contentRoot, validator, code, contentFolder);
+        res.json(data);
+      } catch (err) {
+        const status = (err as { status?: number }).status ?? 500;
+        const message = err instanceof Error ? err.message : "Failed to read issue context";
+        res.status(status).json({
+          error: message,
+          code: (err as { code?: string }).code,
+        });
+      }
+    } catch (err) {
+      log.error({ err }, "issue-context GET error");
+      res.status(500).json({ error: "Failed to read issue context" });
+    }
+  });
+
+  app.put("/api/admin/validation/issue-context", async (req, res) => {
+    try {
+      const auth = await requireMutatingStaff(req, res);
+      if (!auth.authorized) return;
+      const validator =
+        typeof req.body?.validator === "string"
+          ? req.body.validator.trim()
+          : typeof req.query.validator === "string"
+            ? req.query.validator.trim()
+            : "";
+      const code =
+        typeof req.body?.code === "string"
+          ? req.body.code.trim()
+          : typeof req.query.code === "string"
+            ? req.query.code.trim()
+            : "";
+      const content = req.body?.content;
+      if (!validator || !code) {
+        return res.status(400).json({ error: "validator and code are required" });
+      }
+      const contentRoot = getContentRoot(res);
+      const contentFolder =
+        (res.locals.site as { contentRootName?: string } | undefined)?.contentRootName ??
+        path.basename(contentRoot);
+      try {
+        const data = writeIssueContext(contentRoot, validator, code, content, contentFolder);
+        try {
+          const authorName =
+            typeof req.body?.author === "string" && req.body.author.trim()
+              ? req.body.author.trim()
+              : undefined;
+          markFileAsModified(
+            path.join(contentRoot, data.relativePath),
+            authorName,
+            undefined,
+            contentRoot,
+          );
+        } catch (markErr) {
+          log.warn({ err: markErr }, "issue-context markFileAsModified failed (non-fatal)");
+        }
+        res.json({ success: true, ...data });
+      } catch (err) {
+        const status = (err as { status?: number }).status ?? 500;
+        const message = err instanceof Error ? err.message : "Failed to save issue context";
+        res.status(status).json({
+          error: message,
+          code: (err as { code?: string }).code,
+        });
+      }
+    } catch (err) {
+      log.error({ err }, "issue-context PUT error");
+      res.status(500).json({ error: "Failed to save issue context" });
+    }
   });
 
   // Run all or specific validators

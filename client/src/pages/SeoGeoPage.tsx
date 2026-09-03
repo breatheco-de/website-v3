@@ -39,6 +39,12 @@ import {
 } from "@/components/ui/dialog";
 import { ManagedSeoModal, type ManagedSeoModalTarget } from "@/components/editing/ManagedSeoModal";
 import {
+  buildIssueCodeMap,
+  IssueCodePopover,
+  issueCodeLookupKey,
+  type ValidatorWithIssueCodes,
+} from "@/components/diagnostics/issue-code-help";
+import {
   SeoContextPickerDialog,
   resolveSeoContexts,
   type SeoContextChoice,
@@ -314,33 +320,7 @@ type SeoClusterIssueRow = {
   suggestion?: string;
   severity?: "error" | "warning";
   file?: string;
-};
-
-const SEO_CLUSTER_ISSUE_HELP: Record<string, { title: string; body: string }> = {
-  DUPLICATE_PILLAR: {
-    title: "Duplicate hub path",
-    body: "Two pages are marked as pillars for the same URL. Only one hub can own a path — fix is_pillar / pillar_path so hubs do not collide.",
-  },
-  SEO_BLOCK_ON_COMMON_YML: {
-    title: "SEO block on _common.yml",
-    body: "Shared _common.yml must not define seo:. Move seo.* to the locale YAML (en.yml / es.yml).",
-  },
-  INVALID_PILLAR: {
-    title: "Pillar path not live or not a hub",
-    body: "This page points at a pillar_path that does not resolve to a live pillar hub. Fix the path or mark the hub as is_pillar.",
-  },
-  ORPHAN_PAGE: {
-    title: "Unclustered page",
-    body: "This page has no seo.pillar_path and belongs to no cluster. Set a hub URL or pillar_path: null to opt out.",
-  },
-  PARTIALLY_SET_CLUSTER: {
-    title: "Partially set cluster",
-    body: "This page has a main keyword but no pillar_path. Link it to a hub or opt out.",
-  },
-  SEO_KEYWORD_RESEARCH_INCOMPLETE: {
-    title: "Incomplete keyword research",
-    body: "This page has a main keyword but is missing monthly search volume and/or keyword difficulty estimates. Add both planning numbers (not live traffic).",
-  },
+  validator?: string;
 };
 
 type StatHelp = { title: string; body: string };
@@ -852,6 +832,10 @@ function IndexWarningsPanel({
       return res.json() as Promise<{ issues: SeoClusterIssueRow[] }>;
     },
   });
+  const { data: validatorsData } = useQuery<{ validators: ValidatorWithIssueCodes[] }>({
+    queryKey: ["/api/validation/validators"],
+  });
+  const issueCodeMap = buildIssueCodeMap(validatorsData?.validators ?? []);
   const issues = data?.issues ?? [];
   if (!isLoading && !issues.length) return null;
   return (
@@ -895,8 +879,11 @@ function IndexWarningsPanel({
         ) : (
           <ul className="space-y-2">
             {issues.map((w, i) => {
-              const help = SEO_CLUSTER_ISSUE_HELP[w.code];
+              const validator = w.validator || "seo-cluster";
+              const help = issueCodeMap.get(issueCodeLookupKey(validator, w.code));
               const target = parseSeoIndexEntryId(w.entryKey);
+              const title = help?.title ?? w.code;
+              const body = help?.summary ?? w.message ?? "Check the entry’s seo.* fields.";
               return (
                 <li
                   key={`${w.code}-${w.entryKey ?? i}`}
@@ -905,16 +892,18 @@ function IndexWarningsPanel({
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0 space-y-0.5">
                       <p className="text-[11px] font-medium text-foreground">
-                        {help?.title ?? w.code}
+                        {title}
                         {w.entryKey ? (
                           <span className="font-normal text-muted-foreground"> · {w.entryKey}</span>
                         ) : null}
                       </p>
                       <p className="text-[11px] text-muted-foreground leading-snug">
-                        {help?.body ?? w.message ?? "Check the entry’s seo.* fields."}
+                        {body}
                         {w.message && help ? ` ${w.message}` : ""}
                       </p>
-                      <p className="text-[10px] font-mono text-muted-foreground/80">{w.code}</p>
+                      <p className="text-[10px] font-mono text-muted-foreground/80">
+                        <IssueCodePopover code={w.code} validator={validator} help={help} />
+                      </p>
                     </div>
                     {target ? (
                       <Button

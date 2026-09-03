@@ -10,6 +10,12 @@ import { apiFetch } from "@/lib/queryClient";
 import { formatIssueActorLine } from "@/lib/formatIssueActor";
 import { cn } from "@/lib/utils";
 import { formatSitePathsInText } from "@shared/formatSitePath";
+import {
+  IssueCodePopover,
+  issueCodeLookupKey,
+  resolveIssueSuggestionClient,
+  type IssueCodeDefinitionClient,
+} from "@/components/diagnostics/issue-code-help";
 
 export type ResolvedArchiveRow = {
   issueId: string;
@@ -49,15 +55,27 @@ export function ResolvedIssueRow({
   row,
   idx,
   defaultOpen = false,
+  issueCodeMap,
 }: {
   row: ResolvedArchiveRow;
   idx: number;
   defaultOpen?: boolean;
+  issueCodeMap?: Map<string, IssueCodeDefinitionClient>;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const formatSitePath = useFormatSitePath();
   const sessionId = row.agent_session_id?.trim() || "";
+  const help =
+    issueCodeMap && row.validator
+      ? issueCodeMap.get(issueCodeLookupKey(row.validator, row.code))
+      : undefined;
+  const suggestionText = resolveIssueSuggestionClient(
+    issueCodeMap ?? new Map(),
+    row.validator,
+    row.code,
+    row.suggestion,
+  );
 
   const { data: siteInfo } = useQuery<SiteInfo>({
     queryKey: ["/api/site/info"],
@@ -113,7 +131,7 @@ export function ResolvedIssueRow({
                   {row.category}
                 </Badge>
               ) : null}
-              <code>{row.code}</code>
+              <IssueCodePopover code={row.code} validator={row.validator} help={help} />
               {row.reopenedAt ? (
                 <Badge
                   variant="outline"
@@ -142,9 +160,9 @@ export function ResolvedIssueRow({
                 <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   Suggested fix
                 </p>
-                {row.suggestion ? (
+                {suggestionText ? (
                   <p className="text-muted-foreground italic" data-testid="resolved-issue-suggestion">
-                    {formatSitePathsInText(row.suggestion, formatSitePath)}
+                    {formatSitePathsInText(suggestionText, formatSitePath)}
                   </p>
                 ) : (
                   <p className="text-muted-foreground" data-testid="resolved-issue-suggestion">

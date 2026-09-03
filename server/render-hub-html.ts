@@ -154,7 +154,7 @@ export async function renderHubHtml(opts: {
 
     const preloadTags = buildPreloadTags(resolvePreloadHints(initialDataPayload));
     html = injectPreloadTags(html, preloadTags);
-    html = injectSsrMetaTags(html, initialDataPayload, opts.site.contentRoot);
+    html = injectSsrMetaTags(html, initialDataPayload, opts.site.contentRoot, url);
     html = applyEntryModulePreload(html);
 
     if (initialDataPayload) {

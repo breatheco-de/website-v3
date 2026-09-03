@@ -45,6 +45,24 @@ export interface ValidatorResult {
   artifacts?: Record<string, unknown>;
 }
 
+/** Recommended MCP follow-up when explaining / fixing an issue code. */
+export interface IssueCodeNextAction {
+  tool: string;
+  reason: string;
+  priority?: "recommended" | "optional";
+}
+
+/**
+ * Per-code catalog entry (defaults). Instance ValidationIssue.suggestion overrides
+ * catalog.suggestion when set. Lookup is by validator + code.
+ */
+export interface IssueCodeDefinition {
+  title: string;
+  summary: string;
+  suggestion?: string;
+  next_actions?: IssueCodeNextAction[];
+}
+
 export interface ValidatorMetadata {
   name: string;
   description: string;
@@ -53,6 +71,8 @@ export interface ValidatorMetadata {
   category: "content" | "seo" | "integrity" | "components" | "performance" | "forms" | "bindings";
   /** Execution / clear-scope class. Defaults via runClass.ts map when omitted. */
   runClass?: ValidatorRunClass;
+  /** Optional catalog of codes this validator may emit. */
+  issueCodes?: Record<string, IssueCodeDefinition>;
 }
 
 export interface Validator extends ValidatorMetadata {

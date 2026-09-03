@@ -14,6 +14,7 @@ import { loadSeoIndex, seoEntryId } from "../../../server/seo-index";
 import { classifyClusterEntry } from "../../../server/seo-cluster-stats";
 import { yamlHasSeoKey } from "../../../server/seo-fields";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
+import { SEO_CLUSTER_ISSUE_CODES } from "./seo-cluster.issueCodes";
 
 function effectivePillar(
   seo: NonNullable<ValidationContext["contentFiles"][0]["seo"]>,
@@ -41,6 +42,7 @@ export const seoClusterValidator: Validator = {
   apiExposed: true,
   estimatedDuration: "fast",
   category: "seo",
+  issueCodes: SEO_CLUSTER_ISSUE_CODES,
 
   async run(context: ValidationContext): Promise<ValidatorResult> {
     const startTime = Date.now();
@@ -128,7 +130,6 @@ export const seoClusterValidator: Validator = {
             code: "ORPHAN_PAGE",
             message: `${file.type} page "${file.slug}" (${file.locale}) has no seo block — it belongs to no cluster`,
             file: file.filePath,
-            suggestion: "Add a seo: block with pillar_path (hub URL) or pillar_path: null to opt out",
           });
         }
         continue;
@@ -203,7 +204,6 @@ export const seoClusterValidator: Validator = {
           code,
           message: `${file.type} page "${file.slug}" (${file.locale}) ${detail}`,
           file: file.filePath,
-          suggestion: "Set seo.pillar_path to the hub URL, or seo.pillar_path: null to opt out",
         });
       }
     }

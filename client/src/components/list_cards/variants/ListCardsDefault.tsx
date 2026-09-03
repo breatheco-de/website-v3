@@ -24,6 +24,7 @@ import {
   LISTING_SEARCH_MIN_CHARS,
   type ListingSearchApiResponse,
 } from "@/lib/listing-search";
+import { buildListingCanonicalPath } from "@shared/listing-canonical";
 
 interface PermanentFilter {
   item_property_slug: string;
@@ -376,22 +377,34 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
   };
 
   useEffect(() => {
-    if (perPage <= 0 || totalPages <= 1) return;
+    const pathname = location.split("?")[0];
+    const canonicalHref = buildListingCanonicalPath(pathname, safePage);
+    const prevHref =
+      perPage > 0 && totalPages > 1 && safePage > 1
+        ? buildListingCanonicalPath(pathname, safePage - 1)
+        : null;
+    const nextHref =
+      perPage > 0 && totalPages > 1 && safePage < totalPages
+        ? buildListingCanonicalPath(pathname, safePage + 1)
+        : null;
 
-    const canonicalHref = buildPageUrl(currentPage);
-    const prevHref = currentPage > 1 ? buildPageUrl(currentPage - 1) : null;
-    const nextHref = currentPage < totalPages ? buildPageUrl(currentPage + 1) : null;
-
-    document.querySelectorAll('link[data-listcards-pagination]').forEach(el => el.remove());
+    document.querySelectorAll("link[data-listcards-pagination]").forEach((el) => el.remove());
 
     const added: HTMLLinkElement[] = [];
+    let restoredCanonical: { el: HTMLLinkElement; href: string } | null = null;
 
-    const canonical = document.createElement("link");
-    canonical.rel = "canonical";
-    canonical.href = canonicalHref;
-    canonical.setAttribute("data-listcards-pagination", "true");
-    document.head.appendChild(canonical);
-    added.push(canonical);
+    const existing = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+    if (existing && !existing.hasAttribute("data-listcards-pagination")) {
+      restoredCanonical = { el: existing, href: existing.getAttribute("href") || "" };
+      existing.href = canonicalHref;
+    } else {
+      const canonical = document.createElement("link");
+      canonical.rel = "canonical";
+      canonical.href = canonicalHref;
+      canonical.setAttribute("data-listcards-pagination", "true");
+      document.head.appendChild(canonical);
+      added.push(canonical);
+    }
 
     if (prevHref) {
       const prev = document.createElement("link");
@@ -412,9 +425,12 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
     }
 
     return () => {
-      added.forEach(el => el.remove());
+      added.forEach((el) => el.remove());
+      if (restoredCanonical) {
+        restoredCanonical.el.href = restoredCanonical.href;
+      }
     };
-  }, [perPage, totalPages, currentPage, location, searchString]);
+  }, [perPage, totalPages, safePage, location]);
 
   const setUserFilter = (slug: string, value: string, opts?: { replace?: boolean }) => {
     const p = new URLSearchParams(searchString);

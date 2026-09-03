@@ -4,6 +4,7 @@
  */
 
 import { parseEntryKey } from "../../scripts/validation/shared/entryKey.js";
+import { enrichIssueCatalogFields } from "./issue-code-enrichment.js";
 
 export const ISSUES_LIMIT_DEFAULT = 50;
 export const ISSUES_LIMIT_MAX = 50;
@@ -38,6 +39,9 @@ export type DiagnosticsQueueIssue = {
   slug?: string;
   url?: string;
   file?: string;
+  help?: { title: string; summary: string };
+  next_actions?: Array<{ tool: string; reason: string; priority?: string }>;
+  staff_context?: string;
 };
 
 export type DiagnosticsIssueQueueOptions = {
@@ -52,6 +56,8 @@ export type DiagnosticsIssueQueueOptions = {
   slugs?: string[];
   /** Mid-run: keep rows whose url is in this set (normalized). */
   urls?: string[];
+  /** Site content root for staff_context markdown. */
+  contentRoot?: string;
 };
 
 export type DiagnosticsIssueQueueResult = {
@@ -242,7 +248,16 @@ export function diversifyPreservingSeverity(
   ];
 }
 
-function toOutputIssue(row: DiagnosticsQueueInputRow): DiagnosticsQueueIssue {
+function toOutputIssue(
+  row: DiagnosticsQueueInputRow,
+  contentRoot?: string,
+): DiagnosticsQueueIssue {
+  const enriched = enrichIssueCatalogFields({
+    validator: row.validator,
+    code: row.code,
+    instanceSuggestion: row.suggestion,
+    contentRoot,
+  });
   const issue: DiagnosticsQueueIssue = {
     severity: row.severity,
     code: row.code,
@@ -251,11 +266,16 @@ function toOutputIssue(row: DiagnosticsQueueInputRow): DiagnosticsQueueIssue {
   };
   if (row.id) issue.id = row.id;
   if (row.validator) issue.validator = row.validator;
-  const suggestion = truncateIssueText(row.suggestion);
+  const suggestion = truncateIssueText(enriched.suggestion ?? row.suggestion);
   if (suggestion) issue.suggestion = suggestion;
   if (row.slug) issue.slug = row.slug;
   if (row.url) issue.url = row.url;
   if (row.file) issue.file = row.file;
+  if (enriched.help) issue.help = enriched.help;
+  if (enriched.next_actions?.length) issue.next_actions = enriched.next_actions;
+  if (enriched.staff_context) {
+    issue.staff_context = truncateIssueText(enriched.staff_context, 500) ?? enriched.staff_context;
+  }
   return issue;
 }
 
@@ -319,7 +339,7 @@ export function buildDiagnosticsIssueQueue(
   const issues_truncated = issues_offset > 0 || issues_next_offset != null;
 
   return {
-    issues: page.map(toOutputIssue),
+    issues: page.map((row) => toOutputIssue(row, options.contentRoot)),
     issues_truncated,
     issues_returned,
     issues_total_matching,
