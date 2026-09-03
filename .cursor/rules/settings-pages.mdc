@@ -1,6 +1,6 @@
 ---
 description: Layout shell for private Settings and related admin config pages
-globs: client/src/pages/*Settings*.tsx,client/src/pages/SecurityPage.tsx
+globs: client/src/pages/*Settings*.tsx,client/src/pages/SecurityPage.tsx,client/src/pages/TrackingPage.tsx
 alwaysApply: false
 ---
 
@@ -90,5 +90,6 @@ Every settings surface that wires an external API, cloud credential, or vendor S
 - [`SeoGeoSettingsPage`](client/src/pages/SeoGeoSettingsPage.tsx) — header + top-right tabs (canonical)
 - [`AISettingsPage`](client/src/pages/AISettingsPage.tsx)
 - [`SecurityPage`](client/src/pages/SecurityPage.tsx) — header + top-right tabs
+- [`TrackingPage`](client/src/pages/TrackingPage.tsx) — header + top-right tabs (same shell)
 
-Sibling admin surfaces (Tracking, Background Pipeline, Diagnostics) may use a different width when the content warrants it; do not copy their shell onto Settings pages. New third-party cards on those surfaces still follow **Test connection** above.
+Sibling admin surfaces (Background Pipeline, Diagnostics) may use a different width when the content warrants it; do not copy their shell onto Settings pages. New third-party cards on those surfaces still follow **Test connection** above.

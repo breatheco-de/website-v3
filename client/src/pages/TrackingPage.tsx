@@ -37,6 +37,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import JsonViewer from "@/components/editing/JsonViewer";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { useToast } from "@/hooks/use-toast";
 import { getGtmWebStatus, type GtmWebStatus } from "@/lib/gtm-web";
 import { apiRequest, apiFetch, queryClient } from "@/lib/queryClient";
@@ -44,6 +45,27 @@ import { TRACKING_EVENTS } from "@/lib/tracking";
 import { cn } from "@/lib/utils";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { MetricsAccessGate } from "@/components/MetricsAccessGate";
+
+type TrackingTab = "events" | "sgtm" | "ipn" | "ga4";
+
+const TRACKING_TABS: {
+  id: TrackingTab;
+  href: string;
+  label: string;
+  Icon: typeof IconChartBar;
+}[] = [
+  { id: "events", href: "/private/tracking", label: "Events", Icon: IconChartBar },
+  { id: "sgtm", href: "/private/tracking/sgtm", label: "sGTM", Icon: IconServer },
+  { id: "ipn", href: "/private/tracking/ipn", label: "IP Normalization", Icon: IconShieldLock },
+  { id: "ga4", href: "/private/tracking/ga4", label: "GA4", Icon: IconDatabase },
+];
+
+function resolveTrackingTab(pathname: string): TrackingTab {
+  if (pathname === "/private/tracking/sgtm") return "sgtm";
+  if (pathname === "/private/tracking/ipn") return "ipn";
+  if (pathname === "/private/tracking/ga4" || pathname === "/private/tracking/bigquery") return "ga4";
+  return "events";
+}
 
 interface TagManagerConfig {
   web_container_id: string;
@@ -1751,11 +1773,11 @@ function BigQuerySection() {
       });
       setDirty(false);
       await refetch();
-      toast({ title: "BigQuery settings saved" });
-    } catch (err: any) {
+      toast({ title: "Google Analytics settings saved" });
+    } catch (err: unknown) {
       toast({
         title: "Failed to save",
-        description: err.message || String(err),
+        description: err instanceof Error ? err.message : String(err),
         variant: "destructive",
       });
     } finally {
@@ -1785,10 +1807,10 @@ function BigQuerySection() {
             : `Dataset reachable${sourceLabel}`,
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Connection failed",
-        description: err.message || String(err),
+        description: err instanceof Error ? err.message : String(err),
         variant: "destructive",
       });
     } finally {
@@ -1801,7 +1823,7 @@ function BigQuerySection() {
       <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
         <div className="flex items-center gap-2">
           <IconDatabase className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-base">GA4 BigQuery export</CardTitle>
+          <CardTitle className="text-base">Google Analytics Integration</CardTitle>
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -1814,16 +1836,19 @@ function BigQuerySection() {
             <div className="space-y-1">
               <p className="text-sm font-medium">What this does</p>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Point this site at your GA4 BigQuery export so Store journey analytics can load.
-                Project and dataset are saved here; Google credentials stay in the server environment.
+                Point this site at your Google Analytics 4 data so Store journey metrics can load.
+                The link goes through the GA4 BigQuery export — enable that export in Google Analytics
+                first, then enter the project and dataset here. Save stores the connection details;
+                Test connection checks that this app can read the dataset. Neither action turns on
+                the Google export or changes tracking on the live site.
               </p>
             </div>
 
             <div className="flex items-center justify-between gap-3 pt-2 border-t">
               <div className="space-y-0.5">
-                <p className="text-sm font-medium">Enable BigQuery analytics</p>
+                <p className="text-sm font-medium">Enable analytics read access</p>
                 <p className="text-xs text-muted-foreground">
-                  When off, product journey metrics stay empty without querying GCP.
+                  When off, product journey metrics stay empty and this app will not query the export.
                 </p>
               </div>
               <button
@@ -1835,7 +1860,7 @@ function BigQuerySection() {
                 disabled={!canMutateMetrics}
                 className="shrink-0 text-muted-foreground disabled:opacity-50"
                 data-testid="toggle-bigquery-enabled"
-                aria-label={enabled ? "Disable BigQuery" : "Enable BigQuery"}
+                aria-label={enabled ? "Disable Google Analytics read access" : "Enable Google Analytics read access"}
               >
                 {enabled ? (
                   <IconToggleRight className="h-8 w-8 text-primary" />
@@ -1936,6 +1961,11 @@ function BigQuerySection() {
                     />
                   </div>
                 </div>
+                <p>
+                  In Google Analytics: Admin → Product links → BigQuery Links. Export creates daily{" "}
+                  <code className="font-mono text-xs">events_*</code> tables. Your app service account
+                  needs BigQuery Data Viewer and Job User on that dataset.
+                </p>
                 <p>{credentialsHint}</p>
                 {credentialsSource ? (
                   <p className="text-xs">
@@ -1952,7 +1982,7 @@ function BigQuerySection() {
             <div className="flex flex-wrap items-center gap-2 pt-2 border-t">
               <Button
                 type="button"
-                onClick={save}
+                onClick={() => void save()}
                 disabled={!canMutateMetrics || !dirty || saving}
                 data-testid="button-bq-save"
               >
@@ -1966,16 +1996,21 @@ function BigQuerySection() {
               <Button
                 type="button"
                 variant="secondary"
-                onClick={testConnection}
+                onClick={() => void testConnection()}
                 disabled={testing || !enabled || !projectId.trim() || !datasetId.trim()}
                 data-testid="button-bq-test"
               >
                 {testing ? (
-                  <IconLoader2 className="h-4 w-4 animate-spin mr-1.5" />
+                  <>
+                    <IconLoader2 className="h-4 w-4 animate-spin mr-1.5" />
+                    Testing…
+                  </>
                 ) : (
-                  <IconPlugConnected className="h-4 w-4 mr-1.5" />
+                  <>
+                    <IconPlugConnected className="h-4 w-4 mr-1.5" />
+                    Test connection
+                  </>
                 )}
-                Test connection
               </Button>
             </div>
           </>
@@ -1995,128 +2030,97 @@ export default function TrackingPage() {
 }
 
 function TrackingPageInner() {
-  const [location] = useLocation();
-  const isSgtm = location === "/private/tracking/sgtm";
-  const isIpn = location === "/private/tracking/ipn";
-  const isGa4 =
-    location === "/private/tracking/ga4" || location === "/private/tracking/bigquery";
-  const isEvents = !isSgtm && !isIpn && !isGa4;
+  const [pathname, setLocation] = useLocation();
+  const activeTab = resolveTrackingTab(pathname);
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <Link href="/private/diagnostics">
-              <Button variant="ghost" size="icon" data-testid="button-back-tracking">
-                <IconArrowLeft className="h-4 w-4" />
-              </Button>
-            </Link>
-            <div className="flex items-center gap-2">
-              <IconChartBar className="h-6 w-6 text-muted-foreground" />
-              <div>
-                <h1 className="text-xl font-semibold" data-testid="text-tracking-title">Tracking</h1>
-                <p className="text-sm text-muted-foreground">Analytics &amp; event configuration</p>
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+          <div className="flex items-start gap-4 min-w-0 flex-1">
+            <Button variant="ghost" size="icon" asChild data-testid="button-back-tracking">
+              <Link href="/private/diagnostics">
+                <IconArrowLeft className="h-5 w-5" />
+              </Link>
+            </Button>
+            <div className="min-w-0 space-y-1">
+              <div className="flex items-center gap-2">
+                <IconChartBar className="h-5 w-5 text-muted-foreground" />
+                <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-tracking-title">
+                  Tracking
+                </h1>
               </div>
+              <p className="text-sm text-muted-foreground">
+                Event catalog, server-side tagging, IP normalization, and Google Analytics for Store
+                journey metrics.
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center rounded-md border overflow-hidden" data-testid="toggle-tracking-view">
-            <Link href="/private/tracking">
-              <button
-                type="button"
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${
-                  isEvents
-                    ? "bg-secondary text-secondary-foreground font-medium"
-                    : "text-muted-foreground hover-elevate"
-                }`}
-                data-testid="button-view-events"
+          <ToggleButtonBar
+            className="shrink-0"
+            value={activeTab}
+            onValueChange={(id) => {
+              const tab = TRACKING_TABS.find((t) => t.id === id);
+              if (!tab) return;
+              setLocation(tab.href);
+            }}
+            listTestId="toggle-tracking-view"
+            listClassName="flex"
+          >
+            {TRACKING_TABS.map(({ id, label, Icon }) => (
+              <ToggleButtonBarTrigger
+                key={id}
+                value={id}
+                data-testid={`button-view-${id}`}
+                className="gap-1.5"
               >
-                <IconChartBar className="h-3.5 w-3.5" />
-                Events
-              </button>
-            </Link>
-            <div className="w-px h-6 bg-border" />
-            <Link href="/private/tracking/sgtm">
-              <button
-                type="button"
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${
-                  isSgtm
-                    ? "bg-secondary text-secondary-foreground font-medium"
-                    : "text-muted-foreground hover-elevate"
-                }`}
-                data-testid="button-view-sgtm"
-              >
-                <IconServer className="h-3.5 w-3.5" />
-                sGTM
-              </button>
-            </Link>
-            <div className="w-px h-6 bg-border" />
-            <Link href="/private/tracking/ipn">
-              <button
-                type="button"
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${
-                  isIpn
-                    ? "bg-secondary text-secondary-foreground font-medium"
-                    : "text-muted-foreground hover-elevate"
-                }`}
-                data-testid="button-view-ipn"
-              >
-                <IconShieldLock className="h-3.5 w-3.5" />
-                IP Normalization
-              </button>
-            </Link>
-            <div className="w-px h-6 bg-border" />
-            <Link href="/private/tracking/ga4">
-              <button
-                type="button"
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${
-                  isGa4
-                    ? "bg-secondary text-secondary-foreground font-medium"
-                    : "text-muted-foreground hover-elevate"
-                }`}
-                data-testid="button-view-ga4"
-              >
-                <IconDatabase className="h-3.5 w-3.5" />
-                GA4
-              </button>
-            </Link>
-          </div>
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </ToggleButtonBarTrigger>
+            ))}
+          </ToggleButtonBar>
         </div>
 
-        {isSgtm ? (
-          <div className="space-y-2">
-            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Server-Side Tag Manager</h2>
-            <GTMSection />
-          </div>
-        ) : isIpn ? (
-          <div className="space-y-2">
-            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">IP Normalization</h2>
-            <div className="space-y-4">
-              <IpNormalizationSection />
+        <div role="tabpanel">
+          {activeTab === "sgtm" ? (
+            <div className="space-y-2">
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                Server-Side Tag Manager
+              </h2>
+              <GTMSection />
             </div>
-          </div>
-        ) : isGa4 ? (
-          <div className="space-y-2">
-            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-              Google Analytics Integration
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Connect Google Analytics 4 so Store journey metrics can load. Data reaches this app
-              through the GA4 BigQuery export — configure the project and dataset below after you
-              enable that export in Google Analytics.
-            </p>
+          ) : activeTab === "ipn" ? (
+            <div className="space-y-2">
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                IP Normalization
+              </h2>
+              <div className="space-y-4">
+                <IpNormalizationSection />
+              </div>
+            </div>
+          ) : activeTab === "ga4" ? (
             <BigQuerySection />
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Tracked Events</h2>
-            <p className="text-sm text-muted-foreground">
-              All events currently fired into <code className="font-mono text-xs">window.dataLayer</code>. This list is auto-generated from the source constants in <code className="font-mono text-xs">@/lib/tracking</code>.
-            </p>
-            <EventsSection />
-          </div>
-        )}
+          ) : (
+            <div className="space-y-2">
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                Tracked Events
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Events this site currently fires into the data layer. The list is generated from the
+                tracking constants in source.
+              </p>
+              <details className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer text-foreground font-medium">Read more (advanced)</summary>
+                <ul className="mt-2 list-disc pl-5 font-mono space-y-1">
+                  <li>window.dataLayer</li>
+                  <li>client/src/lib/tracking</li>
+                </ul>
+              </details>
+              <EventsSection />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
