@@ -14,8 +14,10 @@ export type ValidateRequiredMetaResult =
 const TEMPLATE_RE = /\{\{[\s\S]*?\}\}/;
 
 function isUsableMetaString(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  const trimmed = value.trim();
+  // Coerce numbers (e.g. from parsePipeFallback("84") when a numeric pipe fallback is used)
+  const str = typeof value === "number" ? String(value) : value;
+  if (typeof str !== "string") return false;
+  const trimmed = str.trim();
   if (!trimmed) return false;
   if (TEMPLATE_RE.test(trimmed)) return false;
   return true;

@@ -23,6 +23,7 @@ const VALID_CHANGE_FREQUENCIES = [
 ];
 
 const TEMPLATE_RE = /\{\{[\s\S]*?\}\}/;
+const GLOBAL_VAR_RE = /\{\{\s*global\./;
 
 export const metaValidator: Validator = {
   name: "meta",
@@ -49,6 +50,22 @@ export const metaValidator: Validator = {
         meta?: Record<string, unknown>;
       };
       const meta = resolvedMeta.meta || rawMeta;
+
+      // Warn when global.* vars appear in meta — the validator bag has no global data,
+      // so the live value is always the pipe fallback. Make sure a fallback exists.
+      if (
+        GLOBAL_VAR_RE.test(String(rawMeta.page_title || "")) ||
+        GLOBAL_VAR_RE.test(String(rawMeta.description || ""))
+      ) {
+        warnings.push({
+          type: "warning",
+          code: "META_USES_GLOBAL_VAR",
+          message:
+            "meta.page_title / meta.description uses {{ global.* }} which cannot be resolved at validation time — ensure a pipe fallback is set (e.g. {{ global.global_job_placement_rate | '84' }})",
+          file: file.filePath,
+          suggestion: "Add a pipe fallback value so the meta renders correctly even when the global variable is unavailable",
+        });
+      }
 
       const required = validateRequiredMeta(meta);
       if (!required.ok) {
