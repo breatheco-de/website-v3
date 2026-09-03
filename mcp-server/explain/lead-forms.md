@@ -123,6 +123,21 @@ Live submit builds the body from the map only (no legacy payload merge). `conver
 
 No magic aliases: `payload.course` ← `form.program` only if that mapping row exists.
 
+## Free plan grant (silent — subscribe ≠ subscription)
+
+`POST /v1/auth/subscribe/` creates the user and attaches the plan to the UserInvite only. It does **not** create a Subscription or consumables.
+
+When `is_signup` resolves a non-empty plan (form `fields.plan` and/or `field_map` plan row), after signup (or for an already-logged-in visitor) the runtime silently calls `POST /api/auth/grant-free-plan`, which proxies Breathecode:
+
+1. `PUT /v2/payments/checking` (PREVIEW bag)
+2. `POST /v2/payments/pay` (free invoice → `build_free_subscription`)
+
+**UI unchanged:** same form → same redirect to LearnPack with `?token=`. Grant runs between token save and lead/redirect. Blocking only if grant fails (so LearnPack is not opened without consumables). Idempotent upstream errors (trial already took / already subscribed) count as success.
+
+Non-effects: does not change lead webhook payload; does not add checkout UI; without a plan slug there is no grant.
+
+Shared helper: `shared/grantFreeSubscription.ts`. Server route: `server/routes/auth.ts` → `/api/auth/grant-free-plan`.
+
 ## Paths
 
 - Parse: `shared/parseFormFieldSource.ts`
@@ -130,5 +145,6 @@ No magic aliases: `payload.course` ← `form.program` only if that mapping row e
 - Index: `server/ecommerce/ecommerce-index.ts`
 - Runtime: `client/src/components/lead_form/variants/LeadFormDefault.tsx`
 - Signup field map: `shared/authSignupFieldMap.ts`
+- Free plan grant: `shared/grantFreeSubscription.ts`
 - Auth conversion events: `shared/authConversionEvents.ts`
 - Staff UI: `client/src/components/editing/FormFieldsCard.tsx` / `RequireSignupCard.tsx` / `client/src/components/settings/AuthTab.tsx` / Conversions page

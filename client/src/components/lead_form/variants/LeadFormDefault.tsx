@@ -1401,7 +1401,10 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
 
       // Signup mode: guests are registered first via the site auth endpoint;
       // logged-in users skip this and go straight to the lead/conversion flow.
-      if (signupActive && !isLoggedIn) {
+      // Shared map context is also used to resolve the free-plan slug for grant.
+      let planForGrant =
+        typeof fields.plan === "string" ? fields.plan.trim() : "";
+      if (isSignupRequested) {
         const fieldMap = authSettings?.signup?.field_map ?? [];
         const formCtx: Record<string, unknown> = {
           ...values,
@@ -1454,31 +1457,85 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           );
           globals[entry.global] = resolved?.value ?? "";
         }
-        const signupPayload = buildSignupPayloadFromFieldMap(
-          fieldMap,
-          { form: formCtx, session: sessionCtx, globals },
-          conversion_info,
-        );
-        const signupRes = await apiRequest("POST", "/api/auth/signup", signupPayload);
-        try {
-          const signupJson = (await signupRes.json()) as {
-            data?: { access_token?: string; token?: string };
-          };
-          const newToken = signupJson?.data?.access_token || signupJson?.data?.token;
-          if (newToken) setConsumerToken(newToken);
-          trackConversion(authConversionCfg.signup_event_name, {
-            email: typeof values.email === "string" ? values.email : undefined,
-            first_name: typeof values.first_name === "string" ? values.first_name : undefined,
-            last_name: typeof values.last_name === "string" ? values.last_name : undefined,
-            phone: typeof values.phone === "string" ? values.phone : undefined,
-            plan: typeof fields.plan === "string" ? fields.plan : undefined,
-            program: typeof fields.program === "string" ? fields.program : undefined,
+        if (!planForGrant && fieldMap.length > 0) {
+          const planOnly = buildSignupPayloadFromFieldMap(
+            fieldMap.filter((e) => e.key === "plan"),
+            { form: formCtx, session: sessionCtx, globals },
+            {},
+          );
+          if (typeof planOnly.plan === "string" && planOnly.plan.trim()) {
+            planForGrant = planOnly.plan.trim();
+          }
+        }
+        if (signupActive && !isLoggedIn) {
+          const signupPayload = buildSignupPayloadFromFieldMap(
+            fieldMap,
+            { form: formCtx, session: sessionCtx, globals },
+            conversion_info,
+          );
+          if (typeof signupPayload.plan === "string" && signupPayload.plan.trim()) {
+            planForGrant = signupPayload.plan.trim();
+          }
+          const signupRes = await apiRequest("POST", "/api/auth/signup", signupPayload);
+          try {
+            const signupJson = (await signupRes.json()) as {
+              data?: { access_token?: string; token?: string };
+            };
+            const newToken = signupJson?.data?.access_token || signupJson?.data?.token;
+            if (newToken) setConsumerToken(newToken);
+            trackConversion(authConversionCfg.signup_event_name, {
+              email: typeof values.email === "string" ? values.email : undefined,
+              first_name: typeof values.first_name === "string" ? values.first_name : undefined,
+              last_name: typeof values.last_name === "string" ? values.last_name : undefined,
+              phone: typeof values.phone === "string" ? values.phone : undefined,
+              plan: planForGrant || (typeof fields.plan === "string" ? fields.plan : undefined),
+              program: typeof fields.program === "string" ? fields.program : undefined,
+            });
+          } catch {
+            // Signup succeeded but response was not JSON — continue as guest
+            trackConversion(authConversionCfg.signup_event_name, {
+              email: typeof values.email === "string" ? values.email : undefined,
+            });
+          }
+        }
+
+        // Silent free-plan grant: subscribe alone only attaches plan metadata to the
+        // invite. checking + pay materialize the Subscription so LearnPack can compile.
+        // UI unchanged (same redirect); block only if grant fails.
+        const consumerToken = getConsumerToken();
+        if (planForGrant && consumerToken) {
+          const grantRes = await apiFetch("/api/auth/grant-free-plan", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Token ${consumerToken}`,
+              "X-Session-Locale": locale,
+            },
+            body: JSON.stringify({
+              plan: planForGrant,
+              country_code:
+                session.geo?.country_code ||
+                (sessionLocation as { country_code?: string } | null)?.country_code ||
+                "US",
+              conversion_info,
+            }),
           });
-        } catch {
-          // Signup succeeded but response was not JSON — continue as guest
-          trackConversion(authConversionCfg.signup_event_name, {
-            email: typeof values.email === "string" ? values.email : undefined,
-          });
+          if (!grantRes.ok) {
+            const text = await grantRes.text();
+            let message =
+              locale === "es"
+                ? "No pudimos activar tu plan gratuito. Intenta de nuevo."
+                : "We could not activate your free plan. Please try again.";
+            try {
+              const parsed = JSON.parse(text) as { error?: string };
+              if (typeof parsed.error === "string" && parsed.error.trim()) {
+                message = parsed.error;
+              }
+            } catch {
+              // keep default
+            }
+            throw new Error(`${grantRes.status}: ${JSON.stringify({ error: message })}`);
+          }
         }
       }
 
