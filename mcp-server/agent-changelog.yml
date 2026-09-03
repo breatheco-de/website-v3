@@ -6,18 +6,6 @@ window_days: 6
 
 entries:
   - date: "2026-09-03"
-    summary: "Silent free-plan grant after is_signup (checking + pay)"
-    agent_impact:
-      - "Subscribe ≠ Subscription. After is_signup with a plan slug, runtime silently grants via POST /api/auth/grant-free-plan (Breathecode checking + pay) before LearnPack redirect."
-      - "UI flow unchanged (form → token → LearnPack). Without fields.plan / field_map plan there is no grant. Idempotent 'already took trial' counts as OK."
-      - "Interactive-exercise templates need hidden fields.plan default {{ global.default_free_signup_plan | 4geeks-basic-subscription }}. See explain_site topic lead-forms."
-    paths:
-      - shared/grantFreeSubscription.ts
-      - server/routes/auth.ts
-      - client/src/components/lead_form/variants/LeadFormDefault.tsx
-      - mcp-server/explain/lead-forms.md
-    tools_changed: false
-  - date: "2026-09-03"
     summary: "One-slug run_entry_diagnostics is sync (completed in one call)"
     agent_impact:
       - "Exactly one slug + hard/stale → status completed (mode sync) with issues[] in the same call. Do not poll get_diagnostics_job for that path."
