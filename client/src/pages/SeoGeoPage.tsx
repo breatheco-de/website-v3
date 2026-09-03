@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Copy, Crosshair, DownloadCloud, ExternalLink, Filter, Globe, Info, Loader2, MoreVertical, Network, Pencil, Plus, Star, Unlink } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Copy, Crosshair, DownloadCloud, ExternalLink, Filter, Globe, Info, Loader2, MoreVertical, Network, Pencil, Plus, RefreshCw, Star, Unlink } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -2003,6 +2003,100 @@ function SeoOverviewCollapsibleCard({
   );
 }
 
+type SeoReindexResponse = {
+  ok: boolean;
+  entries: number;
+  clusters: number;
+  orphans: number;
+  warnings: number;
+  durationMs: number;
+};
+
+function ClusterReindexButton() {
+  const { toast } = useToast();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const reindexMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequestWithAuth("POST", "/api/seo/reindex");
+      return res.json() as Promise<SeoReindexResponse>;
+    },
+    onSuccess: (result) => {
+      invalidateClusterQueries();
+      toast({
+        title: "SEO index rebuilt",
+        description: `${result.entries} entries, ${result.clusters} clusters, ${result.orphans} broken refs — in ${(result.durationMs / 1000).toFixed(1)}s.`,
+      });
+    },
+    onError: (e) => {
+      toast({
+        title: "Re-index failed",
+        description: e instanceof Error ? e.message : "Could not rebuild the SEO index.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8"
+        disabled={reindexMutation.isPending}
+        onClick={() => setConfirmOpen(true)}
+        data-testid="button-cluster-reindex"
+      >
+        {reindexMutation.isPending ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <RefreshCw className="h-3.5 w-3.5" />
+        )}
+        Re-index
+      </Button>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent data-testid="dialog-cluster-reindex">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Rebuild the SEO index?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>
+                  Re-indexing rescans every content YAML file and rebuilds the cached SEO index
+                  that powers this page — cluster memberships, pillar assignments, and the health
+                  counts above.
+                </p>
+                <p>
+                  The cache only updates automatically when pages are saved through the app. Edits
+                  made outside it (git pulls, scripts, manual file changes) can leave these stats
+                  out of sync until a rebuild runs.
+                </p>
+                <p className="text-muted-foreground">
+                  It is safe and non-destructive — no content is modified. It usually takes a few
+                  seconds, up to about a minute on large sites. The stats refresh automatically
+                  when it finishes.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmOpen(false);
+                reindexMutation.mutate();
+              }}
+              data-testid="button-cluster-reindex-confirm"
+            >
+              Rebuild index
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
 function StatCard({
   label,
   value,
@@ -2866,6 +2960,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
               ? "No clusters yet"
               : undefined
         }
+        actions={<ClusterReindexButton />}
       >
           <ClusterMapHelp />
           {data.clusterHealth ? (

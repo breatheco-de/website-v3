@@ -1542,6 +1542,33 @@ export function registerSeoRoutes(app: Express): void {
     }
   });
 
+  app.post("/api/seo/reindex", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    try {
+      const started = Date.now();
+      const { invalidateSeoIndexCache, rebuildSeoIndex } = await import("../seo-index");
+      invalidateSeoIndexCache();
+      const index = rebuildSeoIndex({
+        contentRoot: getContentRoot(res),
+        reason: "manual_reindex",
+        mark: false,
+      });
+      res.json({
+        ok: true,
+        entries: Object.keys(index.entries).length,
+        clusters: Object.keys(index.clusters).length,
+        orphans: index.orphans.length,
+        warnings: index.warnings.length,
+        generated_at: index.generated_at,
+        durationMs: Date.now() - started,
+      });
+    } catch (err) {
+      log.error({ err }, "manual seo reindex failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Re-index failed" });
+    }
+  });
+
   app.post("/api/seo/organic/days/backfill", async (req, res) => {
     const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
