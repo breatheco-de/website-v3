@@ -9,17 +9,21 @@ vi.mock("./single-resolver", () => ({
 vi.mock("./build-single-entry", () => ({
   buildSingleEntryFromContent: () => ({}),
 }));
-vi.mock("./content-types", () => ({
-  finalizeSingleEntryForTemplates: (x: unknown) => x,
-  getContentTypeConfig: () => ({
-    editor: {
-      title: { required: true },
-      description: { required: true },
-    },
-  }),
-  getFolder: () => "landings",
-  getAllDirectories: () => ["landings", "pages", "blog"],
-}));
+vi.mock("./content-types", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./content-types")>();
+  return {
+    ...actual,
+    finalizeSingleEntryForTemplates: (x: unknown) => x,
+    getContentTypeConfig: () => ({
+      editor: {
+        title: { required: true },
+        description: { required: true },
+      },
+    }),
+    getFolder: () => "landings",
+    getAllDirectories: () => ["landings", "pages", "blog"],
+  };
+});
 vi.mock("./shared-layout-entry", () => ({
   isEntryDetached: () => false,
   isSharedLayoutType: () => false,
