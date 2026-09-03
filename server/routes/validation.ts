@@ -1215,6 +1215,7 @@ export function registerValidationRoutes(app: Express): void {
         include_artifacts: req.body?.include_artifacts,
         categories: req.body?.categories,
         confirm: req.body?.confirm === true,
+        callerId: auth.username ?? undefined,
       });
 
       if (result.status === "busy") {

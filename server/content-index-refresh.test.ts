@@ -87,3 +87,83 @@ describe("ContentIndex.scanFast preserves slow maps", () => {
     expect(ci.getMenuUsageByMenuId("main").length).toBeGreaterThan(0);
   });
 });
+
+describe("ContentIndex.refreshAfterRedirectWrite", () => {
+  it("reloads custom-redirects.yml without a full sync scan", () => {
+    const root = makeSite();
+    fs.writeFileSync(
+      path.join(root, "custom-redirects.yml"),
+      "redirects:\n  - from: /old\n    to: /en/home\n",
+      "utf-8",
+    );
+    const ci = new ContentIndex(root);
+    ci.scanFast();
+    ci.scanSlow();
+
+    expect(ci.getRedirects().some((r) => r.from === "/old")).toBe(true);
+
+    fs.writeFileSync(
+      path.join(root, "custom-redirects.yml"),
+      "redirects:\n  - from: /newer\n    to: /en/home\n",
+      "utf-8",
+    );
+
+    const scan = vi.spyOn(ci as any, "scan");
+    const scanSlow = vi.spyOn(ci, "scanSlow");
+    ci.refreshAfterRedirectWrite(`${ci.contentRootName}/custom-redirects.yml`);
+
+    expect(scan).not.toHaveBeenCalled();
+    expect(scanSlow).not.toHaveBeenCalled();
+    expect(ci.getRedirects().some((r) => r.from === "/newer")).toBe(true);
+    expect(ci.getRedirects().some((r) => r.from === "/old")).toBe(false);
+  });
+
+  it("updates page meta.redirects from a single file without sync scan", () => {
+    const root = makeSite();
+    const ci = new ContentIndex(root);
+    ci.scanFast();
+    ci.scanSlow();
+
+    const pageFile = path.join(root, "pages", "home", "en.yml");
+    fs.writeFileSync(
+      pageFile,
+      "title: Home\nslug: home\nmeta:\n  redirects:\n    - /legacy-home\nlayout:\n  menu:\n    top: main\n",
+      "utf-8",
+    );
+
+    const scan = vi.spyOn(ci as any, "scan");
+    const scanSlow = vi.spyOn(ci, "scanSlow");
+    const source = `${ci.contentRootName}/pages/home/en.yml`;
+    ci.refreshAfterRedirectWrite(source);
+
+    expect(scan).not.toHaveBeenCalled();
+    expect(scanSlow).not.toHaveBeenCalled();
+    expect(ci.getRedirects().some((r) => r.from === "/legacy-home")).toBe(true);
+  });
+
+  it("refreshCustomRedirects stays cheap when there are zero content redirects", () => {
+    const root = makeSite();
+    // Page type with no meta.redirects — only custom rules
+    fs.writeFileSync(
+      path.join(root, "custom-redirects.yml"),
+      "redirects:\n  - from: /a\n    to: /en/home\n",
+      "utf-8",
+    );
+    const ci = new ContentIndex(root);
+    ci.scanFast();
+    ci.scanSlow();
+
+    expect(ci.getRedirects().every((r) => r.type === "custom")).toBe(true);
+
+    fs.writeFileSync(
+      path.join(root, "custom-redirects.yml"),
+      "redirects:\n  - from: /b\n    to: /en/home\n",
+      "utf-8",
+    );
+
+    const scanSlow = vi.spyOn(ci, "scanSlow");
+    ci.refreshCustomRedirects();
+    expect(scanSlow).not.toHaveBeenCalled();
+    expect(ci.getRedirects().map((r) => r.from)).toEqual(["/b"]);
+  });
+});

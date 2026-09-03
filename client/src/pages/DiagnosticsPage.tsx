@@ -330,11 +330,13 @@ type ResolvedIssuesResponse = {
 type JobStartResponse = {
   status: string;
   job_id?: string;
+  mode?: string;
   retry_after_seconds?: number;
   message?: string;
   code?: string;
   validators?: ValidatorResult[];
   issuesBySlug?: Record<string, unknown>;
+  summary?: { errorCount: number; warningCount: number };
   scope?: { processed?: number; total?: number; staleUrlCount?: number; urlCount?: number };
   scoped?: boolean;
   last_site_wide_run_at?: string | null;
@@ -843,6 +845,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   );
 
   const [search, setSearch] = useState("");
+  const [validatorSearch, setValidatorSearch] = useState("");
   const [pageFilterOpen, setPageFilterOpen] = useState(false);
   const [rerunValidator, setRerunValidator] = useState<string>("");
   const [freshUrlSearch, setFreshUrlSearch] = useState("");
@@ -1054,10 +1057,18 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       if (hideJobPanelTimer.current) clearTimeout(hideJobPanelTimer.current);
       const data = await startWithConfirm(body);
       if (data.status === "busy") {
-        throw new Error(data.message || "Another diagnostics job is already running for this site.");
+        throw new Error(
+          data.message ||
+            (data.code === "diagnostics_sync_busy"
+              ? "You already have a one-page diagnostics run in progress."
+              : "Another diagnostics job is already running for this site."),
+        );
       }
       if (data.status === "cached") {
         return { kind: "cached" as const, data };
+      }
+      if (data.status === "completed" && data.mode === "sync") {
+        return { kind: "completed" as const, data };
       }
       if (!data.job_id) {
         throw new Error("Missing job_id from diagnostics-jobs");
@@ -1424,6 +1435,12 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       if (b === "legacy") return -1;
       return a.localeCompare(b);
     });
+  })();
+
+  const filteredValidatorOptions = (() => {
+    const q = validatorSearch.trim().toLowerCase();
+    if (!q) return validatorFilterOptions;
+    return validatorFilterOptions.filter((name) => name.toLowerCase().includes(q));
   })();
 
   const kpiSummary = {
@@ -2151,7 +2168,11 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                 </PopoverContent>
               </Popover>
               {validatorFilterOptions.length > 0 && (
-                <Popover>
+                <Popover
+                  onOpenChange={(open) => {
+                    if (!open) setValidatorSearch("");
+                  }}
+                >
                   <PopoverTrigger asChild>
                     <Button
                       variant="outline"
@@ -2164,7 +2185,10 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                       <FilterCornerBadge count={validatorFilters.length} />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent align="start" className="w-80 p-3 space-y-3">
+                  <PopoverContent
+                    align="start"
+                    className="w-[min(400px,calc(100vw-2rem))] p-3 space-y-3"
+                  >
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-medium text-muted-foreground">
                         Toggle validators to filter issues. All validators are listed; only those with
@@ -2174,7 +2198,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 px-2 text-xs"
+                          className="h-7 px-2 text-xs shrink-0"
                           onClick={() => setValidatorFilters([])}
                           data-testid="button-validator-clear"
                         >
@@ -2182,41 +2206,58 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                         </Button>
                       )}
                     </div>
-                    <div className="flex flex-wrap gap-1.5" data-testid="validator-tag-cloud">
-                      {validatorFilterOptions.map((name) => {
-                        const active = validatorFilters.includes(name);
-                        const isLegacy = name === "legacy";
-                        return (
-                          <Button
-                            key={name}
-                            variant={active ? "default" : "outline"}
-                            size="sm"
-                            className="h-7 toggle-elevate"
-                            onClick={() => {
-                              setValidatorFilters((prev) =>
-                                prev.includes(name)
-                                  ? prev.filter((v) => v !== name)
-                                  : [...prev, name],
-                              );
-                            }}
-                            data-testid={`button-validator-${name}`}
-                          >
-                            {isLegacy ? (
-                              <span
-                                className={
-                                  active
-                                    ? "text-[10px] lowercase opacity-90"
-                                    : "text-[10px] text-muted-foreground lowercase"
-                                }
-                              >
-                                {name}
-                              </span>
-                            ) : (
-                              name
-                            )}
-                          </Button>
-                        );
-                      })}
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={validatorSearch}
+                        onChange={(e) => setValidatorSearch(e.target.value)}
+                        placeholder="Search validators…"
+                        className="h-8 pl-8 text-xs"
+                        data-testid="input-validator-search"
+                      />
+                    </div>
+                    <div
+                      className="flex max-h-[min(20rem,50vh)] flex-wrap gap-1.5 overflow-y-auto"
+                      data-testid="validator-tag-cloud"
+                    >
+                      {filteredValidatorOptions.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-1">No validators match.</p>
+                      ) : (
+                        filteredValidatorOptions.map((name) => {
+                          const active = validatorFilters.includes(name);
+                          const isLegacy = name === "legacy";
+                          return (
+                            <Button
+                              key={name}
+                              variant={active ? "default" : "outline"}
+                              size="sm"
+                              className="h-7 toggle-elevate"
+                              onClick={() => {
+                                setValidatorFilters((prev) =>
+                                  prev.includes(name)
+                                    ? prev.filter((v) => v !== name)
+                                    : [...prev, name],
+                                );
+                              }}
+                              data-testid={`button-validator-${name}`}
+                            >
+                              {isLegacy ? (
+                                <span
+                                  className={
+                                    active
+                                      ? "text-[10px] lowercase opacity-90"
+                                      : "text-[10px] text-muted-foreground lowercase"
+                                  }
+                                >
+                                  {name}
+                                </span>
+                              ) : (
+                                name
+                              )}
+                            </Button>
+                          );
+                        })
+                      )}
                     </div>
                   </PopoverContent>
                 </Popover>

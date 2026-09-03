@@ -1910,29 +1910,29 @@ export function registerPageTools(
     },
   );
 
-  // run_entry_diagnostics (async — returns cached or queues a background job)
+  // run_entry_diagnostics (cached | sync completed for 1 slug | async job for multi/unscoped)
   mcp.tool(
     "run_entry_diagnostics",
-    "Start or read page diagnostics against the unified validation-cache issue store. Does NOT wait for validators to finish. " +
-    "Returns status 'cached' (issues work queue from validation-cache when fresh), 'needs_confirm' (full-site only — re-call with confirm:true), or 'queued'/'running' with job_id. " +
-    "On cached: returns issues[] (default 50, errors first, diversified by code) with issues_offset/issues_limit pagination for the issue list only — not a full site dump. " +
+    "Start or read page diagnostics against the unified validation-cache issue store. " +
+    "Exactly one slug: runs entry-local validators in-process and returns status 'completed' (mode sync) with issues[] in the same call — do NOT poll get_diagnostics_job. " +
+    "One sync at a time per agent (diagnostics_sync_busy if already running a page sync — retry this tool). " +
+    "May run while a site-wide async job is in flight (site_job_parallel warning — that job may later refresh the cache). " +
+    "Zero or 2+ slugs / unscoped: does NOT wait — returns 'cached', 'needs_confirm' (full-site — re-call with confirm:true), or 'queued'/'running' with job_id. " +
+    "On cached/completed: returns issues[] (default 50, errors first, diversified by code) with issues_offset/issues_limit pagination for the issue list only — not a full site dump. " +
     "MCP: categories (e.g. ['seo']) narrow which validators RUN when validators are omitted (staff Diagnostics scope chips are view-only and unchanged). " +
-    "content_view/seo_edit may READ cached or needs_confirm responses; only a metrics-mutating staff cap may start a job. " +
-    "Slug- or URL-scoped hard/max_age jobs that would start do NOT require confirm:true (escape hatch after edits). Full-site / unscoped jobs still need confirm:true. " +
-    "Same-scope reuse of an in-flight job and pure 'cached' responses skip confirm. " +
-    "When queued/running: wait retry_after_seconds then call get_diagnostics_job — do NOT re-call this tool to poll. " +
+    "content_view/seo_edit may READ cached or needs_confirm responses; only a metrics-mutating staff cap may start a job or sync recompute. " +
+    "Slug-scoped hard/max_age that would recompute do NOT require confirm:true. Full-site / unscoped jobs still need confirm:true. " +
+    "Same-scope reuse of an in-flight async job and pure 'cached' responses skip confirm. " +
+    "When queued/running (multi-slug or unscoped): wait retry_after_seconds then call get_diagnostics_job — do NOT re-call this tool to poll. " +
     "freshness 'max_age' (default) recomputes only URLs whose lastFullRunAt is older than max_age_seconds (default 86400); " +
     "'hard' forces a recompute. Optional slugs scopes the run to entry-local validators only (never cross-entry like redirects/seo-duplicates — avoids false all-clear). " +
-    "side_effects: job runs in a forked worker process; replace-by-validator merge into validation-cache.json on disk " +
-    "(parent reloads cache when the job completes; clears obsolete codes for ran validators in scope). " +
-    "Concurrent start while another job holds the site returns busy (no queue). On-save entry-local writes are deferred while the lock is held. " +
+    "side_effects: one-slug sync merges entry-local results into validation-cache in-process; multi/unscoped jobs fork a worker. " +
     "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap/seo-duplicates; fixing meta does not clear REDIRECT_CONFLICT or DUPLICATE_TITLE; " +
-    "does not change staff Diagnostics HTTP payloads. Mid-run get_diagnostics_job may return a partial issues work queue. Authoritative after completed. " +
-    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs (no confirm needed when scoped). " +
+    "does not change staff Diagnostics HTTP payloads. Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + one slug. " +
     "In-app / MCP content writes debounce entry-local validation for 1 minute; redirect-config changes queue redirects separately. " +
     "When get_entry_* returns validation_pending:true, cache may lag until that debounce settles.",
     {
-      slugs: z.array(z.string()).optional().describe("Optional page slugs to scope. Omit for all YAML-backed pages."),
+      slugs: z.array(z.string()).optional().describe("Optional page slugs to scope. Exactly one slug → sync completed. Omit or pass 2+ for async site job."),
       categories: z
         .array(z.string())
         .optional()
@@ -2011,6 +2011,17 @@ export function registerPageTools(
         ...(category ? { category } : {}),
         ...(codes?.length ? { codes } : {}),
       };
+      const scopedArgsHint = {
+        ...(slugs && slugs.length ? { slugs } : {}),
+        ...(categories ? { categories } : {}),
+        freshness: freshness ?? "max_age",
+        ...(max_age_seconds != null ? { max_age_seconds } : {}),
+        ...(site ? { site } : {}),
+        ...(issues_limit != null ? { issues_limit } : {}),
+        ...(severity ? { severity } : {}),
+        ...(category ? { category } : {}),
+        ...(codes?.length ? { codes } : {}),
+      };
       try {
         const res = await fetch(
           `http://localhost:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs${q}`,
@@ -2023,8 +2034,35 @@ export function registerPageTools(
         const data = await res.json() as Record<string, unknown>;
 
         if (res.status === 409 || data.status === "busy") {
-          const jobId = String(data.job_id ?? "");
+          const code = String(data.code ?? "diagnostics_busy");
           const retry = Number(data.retry_after_seconds ?? 5);
+          if (code === "diagnostics_sync_busy") {
+            return ok(
+              {
+                status: "busy",
+                code: "diagnostics_sync_busy",
+                retry_after_seconds: retry,
+                message: String(
+                  data.message ??
+                    "You already have a one-page diagnostics run in progress. Wait and retry.",
+                ),
+              },
+              {
+                warnings: [{
+                  code: "diagnostics_sync_busy",
+                  message:
+                    "One page sync at a time per agent. Wait retry_after_seconds then call run_entry_diagnostics again — do not poll get_diagnostics_job.",
+                }],
+                next_actions: [{
+                  tool: "run_entry_diagnostics",
+                  reason: "Retry one-slug diagnostics after your in-flight sync finishes",
+                  args_hint: scopedArgsHint,
+                  priority: "required",
+                }],
+              },
+            );
+          }
+          const jobId = String(data.job_id ?? "");
           return ok(
             {
               status: "busy",
@@ -2103,7 +2141,7 @@ export function registerPageTools(
           );
         }
 
-        if (data.status === "cached") {
+        if (data.status === "cached" || data.status === "completed") {
           const cacheMisses = Array.isArray(data.cacheMisses) ? data.cacheMisses as string[] : [];
           const { queue, warnings: queueWarnings } = await resolveDiagnosticsIssueQueue({
             domain,
@@ -2114,17 +2152,7 @@ export function registerPageTools(
           });
           const pageNext = diagnosticsIssuePageNextAction({
             tool: "run_entry_diagnostics",
-            args_hint: {
-              ...(slugs && slugs.length ? { slugs } : {}),
-              ...(categories ? { categories } : {}),
-              freshness: freshness ?? "max_age",
-              ...(max_age_seconds != null ? { max_age_seconds } : {}),
-              ...(site ? { site } : {}),
-              ...(issues_limit != null ? { issues_limit } : {}),
-              ...(severity ? { severity } : {}),
-              ...(category ? { category } : {}),
-              ...(codes?.length ? { codes } : {}),
-            },
+            args_hint: scopedArgsHint,
             issues_next_offset: queue.issues_next_offset,
           });
           const next_actions: NextAction[] = pageNext ? [pageNext] : [];
@@ -2142,6 +2170,29 @@ export function registerPageTools(
               message:
                 "issues[] is a ranked page of the work queue (default 50). Use issues_offset/issues_next_offset to page the issue list; full set remains in validation-cache / staff Diagnostics.",
             });
+          }
+          if (data.status === "completed" && data.site_job_parallel === true) {
+            queueWarnings.push({
+              code: "diagnostics_site_job_parallel",
+              message:
+                "A site-wide diagnostics job was still running. This page sync updated the cache for this slug; the site job may later refresh the cache — re-run one-slug hard if issues look stale.",
+            });
+          }
+          if (data.status === "completed") {
+            return ok(
+              {
+                status: "completed",
+                mode: "sync",
+                cache_updated: true,
+                ...diagnosticsIssueQueueFields(queue),
+                lastFullRunAtBySlug: data.lastFullRunAtBySlug ?? {},
+                cache_misses: cacheMisses,
+                summary: data.summary,
+                site_job_parallel: data.site_job_parallel === true,
+                message: "One-slug diagnostics completed synchronously. Do not poll get_diagnostics_job.",
+              },
+              { warnings: queueWarnings, next_actions },
+            );
           }
           return ok(
             {
@@ -4036,7 +4087,7 @@ export function registerPageTools(
     "Also fails when resolved meta.page_title / meta.description are empty, when editor.required fields " +
     "(e.g. blog title + description) are empty, or when a detached locale would go live empty (EMPTY_LOCALE: no sections and no content). " +
     "Confirm with the user before calling — this makes the page live. " +
-    "On success, next_actions requires run_entry_diagnostics (hard + slug) then poll get_diagnostics_job.",
+    "On success, next_actions requires run_entry_diagnostics (hard + one slug — sync completed in that call).",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
       slug: z.string().describe("Page slug"),
@@ -4156,7 +4207,7 @@ export function registerPageTools(
     "Fails when resolved meta.page_title / meta.description are empty, editor.required fields are empty, " +
     "or the promoted detached locale would be empty (EMPTY_LOCALE: no sections and no content). " +
     "This is a destructive operation — the previous live content will be replaced. Confirm with the user before calling. " +
-    "On success, next_actions requires run_entry_diagnostics (hard + slug) then poll get_diagnostics_job.",
+    "On success, next_actions requires run_entry_diagnostics (hard + one slug — sync completed in that call).",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
       slug: z.string().describe("Page slug"),
@@ -5101,7 +5152,7 @@ export function registerPageTools(
         next_actions.push({
           tool: "run_entry_diagnostics",
           priority: "recommended",
-          reason: "Hard-refresh diagnostics for the new live entry (async — then poll get_diagnostics_job)",
+          reason: "Hard-refresh diagnostics for the new live entry (one slug — sync completed in that call)",
           args_hint: { slugs: [slug], freshness: "hard", confirm: true, ...siteHint },
         });
       } else {
@@ -6457,7 +6508,7 @@ export function registerPageTools(
             },
             {
               tool: "run_entry_diagnostics",
-              reason: "Validate before going live (async — then poll get_diagnostics_job)",
+              reason: "Validate before going live (one slug — sync completed in that call)",
               args_hint: { slugs: [slug], freshness: "hard", confirm: true, ...(site ? { site } : {}) },
               priority: "recommended",
             },

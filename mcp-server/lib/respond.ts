@@ -139,7 +139,7 @@ export function diagnosticsAfterGoLiveNextAction(slug: string, site?: string): N
     tool: "run_entry_diagnostics",
     priority: "required",
     reason:
-      "Hard-refresh diagnostics for the live page (async — then poll get_diagnostics_job)",
+      "Hard-refresh diagnostics for the live page (one slug — sync completed in that call; do not poll get_diagnostics_job)",
     args_hint: { slugs: [slug], freshness: "hard", confirm: true, ...(site ? { site } : {}) },
   };
 }

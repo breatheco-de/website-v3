@@ -1450,14 +1450,14 @@ export class ContentIndex {
 
   /**
    * Re-read custom-redirects.yml from disk into redirectEntries.
-   * Never leaves the index in a misleading custom-only + ready state: if content
-   * redirects are missing or the slow phase is not ready, runs a full slow rebuild.
+   * Never leaves the index in a misleading custom-only + ready state: if the slow
+   * phase is not ready yet, runs a full slow rebuild. Once ready, always uses the
+   * cheap custom-only path (even when there are zero content redirects).
    */
   refreshCustomRedirects(): RedirectEntry[] {
     this.ensureInitialized();
 
-    const hasContentRedirects = this.redirectEntries.some((e) => e.type !== "custom");
-    if (!this.slowPhaseReady || !hasContentRedirects) {
+    if (!this.slowPhaseReady) {
       this.cancelPendingSlowScan();
       this.slowScanRunning = true;
       try {
@@ -1479,6 +1479,137 @@ export class ContentIndex {
       this.clearLiveRedirectCache();
     }
     return [...this.redirectEntries];
+  }
+
+  /**
+   * After a redirect YAML write: update redirectEntries without a full sync scan.
+   * Full `scan()` blocks the event loop for seconds on large sites (proxy 502s).
+   *
+   * - `custom-redirects.yml` → cheap re-read of that file
+   * - page `meta.redirects` → re-extract redirects from that one source file
+   * - unknown / not-ready → non-blocking background slow scan
+   */
+  refreshAfterRedirectWrite(writtenPath?: string): void {
+    this.ensureInitialized();
+    const source = this.normalizeWrittenRedirectPath(writtenPath);
+    if (!source || /(?:^|\/)custom-redirects\.ya?ml$/i.test(source)) {
+      this.refreshCustomRedirects();
+      return;
+    }
+    if (!this.refreshRedirectsFromContentSource(source)) {
+      this.startSlowScanAsync(0);
+    }
+  }
+
+  private normalizeWrittenRedirectPath(writtenPath?: string): string | null {
+    if (!writtenPath?.trim()) return null;
+    let rel = writtenPath.trim().replace(/\\/g, "/");
+    if (path.isAbsolute(rel)) {
+      rel = path.relative(process.cwd(), rel).replace(/\\/g, "/");
+    }
+    if (
+      this.contentRootName &&
+      !rel.startsWith(`${this.contentRootName}/`) &&
+      rel !== this.contentRootName
+    ) {
+      const prefixed = `${this.contentRootName}/${rel}`.replace(/\/{2,}/g, "/");
+      if (
+        fs.existsSync(path.join(process.cwd(), prefixed)) ||
+        !fs.existsSync(path.join(process.cwd(), rel))
+      ) {
+        rel = prefixed;
+      }
+    }
+    return rel;
+  }
+
+  /**
+   * Replace redirectEntries contributed by one content YAML source.
+   * Returns false when a safe targeted update is not possible.
+   */
+  private refreshRedirectsFromContentSource(sourceRel: string): boolean {
+    if (!this.slowPhaseReady) return false;
+
+    const absPath = path.join(process.cwd(), sourceRel);
+    const dir = path.dirname(sourceRel).replace(/\\/g, "/");
+    const entry = this.byPath.get(dir);
+
+    if (!fs.existsSync(absPath)) {
+      const next = this.redirectEntries.filter((e) => e.source !== sourceRel);
+      const changed = !redirectEntriesEqual(this.redirectEntries, next);
+      this.redirectEntries = next;
+      if (changed) this.clearLiveRedirectCache();
+      return true;
+    }
+
+    if (!entry || !this.contentTypeHasRedirects(entry.contentType)) return false;
+
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      parsed = this.safeYamlLoad(fs.readFileSync(absPath, "utf-8"));
+    } catch {
+      return false;
+    }
+
+    const fileName = path.basename(sourceRel);
+    const baseName = fileName.replace(/\.(yml|yaml)$/i, "");
+    const next: RedirectEntry[] = this.redirectEntries.filter((e) => e.source !== sourceRel);
+
+    if (parsed) {
+      const isLiveLocale = /^[a-z]{2}(-[a-z]{2})?$/i.test(baseName);
+      const variantLocaleMatch = !isLiveLocale
+        ? baseName.match(/(?:^|\.)([a-z]{2}(?:-[a-z]{2})?)$/i)
+        : null;
+      const isVariantLayer =
+        !isLiveLocale &&
+        (Boolean(variantLocaleMatch) ||
+          /^(?:template|single)\.[a-z0-9-]+\./i.test(baseName) ||
+          /^[a-z0-9-]+\.[a-z]{2}/i.test(baseName));
+
+      if (isVariantLayer && variantLocaleMatch) {
+        const liveLocale = variantLocaleMatch[1]!;
+        const hasLive =
+          entry.files.some(
+            (f) =>
+              f === `${liveLocale}.yml` ||
+              f === `${liveLocale}.yaml` ||
+              f === `template.${liveLocale}.yml` ||
+              f === `template.${liveLocale}.yaml` ||
+              f === `single.${liveLocale}.yml` ||
+              f === `single.${liveLocale}.yaml`,
+          ) || entry.locales.includes(liveLocale);
+        if (!hasLive) {
+          const localeSlugForRedirect =
+            parsed.slug && typeof parsed.slug === "string" ? parsed.slug : entry.slug;
+          this.extractRedirects(
+            parsed,
+            entry.slug,
+            liveLocale,
+            entry.contentType,
+            sourceRel,
+            localeSlugForRedirect,
+            next,
+          );
+        }
+      } else if (isLiveLocale || baseName === "_common") {
+        const localeSlugForRedirect =
+          parsed.slug && typeof parsed.slug === "string" ? parsed.slug : entry.slug;
+        this.extractRedirects(
+          parsed,
+          entry.slug,
+          baseName,
+          entry.contentType,
+          sourceRel,
+          localeSlugForRedirect,
+          next,
+        );
+      }
+    }
+
+    const changed = !redirectEntriesEqual(this.redirectEntries, next);
+    this.redirectEntries = next;
+    if (changed) this.clearLiveRedirectCache();
+    return true;
   }
 
   getAllValidUrls(): Set<string> {

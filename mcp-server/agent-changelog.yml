@@ -5,6 +5,18 @@
 window_days: 6
 
 entries:
+  - date: "2026-09-03"
+    summary: "One-slug run_entry_diagnostics is sync (completed in one call)"
+    agent_impact:
+      - "Exactly one slug + hard/stale → status completed (mode sync) with issues[] in the same call. Do not poll get_diagnostics_job for that path."
+      - "May run while a site-wide async job is in flight (warning diagnostics_site_job_parallel). One page sync at a time per agent (diagnostics_sync_busy → retry run_entry_diagnostics)."
+      - "2+ slugs or unscoped still async — poll get_diagnostics_job. Reconnect MCP so tools/list picks up the updated description."
+    paths:
+      - server/services/diagnosticsJobService.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/content_system.md
+      - mcp-server/README.md
+    tools_changed: true
   - date: "2026-09-02"
     summary: "Hiring rate via global.global_job_placement_rate (region-aware)"
     agent_impact:

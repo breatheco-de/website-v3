@@ -281,7 +281,8 @@ function getValidationCache(res: Response) {
 }
 
 function afterRedirectWrite(res: Response, filePath?: string): void {
-  getCI(res).scan();
+  // Cheap redirect-index update — never call sync scan() here (blocks event loop → 502).
+  getCI(res).refreshAfterRedirectWrite(filePath);
   clearRedirectCache();
   scheduleRedirectsValidation({
     contentRoot: getContentRoot(res),
@@ -1210,7 +1211,7 @@ export function registerAdminRoutes(app: Express): void {
       fs.writeFileSync(customFilePath, content, "utf-8");
       markFileAsModified(customFilePath, authorName, undefined, getContentRoot(res));
 
-      getCI(res).scan();
+      getCI(res).refreshAfterRedirectWrite(relativePath);
       clearRedirectCache();
 
       res.json({ success: true, path: relativePath });
@@ -1773,7 +1774,9 @@ export function registerAdminRoutes(app: Express): void {
       fs.writeFileSync(customFilePath, yamlContent, "utf-8");
       markFileAsModified(customFilePath, authorName, undefined, getContentRoot(res));
 
-      getCI(res).scan();
+      getCI(res).refreshAfterRedirectWrite(
+        `${getContentRootName(res)}/custom-redirects.yml`,
+      );
       clearRedirectCache();
 
       res.json({
@@ -1945,8 +1948,10 @@ export function registerAdminRoutes(app: Express): void {
       fs.writeFileSync(customFilePath, yamlContent, "utf-8");
       markFileAsModified(customFilePath, authorName, undefined, getContentRoot(res));
 
-      // Keep live middleware + debug tester in sync with disk
-      getCI(res).scan();
+      // Keep live middleware + debug tester in sync with disk (cheap custom re-read)
+      getCI(res).refreshAfterRedirectWrite(
+        `${getContentRootName(res)}/custom-redirects.yml`,
+      );
       clearRedirectCache();
 
       res.json({
@@ -2016,7 +2021,9 @@ export function registerAdminRoutes(app: Express): void {
       fs.writeFileSync(customFilePath, yamlContent, "utf-8");
       markFileAsModified(customFilePath, authorName, undefined, getContentRoot(res));
 
-      getCI(res).scan();
+      getCI(res).refreshAfterRedirectWrite(
+        `${getContentRootName(res)}/custom-redirects.yml`,
+      );
       clearRedirectCache();
 
       res.json({
@@ -2029,12 +2036,14 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  // Clear redirect cache (for debug tools) — also rescan so disk and tester agree
+  // Clear redirect cache (for debug tools) — cheap custom refresh + async slow rescan
   app.post("/api/debug/clear-redirect-cache", async (req, res) => {
     const auth = await requireCapability(req, res, "edit_redirects");
     if (!auth.authorized) return;
     try {
-      getCI(res).scan();
+      const ci = getCI(res);
+      ci.refreshCustomRedirects();
+      ci.startSlowScanAsync(0);
     } catch (err) {
       log.warn({ err }, "[Debug] ContentIndex rescan failed during clear-redirect-cache");
     }
