@@ -80,6 +80,94 @@ describe("mergeSeoUpdates pillar_path null", () => {
     expect(fromEmpty.pillar_path).toBe("");
   });
 });
+
+describe("keyword research metrics", () => {
+  it("coerces integers and dumps YAML numbers", () => {
+    const next = surgicalReplaceSeoBlock("title: x\n", {
+      main_keyword: "ai bootcamp",
+      kw_monthly_volume: 1200,
+      kw_difficulty: 42,
+    });
+    expect(next).toMatch(/kw_monthly_volume: 1200/);
+    expect(next).toMatch(/kw_difficulty: 42/);
+    expect(next).not.toMatch(/kw_monthly_volume: ["']1200["']/);
+  });
+
+  it("clears omitted metrics when any research key is written", () => {
+    const current = {
+      main_keyword: "old",
+      kw_monthly_volume: 900,
+      kw_difficulty: 55,
+      pillar_path: "/en/hub",
+    };
+    const cleared = mergeSeoUpdates(current, { main_keyword: "new keyword" });
+    expect(cleared.main_keyword).toBe("new keyword");
+    expect(cleared.kw_monthly_volume).toBeNull();
+    expect(cleared.kw_difficulty).toBeNull();
+    expect(cleared.pillar_path).toBe("/en/hub");
+
+    const partial = mergeSeoUpdates(current, {
+      main_keyword: "new keyword",
+      kw_monthly_volume: 100,
+    });
+    expect(partial.kw_monthly_volume).toBe(100);
+    expect(partial.kw_difficulty).toBeNull();
+  });
+
+  it("does not clear metrics on pillar-only updates", () => {
+    const current = {
+      main_keyword: "keep",
+      kw_monthly_volume: 900,
+      kw_difficulty: 55,
+    };
+    const next = mergeSeoUpdates(current, { pillar_path: null, is_pillar: false });
+    expect(next.kw_monthly_volume).toBe(900);
+    expect(next.kw_difficulty).toBe(55);
+    expect(next.pillar_path).toBeNull();
+  });
+
+  it("rejects out-of-range difficulty and non-integers", () => {
+    const badRange = validateSeoSave({
+      next: { kw_difficulty: 101 },
+      locale: "en",
+      contentType: "blog",
+      slug: "learn-js",
+      ci: stubCi(),
+    });
+    expect(badRange.ok).toBe(false);
+    if (!badRange.ok) expect(badRange.code).toBe("seo_kw_difficulty_range");
+
+    const badType = validateSeoSave({
+      next: { kw_monthly_volume: 12.5 },
+      locale: "en",
+      contentType: "blog",
+      slug: "learn-js",
+      ci: stubCi(),
+    });
+    expect(badType.ok).toBe(false);
+    if (!badType.ok) expect(badType.code).toBe("seo_kw_monthly_volume_invalid");
+  });
+
+  it("accepts valid research metrics", () => {
+    const result = validateSeoSave({
+      next: {
+        main_keyword: "js",
+        kw_monthly_volume: 0,
+        kw_difficulty: 100,
+      },
+      locale: "en",
+      contentType: "blog",
+      slug: "learn-js",
+      ci: stubCi(),
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.coerced.kw_monthly_volume).toBe(0);
+      expect(result.coerced.kw_difficulty).toBe(100);
+    }
+  });
+});
+
 describe("validateSeoSave", () => {
   it("rejects seo on _common.yml", () => {
     const result = validateSeoSave({

@@ -1000,6 +1000,18 @@ export function registerSeoRoutes(app: Express): void {
         description,
         path: row?.path || "",
         main_keyword: row?.main_keyword || yamlKeyword,
+        kw_monthly_volume:
+          typeof row?.kw_monthly_volume === "number"
+            ? row.kw_monthly_volume
+            : typeof seo.kw_monthly_volume === "number"
+              ? seo.kw_monthly_volume
+              : null,
+        kw_difficulty:
+          typeof row?.kw_difficulty === "number"
+            ? row.kw_difficulty
+            : typeof seo.kw_difficulty === "number"
+              ? seo.kw_difficulty
+              : null,
         is_pillar: row?.is_pillar === true || seo.is_pillar === true,
         pillar_path:
           (typeof row?.pillar_path === "string" && row.pillar_path) ||

@@ -240,6 +240,8 @@ export interface ContentSeo {
   pillar_path?: string | null;
   is_pillar?: boolean;
   main_keyword?: string | null;
+  kw_monthly_volume?: number | null;
+  kw_difficulty?: number | null;
   focus_features?: string[];
 }
 

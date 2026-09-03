@@ -14,6 +14,8 @@ function row(partial: Partial<SeoIndexEntry> & { slug: string }): SeoIndexEntry 
     file: "blog/x/en.yml",
     path: "/en/blog/x",
     main_keyword: null,
+    kw_monthly_volume: null,
+    kw_difficulty: null,
     is_pillar: false,
     pillar_path: null,
     pillar_live: null,

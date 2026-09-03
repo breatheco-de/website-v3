@@ -259,6 +259,8 @@ type ClusterEntryInfo = {
   slug: string;
   locale: string;
   main_keyword: string | null;
+  kw_monthly_volume: number | null;
+  kw_difficulty: number | null;
   is_pillar: boolean;
   pillar_path: string | null;
   file: string | null;
@@ -335,6 +337,10 @@ const SEO_CLUSTER_ISSUE_HELP: Record<string, { title: string; body: string }> = 
     title: "Partially set cluster",
     body: "This page has a main keyword but no pillar_path. Link it to a hub or opt out.",
   },
+  SEO_KEYWORD_RESEARCH_INCOMPLETE: {
+    title: "Incomplete keyword research",
+    body: "This page has a main keyword but is missing monthly search volume and/or keyword difficulty estimates. Add both planning numbers (not live traffic).",
+  },
 };
 
 type StatHelp = { title: string; body: string };
@@ -376,6 +382,8 @@ type ClusterBucketEntryRow = {
   locale: string;
   path: string;
   main_keyword: string | null;
+  kw_monthly_volume: number | null;
+  kw_difficulty: number | null;
   file: string;
   reason?: "hub_not_found" | "hub_not_pillar";
   pillar_path?: string | null;
@@ -704,6 +712,19 @@ function ClusterHealthPanel({
                       {row.main_keyword ? (
                         <p className="text-[11px] text-muted-foreground">
                           Keyword: {row.main_keyword}
+                          {typeof row.kw_monthly_volume === "number" ||
+                          typeof row.kw_difficulty === "number" ? (
+                            <span className="text-muted-foreground/80">
+                              {" "}
+                              · vol{" "}
+                              {typeof row.kw_monthly_volume === "number"
+                                ? row.kw_monthly_volume.toLocaleString()
+                                : "—"}
+                              {" / "}
+                              KD{" "}
+                              {typeof row.kw_difficulty === "number" ? row.kw_difficulty : "—"}
+                            </span>
+                          ) : null}
                         </p>
                       ) : null}
                       {row.reason ? (
@@ -1554,6 +1575,18 @@ function ClusterMemberRow({
                     <dd className="text-foreground truncate">{data?.main_keyword || member.keyword}</dd>
                   </>
                 )}
+                {typeof data?.kw_monthly_volume === "number" ? (
+                  <>
+                    <dt className="text-muted-foreground">Monthly volume</dt>
+                    <dd className="text-foreground">{data.kw_monthly_volume.toLocaleString()}</dd>
+                  </>
+                ) : null}
+                {typeof data?.kw_difficulty === "number" ? (
+                  <>
+                    <dt className="text-muted-foreground">Difficulty</dt>
+                    <dd className="text-foreground">{data.kw_difficulty}</dd>
+                  </>
+                ) : null}
                 {href ? (
                   <>
                     <dt className="text-muted-foreground">Path</dt>

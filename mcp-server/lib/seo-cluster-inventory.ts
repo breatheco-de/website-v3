@@ -45,6 +45,8 @@ function memberFromId(
   locale: string;
   path: string;
   main_keyword: string | null;
+  kw_monthly_volume: number | null;
+  kw_difficulty: number | null;
   is_pillar: boolean;
   sibling_locales: string[];
 } {
@@ -57,6 +59,8 @@ function memberFromId(
       locale: row.locale,
       path: row.path || "",
       main_keyword: row.main_keyword ?? null,
+      kw_monthly_volume: typeof row.kw_monthly_volume === "number" ? row.kw_monthly_volume : null,
+      kw_difficulty: typeof row.kw_difficulty === "number" ? row.kw_difficulty : null,
       is_pillar: row.is_pillar === true,
       sibling_locales: siblingLocales(index, row.content_type, row.slug, row.locale),
     };
@@ -72,6 +76,8 @@ function memberFromId(
     locale,
     path: "",
     main_keyword: null,
+    kw_monthly_volume: null,
+    kw_difficulty: null,
     is_pillar: false,
     sibling_locales: siblingLocales(index, contentType, slug, locale),
   };

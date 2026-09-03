@@ -80,7 +80,26 @@ type ContentTypeConfig = {
   editor?: Record<string, EditorHint>;
   field_mapping?: Record<string, string | { source: string; default: string }>;
   database?: { slug?: string } | null;
+  seo_monitoring?: { enabled?: boolean; require_cluster?: boolean } | null;
 };
+
+function metricFromProvenance(row: FieldProvenance | undefined): string {
+  if (row?.effective == null || row.effective === "") return "";
+  if (typeof row.effective === "number" && Number.isFinite(row.effective)) {
+    return String(row.effective);
+  }
+  if (typeof row.effective === "string" && /^-?\d+$/.test(row.effective.trim())) {
+    return row.effective.trim();
+  }
+  return "";
+}
+
+function parseMetricInput(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (!/^-?\d+$/.test(trimmed)) return null;
+  return Number(trimmed);
+}
 
 function isSystemSpecialField(field: string): boolean {
   return field.startsWith("_");
@@ -317,6 +336,7 @@ function SeoFieldsEditor({
   directory,
   slug,
   contentType,
+  seoMonitoringEnabled,
   onSave,
   onResetField,
   portalContainer,
@@ -330,6 +350,7 @@ function SeoFieldsEditor({
   directory: string;
   slug: string;
   contentType: string;
+  seoMonitoringEnabled: boolean;
   onSave: (fields: Record<string, unknown>) => Promise<void>;
   onResetField?: (fieldPath: string) => Promise<void>;
   portalContainer?: HTMLElement | null;
@@ -341,12 +362,16 @@ function SeoFieldsEditor({
   const [chooserOpen, setChooserOpen] = useState(false);
   const [seoFieldsEditing, setSeoFieldsEditing] = useState(false);
   const kwRow = rows.find((r) => r.field === "seo.main_keyword");
+  const volumeRow = rows.find((r) => r.field === "seo.kw_monthly_volume");
+  const difficultyRow = rows.find((r) => r.field === "seo.kw_difficulty");
   const pillarRow = rows.find((r) => r.field === "seo.pillar_path");
   const hubRow = rows.find((r) => r.field === "seo.is_pillar");
   const [clusterSeoOn, setClusterSeoOn] = useState(() => !isPillarPathOptedOut(pillarRow));
   const [mainKeyword, setMainKeyword] = useState(
     kwRow?.effective == null ? "" : String(kwRow.effective),
   );
+  const [kwMonthlyVolume, setKwMonthlyVolume] = useState(() => metricFromProvenance(volumeRow));
+  const [kwDifficulty, setKwDifficulty] = useState(() => metricFromProvenance(difficultyRow));
   const [pillarPath, setPillarPath] = useState(
     typeof pillarRow?.effective === "string" ? pillarRow.effective : "",
   );
@@ -356,15 +381,30 @@ function SeoFieldsEditor({
     if (seoFieldsEditing) return;
     setClusterSeoOn(!isPillarPathOptedOut(pillarRow));
     setMainKeyword(kwRow?.effective == null ? "" : String(kwRow.effective));
+    setKwMonthlyVolume(metricFromProvenance(volumeRow));
+    setKwDifficulty(metricFromProvenance(difficultyRow));
     setPillarPath(typeof pillarRow?.effective === "string" ? pillarRow.effective : "");
     setIsPillar(hubRow?.effective === true || hubRow?.effective === "true");
   }, [
     seoFieldsEditing,
     kwRow?.effective,
+    volumeRow?.effective,
+    difficultyRow?.effective,
     pillarRow?.effective,
     pillarRow?.layer_has_key,
     hubRow?.effective,
   ]);
+
+  const researchFieldsPayload = () => ({
+    "seo.main_keyword": mainKeyword,
+    "seo.kw_monthly_volume": parseMetricInput(kwMonthlyVolume),
+    "seo.kw_difficulty": parseMetricInput(kwDifficulty),
+  });
+
+  const researchIncomplete =
+    seoMonitoringEnabled &&
+    mainKeyword.trim() !== "" &&
+    (parseMetricInput(kwMonthlyVolume) === null || parseMetricInput(kwDifficulty) === null);
 
   const { data: overview } = useQuery<SeoOverviewClusters>({
     queryKey: ["/api/seo/overview"],
@@ -415,7 +455,7 @@ function SeoFieldsEditor({
         setSeoFieldsEditing(false);
       } else {
         await onSave({
-          "seo.main_keyword": mainKeyword,
+          ...researchFieldsPayload(),
           "seo.pillar_path": typeof pillarPath === "string" ? pillarPath : "",
           "seo.is_pillar": isPillar,
         });
@@ -494,6 +534,33 @@ function SeoFieldsEditor({
                 </dd>
               </div>
               <div>
+                <dt className="text-xs text-muted-foreground">Monthly search volume</dt>
+                <dd className="text-sm text-foreground" data-testid="text-seo-kw-monthly-volume-preview">
+                  {kwMonthlyVolume.trim() ? (
+                    Number(kwMonthlyVolume).toLocaleString()
+                  ) : (
+                    <span className="italic text-muted-foreground font-normal">Not set</span>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Keyword difficulty (0–100)</dt>
+                <dd className="text-sm text-foreground" data-testid="text-seo-kw-difficulty-preview">
+                  {kwDifficulty.trim() || (
+                    <span className="italic text-muted-foreground font-normal">Not set</span>
+                  )}
+                </dd>
+              </div>
+              {researchIncomplete ? (
+                <p
+                  className="text-xs text-amber-700 dark:text-amber-300 flex items-start gap-1.5"
+                  data-testid="hint-seo-research-incomplete-preview"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  Monitoring is on and this keyword is missing monthly volume or difficulty estimates.
+                </p>
+              ) : null}
+              <div>
                 <dt className="text-xs text-muted-foreground flex items-center gap-2">
                   Is pillar
                   {seoSourceBadge(hubRow) && (
@@ -532,7 +599,9 @@ function SeoFieldsEditor({
           <span className="font-medium text-foreground">Include in SEO clustering</span> saves
           immediately. Off excludes this page from cluster monitoring (writes{" "}
           <code className="font-mono text-xs">pillar_path: null</code>) even when the content type has SEO
-          monitoring on. When on, set keyword and hub below, then save.
+          monitoring on. When on, set keyword and hub below, then save. Monthly volume and difficulty are
+          planning estimates for the main keyword — not live traffic. Leaving either blank on save clears
+          that estimate.
         </p>
         <button
           type="button"
@@ -551,10 +620,13 @@ function SeoFieldsEditor({
                 {directory}/{slug}/{layerFileName || `${locale}.yml`}
               </code>
               . Opt-out persists as <code className="font-mono">seo.pillar_path: null</code> (empty string is a
-              cluster gap, not opt-out). DB baselines via <code className="font-mono">field_mapping</code>{" "}
+              cluster gap, not opt-out). Research keys:{" "}
+              <code className="font-mono">seo.kw_monthly_volume</code> (integer ≥ 0) and{" "}
+              <code className="font-mono">seo.kw_difficulty</code> (0–100) — not GSC, not template tokens. DB
+              baselines via <code className="font-mono">field_mapping</code>{" "}
               <code className="font-mono">seo_main_keyword</code> /{" "}
               <code className="font-mono">seo_is_pillar</code> /{" "}
-              <code className="font-mono">seo_pillar_path</code> (
+              <code className="font-mono">seo_pillar_path</code> only (
               <code className="font-mono">server/seo-effective-seo.ts</code>). Index:{" "}
               <code className="font-mono">{"{contentRoot}/seo-index.json"}</code>. Rejected on{" "}
               <code className="font-mono">_common.yml</code>.
@@ -634,6 +706,105 @@ function SeoFieldsEditor({
               data-testid="input-seo-main-keyword"
             />
           </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="seo-kw-monthly-volume" className="text-xs text-foreground">
+                  Monthly search volume
+                </Label>
+                {onResetField && volumeRow?.layer_has_key && !disabled && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    title="Reset locale estimate"
+                    disabled={!!resettingField || saving}
+                    data-testid="button-reset-seo-kw_monthly_volume"
+                    onClick={() => {
+                      setResettingField("seo.kw_monthly_volume");
+                      void onResetField("seo.kw_monthly_volume")
+                        .then(() => setKwMonthlyVolume(""))
+                        .finally(() => setResettingField(null));
+                    }}
+                  >
+                    {resettingField === "seo.kw_monthly_volume" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                )}
+              </div>
+              <Input
+                id="seo-kw-monthly-volume"
+                type="number"
+                min={0}
+                step={1}
+                inputMode="numeric"
+                className="bg-background"
+                value={kwMonthlyVolume}
+                disabled={disabled || saving}
+                onChange={(e) => setKwMonthlyVolume(e.target.value)}
+                placeholder="e.g. 1200"
+                data-testid="input-seo-kw-monthly-volume"
+              />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="seo-kw-difficulty" className="text-xs text-foreground">
+                  Keyword difficulty (0–100)
+                </Label>
+                {onResetField && difficultyRow?.layer_has_key && !disabled && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    title="Reset locale estimate"
+                    disabled={!!resettingField || saving}
+                    data-testid="button-reset-seo-kw_difficulty"
+                    onClick={() => {
+                      setResettingField("seo.kw_difficulty");
+                      void onResetField("seo.kw_difficulty")
+                        .then(() => setKwDifficulty(""))
+                        .finally(() => setResettingField(null));
+                    }}
+                  >
+                    {resettingField === "seo.kw_difficulty" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                )}
+              </div>
+              <Input
+                id="seo-kw-difficulty"
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                inputMode="numeric"
+                className="bg-background"
+                value={kwDifficulty}
+                disabled={disabled || saving}
+                onChange={(e) => setKwDifficulty(e.target.value)}
+                placeholder="e.g. 42"
+                data-testid="input-seo-kw-difficulty"
+              />
+            </div>
+          </div>
+          {researchIncomplete ? (
+            <p
+              className="text-xs text-amber-700 dark:text-amber-300 flex items-start gap-1.5"
+              data-testid="hint-seo-research-incomplete"
+            >
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              Monitoring is on — add both monthly volume and difficulty for this keyword (or clear the
+              keyword). Blank fields clear the saved estimate on save.
+            </p>
+          ) : null}
           <div className="flex items-center gap-2">
             <Checkbox
               id="seo-is-pillar"
@@ -832,7 +1003,7 @@ function SeoFieldsEditor({
                 setSaving(true);
                 try {
                   await onSave({
-                    "seo.main_keyword": mainKeyword,
+                    ...researchFieldsPayload(),
                     "seo.pillar_path": pillarPath,
                     "seo.is_pillar": isPillar,
                   });
@@ -1037,6 +1208,7 @@ export function EntrySeoClusterFields({
         directory={directory}
         slug={slug}
         contentType={contentType}
+        seoMonitoringEnabled={ctConfig?.seo_monitoring?.enabled === true}
         onSave={saveSeoFields}
         onResetField={async (fieldPath) => {
           try {

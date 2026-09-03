@@ -30,6 +30,10 @@ function commonYmlPath(filePath: string): string {
   return path.join(path.dirname(filePath), "_common.yml");
 }
 
+function researchMetricPresent(value: unknown): boolean {
+  return typeof value === "number" && Number.isInteger(value);
+}
+
 export const seoClusterValidator: Validator = {
   name: "seo-cluster",
   description:
@@ -128,6 +132,24 @@ export const seoClusterValidator: Validator = {
           });
         }
         continue;
+      }
+
+      const keyword =
+        typeof seo.main_keyword === "string" && seo.main_keyword.trim()
+          ? seo.main_keyword.trim()
+          : "";
+      if (
+        keyword &&
+        (!researchMetricPresent(seo.kw_monthly_volume) || !researchMetricPresent(seo.kw_difficulty))
+      ) {
+        warnings.push({
+          type: "warning",
+          code: "SEO_KEYWORD_RESEARCH_INCOMPLETE",
+          message: `${file.type} page "${file.slug}" (${file.locale}) has seo.main_keyword but incomplete keyword research (need seo.kw_monthly_volume and seo.kw_difficulty)`,
+          file: file.filePath,
+          suggestion:
+            "Set integer seo.kw_monthly_volume (≥ 0) and seo.kw_difficulty (0–100) for the main keyword, or clear the keyword",
+        });
       }
 
       if (seo.is_pillar === true) {

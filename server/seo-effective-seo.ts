@@ -78,7 +78,13 @@ export function seoBaselineFromDbItem(
 
 function mergeSeoBlocks(base: SeoBlock, overlay: SeoBlock): SeoBlock {
   const out: SeoBlock = { ...base };
-  for (const key of ["main_keyword", "pillar_path", "is_pillar"] as const) {
+  for (const key of [
+    "main_keyword",
+    "kw_monthly_volume",
+    "kw_difficulty",
+    "pillar_path",
+    "is_pillar",
+  ] as const) {
     if (!Object.prototype.hasOwnProperty.call(overlay, key)) continue;
     const val = overlay[key];
     if (val === undefined) continue;
@@ -88,6 +94,10 @@ function mergeSeoBlocks(base: SeoBlock, overlay: SeoBlock): SeoBlock {
     }
     if (key === "pillar_path") {
       out.pillar_path = val === null ? null : typeof val === "string" ? val : null;
+      continue;
+    }
+    if (key === "kw_monthly_volume" || key === "kw_difficulty") {
+      out[key] = typeof val === "number" && Number.isInteger(val) ? val : val === null ? null : out[key];
       continue;
     }
     out.main_keyword = val === null ? null : typeof val === "string" ? val : null;

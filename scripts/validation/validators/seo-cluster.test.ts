@@ -160,6 +160,41 @@ describe("seoClusterValidator", () => {
       ),
     );
     expect(result.warnings.some((w) => w.code === "PARTIALLY_SET_CLUSTER")).toBe(true);
+    expect(result.warnings.some((w) => w.code === "SEO_KEYWORD_RESEARCH_INCOMPLETE")).toBe(true);
+  });
+
+  it("warns SEO_KEYWORD_RESEARCH_INCOMPLETE when keyword set without both metrics", async () => {
+    writeFixture(monitoredTypes, { version: 1, entries: {}, by_path: {}, clusters: {}, orphans: [], warnings: [] });
+    resetRegistry(contentRoot);
+
+    const incomplete = await seoClusterValidator.run(
+      context(
+        baseFile({
+          filePath: path.join(contentRootAbs(), "blog/spoke/en.yml"),
+          seo: {
+            main_keyword: "learn python",
+            kw_monthly_volume: 800,
+            pillar_path: null,
+          },
+        }),
+      ),
+    );
+    expect(incomplete.warnings.some((w) => w.code === "SEO_KEYWORD_RESEARCH_INCOMPLETE")).toBe(true);
+
+    const complete = await seoClusterValidator.run(
+      context(
+        baseFile({
+          filePath: path.join(contentRootAbs(), "blog/spoke/en.yml"),
+          seo: {
+            main_keyword: "learn python",
+            kw_monthly_volume: 800,
+            kw_difficulty: 40,
+            pillar_path: null,
+          },
+        }),
+      ),
+    );
+    expect(complete.warnings.some((w) => w.code === "SEO_KEYWORD_RESEARCH_INCOMPLETE")).toBe(false);
   });
 
   it("reports INVALID_PILLAR when hub URL is not live", async () => {

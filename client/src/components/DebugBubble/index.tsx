@@ -2275,7 +2275,7 @@ export function DebugBubble() {
       )}
       <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
-          <div className="relative">
+          <div className="relative group/debug-bubble">
             <Button
               size="icon"
               variant="default"
@@ -2287,7 +2287,7 @@ export function DebugBubble() {
             {!open && (
               <button
                 type="button"
-                className="absolute -top-1.5 -right-1.5 z-20 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow hover:text-foreground hover:bg-muted transition-colors"
+                className="absolute -top-1.5 -right-1.5 z-20 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow hover:text-foreground hover:bg-muted transition-all opacity-0 pointer-events-none group-hover/debug-bubble:opacity-100 group-hover/debug-bubble:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto"
                 title="Hide staff tools"
                 aria-label="Hide staff tools"
                 data-testid="button-debug-dismiss"

@@ -1,10 +1,14 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetRegistry } from "./content-types";
 import { invalidateSeoIndexCache, loadSeoIndex, resetSeoOverlayField, writeSeoFields } from "./seo-index";
 import type { ContentIndex } from "./content-index";
+
+vi.mock("./events/emit-entry-events", () => ({
+  emitEntrySeoChanged: vi.fn(),
+}));
 
 const ORIGINAL_CWD = process.cwd();
 let tempDir: string;
@@ -77,6 +81,31 @@ describe("writeSeoFields", () => {
     expect(text).toContain("  # Keep me");
     expect(text).toContain("markdown body");
     expect(text).toContain("main_keyword: learn javascript");
+  });
+
+  it("mirrors kw_monthly_volume and kw_difficulty on the live index row", () => {
+    const result = writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: {
+        main_keyword: "learn javascript",
+        kw_monthly_volume: 1500,
+        kw_difficulty: 37,
+        pillar_path: "/en/blog/hub",
+      },
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    expect(result.success).toBe(true);
+    const text = fs.readFileSync(path.join(contentRoot, "blog", "post-a", "en.yml"), "utf-8");
+    expect(text).toMatch(/kw_monthly_volume: 1500/);
+    expect(text).toMatch(/kw_difficulty: 37/);
+    const index = loadSeoIndex(contentRoot);
+    const row = index.entries["blog/post-a/en"];
+    expect(row?.kw_monthly_volume).toBe(1500);
+    expect(row?.kw_difficulty).toBe(37);
+    expect(row?.main_keyword).toBe("learn javascript");
   });
 
   it("does not index variant files", () => {

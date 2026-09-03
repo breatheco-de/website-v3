@@ -6,6 +6,18 @@ window_days: 6
 
 entries:
   - date: "2026-09-02"
+    summary: "seo.kw_monthly_volume + seo.kw_difficulty research fields"
+    agent_impact:
+      - "update_fields / get_entry_seo / get_entry_fields now support seo.kw_monthly_volume (≥0) and seo.kw_difficulty (0–100) on locale seo: — planning estimates, not GSC."
+      - "Partial research writes (any of main_keyword|volume|difficulty without both metrics) force omitted metrics to null. Index row mirrors the numbers."
+      - "Reconnect MCP so tools/list picks up updated update_fields prose."
+    paths:
+      - server/content-types.ts
+      - server/seo-fields.ts
+      - server/seo-index.ts
+      - mcp-server/tools/pages.ts
+    tools_changed: true
+  - date: "2026-09-02"
     summary: "platform_steward can update_content_type and reindex_database"
     agent_impact:
       - "/mcp/role/platform_steward now includes content_types_manage and databases_manage, so update_content_type and reindex_database appear in tools/list (plus local database CRUD)."

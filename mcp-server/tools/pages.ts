@@ -1360,7 +1360,7 @@ export function registerPageTools(
   mcp.tool(
     "get_entry_seo",
     "Get the SEO/meta block plus structured-data preview for a page, with the identifying envelope (contentType, slug, locale, locales, urls). " +
-    "Returns meta, seo (locale seo.main_keyword / pillar_path / is_pillar), include_in_clustering (derived: false only when seo.pillar_path is explicit null), " +
+    "Returns meta, seo (locale seo.main_keyword / kw_monthly_volume / kw_difficulty / pillar_path / is_pillar), include_in_clustering (derived: false only when seo.pillar_path is explicit null), " +
     "index (live seo-index.json topic-cluster inventory row — NOT search-engine indexing; omitted for variants), " +
     "optional search_engines when include_search_engines:true (cached Google Search Console + Bing stub; read-only, does not refresh cache or call live APIs), " +
     "validation_issues (open cached SEO-category issues), " +
@@ -2444,8 +2444,10 @@ export function registerPageTools(
     "updates length 1 = single-field edit. May mix meta.*, safe top-level body fields, and fields under ONE sections.N.* index. " +
     "Rejects two or more distinct section indexes (split into separate calls so bindings can propagate). " +
     "sections.N.* patches an existing slot only — missing index fails (reload, or edit template.{locale}.yml with layout_target type_template). Does not create overlay patches or grow sections[]. " +
-    "field_path routing: sections.* and safe top-level → locale; seo.main_keyword|seo.pillar_path|seo.is_pillar → locale seo: (never _common.yml, no meta_target); " +
+    "field_path routing: sections.* and safe top-level → locale; seo.main_keyword|seo.kw_monthly_volume|seo.kw_difficulty|seo.pillar_path|seo.is_pillar → locale seo: (never _common.yml, no meta_target); " +
     "seo.include_in_clustering (MCP-only boolean, never YAML) expands to pillar_path/is_pillar — requires content-type seo_monitoring.enabled; " +
+    "research writes: if any of main_keyword|kw_monthly_volume|kw_difficulty is in updates, omitted metrics are forced to null (pass both integers to keep them); " +
+    "kw_monthly_volume ≥ 0 integer; kw_difficulty 0–100 integer; planning estimates not GSC; " +
     "on=true needs non-empty seo.pillar_path or seo.is_pillar:true after merge; on=false → pillar_path:null + is_pillar:false; " +
     "raw seo.pillar_path:null still opts out (warns). meta.robots/priority/change_frequency → _common.yml; " +
     "other known meta.* → locale; unknown meta.* requires meta_target locale|common.\n\n" +
@@ -2466,7 +2468,7 @@ export function registerPageTools(
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       updates: z.array(z.object({
         field_path: z.string().describe(
-          "Dot path: sections.0.title, meta.description, seo.main_keyword, seo.include_in_clustering, title, …",
+          "Dot path: sections.0.title, meta.description, seo.main_keyword, seo.kw_monthly_volume, seo.kw_difficulty, seo.include_in_clustering, title, …",
         ),
         value: z.unknown().optional().describe("New value (required unless reset:true)"),
         reset: z.boolean().optional().describe(
@@ -2628,7 +2630,7 @@ export function registerPageTools(
         const p = u.field_path;
         if (p.startsWith("sections.") || p.startsWith("meta.") || isSeoPath(p) || safeTop.has(p)) continue;
         return fail(
-          `Disallowed field_path '${p}'. Must start with 'sections.', 'meta.', 'seo.main_keyword|seo.pillar_path|seo.is_pillar|seo.include_in_clustering', or be one of: ${[...safeTop].join(", ")}.`,
+          `Disallowed field_path '${p}'. Must start with 'sections.', 'meta.', 'seo.main_keyword|seo.kw_monthly_volume|seo.kw_difficulty|seo.pillar_path|seo.is_pillar|seo.include_in_clustering', or be one of: ${[...safeTop].join(", ")}.`,
         );
       }
       for (const u of updates) {
@@ -3110,6 +3112,31 @@ export function registerPageTools(
           message:
             "Does not change meta.redirects, in-body links, sitemap priority, GCS sync/, or auto-commit internals. Duplicate is_pillar flags are not stripped.",
         });
+        const researchTouched = updates.some((u) => {
+          const p = u.field_path;
+          return (
+            p === "seo.main_keyword" ||
+            p === "seo.kw_monthly_volume" ||
+            p === "seo.kw_difficulty"
+          );
+        });
+        if (researchTouched) {
+          const hasVol = updates.some((u) => u.field_path === "seo.kw_monthly_volume");
+          const hasDiff = updates.some((u) => u.field_path === "seo.kw_difficulty");
+          if (!hasVol || !hasDiff) {
+            warnings.push({
+              code: "seo_research_partial_clear",
+              message:
+                "Research write omitted kw_monthly_volume and/or kw_difficulty — omitted metrics were set to null. Pass both integers (or explicit null) with main_keyword when you intend to keep estimates. These are planning estimates, not GSC traffic.",
+            });
+          } else {
+            warnings.push({
+              code: "seo_research_not_gsc",
+              message:
+                "seo.kw_monthly_volume / seo.kw_difficulty are planning estimates for main_keyword (not live GSC clicks/impressions).",
+            });
+          }
+        }
         warnings.push({
           code: "seo_diagnostics_cache_may_lag",
           message:
@@ -3680,14 +3707,25 @@ export function registerPageTools(
               const name = typeof f.field === "string" ? f.field : typeof f.name === "string" ? f.name : null;
               if (!name) return f;
               if (typeof name === "string" && name.startsWith("seo.")) {
+                const researchHints =
+                  name === "seo.kw_monthly_volume" || name === "seo.kw_difficulty"
+                    ? [
+                        "Planning estimate for seo.main_keyword — not GSC clicks/impressions.",
+                        "Integer only (volume ≥ 0; difficulty 0–100). Empty/null clears the estimate.",
+                        "If any of main_keyword|kw_monthly_volume|kw_difficulty is in a write, omitted metrics are forced to null — pass both metrics to keep them.",
+                        "Not a documented template token ({{ seo.kw_* }} not supported as a product feature).",
+                      ]
+                    : [];
                 return {
                   ...f,
                   system_hints: [
+                    ...researchHints,
                     "Prefer seo.include_in_clustering (MCP-only boolean) to turn cluster monitoring on/off for this entry.",
                     "Off expands to seo.pillar_path: null + seo.is_pillar: false. On requires non-empty seo.pillar_path or seo.is_pillar: true after merge.",
                     "Locale YAML seo: for writes (writeSeoFields). Optional field_mapping seo_main_keyword|seo_pillar_path|seo_is_pillar = DB read baseline; YAML overlay wins. Reset removes YAML key only. Never dotted seo.* in field_mapping; never _common.yml; never writeMappedFields for seo.*.",
                     "Live write patches seo-index.json after disk with the same author. Variants are not indexed.",
                     "seo.is_pillar auto-fills this page's canonical path. Do not invent pillar_path. Empty pillar_path is a cluster gap; null is opt-out.",
+                    "seo.kw_monthly_volume / seo.kw_difficulty are research estimates mirrored on the index row.",
                   ],
                 };
               }

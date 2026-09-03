@@ -574,7 +574,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
     return {
       success: false,
       error:
-        "Unknown seo.* field. Known: seo.main_keyword, seo.pillar_path, seo.is_pillar. seo.* always writes the locale file (not _common.yml).",
+        "Unknown seo.* field. Known: seo.main_keyword, seo.kw_monthly_volume, seo.kw_difficulty, seo.pillar_path, seo.is_pillar. seo.* always writes the locale file (not _common.yml).",
     };
   }
   const seoUpdates = seoExtract.seoUpdates;

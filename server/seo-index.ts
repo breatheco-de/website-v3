@@ -65,6 +65,7 @@ import {
   mergeSeoUpdates,
   migrateMainKeywordInYamlText,
   normalizeSeoBlock,
+  parseSeoResearchMetric,
   readSeoBlockFromYamlText,
   seoFieldFromPath,
   surgicalReplaceSeoBlock,
@@ -146,6 +147,8 @@ export type SeoIndexEntry = {
   file: string;
   path: string;
   main_keyword: string | null;
+  kw_monthly_volume: number | null;
+  kw_difficulty: number | null;
   is_pillar: boolean;
   pillar_path: string | null;
   pillar_live: boolean | null;
@@ -319,6 +322,8 @@ function rowFromSeo(opts: {
   ci: ContentIndex;
 }): SeoIndexEntry {
   const selfPath = entryCanonicalPath(opts.contentType, opts.slug, opts.locale, opts.ci) || "";
+  const vol = parseSeoResearchMetric(opts.seo.kw_monthly_volume);
+  const diff = parseSeoResearchMetric(opts.seo.kw_difficulty);
   return {
     content_type: opts.contentType,
     slug: opts.slug,
@@ -326,6 +331,8 @@ function rowFromSeo(opts: {
     file: opts.file,
     path: selfPath,
     main_keyword: typeof opts.seo.main_keyword === "string" ? opts.seo.main_keyword : null,
+    kw_monthly_volume: vol.ok ? vol.value : null,
+    kw_difficulty: diff.ok ? diff.value : null,
     is_pillar: opts.seo.is_pillar === true,
     pillar_path:
       opts.seo.pillar_path === null

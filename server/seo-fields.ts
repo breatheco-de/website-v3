@@ -8,10 +8,13 @@ import {
   KNOWN_SEO_FIELDS,
   LEGACY_MAIN_SEO_KEYWORD_KEY,
   LEGACY_SEO_PILLAR_KEY,
+  SEO_RESEARCH_METRIC_FIELDS,
+  SEO_RESEARCH_WRITE_FIELDS,
   SEO_YAML_KEY,
   isKnownSeoFieldPath,
   seoFieldFromPath,
   type KnownSeoField,
+  type SeoResearchMetricField,
 } from "./content-types";
 import type { ContentIndex } from "./content-index";
 import { contentIndex } from "./content-index";
@@ -36,6 +39,10 @@ export type SeoIndexWarning = {
 
 export type SeoBlock = {
   main_keyword?: string | null;
+  /** Monthly search volume estimate for main_keyword (not GSC clicks). */
+  kw_monthly_volume?: number | null;
+  /** Keyword difficulty 0–100 for main_keyword. */
+  kw_difficulty?: number | null;
   pillar_path?: string | null;
   is_pillar?: boolean;
   intent?: string;
@@ -43,6 +50,91 @@ export type SeoBlock = {
   pillar?: string;
   [key: string]: unknown;
 };
+
+const RESEARCH_METRIC_SET = new Set<string>(SEO_RESEARCH_METRIC_FIELDS);
+const RESEARCH_WRITE_SET = new Set<string>(SEO_RESEARCH_WRITE_FIELDS);
+
+function isResearchMetricField(field: string): field is SeoResearchMetricField {
+  return RESEARCH_METRIC_SET.has(field);
+}
+
+/** Parse a research metric; empty/null → null. Non-integer or NaN → invalid sentinel. */
+export function parseSeoResearchMetric(
+  value: unknown,
+): { ok: true; value: number | null } | { ok: false } {
+  if (value === null || value === undefined || value === "") {
+    return { ok: true, value: null };
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || !Number.isInteger(value)) return { ok: false };
+    return { ok: true, value };
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return { ok: true, value: null };
+    if (!/^-?\d+$/.test(trimmed)) return { ok: false };
+    const n = Number(trimmed);
+    if (!Number.isInteger(n)) return { ok: false };
+    return { ok: true, value: n };
+  }
+  return { ok: false };
+}
+
+export function coerceSeoResearchMetrics(seo: SeoBlock): SeoSaveError | null {
+  for (const field of SEO_RESEARCH_METRIC_FIELDS) {
+    if (!(field in seo) || seo[field] === undefined) continue;
+    const parsed = parseSeoResearchMetric(seo[field]);
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        error: `seo.${field} must be an integer or null.`,
+        code: `seo_${field}_invalid`,
+      };
+    }
+    seo[field] = parsed.value;
+    if (parsed.value === null) continue;
+    if (field === "kw_monthly_volume" && parsed.value < 0) {
+      return {
+        ok: false,
+        error: "seo.kw_monthly_volume must be >= 0.",
+        code: "seo_kw_monthly_volume_range",
+      };
+    }
+    if (field === "kw_difficulty" && (parsed.value < 0 || parsed.value > 100)) {
+      return {
+        ok: false,
+        error: "seo.kw_difficulty must be an integer from 0 to 100.",
+        code: "seo_kw_difficulty_range",
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * If a write touches any research key (main_keyword / metrics), omitted metrics
+ * are forced to null so stale estimates cannot survive a partial save.
+ */
+export function applyResearchClearRule(
+  next: SeoBlock,
+  updates: Record<string, unknown>,
+): SeoBlock {
+  const touched = Object.keys(updates).some((rawKey) => {
+    const field = isKnownSeoFieldPath(rawKey) ? seoFieldFromPath(rawKey) : (rawKey as KnownSeoField);
+    return field != null && RESEARCH_WRITE_SET.has(field);
+  });
+  if (!touched) return next;
+  const present = new Set<string>();
+  for (const rawKey of Object.keys(updates)) {
+    const field = isKnownSeoFieldPath(rawKey) ? seoFieldFromPath(rawKey) : (rawKey as KnownSeoField);
+    if (field) present.add(field);
+  }
+  const out = { ...next };
+  for (const metric of SEO_RESEARCH_METRIC_FIELDS) {
+    if (!present.has(metric)) out[metric] = null;
+  }
+  return out;
+}
 
 export type SeoSaveError = {
   ok: false;
@@ -183,11 +275,16 @@ export function isPillarPathExplicitlyNull(seo: SeoBlock): boolean {
 
 export function normalizeSeoBlock(raw: SeoBlock): SeoBlock {
   const out: SeoBlock = { ...raw };
+  if (typeof out.main_keyword === "string") {
+    out.main_keyword = out.main_keyword.trim() || null;
+  }
+  for (const field of SEO_RESEARCH_METRIC_FIELDS) {
+    if (!(field in out) || out[field] === undefined) continue;
+    const parsed = parseSeoResearchMetric(out[field]);
+    out[field] = parsed.ok ? parsed.value : out[field];
+  }
   if (out.pillar_path === null) {
     delete out[LEGACY_SEO_PILLAR_KEY];
-    if (typeof out.main_keyword === "string") {
-      out.main_keyword = out.main_keyword.trim() || null;
-    }
     const isPillarRaw = out.is_pillar as unknown;
     if (isPillarRaw === true || isPillarRaw === "true") out.is_pillar = true;
     else if (isPillarRaw === false || isPillarRaw === "false") out.is_pillar = false;
@@ -200,9 +297,6 @@ export function normalizeSeoBlock(raw: SeoBlock): SeoBlock {
   if (pillarPath) out.pillar_path = toPublicUrlPath(String(pillarPath));
   else out.pillar_path = out.pillar_path === "" ? "" : out.pillar_path ?? null;
   delete out[LEGACY_SEO_PILLAR_KEY];
-  if (typeof out.main_keyword === "string") {
-    out.main_keyword = out.main_keyword.trim() || null;
-  }
   const isPillarRaw = out.is_pillar as unknown;
   if (isPillarRaw === true || isPillarRaw === "true") out.is_pillar = true;
   else if (isPillarRaw === false || isPillarRaw === "false") out.is_pillar = false;
@@ -275,6 +369,8 @@ export function validateSeoSave(opts: {
   }
 
   const coerced = normalizeSeoBlock(opts.next);
+  const metricErr = coerceSeoResearchMetrics(coerced);
+  if (metricErr) return metricErr;
   const warnings: SeoIndexWarning[] = [];
   let pillarLive: boolean | null = null;
 
@@ -336,6 +432,16 @@ export function mergeSeoUpdates(current: SeoBlock, updates: Record<string, unkno
       next.is_pillar = value === true || value === "true";
       continue;
     }
+    if (isResearchMetricField(field)) {
+      if (value === null || value === "") {
+        next[field] = null;
+        continue;
+      }
+      const parsed = parseSeoResearchMetric(value);
+      // Keep raw on parse failure so validateSeoSave can reject with a clear code.
+      next[field] = parsed.ok ? parsed.value : value;
+      continue;
+    }
     if (value === null) {
       if (field === "pillar_path") next.pillar_path = null;
       else next[field] = null;
@@ -347,7 +453,7 @@ export function mergeSeoUpdates(current: SeoBlock, updates: Record<string, unkno
     }
     next[field] = String(value);
   }
-  return next;
+  return applyResearchClearRule(next, updates);
 }
 
 export function extractSeoUpdatesFromOps(

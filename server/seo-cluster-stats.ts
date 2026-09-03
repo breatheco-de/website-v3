@@ -208,6 +208,8 @@ export type ClusterBucketEntryRow = {
   locale: string;
   path: string;
   main_keyword: string | null;
+  kw_monthly_volume: number | null;
+  kw_difficulty: number | null;
   file: string;
   reason?: BrokenClusterRefReason;
   pillar_path?: string | null;
@@ -233,6 +235,8 @@ function entryToRow(
     locale: row.locale || "en",
     path: row.path || "",
     main_keyword: row.main_keyword ?? null,
+    kw_monthly_volume: typeof row.kw_monthly_volume === "number" ? row.kw_monthly_volume : null,
+    kw_difficulty: typeof row.kw_difficulty === "number" ? row.kw_difficulty : null,
     file: row.file || "",
     pillar_path:
       typeof row.pillar_path === "string"
@@ -259,6 +263,8 @@ function gapToRow(gap: MonitoredSeoGap, ci: ContentIndex = contentIndex): Cluste
     locale,
     path: entryCanonicalPath(gap.contentType, gap.slug, locale, ci) || "",
     main_keyword: null,
+    kw_monthly_volume: null,
+    kw_difficulty: null,
     file: "",
   };
 }
@@ -340,6 +346,8 @@ export function listClusterBucketEntries(
             entryCanonicalPath(contentType, slug, locale, ci) ||
             "",
           main_keyword: null,
+          kw_monthly_volume: null,
+          kw_difficulty: null,
           file: "",
         });
       }

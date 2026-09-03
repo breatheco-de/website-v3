@@ -472,7 +472,23 @@ export const RESERVED_PUBLISHED_AT_FIELD = "published_at";
  * (`{{ seo.main_keyword }}`, writeSeoFields). DB-backed types may also map baselines via
  * {@link SEO_FIELD_MAPPING_KEYS} in field_mapping; locale YAML overlay wins per key.
  */
-export const KNOWN_SEO_FIELDS = ["main_keyword", "pillar_path", "is_pillar"] as const;
+export const KNOWN_SEO_FIELDS = [
+  "main_keyword",
+  "kw_monthly_volume",
+  "kw_difficulty",
+  "pillar_path",
+  "is_pillar",
+] as const;
+
+/** Keyword research metrics under `seo:` (planning estimates, not GSC). */
+export const SEO_RESEARCH_METRIC_FIELDS = ["kw_monthly_volume", "kw_difficulty"] as const;
+export type SeoResearchMetricField = (typeof SEO_RESEARCH_METRIC_FIELDS)[number];
+
+/** Keys that trigger the honest research clear rule when any is present in a write. */
+export const SEO_RESEARCH_WRITE_FIELDS = [
+  "main_keyword",
+  ...SEO_RESEARCH_METRIC_FIELDS,
+] as const;
 export type KnownSeoField = (typeof KNOWN_SEO_FIELDS)[number];
 export const SEO_YAML_KEY = "seo";
 export const LEGACY_SEO_PILLAR_KEY = "pillar";
