@@ -42,10 +42,29 @@ yaml: |
     form_card_image: https://storage.googleapis.com/4geeks-academy-website/media/Course-Report-Badge-2025_1764709632231.webp
     form:
       variant: stacked
-      conversion_name: request_more_info
-      ecommerce_product_field: program
+      is_signup: true
+      conversion_name: access_free_course_or_tutorial
       submit_label: Save my progress
       fields:
-        first_name: { visible: true, required: true }
         email: { visible: true, required: true }
         phone: { visible: true, required: true }
+        first_name: { visible: true, required: true }
+        last_name: { visible: true, required: false }
+        plan:
+          visible: false
+          required: true
+          default: "4geeks-basic-subscription"
+      messages:
+        guest:
+          subtitle: Create an account and get immediate access to this exercise
+          submit_label: Create account
+        login:
+          subtitle: Log in to access this exercise
+          submit_label: Log in
+          back_label: Back to create account
+        incomplete:
+          subtitle: We still need a couple of details
+          submit_label: Continue
+        ready:
+          subtitle: You can access this exercise immediately
+          submit_label: Start learning
