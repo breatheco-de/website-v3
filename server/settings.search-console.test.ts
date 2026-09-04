@@ -51,7 +51,11 @@ describe("search_console settings.yml", () => {
     expect(getSearchConsoleSettings(tmp)).toEqual({
       site_url: null,
       bigquery: { ...DEFAULT_SEARCH_CONSOLE_BIGQUERY },
+      organic_markets: expect.any(Array),
     });
+    expect(getSearchConsoleSettings(tmp).organic_markets.some((m) => m.id === "worldwide")).toBe(
+      true,
+    );
   });
 
   it("saves a URL-prefix property and reloads it", () => {

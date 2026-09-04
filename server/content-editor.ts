@@ -2887,6 +2887,17 @@ export async function deleteContentEntry(
       localesRemoved: removedLocales,
     });
 
+    try {
+      const { removeSeoIndexEntries, seoEntryId } = await import("./seo-index");
+      removeSeoIndexEntries({
+        contentRoot: rootName,
+        entryIds: removedLocales.map((loc) => seoEntryId(type, resolvedSlug, loc)),
+        author,
+      });
+    } catch {
+      /* non-fatal */
+    }
+
     return {
       success: true,
       data: {

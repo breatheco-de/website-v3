@@ -153,6 +153,6 @@ Every settings surface that wires an external API, cloud credential, or vendor S
 - [`SecurityPage`](client/src/pages/SecurityPage.tsx) — header + top-right tabs
 - [`TrackingPage`](client/src/pages/TrackingPage.tsx) — header + top-right tabs (same shell)
 - [`McpServerPage`](client/src/pages/McpServerPage.tsx) — header + top-right tabs (Connection / Tools)
-- [`AgentsOrgChartPage`](client/src/pages/AgentsOrgChartPage.tsx) — page-heading advanced popover exemplar
+- [`AgentsOrgChartPage`](client/src/pages/AgentsOrgChartPage.tsx) — page-heading advanced popover exemplar; header + top-right tabs (Org Chart / Proposals)
 
 Sibling admin surfaces (Background Pipeline, Diagnostics) may use a different width when the content warrants it; do not copy their shell onto Settings pages. New third-party cards on those surfaces still follow **Test connection** above.

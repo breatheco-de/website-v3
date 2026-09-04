@@ -156,7 +156,12 @@ export async function ingestOrganicDay(
   try {
     const raw = await queryUrlImpressionsForDate(date, opts.contentRoot);
     const ctx = buildKeepContext(opts.contentRoot);
-    const { rows, truncated } = applyKeepFilter(raw, ctx);
+    const { getSearchConsoleSettings } = await import("./settings");
+    const { configuredCountrySet } = await import("./gsc-organic-markets");
+    const preferred = configuredCountrySet(
+      getSearchConsoleSettings(opts.contentRoot).organic_markets,
+    );
+    const { rows, truncated } = applyKeepFilter(raw, ctx, preferred);
     saveOrganicDay(
       {
         date,

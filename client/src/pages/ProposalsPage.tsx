@@ -10,6 +10,8 @@ import { apiFetch } from "@/lib/queryClient";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { useToast } from "@/hooks/use-toast";
 
+export const AGENTS_PROPOSALS_BASE = "/private/agents/proposals";
+
 type EntryRow = {
   id: number;
   contentType: string;
@@ -37,14 +39,15 @@ function headers(): Record<string, string> {
   return { "Content-Type": "application/json", ...getSessionHeaders() };
 }
 
+/** @deprecated Prefer Agents org-chart shell at /private/agents/proposals */
 export default function ProposalsPage() {
   const params = useParams<{ id?: string }>();
   const id = params.id;
-  if (id) return <ProposalDetail id={id} />;
-  return <ProposalList />;
+  if (id) return <ProposalDetailPanel id={id} />;
+  return <ProposalListPanel />;
 }
 
-function ProposalList() {
+export function ProposalListPanel() {
   const [q, setQ] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const { data, isLoading } = useQuery({
@@ -58,10 +61,9 @@ function ProposalList() {
   });
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4 space-y-6 min-h-screen bg-background text-foreground">
+    <div className="space-y-6" data-testid="panel-agents-proposals">
       <div>
-        <h1 className="text-xl font-semibold">Proposals</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-sm text-muted-foreground">
           Proposals are suggested entry changes or handoff notes. They do not change the live site until
           someone else applies edits or acknowledges a notes handoff. A proposal can cover several entries
           and can be linked to a validation issue. It stays partially finished until every entry is updated,
@@ -89,7 +91,7 @@ function ProposalList() {
       {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
       <div className="space-y-2">
         {(data?.proposals ?? []).map((p) => (
-          <Link key={p.id} href={`/private/proposals/${p.id}`}>
+          <Link key={p.id} href={`${AGENTS_PROPOSALS_BASE}/${p.id}`}>
             <Card className="hover-elevate cursor-pointer" data-testid={`card-proposal-${p.id}`}>
               <CardHeader className="py-3">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -110,7 +112,7 @@ function ProposalList() {
   );
 }
 
-function ProposalDetail({ id }: { id: string }) {
+export function ProposalDetailPanel({ id }: { id: string }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
@@ -140,15 +142,15 @@ function ProposalDetail({ id }: { id: string }) {
   });
   const p = data?.proposal;
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4 space-y-6 min-h-screen bg-background text-foreground">
+    <div className="space-y-6" data-testid="panel-agents-proposal-detail">
       <Button variant="ghost" size="sm" asChild>
-        <Link href="/private/proposals">Back</Link>
+        <Link href={AGENTS_PROPOSALS_BASE}>Back</Link>
       </Button>
       {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
       {p && (
         <>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-semibold">{p.title}</h1>
+            <h2 className="text-xl font-semibold">{p.title}</h2>
             <Badge>{p.status}</Badge>
             <Badge variant="outline">{p.kind}</Badge>
           </div>

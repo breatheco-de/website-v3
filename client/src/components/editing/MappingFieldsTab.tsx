@@ -71,6 +71,8 @@ type ProvenanceResponse = {
   canonicalPath?: string | null;
   indexRebuilt?: boolean;
   seoFileMissing?: boolean;
+  seoWriteAllowed?: boolean;
+  seoWriteBlockReason?: string;
 };
 
 type ContentTypeConfig = {
@@ -337,6 +339,8 @@ function SeoFieldsEditor({
   slug,
   contentType,
   seoMonitoringEnabled,
+  seoWriteBlocked,
+  seoWriteBlockReason,
   onSave,
   onResetField,
   portalContainer,
@@ -351,8 +355,10 @@ function SeoFieldsEditor({
   slug: string;
   contentType: string;
   seoMonitoringEnabled: boolean;
-  onSave: (fields: Record<string, unknown>) => Promise<void>;
-  onResetField?: (fieldPath: string) => Promise<void>;
+  seoWriteBlocked?: boolean;
+  seoWriteBlockReason?: string;
+  onSave: (built: Record<string, unknown>) => Promise<void>;
+  onResetField: (fieldPath: string) => Promise<void>;
   portalContainer?: HTMLElement | null;
 }) {
   const { toast } = useToast();
@@ -508,15 +514,23 @@ function SeoFieldsEditor({
 
   return (
     <div className="space-y-3" data-testid="seo-fields-block">
-      {isVariantLayer && (
+      {seoWriteBlocked ? (
         <p
-          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100"
-          data-testid="banner-seo-variant-not-indexed"
+          className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+          data-testid="banner-seo-write-blocked"
         >
-          Variant SEO stays on {layerFileName || `{variant}.${locale}.yml`} until promote — the live cluster
-          map is unchanged.
+          {seoWriteBlockReason ||
+            "Cluster SEO is edited on the live page. Draft SEO is only for brand-new pages that are not live yet. Experiment variants cannot change cluster fields."}
         </p>
-      )}
+      ) : isVariantLayer ? (
+        <p
+          className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+          data-testid="banner-seo-draft-unpublished"
+        >
+          Editing draft SEO on {layerFileName || `draft.${locale}.yml`} before the page goes live. The
+          cluster map updates when you publish.
+        </p>
+      ) : null}
       {disabled && (
         <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
           SEO fields need a locale YAML file. Create {locale}.yml before editing.
@@ -524,10 +538,16 @@ function SeoFieldsEditor({
       )}
       {!seoFieldsEditing ? (
       <div
-        className="relative rounded-md border border-border bg-muted/20 p-3 pr-10 space-y-3 text-sm cursor-pointer hover-elevate"
-        onClick={() => setSeoFieldsEditing(true)}
+        className={
+          "relative rounded-md border border-border bg-muted/20 p-3 pr-10 space-y-3 text-sm" +
+          (!disabled && !seoWriteBlocked ? " cursor-pointer hover-elevate" : "")
+        }
+        onClick={() => {
+          if (disabled || seoWriteBlocked) return;
+          setSeoFieldsEditing(true);
+        }}
         data-testid="card-seo-fields-preview"
-        title="Click to edit"
+        title={seoWriteBlocked ? undefined : "Click to edit"}
       >
         <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
           <Button
@@ -538,6 +558,7 @@ function SeoFieldsEditor({
             data-testid="button-edit-seo-fields"
             title="Edit SEO fields"
             aria-label="Edit SEO fields"
+            disabled={disabled || seoWriteBlocked}
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
@@ -674,7 +695,11 @@ function SeoFieldsEditor({
               <code className="font-mono">
                 {directory}/{slug}/{layerFileName || `${locale}.yml`}
               </code>
-              . Opt-out persists as <code className="font-mono">seo.pillar_path: null</code> (empty string is a
+              . Cluster SEO is writable only on live{" "}
+              <code className="font-mono">{`{locale}.yml`}</code> or{" "}
+              <code className="font-mono">{`draft.${locale}.yml`}</code> before any live locale exists.
+              Promoting an experiment keeps live <code className="font-mono">seo:</code>. Opt-out
+              persists as <code className="font-mono">seo.pillar_path: null</code> (empty string is a
               cluster gap, not opt-out). Research keys:{" "}
               <code className="font-mono">seo.kw_monthly_volume</code> (integer ≥ 0) and{" "}
               <code className="font-mono">seo.kw_difficulty</code> (0–100) — not GSC, not template tokens. DB
@@ -1026,9 +1051,9 @@ function SeoFieldsEditor({
             <p className="text-xs">
               Choose a hub or type a path. Empty path = cluster gap (still monitored).
             </p>
-            {isVariantLayer && (
+            {isVariantLayer && !seoWriteBlocked && (
               <p className="text-xs" data-testid="text-pillar-chooser-variant-live">
-                List is live hubs. This save stays on the variant until promote.
+                List is live hubs. This draft SEO applies when you publish the page.
               </p>
             )}
             {localeMismatch && (
@@ -1117,8 +1142,6 @@ export function EntrySeoClusterFields({
   portalContainer?: HTMLElement | null;
 }) {
   const { toast } = useToast();
-  const [variantConfirmOpen, setVariantConfirmOpen] = useState(false);
-  const variantConfirmRef = useRef<{ resolve: (ok: boolean) => void } | null>(null);
 
   const variantParam =
     typeof variant === "string" && variant.trim() && variant.trim() !== "default"
@@ -1158,6 +1181,8 @@ export function EntrySeoClusterFields({
   const layerFileName = provenance?.layerFileName;
   const isVariantLayer = !!provenance?.isVariantLayer || !!variantParam;
   const seoDisabled = !!provenance?.seoFileMissing;
+  const seoWriteBlocked = provenance?.seoWriteAllowed === false;
+  const seoWriteBlockReason = provenance?.seoWriteBlockReason;
 
   const authHeaders = async (): Promise<Record<string, string>> => {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -1170,17 +1195,10 @@ export function EntrySeoClusterFields({
     void queryClient.invalidateQueries({ queryKey: [...provenanceKey] });
   };
 
-  const confirmVariantSaveIfNeeded = async (): Promise<boolean> => {
-    if (!isVariantLayer) return true;
-    return new Promise((resolve) => {
-      variantConfirmRef.current = { resolve };
-      setVariantConfirmOpen(true);
-    });
-  };
-
   const saveSeoFields = async (built: Record<string, unknown>) => {
-    const ok = await confirmVariantSaveIfNeeded();
-    if (!ok) throw new Error("Save cancelled — no changes written.");
+    if (seoWriteBlocked) {
+      throw new Error(seoWriteBlockReason || "SEO writes are not allowed on this layer.");
+    }
     const headers = await authHeaders();
     const author = await resolveAuthorName();
     const res = await fetch(
@@ -1205,6 +1223,9 @@ export function EntrySeoClusterFields({
   };
 
   const resetSeoOverlayField = async (fieldPath: string) => {
+    if (seoWriteBlocked) {
+      throw new Error(seoWriteBlockReason || "SEO writes are not allowed on this layer.");
+    }
     const headers = await authHeaders();
     const author = await resolveAuthorName();
     const res = await fetch(
@@ -1252,74 +1273,34 @@ export function EntrySeoClusterFields({
   }
 
   return (
-    <>
-      <SeoFieldsEditor
-        rows={seoRows}
-        disabled={seoDisabled}
-        canonicalPath={provenance?.canonicalPath}
-        isVariantLayer={isVariantLayer}
-        layerFileName={layerFileName}
-        locale={locale}
-        directory={directory}
-        slug={slug}
-        contentType={contentType}
-        seoMonitoringEnabled={ctConfig?.seo_monitoring?.enabled === true}
-        onSave={saveSeoFields}
-        onResetField={async (fieldPath) => {
-          try {
-            await resetSeoOverlayField(fieldPath);
-          } catch (err) {
-            toast({
-              title: "SEO reset failed",
-              description: err instanceof Error ? err.message : String(err),
-              variant: "destructive",
-            });
-            throw err;
-          }
-        }}
-        portalContainer={portalContainer}
-      />
-      <AlertDialog
-        open={variantConfirmOpen}
-        onOpenChange={(v) => {
-          if (!v) {
-            variantConfirmRef.current?.resolve(false);
-            variantConfirmRef.current = null;
-            setVariantConfirmOpen(false);
-          }
-        }}
-      >
-        <AlertDialogContent data-testid="dialog-variant-save-confirm-seo">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Save to variant file?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You are editing{" "}
-              <code className="font-mono text-xs">{layerFileName || variantParam}</code>, not the published{" "}
-              <code className="font-mono text-xs">{locale}.yml</code>. Continue saving to the variant layer?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              onClick={() => {
-                variantConfirmRef.current?.resolve(false);
-                variantConfirmRef.current = null;
-              }}
-            >
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                variantConfirmRef.current?.resolve(true);
-                variantConfirmRef.current = null;
-                setVariantConfirmOpen(false);
-              }}
-            >
-              Save to variant
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+    <SeoFieldsEditor
+      rows={seoRows}
+      disabled={seoDisabled}
+      canonicalPath={provenance?.canonicalPath}
+      isVariantLayer={isVariantLayer}
+      layerFileName={layerFileName}
+      locale={locale}
+      directory={directory}
+      slug={slug}
+      contentType={contentType}
+      seoMonitoringEnabled={ctConfig?.seo_monitoring?.enabled === true}
+      seoWriteBlocked={seoWriteBlocked}
+      seoWriteBlockReason={seoWriteBlockReason}
+      onSave={saveSeoFields}
+      onResetField={async (fieldPath) => {
+        try {
+          await resetSeoOverlayField(fieldPath);
+        } catch (err) {
+          toast({
+            title: "SEO reset failed",
+            description: err instanceof Error ? err.message : String(err),
+            variant: "destructive",
+          });
+          throw err;
+        }
+      }}
+      portalContainer={portalContainer}
+    />
   );
 }
 

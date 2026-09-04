@@ -979,7 +979,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               <MenuItem
                 icon={ClipboardList}
                 label="Proposals"
-                href="/private/proposals"
+                href="/private/agents/proposals"
                 indicator="arrow"
                 testId="link-proposals"
               />

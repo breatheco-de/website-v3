@@ -187,13 +187,14 @@ export async function queryUrlImpressionsForDate(
       SELECT
         COALESCE(query, '') AS query,
         url,
+        LOWER(TRIM(COALESCE(country, ''))) AS country,
         SUM(clicks) AS clicks,
         SUM(impressions) AS impressions,
         SUM(sum_position) AS sum_position
       FROM ${fq}
       WHERE data_date = @d
         AND search_type = 'WEB'
-      GROUP BY query, url
+      GROUP BY query, url, country
     `,
     // Pass a BigQuery DATE value — `types: { d: "DATE" }` with a plain string
     // binds incorrectly and returns zero rows against partitioned GSC tables.
@@ -206,13 +207,67 @@ export async function queryUrlImpressionsForDate(
     const clicks = Number(rec.clicks) || 0;
     const impressions = Number(rec.impressions) || 0;
     const sum_position = Number(rec.sum_position) || 0;
+    const countryRaw = typeof rec.country === "string" ? rec.country.trim().toLowerCase() : "";
     return {
       query: typeof rec.query === "string" ? rec.query : "",
       url: typeof rec.url === "string" ? rec.url : "",
+      country: countryRaw,
       clicks,
       impressions,
       sum_position,
       ctr: impressions > 0 ? clicks / impressions : 0,
     };
   });
+}
+
+export type GscSiteDayTotals = {
+  day: string;
+  clicks: number;
+  impressions: number;
+};
+
+/** Site-wide daily clicks/impressions (no keep-filter) for a closed date range. */
+export async function querySiteOrganicDailyTotals(
+  start: string,
+  end: string,
+  contentRoot?: string,
+): Promise<GscSiteDayTotals[]> {
+  const status = getGscBigQueryConfigStatus(contentRoot);
+  if (!status.configured) {
+    throw new Error(status.warnings[0] || "Search Console BigQuery is not configured");
+  }
+  const settings = parseSearchConsoleBigQuerySettings(status.settings);
+  const client = createBigQueryClientForProject(settings.project_id, settings.location);
+  if (!client) {
+    throw new Error("Could not create BigQuery client (check GCS_CREDENTIALS_JSON / ADC)");
+  }
+  const table = settings.url_impression_table || "searchdata_url_impression";
+  const fq = fqTable(settings, table);
+  const [rows] = await client.query({
+    query: `
+      SELECT
+        CAST(data_date AS STRING) AS day,
+        SUM(clicks) AS clicks,
+        SUM(impressions) AS impressions
+      FROM ${fq}
+      WHERE data_date BETWEEN @start AND @end
+        AND search_type = 'WEB'
+      GROUP BY data_date
+      ORDER BY data_date
+    `,
+    params: {
+      start: BigQuery.date(start),
+      end: BigQuery.date(end),
+    },
+    location: settings.location || undefined,
+    maximumBytesBilled: "5000000000",
+  });
+  return (rows || []).map((r) => {
+    const rec = r as Record<string, unknown>;
+    return {
+      day: typeof rec.day === "string" ? rec.day : String(rec.day ?? ""),
+      clicks: Number(rec.clicks) || 0,
+      impressions: Number(rec.impressions) || 0,
+    };
+  }).filter((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.day));
 }

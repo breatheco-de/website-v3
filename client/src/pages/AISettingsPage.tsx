@@ -36,10 +36,11 @@ import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { cn } from "@/lib/utils";
 import { queryClient } from "@/lib/queryClient";
 import { QdrantTab } from "@/components/settings/QdrantTab";
+import { PromptLibraryTab } from "@/components/settings/PromptLibraryTab";
 
 const LlmYmlEditorPanel = lazy(() => import("@/components/editing/LlmYmlEditorPanel"));
 
-type AiSettingsTab = "llms" | "qdrant";
+type AiSettingsTab = "llms" | "qdrant" | "prompts";
 
 const AI_TABS: {
   id: AiSettingsTab;
@@ -49,11 +50,13 @@ const AI_TABS: {
 }[] = [
   { id: "llms", href: "/private/settings/ai/llms", label: "LLMs", Icon: IconBrain },
   { id: "qdrant", href: "/private/settings/ai/qdrant", label: "Qdrant", Icon: IconDatabase },
+  { id: "prompts", href: "/private/settings/ai/prompts", label: "Prompt Library", Icon: IconFileCode },
 ];
 
 function resolveAiTab(pathname: string): AiSettingsTab | null {
   if (pathname === "/private/settings/ai/llms") return "llms";
   if (pathname === "/private/settings/ai/qdrant") return "qdrant";
+  if (pathname === "/private/settings/ai/prompts") return "prompts";
   return null;
 }
 
@@ -627,6 +630,7 @@ export default function AISettingsPage() {
         <div role="tabpanel">
           {activeTab === "llms" && <LlmsTab />}
           {activeTab === "qdrant" && <QdrantTab />}
+          {activeTab === "prompts" && <PromptLibraryTab />}
         </div>
       </div>
     </div>

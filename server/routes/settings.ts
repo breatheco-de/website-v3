@@ -1752,6 +1752,45 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
+  app.get("/api/settings/search-console/organic-markets", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    const { getSearchConsoleSettings } = await import("../settings");
+    const { marketsForUi } = await import("../gsc-organic-markets");
+    const sc = getSearchConsoleSettings(getContentRoot(res));
+    const grouped = marketsForUi(sc.organic_markets);
+    res.json({
+      markets: sc.organic_markets,
+      rollups: grouped.rollups,
+      countries: grouped.countries,
+    });
+  });
+
+  app.put("/api/settings/search-console/organic-markets", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    try {
+      const body = req.body?.organic_markets ?? req.body?.markets ?? req.body;
+      if (!Array.isArray(body)) {
+        return res.status(400).json({ error: "Request body must be an organic_markets array" });
+      }
+      const contentRoot = getContentRoot(res);
+      const { updateSearchConsoleOrganicMarkets } = await import("../settings");
+      const { marketsForUi } = await import("../gsc-organic-markets");
+      const updated = updateSearchConsoleOrganicMarkets(body, contentRoot);
+      markFileAsModified("settings.yml", undefined, undefined, contentRoot);
+      const grouped = marketsForUi(updated.organic_markets);
+      res.json({
+        success: true,
+        markets: updated.organic_markets,
+        rollups: grouped.rollups,
+        countries: grouped.countries,
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || String(err) });
+    }
+  });
+
   app.post("/api/settings/search-console/bigquery/test", async (req, res) => {
     const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;

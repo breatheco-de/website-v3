@@ -108,7 +108,7 @@ describe("writeSeoFields", () => {
     expect(row?.main_keyword).toBe("learn javascript");
   });
 
-  it("does not index variant files", () => {
+  it("rejects SEO writes on draft while live exists", () => {
     fs.writeFileSync(
       path.join(contentRoot, "blog", "post-a", "draft.en.yml"),
       `slug: post-a
@@ -127,10 +127,57 @@ meta:
       variant: "draft",
       ci: stubCi("/en/blog/post-a"),
     });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.code).toBe("seo_draft_while_live_forbidden");
+  });
+
+  it("allows draft SEO when unpublished and does not index until live", () => {
+    fs.unlinkSync(path.join(contentRoot, "blog", "post-a", "en.yml"));
+    fs.writeFileSync(
+      path.join(contentRoot, "blog", "post-a", "draft.en.yml"),
+      `slug: post-a
+meta:
+  page_title: Draft
+  description: Draft SEO
+`,
+      "utf-8",
+    );
+    const result = writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: { main_keyword: "draft kw", pillar_path: "/en/blog/hub" },
+      contentRoot,
+      variant: "draft",
+      ci: stubCi("/en/blog/post-a"),
+    });
     expect(result.success).toBe(true);
     if (result.success) expect(result.isVariantLayer).toBe(true);
     const index = loadSeoIndex(contentRoot);
     expect(index.entries["blog/post-a/en"]).toBeUndefined();
+  });
+
+  it("rejects SEO writes on A/B variants", () => {
+    fs.writeFileSync(
+      path.join(contentRoot, "blog", "post-a", "b.en.yml"),
+      `slug: post-a
+meta:
+  page_title: B
+  description: B SEO
+`,
+      "utf-8",
+    );
+    const result = writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: { main_keyword: "b kw" },
+      contentRoot,
+      variant: "b",
+      ci: stubCi("/en/blog/post-a"),
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.code).toBe("seo_variant_forbidden");
   });
 });
 
@@ -170,5 +217,75 @@ describe("resetSeoOverlayField", () => {
     });
     expect(result.success).toBe(true);
     expect(result.noop).toBe(true);
+  });
+});
+
+describe("seo-index lifecycle helpers", () => {
+  it("syncSeoIndexEntryFromLiveDisk patches the index from live YAML", async () => {
+    const { syncSeoIndexEntryFromLiveDisk } = await import("./seo-index");
+    fs.writeFileSync(
+      path.join(contentRoot, "blog", "post-a", "en.yml"),
+      `slug: post-a
+seo:
+  main_keyword: synced-kw
+  pillar_path: /en/blog/hub
+meta:
+  page_title: Post A
+  description: SEO
+`,
+      "utf-8",
+    );
+    syncSeoIndexEntryFromLiveDisk({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+      emitEvent: false,
+    });
+    const index = loadSeoIndex(contentRoot);
+    expect(index.entries["blog/post-a/en"]?.main_keyword).toBe("synced-kw");
+  });
+
+  it("removeSeoIndexEntries drops keys from the index", async () => {
+    const { removeSeoIndexEntries } = await import("./seo-index");
+    writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: { main_keyword: "gone", pillar_path: "/en/blog/hub" },
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    expect(loadSeoIndex(contentRoot).entries["blog/post-a/en"]).toBeDefined();
+    removeSeoIndexEntries({
+      entryIds: ["blog/post-a/en"],
+      contentRoot,
+    });
+    expect(loadSeoIndex(contentRoot).entries["blog/post-a/en"]).toBeUndefined();
+  });
+
+  it("ensureSeoIndexBeforeDiagnostics repairs a stale index before validators", async () => {
+    const { ensureSeoIndexBeforeDiagnostics, invalidateSeoIndexCache } = await import("./seo-index");
+    writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: { main_keyword: "fresh", pillar_path: "/en/blog/hub" },
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    const indexPath = path.join(contentRoot, "seo-index.json");
+    const stale = JSON.parse(fs.readFileSync(indexPath, "utf-8"));
+    stale.entries["blog/post-a/en"].main_keyword = "stale";
+    fs.writeFileSync(indexPath, JSON.stringify(stale), "utf-8");
+    invalidateSeoIndexCache();
+    ensureSeoIndexBeforeDiagnostics({
+      contentRoot,
+      entryKeys: ["blog/post-a/en"],
+      ci: stubCi("/en/blog/post-a"),
+    });
+    const repaired = loadSeoIndex(contentRoot);
+    expect(repaired.entries["blog/post-a/en"]?.main_keyword).toBe("fresh");
   });
 });

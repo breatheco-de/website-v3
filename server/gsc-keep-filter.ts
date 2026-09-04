@@ -1,6 +1,6 @@
 /** Keep-filter for GSC organic day files. Bump KEEP_RULES_VERSION when these rules change. */
 
-export const KEEP_RULES_VERSION = 1;
+export const KEEP_RULES_VERSION = 2;
 export const DAY_ROW_CAP = 100_000;
 export const MIN_KEEP_IMPRESSIONS = 5;
 
@@ -45,6 +45,8 @@ export function hostsMatch(a: string, b: string): boolean {
 export type GscDayRow = {
   query: string;
   url: string;
+  /** GSC 3-letter country code (lowercase), or "" when unknown/blank. */
+  country: string;
   clicks: number;
   impressions: number;
   sum_position: number;
@@ -57,7 +59,7 @@ export function dayPosition(row: { impressions: number; sum_position: number }):
 }
 
 export function shouldKeepRow(
-  row: GscDayRow,
+  row: Pick<GscDayRow, "query" | "url" | "clicks" | "impressions" | "sum_position">,
   ctx: { ourHosts: Set<string>; ourPaths: Set<string>; keywordKeys: Set<string> },
 ): boolean {
   const loc = normalizePageUrl(row.url);
@@ -79,14 +81,69 @@ export function shouldKeepRow(
   return false;
 }
 
-export function applyKeepFilter(rows: GscDayRow[], ctx: Parameters<typeof shouldKeepRow>[1]): {
+function queryUrlKey(query: string, url: string): string {
+  return `${query}\0${url}`;
+}
+
+/**
+ * Keep country-split rows when the worldwide query+URL total would be kept.
+ * When over DAY_ROW_CAP, prefer configured-market countries and blank-country rows.
+ */
+export function applyKeepFilter(
+  rows: GscDayRow[],
+  ctx: Parameters<typeof shouldKeepRow>[1],
+  preferredCountries?: Set<string>,
+): {
   rows: GscDayRow[];
   truncated: boolean;
 } {
-  const kept = rows.filter((r) => shouldKeepRow(r, ctx));
+  const totals = new Map<
+    string,
+    { query: string; url: string; clicks: number; impressions: number; sum_position: number }
+  >();
+  for (const r of rows) {
+    const key = queryUrlKey(r.query, r.url);
+    const cur = totals.get(key) || {
+      query: r.query,
+      url: r.url,
+      clicks: 0,
+      impressions: 0,
+      sum_position: 0,
+    };
+    cur.clicks += r.clicks;
+    cur.impressions += r.impressions;
+    cur.sum_position += r.sum_position;
+    totals.set(key, cur);
+  }
+
+  const keptKeys = new Set<string>();
+  for (const [key, total] of totals) {
+    if (shouldKeepRow(total, ctx)) keptKeys.add(key);
+  }
+
+  const kept = rows.filter((r) => keptKeys.has(queryUrlKey(r.query, r.url)));
   kept.sort((a, b) => b.impressions - a.impressions);
+
   if (kept.length <= DAY_ROW_CAP) return { rows: kept, truncated: false };
-  return { rows: kept.slice(0, DAY_ROW_CAP), truncated: true };
+
+  const prefer = preferredCountries ?? new Set<string>();
+  const isPreferred = (r: GscDayRow) => {
+    const c = (r.country || "").trim().toLowerCase();
+    return c === "" || prefer.has(c);
+  };
+
+  const preferred = kept.filter(isPreferred);
+  const other = kept.filter((r) => !isPreferred(r));
+  const out: GscDayRow[] = [];
+  for (const r of preferred) {
+    if (out.length >= DAY_ROW_CAP) break;
+    out.push(r);
+  }
+  for (const r of other) {
+    if (out.length >= DAY_ROW_CAP) break;
+    out.push(r);
+  }
+  return { rows: out, truncated: true };
 }
 
 export function expectedCtrForPosition(position: number): number {

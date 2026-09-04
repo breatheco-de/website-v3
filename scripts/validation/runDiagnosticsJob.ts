@@ -14,6 +14,10 @@ import type { ValidationCacheService } from "../../server/services/validationCac
 import { isUrlStaleForFullRun } from "../../server/services/validationCacheMerge";
 import type { DiagnosticsFreshness } from "./diagnosticsIpc";
 import type { DiagnosticsJobResultsFile } from "./diagnosticsIpc";
+import {
+  diagnosticsNeedsSeoIndex,
+  ensureSeoIndexBeforeDiagnostics,
+} from "../../server/seo-index";
 
 export type DiagnosticsUrlTarget = {
   url: string;
@@ -221,6 +225,19 @@ export async function runDiagnosticsJob(
   const allTargets = validatorOnly
     ? []
     : await resolveUrlTargets(contentRoot, ci, slugs, urls);
+
+  const allValidatorNames = [...pageValidators, ...siteWideValidators];
+  if (diagnosticsNeedsSeoIndex(allValidatorNames)) {
+    if (!slugFiltered) {
+      ensureSeoIndexBeforeDiagnostics({ contentRoot, ci });
+    } else if (allTargets.length > 0) {
+      ensureSeoIndexBeforeDiagnostics({
+        contentRoot,
+        ci,
+        entryKeys: allTargets.map((t) => `${t.type}/${t.slug}/${t.locale}`),
+      });
+    }
+  }
 
   let staleTargets = allTargets;
   if (!partial && freshness === "max_age") {

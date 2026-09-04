@@ -71,3 +71,9 @@ When `update_fields` (or another mutate) is forbidden, call `propose_change` ins
 
 **Worked example:** missing `content_edit_text` on a blog CTA → `propose_change` with that entry’s `updates[]`, then tell the human a different editor must `update_proposal` with `action: "apply"`.
 
+### 3. Cluster SEO only on live (or draft-before-live)
+
+Do not write `seo.*` on A/B experiment variants, and do not write draft SEO once any live locale exists. Promote over live keeps live `seo:` — edit the live locale after promote if clustering must change.
+
+**Worked example:** after promoting `variant: "b"`, call `update_fields` without `variant` to set `seo.pillar_path`, not another write on `b`.
+

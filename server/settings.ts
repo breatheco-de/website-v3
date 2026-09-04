@@ -22,6 +22,12 @@ import {
   validateAuthConversionEventConfig,
   type AuthConversionEventConfig,
 } from "@shared/authConversionEvents";
+import {
+  DEFAULT_ORGANIC_MARKETS,
+  parseOrganicMarkets,
+  serializeOrganicMarkets,
+  type OrganicMarket,
+} from "./gsc-organic-markets";
 
 export type { AuthSignupFieldMapEntry };
 export {
@@ -417,11 +423,17 @@ export const DEFAULT_SEARCH_CONSOLE_BIGQUERY: SearchConsoleBigQuerySettings = {
 export interface SearchConsoleSettings {
   site_url: string | null;
   bigquery: SearchConsoleBigQuerySettings;
+  /** Cluster Map organic markets (GSC country codes on day-cache rows). */
+  organic_markets: OrganicMarket[];
 }
 
 export const DEFAULT_SEARCH_CONSOLE_SETTINGS: SearchConsoleSettings = {
   site_url: null,
   bigquery: { ...DEFAULT_SEARCH_CONSOLE_BIGQUERY },
+  organic_markets: DEFAULT_ORGANIC_MARKETS.map((m) => ({
+    ...m,
+    countries: [...m.countries],
+  })),
 };
 
 /** OpenRush SERP inspect (non-secret). API key stays in OPENRUSH_API_KEY. */
@@ -544,6 +556,7 @@ export function parseSearchConsoleSettings(raw: unknown): SearchConsoleSettings 
   return {
     site_url: siteUrl,
     bigquery: parseSearchConsoleBigQuerySettings(obj.bigquery),
+    organic_markets: parseOrganicMarkets(obj.organic_markets),
   };
 }
 
@@ -566,6 +579,7 @@ function writeSearchConsoleBlock(
 ): void {
   const block: Record<string, unknown> = {
     bigquery: serializeSearchConsoleBigQuery(sc.bigquery),
+    organic_markets: serializeOrganicMarkets(sc.organic_markets),
   };
   if (sc.site_url) {
     block.site_url = sc.site_url;
@@ -1631,6 +1645,33 @@ export function updateSearchConsoleBigQuerySettings(
   resetSettings(resolveSettingsRoot(contentRoot));
   log.info(
     `[Settings] Updated search_console.bigquery enabled=${merged.enabled} project=${merged.project_id || "(empty)"}`,
+  );
+  return updated;
+}
+
+export function updateSearchConsoleOrganicMarkets(
+  input: unknown,
+  contentRoot?: string,
+): SearchConsoleSettings {
+  const settingsPath = getSettingsPath(contentRoot);
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const raw = fs.readFileSync(settingsPath, "utf-8");
+      existing = (yaml.load(raw) as Record<string, unknown>) || {};
+    } catch {}
+  }
+
+  const current = parseSearchConsoleSettings(existing.search_console);
+  const organic_markets = parseOrganicMarkets(input);
+  const updated: SearchConsoleSettings = { ...current, organic_markets };
+  writeSearchConsoleBlock(existing, updated);
+
+  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
+  log.info(
+    `[Settings] Updated search_console.organic_markets count=${organic_markets.length}`,
   );
   return updated;
 }

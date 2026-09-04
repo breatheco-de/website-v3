@@ -1,4 +1,4 @@
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, useLocation, useParams } from "wouter";
 import { lazy, Suspense, type ReactNode } from "react";
 import NotFound from "@/pages/not-found";
 import { getDebugToken, isDebugModeActive, useDebugAuth } from "@/hooks/useDebugAuth";
@@ -37,7 +37,6 @@ const McpServerPage = lazy(() => import("@/pages/McpServerPage"));
 const AgentsOrgChartPage = lazy(() => import("@/pages/AgentsOrgChartPage"));
 const ErrorLogPage = lazy(() => import("@/pages/ErrorLogPage"));
 const BackgroundPipelinePage = lazy(() => import("@/pages/BackgroundPipelinePage"));
-const ProposalsPage = lazy(() => import("@/pages/ProposalsPage"));
 const PrivateOverlays = lazy(() => import("@/pages/PrivateOverlays"));
 const VariablesPage = lazy(() => import("@/pages/VariablesPage"));
 
@@ -88,6 +87,17 @@ function AgentsRedirect() {
   return null;
 }
 
+function ProposalsRedirect() {
+  const params = useParams<{ id?: string }>();
+  if (typeof window !== "undefined") {
+    const target = params.id
+      ? `/private/agents/proposals/${params.id}`
+      : "/private/agents/proposals";
+    window.location.replace(target);
+  }
+  return null;
+}
+
 function PrivateStaffGate({ children }: { children: ReactNode }) {
   const [pathname] = useLocation();
   const { isLoading, isValidated, hasToken } = useDebugAuth();
@@ -134,6 +144,7 @@ export default function PrivateRouter() {
           <Route path="/private/ai-conversations" component={AIConversations} />
           <Route path="/private/settings/ai/llms" component={AISettingsPage} />
           <Route path="/private/settings/ai/qdrant" component={AISettingsPage} />
+          <Route path="/private/settings/ai/prompts" component={AISettingsPage} />
           <Route path="/private/settings/ai" component={AISettingsPage} />
           <Route path="/private/settings/seo/og" component={SeoGeoSettingsPage} />
           <Route path="/private/settings/seo/schema" component={SeoGeoSettingsPage} />
@@ -164,11 +175,13 @@ export default function PrivateRouter() {
           <Route path="/private/mcp-server/tools" component={McpServerPage} />
           <Route path="/private/mcp-server" component={McpServerPage} />
           <Route path="/private/agents/orgchart" component={AgentsOrgChartPage} />
+          <Route path="/private/agents/proposals/:id" component={AgentsOrgChartPage} />
+          <Route path="/private/agents/proposals" component={AgentsOrgChartPage} />
           <Route path="/private/agents" component={AgentsRedirect} />
           <Route path="/private/error-log" component={ErrorLogPage} />
           <Route path="/private/background-pipeline" component={BackgroundPipelinePage} />
-          <Route path="/private/proposals/:id" component={ProposalsPage} />
-          <Route path="/private/proposals" component={ProposalsPage} />
+          <Route path="/private/proposals/:id" component={ProposalsRedirect} />
+          <Route path="/private/proposals" component={ProposalsRedirect} />
           <Route path="/private/overlays" component={PrivateOverlays} />
           <Route component={NotFound} />
         </Switch>

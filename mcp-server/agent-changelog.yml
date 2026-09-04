@@ -6,6 +6,20 @@ window_days: 6
 
 entries:
   - date: "2026-09-03"
+    summary: "SEO write layer + seo-index sync on go-live"
+    agent_impact:
+      - "Cluster seo: only on live or draft when no live locales exist. A/B variants and draft-while-live fail with seo_variant_forbidden / seo_draft_while_live_forbidden."
+      - "promote_variant over live keeps live seo: (warning seo_not_promoted_from_variant). First publish_draft still brings draft SEO and patches seo-index.json."
+      - "Do not set SEO on a variant then promote. Loop locales yourself (no fan-out). Reconnect MCP for update_fields / promote_variant / get_entry_seo copy."
+    paths:
+      - server/seo-write-layer.ts
+      - server/seo-index.ts
+      - server/routes/versioning.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/content_system.md
+      - scripts/validation/runDiagnosticsJob.ts
+    tools_changed: true
+  - date: "2026-09-03"
     summary: "keyword_metrics: OpenRush cache over YAML for SEO reads"
     agent_impact:
       - "get_entry_seo and list_seo_cluster_entries / get_seo_cluster members include keyword_metrics (source, may_not_be_recent, stale, fetched_at, notes). OpenRush cache wins when configured; YAML seo.kw_* is fallback only."

@@ -854,6 +854,7 @@ export function registerVersioningRoutes(app: Express): void {
             return;
           }
         }
+        // First publish: no live locales yet — draft SEO becomes live SEO.
         fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
 
         const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
@@ -891,6 +892,29 @@ export function registerVersioningRoutes(app: Express): void {
       invalidateContentCaches(contentType, getCI(res));
       if (!resolved.templateMode) {
         refreshSitemapEntriesForContentKey(contentType, resolved.slug, publishedLocales);
+      }
+
+      try {
+        const { syncSeoIndexEntryFromLiveDisk } = await import("../seo-index");
+        for (const locale of publishedLocales) {
+          syncSeoIndexEntryFromLiveDisk({
+            contentType,
+            slug: resolved.slug,
+            locale,
+            contentRoot: root,
+            author: auth.author || "api",
+            ci: getCI(res),
+          });
+          emitEntryLocalePromoted({
+            site: getContentRootName(res),
+            contentType,
+            slug: resolved.slug,
+            locale,
+            author: auth.author || "api",
+          });
+        }
+      } catch {
+        /* non-fatal */
       }
 
       res.json({
@@ -1034,7 +1058,12 @@ export function registerVersioningRoutes(app: Express): void {
           return;
         }
       }
-      fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
+
+      const liveExisted = fs.existsSync(defaultFilePath);
+      const liveContent = liveExisted ? fs.readFileSync(defaultFilePath, "utf-8") : null;
+      const { yamlForPromotePreservingLiveSeo } = await import("../seo-write-layer");
+      const promoted = yamlForPromotePreservingLiveSeo(variantContent, liveContent);
+      fs.writeFileSync(defaultFilePath, promoted.content, "utf-8");
 
       const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
       const localeData = existing[locale];
@@ -1093,7 +1122,24 @@ export function registerVersioningRoutes(app: Express): void {
         author: auth.author || "api",
       });
 
-      res.json({ success: true });
+      try {
+        const { syncSeoIndexEntryFromLiveDisk } = await import("../seo-index");
+        syncSeoIndexEntryFromLiveDisk({
+          contentType,
+          slug: resolved.slug,
+          locale,
+          contentRoot: root,
+          author: auth.author || "api",
+          ci: getCI(res),
+        });
+      } catch {
+        /* non-fatal */
+      }
+
+      res.json({
+        success: true,
+        ignoredVariantSeo: promoted.ignoredVariantSeo,
+      });
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }
@@ -1160,6 +1206,27 @@ export function registerVersioningRoutes(app: Express): void {
         locale,
         author: auth.author || "api",
       });
+
+      try {
+        const { removeSeoIndexEntries, seoEntryId } = await import("../seo-index");
+        removeSeoIndexEntries({
+          contentRoot: root,
+          entryIds: [seoEntryId(contentType, resolved.slug, locale)],
+          author: auth.author || "api",
+        });
+        const { emitEntrySeoChanged } = await import("../content-events");
+        emitEntrySeoChanged({
+          site: getContentRootName(res),
+          contentType,
+          slug: resolved.slug,
+          locale,
+          path: result.liveRelPath,
+          author: auth.author || "api",
+          seoIndexSynced: true,
+        });
+      } catch {
+        /* non-fatal */
+      }
 
       res.json({
         success: true,

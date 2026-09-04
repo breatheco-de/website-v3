@@ -22,6 +22,8 @@ export type AskAgentPromptFrontmatter = {
 export type AskAgentPromptTemplate = {
   frontmatter: AskAgentPromptFrontmatter;
   body: string;
+  /** Original markdown including frontmatter (for Copy template / viewer). */
+  raw: string;
 };
 
 export type AskAgentPromptId =
@@ -30,8 +32,10 @@ export type AskAgentPromptId =
   | "organic-missing-serp"
   | "organic-link-gaps"
   | "page-diagnostics"
-  | "draft-feedback";
+  | "draft-feedback"
+  | "polish-ask-agent-prompt";
 
+/** All registered templates (including meta polish). */
 export const ASK_AGENT_PROMPT_IDS: AskAgentPromptId[] = [
   "organic-page2",
   "organic-low-ctr",
@@ -39,4 +43,10 @@ export const ASK_AGENT_PROMPT_IDS: AskAgentPromptId[] = [
   "organic-link-gaps",
   "page-diagnostics",
   "draft-feedback",
+  "polish-ask-agent-prompt",
 ];
+
+/** Prompt Library cards — excludes the meta “polish the template” prompt. */
+export const ASK_AGENT_LIBRARY_IDS: AskAgentPromptId[] = ASK_AGENT_PROMPT_IDS.filter(
+  (id) => id !== "polish-ask-agent-prompt",
+);

@@ -75,6 +75,7 @@ import {
   type SeoBlock,
   type SeoIndexWarning,
 } from "./seo-fields";
+import { assertSeoWriteLayerAllowed } from "./seo-write-layer";
 
 const log = child({ module: "seo-index" });
 
@@ -636,6 +637,21 @@ export function writeSeoFields(opts: {
 }): WriteSeoFieldsResult {
   const contentRoot = opts.contentRoot ?? getDefaultContentRoot();
   const ci = opts.ci ?? contentIndex;
+  const layerGate = assertSeoWriteLayerAllowed({
+    contentType: opts.contentType,
+    slug: opts.slug,
+    locale: opts.locale,
+    variant: opts.variant,
+    contentRoot,
+  });
+  if (!layerGate.ok) {
+    return {
+      success: false,
+      error: layerGate.error,
+      code: layerGate.code,
+      statusCode: layerGate.statusCode,
+    };
+  }
   const filePath = localeFilePath(opts.contentType, opts.slug, opts.locale, contentRoot, opts.variant);
   if (!fs.existsSync(filePath)) {
     return {
@@ -819,6 +835,21 @@ export function resetSeoOverlayField(opts: {
 
   const contentRoot = opts.contentRoot ?? getDefaultContentRoot();
   const ci = opts.ci ?? contentIndex;
+  const layerGate = assertSeoWriteLayerAllowed({
+    contentType: opts.contentType,
+    slug: opts.slug,
+    locale: opts.locale,
+    variant: opts.variant,
+    contentRoot,
+  });
+  if (!layerGate.ok) {
+    return {
+      success: false,
+      error: layerGate.error,
+      code: layerGate.code,
+      statusCode: layerGate.statusCode,
+    };
+  }
   const filePath = localeFilePath(opts.contentType, opts.slug, opts.locale, contentRoot, opts.variant);
   if (!fs.existsSync(filePath)) {
     return {
@@ -904,6 +935,175 @@ export function resetSeoOverlayField(opts: {
     isVariantLayer: isVariant,
     indexRebuilt,
   };
+}
+
+/**
+ * Patch seo-index from the live locale on disk (after publish/promote).
+ * If the live file is missing, removes the entry instead.
+ */
+export function syncSeoIndexEntryFromLiveDisk(opts: {
+  contentType: string;
+  slug: string;
+  locale: string;
+  contentRoot?: string;
+  author?: string;
+  ci?: ContentIndex;
+  emitEvent?: boolean;
+}): { ok: boolean; removed?: boolean } {
+  const contentRoot = opts.contentRoot ?? getDefaultContentRoot();
+  const ci = opts.ci ?? contentIndex;
+  const filePath = localeFilePath(opts.contentType, opts.slug, opts.locale, contentRoot);
+  const id = seoEntryId(opts.contentType, opts.slug, opts.locale);
+  const site = path.basename(contentRootAbs(contentRoot));
+  const relLocale = path.relative(contentRootAbs(contentRoot), filePath).split(path.sep).join("/");
+
+  if (!fs.existsSync(filePath)) {
+    removeSeoIndexEntries({
+      contentRoot,
+      entryIds: [id],
+      author: opts.author,
+    });
+    if (opts.emitEvent !== false) {
+      emitEntrySeoChanged({
+        site,
+        contentType: opts.contentType,
+        slug: opts.slug,
+        locale: opts.locale,
+        path: relLocale,
+        author: opts.author,
+        seoIndexSynced: true,
+      });
+    }
+    return { ok: true, removed: true };
+  }
+
+  if (!isSeoMonitoringEnabled(opts.contentType, contentRoot)) {
+    removeSeoIndexEntries({
+      contentRoot,
+      entryIds: [id],
+      author: opts.author,
+    });
+    if (opts.emitEvent !== false) {
+      emitEntrySeoChanged({
+        site,
+        contentType: opts.contentType,
+        slug: opts.slug,
+        locale: opts.locale,
+        path: relLocale,
+        author: opts.author,
+        seoIndexSynced: true,
+      });
+    }
+    return { ok: true, removed: true };
+  }
+
+  const effective = resolveEffectiveSeo({
+    contentType: opts.contentType,
+    slug: opts.slug,
+    locale: opts.locale,
+    contentRoot,
+  });
+  const commonPath = commonFilePath(opts.contentType, opts.slug, contentRoot);
+  const commonYaml = fs.existsSync(commonPath) ? fs.readFileSync(commonPath, "utf-8") : null;
+  const validated = validateSeoSave({
+    next: effective,
+    locale: opts.locale,
+    contentType: opts.contentType,
+    slug: opts.slug,
+    ci,
+    commonYaml,
+  });
+  const seo = validated.ok ? validated.coerced : effective;
+  const pillarLive = validated.ok ? validated.pillarLive : null;
+  const relFile = path.relative(contentRootAbs(contentRoot), filePath).split(path.sep).join("/");
+  patchSeoIndexAfterLiveWrite({
+    contentRoot,
+    contentType: opts.contentType,
+    slug: opts.slug,
+    locale: opts.locale,
+    file: relFile,
+    seo,
+    pillarLive,
+    ci,
+    author: opts.author,
+  });
+  if (opts.emitEvent !== false) {
+    emitEntrySeoChanged({
+      site,
+      contentType: opts.contentType,
+      slug: opts.slug,
+      locale: opts.locale,
+      path: relLocale,
+      author: opts.author,
+      seoIndexSynced: true,
+    });
+  }
+  return { ok: true };
+}
+
+/** Remove entries from seo-index.json and recompute the cluster graph. */
+export function removeSeoIndexEntries(opts: {
+  contentRoot?: string;
+  entryIds: string[];
+  author?: string;
+}): void {
+  if (!opts.entryIds.length) return;
+  const contentRoot = opts.contentRoot ?? getDefaultContentRoot();
+  let index: SeoIndex;
+  try {
+    index = loadSeoIndex(contentRoot);
+  } catch {
+    index = rebuildSeoIndex({ contentRoot, reason: "remove-load-failed", mark: false });
+  }
+  const idSet = new Set(opts.entryIds);
+  for (const id of idSet) {
+    delete index.entries[id];
+  }
+  index.warnings = (index.warnings || []).filter((w) => !w.entry || !idSet.has(w.entry));
+  recomputeGraph(index);
+  saveSeoIndex(index, { contentRoot, author: opts.author, mark: false });
+}
+
+const SEO_DIAG_VALIDATORS = new Set(["seo-cluster", "seo-cluster-links"]);
+
+/** True when the diagnostics run includes validators that read seo-index.json. */
+export function diagnosticsNeedsSeoIndex(validatorNames: string[]): boolean {
+  return validatorNames.some((n) => SEO_DIAG_VALIDATORS.has(n));
+}
+
+/**
+ * Sync ensure seo-index is fresh before SEO cluster validators (in-process, no Sidequest).
+ * Scoped entryKeys → patch each; otherwise full rebuild.
+ */
+export function ensureSeoIndexBeforeDiagnostics(opts: {
+  contentRoot: string;
+  entryKeys?: string[];
+  ci?: ContentIndex;
+}): void {
+  invalidateSeoIndexCache();
+  const keys = (opts.entryKeys || []).filter(Boolean);
+  if (keys.length === 0) {
+    rebuildSeoIndex({
+      contentRoot: opts.contentRoot,
+      reason: "diagnostics",
+      mark: false,
+      ci: opts.ci,
+    });
+    return;
+  }
+  for (const key of keys) {
+    const parts = key.split("/");
+    if (parts.length < 3) continue;
+    const [contentType, slug, locale] = parts;
+    syncSeoIndexEntryFromLiveDisk({
+      contentType: contentType!,
+      slug: slug!,
+      locale: locale!,
+      contentRoot: opts.contentRoot,
+      ci: opts.ci,
+      emitEvent: false,
+    });
+  }
 }
 
 /** Rebuild from live YAML when remote also touched the index — never force that path. */

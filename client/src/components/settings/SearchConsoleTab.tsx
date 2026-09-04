@@ -32,6 +32,7 @@ import { apiRequestWithAuth, queryClient } from "@/lib/queryClient";
 import type { GscInspectionGetResponse, GscSitesResponse } from "@/lib/gscInspection";
 import { gscPermissionLabel, isGscPropertyAccessDenied } from "@/lib/gscInspection";
 import { SearchConsoleBigQueryCard } from "@/components/settings/SearchConsoleBigQueryCard";
+import { SearchConsoleOrganicMarketsCard } from "@/components/settings/SearchConsoleOrganicMarketsCard";
 
 function configuredBadge(ok: boolean, okLabel: string, missingLabel: string, testId: string) {
   return ok ? (
@@ -547,6 +548,7 @@ export function SearchConsoleTab() {
       </Card>
 
       <SearchConsoleBigQueryCard canEdit={canEdit} />
+      <SearchConsoleOrganicMarketsCard canEdit={canEdit} />
     </div>
   );
 }

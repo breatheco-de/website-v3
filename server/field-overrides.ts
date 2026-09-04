@@ -43,6 +43,7 @@ import { assertLiveEntrySeoAndRequiredFields } from "./live-entry-seo-gate";
 import { writeSeoFields } from "./seo-index";
 import { readSeoBlockFromYamlText } from "./seo-fields";
 import { resolveEffectiveSeo, seoBaselineFromDbItem } from "./seo-effective-seo";
+import { assertSeoWriteLayerAllowed } from "./seo-write-layer";
 import {
   DEFAULT_DRAFT_VARIANT,
   getEntryContentDir,
@@ -97,6 +98,7 @@ export type MappedFieldStorage = "root_key" | "field_overrides";
 export type WriteMappedFieldsResult = {
   success: boolean;
   error?: string;
+  code?: string;
   statusCode?: number;
   storage?: MappedFieldStorage;
   /** Repo-relative path written (when successful). */
@@ -513,6 +515,7 @@ export function writeMappedFields(
         success: false,
         error: seoResult.error,
         statusCode: seoResult.statusCode || 400,
+        code: seoResult.code,
         isVariantLayer: seoResult.statusCode === 404 ? undefined : layer.isVariantLayer,
       };
     }
@@ -872,6 +875,8 @@ export async function buildFieldProvenance(opts: {
   canonicalPath?: string | null;
   indexRebuilt?: boolean;
   seoFileMissing?: boolean;
+  seoWriteAllowed?: boolean;
+  seoWriteBlockReason?: string;
 }> {
   const { contentType, slug, locale, contentRoot, db, variant } = opts;
   const config = getContentTypeConfig(contentType, contentRoot);
@@ -1116,6 +1121,14 @@ export async function buildFieldProvenance(opts: {
     indexRebuilt = false;
   }
 
+  const seoWriteGate = assertSeoWriteLayerAllowed({
+    contentType,
+    slug,
+    locale,
+    variant: layer.resolvedVariant ?? variant,
+    contentRoot,
+  });
+
   return {
     hasDatabase,
     fields,
@@ -1125,5 +1138,7 @@ export async function buildFieldProvenance(opts: {
     canonicalPath: canonicalPath ? String(canonicalPath) : null,
     indexRebuilt,
     seoFileMissing,
+    seoWriteAllowed: seoWriteGate.ok,
+    ...(seoWriteGate.ok ? {} : { seoWriteBlockReason: seoWriteGate.error }),
   };
 }

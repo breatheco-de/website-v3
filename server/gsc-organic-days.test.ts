@@ -73,6 +73,7 @@ describe("gsc organic days + weighted position", () => {
           {
             query: "python bootcamp",
             url: "https://example.com/a",
+            country: "",
             clicks: 0,
             impressions: 300,
             sum_position: 300 * 10,
@@ -89,6 +90,7 @@ describe("gsc organic days + weighted position", () => {
           {
             query: "python bootcamp",
             url: "https://example.com/a",
+            country: "",
             clicks: 0,
             impressions: 100,
             sum_position: 100 * 20,

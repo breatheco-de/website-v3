@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { SeoTab, GeoTab, DiagnosticsFunnelTab } from "@/pages/SeoGeoPage";
@@ -5,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DiagnosticsOrganicPanel } from "@/components/diagnostics/DiagnosticsOrganicPanel";
 import { isDiagnosticsSeoOrganic } from "@/lib/diagnostics-tab";
 import { cn } from "@/lib/utils";
+import { getSessionHeaders } from "@/lib/sessionHeaders";
 
 interface SeoOverview {
   intentDistribution: Record<string, Record<string, number>>;
@@ -116,14 +118,29 @@ export function DiagnosticsSeoPanel() {
 }
 
 function DiagnosticsSeoOverview() {
+  const [organicMarket, setOrganicMarket] = useState("worldwide");
   const { data: overview, isLoading } = useQuery<SeoOverview>({
-    queryKey: ["/api/seo/overview"],
+    queryKey: ["/api/seo/overview", organicMarket],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/seo/overview?market=${encodeURIComponent(organicMarket)}`,
+        { credentials: "include", headers: { ...getSessionHeaders() } },
+      );
+      if (!res.ok) throw new Error("Failed to load SEO overview");
+      return res.json() as Promise<SeoOverview>;
+    },
   });
   if (isLoading) return <LoadingSection />;
   if (!overview) {
     return <p className="text-muted-foreground text-sm text-center py-12">Failed to load SEO data</p>;
   }
-  return <SeoTab data={overview} />;
+  return (
+    <SeoTab
+      data={overview}
+      organicMarket={organicMarket}
+      onOrganicMarketChange={setOrganicMarket}
+    />
+  );
 }
 
 export function DiagnosticsFunnelPanel() {

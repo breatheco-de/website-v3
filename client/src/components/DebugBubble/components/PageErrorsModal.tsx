@@ -443,7 +443,7 @@ function LinkedIssueProposals({ issueId }: { issueId: string }) {
     <div className="text-xs space-y-1 pt-1 border-t border-border/50">
       <div className="font-medium text-foreground">Linked proposals</div>
       {rows.map((p) => (
-        <Link key={p.id} href={`/private/proposals/${p.id}`} className="block text-primary hover:underline">
+        <Link key={p.id} href={`/private/agents/proposals/${p.id}`} className="block text-primary hover:underline">
           {p.title} ({p.status})
         </Link>
       ))}

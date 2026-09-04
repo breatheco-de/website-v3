@@ -814,16 +814,41 @@ export function registerSeoRoutes(app: Express): void {
 
       const contentRoot = getContentRoot(res);
       const contentFolder = getContentRootName(res);
+      const marketParam =
+        typeof req.query.market === "string" && req.query.market.trim()
+          ? req.query.market.trim()
+          : "worldwide";
       const { loadSeoIndex, computeClusterHealth, listBrokenClusterRefs } = await import("../seo-index");
       const {
         buildOrganicPathTraffic,
         lookupPathTraffic,
         sumPathTraffic,
       } = await import("../gsc-organic-path-traffic");
+      const { buildSiteOrganicTraffic } = await import("../gsc-organic-site-traffic");
+      const { buildOtherHighTraffic, clusteredPathsFromSeoIndex } = await import(
+        "../gsc-organic-other-traffic"
+      );
       const seoIndex = loadSeoIndex(contentRoot);
       const clusterHealth = computeClusterHealth(seoIndex, getCI(res), contentRoot);
       const brokenClusterRefs = listBrokenClusterRefs(seoIndex, getCI(res));
-      const organic = buildOrganicPathTraffic({ contentFolder });
+      const organic = buildOrganicPathTraffic({
+        contentFolder,
+        contentRoot,
+        market: marketParam,
+        kpiPaths: clusteredPathsFromSeoIndex(seoIndex),
+      });
+      const siteOrganicTraffic = await buildSiteOrganicTraffic({
+        contentRoot,
+        contentFolder,
+      });
+      const ci = getCI(res);
+      const otherHighTraffic = buildOtherHighTraffic({
+        contentFolder,
+        contentRoot,
+        market: marketParam,
+        seoIndex,
+        isKnownUrl: (path) => ci.isKnownUrl(path),
+      });
       const clusters = Object.entries(seoIndex.clusters).map(([hubId, cluster]) => {
         const hub = seoIndex.entries[hubId];
         const keyword =
@@ -893,6 +918,33 @@ export function registerSeoRoutes(app: Express): void {
           days_in_window: organic.days_in_window,
           days_expected: organic.days_expected,
           incomplete: organic.incomplete,
+          country_less: organic.country_less,
+          truncated: organic.truncated,
+          market: organic.market,
+          markets: organic.markets,
+          market_warning: organic.market_warning,
+          totals: organic.totals,
+          series: organic.series,
+        },
+        siteOrganicTraffic: {
+          window: siteOrganicTraffic.window,
+          days_in_window: siteOrganicTraffic.days_in_window,
+          days_expected: siteOrganicTraffic.days_expected,
+          incomplete: siteOrganicTraffic.incomplete,
+          configured: siteOrganicTraffic.configured,
+          source: siteOrganicTraffic.source,
+          error: siteOrganicTraffic.error,
+          totals: siteOrganicTraffic.totals,
+          series: siteOrganicTraffic.series,
+        },
+        otherHighTraffic: {
+          window: otherHighTraffic.window,
+          market: otherHighTraffic.market,
+          days_in_window: otherHighTraffic.days_in_window,
+          days_expected: otherHighTraffic.days_expected,
+          incomplete: otherHighTraffic.incomplete,
+          known: otherHighTraffic.known,
+          unknown: otherHighTraffic.unknown,
         },
         totals: {
           totalPages,
@@ -918,6 +970,7 @@ export function registerSeoRoutes(app: Express): void {
         isClusterFilterBucket,
         enrichClusterBucketRowsWithKeywordMetrics,
       } = await import("../seo-index");
+      const { buildOrganicPathTraffic, lookupPathTraffic } = await import("../gsc-organic-path-traffic");
       if (!isClusterFilterBucket(bucketRaw)) {
         res.status(400).json({
           error:
@@ -929,6 +982,10 @@ export function registerSeoRoutes(app: Express): void {
       const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
       const pageSizeRaw = parseInt(String(req.query.pageSize || "25"), 10) || 25;
       const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
+      const marketParam =
+        typeof req.query.market === "string" && req.query.market.trim()
+          ? req.query.market.trim()
+          : "worldwide";
       const contentRoot = getContentRoot(res);
       const contentFolder = getContentRootName(res);
       const seoIndex = loadSeoIndex(contentRoot);
@@ -940,12 +997,22 @@ export function registerSeoRoutes(app: Express): void {
         ci: getCI(res),
         contentRoot,
       });
+      const enriched = enrichClusterBucketRowsWithKeywordMetrics(result.items, {
+        contentRoot,
+        contentFolder,
+      });
+      const organic = buildOrganicPathTraffic({
+        contentFolder,
+        contentRoot,
+        market: marketParam,
+      });
+      const items = enriched.map((item) => {
+        const traffic = lookupPathTraffic(organic.byPath, item.path);
+        return traffic ? { ...item, traffic } : item;
+      });
       res.json({
         ...result,
-        items: enrichClusterBucketRowsWithKeywordMetrics(result.items, {
-          contentRoot,
-          contentFolder,
-        }),
+        items,
       });
     } catch (err) {
       res.status(500).json({ error: "Failed to list cluster entries", message: String(err) });

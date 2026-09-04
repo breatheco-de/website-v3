@@ -136,6 +136,10 @@ import {
 import { getSeoIndexEntry, SEO_INDEX_FILENAME } from "../../server/seo-index.js";
 import { buildSearchEnginesPagePayload } from "../../server/search-engines-page.js";
 import {
+  assertSeoWriteLayerAllowed,
+  SEO_DRAFT_WHILE_LIVE_FORBIDDEN,
+} from "../../server/seo-write-layer.js";
+import {
   collectFormSourceHitsFromNode,
   collectFormSourceHitsFromUpdates,
   formSourceWriteGate,
@@ -1421,7 +1425,8 @@ export function registerPageTools(
     "Hub inventory: list_seo_clusters / list_seo_cluster_entries / get_seo_cluster. " +
     "Toggle clustering via update_fields seo.include_in_clustering (MCP-only; requires type seo_monitoring.enabled). " +
     "Do not expect a derived JSON-LD dump on get_entry_content. Requires content_view or seo_edit. " +
-    "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file. " +
+    "Supply 'variant' to read a draft/experiment file ({variantSlug}.{locale}.yml). " +
+    "Cluster SEO writes are allowed only on live or draft when the entry has no live locales yet — A/B variants are read-only for seo:. " +
     "Variants skip search_engines (live URLs only); re-call without variant to read engine status.",
     {
       slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
@@ -1520,8 +1525,9 @@ export function registerPageTools(
         );
         const warnings: Array<{ code: string; message: string }> = [
           {
-            code: "variant_seo_not_indexed",
-            message: "Variant seo: is not in seo-index.json until promote.",
+            code: "seo_variant_layer_read_only",
+            message:
+              "Cluster SEO cannot be written on this layer. Edit live (omit variant) or draft only when the entry has no live locales yet. Leftover variant seo: is not in seo-index.json.",
           },
           {
             code: "variant_updated_at_not_live",
@@ -2589,6 +2595,7 @@ export function registerPageTools(
     "Rejects two or more distinct section indexes (split into separate calls so bindings can propagate). " +
     "sections.N.* patches an existing slot only — missing index fails (reload, or edit template.{locale}.yml with layout_target type_template). Does not create overlay patches or grow sections[]. " +
     "field_path routing: sections.* and safe top-level → locale; seo.main_keyword|seo.kw_monthly_volume|seo.kw_difficulty|seo.pillar_path|seo.is_pillar → locale seo: (never _common.yml, no meta_target); " +
+    "SEO writes only on live {locale}.yml or draft.{locale}.yml when the entry has no live locales yet (rejects A/B variants and draft-while-live with seo_variant_forbidden / seo_draft_while_live_forbidden); " +
     "seo.include_in_clustering (MCP-only boolean, never YAML) expands to pillar_path/is_pillar — requires content-type seo_monitoring.enabled; " +
     "research writes: if any of main_keyword|kw_monthly_volume|kw_difficulty is in updates, omitted metrics are forced to null (pass both integers to keep them); " +
     "kw_monthly_volume ≥ 0 integer; kw_difficulty 0–100 integer; planning estimates not GSC; " +
@@ -2790,6 +2797,50 @@ export function registerPageTools(
         const key = u.field_path.slice(5).split(".")[0];
         if (!ALL_KNOWN_META_FIELDS.has(key) && !u.meta_target) {
           return fail(`Unknown meta field '${key}' requires meta_target: "locale" | "common"`);
+        }
+      }
+
+      const seoTouching = updates.some((u) => isSeoPath(u.field_path));
+      if (seoTouching) {
+        const layerGate = assertSeoWriteLayerAllowed({
+          contentType: resolved.contentType,
+          slug,
+          locale,
+          variant,
+          contentRoot: contentPath,
+        });
+        if (!layerGate.ok) {
+          const siteHint = site ? { site } : {};
+          const next_actions: NextAction[] = [
+            {
+              tool: "update_fields",
+              priority: "required",
+              reason:
+                layerGate.code === SEO_DRAFT_WHILE_LIVE_FORBIDDEN
+                  ? "Edit cluster SEO on the live locale (omit variant)."
+                  : "Edit cluster SEO on live (omit variant), or on draft only when the page is not live yet.",
+              args_hint: {
+                slug,
+                contentType: resolved.contentType,
+                locale,
+                ...siteHint,
+                updates: inputUpdates.map((u) =>
+                  u.reset === true
+                    ? { field_path: u.field_path, reset: true }
+                    : { field_path: u.field_path, value: u.value },
+                ),
+              },
+            },
+          ];
+          if (layerGate.code === SEO_DRAFT_WHILE_LIVE_FORBIDDEN) {
+            next_actions.push({
+              tool: "get_entry_seo",
+              priority: "recommended",
+              reason: "Confirm live cluster SEO before editing.",
+              args_hint: { slug, contentType: resolved.contentType, locale, ...siteHint },
+            });
+          }
+          return fail(layerGate.error, { code: layerGate.code, next_actions });
         }
       }
 
@@ -3319,8 +3370,9 @@ export function registerPageTools(
         });
         if (variant) {
           warnings.push({
-            code: "variant_seo_not_indexed",
-            message: "Variant seo: is not written to seo-index.json until promote.",
+            code: "draft_seo_not_indexed_until_publish",
+            message:
+              "Draft SEO is on disk only until publish_draft; seo-index.json updates on first go-live (not on A/B promote over live).",
           });
         }
         next_actions.push({
@@ -4325,6 +4377,8 @@ export function registerPageTools(
     "promote_variant",
     "Promote a variant to become the live version for ONE locale: overwrites the default locale file with the variant's content, " +
     "removes the variant from versioning.yml, and deletes the variant file. " +
+    "When a live locale already exists, cluster seo: stays on the live file (variant seo: is ignored — warning seo_not_promoted_from_variant). " +
+    "First go-live from draft (no live file yet) still brings draft SEO onto live and patches seo-index.json. " +
     "For attached shared-layout entries, pass the entry slug (not \"single\") to promote entry drafts from translate_entry " +
     "({variantSlug}.{locale}.yml under the entry folder). Pass slug \"single\" only to promote a type-root template variant. " +
     "For unpublished draft entries (no live locales), use publish_draft instead (all-or-nothing across locales). " +
@@ -4423,10 +4477,20 @@ export function registerPageTools(
         next_actions.push(diagnosticsAfterGoLiveNextAction(slug, site));
         {
           const promoteWarns = promoteWarnings(sharedLayout);
+          if (data.ignoredVariantSeo === true) {
+            promoteWarns.push({
+              code: "seo_not_promoted_from_variant",
+              message:
+                "Live cluster seo: was kept; variant seo: was not applied. Edit SEO on the live locale with update_fields (omit variant).",
+            });
+          }
           const sessWarn = missingSessionWarning(agent_session_id);
           if (sessWarn) promoteWarns.unshift(sessWarn);
           return ok(
-            { message: `Variant '${variantSlug}' promoted to live for ${contentType}/${slug} (${locale})` },
+            {
+              message: `Variant '${variantSlug}' promoted to live for ${contentType}/${slug} (${locale})`,
+              ignoredVariantSeo: data.ignoredVariantSeo === true,
+            },
             { warnings: promoteWarns, next_actions },
           );
         }
@@ -5161,8 +5225,19 @@ export function registerPageTools(
         return fail(`Entry '${slug}' already exists for contentType '${contentType}'.`);
       }
 
+      if (commonRecord.seo !== undefined) {
+        return fail("seo: must live on locale payloads, not common.", {
+          code: "seo_on_common",
+        });
+      }
+
       const draftFirst = !sharedLayoutCreate;
       const draftVariant = "draft";
+      const localesWithSeo = Object.entries(normalizedLocales).filter(
+        ([, v]) => v.fields && typeof (v.fields as Record<string, unknown>).seo === "object",
+      );
+      // Draft-first create is always unpublished → SEO on locale draft files is allowed.
+      // Shared-layout create writes live files → SEO on live is allowed.
 
       fs.mkdirSync(pageDir, { recursive: true });
 
@@ -5235,6 +5310,13 @@ export function registerPageTools(
           message:
             "published_at omitted on draft create (missing OK). Stamped once on publish_draft / first promote — not recomputed; cannot clear to empty.",
         });
+        if (localesWithSeo.length > 0) {
+          warnings.push({
+            code: "draft_seo_not_indexed_until_publish",
+            message:
+              "Draft SEO is on disk only until publish_draft; seo-index.json updates on first go-live.",
+          });
+        }
         side_effects.push({
           kind: "draft_created",
           summary: `Wrote ${draftVariant}.{locale}.yml + versioning.yml; live {locale}.yml not created`,
@@ -5285,6 +5367,27 @@ export function registerPageTools(
           message:
             "Live create stamps published_at=now on _common.yml when the type is not draft-first.",
         });
+      }
+      if (!draftFirst && localesWithSeo.length > 0) {
+        try {
+          const { syncSeoIndexEntryFromLiveDisk } = await import("../../server/seo-index.js");
+          for (const [loc] of localesWithSeo) {
+            syncSeoIndexEntryFromLiveDisk({
+              contentType,
+              slug,
+              locale: loc,
+              contentRoot: contentPath,
+              author: mcpWriteAuthor(mcpToken),
+              emitEvent: true,
+            });
+          }
+          side_effects.push({
+            kind: "seo_index",
+            summary: `Patched ${contentFolder}/${SEO_INDEX_FILENAME} for live locales created with seo:.`,
+          });
+        } catch {
+          /* non-fatal */
+        }
       }
       if (!refreshResult.ok) {
         warnings.push({

@@ -21,6 +21,7 @@ function row(partial: Partial<GscDayRow> & { query: string; url: string }): GscD
   const clicks = partial.clicks ?? 0;
   const sum_position = partial.sum_position ?? impressions * 5;
   return {
+    country: "",
     clicks,
     impressions,
     sum_position,
@@ -108,6 +109,68 @@ describe("applyKeepFilter", () => {
     const out = applyKeepFilter(rows, ctx);
     expect(out.truncated).toBe(false);
     expect(out.rows[0]?.query).toBe("q0");
+  });
+
+  it("keeps thin country splits when the worldwide total would be kept", () => {
+    const rows = [
+      row({
+        query: "obscure long tail phrase xyz",
+        url: "https://example.com/other-page",
+        country: "esp",
+        impressions: 3,
+        sum_position: 3 * 50,
+      }),
+      row({
+        query: "obscure long tail phrase xyz",
+        url: "https://example.com/other-page",
+        country: "usa",
+        impressions: 3,
+        sum_position: 3 * 50,
+      }),
+    ];
+    // Individually: off-path, pos 50, impressions 3 < MIN_KEEP → drop.
+    expect(shouldKeepRow(rows[0]!, ctx)).toBe(false);
+    expect(shouldKeepRow(rows[1]!, ctx)).toBe(false);
+    // Worldwide total impressions 6 ≥ MIN_KEEP → keep both splits.
+    const out = applyKeepFilter(rows, ctx);
+    expect(out.rows).toHaveLength(2);
+  });
+
+  it("prefers configured-market countries when truncating", async () => {
+    const { DAY_ROW_CAP } = await import("./gsc-keep-filter");
+    // Build more than CAP preferred+other by temporarily using a small local cap simulation:
+    // We can't change DAY_ROW_CAP; instead verify preferred ordering by using enough rows
+    // that sort alone would drop preferred low-impression rows — with prefer set they survive.
+    // Use applyKeepFilter with preferredCountries and mock by testing relative order in truncated output
+    // via a stub: inject many high-impression "zzz" country rows and few preferred.
+    const preferred = new Set(["esp"]);
+    const rows: GscDayRow[] = [];
+    for (let i = 0; i < 5; i++) {
+      rows.push(
+        row({
+          query: `keep-${i}`,
+          url: "https://example.com/bootcamp",
+          country: "esp",
+          impressions: 1,
+          sum_position: 5,
+        }),
+      );
+    }
+    for (let i = 0; i < DAY_ROW_CAP + 10; i++) {
+      rows.push(
+        row({
+          query: `other-${i}`,
+          url: "https://example.com/bootcamp",
+          country: "deu",
+          impressions: 100,
+          sum_position: 500,
+        }),
+      );
+    }
+    const out = applyKeepFilter(rows, ctx, preferred);
+    expect(out.truncated).toBe(true);
+    expect(out.rows).toHaveLength(DAY_ROW_CAP);
+    expect(out.rows.filter((r) => r.country === "esp")).toHaveLength(5);
   });
 });
 

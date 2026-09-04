@@ -1,0 +1,71 @@
+import type { AskAgentPromptId } from "./types";
+
+/** Sample vars for quality review (Copy sample) and vitest fixtures. */
+export const ASK_AGENT_PROMPT_FIXTURES: Record<AskAgentPromptId, Record<string, string>> = {
+  "organic-page2": {
+    query: "coding bootcamp",
+    url: "/en/location/berlin-germany",
+    position: "11.5",
+    impressions: "150",
+    window_label: "7d",
+    mcp_url: "http://localhost:5000/mcp",
+  },
+  "organic-low-ctr": {
+    query: "ai software engineering",
+    url: "/en/blog/example",
+    position: "3.2",
+    impressions: "2000",
+    ctr: "1.2%",
+    expected_ctr: "4.0%",
+    window_label: "7d",
+    mcp_url: "http://localhost:5000/mcp",
+  },
+  "organic-missing-serp": {
+    query: "what is a coding bootcamp",
+    url: "/en/blog/example",
+    position: "2.1",
+    impressions: "800",
+    serp_status: "snippet · not owning feature",
+    window_label: "7d",
+    mcp_url: "http://localhost:5000/mcp",
+  },
+  "organic-link-gaps": {
+    url: "/en/location/berlin-germany",
+    position: "8.0",
+    impressions: "400",
+    inbound: "1",
+    window_label: "7d",
+    mcp_url: "http://localhost:5000/mcp",
+  },
+  "page-diagnostics": {
+    url: "/en/blog/example",
+    content_type: "blog",
+    slug: "example",
+    locale: "en",
+    variant_line: "",
+    file_path: "site_x/blog/example/en.yml",
+    mcp_url: "http://localhost:5000/mcp",
+    error_block: "- META_MISSING [id=abc]: missing description",
+    warning_block: "- (none)",
+  },
+  "draft-feedback": {
+    share_url: "https://example.com/en/blog/example?force_variant=draft1",
+    content_type: "blog",
+    slug: "example",
+    locale: "en",
+    variant: "draft1",
+    mcp_url: "http://localhost:5000/mcp",
+  },
+  "polish-ask-agent-prompt": {
+    target_id: "organic-page2",
+    target_title: "Page 2 opportunity",
+    target_path: "shared/ask-agent-prompts/organic-page2.md",
+    target_used_when: "Staff clicks Ask Agent on Page 2 rows.",
+    target_intention: "Move one query×URL toward page 1.",
+    target_success: "Scoped edits or propose_change; short summary.",
+    target_failure_modes: "  - Rewrites unrelated pages\n  - Generic SEO with no query focus",
+    target_raw:
+      "---\nid: organic-page2\nversion: 1\ntitle: Page 2 opportunity\n---\n\nGoal: Move this page toward page 1.\n",
+    max_chars: "1200",
+  },
+};

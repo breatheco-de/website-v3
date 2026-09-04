@@ -118,6 +118,8 @@ Resolve order at page delivery: **entry (incl. legacy single) → meta → param
 
 ### SEO clustering (per-entry + hub inventory)
 
+- **Write layer:** Cluster `seo:` may be written only on live `{locale}.yml`, or on `draft.{locale}.yml` when the entry has **no** live locales yet. A/B experiment variants are forbidden (`seo_variant_forbidden`). Draft-while-live is forbidden (`seo_draft_while_live_forbidden`). Do not set SEO on a variant then promote — promote over live **keeps live `seo:`** (`seo_not_promoted_from_variant`). First `publish_draft` / go-live with no live file still brings draft SEO onto live.
+- **Index sync:** Live SEO writes and first publish/promote patch `{contentRoot}/seo-index.json` in-request. Unpublish/delete remove the entry key. Diagnostics runs that include `seo-cluster` / `seo-cluster-links` sync-ensure the index before validators (no Sidequest wait). No locale fan-out — loop locales yourself.
 - **Type gate:** `seo_monitoring.enabled` on the content type in `content-types.yml` (staff Content Type manage). Omitted = off. MCP cannot toggle the type flag.
 - **Per-entry toggle (MCP):** virtual `seo.include_in_clustering` (boolean, never YAML). Prefer this over raw null. Requires type monitoring on.
   - `false` → expands to `seo.pillar_path: null` + `seo.is_pillar: false` (same as staff “Include in SEO clustering” off).
@@ -137,7 +139,7 @@ Resolve order at page delivery: **entry (incl. legacy single) → meta → param
 - **Opt-in on `get_entry_seo`:** `include_search_engines: true` (default false). Attaches `search_engines.{google,bing}` — **not** the same as `index` (seo-index topic-cluster inventory).
 - **Google:** read-only from GSC URL Inspection cache (`.cache/{site}/gsc-url-inspection.json` / GCS sync). Fields: `status`, `stale` (older than 7 days), `checkedAt`, `lastCrawlAt`, `canonical_mismatch`, `resolved`, full `record`. Does **not** call Google APIs or enqueue inspect (staff SEO/GEO → Search Console does that).
 - **Bing (phase 1):** always `configured: false`, `status: not_configured` + warning `bing_not_configured`. Phase 2 will use Bing Webmaster `GetUrlInfo` (thinner than GSC).
-- **Variants:** omit `search_engines`; warning `search_engines_skipped_variant` (live URLs only). Variants still return editable `meta`/`seo`/`schema_org` with `index: null`.
+- **Variants:** omit `search_engines`; warning `search_engines_skipped_variant` (live URLs only). Variant reads may still show leftover `seo:` but writes are blocked except draft-when-unpublished; `index: null`.
 - **Warnings:** `bing_not_configured`, `search_engines_stale` when Google cache is stale.
 - **Non-effects:** no live API, no inspect queue, no YAML/GitHub, no diagnostics job.
 

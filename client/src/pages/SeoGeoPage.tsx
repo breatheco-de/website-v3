@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Brain, Check, ChevronDown, Copy, Crosshair, DownloadCloud, ExternalLink, Filter, Globe, Info, Loader2, MoreVertical, Network, Pencil, Plus, RefreshCw, Star, Unlink } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Brain, Check, ChevronDown, Copy, Crosshair, DownloadCloud, ExternalLink, Filter, Globe, Info, Loader2, MoreVertical, MousePointerClick, Network, Pencil, Plus, RefreshCw, Star, Unlink } from "lucide-react";
+import * as CountryFlags from "country-flag-icons/react/3x2";
 import { SiGoogle } from "react-icons/si";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -24,6 +25,13 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -170,6 +178,40 @@ function fmtTrafficPosition(stats: PathTrafficStats): string {
   return stats.position.toFixed(1);
 }
 
+type MetricTone = "good" | "warn" | "bad";
+
+function toneClass(tone: MetricTone): string {
+  if (tone === "good") return "text-status-online";
+  if (tone === "warn") return "text-status-away";
+  return "text-status-busy";
+}
+
+/** Clicks: green ≥10, amber ≥1, red = 0. */
+function clicksTone(clicks: number): MetricTone {
+  if (clicks >= 10) return "good";
+  if (clicks >= 1) return "warn";
+  return "bad";
+}
+
+/** Position (lower better): green ≤10, amber ≤20, red >20. */
+function positionTone(position: number): MetricTone {
+  if (position <= 10) return "good";
+  if (position <= 20) return "warn";
+  return "bad";
+}
+
+/** CTR ratio (clicks/impressions): green ≥2%, amber ≥0.5%, red <0.5%. */
+function ctrTone(ctrRatio: number): MetricTone {
+  if (ctrRatio >= 0.02) return "good";
+  if (ctrRatio >= 0.005) return "warn";
+  return "bad";
+}
+
+function ctrRatioFromStats(stats: PathTrafficStats): number {
+  if (stats.impressions <= 0) return 0;
+  return stats.clicks / stats.impressions;
+}
+
 type OrganicTrafficMeta = {
   window: { start: string; end: string } | null;
   incomplete?: boolean;
@@ -179,14 +221,38 @@ type OrganicTrafficMeta = {
 
 type OrganicMetricKind = "clicks" | "position" | "ctr";
 
-function organicMetricLabel(
-  kind: OrganicMetricKind,
-  stats: PathTrafficStats,
-  prefix?: string,
-): string {
-  if (kind === "clicks") return `${prefix ?? ""}${fmtTrafficClicks(stats.clicks)} clicks in 28d`;
-  if (kind === "position") return `avg pos ${fmtTrafficPosition(stats)}`;
-  return `CTR ${fmtTrafficCtr(stats)}`;
+function OrganicMetricBadgeLabel({
+  kind,
+  stats,
+  prefix,
+}: {
+  kind: OrganicMetricKind;
+  stats: PathTrafficStats;
+  prefix?: string;
+}) {
+  if (kind === "clicks") {
+    return (
+      <>
+        {prefix ?? ""}
+        <span className={toneClass(clicksTone(stats.clicks))}>{fmtTrafficClicks(stats.clicks)}</span>
+        {" clicks in 28d"}
+      </>
+    );
+  }
+  if (kind === "position") {
+    return (
+      <>
+        avg pos{" "}
+        <span className={toneClass(positionTone(stats.position))}>{fmtTrafficPosition(stats)}</span>
+      </>
+    );
+  }
+  return (
+    <>
+      CTR{" "}
+      <span className={toneClass(ctrTone(ctrRatioFromStats(stats)))}>{fmtTrafficCtr(stats)}</span>
+    </>
+  );
 }
 
 function organicMetricPopover(
@@ -259,15 +325,13 @@ function ClusterOrganicMetricBadge({
             variant="secondary"
             className={cn(
               "text-[10px] font-medium px-1.5 py-0 h-5 cursor-pointer gap-1 underline-offset-2 hover:underline",
-              "bg-muted text-foreground border border-border shadow-none tabular-nums",
-              incomplete &&
-                "bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/40",
+              "bg-muted text-muted-foreground border border-border shadow-none tabular-nums",
             )}
           >
             {incomplete && kind === "clicks" ? (
-              <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+              <AlertTriangle className="h-3 w-3 shrink-0 text-status-away" aria-hidden />
             ) : null}
-            {organicMetricLabel(kind, stats, prefix)}
+            <OrganicMetricBadgeLabel kind={kind} stats={stats} prefix={prefix} />
           </Badge>
         </button>
       </PopoverTrigger>
@@ -332,12 +396,12 @@ function ClusterOrganicNoDataBadge({
             variant="secondary"
             className={cn(
               "text-[10px] font-medium px-1.5 py-0 h-5 cursor-pointer gap-1 underline-offset-2 hover:underline",
-              "bg-muted text-foreground border border-border shadow-none",
-              incomplete &&
-                "bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/40",
+              "bg-muted text-muted-foreground border border-border shadow-none",
             )}
           >
-            {incomplete ? <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden /> : null}
+            {incomplete ? (
+              <AlertTriangle className="h-3 w-3 shrink-0 text-status-away" aria-hidden />
+            ) : null}
             No data from GSC
           </Badge>
         </button>
@@ -456,15 +520,25 @@ function ClusterHubAveragesBadge({
             variant="secondary"
             className={cn(
               "text-[10px] font-medium px-1.5 py-0 h-5 cursor-pointer gap-1 underline-offset-2 hover:underline",
-              "bg-muted text-foreground border border-border shadow-none tabular-nums",
-              incomplete &&
-                "bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/40",
+              "bg-muted text-muted-foreground border border-border shadow-none tabular-nums",
             )}
           >
-            {incomplete ? <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden /> : null}
+            {incomplete ? (
+              <AlertTriangle className="h-3 w-3 shrink-0 text-status-away" aria-hidden />
+            ) : null}
             <span aria-hidden>⌀</span>
-            Hub Averages · {fmtTrafficClicks(stats.clicks)} clicks · pos{" "}
-            {fmtTrafficPosition(stats)} · CTR {fmtTrafficCtr(stats)}
+            Hub Averages ·{" "}
+            <span className={toneClass(clicksTone(stats.clicks))}>
+              {fmtTrafficClicks(stats.clicks)}
+            </span>{" "}
+            clicks · pos{" "}
+            <span className={toneClass(positionTone(stats.position))}>
+              {fmtTrafficPosition(stats)}
+            </span>{" "}
+            · CTR{" "}
+            <span className={toneClass(ctrTone(ctrRatioFromStats(stats)))}>
+              {fmtTrafficCtr(stats)}
+            </span>
           </Badge>
         </button>
       </PopoverTrigger>
@@ -482,14 +556,21 @@ function ClusterHubAveragesBadge({
         <ul className="text-xs text-foreground space-y-1 tabular-nums">
           <li>
             <span className="text-muted-foreground">⌀ Clicks:</span>{" "}
-            {fmtTrafficClicks(stats.clicks)}
+            <span className={toneClass(clicksTone(stats.clicks))}>
+              {fmtTrafficClicks(stats.clicks)}
+            </span>
           </li>
           <li>
             <span className="text-muted-foreground">⌀ Avg position:</span>{" "}
-            {fmtTrafficPosition(stats)}
+            <span className={toneClass(positionTone(stats.position))}>
+              {fmtTrafficPosition(stats)}
+            </span>
           </li>
           <li>
-            <span className="text-muted-foreground">⌀ CTR:</span> {fmtTrafficCtr(stats)}
+            <span className="text-muted-foreground">⌀ CTR:</span>{" "}
+            <span className={toneClass(ctrTone(ctrRatioFromStats(stats)))}>
+              {fmtTrafficCtr(stats)}
+            </span>
           </li>
         </ul>
         {incomplete ? (
@@ -551,11 +632,15 @@ function ClusterMapHelp({
   incomplete,
   daysInWindow,
   daysExpected = 28,
+  countryLess,
+  truncated,
 }: {
   trafficAvailable?: boolean;
   incomplete?: boolean;
   daysInWindow?: number;
   daysExpected?: number;
+  countryLess?: boolean;
+  truncated?: boolean;
 }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   return (
@@ -593,10 +678,12 @@ function ClusterMapHelp({
           </p>
         ) : trafficAvailable ? (
           <p className="text-xs" data-testid="cluster-map-traffic-help">
-            Click counts are Google Search clicks over the last 28 complete days. The hub shows that
+            Click counts are Google Search clicks over the last 28 complete days for the{" "}
+            <strong className="font-medium text-foreground">selected market</strong>. The hub shows that
             page’s clicks; <strong className="font-medium text-foreground">⌀ Hub Averages</strong>{" "}
-            combines the hub and its cluster pages (open the badge for position and CTR). “No data from
-            GSC” means we have no Search Console traffic in cache for that URL.
+            combines the hub and its cluster pages. LatAm includes its configured countries. This market
+            filter applies to Cluster Map only—Diagnostics organic stays worldwide. “No data from GSC”
+            means we have no Search Console traffic in cache for that URL in this market.
           </p>
         ) : null}
         {trafficAvailable && incomplete ? (
@@ -606,8 +693,11 @@ function ClusterMapHelp({
           >
             <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden />
             <span>
-              Incomplete Search traffic window: {daysInWindow ?? 0} of {daysExpected} days loaded.
-              Counts may be low until you backfill the rest in Diagnostics.
+              Incomplete Search traffic window: {daysInWindow ?? 0} of {daysExpected} days loaded
+              {countryLess ? "; some days lack country data—re-backfill from Diagnostics" : ""}
+              {truncated ? "; some days were truncated at the row cap" : ""}. Traffic chips stay
+              gray; a warning icon marks incomplete data. Counts may be low until you backfill the
+              rest in Diagnostics.
             </span>
           </p>
         ) : null}
@@ -622,23 +712,10 @@ function ClusterMapHelp({
         {advancedOpen ? (
           <div className="space-y-1 text-xs">
             <p>
-              Hub = <code className="font-mono text-[10px]">seo.is_pillar</code> on the locale YAML.
-              Members set <code className="font-mono text-[10px]">seo.pillar_path</code> to that hub URL.
-              Missing or empty path = gap (counted in stats).{" "}
-              <code className="font-mono text-[10px]">pillar_path: null</code> = intentional opt-out.
+              Markets live in <code className="font-mono text-[10px]">search_console.organic_markets</code>.
+              Day cache: <code className="font-mono text-[10px]">.cache/{"{site}"}/gsc-organic-days</code>{" "}
+              with per-row GSC country codes.
             </p>
-            <p>
-              Monitoring is configured per content type in{" "}
-              <code className="font-mono text-[10px]">content-types.yml</code> (
-              <code className="font-mono text-[10px]">seo_monitoring.enabled</code>; omitted = off). DB-backed
-              types can map <code className="font-mono text-[10px]">seo_main_keyword</code> /{" "}
-              <code className="font-mono text-[10px]">seo_pillar_path</code> in field_mapping; locale YAML wins.
-            </p>
-            <p className="font-mono">{"{contentRoot}/seo-index.json"}</p>
-            <p className="font-mono">server/seo-index.ts</p>
-            <p className="font-mono">server/seo-monitoring.ts</p>
-            <p className="font-mono">server/content-types.ts</p>
-            <p className="font-mono">client/src/components/editing/MappingFieldsTab.tsx</p>
           </div>
         ) : null}
       </PopoverContent>
@@ -767,6 +844,12 @@ type SeoClusterIssueRow = {
 
 type StatHelp = { title: string; body: string };
 
+type ClusterFilterBucket =
+  | "unclustered"
+  | "partiallySet"
+  | "brokenRefs"
+  | "emptyHubs";
+
 const CLUSTER_STAT_HELP = {
   unclustered: {
     title: "Unclustered",
@@ -784,18 +867,7 @@ const CLUSTER_STAT_HELP = {
     title: "Empty hubs",
     body: "These are pillar pages with no members linked to them yet. A hub should gather related pages under one topic.",
   },
-  clustered: {
-    title: "Clustered",
-    body: "These pages are linked to a hub page and belong to a topic group. This is the healthy state.",
-  },
-} as const satisfies Record<string, StatHelp>;
-
-type ClusterFilterBucket =
-  | "unclustered"
-  | "partiallySet"
-  | "brokenRefs"
-  | "emptyHubs"
-  | "clustered";
+} as const satisfies Record<ClusterFilterBucket, StatHelp>;
 
 type ClusterBucketEntryRow = {
   id: string;
@@ -810,6 +882,7 @@ type ClusterBucketEntryRow = {
   file: string;
   reason?: "hub_not_found" | "hub_not_pillar";
   pillar_path?: string | null;
+  traffic?: PathTrafficStats;
 };
 
 type ClusterBucketEntriesResponse = {
@@ -888,6 +961,9 @@ function ClusterHealthPanel({
   clusters,
   onEditSeo,
   canEditSeoFor,
+  organicMarket,
+  trafficAvailable,
+  organicMeta,
 }: {
   health: ClusterHealth;
   clusters: {
@@ -898,6 +974,9 @@ function ClusterHealthPanel({
   }[];
   onEditSeo: (contentType: string, slug: string, locale: string) => void;
   canEditSeoFor: (contentType: string) => boolean;
+  organicMarket: string;
+  trafficAvailable: boolean;
+  organicMeta?: OrganicTrafficMeta;
 }) {
   const { stats } = health;
   const [activeBucket, setActiveBucket] = useState<ClusterFilterBucket | null>(null);
@@ -921,7 +1000,7 @@ function ClusterHealthPanel({
   }, [debouncedQ]);
 
   const { data: entries, isLoading: entriesLoading, isFetching } = useQuery<ClusterBucketEntriesResponse>({
-    queryKey: ["/api/seo/cluster-entries", activeBucket, debouncedQ, page],
+    queryKey: ["/api/seo/cluster-entries", activeBucket, debouncedQ, page, organicMarket],
     enabled: activeBucket != null,
     queryFn: async () => {
       const token = getDebugToken();
@@ -929,6 +1008,7 @@ function ClusterHealthPanel({
         bucket: activeBucket!,
         page: String(page),
         pageSize: String(CLUSTER_BUCKET_PAGE_SIZE),
+        market: organicMarket,
       });
       if (debouncedQ) params.set("q", debouncedQ);
       const res = await fetch(`/api/seo/cluster-entries?${params}`, {
@@ -980,13 +1060,6 @@ function ClusterHealthPanel({
       count: health.emptyHubCount,
       variant: "outline",
       testId: "stat-empty-hubs",
-    },
-    {
-      bucket: "clustered",
-      label: "Clustered",
-      count: stats.clustered,
-      variant: "outline",
-      testId: "stat-clustered",
     },
   ];
 
@@ -1168,21 +1241,30 @@ function ClusterHealthPanel({
                       ) : null}
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
+                      {trafficAvailable ? (
+                        <ClusterOrganicTrafficBadges
+                          stats={row.traffic}
+                          role="spoke"
+                          meta={organicMeta}
+                          testIdPrefix={`cluster-bucket-clicks-${row.slug}`}
+                        />
+                      ) : null}
                       <Button
                         type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
                         data-testid={`button-cluster-bucket-edit-seo-${row.slug}`}
                         disabled={!canEditSeoFor(row.contentType)}
+                        aria-label="Edit SEO"
                         title={
                           !canEditSeoFor(row.contentType)
                             ? `You need seo_edit for content type "${row.contentType}"`
-                            : undefined
+                            : "Edit SEO"
                         }
                         onClick={() => onEditSeo(row.contentType, row.slug, row.locale)}
                       >
-                        Edit SEO
+                        <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       {showAssign ? (
                         <OrphanAssignButton
@@ -2430,13 +2512,15 @@ function OrphanAssignButton({
   return (
     <>
       <Button
-        variant="outline"
-        size="sm"
-        className="h-7 px-2 text-xs"
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7"
         onClick={() => setOpen(true)}
+        aria-label="Assign to cluster"
+        title="Assign to cluster"
         data-testid={`button-orphan-assign-${orphan.slug}`}
       >
-        Assign to cluster
+        <Network className="h-3.5 w-3.5" />
       </Button>
       <AssignClusterDialog
         open={open}
@@ -2452,6 +2536,15 @@ function OrphanAssignButton({
     </>
   );
 }
+
+type OtherHighTrafficRow = {
+  query: string;
+  url: string;
+  clicks: number;
+  impressions: number;
+  position: number;
+  ctr: number;
+};
 
 interface SeoOverview {
   intentDistribution: Record<string, Record<string, number>>;
@@ -2485,6 +2578,33 @@ interface SeoOverview {
     days_in_window?: number;
     days_expected?: number;
     incomplete?: boolean;
+    country_less?: boolean;
+    truncated?: boolean;
+    market?: { id: string; label: string; kind: "rollup" | "country"; countries: string[] };
+    markets?: Array<{ id: string; label: string; kind: "rollup" | "country"; countries: string[] }>;
+    market_warning?: string;
+    totals?: { clicks: number; impressions: number; ctr: number };
+    series?: Array<{ day: string; clicks: number; impressions: number }>;
+  };
+  siteOrganicTraffic?: {
+    window: { start: string; end: string } | null;
+    days_in_window?: number;
+    days_expected?: number;
+    incomplete?: boolean;
+    configured?: boolean;
+    source?: "bigquery" | "cache" | "none";
+    error?: string;
+    totals?: { clicks: number; impressions: number; ctr: number };
+    series?: Array<{ day: string; clicks: number; impressions: number }>;
+  };
+  otherHighTraffic?: {
+    window: { start: string; end: string } | null;
+    market?: { id: string; label: string; kind: "rollup" | "country"; countries: string[] };
+    days_in_window?: number;
+    days_expected?: number;
+    incomplete?: boolean;
+    known: OtherHighTrafficRow[];
+    unknown: OtherHighTrafficRow[];
   };
   totals: {
     totalPages: number;
@@ -2495,6 +2615,157 @@ interface SeoOverview {
     withSchema: number;
     withKeyword?: number;
   };
+}
+
+function shortOrganicUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.pathname}${u.search}` || url;
+  } catch {
+    return url;
+  }
+}
+
+function OtherHighTrafficCard({
+  kind,
+  rows,
+  trafficAvailable,
+  incomplete,
+  daysInWindow,
+  daysExpected,
+}: {
+  kind: "known" | "unknown";
+  rows: OtherHighTrafficRow[];
+  trafficAvailable: boolean;
+  incomplete?: boolean;
+  daysInWindow?: number;
+  daysExpected?: number;
+}) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const isKnown = kind === "known";
+  const title = isKnown ? "Known URLs outside clusters" : "Unknown URLs";
+  const testId = isKnown ? "card-other-traffic-known" : "card-other-traffic-unknown";
+  const framing = isKnown
+    ? "Search queries hitting pages we manage that are not in a cluster yet (including pages opted out of clustering)."
+    : "Search traffic to URLs we do not have in the CMS.";
+
+  return (
+    <SeoOverviewCollapsibleCard
+      testId={testId}
+      toggleTestId={`button-toggle-${testId}`}
+      icon={<MousePointerClick className="h-4 w-4" />}
+      title={title}
+      summary={
+        !trafficAvailable
+          ? "No Search traffic loaded"
+          : `${rows.length} query×URL pair${rows.length !== 1 ? "s" : ""}`
+      }
+      alwaysVisible={
+        <p className="text-xs text-muted-foreground leading-relaxed">{framing}</p>
+      }
+      contentClassName="space-y-3"
+    >
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        Same market and last {daysExpected ?? 28} complete days as Cluster Map.
+        {incomplete
+          ? ` Incomplete window: ${daysInWindow ?? 0} of ${daysExpected ?? 28} days with data.`
+          : null}
+      </p>
+      {!trafficAvailable ? (
+        <p className="text-xs text-muted-foreground" data-testid={`${testId}-empty-traffic`}>
+          Load Search Console days in{" "}
+          <Link
+            href="/private/diagnostics/seo/organic"
+            className="underline underline-offset-2 text-foreground"
+          >
+            Diagnostics
+          </Link>
+          .
+        </p>
+      ) : rows.length === 0 ? (
+        <p className="text-xs text-muted-foreground py-4 text-center" data-testid={`${testId}-empty`}>
+          {isKnown
+            ? "No high-traffic known pages outside clusters in this window."
+            : "No high-traffic unknown URLs in this window."}
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px]" data-testid={`${testId}-table`}>
+            <thead>
+              <tr className="text-left text-muted-foreground border-b border-border">
+                <th className="py-1.5 pr-2 font-medium">Query</th>
+                <th className="py-1.5 pr-2 font-medium">URL</th>
+                <th className="py-1.5 pr-2 font-medium text-right tabular-nums">Clicks</th>
+                <th className="py-1.5 pr-2 font-medium text-right tabular-nums">Impr.</th>
+                <th className="py-1.5 font-medium text-right tabular-nums">Pos.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr
+                  key={`${r.query}\0${r.url}`}
+                  className="border-b border-border/60 last:border-0"
+                  data-testid={`${testId}-row`}
+                >
+                  <td className="py-1.5 pr-2 align-top text-foreground max-w-[9rem] truncate" title={r.query}>
+                    {r.query || "—"}
+                  </td>
+                  <td
+                    className="py-1.5 pr-2 align-top font-mono text-muted-foreground max-w-[10rem] truncate"
+                    title={r.url}
+                  >
+                    {shortOrganicUrl(r.url)}
+                  </td>
+                  <td className="py-1.5 pr-2 align-top text-right tabular-nums text-foreground">
+                    {fmtTrafficClicks(r.clicks)}
+                  </td>
+                  <td className="py-1.5 pr-2 align-top text-right tabular-nums text-foreground">
+                    {fmtTrafficClicks(r.impressions)}
+                  </td>
+                  <td className="py-1.5 align-top text-right tabular-nums text-foreground">
+                    {r.position > 0 ? r.position.toFixed(1) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <CollapsibleTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="px-0 h-auto text-xs"
+            data-testid={`button-${testId}-read-more`}
+          >
+            {advancedOpen ? "Hide advanced details" : "Read more (advanced)"}
+            <ChevronDown
+              className={`h-3.5 w-3.5 ml-1 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
+            />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-1 space-y-1 text-xs text-muted-foreground">
+          <p>
+            Rows come from the keep-filtered organic-days cache (
+            <code className="font-mono text-[10px]">.cache/{"{site}"}/gsc-organic-days</code>
+            ), aggregated as query × URL. Min bar: ≥1 click or ≥5 impressions; top 25 by clicks.
+          </p>
+          {isKnown ? (
+            <p>
+              Known = <code className="font-mono text-[10px]">contentIndex.isKnownUrl</code>. Excludes hub
+              and spoke paths from the SEO index cluster graph; opted-out pages stay in this list.
+            </p>
+          ) : (
+            <p>
+              Unknown = path fails <code className="font-mono text-[10px]">isKnownUrl</code> (legacy or
+              off-CMS URLs kept by the keep-filter).
+            </p>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
+    </SeoOverviewCollapsibleCard>
+  );
 }
 
 interface BrandContext {
@@ -2777,6 +3048,339 @@ function StatCard({
             {pct !== null && (
               <span className="text-xs text-muted-foreground">{pct}%</span>
             )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const ORGANIC_SPARK_W = 96;
+const ORGANIC_SPARK_H = 28;
+const ORGANIC_SPARK_PAD = { top: 3, right: 2, bottom: 3, left: 2 };
+
+/** Fill every calendar day in the window so sparklines show gaps as zeros. */
+function padOrganicSparkSeries(
+  window: { start: string; end: string } | null,
+  series: Array<{ day: string; clicks: number }>,
+): Array<{ day: string; clicks: number }> {
+  if (!window?.start || !window?.end) return series;
+  const byDay = new Map(series.map((p) => [p.day, p.clicks]));
+  const out: Array<{ day: string; clicks: number }> = [];
+  const cursor = new Date(`${window.start}T00:00:00.000Z`);
+  const end = new Date(`${window.end}T00:00:00.000Z`);
+  if (Number.isNaN(cursor.getTime()) || Number.isNaN(end.getTime()) || cursor > end) {
+    return series;
+  }
+  while (cursor <= end) {
+    const day = cursor.toISOString().slice(0, 10);
+    out.push({ day, clicks: byDay.get(day) ?? 0 });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  // Drop trailing empty days (e.g. window end not in BigQuery yet) so the spark
+  // does not fake a crash to zero on the last point.
+  while (out.length > 1 && out[out.length - 1]!.clicks === 0) {
+    out.pop();
+  }
+  return out;
+}
+
+function OrganicClicksSparkline({
+  series,
+}: {
+  series: Array<{ day: string; clicks: number }>;
+}) {
+  const innerW = ORGANIC_SPARK_W - ORGANIC_SPARK_PAD.left - ORGANIC_SPARK_PAD.right;
+  const innerH = ORGANIC_SPARK_H - ORGANIC_SPARK_PAD.top - ORGANIC_SPARK_PAD.bottom;
+  const max = Math.max(0, ...series.map((p) => p.clicks));
+  const n = series.length;
+  const midY = ORGANIC_SPARK_PAD.top + innerH / 2;
+  const empty = n === 0 || max === 0;
+
+  const points = series.map((p, i) => ({
+    x: n <= 1 ? ORGANIC_SPARK_PAD.left + innerW / 2 : ORGANIC_SPARK_PAD.left + (i / (n - 1)) * innerW,
+    y: empty ? midY : ORGANIC_SPARK_PAD.top + (1 - p.clicks / max) * innerH,
+  }));
+
+  let pathD = "";
+  if (points.length === 1) {
+    pathD = `M ${points[0]!.x} ${points[0]!.y}`;
+  } else if (points.length > 1) {
+    pathD = `M ${points[0]!.x} ${points[0]!.y}`;
+    for (let i = 1; i < points.length; i++) {
+      pathD += ` L ${points[i]!.x} ${points[i]!.y}`;
+    }
+  }
+  const last = points[points.length - 1];
+  const areaD =
+    points.length > 0
+      ? `${pathD} L ${points[points.length - 1]!.x} ${ORGANIC_SPARK_PAD.top + innerH} L ${points[0]!.x} ${ORGANIC_SPARK_PAD.top + innerH} Z`
+      : "";
+
+  return (
+    <svg
+      viewBox={`0 0 ${ORGANIC_SPARK_W} ${ORGANIC_SPARK_H}`}
+      width={ORGANIC_SPARK_W}
+      height={ORGANIC_SPARK_H}
+      className="shrink-0"
+      role="img"
+      aria-label={empty ? "No daily clicks in window" : "Daily Google Search clicks"}
+      data-testid="organic-traffic-sparkline"
+    >
+      <defs>
+        <linearGradient id="organic-clicks-spark-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      {empty ? (
+        <line
+          x1={ORGANIC_SPARK_PAD.left}
+          y1={midY}
+          x2={ORGANIC_SPARK_PAD.left + innerW}
+          y2={midY}
+          stroke="hsl(var(--muted-foreground))"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          opacity="0.5"
+        />
+      ) : (
+        <>
+          {areaD ? <path d={areaD} fill="url(#organic-clicks-spark-fill)" /> : null}
+          <path
+            d={pathD}
+            fill="none"
+            stroke="hsl(var(--primary))"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {last ? <circle cx={last.x} cy={last.y} r="2.25" fill="hsl(var(--primary))" /> : null}
+        </>
+      )}
+    </svg>
+  );
+}
+
+function OrganicTrafficStatCard({
+  window,
+  daysInWindow,
+  daysExpected,
+  incomplete,
+  totals,
+  series,
+  scope,
+  compareToClicks,
+}: {
+  window: { start: string; end: string } | null;
+  daysInWindow: number;
+  daysExpected: number;
+  incomplete?: boolean;
+  totals?: { clicks: number; impressions: number; ctr: number };
+  series?: Array<{ day: string; clicks: number; impressions: number }>;
+  scope: "clusters" | "site";
+  /** When set on the site card, show site − clusters delta next to clicks. */
+  compareToClicks?: number | null;
+}) {
+  const empty = !window || daysInWindow === 0;
+  const daysIncomplete = Boolean(window) && daysInWindow < daysExpected;
+  const clicksLabel = empty ? "—" : fmtTrafficClicks(totals?.clicks ?? 0);
+  const impressionsLabel = empty ? "—" : fmtTrafficClicks(totals?.impressions ?? 0);
+  const ctrLabel = empty
+    ? "—"
+    : `${(((totals?.ctr ?? 0) * 100) || 0).toFixed(1)}%`;
+  const sparkSeries = empty
+    ? []
+    : padOrganicSparkSeries(
+        window,
+        (series ?? []).map((p) => ({ day: p.day, clicks: p.clicks })),
+      );
+  const isSite = scope === "site";
+  const testId = isSite ? "stat-card-organic-traffic-site" : "stat-card-organic-traffic";
+  const description = isSite
+    ? "Organic clicks from the whole site"
+    : "Organic Clicks from clusters";
+  const clicksDelta =
+    isSite &&
+    !empty &&
+    compareToClicks != null &&
+    Number.isFinite(compareToClicks)
+      ? Math.round((totals?.clicks ?? 0) - compareToClicks)
+      : null;
+  const emptyHint = isSite ? (
+    <>
+      Configure Search Console BigQuery in{" "}
+      <Link
+        href="/private/settings/seo/search-console"
+        className="underline underline-offset-2 text-foreground"
+        data-testid="link-organic-site-kpi-settings"
+      >
+        Settings
+      </Link>
+      .
+    </>
+  ) : (
+    <>
+      Load Search Console days in{" "}
+      <Link
+        href="/private/diagnostics/seo/organic"
+        className="underline underline-offset-2 text-foreground"
+        data-testid="link-organic-kpi-diagnostics"
+      >
+        Diagnostics
+      </Link>
+      .
+    </>
+  );
+  const incompleteBadgeTestId = isSite
+    ? "stat-card-organic-site-incomplete"
+    : "stat-card-organic-incomplete";
+  const incompleteHelp = isSite
+    ? `We asked BigQuery for the last ${daysExpected} complete days. It only returned traffic for ${daysInWindow} of them. Search Console’s website can still show a full month while the BigQuery export is catching up. The clicks and impressions above only include the days BigQuery returned.`
+    : `We look for the last ${daysExpected} complete days. Only ${daysInWindow} of those days have traffic data so far — empty day files do not count. The clicks and impressions above only include days with data.`;
+
+  const siteClicks = totals?.clicks ?? 0;
+  const clusterClicksForDelta =
+    clicksDelta != null && compareToClicks != null ? compareToClicks : null;
+  const clusterSharePct =
+    clusterClicksForDelta != null && siteClicks > 0
+      ? Math.max(0, Math.min(100, (clusterClicksForDelta / siteClicks) * 100))
+      : null;
+
+  const clicksBlock = (
+    <div className="inline-flex items-start gap-1">
+      <p
+        className="text-2xl font-bold text-foreground tabular-nums"
+        data-testid={isSite ? "text-organic-site-clicks" : "text-organic-clicks"}
+      >
+        {clicksLabel}
+      </p>
+      {clicksDelta != null ? (
+        <span
+          className={cn(
+            "text-[10px] font-semibold tabular-nums leading-none mt-0.5",
+            clicksDelta > 0
+              ? "text-green-600 dark:text-green-400"
+              : clicksDelta < 0
+                ? "text-destructive"
+                : "text-muted-foreground",
+          )}
+          data-testid="text-organic-site-clicks-delta"
+        >
+          {clicksDelta > 0 ? "+" : ""}
+          {fmtTrafficClicks(clicksDelta)}
+        </span>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <Card data-testid={testId}>
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            {clicksDelta != null && clusterClicksForDelta != null ? (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex outline-none rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 cursor-pointer hover:opacity-90"
+                    aria-label="Explain site vs cluster clicks"
+                    data-testid="button-organic-site-clicks-delta-help"
+                  >
+                    {clicksBlock}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  className="w-72 space-y-1.5 p-3 bg-popover text-popover-foreground"
+                  data-testid="organic-site-clicks-delta-help"
+                >
+                  <p className="text-xs font-medium text-foreground">Whole-site organic clicks</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    This is total organic search traffic for the site (
+                    {fmtTrafficClicks(siteClicks)} clicks).
+                    {clicksDelta === 0
+                      ? " It matches cluster traffic exactly."
+                      : clicksDelta > 0
+                        ? ` That is ${fmtTrafficClicks(clicksDelta)} more than traffic from clusters (${fmtTrafficClicks(clusterClicksForDelta)}).`
+                        : ` That is ${fmtTrafficClicks(Math.abs(clicksDelta))} less than traffic from clusters (${fmtTrafficClicks(clusterClicksForDelta)}).`}
+                  </p>
+                  {clusterSharePct != null ? (
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Clustered pages account for about{" "}
+                      <span className="font-medium text-foreground tabular-nums">
+                        {clusterSharePct.toFixed(0)}%
+                      </span>{" "}
+                      of this traffic.
+                    </p>
+                  ) : null}
+                </PopoverContent>
+              </Popover>
+            ) : (
+              clicksBlock
+            )}
+            <p className="text-xs text-muted-foreground mt-0.5">Clicks</p>
+            {empty ? (
+              <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">{emptyHint}</p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">{description}</p>
+            )}
+          </div>
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            <span className="text-muted-foreground">
+              <MousePointerClick className="h-4 w-4" />
+            </span>
+            <OrganicClicksSparkline series={sparkSeries} />
+            <div
+              className="flex items-start justify-end gap-3"
+              data-testid={isSite ? "text-organic-site-subline" : "text-organic-subline"}
+            >
+              <div className="text-right">
+                <p className="text-[11px] font-medium text-foreground tabular-nums leading-none">
+                  {impressionsLabel}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">impressions</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[11px] font-medium text-foreground tabular-nums leading-none">
+                  {ctrLabel}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">CTR</p>
+              </div>
+            </div>
+            {daysIncomplete ? (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md"
+                    aria-label={`${daysInWindow} of ${daysExpected} days with traffic data. Open explanation.`}
+                  >
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] cursor-pointer bg-amber-500/15 text-amber-800 dark:text-amber-200 border-amber-500/40 hover:bg-amber-500/25"
+                      data-testid={incompleteBadgeTestId}
+                    >
+                      {daysInWindow}/{daysExpected} days with data
+                    </Badge>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  className="w-72 space-y-1.5 p-3 bg-popover text-popover-foreground"
+                  data-testid={isSite ? "organic-site-incomplete-help" : "organic-incomplete-help"}
+                >
+                  <p className="text-xs font-medium text-foreground">Incomplete traffic window</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{incompleteHelp}</p>
+                  {incomplete && !isSite ? (
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Cluster Map may also warn if country filters or row caps need a refresh.
+                    </p>
+                  ) : null}
+                </PopoverContent>
+              </Popover>
+            ) : null}
           </div>
         </div>
       </CardContent>
@@ -3451,7 +4055,98 @@ export function DiagnosticsFunnelTab({ data }: { data: SeoOverview }) {
   );
 }
 
-export function SeoTab({ data }: { data: SeoOverview }) {
+/** GSC alpha-3 → ISO alpha-2 for country-flag-icons SVGs. */
+const GSC_ALPHA3_TO_ALPHA2: Record<string, string> = {
+  usa: "us",
+  esp: "es",
+  mex: "mx",
+  chl: "cl",
+  col: "co",
+  ven: "ve",
+  ury: "uy",
+  arg: "ar",
+  can: "ca",
+  bra: "br",
+  per: "pe",
+  cri: "cr",
+  ecu: "ec",
+  bol: "bo",
+  pry: "py",
+  gtm: "gt",
+  pan: "pa",
+  dom: "do",
+  cub: "cu",
+  prt: "pt",
+  gbr: "gb",
+  deu: "de",
+  fra: "fr",
+  ita: "it",
+};
+
+type OrganicMarketOption = {
+  id: string;
+  label: string;
+  kind: "rollup" | "country";
+  countries: string[];
+};
+
+function alpha2FromGscCountry(code: string): string | null {
+  const normalized = code.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized.length === 2) return normalized;
+  return GSC_ALPHA3_TO_ALPHA2[normalized] ?? null;
+}
+
+function OrganicMarketCountryFlag({
+  code,
+  className = "h-3 w-4 shrink-0 rounded-[1px]",
+}: {
+  code: string;
+  className?: string;
+}) {
+  const alpha2 = alpha2FromGscCountry(code);
+  if (!alpha2) return null;
+  const FlagComponent = (CountryFlags as Record<string, ComponentType<{ className?: string }>>)[
+    alpha2.toUpperCase()
+  ];
+  if (!FlagComponent) return null;
+  return <FlagComponent className={className} aria-hidden />;
+}
+
+function OrganicMarketSelectLabel({ market }: { market: OrganicMarketOption }) {
+  const singleCountry = market.countries.length === 1 ? market.countries[0] : null;
+  const countryFlag = singleCountry ? (
+    <OrganicMarketCountryFlag code={singleCountry} />
+  ) : null;
+  const isWorldwide =
+    market.id === "worldwide" || market.countries.length === 0;
+
+  let leading: ReactNode;
+  if (isWorldwide) {
+    leading = <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />;
+  } else if (countryFlag) {
+    leading = countryFlag;
+  } else {
+    leading = <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />;
+  }
+
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      {leading}
+      <span className="truncate">{market.label}</span>
+    </span>
+  );
+}
+
+export function SeoTab({
+  data,
+  organicMarket = "worldwide",
+  onOrganicMarketChange,
+}: {
+  data: SeoOverview;
+  organicMarket?: string;
+  onOrganicMarketChange?: (marketId: string) => void;
+}) {
   const { toast } = useToast();
   const { hasCapability } = useDebugAuth();
   const canEditSeoFor = useCallback(
@@ -3495,6 +4190,8 @@ export function SeoTab({ data }: { data: SeoOverview }) {
     days_in_window: data.organicTraffic?.days_in_window,
     days_expected: data.organicTraffic?.days_expected ?? 28,
   };
+  const marketRollups = (data.organicTraffic?.markets ?? []).filter((m) => m.kind === "rollup");
+  const marketCountries = (data.organicTraffic?.markets ?? []).filter((m) => m.kind === "country");
   const sortedClusters = [...data.clusters].sort((a, b) => {
     let cmp = 0;
     if (clusterSortBy === "page-count") {
@@ -3551,7 +4248,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="seo-totals-grid">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="seo-totals-grid">
         <StatCard
           label="Total vs Indexed pages"
           value={summary?.indexed ?? 0}
@@ -3575,7 +4272,29 @@ export function SeoTab({ data }: { data: SeoOverview }) {
           notice={keywordedNotClustered > 0 ? `${keywordedNotClustered} keyworded, not clustered` : undefined}
           testId="stat-card-keyworded-vs-clustered"
         />
-        <StatCard label="Focus Features" value={data.totals.withFocusFeatures} total={data.totals.totalPages} icon={<Star className="h-4 w-4" />} />
+        <OrganicTrafficStatCard
+          scope="clusters"
+          window={organicWindow}
+          daysInWindow={organicMeta.days_in_window ?? 0}
+          daysExpected={organicMeta.days_expected ?? 28}
+          incomplete={organicMeta.incomplete}
+          totals={data.organicTraffic?.totals}
+          series={data.organicTraffic?.series}
+        />
+        <OrganicTrafficStatCard
+          scope="site"
+          window={data.siteOrganicTraffic?.window ?? null}
+          daysInWindow={data.siteOrganicTraffic?.days_in_window ?? 0}
+          daysExpected={data.siteOrganicTraffic?.days_expected ?? 28}
+          incomplete={data.siteOrganicTraffic?.incomplete}
+          totals={data.siteOrganicTraffic?.totals}
+          series={data.siteOrganicTraffic?.series}
+          compareToClicks={
+            organicMeta.days_in_window && organicMeta.days_in_window > 0
+              ? (data.organicTraffic?.totals?.clicks ?? null)
+              : null
+          }
+        />
       </div>
 
       <SearchConsoleCoverageCard configured={gsc?.configured} summary={summary} />
@@ -3592,10 +4311,50 @@ export function SeoTab({ data }: { data: SeoOverview }) {
               incomplete={organicMeta.incomplete}
               daysInWindow={organicMeta.days_in_window}
               daysExpected={organicMeta.days_expected}
+              countryLess={data.organicTraffic?.country_less}
+              truncated={data.organicTraffic?.truncated}
             />
             <Badge variant="secondary">
               {data.clusters.length} pillar{data.clusters.length !== 1 ? "s" : ""}
             </Badge>
+            {trafficAvailable &&
+            onOrganicMarketChange &&
+            (marketRollups.length > 0 || marketCountries.length > 0) ? (
+              <Select value={organicMarket} onValueChange={onOrganicMarketChange}>
+                <SelectTrigger
+                  className="h-7 w-[10.5rem] text-xs"
+                  data-testid="select-organic-market"
+                >
+                  <SelectValue placeholder="Market" />
+                </SelectTrigger>
+                <SelectContent>
+                  {marketRollups.length > 0 ? (
+                    <>
+                      <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                        Rollups
+                      </div>
+                      {marketRollups.map((m) => (
+                        <SelectItem key={m.id} value={m.id} className="text-xs">
+                          <OrganicMarketSelectLabel market={m} />
+                        </SelectItem>
+                      ))}
+                    </>
+                  ) : null}
+                  {marketCountries.length > 0 ? (
+                    <>
+                      <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                        Countries
+                      </div>
+                      {marketCountries.map((m) => (
+                        <SelectItem key={m.id} value={m.id} className="text-xs">
+                          <OrganicMarketSelectLabel market={m} />
+                        </SelectItem>
+                      ))}
+                    </>
+                  ) : null}
+                </SelectContent>
+              </Select>
+            ) : null}
           </>
         }
         summary={
@@ -3612,6 +4371,9 @@ export function SeoTab({ data }: { data: SeoOverview }) {
               health={data.clusterHealth}
               clusters={data.clusters}
               canEditSeoFor={canEditSeoFor}
+              organicMarket={organicMarket}
+              trafficAvailable={trafficAvailable}
+              organicMeta={organicMeta}
               onEditSeo={(contentType, slug, locale) => {
                 void beginEditSeo(contentType, slug, locale, "general");
               }}
@@ -3717,7 +4479,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                     data-testid={`cluster-${cluster.pillarUrl}`}
                   >
                     <AccordionTrigger className="text-xs py-2 hover:no-underline">
-                      <div className="flex items-center gap-2 text-left min-w-0">
+                      <div className="flex flex-1 items-center gap-2 text-left min-w-0 pr-2">
                         <Network className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <LocaleFlag
                           locale={hubLocale}
@@ -3730,7 +4492,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                           {cluster.clusterCount} page{cluster.clusterCount !== 1 ? "s" : ""}
                         </Badge>
                         {trafficAvailable ? (
-                          <span className="inline-flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                          <span className="inline-flex items-center gap-1.5 shrink-0 flex-wrap justify-end ml-auto">
                             <ClusterOrganicTrafficBadges
                               stats={cluster.hubTraffic}
                               role="hub"
@@ -3798,30 +4560,24 @@ export function SeoTab({ data }: { data: SeoOverview }) {
           )}
       </SeoOverviewCollapsibleCard>
 
-      <SeoOverviewCollapsibleCard
-        className="col-span-12"
-        testId="card-focus-feature-coverage"
-        toggleTestId="button-toggle-focus-feature-coverage"
-        icon={<Star className="h-4 w-4" />}
-        title="Focus Feature Coverage"
-        summary={`${
-          Object.keys(ALL_FEATURES).filter((key) => (data.featureCoverage[key] || 0) > 0).length
-        } of ${Object.keys(ALL_FEATURES).length} features used · ${data.totals.withFocusFeatures} pages tagged`}
-      >
-            <div className="space-y-2" data-testid="feature-coverage-list">
-              {Object.entries(ALL_FEATURES).map(([key, label]) => {
-                const count = data.featureCoverage[key] || 0;
-                return (
-                  <div key={key} className="flex items-center justify-between gap-2" data-testid={`feature-row-${key}`}>
-                    <span className={`text-xs ${count === 0 ? "text-muted-foreground" : "text-foreground"}`}>{label}</span>
-                    <Badge variant={count === 0 ? "outline" : "secondary"} className="text-xs tabular-nums">
-                      {count}
-                    </Badge>
-                  </div>
-                );
-              })}
-            </div>
-      </SeoOverviewCollapsibleCard>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3" data-testid="other-high-traffic-grid">
+        <OtherHighTrafficCard
+          kind="known"
+          rows={data.otherHighTraffic?.known ?? []}
+          trafficAvailable={trafficAvailable}
+          incomplete={data.otherHighTraffic?.incomplete ?? organicMeta.incomplete}
+          daysInWindow={data.otherHighTraffic?.days_in_window ?? organicMeta.days_in_window}
+          daysExpected={data.otherHighTraffic?.days_expected ?? organicMeta.days_expected}
+        />
+        <OtherHighTrafficCard
+          kind="unknown"
+          rows={data.otherHighTraffic?.unknown ?? []}
+          trafficAvailable={trafficAvailable}
+          incomplete={data.otherHighTraffic?.incomplete ?? organicMeta.incomplete}
+          daysInWindow={data.otherHighTraffic?.days_in_window ?? organicMeta.days_in_window}
+          daysExpected={data.otherHighTraffic?.days_expected ?? organicMeta.days_expected}
+        />
+      </div>
 
       <ManagedSeoModal
         open={seoModalOpen}
@@ -3866,11 +4622,37 @@ export function SeoTab({ data }: { data: SeoOverview }) {
 export function GeoTab({ data, brand }: { data: SeoOverview; brand: BrandContext | null }) {
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="geo-totals-grid">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="geo-totals-grid">
         <StatCard label="Total Pages" value={data.totals.totalPages} icon={<Globe className="h-4 w-4" />} />
         <StatCard label="With FAQ" value={data.totals.withFaq} total={data.totals.totalPages} icon={<Brain className="h-4 w-4" />} />
         <StatCard label="With Schema" value={data.totals.withSchema} total={data.totals.totalPages} icon={<Info className="h-4 w-4" />} />
+        <StatCard label="Focus Features" value={data.totals.withFocusFeatures} total={data.totals.totalPages} icon={<Star className="h-4 w-4" />} />
       </div>
+
+      <SeoOverviewCollapsibleCard
+        className="col-span-12"
+        testId="card-focus-feature-coverage"
+        toggleTestId="button-toggle-focus-feature-coverage"
+        icon={<Star className="h-4 w-4" />}
+        title="Focus Feature Coverage"
+        summary={`${
+          Object.keys(ALL_FEATURES).filter((key) => (data.featureCoverage[key] || 0) > 0).length
+        } of ${Object.keys(ALL_FEATURES).length} features used · ${data.totals.withFocusFeatures} pages tagged`}
+      >
+        <div className="space-y-2" data-testid="feature-coverage-list">
+          {Object.entries(ALL_FEATURES).map(([key, label]) => {
+            const count = data.featureCoverage[key] || 0;
+            return (
+              <div key={key} className="flex items-center justify-between gap-2" data-testid={`feature-row-${key}`}>
+                <span className={`text-xs ${count === 0 ? "text-muted-foreground" : "text-foreground"}`}>{label}</span>
+                <Badge variant={count === 0 ? "outline" : "secondary"} className="text-xs tabular-nums">
+                  {count}
+                </Badge>
+              </div>
+            );
+          })}
+        </div>
+      </SeoOverviewCollapsibleCard>
 
       {brand && (
         <Card>
@@ -4006,8 +4788,17 @@ export function GeoTab({ data, brand }: { data: SeoOverview; brand: BrandContext
 }
 
 export default function SeoGeoPage() {
+  const [organicMarket, setOrganicMarket] = useState("worldwide");
   const { data: overview, isLoading: overviewLoading } = useQuery<SeoOverview>({
-    queryKey: ["/api/seo/overview"],
+    queryKey: ["/api/seo/overview", organicMarket],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/seo/overview?market=${encodeURIComponent(organicMarket)}`,
+        { credentials: "include", headers: { ...getSessionHeaders() } },
+      );
+      if (!res.ok) throw new Error("Failed to load SEO overview");
+      return res.json() as Promise<SeoOverview>;
+    },
   });
 
   const { data: brandRaw, isLoading: brandLoading } = useQuery<BrandContext>({
@@ -4044,7 +4835,11 @@ export default function SeoGeoPage() {
             {overviewLoading ? (
               <LoadingSection />
             ) : overview ? (
-              <SeoTab data={overview} />
+              <SeoTab
+                data={overview}
+                organicMarket={organicMarket}
+                onOrganicMarketChange={setOrganicMarket}
+              />
             ) : (
               <p className="text-muted-foreground text-sm text-center py-12">Failed to load SEO data</p>
             )}

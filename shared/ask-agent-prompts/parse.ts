@@ -53,10 +53,23 @@ export function parseAskAgentPromptMarkdown(raw: string): AskAgentPromptTemplate
     throw new Error(`Ask Agent template ${frontmatter.id} has an empty body`);
   }
 
-  return { frontmatter, body };
+  return { frontmatter, body, raw: text.endsWith("\n") ? text : `${text}\n` };
 }
 
-/** Replace `{{name}}` placeholders. Throws if a required var is missing or leftovers remain. */
+/** Breaks `{{name}}` so leftover detection ignores braces that came from substituted values. */
+const PLACEHOLDER_GUARD = "\u200B";
+
+function guardEmbeddedPlaceholders(value: string): string {
+  return value.replace(/\{\{/g, `{{${PLACEHOLDER_GUARD}`);
+}
+
+function unguardEmbeddedPlaceholders(value: string): string {
+  return value.replaceAll(`{{${PLACEHOLDER_GUARD}`, "{{");
+}
+
+/** Replace `{{name}}` placeholders. Throws if a required var is missing or leftovers remain.
+ * Placeholders that appear inside substituted values (e.g. embedded template raw) are kept
+ * and do not count as leftovers. */
 export function interpolateAskAgentBody(
   body: string,
   vars: Record<string, string>,
@@ -69,11 +82,11 @@ export function interpolateAskAgentBody(
   }
   let out = body;
   for (const [key, value] of Object.entries(vars)) {
-    out = out.split(`{{${key}}}`).join(value);
+    out = out.split(`{{${key}}}`).join(guardEmbeddedPlaceholders(String(value)));
   }
   const leftover = out.match(/\{\{[a-zA-Z0-9_]+\}\}/g);
   if (leftover?.length) {
     throw new Error(`Ask Agent prompt has unsubstituted placeholders: ${leftover.join(", ")}`);
   }
-  return out.replace(/\n+$/, "") + "\n";
+  return unguardEmbeddedPlaceholders(out).replace(/\n+$/, "") + "\n";
 }
