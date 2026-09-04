@@ -11,7 +11,7 @@ import {
 describe("formatAskActivityGateCopy", () => {
   it("softens zero writes (2C)", () => {
     expect(formatAskActivityGateCopy(0, 14)).toBe(
-      "No recent writes on this entry in the past 14 days. You can still check activity, then ask an agent.",
+      "No recent writes on this entry in the past 14 days. Go ahead and ask the agent to help you.",
     );
   });
 
@@ -42,6 +42,7 @@ describe("AskActivityGateCopy", () => {
     expect(html).not.toContain("writes-badge");
     expect(html).toContain('data-testid="gate-days-badge"');
     expect(html).toContain("No recent writes");
+    expect(html).toContain("Go ahead and ask the agent to help you");
   });
 });
 

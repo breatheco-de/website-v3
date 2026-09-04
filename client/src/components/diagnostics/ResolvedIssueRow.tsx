@@ -96,120 +96,132 @@ export function ResolvedIssueRow({
     },
   });
 
+  const validatorLabel = row.validator || "unknown";
+  const categoryLabel =
+    row.category && row.category !== row.validator ? row.category : undefined;
+
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <div
-        className="text-xs border-b border-border/60 px-4 py-2 hover:bg-white"
+        className={cn(
+          "border-b border-border/60 px-4 py-3 text-xs transition-colors",
+          open ? "bg-card" : "hover:bg-card/60",
+        )}
         data-testid={`resolved-issue-row-${idx}`}
       >
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="flex w-full flex-col gap-0.5 text-left"
+            className="group flex w-full items-start gap-2.5 text-left"
             data-testid={`button-resolved-issue-expand-${idx}`}
             aria-expanded={open}
           >
-            <div className="flex flex-wrap items-center gap-2">
-              <ChevronDown
-                className={cn(
-                  "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
-                  open && "rotate-180",
-                )}
-              />
-              <span
-                className={
-                  row.severity === "error"
-                    ? "text-destructive font-medium"
-                    : "text-chart-2 font-medium"
-                }
+            <ChevronDown
+              className={cn(
+                "mt-[3px] h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-transform group-hover:text-foreground",
+                open && "rotate-180",
+              )}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                      row.severity === "error"
+                        ? "bg-destructive/10 text-destructive"
+                        : "bg-chart-2/10 text-chart-2",
+                    )}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                    {row.severity}
+                  </span>
+                  <IssueCodePopover
+                    code={row.code}
+                    validator={row.validator}
+                    help={help}
+                    className="truncate text-[11px] font-medium text-foreground/80"
+                  />
+                  {row.reopenedAt ? (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                      data-testid="badge-resolved-reopened"
+                    >
+                      Reopened
+                    </Badge>
+                  ) : null}
+                </div>
+                <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                  {formatDistanceToNow(new Date(row.resolvedAt), { addSuffix: true })}
+                </span>
+              </div>
+              <p
+                className="mt-1.5 line-clamp-2 leading-relaxed text-foreground"
+                title={row.message}
               >
-                {row.severity}
-              </span>
-              <span className="text-muted-foreground">{row.validator || "unknown"}</span>
-              {row.category ? (
-                <Badge variant="outline" className="text-[10px]">
-                  {row.category}
-                </Badge>
-              ) : null}
-              <IssueCodePopover code={row.code} validator={row.validator} help={help} />
-              {row.reopenedAt ? (
-                <Badge
-                  variant="outline"
-                  className="text-[10px] border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                  data-testid="badge-resolved-reopened"
-                >
-                  Reopened
-                </Badge>
-              ) : null}
-              <span className="text-muted-foreground text-[10px] ml-auto">
-                resolved {formatDistanceToNow(new Date(row.resolvedAt), { addSuffix: true })}
-              </span>
-              <span className="text-muted-foreground text-[10px] w-full sm:w-auto">
-                by {formatIssueActorLine(row.resolvedBy, row.actor)}
-              </span>
-            </div>
-            <div className="text-foreground line-clamp-2 pl-5" title={row.message}>
-              {formatSitePathsInText(row.message, formatSitePath)}
+                {formatSitePathsInText(row.message, formatSitePath)}
+              </p>
+              <p className="mt-1 truncate text-[10px] text-muted-foreground">
+                {validatorLabel}
+                {categoryLabel ? ` · ${categoryLabel}` : ""} · resolved by{" "}
+                {formatIssueActorLine(row.resolvedBy, row.actor)}
+              </p>
             </div>
           </button>
         </CollapsibleTrigger>
-        <CollapsibleContent className="pl-5 pt-2 space-y-2">
+        <CollapsibleContent>
           {open ? (
-            <div className="space-y-2">
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Suggested fix
-                </p>
+            <div className="ml-6 mt-3 space-y-3 rounded-md border border-border/60 bg-background/50 p-3">
+              <DetailRow label="Suggested fix">
                 {suggestionText ? (
-                  <p className="text-muted-foreground italic" data-testid="resolved-issue-suggestion">
+                  <p className="text-muted-foreground" data-testid="resolved-issue-suggestion">
                     {formatSitePathsInText(suggestionText, formatSitePath)}
                   </p>
                 ) : (
-                  <p className="text-muted-foreground" data-testid="resolved-issue-suggestion">
+                  <p className="text-muted-foreground/70" data-testid="resolved-issue-suggestion">
                     No suggested fix.
                   </p>
                 )}
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  What they said they did
-                </p>
+              </DetailRow>
+              <DetailRow label="They said">
                 {row.report ? (
                   <p
-                    className="text-muted-foreground whitespace-pre-wrap border-l-2 border-border/80 pl-2"
+                    className="whitespace-pre-wrap text-foreground/90"
                     data-testid="resolved-issue-report"
                   >
                     {row.report}
                   </p>
                 ) : (
-                  <p className="text-muted-foreground" data-testid="resolved-issue-report">
+                  <p className="text-muted-foreground/70" data-testid="resolved-issue-report">
                     No note on this fix.
                   </p>
                 )}
-              </div>
+              </DetailRow>
               {row.url || row.file ? (
-                <div className="space-y-0.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Where</p>
-                  {row.url ? <div className="text-muted-foreground">{row.url}</div> : null}
+                <DetailRow label="Where">
+                  {row.url ? <p className="truncate text-muted-foreground">{row.url}</p> : null}
                   {row.file ? (
-                    <div className="text-muted-foreground font-mono truncate" title={row.file}>
+                    <p
+                      className="truncate font-mono text-[11px] text-muted-foreground"
+                      title={row.file}
+                    >
                       {formatSitePath(row.file)}
-                    </div>
+                    </p>
                   ) : null}
-                </div>
+                </DetailRow>
               ) : null}
-              <div data-testid="resolved-issue-agent-run">
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Agent run</p>
+              <DetailRow label="Agent run" testId="resolved-issue-agent-run">
                 <AgentRunBlock
                   sessionId={sessionId}
                   siteReady={Boolean(site)}
                   sessionQuery={sessionQuery}
                 />
-              </div>
-              <div>
+              </DetailRow>
+              <div className="border-t border-border/60 pt-2.5">
                 <button
                   type="button"
-                  className="text-[10px] text-muted-foreground underline-offset-2 hover:underline hover:text-foreground"
+                  className="text-[10px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                   onClick={() => setAdvancedOpen((v) => !v)}
                   data-testid="button-resolved-issue-advanced"
                 >
@@ -217,7 +229,7 @@ export function ResolvedIssueRow({
                 </button>
                 {advancedOpen ? (
                   <div
-                    className="mt-1 space-y-0.5 text-[11px] text-muted-foreground border-l-2 border-border pl-2"
+                    className="mt-2 space-y-1 text-[11px] leading-relaxed text-muted-foreground"
                     data-testid="resolved-issue-advanced"
                   >
                     <p>
@@ -235,9 +247,11 @@ export function ResolvedIssueRow({
                     {row.reopenedAt ? (
                       <p>Reopened {new Date(row.reopenedAt).toLocaleString()}</p>
                     ) : null}
-                    <p className="font-mono">issue {row.issueId}</p>
-                    {row.entryKey ? <p className="font-mono">{row.entryKey}</p> : null}
-                    {sessionId ? <p className="font-mono">session {sessionId}</p> : null}
+                    <div className="space-y-0.5 pt-1 font-mono text-[10px] text-muted-foreground/80">
+                      <p className="truncate">issue {row.issueId}</p>
+                      {row.entryKey ? <p className="truncate">{row.entryKey}</p> : null}
+                      {sessionId ? <p className="truncate">session {sessionId}</p> : null}
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -246,6 +260,28 @@ export function ResolvedIssueRow({
         </CollapsibleContent>
       </div>
     </Collapsible>
+  );
+}
+
+function DetailRow({
+  label,
+  children,
+  testId,
+}: {
+  label: string;
+  children: React.ReactNode;
+  testId?: string;
+}) {
+  return (
+    <div
+      className="grid gap-0.5 sm:grid-cols-[6.5rem_1fr] sm:gap-x-4 sm:gap-y-0"
+      data-testid={testId}
+    >
+      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80 sm:pt-[2px]">
+        {label}
+      </p>
+      <div className="min-w-0">{children}</div>
+    </div>
   );
 }
 

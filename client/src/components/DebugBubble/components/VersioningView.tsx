@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useSearch } from "wouter";
+import { ENTRY_ACTIVITY_WINDOW_DAYS } from "@shared/event-log-filters";
 import { deslugify } from "../utils/debugHelpers";
-import { IconArrowLeft, IconGitBranch, IconRefresh, IconPencil, IconCheck, IconX, IconPlayerPlay, IconPlus, IconHistory, IconExternalLink, IconArrowBackUp, IconCrown, IconTrash, IconDots, IconCode, IconShare, IconCopy, IconEyeOff } from "@tabler/icons-react";
+import { IconRobot, IconArrowLeft, IconGitBranch, IconRefresh, IconPencil, IconCheck, IconX, IconPlayerPlay, IconPlus, IconHistory, IconExternalLink, IconArrowBackUp, IconCrown, IconTrash, IconDots, IconCode, IconShare, IconCopy, IconEyeOff } from "@tabler/icons-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -11,9 +13,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { EntryActivityDialog } from "@/components/pipeline/EntryActivityBadge";
 import { Link2, Loader2, Unlink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken } from "@/hooks/useDebugAuth";
+import { apiFetch } from "@/lib/queryClient";
 import { emitVariantCreated, emitVariantDeleted, emitVariantPromoted } from "@/lib/contentEvents";
 import { TEMPLATE_VERSIONING_SLUG, versioningContentSlug } from "@/lib/sharedLayoutEntry";
 import type { MenuView, ContentInfo, VersioningResponse } from "../types";
@@ -40,6 +44,7 @@ interface VersioningViewProps {
   pageWarningCount?: number;
   pageDiagnosticsLoading?: boolean;
   pageDiagnosticsUrl?: string | null;
+  pageDiagnosticsEntryKey?: string | null;
   onOpenPageErrors?: (tab: PageErrorsTab) => void;
 }
 
@@ -166,9 +171,24 @@ export function VersioningView({
   pageWarningCount = 0,
   pageDiagnosticsLoading = false,
   pageDiagnosticsUrl,
+  pageDiagnosticsEntryKey,
   onOpenPageErrors,
 }: VersioningViewProps) {
   const { toast } = useToast();
+  const entryKey = pageDiagnosticsEntryKey?.trim() || "";
+  const [activityOpen, setActivityOpen] = useState(false);
+  const activityCountQuery = useQuery({
+    queryKey: ["/api/admin/entry-activity-count", entryKey, ENTRY_ACTIVITY_WINDOW_DAYS],
+    enabled: Boolean(entryKey),
+    queryFn: async () => {
+      const params = new URLSearchParams({ entry: entryKey });
+      const res = await apiFetch(`/api/admin/entry-activity-count?${params}`);
+      if (!res.ok) throw new Error("Failed to load write count");
+      return (await res.json()) as { writeCount: number; windowDays: number };
+    },
+  });
+  const writeCount = activityCountQuery.data?.writeCount ?? 0;
+  const windowDays = activityCountQuery.data?.windowDays ?? ENTRY_ACTIVITY_WINDOW_DAYS;
   const locales = versioningData?.versioning ? Object.keys(versioningData.versioning) : [];
   const dialogLocales = locales.length > 0 ? locales : (versioningData?.availableLocales ?? ["en"]);
 
@@ -187,7 +207,6 @@ export function VersioningView({
         })
       : contentInfo.slug) ||
     "";
-  const versionsTitle = isTemplateVersioning ? "Template Versions" : "Page Details";
   const contentTypeLabel = contentInfo.label || contentInfo.type || "entries";
   const isDraftEntry = !!versioningData?.isDraft || versioningData?.hasLiveDefault === false;
   const liveLocales = (() => {
@@ -698,67 +717,131 @@ export function VersioningView({
   return (
     <>
       <div className="px-3 py-2 border-b">
-        <div className="flex items-start gap-3">
-          <button
-            onClick={() => showRestorePanel ? setShowRestorePanel(false) : setMenuView("main")}
-            className="p-1 rounded-md hover-elevate shrink-0"
-            data-testid="button-back-to-main-versioning"
-          >
-            <IconArrowLeft className="h-4 w-4" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-semibold text-sm min-w-0 truncate">
-                {showRestorePanel ? "Restore History" : versionsTitle}
-              </h3>
-              {!showRestorePanel && (
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {onOpenPageErrors && (
-                    <PageHealthIndicators
-                      errorCount={pageErrorCount}
-                      warningCount={pageWarningCount}
-                      loading={pageDiagnosticsLoading}
-                      pageUrl={pageDiagnosticsUrl}
-                      onOpenTab={onOpenPageErrors}
-                    />
-                  )}
-                  {!(isSharedLayout && isDetached) && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 gap-1 text-xs"
-                      onClick={handleOpenRestorePanel}
-                      data-testid="button-open-restore-panel"
-                    >
-                      <IconHistory className="h-3 w-3" />
-                      Restore
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {contentInfo.type ? (
-                <a
-                  href={`/private/type/${contentInfo.type}`}
-                  className="underline underline-offset-2 hover:text-foreground"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    navigate(`/private/type/${contentInfo.type}`);
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start gap-1.5 min-w-0">
+            {showRestorePanel && (
+              <button
+                onClick={() => setShowRestorePanel(false)}
+                className="p-1 rounded-md hover-elevate shrink-0 mt-0.5"
+                data-testid="button-back-from-restore-panel"
+                title="Back to page details"
+              >
+                <IconArrowLeft className="h-4 w-4" />
+              </button>
+            )}
+            <div className="min-w-0">
+              <p
+                className="font-semibold text-sm text-foreground break-words"
+                title={contentInfo.slug ? deslugify(contentInfo.slug) : undefined}
+                data-testid="text-versioning-page-title"
+              >
+                {contentInfo.slug ? deslugify(contentInfo.slug) : "Page details"}
+              </p>
+              {contentInfo.slug && (
+                <button
+                  type="button"
+                  className="mt-0.5 flex items-center gap-1 min-w-0 max-w-full text-xs text-muted-foreground font-mono rounded-md hover-elevate px-0.5 -mx-0.5 text-left"
+                  title="Click to copy slug"
+                  data-testid="button-copy-versioning-page-slug"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(contentInfo.slug!).then(() => {
+                      toast({ title: "Copied!", description: "Slug copied to clipboard." });
+                    });
                   }}
-                  data-testid="link-versioning-content-type"
                 >
-                  {contentInfo.label}
-                </a>
-              ) : (
-                contentInfo.label
+                  <span className="truncate" title={contentInfo.slug}>
+                    {contentInfo.slug}
+                  </span>
+                  <IconCopy className="h-3 w-3 shrink-0 text-muted-foreground" />
+                </button>
               )}
-              : {contentInfo.slug}
-              {isTemplateVersioning ? " · Shared template" : ""}
-            </p>
+              <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 min-w-0">
+                {contentInfo.type ? (
+                  <a
+                    href={`/private/type/${contentInfo.type}`}
+                    className="underline underline-offset-2 hover:text-foreground shrink-0"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigate(`/private/type/${contentInfo.type}`);
+                    }}
+                    data-testid="link-versioning-content-type"
+                  >
+                    {contentInfo.label}
+                  </a>
+                ) : (
+                  <span className="shrink-0">{contentInfo.label}</span>
+                )}
+                {isTemplateVersioning && (
+                  <>
+                    <span className="text-muted-foreground/50 shrink-0" aria-hidden>
+                      ·
+                    </span>
+                    <span className="shrink-0">Shared template</span>
+                  </>
+                )}
+              </p>
+            </div>
           </div>
+          {!showRestorePanel && (
+            <div className="flex flex-col items-end gap-1 shrink-0">
+              {onOpenPageErrors && (
+                <PageHealthIndicators
+                  errorCount={pageErrorCount}
+                  warningCount={pageWarningCount}
+                  loading={pageDiagnosticsLoading}
+                  pageUrl={pageDiagnosticsUrl}
+                  onOpenTab={onOpenPageErrors}
+                />
+              )}
+              <div className="flex items-center gap-0.5">
+                {!(isSharedLayout && isDetached) && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0"
+                    onClick={handleOpenRestorePanel}
+                    data-testid="button-open-restore-panel"
+                    title="Restore"
+                    aria-label="Restore"
+                  >
+                    <IconHistory className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {entryKey ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 gap-1 px-1.5 text-xs"
+                    onClick={() => setActivityOpen(true)}
+                    data-testid="button-open-versioning-activity"
+                    title={`Activity · ${writeCount} write${writeCount === 1 ? "" : "s"} in the last ${windowDays} days`}
+                    aria-label={`${writeCount} write${writeCount === 1 ? "" : "s"} in the last ${windowDays} days`}
+                  >
+                    <IconRobot className="h-3.5 w-3.5" />
+                    <Badge
+                      variant="secondary"
+                      className="h-5 px-1.5 text-[10px] font-normal tabular-nums bg-muted text-muted-foreground border border-border shadow-none"
+                      data-testid="badge-versioning-activity-count"
+                    >
+                      {writeCount}
+                    </Badge>
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {entryKey ? (
+        <EntryActivityDialog
+          entryKey={entryKey}
+          open={activityOpen}
+          onOpenChange={setActivityOpen}
+          testIdPrefix="versioning-activity"
+          pageUrl={pageDiagnosticsUrl ?? undefined}
+        />
+      ) : null}
 
       {!showRestorePanel && isTemplateVersioning && (
         <div className="px-3 py-2 border-b bg-muted/40 flex items-start gap-2">

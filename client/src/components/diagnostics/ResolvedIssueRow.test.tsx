@@ -58,6 +58,11 @@ describe("ResolvedIssueRow", () => {
     expect(html).toContain(SUGGESTION);
   });
 
+  it("does not repeat the category when it matches the validator", () => {
+    const html = renderRow({ row: { ...baseRow, validator: "forms", category: "forms" } });
+    expect(html.match(/forms/g)?.length).toBe(1);
+  });
+
   it("shows no agent run attached when the row has no session id", () => {
     const html = renderRow({ defaultOpen: true });
     expect(html).toContain("No agent run attached.");

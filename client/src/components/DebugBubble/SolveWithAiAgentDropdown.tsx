@@ -45,7 +45,7 @@ export function formatAskActivityGateCopy(
   if (writeCount > 0) {
     return `There have been ${writeCount} write${writeCount === 1 ? "" : "s"} on this entry in the past ${windowDays} days. Make sure it is not already improved or fixed.`;
   }
-  return `No recent writes on this entry in the past ${windowDays} days. You can still check activity, then ask an agent.`;
+  return `No recent writes on this entry in the past ${windowDays} days. Go ahead and ask the agent to help you.`;
 }
 
 /** Activity gate copy with highlighted write-count and window badges. */
@@ -86,8 +86,8 @@ export function AskActivityGateCopy({
       </>
     ) : (
       <>
-        No recent writes on this entry in the past {daysBadge}. You can still check
-        activity, then ask an agent.
+        No recent writes on this entry in the past {daysBadge}. Go ahead and ask
+        the agent to help you.
       </>
     );
 

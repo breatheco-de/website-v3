@@ -11,6 +11,7 @@ describe("collectUnknownFieldKeys", () => {
           slug: "a",
           title: "Hi",
           detached: true,
+          funnel: { stage: "consideration", products: ["ai-engineering"] },
           section_defaults: { maxWidth: { desktop: "xl" } },
           maxWidth: { desktop: "xl" },
         },

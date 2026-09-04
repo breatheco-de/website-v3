@@ -3,11 +3,14 @@
  * Does not walk sections.*.data (component registry, not Fields).
  */
 
+import { FUNNEL_YAML_KEY } from "./funnel";
+
 const STRUCTURAL_KEYS = new Set([
   "meta",
   "sections",
   "schema",
   "seo",
+  FUNNEL_YAML_KEY,
   "layout",
   "settings",
   "field_overrides",

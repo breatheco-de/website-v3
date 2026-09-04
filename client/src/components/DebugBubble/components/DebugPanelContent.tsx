@@ -137,6 +137,7 @@ export interface DebugPanelContentProps {
   pageWarningCount?: number;
   pageDiagnosticsLoading?: boolean;
   pageDiagnosticsUrl?: string | null;
+  pageDiagnosticsEntryKey?: string | null;
   onOpenPageErrors?: (tab: PageErrorsTab) => void;
 
   sitemapUrls: SitemapUrl[];
@@ -627,6 +628,20 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
             >
               <Home className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
+            {props.menuView === "versioning" && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  props.setMenuView("main");
+                }}
+                className="p-1 rounded-md hover-elevate"
+                data-testid="button-back-to-main-versioning"
+                title="Back to Dev Tools"
+              >
+                <ArrowLeft className="h-3.5 w-3.5 text-muted-foreground" />
+              </button>
+            )}
             <h3 className="font-semibold text-sm">Dev Tools</h3>
           </div>
           <div className="flex items-center gap-2">
@@ -1300,6 +1315,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           pageWarningCount={props.pageWarningCount}
           pageDiagnosticsLoading={props.pageDiagnosticsLoading}
           pageDiagnosticsUrl={props.pageDiagnosticsUrl}
+          pageDiagnosticsEntryKey={props.pageDiagnosticsEntryKey}
           onOpenPageErrors={props.onOpenPageErrors}
         />
       ) : props.menuView === "menus" ? (

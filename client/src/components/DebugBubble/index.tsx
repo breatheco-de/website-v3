@@ -2192,6 +2192,7 @@ export function DebugBubble() {
     pageWarningCount,
     pageDiagnosticsLoading,
     pageDiagnosticsUrl: pageDiagnostics?.url ?? resolvedPublicPageUrl ?? null,
+    pageDiagnosticsEntryKey: pageDiagnostics?.entryKey ?? null,
     onOpenPageErrors: openPageErrorsModal,
     currentLang,
     toggleLanguage,

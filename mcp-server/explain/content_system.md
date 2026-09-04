@@ -129,7 +129,7 @@ Page funnel stage / money pages → **`explain_site` topic `funnel`**.
 - **Reattach gate:** `set_entry_attachment` / `POST .../reattach` fails with `code: reattach_missing_required_fields` if **any live** locale is missing/invalid attached-required fields (`missing_fields` like `es.call_to_action.conversion_name`). Draft/variant files ignored. Does not seed CTA/FAQ/content from detached sections.
 - **Fields diagnostics (batch, does not write or block HTTP save):**
   - `editor-field-types` — `editor.type` / json schema / relation shape vs live `entryFields`. Codes: `EDITOR_TYPE_UNKNOWN`, `EDITOR_JSON_SCHEMA_MISSING`, `EDITOR_RELATION_SOURCE_MISSING`, `EDITOR_TYPE_MISSING`, `EDITOR_ORPHAN_HINT`, `FIELD_TYPE_MISMATCH`, `FIELD_JSON_INVALID`, `FIELD_JSON_STORED_AS_STRING`, `FIELD_RELATION_INVALID`. Skips empty values and `{{ }}`. Numeric string `"42"` is a valid number. Image/pdf = string shape only (`images` owns broken assets). Select is a string; with `editor.multiple: true` also accepts `string[]`.
-  - `unknown-keys` — extra YAML/Fields keys not in `field_mapping` or structural allowlist (`meta`, `sections`, …). Code: `UNKNOWN_FIELD_KEY` (warning).
+  - `unknown-keys` — extra YAML/Fields keys not in `field_mapping` or structural allowlist (`meta`, `sections`, `funnel`, …). Code: `UNKNOWN_FIELD_KEY` (warning).
   - `relation-targets` — relation pointer slugs exist in `editor.source` (cross-entry; **not** on single-page save). Code: `FIELD_RELATION_TARGET_MISSING`.
   - Split: emptiness → `required-fields`; mapping source path → `field-mappings`; asset 404 → `images`.
   - CLI: `npx tsx scripts/validation/cli.ts -v editor-field-types,unknown-keys,relation-targets`.

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import {AlertTriangle, ArrowLeft, Brain, Check, CircleCheck, ChevronDown, Crosshair, DownloadCloud, Eraser, Filter, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, Bot, Brain, Check, CircleCheck, ChevronDown, Crosshair, DownloadCloud, Eraser, Filter, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Link, useLocation, useSearch } from "wouter";
@@ -44,6 +44,7 @@ import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import { formatIssueActorLine } from "@/lib/formatIssueActor";
+import { cn } from "@/lib/utils";
 import { formatSitePathsInText } from "@shared/formatSitePath";
 import {
   ResolvedIssueRow,
@@ -65,6 +66,16 @@ import {
 } from "@/components/diagnostics/global-health-url";
 import { normalizeIssuePath } from "@shared/normalizeIssuePath";
 import { resolveDiagnosticsTab, type DiagnosticsTabId } from "@/lib/diagnostics-tab";
+import { parseEntryKey } from "@/lib/parseEntryKey";
+import { renderAskAgentPrompt } from "@shared/ask-agent-prompts";
+import "@/lib/askAgentPrompts";
+import { McpRequiredForAiModal } from "@/components/mcp/McpRequiredForAiModal";
+import { getMcpServerUrl, type McpSetupTabId } from "@/components/mcp/mcpUrlHelpers";
+import {
+  SolveWithAiAgentDropdown,
+  type SolveWithAiAgentSelectPayload,
+} from "@/components/DebugBubble/SolveWithAiAgentDropdown";
+import type { SolveWithAiAgentId } from "@/components/DebugBubble/solveWithAiPrompt";
 
 function issueLayerLabel(entryKey?: string, file?: string): string | null {
   if (entryKey?.includes("@")) {
@@ -310,8 +321,8 @@ function TruncatableSuggestion({
       ? `${text.slice(0, SUGGESTION_PREVIEW_CHARS).trimEnd()}…`
       : text;
   return (
-    <div className="text-muted-foreground italic mt-0.5" title={text} data-testid="issue-suggestion">
-      <span>{formatSitePathsInText(display, formatSitePath)}</span>
+    <div className="text-muted-foreground mt-0.5" title={text} data-testid="issue-suggestion">
+      <span className="italic">{formatSitePathsInText(display, formatSitePath)}</span>
       {needsTruncate ? (
         <button
           type="button"
@@ -387,6 +398,27 @@ type CachedIssueRow = {
     actor?: { type: "ui" | "mcp"; client?: string; model?: string };
   }>;
 };
+
+function buildCachedIssueAskAgentPrompt(issue: CachedIssueRow): string {
+  const parsed = issue.entryKey ? parseEntryKey(issue.entryKey) : null;
+  const suggestion = issue.suggestion?.trim()
+    ? ` (suggestion: ${issue.suggestion.trim()})`
+    : "";
+  const line = `- ${issue.code}: ${issue.message}${suggestion}`;
+  const isError = issue.severity === "error";
+  const mcpUrl = typeof window !== "undefined" ? getMcpServerUrl() : "/mcp";
+  return renderAskAgentPrompt("page-diagnostics", {
+    url: issue.url || "(no url)",
+    content_type: parsed?.contentType || "(unknown)",
+    slug: parsed?.slug || "(unknown)",
+    locale: parsed?.locale || "(unknown)",
+    variant_line: parsed?.variant ? `\n- variant: ${parsed.variant}` : "",
+    file_path: issue.file || "(unknown)",
+    mcp_url: mcpUrl,
+    error_block: isError ? line : "- (none)",
+    warning_block: !isError ? line : "- (none)",
+  });
+}
 
 type ResolvedIssuesResponse = {
   rows: ResolvedArchiveRow[];
@@ -946,6 +978,21 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const hideJobPanelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { resolveModalOpen, setResolveModalOpen, activeConflict, openResolver } = useRedirectConflictResolver();
 
+  const [mcpRequiredForAiOpen, setMcpRequiredForAiOpen] = useState(false);
+  const [mcpRequiredSetupTab, setMcpRequiredSetupTab] = useState<McpSetupTabId>("cursor");
+  const [mcpRequiredAgentId, setMcpRequiredAgentId] = useState<SolveWithAiAgentId>("copy-prompt");
+  const [mcpRequiredAgentLabel, setMcpRequiredAgentLabel] = useState("AI Agent");
+  const [mcpRequiredPrompt, setMcpRequiredPrompt] = useState("");
+  const [mcpRequiredPrefillPrefix, setMcpRequiredPrefillPrefix] = useState<string | undefined>();
+
+  function openAskAgent(payload: SolveWithAiAgentSelectPayload) {
+    setMcpRequiredAgentId(payload.agentId);
+    setMcpRequiredSetupTab(payload.setupTab);
+    setMcpRequiredAgentLabel(payload.label);
+    setMcpRequiredPrompt(payload.prompt);
+    setMcpRequiredPrefillPrefix(payload.prefillUrlPrefix);
+    setMcpRequiredForAiOpen(true);
+  }
   const startWithConfirm = async (body: Record<string, unknown>): Promise<JobStartResponse> => {
     let data = await postDiagnosticsJobs(body);
     if (data.httpStatus === 409 || data.status === "busy") {
@@ -2346,7 +2393,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               {filteredIssueCount !== openIssueCount ? ` of ${openIssueCount}` : ""})
             </CardTitle>
           </CardHeader>
-          <CardContent className="max-h-[32rem] overflow-auto space-y-2 !p-0">
+          <CardContent className="max-h-[32rem] overflow-auto !p-0">
             <div key={issueListFilterKey}>
             {displayedIssues.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center" data-testid="text-no-issues-match">
@@ -2359,158 +2406,186 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                 const rowKey = `${issue.url || issue.file || "site"}|${issue.code}|${
                   issue.validator || ""
                 }|${issue.category || ""}|${issue.severity}`;
+                const validatorLabel = issue.validator || "unknown";
+                const categoryLabel =
+                  issue.category && issue.category !== issue.validator
+                    ? issue.category
+                    : undefined;
+                const layerLabel = issueLayerLabel(issue.entryKey, issue.file);
+                const provenance = issue.claimed
+                  ? `claimed by ${formatIssueActorLine(issue.claimed.by, issue.claimed.actor)}`
+                  : !issue.claimed && issue.completed
+                    ? `completed by ${formatIssueActorLine(issue.completed.by, issue.completed.actor)}`
+                    : !issue.completed && issue.attempts && issue.attempts.length > 0
+                      ? `tried ${issue.attempts.length}×${
+                          issue.attempts[0]
+                            ? ` · ${formatIssueActorLine(
+                                issue.attempts[0].by,
+                                issue.attempts[0].actor,
+                              )}`
+                            : ""
+                        }`
+                      : null;
+                const suggestionText = resolveIssueSuggestionClient(
+                  issueCodeMap,
+                  issue.validator,
+                  issue.code,
+                  issue.suggestion,
+                );
                 return (
                   <div
                     key={rowKey}
-                    className="text-xs border-b border-border/60 px-4 py-2 hover:bg-white"
+                    className="border-b border-border/60 px-4 py-3 text-xs transition-colors hover:bg-card/60"
+                    data-testid={`cached-issue-row-${idx}`}
                   >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={
-                          issue.severity === "error"
-                            ? "text-destructive font-medium"
-                            : "text-chart-2 font-medium"
-                        }
-                      >
-                        {issue.severity}
-                      </span>
-                      <span className="text-muted-foreground">{issue.validator || "unknown"}</span>
-                      {issue.category && (
-                        <Badge variant="outline" className="text-[10px]">
-                          {issue.category}
-                        </Badge>
-                      )}
-                      <IssueCodePopover
-                        code={issue.code}
-                        validator={issue.validator}
-                        help={
-                          issue.validator
-                            ? issueCodeMap.get(`${issue.validator}\0${issue.code}`)
-                            : undefined
-                        }
-                      />
-                      {(() => {
-                        const label = issueLayerLabel(issue.entryKey, issue.file);
-                        if (!label) return null;
-                        return (
-                          <Badge
-                            variant="secondary"
-                            className="text-[10px]"
-                            data-testid="badge-issue-layer"
-                          >
-                            {label}
-                          </Badge>
-                        );
-                      })()}
-                      {issue.lastFullRunAt && (
-                        <span className="text-muted-foreground text-[10px] ml-auto">
-                          detected {formatDistanceToNow(new Date(issue.lastFullRunAt), { addSuffix: true })}
-                        </span>
-                      )}
-                      {issue.claimed && (
-                        <span
-                          className="text-muted-foreground text-[10px]"
-                          data-testid="badge-issue-claimed"
-                        >
-                          claimed {formatIssueActorLine(issue.claimed.by, issue.claimed.actor)}
-                        </span>
-                      )}
-                      {!issue.claimed && issue.completed && (
-                        <span
-                          className="text-muted-foreground text-[10px]"
-                          data-testid="badge-issue-completed"
-                        >
-                          completed {formatIssueActorLine(issue.completed.by, issue.completed.actor)}
-                        </span>
-                      )}
-                      {!issue.completed &&
-                        issue.attempts &&
-                        issue.attempts.length > 0 && (
-                          <span
-                            className="text-muted-foreground text-[10px]"
-                            data-testid="badge-issue-prior-attempts"
-                            title={
-                              issue.attempts[0]?.reason === "ttl_expired"
-                                ? "Last claim expired (30m)"
-                                : issue.attempts[0]?.report || "Prior attempt"
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                                issue.severity === "error"
+                                  ? "bg-destructive/10 text-destructive"
+                                  : "bg-chart-2/10 text-chart-2",
+                              )}
+                            >
+                              <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                              {issue.severity}
+                            </span>
+                            <IssueCodePopover
+                              code={issue.code}
+                              validator={issue.validator}
+                              help={
+                                issue.validator
+                                  ? issueCodeMap.get(`${issue.validator}\0${issue.code}`)
+                                  : undefined
+                              }
+                              className="truncate text-[11px] font-medium text-foreground/80"
+                            />
+                            {layerLabel ? (
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px]"
+                                data-testid="badge-issue-layer"
+                              >
+                                {layerLabel}
+                              </Badge>
+                            ) : null}
+                          </div>
+                          {issue.lastFullRunAt ? (
+                            <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                              {formatDistanceToNow(new Date(issue.lastFullRunAt), {
+                                addSuffix: true,
+                              })}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1.5 leading-relaxed text-foreground">
+                          {formatSitePathsInText(issue.message, formatSitePath)}
+                        </p>
+                        <p className="mt-1 truncate text-[10px] text-muted-foreground">
+                          {validatorLabel}
+                          {categoryLabel ? ` · ${categoryLabel}` : ""}
+                          {provenance ? (
+                            <span
+                              data-testid={
+                                issue.claimed
+                                  ? "badge-issue-claimed"
+                                  : issue.completed
+                                    ? "badge-issue-completed"
+                                    : "badge-issue-prior-attempts"
+                              }
+                              title={
+                                !issue.completed &&
+                                issue.attempts &&
+                                issue.attempts.length > 0
+                                  ? issue.attempts[0]?.reason === "ttl_expired"
+                                    ? "Last claim expired (30m)"
+                                    : issue.attempts[0]?.report || "Prior attempt"
+                                  : undefined
+                              }
+                            >
+                              {" · "}
+                              {provenance}
+                            </span>
+                          ) : null}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-1.5 pt-0.5">
+                        {issue.url ? (
+                          <RecheckIssueButton
+                            url={issue.url}
+                            code={issue.code}
+                            validator={issue.validator}
+                            category={issue.category}
+                            startWithConfirm={startWithConfirm}
+                            onResolved={() =>
+                              void queryClient.invalidateQueries({
+                                queryKey: ["/api/validation/cache-issues"],
+                                exact: false,
+                              })
                             }
-                          >
-                            tried {issue.attempts.length}×
-                            {issue.attempts[0]
-                              ? ` · ${formatIssueActorLine(
-                                  issue.attempts[0].by,
-                                  issue.attempts[0].actor,
-                                )}`
-                              : ""}
-                          </span>
-                        )}
-                      {issue.url ? (
-                        <RecheckIssueButton
-                          url={issue.url}
-                          code={issue.code}
-                          validator={issue.validator}
-                          category={issue.category}
-                          startWithConfirm={startWithConfirm}
-                          onResolved={() =>
-                            void queryClient.invalidateQueries({
-                              queryKey: ["/api/validation/cache-issues"],
-                              exact: false,
-                            })
-                          }
-                        />
-                      ) : issue.file ? (
-                        <RecheckFileIssueButton
-                          file={issue.file}
-                          code={issue.code}
-                          category={issue.category}
-                          validator={issue.validator}
-                          startWithConfirm={startWithConfirm}
-                          onResolved={() =>
-                            void queryClient.invalidateQueries({
-                              queryKey: ["/api/validation/cache-issues"],
-                              exact: false,
-                            })
-                          }
-                        />
-                      ) : null}
-                      {conflict && (
-                        <Button
-                          variant="outline"
+                          />
+                        ) : issue.file ? (
+                          <RecheckFileIssueButton
+                            file={issue.file}
+                            code={issue.code}
+                            category={issue.category}
+                            validator={issue.validator}
+                            startWithConfirm={startWithConfirm}
+                            onResolved={() =>
+                              void queryClient.invalidateQueries({
+                                queryKey: ["/api/validation/cache-issues"],
+                                exact: false,
+                              })
+                            }
+                          />
+                        ) : null}
+                        <SolveWithAiAgentDropdown
+                          icon={Bot}
+                          ariaLabel="Agent"
+                          prompt={buildCachedIssueAskAgentPrompt(issue)}
                           size="sm"
-                          className="h-7 gap-1 ml-auto"
-                          onClick={() => openResolver(asValidatorIssue)}
-                          data-testid={`button-resolve-cache-${issue.code}-${idx}`}
-                        >
-                          <Wrench className="h-3.5 w-3.5" />
-                          Resolve
-                        </Button>
-                      )}
+                          buttonVariant="ghost"
+                          className="h-6 px-2 text-[10px] text-muted-foreground"
+                          testId={`ask-cache-issue-${idx}`}
+                          onAgentSelect={openAskAgent}
+                          entryKey={issue.entryKey}
+                        />
+                        {conflict ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1"
+                            onClick={() => openResolver(asValidatorIssue)}
+                            data-testid={`button-resolve-cache-${issue.code}-${idx}`}
+                          >
+                            <Wrench className="h-3.5 w-3.5" />
+                            Resolve
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="text-foreground mt-0.5">
-                      {formatSitePathsInText(issue.message, formatSitePath)}
-                    </div>
-                    {(() => {
-                      const suggestionText = resolveIssueSuggestionClient(
-                        issueCodeMap,
-                        issue.validator,
-                        issue.code,
-                        issue.suggestion,
-                      );
-                      return suggestionText ? (
+                    {suggestionText ? (
+                      <div className="mt-2">
                         <TruncatableSuggestion
                           text={suggestionText}
                           formatSitePath={formatSitePath}
                         />
-                      ) : null;
-                    })()}
+                      </div>
+                    ) : null}
                     {!issue.completed &&
                       issue.attempts &&
                       issue.attempts.length > 0 && (
-                        <details className="mt-1 text-[10px] text-muted-foreground" data-testid="details-prior-attempts">
+                        <details
+                          className="mt-2 text-[10px] text-muted-foreground"
+                          data-testid="details-prior-attempts"
+                        >
                           <summary className="cursor-pointer hover:text-foreground">
                             What went wrong ({issue.attempts.length})
                           </summary>
-                          <ul className="mt-1 space-y-1 pl-3 list-disc">
+                          <ul className="mt-1 list-disc space-y-1 pl-3">
                             {issue.attempts.map((a, ai) => (
                               <li key={`${a.at}-${ai}`}>
                                 {a.reason === "ttl_expired"
@@ -2526,10 +2601,19 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                           </ul>
                         </details>
                       )}
-                    {issue.url && <div className="text-muted-foreground">{issue.url}</div>}
-                    {issue.file && (
-                      <div className="text-muted-foreground font-mono truncate" title={issue.file}>
-                        {formatSitePath(issue.file)}
+                    {(issue.url || issue.file) && (
+                      <div className="mt-1.5 space-y-0.5">
+                        {issue.url ? (
+                          <div className="truncate text-[10px] text-muted-foreground">{issue.url}</div>
+                        ) : null}
+                        {issue.file ? (
+                          <div
+                            className="truncate font-mono text-[10px] text-muted-foreground"
+                            title={issue.file}
+                          >
+                            {formatSitePath(issue.file)}
+                          </div>
+                        ) : null}
                       </div>
                     )}
                   </div>
@@ -2557,7 +2641,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               said they did. Reopened means diagnostics found the problem again.
             </p>
           </CardHeader>
-          <CardContent className="max-h-[32rem] overflow-auto space-y-2 !p-0">
+          <CardContent className="max-h-[32rem] overflow-auto !p-0">
             {resolvedIssuesLoading ? (
               <p className="text-sm text-muted-foreground py-6 text-center">Loading resolved history…</p>
             ) : resolvedRows.length === 0 ? (
@@ -2746,6 +2830,15 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           }
           runSingleMutation.mutate({ name: "redirects", deferOnBusy: true });
         }}
+      />
+      <McpRequiredForAiModal
+        open={mcpRequiredForAiOpen}
+        onOpenChange={setMcpRequiredForAiOpen}
+        defaultTab={mcpRequiredSetupTab}
+        agentId={mcpRequiredAgentId}
+        agentLabel={mcpRequiredAgentLabel}
+        prompt={mcpRequiredPrompt}
+        prefillUrlPrefix={mcpRequiredPrefillPrefix}
       />
     </div>
   );
