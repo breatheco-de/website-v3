@@ -867,7 +867,7 @@ export default function VariablesPage() {
                 {
                   title: "SEO meta",
                   syntax: "{{ meta.page_title }}",
-                  body: "From this page’s SEO head block (SEO Meta tab).",
+                  body: "From this page’s SEO head block (SERP tab).",
                 },
                 {
                   title: "URL params",

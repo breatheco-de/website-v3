@@ -1,12 +1,27 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Code, Eye, EyeOff, FileText, Filter, Image, Info, Loader2, MapPin, Pencil, RefreshCw, Search, Table2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Code, Eye, EyeOff, Filter, Hash, Image, Info, Loader2, MapPin, Pencil, RefreshCw, Search, Table2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
 import { EntrySeoClusterFields, MappingFieldsTab } from "@/components/editing/MappingFieldsTab";
+import type { SeoModalSavedDetail } from "@/components/editing/seoModalSaved";
 import { FunnelTab } from "@/components/DebugBubble/components/FunnelTab";
+import { OpenRushFetchControl } from "@/components/seo/OpenRushFetchControl";
+import { formatOpenRushFetchedAge } from "@/components/seo/openrushFetchAge";
+import {
+  hijackDestination,
+  isLiveUrlRedirectHijack,
+  LiveUrlRedirectHijackBanner,
+  resolveSeoLiveProbePath,
+  type RedirectTestLike,
+} from "@/components/DebugBubble/components/seoRedirectHijack";
 import { OG_IMAGE_ENSURE_TAGS } from "@shared/standardMediaTags";
 import type { SeoModalSavingFlags } from "@/hooks/useSeoModalSaves";
+import { useFormatSitePath } from "@/hooks/useFormatSitePath";
+import { useToast } from "@/hooks/use-toast";
+import { resolveAuthorName } from "@/hooks/useDebugAuth";
+import { getSessionHeaders } from "@/lib/sessionHeaders";
 import {
   Dialog,
   DialogContent,
@@ -22,8 +37,44 @@ import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/tog
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { ContentInfo, SeoMeta, SeoLocation, SlugCheckStatus } from "../types";
 import { useResolveString } from "@/hooks/useVariables";
+import { cn } from "@/lib/utils";
 
-export type SeoModalTab = "general" | "fields" | "funnel" | "schema" | "visibility" | "redirects";
+type OpenRushSerpHit = { url: string; rank: number };
+
+type OpenRushSerpEntryClient = {
+  query: string;
+  fetched_at: string;
+  organic: OpenRushSerpHit[];
+  featured_snippet_url: string | null;
+  has_paa: boolean;
+  our_serp_rank: number | null;
+  visible_in_serp: boolean | null;
+};
+
+type SeoEntrySerpPayload = {
+  main_keyword?: string | null;
+  path?: string;
+  serp_snapshot?: {
+    openrush_configured: boolean;
+    query: string | null;
+    entry: OpenRushSerpEntryClient | null;
+    stale: boolean;
+  };
+};
+
+export type SeoModalTab = "keywords" | "serp" | "fields" | "funnel" | "schema" | "visibility" | "redirects";
+
+/** Truncate an absolute canonical URL for the header badge. */
+function formatCanonicalBadgeLabel(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  try {
+    const u = new URL(trimmed);
+    return `${u.hostname}${u.pathname}`.replace(/\/$/, "") || trimmed;
+  } catch {
+    return trimmed.length > 48 ? `${trimmed.slice(0, 45)}…` : trimmed;
+  }
+}
 
 type SchemaOrgPreviewDoc = {
   schema: Record<string, unknown>;
@@ -74,7 +125,7 @@ export interface SeoModalProps {
   /** Locale for Fields tab provenance / field_overrides (live locale). */
   locale?: string;
   contentTypeLabel?: string;
-  /** Tab to show when the modal opens (defaults to SEO Meta). */
+  /** Tab to show when the modal opens (defaults to SERP). */
   initialTab?: SeoModalTab;
   /** live = published locale file; variant = draft or A/B file. */
   seoContext?: "live" | "variant";
@@ -82,6 +133,8 @@ export interface SeoModalProps {
   seoVariant?: string;
   /** Meta keys defined on the variant file (overrides). */
   metaOverrides?: string[];
+  /** Fired after nested keyword/fields/funnel saves so parents can refresh lists. */
+  onSaved?: (detail: SeoModalSavedDetail) => void;
 }
 
 function resolveSchemaPreviewDocs(seoData: any): SchemaOrgPreviewDoc[] {
@@ -175,19 +228,134 @@ export function SeoModal({
   setSlugRedirectPrompt,
   locale = "en",
   contentTypeLabel,
-  initialTab = "general",
+  initialTab = "serp",
   seoContext = "live",
   seoVariant,
   metaOverrides = [],
+  onSaved,
 }: SeoModalProps) {
   const [activeTab, setActiveTab] = useState<SeoModalTab>(initialTab);
   const [schemaAdvancedOpen, setSchemaAdvancedOpen] = useState(false);
   const [expandedSchemaDocs, setExpandedSchemaDocs] = useState<Record<number, boolean>>({});
   const [variantAdvancedOpen, setVariantAdvancedOpen] = useState(false);
+  const [serpAdvancedOpen, setSerpAdvancedOpen] = useState(false);
+  const [serpFeaturesAdvancedOpen, setSerpFeaturesAdvancedOpen] = useState(false);
+  const [keywordsAdvancedOpen, setKeywordsAdvancedOpen] = useState(false);
+  const [canonicalEditing, setCanonicalEditing] = useState(false);
+  const [canonicalAdvancedOpen, setCanonicalAdvancedOpen] = useState(false);
+  const [refreshingSerp, setRefreshingSerp] = useState(false);
+  const { toast } = useToast();
+  const formatSitePath = useFormatSitePath();
+
+  const liveProbePath = useMemo(
+    () => resolveSeoLiveProbePath(seoData, seoMeta.canonical_url),
+    [seoData, seoMeta.canonical_url],
+  );
+
+  const { data: redirectInspect } = useQuery<RedirectTestLike | null>({
+    queryKey: ["/api/debug/redirects/test", liveProbePath, locale],
+    queryFn: async () => {
+      if (!liveProbePath) return null;
+      const res = await fetch(
+        `/api/debug/redirects/test?url=${encodeURIComponent(liveProbePath)}&locale=${encodeURIComponent(locale)}`,
+      );
+      if (!res.ok) return null;
+      return (await res.json()) as RedirectTestLike;
+    },
+    enabled: open && !!liveProbePath,
+    retry: false,
+    staleTime: 30_000,
+  });
+
+  const fieldsLocale = locale || contentInfo.locale || "en";
+  const { data: entrySerpInfo, refetch: refetchEntrySerp } = useQuery<SeoEntrySerpPayload>({
+    queryKey: ["/api/seo/entry", contentInfo.type, contentInfo.slug, fieldsLocale, "serp-snapshot"],
+    enabled: open && !!contentInfo.type && !!contentInfo.slug,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const params = new URLSearchParams({ locale: fieldsLocale });
+      const res = await fetch(
+        `/api/seo/entry/${encodeURIComponent(contentInfo.type!)}/${encodeURIComponent(contentInfo.slug!)}?${params}`,
+        { credentials: "include", headers: getSessionHeaders() },
+      );
+      if (!res.ok) return {};
+      return res.json();
+    },
+  });
+
+  const mainKeywordForSerp = (entrySerpInfo?.main_keyword || "").trim();
+  const serpSnapshot = entrySerpInfo?.serp_snapshot;
+  const serpEntry = serpSnapshot?.entry ?? null;
+  const openrushSerpConfigured = serpSnapshot?.openrush_configured === true;
+  const serpFetchedAge = formatOpenRushFetchedAge(serpEntry?.fetched_at, serpSnapshot?.stale);
+
+  const handleRequestSerp = async () => {
+    if (!contentInfo.type || !contentInfo.slug) return;
+    const fresh = await refetchEntrySerp();
+    const keyword = (fresh.data?.main_keyword || "").trim();
+    if (!keyword) {
+      toast({
+        title: "No keyword yet",
+        description: "Set a main keyword on the Keywords tab first.",
+        variant: "destructive",
+      });
+      throw new Error("no_keyword");
+    }
+    setRefreshingSerp(true);
+    try {
+      const author = await resolveAuthorName();
+      const res = await fetch("/api/seo/serp/refresh", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...getSessionHeaders(),
+        },
+        body: JSON.stringify({
+          contentType: contentInfo.type,
+          slug: contentInfo.slug,
+          locale: fieldsLocale,
+          keyword,
+          author: author || undefined,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((body as { error?: string }).error || "SERP refresh failed");
+      }
+      toast({
+        title: "SERP snapshot updated",
+        description: "OpenRush features were saved to the shared SERP cache.",
+      });
+      await refetchEntrySerp();
+    } catch (err) {
+      if (err instanceof Error && err.message === "no_keyword") throw err;
+      toast({
+        title: "Could not request SERP",
+        description: err instanceof Error ? err.message : "Request failed",
+        variant: "destructive",
+      });
+      throw err;
+    } finally {
+      setRefreshingSerp(false);
+    }
+  };
+
+  const liveUrlHijacked = isLiveUrlRedirectHijack(redirectInspect);
+  const hijackDest = redirectInspect ? hijackDestination(redirectInspect) : "";
+  const hijackSource = redirectInspect?.source
+    ? formatSitePath(redirectInspect.source)
+    : "";
 
   useEffect(() => {
     if (open) setActiveTab(initialTab);
   }, [open, initialTab]);
+
+  useEffect(() => {
+    if (open && activeTab === "serp" && contentInfo.type && contentInfo.slug) {
+      void refetchEntrySerp();
+    }
+  }, [open, activeTab, contentInfo.type, contentInfo.slug, refetchEntrySerp]);
   const [ogImageError, setOgImageError] = useState(false);
   const [ogImageTooSmall, setOgImageTooSmall] = useState(false);
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
@@ -201,10 +369,11 @@ export function SeoModal({
       setSlugEditing(false);
       setVisibilityEditing(false);
       setSnippetEditing(false);
+      setCanonicalEditing(false);
+      setCanonicalAdvancedOpen(false);
     }
   }, [open]);
 
-  const fieldsLocale = locale || contentInfo.locale || "en";
   const resolveString = useResolveString();
   const resolvedPageTitle = useMemo(() => {
     const raw = seoMeta.page_title || "";
@@ -275,6 +444,11 @@ export function SeoModal({
   const snippetDomain = (() => {
     try { return new URL(snippetUrl).hostname; } catch { return ""; }
   })();
+  const externalCanonical = (seoMeta.canonical_url || "").trim();
+  const hasExternalCanonical = externalCanonical.length > 0;
+  const canonicalBadgeLabel = hasExternalCanonical
+    ? formatCanonicalBadgeLabel(externalCanonical)
+    : "This page has no external canonical";
 
   return (
     <>
@@ -431,6 +605,124 @@ export function SeoModal({
                   </div>
                 </div>
               )}
+
+              <div className="space-y-2 pt-0.5" data-testid="seo-canonical-header">
+                {!canonicalEditing ? (
+                  <button
+                    type="button"
+                    className="inline-flex max-w-full min-w-0 text-left"
+                    onClick={() => setCanonicalEditing(true)}
+                    data-testid="badge-seo-canonical"
+                    title={
+                      hasExternalCanonical
+                        ? `External canonical: ${externalCanonical}`
+                        : "Set an external canonical URL"
+                    }
+                  >
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "max-w-full font-normal text-[10px] sm:text-[11px] cursor-pointer hover-elevate gap-1",
+                        hasExternalCanonical
+                          ? "border-amber-500/50 text-amber-800 dark:text-amber-200"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {hasExternalCanonical ? (
+                        <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                      ) : null}
+                      <span className="truncate">{canonicalBadgeLabel}</span>
+                    </Badge>
+                  </button>
+                ) : (
+                  <div
+                    className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-left"
+                    data-testid="form-seo-canonical"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs text-foreground leading-relaxed">
+                        An external canonical tells Google and LLMs to treat another URL as the preferred page for
+                        this content. This page can drop out of search and AI results.
+                      </p>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0"
+                        onClick={() => {
+                          setCanonicalEditing(false);
+                          setCanonicalAdvancedOpen(false);
+                        }}
+                        data-testid="button-cancel-canonical-edit"
+                        title="Close"
+                        aria-label="Close canonical editor"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-foreground" htmlFor="seo-canonical-url">
+                        Canonical URL
+                      </label>
+                      <input
+                        id="seo-canonical-url"
+                        type="text"
+                        value={seoMeta.canonical_url}
+                        onChange={(e) => setSeoMeta({ ...seoMeta, canonical_url: e.target.value })}
+                        placeholder="Leave empty unless this page should defer to another URL"
+                        className="w-full px-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                        data-testid="input-seo-canonical-url"
+                        autoFocus
+                      />
+                      <div className="flex gap-2 pt-1 flex-wrap">
+                        <Button
+                          size="sm"
+                          disabled={!canonicalDirty || !!saving.canonical}
+                          onClick={() => {
+                            void (async () => {
+                              try {
+                                await onSaveCanonical();
+                                setCanonicalEditing(false);
+                              } catch {
+                                /* stay open */
+                              }
+                            })();
+                          }}
+                          data-testid="button-save-canonical"
+                        >
+                          {saving.canonical ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                          Save canonical URL
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={!!saving.canonical}
+                          onClick={() => {
+                            setCanonicalEditing(false);
+                            setCanonicalAdvancedOpen(false);
+                          }}
+                          data-testid="button-canonical-cancel"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                    <Collapsible open={canonicalAdvancedOpen} onOpenChange={setCanonicalAdvancedOpen}>
+                      <CollapsibleTrigger
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        data-testid="button-canonical-advanced"
+                      >
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 transition-transform ${canonicalAdvancedOpen ? "rotate-180" : ""}`}
+                        />
+                        Read more (advanced)
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="text-xs text-muted-foreground mt-1 space-y-0.5 font-mono">
+                        <p>meta.canonical_url — entry YAML head</p>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </div>
+                )}
+              </div>
             </div>
           </DialogDescription>
         </DialogHeader>
@@ -472,11 +764,15 @@ export function SeoModal({
             <p className="text-sm text-muted-foreground">Loading SEO data...</p>
           </div>
         ) : seoData ? (
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full min-w-0">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SeoModalTab)} className="w-full min-w-0">
             <ToggleButtonBarList className="inline-flex w-auto max-w-full" data-testid="tabs-seo-nav">
-              <ToggleButtonBarTrigger value="general" data-testid="tab-general" className="gap-1.5" title="SEO Meta" aria-label="SEO Meta">
-                <FileText className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden sm:inline">SEO Meta</span>
+              <ToggleButtonBarTrigger value="keywords" data-testid="tab-keywords" className="gap-1.5" title="Keywords" aria-label="Keywords">
+                <Hash className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">Keywords</span>
+              </ToggleButtonBarTrigger>
+              <ToggleButtonBarTrigger value="serp" data-testid="tab-serp" className="gap-1.5" title="SERP" aria-label="SERP">
+                <Search className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">SERP</span>
               </ToggleButtonBarTrigger>
               <ToggleButtonBarTrigger value="fields" data-testid="tab-fields" className="gap-1.5" title="Fields" aria-label="Fields">
                 <Table2 className="h-3.5 w-3.5 shrink-0" />
@@ -498,31 +794,188 @@ export function SeoModal({
                 )}
                 <span className="hidden sm:inline">Visibility</span>
               </ToggleButtonBarTrigger>
-              <ToggleButtonBarTrigger value="redirects" data-testid="tab-redirects" className="gap-1.5" title="Redirects" aria-label="Redirects">
-                <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
+              <ToggleButtonBarTrigger
+                value="redirects"
+                data-testid="tab-redirects"
+                className="gap-1.5"
+                title={liveUrlHijacked ? "Redirects — this page’s live URL is redirected away" : "Redirects"}
+                aria-label={liveUrlHijacked ? "Redirects, warning" : "Redirects"}
+              >
+                {liveUrlHijacked ? (
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" data-testid="icon-redirects-hijack" />
+                ) : (
+                  <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
+                )}
                 <span className="hidden sm:inline">Redirects</span>
               </ToggleButtonBarTrigger>
             </ToggleButtonBarList>
 
-            {/* ── SEO Meta tab ───────────────────────────────────────── */}
-            <TabsContent value="general" className="min-w-0 space-y-6 pt-4">
+            {/* ── Keywords tab ───────────────────────────────────────── */}
+            <TabsContent value="keywords" className="min-w-0 space-y-4 pt-4">
               <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
                 <p>
-                  <strong>Share preview</strong> fields live under <code className="font-mono">meta:</code> in the
-                  entry YAML (title, description, og:image). Sections can read them as{" "}
-                  <code className="font-mono">{"{{ meta.page_title }}"}</code>,{" "}
-                  <code className="font-mono">{"{{ meta.description }}"}</code>, etc.
+                  Set the main keyword and cluster settings used for SEO monitoring on this page. Saved separately
+                  from how the page looks in Google or when shared.
+                </p>
+                <Collapsible open={keywordsAdvancedOpen} onOpenChange={setKeywordsAdvancedOpen}>
+                  <CollapsibleTrigger
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    data-testid="button-keywords-advanced"
+                  >
+                    <ChevronDown
+                      className={`h-3.5 w-3.5 transition-transform ${keywordsAdvancedOpen ? "rotate-180" : ""}`}
+                    />
+                    Read more (advanced)
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-1 space-y-0.5 font-mono text-[11px]">
+                    <p>seo: — main_keyword, volume, difficulty, is_pillar, pillar_path</p>
+                    <p>Save SEO fields writes locale YAML under seo: (not meta:)</p>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+              {contentInfo.type && contentInfo.slug ? (
+                <EntrySeoClusterFields
+                  contentType={contentInfo.type}
+                  slug={contentInfo.slug}
+                  locale={fieldsLocale}
+                  variant={fieldsVariant}
+                  portalContainer={dialogContainer}
+                  onSaved={(detail) => {
+                    onSaved?.(detail);
+                    if (detail.areas.includes("keywords")) {
+                      void refetchEntrySerp();
+                    }
+                  }}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Open from a content entry to manage keyword and cluster fields.
+                </p>
+              )}
+            </TabsContent>
+
+            {/* ── SERP tab ───────────────────────────────────────────── */}
+            <TabsContent value="serp" className="min-w-0 space-y-6 pt-4">
+              <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-2">
+                <p>
+                  Edit how this page looks in Google results and when shared on social. Saving updates the live
+                  snippet without republishing the whole page. Title and description cannot be cleared on a live
+                  locale.
                 </p>
                 <p>
-                  <strong>Cluster fields</strong> live under <code className="font-mono">seo:</code> (main keyword,
-                  pillar path) — saved separately via <strong>Save SEO fields</strong>. Content-type schema fields are
-                  on the <strong>Fields</strong> tab (<code className="font-mono">{"{{ entry.* }}"}</code>).
+                  OpenRush loads live SERP features for this page’s main keyword. The shared OpenRush control spends
+                  credits and updates the cache only — not page YAML.
                 </p>
-                <p>
-                  Each section saves independently — visibility, locations, and snippet patch{" "}
-                  <code className="font-mono">meta.*</code> on live without republishing. Title and
-                  description cannot be <strong>cleared</strong> on a live locale.
-                </p>
+                <div
+                  className="flex items-start gap-2 rounded border border-border/60 bg-background/60 px-2 py-1.5"
+                  data-testid="openrush-serp-panel"
+                >
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <p className="text-[11px] text-foreground" data-testid="text-openrush-serp-last-fetched">
+                      Last SERP from OpenRush:{" "}
+                      <span className="font-medium">
+                        {serpFetchedAge || (serpEntry ? "unknown" : "Never")}
+                      </span>
+                      {serpSnapshot?.stale && serpEntry ? (
+                        <span className="text-amber-700 dark:text-amber-300"> · may be stale</span>
+                      ) : null}
+                    </p>
+                    {serpEntry ? (
+                      <div className="flex flex-wrap gap-1" data-testid="openrush-serp-features">
+                        <Badge variant="outline" className="text-[10px] font-normal">
+                          PAA: {serpEntry.has_paa ? "Yes" : "No"}
+                        </Badge>
+                        <Badge variant="outline" className="text-[10px] font-normal max-w-full">
+                          <span className="truncate">
+                            Featured:{" "}
+                            {serpEntry.featured_snippet_url ? (
+                              <a
+                                href={serpEntry.featured_snippet_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline underline-offset-2"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {serpEntry.featured_snippet_url.replace(/^https?:\/\//, "").slice(0, 40)}
+                                {serpEntry.featured_snippet_url.length > 48 ? "…" : ""}
+                              </a>
+                            ) : (
+                              "None"
+                            )}
+                          </span>
+                        </Badge>
+                        <Badge variant="outline" className="text-[10px] font-normal">
+                          {typeof serpEntry.our_serp_rank === "number"
+                            ? `Our rank: #${serpEntry.our_serp_rank}`
+                            : "Not in snapshot"}
+                        </Badge>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground">No SERP features cached yet.</p>
+                    )}
+                    {serpEntry && serpEntry.organic.length > 0 ? (
+                      <Collapsible
+                        open={serpFeaturesAdvancedOpen}
+                        onOpenChange={setSerpFeaturesAdvancedOpen}
+                      >
+                        <CollapsibleTrigger
+                          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                          data-testid="button-serp-organic-advanced"
+                        >
+                          <ChevronDown
+                            className={`h-3 w-3 transition-transform ${serpFeaturesAdvancedOpen ? "rotate-180" : ""}`}
+                          />
+                          Read more (advanced)
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="mt-1 space-y-0.5 font-mono text-[10px] text-muted-foreground">
+                          {serpEntry.organic.slice(0, 5).map((hit) => (
+                            <p key={`${hit.rank}-${hit.url}`} className="truncate" title={hit.url}>
+                              #{hit.rank} {hit.url}
+                            </p>
+                          ))}
+                        </CollapsibleContent>
+                      </Collapsible>
+                    ) : null}
+                  </div>
+                  <OpenRushFetchControl
+                    kind="serp"
+                    queryLabel={mainKeywordForSerp || "this keyword"}
+                    openrushConfigured={openrushSerpConfigured}
+                    fetchedAt={serpEntry?.fetched_at}
+                    stale={serpSnapshot?.stale}
+                    loading={refreshingSerp}
+                    data-testid="button-openrush-serp"
+                    dialogTestId="dialog-openrush-serp"
+                    onBeforeOpen={async () => {
+                      const fresh = await refetchEntrySerp();
+                      if ((fresh.data?.main_keyword || "").trim()) return true;
+                      toast({
+                        title: "No keyword yet",
+                        description: "Set a main keyword on the Keywords tab first.",
+                        variant: "destructive",
+                      });
+                      return false;
+                    }}
+                    onConfirm={handleRequestSerp}
+                  />
+                </div>
+                <Collapsible open={serpAdvancedOpen} onOpenChange={setSerpAdvancedOpen}>
+                  <CollapsibleTrigger
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    data-testid="button-serp-advanced"
+                  >
+                    <ChevronDown
+                      className={`h-3.5 w-3.5 transition-transform ${serpAdvancedOpen ? "rotate-180" : ""}`}
+                    />
+                    Read more (advanced)
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-1 space-y-0.5 font-mono text-[11px]">
+                    <p>meta.page_title / meta.description / meta.og_image</p>
+                    <p>{"Sections may read {{ meta.page_title }}, {{ meta.description }}, etc."}</p>
+                    <p>.cache/{"{site}"}/openrush-serp.json</p>
+                    <p>POST /api/seo/serp/refresh</p>
+                  </CollapsibleContent>
+                </Collapsible>
               </div>
 
               {/* Search Snippet */}
@@ -787,43 +1240,6 @@ export function SeoModal({
                   </div>
                 )}
               </div>
-
-              {contentInfo.type && contentInfo.slug ? (
-                <EntrySeoClusterFields
-                  contentType={contentInfo.type}
-                  slug={contentInfo.slug}
-                  locale={fieldsLocale}
-                  variant={fieldsVariant}
-                  portalContainer={dialogContainer}
-                />
-              ) : null}
-
-              {/* Canonical URL */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground" htmlFor="seo-canonical-url">
-                  Canonical URL
-                </label>
-                <input
-                  id="seo-canonical-url"
-                  type="text"
-                  value={seoMeta.canonical_url}
-                  onChange={(e) => setSeoMeta({ ...seoMeta, canonical_url: e.target.value })}
-                  placeholder="e.g. https://4geeks.com/en/career-programs/full-stack"
-                  className="w-full px-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                  data-testid="input-seo-canonical-url"
-                />
-                <div className="flex gap-2 pt-1">
-                  <Button
-                    size="sm"
-                    disabled={!canonicalDirty || !!saving.canonical}
-                    onClick={() => void onSaveCanonical()}
-                    data-testid="button-save-canonical"
-                  >
-                    {saving.canonical ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-                    Save canonical URL
-                  </Button>
-                </div>
-              </div>
             </TabsContent>
 
             {/* ── Fields tab ─────────────────────────────────────────── */}
@@ -836,8 +1252,9 @@ export function SeoModal({
                   typeLabel={fieldsTypeLabel}
                   variant={fieldsVariant}
                   hideSeoFields
-                  onOpenSeoMeta={() => setActiveTab("general")}
+                  onOpenSeoMeta={() => setActiveTab("serp")}
                   portalContainer={dialogContainer}
+                  onSaved={onSaved}
                 />
               ) : (
                 <p className="text-sm text-muted-foreground pt-4">
@@ -852,6 +1269,9 @@ export function SeoModal({
                 contentInfo={contentInfo}
                 contentTypeLabel={fieldsTypeLabel}
                 portalContainer={dialogContainer}
+                locale={fieldsLocale}
+                variant={fieldsVariant}
+                onSaved={onSaved}
               />
             </TabsContent>
 
@@ -1275,6 +1695,14 @@ export function SeoModal({
                   Old URL paths that should redirect to this page (301). Each entry is a path relative to the site root, e.g. <code className="font-mono bg-muted px-1 rounded">/old-page-slug</code>.
                 </p>
               </div>
+
+              {liveUrlHijacked && liveProbePath && (
+                <LiveUrlRedirectHijackBanner
+                  livePath={liveProbePath}
+                  destination={hijackDest || undefined}
+                  sourceLabel={hijackSource || undefined}
+                />
+              )}
 
               {isVariantContext && (
                 <div

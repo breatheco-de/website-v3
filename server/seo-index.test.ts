@@ -289,3 +289,90 @@ meta:
     expect(repaired.entries["blog/post-a/en"]?.main_keyword).toBe("fresh");
   });
 });
+
+describe("cluster priority preserve", () => {
+  function seedHubAndSpoke() {
+    fs.mkdirSync(path.join(contentRoot, "blog", "hub"), { recursive: true });
+    fs.writeFileSync(
+      path.join(contentRoot, "blog", "hub", "en.yml"),
+      `slug: hub
+seo:
+  main_keyword: hub kw
+  is_pillar: true
+meta:
+  page_title: Hub
+  description: Hub SEO
+`,
+      "utf-8",
+    );
+    writeSeoFields({
+      contentType: "blog",
+      slug: "hub",
+      locale: "en",
+      updates: { main_keyword: "hub kw", is_pillar: true },
+      contentRoot,
+      ci: stubCi("/en/blog/hub"),
+    });
+    writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: { main_keyword: "spoke kw", pillar_path: "/en/blog/hub" },
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+  }
+
+  it("survives patch recompute and full rebuild; drops when hub is gone", async () => {
+    const {
+      setClusterPriority,
+      rebuildSeoIndex,
+      invalidateSeoIndexCache: invalidate,
+    } = await import("./seo-index");
+    seedHubAndSpoke();
+    const hubId = "blog/hub/en";
+    expect(loadSeoIndex(contentRoot).clusters[hubId]).toBeDefined();
+
+    const set = setClusterPriority({ hubId, priority: 1, contentRoot });
+    expect(set.success).toBe(true);
+    expect(loadSeoIndex(contentRoot).clusters[hubId]?.priority).toBe(1);
+
+    // Patch a spoke — recomputeGraph must preserve priority
+    writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: { main_keyword: "spoke kw updated", pillar_path: "/en/blog/hub" },
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    expect(loadSeoIndex(contentRoot).clusters[hubId]?.priority).toBe(1);
+
+    // Full rebuild from YAML — disk snapshot must restore priority
+    invalidate();
+    rebuildSeoIndex({ contentRoot, reason: "test", ci: stubCi("/en/blog/hub"), mark: false });
+    expect(loadSeoIndex(contentRoot).clusters[hubId]?.priority).toBe(1);
+
+    // Remove hub pillar → priority dropped
+    writeSeoFields({
+      contentType: "blog",
+      slug: "hub",
+      locale: "en",
+      updates: { main_keyword: "hub kw", is_pillar: false },
+      contentRoot,
+      ci: stubCi("/en/blog/hub"),
+    });
+    expect(loadSeoIndex(contentRoot).clusters[hubId]).toBeUndefined();
+  });
+
+  it("setClusterPriority clears with null", async () => {
+    const { setClusterPriority } = await import("./seo-index");
+    seedHubAndSpoke();
+    const hubId = "blog/hub/en";
+    setClusterPriority({ hubId, priority: 2, contentRoot });
+    expect(loadSeoIndex(contentRoot).clusters[hubId]?.priority).toBe(2);
+    const cleared = setClusterPriority({ hubId, priority: null, contentRoot });
+    expect(cleared.success).toBe(true);
+    expect(loadSeoIndex(contentRoot).clusters[hubId]?.priority).toBeUndefined();
+  });
+});

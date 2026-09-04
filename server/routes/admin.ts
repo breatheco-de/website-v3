@@ -43,9 +43,15 @@ import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager, DatabaseManager } from "../database";
 import { collectSystemAlerts, recheckDatabaseHealth } from "../system-alerts";
-import { listEvents, clearAllEvents, listAgentSessions, getAgentSessionDetail, emitEvent, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents, type EventType } from "../events/event-store";
-import { singleAttribution } from "../events/types";
+import { listEvents, clearAllEvents, listAgentSessions, getAgentSessionDetail, emitEvent, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents } from "../events/event-store";
+import { singleAttribution, EVENT_TYPES, type EventType } from "../events/types";
 import { seedDemoPipelineEvents } from "../events/seed-demo";
+import {
+  expandKindIdsToTypes,
+  parseActorIds,
+  parseAgentFilter,
+  parseKindIds,
+} from "@shared/event-log-filters";
 import { listActiveLeases } from "../leases";
 import { getLastAppliedSnapshot } from "../jobs/applier";
 import { getEngineStatus } from "../jobs/queue";
@@ -609,7 +615,21 @@ export function registerAdminRoutes(app: Express): void {
       res.status(400).json({ error: "Missing site" });
       return;
     }
-    const type = req.query.type as EventType | undefined;
+    const typeRaw = typeof req.query.type === "string" ? req.query.type.trim() : "";
+    const type =
+      typeRaw && (EVENT_TYPES as readonly string[]).includes(typeRaw)
+        ? (typeRaw as EventType)
+        : undefined;
+    const kinds = parseKindIds(
+      typeof req.query.kind === "string" ? req.query.kind : undefined,
+    );
+    const types = type ? undefined : expandKindIdsToTypes(kinds);
+    const actors = parseActorIds(
+      typeof req.query.actor === "string" ? req.query.actor : undefined,
+    );
+    const agent = parseAgentFilter(
+      typeof req.query.agent === "string" ? req.query.agent : undefined,
+    );
     const since = req.query.since ? Number(req.query.since) : undefined;
     const cause = req.query.cause as string | undefined;
     const before = req.query.before ? Number(req.query.before) : undefined;
@@ -624,6 +644,9 @@ export function registerAdminRoutes(app: Express): void {
     const events = listEvents({
       site,
       type,
+      types: types && types.length > 0 ? types : undefined,
+      actors: actors.length > 0 ? actors : undefined,
+      agent: agent ?? undefined,
       since,
       cause,
       before,
@@ -636,7 +659,7 @@ export function registerAdminRoutes(app: Express): void {
       events,
       unpublishedTotal: getUnpublishedCount(site),
       education:
-        "This log is the diary of site changes and agent runs. Filter by agent session and by kind. Selecting a session shows a short summary built from those events.",
+        "This log is the diary of site changes and agent runs. Filters live in the page link. Selecting a session shows a short summary built from those events.",
     });
   });
 

@@ -158,9 +158,14 @@ export type SeoIndexEntry = {
   pillar_opted_out?: boolean;
 };
 
+/** Cluster triage priority: High=1, Mid=2, Low=3 (lower = better). */
+export type ClusterPriority = 1 | 2 | 3;
+
 export type SeoIndexCluster = {
   path: string;
   members: string[];
+  /** Staff triage priority; preserved across recompute/rebuild. */
+  priority?: ClusterPriority;
 };
 
 export type SeoIndex = {
@@ -215,7 +220,51 @@ function indexEntryFromSeo(opts: {
   return row;
 }
 
-function recomputeGraph(index: SeoIndex): void {
+export function isClusterPriority(value: unknown): value is ClusterPriority {
+  return value === 1 || value === 2 || value === 3;
+}
+
+/** Snapshot hub priorities before clusters are rebuilt. */
+export function snapshotClusterPriorities(
+  clusters: Record<string, SeoIndexCluster> | undefined | null,
+): Record<string, ClusterPriority> {
+  const out: Record<string, ClusterPriority> = {};
+  if (!clusters) return out;
+  for (const [hubId, cluster] of Object.entries(clusters)) {
+    if (isClusterPriority(cluster?.priority)) out[hubId] = cluster.priority;
+  }
+  return out;
+}
+
+/** Re-apply priorities only for hubs that still exist; drop the rest. */
+export function applyClusterPriorities(
+  clusters: Record<string, SeoIndexCluster>,
+  snapshot: Record<string, ClusterPriority>,
+): void {
+  for (const [hubId, priority] of Object.entries(snapshot)) {
+    const cluster = clusters[hubId];
+    if (!cluster) continue;
+    cluster.priority = priority;
+  }
+}
+
+/** Read seo-index.json from disk without rebuild (null if missing/invalid). */
+export function readSeoIndexFile(contentRoot?: string): SeoIndex | null {
+  const file = seoIndexPath(contentRoot);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf-8")) as SeoIndex;
+    if (!parsed || parsed.version !== 1 || typeof parsed.entries !== "object") return null;
+    parsed.clusters = parsed.clusters || {};
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function recomputeGraph(index: SeoIndex, prioritySnapshot?: Record<string, ClusterPriority>): void {
+  const preserved =
+    prioritySnapshot ?? snapshotClusterPriorities(index.clusters);
   const byPath: Record<string, string> = {};
   const clusters: Record<string, SeoIndexCluster> = {};
   const orphans: string[] = [];
@@ -251,6 +300,7 @@ function recomputeGraph(index: SeoIndex): void {
     if (cluster && !cluster.members.includes(id)) cluster.members.push(id);
   }
 
+  applyClusterPriorities(clusters, preserved);
   index.by_path = byPath;
   index.clusters = clusters;
   index.orphans = orphans;
@@ -446,6 +496,8 @@ export function rebuildSeoIndex(opts?: {
 }): SeoIndex {
   const ci = opts?.ci ?? contentIndex;
   const contentRoot = contentRootAbs(opts?.contentRoot);
+  // Full rebuild starts from emptyIndex — snapshot priorities from disk first.
+  const priorPriorities = snapshotClusterPriorities(readSeoIndexFile(opts?.contentRoot)?.clusters);
   const index = emptyIndex(true);
   const seenIds = new Set<string>();
 
@@ -513,7 +565,7 @@ export function rebuildSeoIndex(opts?: {
     }
   }
 
-  recomputeGraph(index);
+  recomputeGraph(index, priorPriorities);
   saveSeoIndex(index, {
     contentRoot: opts?.contentRoot,
     author: opts?.author,
@@ -524,6 +576,30 @@ export function rebuildSeoIndex(opts?: {
     "seo-index rebuilt",
   );
   return index;
+}
+
+/** Set or clear cluster triage priority without a full rebuild. */
+export function setClusterPriority(opts: {
+  hubId: string;
+  priority: ClusterPriority | null;
+  contentRoot?: string;
+  author?: string;
+}): { success: true; hubId: string; priority: ClusterPriority | null } | { success: false; error: string } {
+  const hubId = opts.hubId.trim();
+  if (!hubId) return { success: false, error: "hubId is required" };
+  if (opts.priority != null && !isClusterPriority(opts.priority)) {
+    return { success: false, error: "priority must be 1, 2, 3, or null" };
+  }
+  const index = loadSeoIndex(opts.contentRoot);
+  const cluster = index.clusters[hubId];
+  if (!cluster) return { success: false, error: "Cluster not found" };
+  if (opts.priority == null) {
+    delete cluster.priority;
+  } else {
+    cluster.priority = opts.priority;
+  }
+  saveSeoIndex(index, { contentRoot: opts.contentRoot, author: opts.author });
+  return { success: true, hubId, priority: opts.priority };
 }
 
 /** Cluster health including monitored pages with no SEO signal as Unclustered. */

@@ -15,6 +15,7 @@ import {
   getLatestWriteForEntry,
   listOpenWritesForEntry,
 } from "../../events/event-store";
+import { systemJobAttribution } from "../../events/types";
 import { takePendingValidationWriteId } from "../../pipeline-state";
 import { child } from "../../logger";
 import { markJobFinished, markJobStarted } from "../heartbeat";
@@ -89,7 +90,7 @@ export function emitValidationSettled(
     site,
     type: "validation_results_ready",
     triggeredByEventId: primary?.id,
-    attribution: primary?.attribution ?? [],
+    attribution: systemJobAttribution("on-save-validation"),
     agent_session_id: primary?.agent_session_id,
     resource: { ...resource, path: primary?.resource.path },
     payload: { entryKey, ...payload },
@@ -102,7 +103,7 @@ export function emitValidationSettled(
       site,
       type: "validation_results_ready",
       triggeredByEventId: w.id,
-      attribution: w.attribution,
+      attribution: systemJobAttribution("on-save-validation"),
       agent_session_id: w.agent_session_id,
       resource: { ...resource, path: w.resource.path },
       payload: {

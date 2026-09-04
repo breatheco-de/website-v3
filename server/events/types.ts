@@ -169,6 +169,26 @@ export function singleAttribution(author?: string, actor?: EventActor): EventAtt
   return [{ ...(author ? { author } : {}), ...(actor ? { actor } : {}) }];
 }
 
+/** Attribution for Sidequest job follow-ups (executor = system; cause stays on triggeredBy*). */
+export function systemJobAttribution(source: string): EventAttribution[] {
+  return singleAttribution(undefined, { type: "system", source });
+}
+
+/** Job event types whose stored attribution must be the system executor, not parent writers. */
+export const SYSTEM_JOB_FOLLOW_UP_TYPES = [
+  "index_snapshot_ready",
+  "validation_results_ready",
+  "binding_propagation_done",
+] as const;
+
+export type SystemJobFollowUpType = (typeof SYSTEM_JOB_FOLLOW_UP_TYPES)[number];
+
+export function systemJobSourceForType(type: SystemJobFollowUpType): string {
+  if (type === "index_snapshot_ready") return "index-refresh";
+  if (type === "validation_results_ready") return "on-save-validation";
+  return "binding-propagation";
+}
+
 function attributionKey(entry: EventAttribution): string {
   const actor = entry.actor;
   if (!actor) return `:${entry.author ?? ""}`;

@@ -1,8 +1,14 @@
 import type Database from "better-sqlite3";
 import type { PipelineMigration } from "./types";
 import { indexExists, tableExists, tableHasColumn } from "./types";
+import {
+  SYSTEM_JOB_FOLLOW_UP_TYPES,
+  systemJobAttribution,
+  systemJobSourceForType,
+  type SystemJobFollowUpType,
+} from "../events/types";
 
-export const PIPELINE_SCHEMA_VERSION = 8;
+export const PIPELINE_SCHEMA_VERSION = 9;
 
 export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
   {
@@ -180,6 +186,34 @@ export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
         CREATE INDEX IF NOT EXISTS idx_content_proposal_entries_proposal
           ON content_proposal_entries(proposal_id);
       `);
+    },
+  },
+  {
+    version: 9,
+    name: "system_job_follow_up_attribution",
+    up(db) {
+      if (!tableExists(db, "events")) return;
+      if (!tableHasColumn(db, "events", "attribution_json")) return;
+
+      const update = db.prepare(
+        `UPDATE events
+         SET attribution_json = ?
+         WHERE type = ?
+           AND (
+             attribution_json IS NULL
+             OR attribution_json = ''
+             OR attribution_json = '[]'
+             OR json_extract(attribution_json, '$[0].actor.type') IS NULL
+             OR json_extract(attribution_json, '$[0].actor.type') = ''
+             OR json_extract(attribution_json, '$[0].actor.type') IN ('ui', 'mcp')
+           )`,
+      );
+
+      for (const type of SYSTEM_JOB_FOLLOW_UP_TYPES) {
+        const source = systemJobSourceForType(type as SystemJobFollowUpType);
+        const json = JSON.stringify(systemJobAttribution(source));
+        update.run(json, type);
+      }
     },
   },
 ];

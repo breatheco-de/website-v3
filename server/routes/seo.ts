@@ -311,6 +311,23 @@ function metaRecord(data: Record<string, unknown> | null | undefined): Record<st
   return {};
 }
 
+/** Content-index live public path for type/slug/locale (SEO modal redirect hijack probe). */
+function resolveSeoPreviewLivePath(
+  ci: typeof contentIndex,
+  contentType: string,
+  slug: string,
+  locale: string,
+): string | null {
+  try {
+    const urls = ci.getAlternateUrls(slug, contentType);
+    const path =
+      urls[locale] || urls.en || (Object.values(urls).find((u) => typeof u === "string" && u) as string | undefined);
+    return typeof path === "string" && path.trim() ? path : null;
+  } catch {
+    return null;
+  }
+}
+
 type SeoContextOption =
   | { type: "live" }
   | { type: "variant"; variant: string };
@@ -813,51 +830,16 @@ export function registerSeoRoutes(app: Express): void {
       }
 
       const contentRoot = getContentRoot(res);
-      const contentFolder = getContentRootName(res);
-      const marketParam =
-        typeof req.query.market === "string" && req.query.market.trim()
-          ? req.query.market.trim()
-          : "worldwide";
       const { loadSeoIndex, computeClusterHealth, listBrokenClusterRefs } = await import("../seo-index");
-      const {
-        buildOrganicPathTraffic,
-        lookupPathTraffic,
-        sumPathTraffic,
-      } = await import("../gsc-organic-path-traffic");
-      const { buildSiteOrganicTraffic } = await import("../gsc-organic-site-traffic");
-      const { buildOtherHighTraffic, clusteredPathsFromSeoIndex } = await import(
-        "../gsc-organic-other-traffic"
-      );
       const seoIndex = loadSeoIndex(contentRoot);
       const clusterHealth = computeClusterHealth(seoIndex, getCI(res), contentRoot);
       const brokenClusterRefs = listBrokenClusterRefs(seoIndex, getCI(res));
-      const organic = buildOrganicPathTraffic({
-        contentFolder,
-        contentRoot,
-        market: marketParam,
-        kpiPaths: clusteredPathsFromSeoIndex(seoIndex),
-      });
-      const siteOrganicTraffic = await buildSiteOrganicTraffic({
-        contentRoot,
-        contentFolder,
-      });
-      const ci = getCI(res);
-      const otherHighTraffic = buildOtherHighTraffic({
-        contentFolder,
-        contentRoot,
-        market: marketParam,
-        seoIndex,
-        isKnownUrl: (path) => ci.isKnownUrl(path),
-      });
       const clusters = Object.entries(seoIndex.clusters).map(([hubId, cluster]) => {
         const hub = seoIndex.entries[hubId];
         const keyword =
           typeof hub?.main_keyword === "string" && hub.main_keyword.trim()
             ? hub.main_keyword.trim()
             : null;
-        const hubPath = cluster.path || hub?.path || "";
-        const hubTraffic = lookupPathTraffic(organic.byPath, hubPath);
-        const memberTraffics: Array<ReturnType<typeof lookupPathTraffic>> = [];
         const members = cluster.members.map((id) => {
           const base = clusterMemberFromIndex(id, seoIndex.entries[id]);
           const updatedAt = resolveEntryUpdatedAt({
@@ -866,27 +848,22 @@ export function registerSeoRoutes(app: Express): void {
             locale: base.locale,
             contentRoot,
           });
-          const traffic = lookupPathTraffic(organic.byPath, base.path);
-          memberTraffics.push(traffic);
           return {
             ...base,
             updated_at: updatedAt,
             lastmod: toSitemapLastmod(updatedAt, false),
-            ...(traffic ? { traffic } : {}),
           };
         });
-        const clusterTraffic = sumPathTraffic([hubTraffic, ...memberTraffics]);
         return {
           hubId,
           pillarUrl: cluster.path,
           keyword,
           locale: hub?.locale,
+          priority: cluster.priority,
           members,
           clusterSlugs: members.map((m) => m.slug),
           memberIds: cluster.members,
           clusterCount: cluster.members.length,
-          ...(hubTraffic ? { hubTraffic } : {}),
-          ...(clusterTraffic ? { clusterTraffic } : {}),
         };
       });
       const uniqueOrphans = brokenClusterRefs.map((row) => ({
@@ -912,40 +889,6 @@ export function registerSeoRoutes(app: Express): void {
         faqCoverage,
         schemaCoverage,
         indexRebuilt: !!seoIndex.rebuilt,
-        organicTraffic: {
-          window: organic.window,
-          days_present: organic.days_present,
-          days_in_window: organic.days_in_window,
-          days_expected: organic.days_expected,
-          incomplete: organic.incomplete,
-          country_less: organic.country_less,
-          truncated: organic.truncated,
-          market: organic.market,
-          markets: organic.markets,
-          market_warning: organic.market_warning,
-          totals: organic.totals,
-          series: organic.series,
-        },
-        siteOrganicTraffic: {
-          window: siteOrganicTraffic.window,
-          days_in_window: siteOrganicTraffic.days_in_window,
-          days_expected: siteOrganicTraffic.days_expected,
-          incomplete: siteOrganicTraffic.incomplete,
-          configured: siteOrganicTraffic.configured,
-          source: siteOrganicTraffic.source,
-          error: siteOrganicTraffic.error,
-          totals: siteOrganicTraffic.totals,
-          series: siteOrganicTraffic.series,
-        },
-        otherHighTraffic: {
-          window: otherHighTraffic.window,
-          market: otherHighTraffic.market,
-          days_in_window: otherHighTraffic.days_in_window,
-          days_expected: otherHighTraffic.days_expected,
-          incomplete: otherHighTraffic.incomplete,
-          known: otherHighTraffic.known,
-          unknown: otherHighTraffic.unknown,
-        },
         totals: {
           totalPages,
           withPillar,
@@ -960,6 +903,111 @@ export function registerSeoRoutes(app: Express): void {
       res.status(500).json({ error: "Failed to build SEO overview", message: String(err) });
     }
   });
+
+  api.get(app, "/api/seo/cluster-metrics", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const auth = await requireStaffSession(req, res);
+      if (!auth.authorized) return;
+
+      const perspectiveRaw =
+        typeof req.query.perspective === "string" ? req.query.perspective.trim() : "";
+      const {
+        isClusterMetricsPerspective,
+        buildTrafficClusterMetrics,
+        buildPotentialClusterMetrics,
+        buildIntegrityClusterMetrics,
+      } = await import("../seo-cluster-metrics");
+      if (!isClusterMetricsPerspective(perspectiveRaw)) {
+        res.status(400).json({
+          error: "Invalid perspective. Must be one of: traffic, potential, integrity",
+        });
+        return;
+      }
+      const marketParam =
+        typeof req.query.market === "string" && req.query.market.trim()
+          ? req.query.market.trim()
+          : "worldwide";
+      const contentRoot = getContentRoot(res);
+      const contentFolder = getContentRootName(res);
+      const { loadSeoIndex } = await import("../seo-index");
+      const seoIndex = loadSeoIndex(contentRoot);
+      const ci = getCI(res);
+
+      if (perspectiveRaw === "traffic") {
+        const data = await buildTrafficClusterMetrics({
+          seoIndex,
+          contentRoot,
+          contentFolder,
+          market: marketParam,
+          isKnownUrl: (p) => ci.isKnownUrl(p),
+        });
+        res.json(data);
+        return;
+      }
+      if (perspectiveRaw === "potential") {
+        res.json(
+          buildPotentialClusterMetrics({
+            seoIndex,
+            contentRoot,
+            contentFolder,
+          }),
+        );
+        return;
+      }
+      const validationCache =
+        (res.locals.site as { validationCache?: Parameters<typeof buildIntegrityClusterMetrics>[0]["validationCache"] } | undefined)
+          ?.validationCache;
+      res.json(
+        buildIntegrityClusterMetrics({
+          seoIndex,
+          contentFolder,
+          contentRoot,
+          validationCache,
+        }),
+      );
+    } catch (err) {
+      res.status(500).json({ error: "Failed to build cluster metrics", message: String(err) });
+    }
+  });
+
+  api.patch(app, "/api/seo/cluster-priority", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const auth = await requireStaffSession(req, res);
+      if (!auth.authorized) return;
+
+      const hubId = typeof req.body?.hubId === "string" ? req.body.hubId.trim() : "";
+      const priorityRaw = req.body?.priority;
+      const priority =
+        priorityRaw === null || priorityRaw === undefined
+          ? null
+          : typeof priorityRaw === "number"
+            ? priorityRaw
+            : Number(priorityRaw);
+      if (!hubId) {
+        res.status(400).json({ error: "hubId is required" });
+        return;
+      }
+      if (priority !== null && priority !== 1 && priority !== 2 && priority !== 3) {
+        res.status(400).json({ error: "priority must be 1, 2, 3, or null" });
+        return;
+      }
+      const { setClusterPriority } = await import("../seo-index");
+      const result = setClusterPriority({
+        hubId,
+        priority: priority as 1 | 2 | 3 | null,
+        contentRoot: getContentRoot(res),
+        author: auth.username || "staff",
+      });
+      if (!result.success) {
+        res.status(result.error === "Cluster not found" ? 404 : 400).json({ error: result.error });
+        return;
+      }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update cluster priority", message: String(err) });
+    }
+  });
+
 
   app.get("/api/seo/cluster-entries", async (req, res) => {
     try {
@@ -1111,6 +1159,19 @@ export function registerSeoRoutes(app: Express): void {
         yamlDifficulty: yamlDiff,
       });
 
+      const { isOpenRushConfigured } = await import("../openrush-client");
+      const { loadSerpCache, serpEntryFresh } = await import("../openrush-serp-cache");
+      const openrushConfigured = isOpenRushConfigured(contentRoot);
+      const kwForSerp =
+        typeof mainKeyword === "string" && mainKeyword.trim() ? mainKeyword.trim() : "";
+      const serpCached = kwForSerp ? loadSerpCache(contentRootName).entries[kwForSerp] : undefined;
+      const serp_snapshot = {
+        openrush_configured: openrushConfigured,
+        query: kwForSerp || null,
+        entry: serpCached ?? null,
+        stale: kwForSerp ? !serpEntryFresh(serpCached) : false,
+      };
+
       res.json({
         id,
         contentType,
@@ -1124,6 +1185,7 @@ export function registerSeoRoutes(app: Express): void {
         kw_monthly_volume: yamlVol,
         kw_difficulty: yamlDiff,
         keyword_metrics,
+        serp_snapshot,
         is_pillar: row?.is_pillar === true || seo.is_pillar === true,
         pillar_path:
           (typeof row?.pillar_path === "string" && row.pillar_path) ||
@@ -1342,6 +1404,7 @@ export function registerSeoRoutes(app: Express): void {
             (schema?.overrides as Record<string, Record<string, unknown>>) || {},
           title: (resolvedPage.title as string) || "",
           slug: (resolvedPage.slug as string) || slug,
+          livePath: resolveSeoPreviewLivePath(getCI(res), contentType, slug, locale),
         });
         return;
       }
@@ -1493,6 +1556,7 @@ export function registerSeoRoutes(app: Express): void {
         schemaOverrides,
         title: (pageData.title as string) || "",
         slug: (pageData.slug as string) || slug,
+        livePath: resolveSeoPreviewLivePath(ci, contentType, slug, locale),
       };
 
       const region =
@@ -1844,6 +1908,143 @@ export function registerSeoRoutes(app: Express): void {
     } catch (err) {
       log.error({ err }, "keyword refresh failed");
       res.status(500).json({ error: err instanceof Error ? err.message : "Keyword refresh failed" });
+    }
+  });
+
+  /**
+   * Remaining OpenRush account credits (GET /v1/me/credits). Staff-only; no content type.
+   */
+  api.get(app, "/api/seo/openrush/credits", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const auth = await requireStaffSession(req, res);
+      if (!auth.authorized) return;
+      const contentRoot = getContentRoot(res);
+      const { isOpenRushConfigured, fetchOpenRushCreditsBalance } = await import("../openrush-client");
+      if (!isOpenRushConfigured(contentRoot)) {
+        return res.status(400).json({
+          ok: false,
+          balance: null,
+          error: "OpenRush is not configured",
+          code: "openrush_inactive",
+        });
+      }
+      const result = await fetchOpenRushCreditsBalance();
+      if (!result.ok) {
+        return res.status(400).json({
+          ok: false,
+          balance: null,
+          error: result.error || "Could not load OpenRush credits",
+        });
+      }
+      res.json({ ok: true, balance: result.balance });
+    } catch (err) {
+      log.error({ err }, "openrush credits failed");
+      res.status(500).json({
+        ok: false,
+        balance: null,
+        error: err instanceof Error ? err.message : "Credits lookup failed",
+      });
+    }
+  });
+
+  /**
+   * Force OpenRush inspect_serp for an entry’s main keyword.
+   * Upserts shared SERP cache; does not write YAML.
+   */
+  api.post(app, "/api/seo/serp/refresh", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const contentType = typeof req.body?.contentType === "string" ? req.body.contentType.trim() : "";
+      const slug = typeof req.body?.slug === "string" ? req.body.slug.trim() : "";
+      const locale = normalizeLocale(
+        (typeof req.body?.locale === "string" && req.body.locale) || getDefaultLocale(),
+      );
+      const keywordOverride =
+        typeof req.body?.keyword === "string" && req.body.keyword.trim()
+          ? req.body.keyword.trim()
+          : "";
+      if (!contentType || !slug) {
+        return res.status(400).json({ error: "contentType and slug are required" });
+      }
+      if (!isValidType(contentType)) {
+        return res.status(400).json({
+          error: `Invalid content type. Must be one of: ${getAllFolders().join(", ")}`,
+        });
+      }
+
+      const auth = await requireCapability(req, res, "seo_edit", contentType);
+      if (!auth.authorized) return;
+
+      const {
+        isOpenRushConfigured,
+        inspectSerpQuery,
+        OPENRUSH_INSPECT_SERP_CREDITS,
+      } = await import("../openrush-client");
+      const contentRoot = getContentRoot(res);
+      const contentFolder = getContentRootName(res);
+      if (!isOpenRushConfigured(contentRoot)) {
+        return res.status(400).json({
+          error: "OpenRush must be activated to request SERP snapshots",
+          code: "openrush_inactive",
+        });
+      }
+
+      const { loadSeoIndex, seoEntryId } = await import("../seo-index");
+      const seoIndex = loadSeoIndex(contentRoot);
+      const row = seoIndex.entries[seoEntryId(contentType, slug, locale)];
+      const merged = getCI(res).loadMergedContent(contentType, slug, locale);
+      const data = (merged.data || {}) as Record<string, unknown>;
+      const seo =
+        data.seo && typeof data.seo === "object" && !Array.isArray(data.seo)
+          ? (data.seo as Record<string, unknown>)
+          : {};
+
+      let keyword = keywordOverride;
+      if (!keyword) {
+        const fromYaml =
+          typeof seo.main_keyword === "string" && seo.main_keyword.trim()
+            ? seo.main_keyword.trim()
+            : "";
+        const fromIndex =
+          typeof row?.main_keyword === "string" && row.main_keyword.trim()
+            ? row.main_keyword.trim()
+            : "";
+        keyword = fromYaml || fromIndex;
+      }
+      if (!keyword) {
+        return res.status(400).json({
+          error: "No keyword configured for this entry",
+          code: "no_keyword",
+        });
+      }
+
+      const entryPath = (row?.path || "").trim();
+      const { getPublicSiteUrl } = await import("../cloudflare-browser");
+      const siteBase = getPublicSiteUrl();
+      const targetUrl =
+        entryPath && siteBase
+          ? `${siteBase.replace(/\/$/, "")}${entryPath.startsWith("/") ? entryPath : `/${entryPath}`}`
+          : entryPath || undefined;
+
+      const inspected = await inspectSerpQuery({
+        query: keyword,
+        contentRoot,
+        contentFolder,
+        targetUrl,
+      });
+      if (!inspected.ok || !inspected.entry) {
+        return res.status(400).json({ error: inspected.error || "OpenRush SERP lookup failed" });
+      }
+
+      res.json({
+        ok: true,
+        query: inspected.entry.query,
+        entry: inspected.entry,
+        credits: OPENRUSH_INSPECT_SERP_CREDITS,
+        credits_note: inspected.credits_note,
+      });
+    } catch (err) {
+      log.error({ err }, "serp refresh failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "SERP refresh failed" });
     }
   });
 

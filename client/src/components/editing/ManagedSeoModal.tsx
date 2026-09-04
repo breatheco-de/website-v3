@@ -7,6 +7,10 @@ import { useSeoModalSaves } from "@/hooks/useSeoModalSaves";
 import { useContentTypes } from "@/hooks/useContentTypes";
 import { normalizeLocale, buildContentUrlFromPattern } from "@/lib/locale";
 import { computeDirtyMetaKeys, liveSnippetClearBlocked } from "@/lib/buildMetaSaveOperations";
+import type { SeoModalSaveArea, SeoModalSavedDetail } from "@/components/editing/seoModalSaved";
+import { buildSeoModalSavedDetail } from "@/components/editing/seoModalSaved";
+
+export type { SeoModalSaveArea, SeoModalSavedDetail } from "@/components/editing/seoModalSaved";
 
 export interface ManagedSeoModalTarget {
   contentType: string;
@@ -21,7 +25,7 @@ interface ManagedSeoModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   target: ManagedSeoModalTarget | null;
-  onSaved?: () => void;
+  onSaved?: (detail: SeoModalSavedDetail) => void;
 }
 
 const EMPTY_SEO_META: SeoMeta = {
@@ -93,6 +97,24 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
   const currentLocaleSlug = (seoData?.slug as string) || target?.slug || "";
   const seoContext = seoData?.context ?? (target?.variant ? "variant" : "live");
   const seoVariant = seoData?.variant ?? target?.variant;
+
+  const emitSaved = useCallback(
+    (areas: SeoModalSaveArea[]) => {
+      if (!onSaved || !target?.contentType || !target?.slug) return;
+      onSaved(
+        buildSeoModalSavedDetail(
+          {
+            contentType: target.contentType,
+            slug: target.slug,
+            locale,
+            variant: seoContext === "variant" ? seoVariant : undefined,
+          },
+          areas,
+        ),
+      );
+    },
+    [locale, onSaved, seoContext, seoVariant, target?.contentType, target?.slug],
+  );
 
   const applySeoMetaFromForm = useCallback((next: SeoMeta) => {
     setSeoMeta(next);
@@ -178,7 +200,7 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
     baselineLocationsRef,
     seoData,
     metaOverrides,
-    onSaved,
+    onSaved: emitSaved,
     refetch: fetchSeoPreview,
   });
 
@@ -227,7 +249,7 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
         description: `${result.oldSlug} → ${result.newSlug}${createRedirect ? " (redirect created)" : ""}`,
       });
       onOpenChange(false);
-      onSaved?.();
+      emitSaved(["slug"]);
     } catch (error) {
       toast({
         title: "Failed to rename slug",
@@ -328,6 +350,7 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
       seoContext={seoContext}
       seoVariant={seoVariant}
       metaOverrides={metaOverrides}
+      onSaved={onSaved}
     />
   );
 }

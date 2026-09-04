@@ -75,6 +75,8 @@ function formatSystemActor(attribution: EventAttributionEntry[]): string {
   const source = attribution[0]?.actor?.source?.trim();
   if (!source) return "The system";
   if (source === "index-refresh") return "The site index";
+  if (source === "on-save-validation") return "Validation";
+  if (source === "binding-propagation") return "Shared section sync";
   if (source === "github-pull") return "GitHub sync";
   return source.replace(/[-_]+/g, " ");
 }
@@ -251,8 +253,8 @@ function sentenceParts(
           : { rest: "Validation was skipped", muted: true };
       }
       return entry
-        ? { ...withActor(actor, " validated your"), entry, muted: false }
-        : { ...withActor(actor, " finished validation"), muted: false };
+        ? { ...withActor(systemActor, " finished validating your"), entry, muted: false }
+        : { ...withActor(systemActor, " finished validation"), muted: false };
     case "validation_issue_claimed":
       return entry
         ? { ...withActor(actor, " started fixing an issue on your"), entry, muted: false }
@@ -296,15 +298,15 @@ function sentenceParts(
           : undefined);
       if (entry && updated != null && updated > 0) {
         return {
-          ...withActor(actor, " synced"),
+          ...withActor(systemActor, " synced"),
           entry,
           suffix: `to ${updated} page${updated === 1 ? "" : "s"}`,
           muted: false,
         };
       }
       return entry
-        ? { ...withActor(actor, " finished syncing"), entry, muted: false }
-        : { ...withActor(actor, " finished syncing a shared section"), muted: false };
+        ? { ...withActor(systemActor, " finished syncing"), entry, muted: false }
+        : { ...withActor(systemActor, " finished syncing a shared section"), muted: false };
     }
     case "agent_session_started":
       return { ...withActor(actor, " started an agent session"), muted: false };

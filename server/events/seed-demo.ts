@@ -53,7 +53,7 @@ function batchSpecs(): SeedSpec[] {
     {
       type: "validation_results_ready",
       offsetMs: -90 * 60_000,
-      attribution: mcp("Cursor", "gpt-4o"),
+      attribution: system("on-save-validation"),
       resource: { contentType: "blog", slug: "demo-post", locale: "en" },
       payload: { demo: true, issueCount: 2, skipped: false },
       triggeredByIndex: 0,
@@ -84,7 +84,7 @@ function batchSpecs(): SeedSpec[] {
     {
       type: "binding_propagation_done",
       offsetMs: -54 * 60_000,
-      attribution: mcp("Codex", "codex"),
+      attribution: system("binding-propagation"),
       resource: { groupId: "demo-footer", locale: "en" },
       payload: { demo: true, updated: 3 },
       triggeredByIndex: 4,
@@ -126,7 +126,7 @@ function batchSpecs(): SeedSpec[] {
     {
       type: "validation_results_ready",
       offsetMs: 0,
-      attribution: mcp("Perplexity", "sonar"),
+      attribution: system("on-save-validation"),
       resource: { contentType: "page", slug: "home", locale: "en" },
       payload: { demo: true, skipped: true, note: "Dedupe skip — tests muted row styling" },
       triggeredByIndex: 9,

@@ -95,4 +95,28 @@ describe("emitValidationSettled", () => {
     const parents = readies.map((r) => r.triggeredByEventId).sort((a, b) => (a ?? 0) - (b ?? 0));
     expect(parents).toEqual([w1.id, w2.id]);
   });
+
+  it("emits system attribution while keeping parent cause and session", () => {
+    const resource = { contentType: "page", slug: "home", locale: "en" };
+    const w1 = emitEvent({
+      site,
+      type: "entry_locale_saved",
+      resource,
+      agent_session_id: "sess-val-1",
+      attribution: [{ author: "claude", actor: { type: "mcp", client: "Cursor", model: "claude-4-sonnet" } }],
+    });
+
+    emitValidationSettled(site, "page/home/en", resource, { skipped: false }, w1.id);
+
+    const ready = listEvents({ site, type: "validation_results_ready", limit: 1 })[0]!;
+    expect(ready.triggeredByEventId).toBe(w1.id);
+    expect(ready.agent_session_id).toBe("sess-val-1");
+    expect(ready.attribution[0]?.actor).toEqual({ type: "system", source: "on-save-validation" });
+    expect(listEvents({ site, actors: ["agents"], limit: 10 }).map((e) => e.type)).toEqual([
+      "entry_locale_saved",
+    ]);
+    expect(listEvents({ site, actors: ["system"], limit: 10 }).map((e) => e.type)).toEqual([
+      "validation_results_ready",
+    ]);
+  });
 });

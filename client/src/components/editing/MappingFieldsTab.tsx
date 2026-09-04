@@ -45,6 +45,8 @@ import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { queryClient } from "@/lib/queryClient";
 import type { EditorHint } from "@/components/editing/EditorTypeDialog";
 import { deslugifyLabel } from "@shared/relation-field";
+import type { SeoModalSavedDetail } from "@/components/editing/seoModalSaved";
+import { notifySeoModalSaved } from "@/components/editing/seoModalSaved";
 import { NotMetaFieldBadge } from "@/components/editing/NotMetaFieldBadge";
 
 type FieldSource = "original" | "db_override" | "ct_override" | "entry_default";
@@ -153,8 +155,9 @@ function FieldsEducationBlock({
               <code className="text-xs bg-muted px-1 rounded font-mono">{`{{ entry.fieldName }}`}</code>.
               SEO cluster fields (
               <code className="text-xs font-mono">{`{{ seo.main_keyword }}`}</code>
-              ) live on the <strong>SEO Meta</strong> tab. Use that tab for head keys too (
-              <code className="text-xs font-mono">{`{{ meta.* }}`}</code>). System identity is auto-available as{" "}
+              ) live on the <strong>Keywords</strong> tab. Share preview / head keys (
+              <code className="text-xs font-mono">{`{{ meta.* }}`}</code>) are on the <strong>SERP</strong> tab.
+              System identity is auto-available as{" "}
               <code className="text-xs font-mono">{`{{ entry.slug }}`}</code> /{" "}
               <code className="text-xs font-mono">{`{{ entry.locale }}`}</code> /{" "}
               <code className="text-xs font-mono">{`{{ entry.image }}`}</code> (and underscore forms).{" "}
@@ -1127,19 +1130,21 @@ function SeoFieldsEditor({
   );
 }
 
-/** Keyword / pillar / cluster fields (`seo:*` in locale YAML). Used on SEO Meta tab and optionally Fields tab. */
+/** Keyword / pillar / cluster fields (`seo:*` in locale YAML). Used on Keywords tab and optionally Fields tab. */
 export function EntrySeoClusterFields({
   contentType,
   slug,
   locale,
   variant,
   portalContainer,
+  onSaved,
 }: {
   contentType: string;
   slug: string;
   locale: string;
   variant?: string | null;
   portalContainer?: HTMLElement | null;
+  onSaved?: (detail: SeoModalSavedDetail) => void;
 }) {
   const { toast } = useToast();
 
@@ -1184,6 +1189,14 @@ export function EntrySeoClusterFields({
   const seoWriteBlocked = provenance?.seoWriteAllowed === false;
   const seoWriteBlockReason = provenance?.seoWriteBlockReason;
 
+  const notifyKeywordsSaved = () => {
+    notifySeoModalSaved(
+      onSaved,
+      { contentType, slug, locale, variant: variantParam },
+      ["keywords"],
+    );
+  };
+
   const authHeaders = async (): Promise<Record<string, string>> => {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     const token = getDebugToken();
@@ -1193,6 +1206,7 @@ export function EntrySeoClusterFields({
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: [...provenanceKey] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/seo/entry", contentType, slug] });
   };
 
   const saveSeoFields = async (built: Record<string, unknown>) => {
@@ -1220,6 +1234,7 @@ export function EntrySeoClusterFields({
     }
     toast({ title: "SEO fields saved" });
     invalidate();
+    notifyKeywordsSaved();
   };
 
   const resetSeoOverlayField = async (fieldPath: string) => {
@@ -1259,6 +1274,7 @@ export function EntrySeoClusterFields({
         title: "SEO field reset",
         description: `"${fieldPath}" restored to the database baseline (locale YAML key removed).`,
       });
+      notifyKeywordsSaved();
     }
     invalidate();
   };
@@ -1347,6 +1363,7 @@ export function MappingFieldsTab({
   hideSeoFields = false,
   onOpenSeoMeta,
   portalContainer,
+  onSaved,
 }: {
   contentType: string;
   slug: string;
@@ -1354,11 +1371,12 @@ export function MappingFieldsTab({
   typeLabel: string;
   /** Preview/Debug variant slug (e.g. draft, lumi-version). Omit for live locale file. */
   variant?: string | null;
-  /** When true, cluster/keyword SEO fields are omitted (shown on SEO Meta tab instead). */
+  /** When true, cluster/keyword SEO fields are omitted (shown on Keywords tab instead). */
   hideSeoFields?: boolean;
-  /** Switch to SEO Meta tab in the parent modal (share preview). */
+  /** Switch to SERP tab in the parent modal (share preview). */
   onOpenSeoMeta?: () => void;
   portalContainer?: HTMLElement | null;
+  onSaved?: (detail: SeoModalSavedDetail) => void;
 }) {
   const { toast } = useToast();
   const [levelChooserField, setLevelChooserField] = useState<FieldProvenance | null>(null);
@@ -1480,6 +1498,14 @@ export function MappingFieldsTab({
     void queryClient.invalidateQueries({ queryKey: [...provenanceKey] });
   };
 
+  const notifyFieldsSaved = () => {
+    notifySeoModalSaved(
+      onSaved,
+      { contentType, slug, locale, variant: variantParam },
+      ["fields"],
+    );
+  };
+
   const confirmVariantSaveIfNeeded = async (): Promise<boolean> => {
     if (!isVariantLayer) return true;
     return new Promise((resolve) => {
@@ -1554,6 +1580,7 @@ export function MappingFieldsTab({
             ? `"${resetTarget.field}" restored to the original database value.`
             : `"${resetTarget.field}" removed from ${layerFileName || `${locale}.yml`}.`,
         });
+        notifyFieldsSaved();
       }
       setResetTarget(null);
       invalidate();
@@ -1574,6 +1601,7 @@ export function MappingFieldsTab({
       slug={slug}
       locale={locale}
       variant={variant}
+      onSaved={onSaved}
     />
   );
 
@@ -1902,6 +1930,7 @@ export function MappingFieldsTab({
               }
             }
             invalidate();
+            notifyFieldsSaved();
           }}
         />
       )}

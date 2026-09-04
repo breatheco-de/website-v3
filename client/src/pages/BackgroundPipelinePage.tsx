@@ -9,7 +9,20 @@ import {
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
+import {
+  type EventActorId,
+  type EventKindId,
+} from "@shared/event-log-filters";
+import {
+  EVENT_LOG_VIEW_DEFAULTS,
+  eventLogActiveFilterCount,
+  eventLogHasActiveFilters,
+  eventLogSessionToApi,
+  parseEventLogSearch,
+  serializeEventLogSearch,
+  type EventLogViewState,
+} from "@/components/pipeline/event-log-url";
 import {
   IconActivity,
   IconAlertTriangle,
@@ -69,11 +82,14 @@ import {
 } from "@/components/pipeline/EventTimeline";
 import { AgentIcon } from "@/components/pipeline/AgentIcon";
 import {
+  AgentSessionPickerModal,
+  SESSION_UNSCOPED,
+} from "@/components/pipeline/AgentSessionPickerModal";
+import {
   AGENT_FILTER_OTHER,
   AGENT_IDS,
   formatAgentLabel,
   resolveAgentId,
-  type AgentId,
 } from "@/components/pipeline/agentIcons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -148,6 +164,7 @@ type AgentSessionSummary = {
   event_count: number;
   write_count: number;
   issue_complete_count: number;
+  attribution: ContentEvent["attribution"];
 };
 
 type AgentSessionDetail = {
@@ -158,59 +175,32 @@ type AgentSessionDetail = {
   attribution: ContentEvent["attribution"];
 };
 
-const SESSION_UNSCOPED = "__unscoped__";
-
-type EventKindChip = {
-  id: string;
+type EventActorChip = {
+  id: EventActorId;
   label: string;
-  types: string[];
   icon: typeof IconActivity;
 };
 
+const EVENT_ACTOR_CHIPS: EventActorChip[] = [
+  { id: "people", label: "People", icon: IconNotes },
+  { id: "agents", label: "Agents", icon: IconSparkles },
+  { id: "system", label: "System", icon: IconActivity },
+];
+
+type EventKindChip = {
+  id: EventKindId;
+  label: string;
+  icon: typeof IconActivity;
+};
+
+/** UI chips only — type lists live in @shared/event-log-filters EVENT_KIND_TYPES. */
 const EVENT_KIND_CHIPS: EventKindChip[] = [
-  {
-    id: "writes",
-    label: "Writes",
-    types: [
-      "entry_locale_saved",
-      "entry_common_saved",
-      "entry_seo_changed",
-      "entry_redirects_changed",
-      "site_redirects_changed",
-      "registry_file_saved",
-      "content_file_written",
-      "redirects_changed",
-    ],
-    icon: IconPencil,
-  },
-  { id: "deletes", label: "Deletes", types: ["entry_deleted", "content_entry_deleted"], icon: IconTrash },
-  { id: "claims", label: "Claims", types: ["validation_issue_claimed", "validation_issue_released"], icon: IconClipboardText },
-  { id: "completes", label: "Completes", types: ["validation_issue_completed"], icon: IconCircleCheck },
-  {
-    id: "session",
-    label: "Session",
-    types: ["agent_session_started", "agent_session_note", "agent_session_summarized"],
-    icon: IconSparkles,
-  },
-  {
-    id: "background",
-    label: "Background",
-    types: [
-      "index_snapshot_ready",
-      "seo_index_ready",
-      "validation_results_ready",
-      "binding_propagation_started",
-      "binding_propagation_done",
-      "site_bulk_synced",
-      "entry_locale_promoted",
-      "entry_locale_unpublished",
-      "content_bulk_synced",
-      "job_failed",
-      "ai_image_gc_completed",
-      "validation_issue_reopened",
-    ],
-    icon: IconActivity,
-  },
+  { id: "writes", label: "Writes", icon: IconPencil },
+  { id: "deletes", label: "Deletes", icon: IconTrash },
+  { id: "claims", label: "Claims", icon: IconClipboardText },
+  { id: "completes", label: "Completes", icon: IconCircleCheck },
+  { id: "session", label: "Session", icon: IconSparkles },
+  { id: "background", label: "Background", icon: IconActivity },
 ];
 
 type EventsResponse = {
@@ -1074,11 +1064,6 @@ const EventRow = memo(function EventRow({
   );
 });
 
-function sessionIdFromSearch(search: string): string {
-  const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
-  return (params.get("session") ?? "").trim();
-}
-
 function EventLogPanel({
   site,
   failures,
@@ -1087,10 +1072,37 @@ function EventLogPanel({
   failures: ContentEvent[];
 }) {
   const search = useSearch();
-  const [typeFilter, setTypeFilter] = useState("");
-  const [kindChips, setKindChips] = useState<ReadonlySet<string>>(new Set());
-  const [sessionFilter, setSessionFilter] = useState(() => sessionIdFromSearch(search));
-  const [agentFilter, setAgentFilter] = useState<"" | AgentId | typeof AGENT_FILTER_OTHER>("");
+  const [pathname, setLocation] = useLocation();
+  const filterView = useMemo(() => parseEventLogSearch(search), [search]);
+  const {
+    session: sessionFilter,
+    kinds: kindList,
+    actors: actorList,
+    agent: agentFilter,
+    type: typeFilter,
+  } = filterView;
+  const kindChips = useMemo(() => new Set(kindList), [kindList]);
+  const actorChips = useMemo(() => new Set(actorList), [actorList]);
+  /** Stable key so filter changes always remount the fetch effect (arrays are referential). */
+  const filterSearchKey = search;
+
+  const writeFilterView = useCallback(
+    (next: EventLogViewState) => {
+      const qs = serializeEventLogSearch(next, search);
+      const pathOnly = pathname.split("?")[0];
+      setLocation(qs ? `${pathOnly}?${qs}` : pathOnly, { replace: true });
+    },
+    [pathname, search, setLocation],
+  );
+
+  const patchFilterView = useCallback(
+    (patch: Partial<EventLogViewState>) => {
+      writeFilterView({ ...filterView, ...patch });
+    },
+    [filterView, writeFilterView],
+  );
+
+  const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
   const [events, setEvents] = useState<ContentEvent[]>([]);
   const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
   const [sessionDetail, setSessionDetail] = useState<AgentSessionDetail | null>(null);
@@ -1118,7 +1130,8 @@ function EventLogPanel({
   const listOwnsScrollRef = useRef(false);
   const programmaticScrollRef = useRef(false);
   const programmaticScrollClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const filterScopedEventsRef = useRef<ContentEvent[]>([]);
+  const eventsForSyncRef = useRef<ContentEvent[]>([]);
+  const loadGenerationRef = useRef(0);
 
   const stickyTimelineBottom = useCallback(() => {
     const timeline = document.querySelector<HTMLElement>('[data-testid="event-timeline"]');
@@ -1150,7 +1163,7 @@ function EventLogPanel({
     const range = visibleRangeRef.current;
     if (!range) return;
 
-    const scoped = filterScopedEventsRef.current;
+    const scoped = eventsForSyncRef.current;
     const nextDimmed = new Set<number>();
     for (const ev of scoped) {
       const inWindow = ev.created_at >= range.start && ev.created_at <= range.end;
@@ -1206,15 +1219,26 @@ function EventLogPanel({
   }, []);
 
   const loadEvents = useCallback(async () => {
+    const generation = ++loadGenerationRef.current;
     setLoading(true);
     try {
+      // Always parse from the live querystring so the API request matches the URL.
+      const view = parseEventLogSearch(filterSearchKey);
       const params = new URLSearchParams({ site, limit: String(EVENT_LOG_FETCH_LIMIT) });
-      if (typeFilter) params.set("type", typeFilter);
-      if (sessionFilter === SESSION_UNSCOPED) params.set("unscoped", "1");
-      else if (sessionFilter) params.set("agentSessionId", sessionFilter);
+      if (view.type) params.set("type", view.type);
+      if (view.kinds.length > 0) params.set("kind", view.kinds.join(","));
+      if (view.actors.length > 0) params.set("actor", view.actors.join(","));
+      if (view.agent) {
+        params.set("agent", view.agent === AGENT_FILTER_OTHER ? "other" : view.agent);
+      }
+      const sessionApi = eventLogSessionToApi(view.session);
+      if (sessionApi.unscoped) params.set("unscoped", "1");
+      else if (sessionApi.agentSessionId) params.set("agentSessionId", sessionApi.agentSessionId);
       const res = await apiFetch(`/api/admin/events?${params}`);
       if (!res.ok) return;
+      if (generation !== loadGenerationRef.current) return;
       const data = (await res.json()) as EventsResponse;
+      if (generation !== loadGenerationRef.current) return;
       const incoming = data.events ?? [];
       const prevMax = maxSeenIdRef.current;
       if (prevMax !== null) {
@@ -1235,12 +1259,12 @@ function EventLogPanel({
         return incoming.map((ev) => prevById.get(ev.id) ?? ev);
       });
     } finally {
-      setLoading(false);
+      if (generation === loadGenerationRef.current) setLoading(false);
     }
-  }, [site, typeFilter, sessionFilter]);
+  }, [site, filterSearchKey]);
 
   const loadSessions = useCallback(async () => {
-    const res = await apiFetch(`/api/admin/agent-sessions?site=${encodeURIComponent(site)}&limit=30`);
+    const res = await apiFetch(`/api/admin/agent-sessions?site=${encodeURIComponent(site)}&limit=100`);
     if (!res.ok) return;
     const data = (await res.json()) as { sessions?: AgentSessionSummary[] };
     setSessions(data.sessions ?? []);
@@ -1346,6 +1370,20 @@ function EventLogPanel({
     };
   }, []);
 
+  // Drop stale rows as soon as the querystring changes so the list cannot keep
+  // showing an unfiltered fetch while the filtered request is in flight.
+  const prevFilterSearchKeyRef = useRef(filterSearchKey);
+  useEffect(() => {
+    if (prevFilterSearchKeyRef.current === filterSearchKey) return;
+    prevFilterSearchKeyRef.current = filterSearchKey;
+    loadGenerationRef.current += 1;
+    setEvents([]);
+    setExpanded(null);
+    setNewIds(new Set());
+    maxSeenIdRef.current = null;
+    dimmedIdsRef.current = new Set();
+  }, [filterSearchKey]);
+
   useEffect(() => {
     void loadEvents();
     void loadSessions();
@@ -1418,32 +1456,12 @@ function EventLogPanel({
     listOwnsScrollRef.current = false;
   }, []);
 
-  /** Type/session filters are server-side; agent + kind chips apply to timeline + list. */
-  const filterScopedEvents = useMemo(() => {
-    let next = events;
-    if (kindChips.size > 0) {
-      const allowed = new Set<string>();
-      for (const chip of EVENT_KIND_CHIPS) {
-        if (kindChips.has(chip.id)) {
-          for (const t of chip.types) allowed.add(t);
-        }
-      }
-      next = next.filter((e) => allowed.has(e.type));
-    }
-    if (!agentFilter) return next;
-    return next.filter((e) => {
-      const agentId = resolveAgentId(e.attribution);
-      if (agentFilter === AGENT_FILTER_OTHER) return agentId == null;
-      return agentId === agentFilter;
-    });
-  }, [events, agentFilter, kindChips]);
+  eventsForSyncRef.current = events;
 
-  filterScopedEventsRef.current = filterScopedEvents;
-
-  // Re-apply dim/scroll when the filtered set changes (agent filter, new poll).
+  // Re-apply dim/scroll when the event set changes (filters, new poll).
   useEffect(() => {
     scheduleSync();
-  }, [filterScopedEvents, scheduleSync]);
+  }, [events, scheduleSync]);
 
   const loadedEventIds = useMemo(() => new Set(events.map((e) => e.id)), [events]);
 
@@ -1468,20 +1486,28 @@ function EventLogPanel({
 
   const getActivityLabel = useCallback((event: ContentEvent) => formatEventHeadlinePlain(event), []);
 
-  const activeFilterCount =
-    (typeFilter ? 1 : 0) +
-    (agentFilter ? 1 : 0) +
-    (sessionFilter ? 1 : 0) +
-    kindChips.size;
+  const activeFilterCount = eventLogActiveFilterCount(filterView);
+  const hasActiveFilters = eventLogHasActiveFilters(filterView);
 
-  const toggleKindChip = useCallback((id: string) => {
-    setKindChips((prev) => {
-      const next = new Set(prev);
+  const toggleKindChip = useCallback(
+    (id: EventKindId) => {
+      const next = new Set(kindChips);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      return next;
-    });
-  }, []);
+      patchFilterView({ kinds: [...next] as EventKindId[] });
+    },
+    [kindChips, patchFilterView],
+  );
+
+  const toggleActorChip = useCallback(
+    (id: EventActorId) => {
+      const next = new Set(actorChips);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      patchFilterView({ actors: [...next] as EventActorId[] });
+    },
+    [actorChips, patchFilterView],
+  );
 
   /** Outline buttons tuned for the dark help bar; labels hide on small screens. */
   const darkBarBtn =
@@ -1509,28 +1535,29 @@ function EventLogPanel({
         </PopoverTrigger>
         <PopoverContent side="bottom" align="end" className="w-80 space-y-3 p-3">
           <div className="space-y-1">
-            <label className="text-xs font-medium" htmlFor="event-session-filter">
-              Agent session
-            </label>
-            <select
+            <p className="text-xs font-medium">Agent session</p>
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              Pick a session to scope the log. Search by agent or session id.
+            </p>
+            <button
+              type="button"
               id="event-session-filter"
-              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-              value={sessionFilter}
-              onChange={(e) => setSessionFilter(e.target.value)}
-              data-testid="select-event-session-filter"
+              onClick={() => setSessionPickerOpen(true)}
+              className="flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-2 text-left text-xs hover:bg-muted/40"
+              data-testid="button-event-session-filter"
             >
-              <option value="">All sessions</option>
-              <option value={SESSION_UNSCOPED}>Unscoped (no session)</option>
-              {sessions.map((s) => {
-                const short = s.agent_session_id.slice(0, 8);
-                return (
-                  <option key={s.agent_session_id} value={s.agent_session_id}>
-                    {short}… · {s.write_count} write{s.write_count === 1 ? "" : "s"} ·{" "}
-                    {formatRelative(s.ended_at)}
-                  </option>
-                );
-              })}
-            </select>
+              <span className="min-w-0 truncate">
+                {(() => {
+                  if (!sessionFilter) return "All sessions";
+                  if (sessionFilter === SESSION_UNSCOPED) return "Unscoped (no session)";
+                  const s = sessions.find((x) => x.agent_session_id === sessionFilter);
+                  const short = sessionFilter.slice(0, 8);
+                  if (!s) return `${short}…`;
+                  return `${short}… · ${s.write_count} write${s.write_count === 1 ? "" : "s"} · ${formatRelative(s.ended_at)}`;
+                })()}
+              </span>
+              <IconChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            </button>
           </div>
           <div className="space-y-1.5">
             <p className="text-xs font-medium">Kind</p>
@@ -1558,6 +1585,36 @@ function EventLogPanel({
               })}
             </div>
           </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium">Actor</p>
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              Who ran this row—people in the admin UI, agents over MCP, or automated system jobs.
+              Parent saves show on the “Caused by…” line.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {EVENT_ACTOR_CHIPS.map((chip) => {
+                const active = actorChips.has(chip.id);
+                const ChipIcon = chip.icon;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => toggleActorChip(chip.id)}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors",
+                      active
+                        ? "border-primary bg-primary/15 text-foreground"
+                        : "border-border bg-background text-muted-foreground hover:text-foreground",
+                    )}
+                    data-testid={`chip-event-actor-${chip.id}`}
+                  >
+                    <ChipIcon className="h-3 w-3" />
+                    {chip.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <div className="space-y-1">
             <label className="text-xs font-medium" htmlFor="event-type-filter">
               Exact event type
@@ -1566,7 +1623,7 @@ function EventLogPanel({
               id="event-type-filter"
               className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
               value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
+              onChange={(e) => patchFilterView({ type: e.target.value })}
             >
               <option value="">All types</option>
               {Object.entries(EVENT_META).map(([type, meta]) => (
@@ -1585,7 +1642,9 @@ function EventLogPanel({
               className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
               value={agentFilter}
               onChange={(e) =>
-                setAgentFilter(e.target.value as "" | AgentId | typeof AGENT_FILTER_OTHER)
+                patchFilterView({
+                  agent: e.target.value as EventLogViewState["agent"],
+                })
               }
               data-testid="select-event-agent-filter"
             >
@@ -1605,12 +1664,7 @@ function EventLogPanel({
               variant="ghost"
               size="sm"
               className="w-full h-7 text-xs"
-              onClick={() => {
-                setTypeFilter("");
-                setAgentFilter("");
-                setSessionFilter("");
-                setKindChips(new Set());
-              }}
+              onClick={() => writeFilterView({ ...EVENT_LOG_VIEW_DEFAULTS })}
             >
               <IconX className="h-3.5 w-3.5 mr-1" />
               Clear filters
@@ -1686,9 +1740,17 @@ function EventLogPanel({
 
   return (
     <section className="space-y-4">
+      <AgentSessionPickerModal
+        open={sessionPickerOpen}
+        onOpenChange={setSessionPickerOpen}
+        sessions={sessions}
+        value={sessionFilter}
+        onSelect={(value) => patchFilterView({ session: value })}
+        formatRelative={formatRelative}
+      />
       {events.length > 0 ? (
         <EventTimeline
-          events={filterScopedEvents}
+          events={events}
           getActivityLabel={getActivityLabel}
           visibleRange={rangeCommand}
           onRangeChange={handleRangeChange}
@@ -1710,13 +1772,13 @@ function EventLogPanel({
       )}
 
       <AlertDialog open={clearLogOpen} onOpenChange={setClearLogOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent data-testid="dialog-clear-event-log">
           <AlertDialogHeader>
             <AlertDialogTitle>Clear event log?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes every background event for this site from the log, including agent
+              This removes the diary of site changes and agent runs for this site, including agent
               session history. Saves and pipeline work are not undone — only the diary entries
-              disappear. New events will still appear as work happens.
+              are cleared. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1727,9 +1789,7 @@ function EventLogPanel({
               onClick={() => void clearLog()}
               data-testid="button-confirm-clear-event-log"
             >
-              {clearing ? (
-                <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : null}
+              {clearing ? <IconLoader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Clear log
             </Button>
           </AlertDialogFooter>
@@ -1770,9 +1830,9 @@ function EventLogPanel({
             About this log
           </summary>
           <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-            This log is the diary of site changes and agent runs. Filter by agent session and by
-            kind (writes, claims, completes, session notes). Selecting a session shows a short
-            summary built from those events.
+            This log is the diary of site changes and agent runs. Filters live in the page link —
+            refresh or share keeps the same view. An empty filtered list does not mean the log is
+            empty.
           </p>
           <details className="mt-2">
             <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
@@ -1782,7 +1842,8 @@ function EventLogPanel({
               MCP agent_session start/note/summarize are normal audit events. Writes and issues carry
               report (min 80) — for copy edits, agents should list plain values (Title: …), not JSON
               dumps. Session id is optional — Unscoped means no session. Bulk sync is never
-              session-tagged. Clearing the log clears session history too. Retention is about 7 days.
+              session-tagged. Clearing the log clears session history too. Retention is about 7 days;
+              each filter view returns up to 500 matching events.
             </p>
           </details>
         </details>
@@ -1851,9 +1912,11 @@ function EventLogPanel({
             <IconLoader2 className="h-4 w-4 animate-spin" />
             Loading events…
           </div>
-        ) : filterScopedEvents.length === 0 ? (
+        ) : events.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No background events in the last 7 days retention window.
+            {hasActiveFilters
+              ? "No events match these filters."
+              : "No background events in the last 7 days retention window."}
           </p>
         ) : (
           <div
@@ -1861,6 +1924,13 @@ function EventLogPanel({
             className="event-list-scroll relative overflow-x-hidden pr-1"
             data-testid="event-list-scroll"
           >
+            <p className="text-[11px] text-muted-foreground mb-2" data-testid="event-list-count">
+              Showing {events.length}
+              {events.length >= EVENT_LOG_FETCH_LIMIT ? "+" : ""} event
+              {events.length === 1 ? "" : "s"}
+              {hasActiveFilters ? " matching filters" : ""}
+              {loading ? " · refreshing…" : ""}
+            </p>
             <div className="relative">
               <span
                 className="absolute left-[17px] top-4 bottom-4 w-px bg-border"
@@ -1868,7 +1938,7 @@ function EventLogPanel({
               />
               <ol className="space-y-0">
                 <AnimatePresence initial={false}>
-                  {filterScopedEvents.map((e) => (
+                  {events.map((e) => (
                     <EventRow
                       key={e.id}
                       event={e}

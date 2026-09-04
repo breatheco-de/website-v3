@@ -22,7 +22,7 @@ describe("NotMetaFieldBadge", () => {
     expect(NOT_META_FIELD_COPY.title.singleVar).toBe("{{ entry.title }}");
   });
 
-  it("includes SEO Meta CTA test id when onOpenSeoMeta is provided", () => {
+  it("renders badge when onOpenSeoMeta is provided", () => {
     const html = renderToStaticMarkup(
       <NotMetaFieldBadge field="title" onOpenSeoMeta={() => {}} />,
     );

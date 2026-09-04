@@ -1,4 +1,10 @@
-import type { EventAttributionEntry } from "@/lib/formatIssueActor";
+import {
+  AGENT_FILTER_OTHER,
+  AGENT_IDS,
+  formatAgentLabel,
+  resolveAgentId,
+  type AgentId,
+} from "@shared/event-log-filters";
 
 import darkAntigravity from "@/assets/agents/dark-antigravity.png";
 import darkAppleIntelligent from "@/assets/agents/dark-apple-intelligent.png";
@@ -48,33 +54,13 @@ import lightZGlm from "@/assets/agents/light-z-glm.png";
 
 export type AgentTheme = "dark" | "light";
 
-/** Known LLM / product agent slugs matching assets under client/src/assets/agents/. */
-export const AGENT_IDS = [
-  "antigravity",
-  "apple-intelligent",
-  "chatgpt",
-  "claude",
-  "codex",
-  "cohere",
-  "copilot",
-  "deepseek",
-  "fireworks-ai",
-  "gemini",
-  "grok",
-  "hugging-face",
-  "kimi",
-  "manus",
-  "minimax",
-  "mistral",
-  "notion",
-  "perplexity",
-  "poe",
-  "qwen",
-  "stability-ai",
-  "z-glm",
-] as const;
-
-export type AgentId = (typeof AGENT_IDS)[number];
+export {
+  AGENT_FILTER_OTHER,
+  AGENT_IDS,
+  formatAgentLabel,
+  resolveAgentId,
+  type AgentId,
+};
 
 const DARK_ICONS: Record<AgentId, string> = {
   antigravity: darkAntigravity,
@@ -126,57 +112,6 @@ const LIGHT_ICONS: Record<AgentId, string> = {
   "z-glm": lightZGlm,
 };
 
-/** Longer / more specific aliases first so e.g. apple-intelligent beats apple. */
-const ALIAS_TO_ID: Array<{ pattern: RegExp; id: AgentId }> = [
-  { pattern: /apple[\s_-]?intelligent|apple\s*intelligence/i, id: "apple-intelligent" },
-  { pattern: /hugging[\s_-]?face|huggingface|hf\b/i, id: "hugging-face" },
-  { pattern: /fireworks/i, id: "fireworks-ai" },
-  { pattern: /stability/i, id: "stability-ai" },
-  { pattern: /antigravity/i, id: "antigravity" },
-  { pattern: /chatgpt|chat[\s_-]?gpt|\bgpt[\s_-]?\d|o[1-4]\b|openai/i, id: "chatgpt" },
-  { pattern: /claude|anthropic|sonnet|opus|haiku/i, id: "claude" },
-  { pattern: /codex/i, id: "codex" },
-  { pattern: /cohere|command[\s_-]?r/i, id: "cohere" },
-  { pattern: /copilot|github[\s_-]?copilot/i, id: "copilot" },
-  { pattern: /deepseek/i, id: "deepseek" },
-  { pattern: /gemini|gemma/i, id: "gemini" },
-  { pattern: /grok/i, id: "grok" },
-  { pattern: /\bkimi\b|moonshot/i, id: "kimi" },
-  { pattern: /manus/i, id: "manus" },
-  { pattern: /minimax/i, id: "minimax" },
-  { pattern: /mistral|mixtral/i, id: "mistral" },
-  { pattern: /notion/i, id: "notion" },
-  { pattern: /perplexity|sonar/i, id: "perplexity" },
-  { pattern: /\bpoe\b/i, id: "poe" },
-  { pattern: /qwen|qwq/i, id: "qwen" },
-  { pattern: /\bglm\b|z[\s_-]?glm|zhipu/i, id: "z-glm" },
-];
-
-function matchAgentId(raw: string | undefined | null): AgentId | null {
-  if (!raw?.trim()) return null;
-  const text = raw.trim();
-  const normalized = text.toLowerCase().replace(/[_\s]+/g, "-");
-  for (const id of AGENT_IDS) {
-    if (normalized === id || normalized.includes(id)) return id;
-  }
-  for (const { pattern, id } of ALIAS_TO_ID) {
-    if (pattern.test(text)) return id;
-  }
-  return null;
-}
-
-/**
- * Resolve primary attribution to an agent icon id.
- * MCP: prefer model, then client. Non-MCP / unmatched → null (generic Bot fallback).
- */
-export function resolveAgentId(
-  attribution: EventAttributionEntry[] | undefined | null,
-): AgentId | null {
-  const primary = attribution?.[0];
-  if (!primary?.actor || primary.actor.type !== "mcp") return null;
-  return matchAgentId(primary.actor.model) ?? matchAgentId(primary.actor.client);
-}
-
 export function getAgentIconUrl(
   agentId: AgentId | null | undefined,
   theme: AgentTheme,
@@ -189,21 +124,4 @@ export function getAgentIconUrl(
 export function getDocumentTheme(): AgentTheme {
   if (typeof document === "undefined") return "dark";
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
-}
-
-/** Sentinel for staff / system / unmatched agents in filters. */
-export const AGENT_FILTER_OTHER = "__other__";
-
-/** Human label for agent filter dropdowns. */
-export function formatAgentLabel(agentId: AgentId | typeof AGENT_FILTER_OTHER): string {
-  if (agentId === AGENT_FILTER_OTHER) return "Staff & system";
-  return agentId
-    .split("-")
-    .map((part) => {
-      if (part === "ai") return "AI";
-      if (part === "chatgpt") return "ChatGPT";
-      if (part === "glm") return "GLM";
-      return part.charAt(0).toUpperCase() + part.slice(1);
-    })
-    .join(" ");
 }

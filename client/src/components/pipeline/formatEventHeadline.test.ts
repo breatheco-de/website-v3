@@ -77,6 +77,34 @@ describe("formatEventHeadlinePlain", () => {
     ).toBe("#41 The site index was refreshed after your blog en/demo-post");
   });
 
+  it("formats validation ready as system executor", () => {
+    expect(
+      formatEventHeadlinePlain(
+        baseEvent({
+          id: 50,
+          type: "validation_results_ready",
+          attribution: [{ actor: { type: "system", source: "on-save-validation" } }],
+          resource: { contentType: "page", slug: "home", locale: "en" },
+          payload: { skipped: false },
+        }),
+      ),
+    ).toBe("#50 Validation finished validating your page en/home");
+  });
+
+  it("formats binding done as system executor", () => {
+    expect(
+      formatEventHeadlinePlain(
+        baseEvent({
+          id: 51,
+          type: "binding_propagation_done",
+          attribution: [{ actor: { type: "system", source: "binding-propagation" } }],
+          resource: { groupId: "demo-footer", locale: "en" },
+          payload: { updated: 3 },
+        }),
+      ),
+    ).toBe("#51 Shared section sync synced shared section en/demo-footer to 3 pages");
+  });
+
   it("formats bulk sync without entry", () => {
     expect(
       formatEventHeadlinePlain(

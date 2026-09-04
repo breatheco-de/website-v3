@@ -220,6 +220,141 @@ describe("event-store", () => {
     expect(listEvents({ site, unscopedOnly: true, limit: 10 })).toHaveLength(1);
   });
 
+  it("filters by kinds (OR), actors, and exact type wins over kinds", () => {
+    const site = `${TEST_SITE}-kinds-${Date.now()}`;
+    emitEvent({
+      site,
+      type: "validation_issue_completed",
+      attribution: singleAttribution("claude", { type: "mcp", client: "Cursor", model: "claude-4-sonnet" }),
+    });
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      attribution: singleAttribution("jane", { type: "ui" }),
+    });
+    emitEvent({
+      site,
+      type: "index_snapshot_ready",
+      attribution: singleAttribution("index", { type: "system", source: "index-refresh" }),
+      payload: { generation: 1 },
+    });
+
+    const completes = listEvents({
+      site,
+      types: ["validation_issue_completed"],
+      limit: 10,
+    });
+    expect(completes).toHaveLength(1);
+    expect(completes[0]!.type).toBe("validation_issue_completed");
+
+    const kindOr = listEvents({
+      site,
+      types: ["validation_issue_completed", "entry_locale_saved"],
+      limit: 10,
+    });
+    expect(kindOr).toHaveLength(2);
+
+    const people = listEvents({ site, actors: ["people"], limit: 10 });
+    expect(people).toHaveLength(1);
+    expect(people[0]!.type).toBe("entry_locale_saved");
+
+    const agentsOrSystem = listEvents({ site, actors: ["agents", "system"], limit: 10 });
+    expect(agentsOrSystem).toHaveLength(2);
+
+    // Exact type wins: kinds would include completes, but type is a write
+    const typeWins = listEvents({
+      site,
+      type: "entry_locale_saved",
+      types: ["validation_issue_completed"],
+      limit: 10,
+    });
+    expect(typeWins).toHaveLength(1);
+    expect(typeWins[0]!.type).toBe("entry_locale_saved");
+  });
+
+  it("actors filter uses system executor on follow-ups, not parent mcp attribution", () => {
+    const site = `${TEST_SITE}-system-followup-${Date.now()}`;
+    const write = emitEvent({
+      site,
+      type: "entry_locale_saved",
+      attribution: singleAttribution("claude", { type: "mcp", client: "Cursor", model: "claude-4-sonnet" }),
+    });
+    emitEvent({
+      site,
+      type: "index_snapshot_ready",
+      triggeredByEventIds: [write.id],
+      attribution: singleAttribution(undefined, { type: "system", source: "index-refresh" }),
+      payload: { generation: write.id },
+    });
+
+    expect(listEvents({ site, actors: ["agents"], limit: 10 }).map((e) => e.type)).toEqual([
+      "entry_locale_saved",
+    ]);
+    const systemRows = listEvents({ site, actors: ["system"], limit: 10 });
+    expect(systemRows).toHaveLength(1);
+    expect(systemRows[0]!.type).toBe("index_snapshot_ready");
+    expect(listEvents({ site, triggeredBy: write.id, limit: 10 })[0]!.type).toBe("index_snapshot_ready");
+  });
+
+  it("filters by agent id with batch scan and __other__", () => {
+    const site = `${TEST_SITE}-agent-${Date.now()}`;
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      attribution: singleAttribution("a", { type: "mcp", client: "Cursor", model: "claude-4-sonnet" }),
+    });
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      attribution: singleAttribution("b", { type: "mcp", client: "Cursor", model: "gemini-2.5-pro" }),
+    });
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      attribution: singleAttribution("jane", { type: "ui" }),
+    });
+
+    const claude = listEvents({ site, agent: "claude", limit: 10 });
+    expect(claude).toHaveLength(1);
+    expect(claude[0]!.attribution[0]?.actor).toMatchObject({ model: "claude-4-sonnet" });
+
+    const other = listEvents({ site, agent: "__other__", limit: 10 });
+    expect(other).toHaveLength(1);
+    expect(other[0]!.attribution[0]?.actor?.type).toBe("ui");
+  });
+
+  it("combines session filter with kinds", () => {
+    const site = `${TEST_SITE}-sess-kind-${Date.now()}`;
+    const sid = "sess-kind-1";
+    emitEvent({
+      site,
+      type: "validation_issue_completed",
+      agent_session_id: sid,
+      attribution: singleAttribution("a", { type: "mcp", client: "Cursor", model: "claude-4" }),
+    });
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      agent_session_id: sid,
+      attribution: singleAttribution("a", { type: "mcp", client: "Cursor", model: "claude-4" }),
+    });
+    emitEvent({
+      site,
+      type: "validation_issue_completed",
+      agent_session_id: "other-sess",
+      attribution: singleAttribution("a", { type: "mcp", client: "Cursor", model: "claude-4" }),
+    });
+
+    const rows = listEvents({
+      site,
+      agentSessionId: sid,
+      types: ["validation_issue_completed"],
+      limit: 10,
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.agent_session_id).toBe(sid);
+  });
+
   it("auto-publishes agent_session audit events", () => {
     const site = `${TEST_SITE}-sess-audit-${Date.now()}`;
     const started = emitEvent({
@@ -235,28 +370,37 @@ describe("event-store", () => {
   it("listAgentSessions and getAgentSessionDetail rollup from events", () => {
     const site = `${TEST_SITE}-sess-list-${Date.now()}`;
     const sid = "sess-c";
+    const actorAttr = singleAttribution("demo-agent", {
+      type: "mcp",
+      client: "Cursor",
+      model: "claude-4-sonnet",
+    });
     emitEvent({
       site,
       type: "agent_session_started",
       agent_session_id: sid,
+      attribution: actorAttr,
       payload: {},
     });
     emitEvent({
       site,
       type: "entry_locale_saved",
       agent_session_id: sid,
+      attribution: actorAttr,
       payload: { report: "r".repeat(80), path: "site_x/pages/foo/en.yml" },
     });
     emitEvent({
       site,
       type: "validation_issue_completed",
       agent_session_id: sid,
+      attribution: actorAttr,
       payload: { report: "fixed ".padEnd(80, "x"), entryKey: "page/foo/en" },
     });
     emitEvent({
       site,
       type: "agent_session_summarized",
       agent_session_id: sid,
+      attribution: actorAttr,
       payload: { report: "summary ".padEnd(80, "y") },
     });
     // bulk sync must not appear as a session write even if somehow tagged — we never tag it
@@ -267,11 +411,15 @@ describe("event-store", () => {
     const row = sessions.find((s) => s.agent_session_id === sid)!;
     expect(row.write_count).toBe(1);
     expect(row.issue_complete_count).toBe(1);
+    expect(row.attribution.some((a) => a.actor?.type === "mcp" && a.author === "demo-agent")).toBe(
+      true,
+    );
 
     const detail = getAgentSessionDetail(site, sid);
     expect(detail).not.toBeNull();
     expect(detail!.summary.write_count).toBe(1);
     expect(detail!.summary.issue_complete_count).toBe(1);
+    expect(detail!.summary.attribution.some((a) => a.actor?.type === "mcp")).toBe(true);
     expect(detail!.files.some((f) => f.includes("en.yml"))).toBe(true);
     expect(detail!.headline?.startsWith("summary")).toBe(true);
   });

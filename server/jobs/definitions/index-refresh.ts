@@ -9,8 +9,8 @@ import {
   getLastSnapshotGeneration,
   getLatestWriteGeneration,
   getWriteEventsBetween,
-  unionAttribution,
 } from "../../events/event-store";
+import { systemJobAttribution } from "../../events/types";
 import { child } from "../../logger";
 import { markJobFinished, markJobStarted } from "../heartbeat";
 
@@ -39,7 +39,7 @@ export class IndexRefreshJob extends Job {
     const prevCovered = getLastSnapshotGeneration(site);
     const parentWrites = getWriteEventsBetween(site, prevCovered, generation);
     const triggeredByEventIds = parentWrites.map((w) => w.id);
-    const attribution = unionAttribution(...parentWrites.map((w) => w.attribution));
+    const attribution = systemJobAttribution("index-refresh");
     const sessionIds = [
       ...new Set(
         parentWrites

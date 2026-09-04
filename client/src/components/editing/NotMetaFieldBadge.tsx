@@ -90,7 +90,7 @@ export function NotMetaFieldBadge({
           <p className="font-medium text-foreground pt-1">External use (Google and sharing)</p>
           <p>
             For Google results, the browser tab, and social previews, edit{" "}
-            <code className="font-mono">{copy.metaKey}</code> on the <strong>SEO Meta</strong> tab
+            <code className="font-mono">{copy.metaKey}</code> on the <strong>SERP</strong> tab
             (share preview).
           </p>
         </div>
@@ -105,7 +105,7 @@ export function NotMetaFieldBadge({
               onOpenSeoMeta();
             }}
           >
-            Open SEO Meta tab
+            Open SERP tab
           </Button>
         )}
         <button

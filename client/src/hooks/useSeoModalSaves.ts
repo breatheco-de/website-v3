@@ -1,5 +1,6 @@
-import { useCallback, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useState, type MutableRefObject } from "react";
 import type { SeoMeta } from "@/components/DebugBubble/types";
+import type { SeoModalSaveArea } from "@/components/editing/seoModalSaved";
 import { useToast } from "@/hooks/use-toast";
 import { computeDirtyMetaKeys } from "@/lib/buildMetaSaveOperations";
 import {
@@ -35,7 +36,8 @@ export type UseSeoModalSavesOpts = {
     liveMeta?: Record<string, unknown>;
   } | null;
   metaOverrides: string[];
-  onSaved?: () => void;
+  /** Notify parent with save area(s); ManagedSeoModal wraps this into SeoModalSavedDetail. */
+  onSaved?: (areas: SeoModalSaveArea[]) => void;
   refetch?: () => Promise<void>;
 };
 
@@ -85,7 +87,7 @@ export function useSeoModalSaves(opts: UseSeoModalSavesOpts) {
         await saveLandingLocations({ slug: opts.slug, locations });
         opts.baselineLocationsRef.current = [...locations];
         toast({ title: "Locations saved" });
-        opts.onSaved?.();
+        opts.onSaved?.(["locations"]);
       } catch (error) {
         toast({
           title: "Failed to save locations",
@@ -108,7 +110,7 @@ export function useSeoModalSaves(opts: UseSeoModalSavesOpts) {
       await saveVisibilitySettings({ ...metaSaveContext(), ...target });
       afterMetaSave([...VISIBILITY_META_KEYS]);
       toast({ title: "Visibility settings saved" });
-      opts.onSaved?.();
+      opts.onSaved?.(["meta"]);
     } catch (error) {
       toast({
         title: "Failed to save visibility",
@@ -129,7 +131,7 @@ export function useSeoModalSaves(opts: UseSeoModalSavesOpts) {
       await saveSnippetMeta({ ...metaSaveContext(), ...target });
       afterMetaSave(["page_title", "description"]);
       toast({ title: "Snippet saved" });
-      opts.onSaved?.();
+      opts.onSaved?.(["meta"]);
     } catch (error) {
       toast({
         title: "Failed to save snippet",
@@ -154,7 +156,7 @@ export function useSeoModalSaves(opts: UseSeoModalSavesOpts) {
       });
       afterMetaSave(["canonical_url"]);
       toast({ title: "Canonical URL saved" });
-      opts.onSaved?.();
+      opts.onSaved?.(["meta"]);
     } catch (error) {
       toast({
         title: "Failed to save canonical URL",
@@ -187,7 +189,7 @@ export function useSeoModalSaves(opts: UseSeoModalSavesOpts) {
         opts.setSeoMeta(nextMeta);
         opts.setDirtyKeys(computeDirtyMetaKeys(nextMeta, opts.baselineMetaRef.current));
         toast({ title: "Social image saved" });
-        opts.onSaved?.();
+        opts.onSaved?.(["meta"]);
       } catch (error) {
         toast({
           title: "Failed to save social image",

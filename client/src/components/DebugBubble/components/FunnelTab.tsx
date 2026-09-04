@@ -34,6 +34,8 @@ import {
   FUNNEL_STAGE_TONE,
 } from "@/lib/funnel-stage-ui";
 import { FUNNEL_STAGES, type FunnelBlock } from "@shared/funnel";
+import type { SeoModalSavedDetail } from "@/components/editing/seoModalSaved";
+import { notifySeoModalSaved } from "@/components/editing/seoModalSaved";
 import type { ContentInfo } from "../types";
 
 type FunnelApiResponse = {
@@ -423,10 +425,16 @@ export function FunnelTab({
   contentInfo,
   contentTypeLabel,
   portalContainer,
+  locale = "en",
+  variant,
+  onSaved,
 }: {
   contentInfo: ContentInfo;
   contentTypeLabel?: string;
   portalContainer?: HTMLElement | null;
+  locale?: string;
+  variant?: string | null;
+  onSaved?: (detail: SeoModalSavedDetail) => void;
 }) {
   const queryClient = useQueryClient();
   const [stage, setStage] = useState<string>("");
@@ -483,6 +491,22 @@ export function FunnelTab({
       void queryClient.invalidateQueries({
         queryKey: ["/api/content-types", contentInfo.type, "funnel-entries"],
       });
+      if (contentInfo.type && contentInfo.slug) {
+        const variantParam =
+          typeof variant === "string" && variant.trim() && variant.trim() !== "default"
+            ? variant.trim()
+            : undefined;
+        notifySeoModalSaved(
+          onSaved,
+          {
+            contentType: contentInfo.type,
+            slug: contentInfo.slug,
+            locale,
+            variant: variantParam,
+          },
+          ["funnel"],
+        );
+      }
     },
   });
 

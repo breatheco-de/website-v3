@@ -3,6 +3,7 @@ import { Job } from "sidequest";
 import { bindingManager } from "../../bindings";
 import { verifyLeaseToken, renewLease, releaseLease, bindingLeaseResource } from "../../leases";
 import { emitEvent, getEventById } from "../../events/event-store";
+import { systemJobAttribution } from "../../events/types";
 import { child } from "../../logger";
 import { markJobFinished, markJobStarted } from "../heartbeat";
 
@@ -61,7 +62,7 @@ export class BindingPropagationJob extends Job {
       type: "binding_propagation_done",
       resource: { groupId: payload.groupId, locale: payload.locale },
       triggeredByEventId: payload.startedEventId,
-      attribution: started?.attribution ?? [],
+      attribution: systemJobAttribution("binding-propagation"),
       agent_session_id: started?.agent_session_id,
       payload: {
         updatedFiles: result.updatedFiles,

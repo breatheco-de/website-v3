@@ -3,6 +3,11 @@
  * Event rowid (AUTOINCREMENT) is the generation counter.
  */
 
+import {
+  eventMatchesAgentFilter,
+  type AgentFilterId,
+  type EventActorId,
+} from "@shared/event-log-filters";
 import { getSiteSqlite } from "../db";
 import { ensurePipelineDb } from "../pipeline-db/runner";
 import type {
@@ -18,6 +23,7 @@ import {
   INDEX_WRITE_EVENT_TYPES,
   OUTBOX_DISPATCHABLE_EVENT_TYPES,
   singleAttribution,
+  systemJobAttribution,
   unionAttribution,
 } from "./types";
 
@@ -264,7 +270,7 @@ export function listOpenWritesForEntry(
   return rows.map(rowToEvent);
 }
 
-export { unionAttribution, singleAttribution };
+export { unionAttribution, singleAttribution, systemJobAttribution };
 
 export function markEventsPublished(site: string, ids: number[]): void {
   if (ids.length === 0) return;
@@ -287,7 +293,14 @@ export function getUnpublishedEvents(site: string, limit = 100): ContentEvent[] 
 
 export type ListEventsOpts = {
   site: string;
+  /** Exact event type — wins over `types` (kind expansion). */
   type?: EventType;
+  /** OR of event types from kind chips. Ignored when `type` is set. */
+  types?: string[];
+  /** OR of actor buckets (people / agents / system). */
+  actors?: EventActorId[];
+  /** Agent id or Staff & system sentinel; matched in app after SQL filters. */
+  agent?: AgentFilterId;
   since?: number;
   cause?: string;
   before?: number;
@@ -298,14 +311,25 @@ export type ListEventsOpts = {
   limit?: number;
 };
 
-export function listEvents(opts: ListEventsOpts): ContentEvent[] {
-  ensureSchema(opts.site);
-  const db = getSiteSqlite(opts.site);
+const AGENT_SCAN_BATCH = 200;
+const AGENT_SCAN_MAX_BATCHES = 50;
+
+function actorTypeExpr(): string {
+  return `json_extract(attribution_json, '$[0].actor.type')`;
+}
+
+/** Build WHERE clauses shared by listEvents SQL path (no agent filter). */
+function listEventsWhere(
+  opts: Omit<ListEventsOpts, "agent" | "limit"> & { before?: number },
+): { clauses: string[]; params: unknown[] } {
   const clauses = ["site = ?"];
   const params: unknown[] = [opts.site];
   if (opts.type) {
     clauses.push("type = ?");
     params.push(opts.type);
+  } else if (opts.types && opts.types.length > 0) {
+    clauses.push(`type IN (${opts.types.map(() => "?").join(", ")})`);
+    params.push(...opts.types);
   }
   if (opts.since) {
     clauses.push("created_at >= ?");
@@ -333,12 +357,62 @@ export function listEvents(opts: ListEventsOpts): ContentEvent[] {
   } else if (opts.unscopedOnly) {
     clauses.push("(agent_session_id IS NULL OR agent_session_id = '')");
   }
-  const limit = opts.limit ?? 50;
+  if (opts.actors && opts.actors.length > 0) {
+    const actorClauses: string[] = [];
+    const t = actorTypeExpr();
+    for (const bucket of opts.actors) {
+      if (bucket === "people") {
+        actorClauses.push(`${t} = 'ui'`);
+      } else if (bucket === "agents") {
+        actorClauses.push(`${t} = 'mcp'`);
+      } else if (bucket === "system") {
+        actorClauses.push(
+          `(attribution_json IS NULL OR attribution_json = '' OR attribution_json = '[]' OR ${t} IS NULL OR ${t} = '' OR ${t} = 'system')`,
+        );
+      }
+    }
+    if (actorClauses.length > 0) {
+      clauses.push(`(${actorClauses.join(" OR ")})`);
+    }
+  }
+  return { clauses, params };
+}
+
+function listEventsSql(
+  opts: Omit<ListEventsOpts, "agent"> & { before?: number },
+  limit: number,
+): ContentEvent[] {
+  ensureSchema(opts.site);
+  const db = getSiteSqlite(opts.site);
+  const { clauses, params } = listEventsWhere(opts);
   params.push(limit);
   const rows = db
     .prepare(`SELECT * FROM events WHERE ${clauses.join(" AND ")} ORDER BY id DESC LIMIT ?`)
     .all(...params) as Record<string, unknown>[];
   return rows.map(rowToEvent);
+}
+
+export function listEvents(opts: ListEventsOpts): ContentEvent[] {
+  const limit = opts.limit ?? 50;
+  if (!opts.agent) {
+    return listEventsSql(opts, limit);
+  }
+
+  const out: ContentEvent[] = [];
+  let before = opts.before;
+  for (let i = 0; i < AGENT_SCAN_MAX_BATCHES && out.length < limit; i++) {
+    const batch = listEventsSql({ ...opts, before }, AGENT_SCAN_BATCH);
+    if (batch.length === 0) break;
+    for (const ev of batch) {
+      if (eventMatchesAgentFilter(ev.attribution, opts.agent)) {
+        out.push(ev);
+        if (out.length >= limit) break;
+      }
+    }
+    before = batch[batch.length - 1]!.id;
+    if (batch.length < AGENT_SCAN_BATCH) break;
+  }
+  return out;
 }
 
 export type AgentSessionSummary = {
@@ -348,7 +422,72 @@ export type AgentSessionSummary = {
   event_count: number;
   write_count: number;
   issue_complete_count: number;
+  attribution: EventAttribution[];
 };
+
+/** Cap of newest events whose attribution is unioned per session for list enrichment. */
+const SESSION_LIST_ATTR_EVENT_CAP = 20;
+
+/** Prefer mcp/ui entries first so list rows show people/agents over system noise. */
+function preferInteractiveAttribution(attribution: EventAttribution[]): EventAttribution[] {
+  const interactive: EventAttribution[] = [];
+  const rest: EventAttribution[] = [];
+  for (const entry of attribution) {
+    const t = entry.actor?.type;
+    if (t === "mcp" || t === "ui") interactive.push(entry);
+    else rest.push(entry);
+  }
+  if (interactive.length === 0) return attribution;
+  return [...interactive, ...rest];
+}
+
+/**
+ * Load attribution for session ids from newest events (one query), capped per session.
+ */
+function loadSessionListAttributions(
+  site: string,
+  sessionIds: string[],
+  since: number,
+): Map<string, EventAttribution[]> {
+  const out = new Map<string, EventAttribution[]>();
+  if (sessionIds.length === 0) return out;
+
+  const db = getSiteSqlite(site);
+  const placeholders = sessionIds.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT agent_session_id AS agent_session_id,
+              attribution_json AS attribution_json
+       FROM events
+       WHERE site = ?
+         AND agent_session_id IN (${placeholders})
+         AND created_at >= ?
+       ORDER BY id DESC`,
+    )
+    .all(site, ...sessionIds, since) as Array<{
+    agent_session_id: string;
+    attribution_json: string | null;
+  }>;
+
+  const counts = new Map<string, number>();
+  const groups = new Map<string, EventAttribution[][]>();
+  for (const row of rows) {
+    const sid = row.agent_session_id;
+    const n = counts.get(sid) ?? 0;
+    if (n >= SESSION_LIST_ATTR_EVENT_CAP) continue;
+    counts.set(sid, n + 1);
+    const attr = parseAttribution(row.attribution_json);
+    if (attr.length === 0) continue;
+    const list = groups.get(sid) ?? [];
+    list.push(attr);
+    groups.set(sid, list);
+  }
+
+  for (const [sid, attrs] of groups) {
+    out.set(sid, preferInteractiveAttribution(unionAttribution(...attrs)));
+  }
+  return out;
+}
 
 /** Recent agent sessions derived from events (no separate store). */
 export function listAgentSessions(
@@ -386,6 +525,13 @@ export function listAgentSessions(
     write_count: number;
     issue_complete_count: number;
   }>;
+
+  const attributions = loadSessionListAttributions(
+    site,
+    rows.map((r) => r.agent_session_id),
+    since,
+  );
+
   return rows.map((r) => ({
     agent_session_id: r.agent_session_id,
     started_at: r.started_at,
@@ -393,6 +539,7 @@ export function listAgentSessions(
     event_count: r.event_count,
     write_count: Number(r.write_count) || 0,
     issue_complete_count: Number(r.issue_complete_count) || 0,
+    attribution: attributions.get(r.agent_session_id) ?? [],
   }));
 }
 
@@ -477,6 +624,7 @@ export function getAgentSessionDetail(
       event_count: events.length,
       write_count,
       issue_complete_count,
+      attribution,
     },
     events,
     files,

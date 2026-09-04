@@ -823,7 +823,7 @@ export default function SettingsPage() {
                       <p className="text-xs font-medium text-foreground">Template namespaces</p>
                       <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
                         <li><code className="font-mono">{"{{ brand.title }}"}</code> / <code className="font-mono">{"{{ brand.logo }}"}</code> / <code className="font-mono">{"{{ brand.logo_dark }}"}</code> — site identity (this tab; stored in <code className="font-mono">variables.yml</code>)</li>
-                        <li><code className="font-mono">{"{{ meta.page_title }}"}</code> — this page’s SEO head block (SEO modal → SEO Meta)</li>
+                        <li><code className="font-mono">{"{{ meta.page_title }}"}</code> — this page’s SEO head block (SEO modal → SERP)</li>
                         <li><code className="font-mono">{"{{ single.* }}"}</code> — mapped type fields (DB or Fields-tab overrides on the entry YAML)</li>
                         <li><code className="font-mono">{"{{ global.* }}"}</code> — other site variables</li>
                       </ul>

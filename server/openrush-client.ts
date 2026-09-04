@@ -21,6 +21,9 @@ const OPENRUSH_KEYWORD_URL = "https://api.openrush.com/v1/tools/inspect_keyword"
 /** Official OpenRush credit cost for `inspect_keyword` (see credits docs). */
 export const OPENRUSH_INSPECT_KEYWORD_CREDITS = 5;
 
+/** Official OpenRush credit cost for `inspect_serp` (see credits docs). */
+export const OPENRUSH_INSPECT_SERP_CREDITS = 2;
+
 export function getOpenRushApiKey(): string {
   return (process.env.OPENRUSH_API_KEY || "").trim();
 }
@@ -130,7 +133,11 @@ export async function inspectSerpQuery(opts: {
       visible_in_serp: ourRank != null,
     };
     upsertSerpEntry(entry, opts.contentFolder);
-    return { ok: true, entry, credits_note: "inspect_serp uses 2 OpenRush credits" };
+    return {
+      ok: true,
+      entry,
+      credits_note: `inspect_serp uses ${OPENRUSH_INSPECT_SERP_CREDITS} OpenRush credits`,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn({ err, query }, "[openrush] inspect_serp failed");
@@ -314,4 +321,46 @@ export async function testOpenRushConnection(
     elapsed_ms: Date.now() - started,
     api_key_configured,
   };
+}
+
+const OPENRUSH_CREDITS_URL = "https://api.openrush.com/v1/me/credits";
+
+export type OpenRushCreditsResult = {
+  ok: boolean;
+  balance: number | null;
+  error?: string;
+};
+
+/** GET /v1/me/credits — remaining account balance (docs: credits-and-rate-limits). */
+export async function fetchOpenRushCreditsBalance(): Promise<OpenRushCreditsResult> {
+  const key = getOpenRushApiKey();
+  if (!key) return { ok: false, balance: null, error: "OPENRUSH_API_KEY is not set" };
+  try {
+    const res = await fetch(OPENRUSH_CREDITS_URL, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!res.ok) {
+      const message =
+        (typeof body?.error === "string" && body.error) ||
+        (typeof body?.message === "string" && body.message) ||
+        `OpenRush HTTP ${res.status}`;
+      return { ok: false, balance: null, error: message };
+    }
+    const data = (body?.data && typeof body.data === "object" ? body.data : body) as Record<
+      string,
+      unknown
+    > | null;
+    const raw = data?.balance ?? data?.credits ?? body?.balance;
+    const balance = typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+    if (balance == null) {
+      return { ok: false, balance: null, error: "OpenRush credits response missing balance" };
+    }
+    return { ok: true, balance };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn({ err }, "[openrush] fetch credits failed");
+    return { ok: false, balance: null, error: message };
+  }
 }

@@ -5,7 +5,11 @@ import { cn } from "@/lib/utils";
 import { getDebugToken } from "@/hooks/useDebugAuth";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { type GscInspectionGetResponse } from "@/lib/gscInspection";
-import { crawlerBadgeState, googleToCrawlerStatus } from "@/lib/crawlerStatus";
+import {
+  crawlerBadgeState,
+  googleToCrawlerStatus,
+  type CrawlerBadgeState,
+} from "@/lib/crawlerStatus";
 
 import type { PageErrorsTab } from "./PageErrorsModal";
 
@@ -14,7 +18,10 @@ interface PageHealthIndicatorsProps {
   warningCount: number;
   loading?: boolean;
   pageUrl?: string | null;
-  onOpenTab: (tab: PageErrorsTab) => void;
+  /** When set, skips the internal GSC fetch and uses this badge state. */
+  crawlerState?: CrawlerBadgeState;
+  /** Optional — omit for display-only (Cluster Map Integrity). */
+  onOpenTab?: (tab: PageErrorsTab) => void;
 }
 
 export function PageHealthIndicators({
@@ -22,13 +29,15 @@ export function PageHealthIndicators({
   warningCount,
   loading = false,
   pageUrl,
+  crawlerState: crawlerStateProp,
   onOpenTab,
 }: PageHealthIndicatorsProps) {
   const inspectLookupUrl = pageUrl ?? "";
+  const useExternalCrawler = crawlerStateProp != null;
 
   const gscQuery = useQuery<GscInspectionGetResponse>({
     queryKey: ["/api/debug/gsc-inspection", inspectLookupUrl],
-    enabled: Boolean(inspectLookupUrl),
+    enabled: !useExternalCrawler && Boolean(inspectLookupUrl),
     queryFn: async () => {
       const token = getDebugToken();
       const res = await fetch(
@@ -45,18 +54,23 @@ export function PageHealthIndicators({
     },
   });
 
-  const crawlerBadge = crawlerBadgeState([
-    googleToCrawlerStatus({
-      configured: gscQuery.data?.configured,
-      record: gscQuery.data?.record,
-      resolved: gscQuery.data?.resolved,
-      loadError: gscQuery.isError,
-      loading: gscQuery.isLoading,
-    }),
-  ]);
+  const crawlerBadge =
+    crawlerStateProp ??
+    crawlerBadgeState([
+      googleToCrawlerStatus({
+        configured: gscQuery.data?.configured,
+        record: gscQuery.data?.record,
+        resolved: gscQuery.data?.resolved,
+        loadError: gscQuery.isError,
+        loading: gscQuery.isLoading,
+      }),
+    ]);
 
-  const healthButtonClass =
-    "inline-flex items-center gap-0.5 rounded-md p-0.5 hover-elevate shrink-0";
+  const interactive = typeof onOpenTab === "function";
+  const chipClass = cn(
+    "inline-flex items-center gap-0.5 rounded-md p-0.5 shrink-0",
+    interactive && "hover-elevate",
+  );
 
   const loadingBadge = (
     <span
@@ -67,66 +81,100 @@ export function PageHealthIndicators({
     </span>
   );
 
+  const errInner = (
+    <>
+      <span
+        className={cn(
+          "text-[10px] font-semibold leading-none",
+          loading ? "text-muted-foreground" : errorCount > 0 ? "text-destructive" : "text-muted-foreground",
+        )}
+      >
+        Err
+      </span>
+      {loading ? loadingBadge : (
+        <TabCountBadge count={errorCount} variant="error" testId="text-page-health-error-count" zeroAsCount />
+      )}
+    </>
+  );
+  const warnInner = (
+    <>
+      <span
+        className={cn(
+          "text-[10px] font-semibold leading-none",
+          loading ? "text-muted-foreground" : warningCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
+        )}
+      >
+        Warn
+      </span>
+      {loading ? loadingBadge : (
+        <TabCountBadge count={warningCount} variant="warning" testId="text-page-health-warning-count" zeroAsCount />
+      )}
+    </>
+  );
+  const crawlInner = (
+    <>
+      <IconBrandGoogle
+        className={cn(
+          "h-3.5 w-3.5",
+          crawlerBadge.kind === "ok"
+            ? "text-emerald-600 dark:text-emerald-400"
+            : crawlerBadge.kind === "problems"
+              ? "text-destructive"
+              : "text-muted-foreground",
+        )}
+        aria-hidden
+      />
+      <TabCountBadge crawlerState={crawlerBadge} testId="text-page-health-crawler-count" />
+    </>
+  );
+
   return (
     <div className="flex items-center gap-0.5 shrink-0" data-testid="page-health-indicators">
-      <button
-        type="button"
-        className={healthButtonClass}
-        onClick={() => onOpenTab("errors")}
-        aria-label={`${errorCount} errors`}
-        data-testid="button-page-health-errors"
-      >
-        <span
-          className={cn(
-            "text-[10px] font-semibold leading-none",
-            loading ? "text-muted-foreground" : errorCount > 0 ? "text-destructive" : "text-muted-foreground",
-          )}
+      {interactive ? (
+        <button
+          type="button"
+          className={chipClass}
+          onClick={() => onOpenTab!("errors")}
+          aria-label={`${errorCount} errors`}
+          data-testid="button-page-health-errors"
         >
-          Err
-        </span>
-        {loading ? loadingBadge : (
-          <TabCountBadge count={errorCount} variant="error" testId="text-page-health-error-count" zeroAsCount />
-        )}
-      </button>
-      <button
-        type="button"
-        className={healthButtonClass}
-        onClick={() => onOpenTab("warnings")}
-        aria-label={`${warningCount} warnings`}
-        data-testid="button-page-health-warnings"
-      >
-        <span
-          className={cn(
-            "text-[10px] font-semibold leading-none",
-            loading ? "text-muted-foreground" : warningCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
-          )}
+          {errInner}
+        </button>
+      ) : (
+        <div className={chipClass} aria-label={`${errorCount} errors`} data-testid="button-page-health-errors">
+          {errInner}
+        </div>
+      )}
+      {interactive ? (
+        <button
+          type="button"
+          className={chipClass}
+          onClick={() => onOpenTab!("warnings")}
+          aria-label={`${warningCount} warnings`}
+          data-testid="button-page-health-warnings"
         >
-          Warn
-        </span>
-        {loading ? loadingBadge : (
-          <TabCountBadge count={warningCount} variant="warning" testId="text-page-health-warning-count" zeroAsCount />
-        )}
-      </button>
-      <button
-        type="button"
-        className={healthButtonClass}
-        onClick={() => onOpenTab("crawlers")}
-        aria-label="Search index status"
-        data-testid="button-page-health-crawlers"
-      >
-        <IconBrandGoogle
-          className={cn(
-            "h-3.5 w-3.5",
-            crawlerBadge.kind === "ok"
-              ? "text-emerald-600 dark:text-emerald-400"
-              : crawlerBadge.kind === "problems"
-                ? "text-destructive"
-                : "text-muted-foreground",
-          )}
-          aria-hidden
-        />
-        <TabCountBadge crawlerState={crawlerBadge} testId="text-page-health-crawler-count" />
-      </button>
+          {warnInner}
+        </button>
+      ) : (
+        <div className={chipClass} aria-label={`${warningCount} warnings`} data-testid="button-page-health-warnings">
+          {warnInner}
+        </div>
+      )}
+      {interactive ? (
+        <button
+          type="button"
+          className={chipClass}
+          onClick={() => onOpenTab!("crawlers")}
+          aria-label="Search index status"
+          data-testid="button-page-health-crawlers"
+        >
+          {crawlInner}
+        </button>
+      ) : (
+        <div className={chipClass} aria-label="Search index status" data-testid="button-page-health-crawlers">
+          {crawlInner}
+        </div>
+      )}
     </div>
   );
 }
