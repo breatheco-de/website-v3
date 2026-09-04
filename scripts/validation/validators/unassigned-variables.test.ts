@@ -12,7 +12,6 @@ function makeContext(contentRoot: string): ValidationContext {
   return {
     contentFiles: [],
     redirectMap: new Map(),
-    validUrls: new Set(),
     availableSchemas: new Set(),
     sitemapEntries: [],
     contentRoot,

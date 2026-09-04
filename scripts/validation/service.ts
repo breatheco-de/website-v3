@@ -14,7 +14,6 @@ import type {
 } from "./shared/types";
 import { loadAllContent } from "./shared/contentLoader";
 import { contentIndex as defaultContentIndex, type ContentIndex } from "../../server/content-index";
-import { buildValidUrlSet } from "./shared/canonicalUrls";
 import { getAvailableSchemaKeys } from "./shared/schemaRegistry";
 import { validators, allValidators, getValidator, listValidators, ensureValidatorRegistered } from "./validators";
 import { databaseHealthValidator } from "./validators/database-health";
@@ -106,7 +105,6 @@ export class ValidationService {
     scope?: { database?: string };
   } = {}): Promise<ValidationContext> {
     const contentFiles = loadAllContent(options.ci);
-    const validUrls = buildValidUrlSet(contentFiles);
     const availableSchemas = getAvailableSchemaKeys();
 
     this.sitemapCtx = resolveValidationSitemapCtx({
@@ -132,7 +130,6 @@ export class ValidationService {
       contentIndex: options.ci,
       contentFiles,
       redirectMap: new Map(),
-      validUrls,
       availableSchemas,
       sitemapEntries,
       sitemapXml,

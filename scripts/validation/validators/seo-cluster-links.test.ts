@@ -47,7 +47,6 @@ function context(files: ContentFile | ContentFile[]): ValidationContext {
   return {
     contentFiles: Array.isArray(files) ? files : [files],
     redirectMap: new Map(),
-    validUrls: new Set(),
     availableSchemas: new Set(),
     sitemapEntries: [],
     contentRoot,

@@ -795,8 +795,12 @@ export function isCustomRedirectSource(source: string | undefined): boolean {
 }
 
 /**
- * Live content URL for overwrite checks: content-index known URLs only.
- * Locale-home aliases always return false (they must 301 to canonical homes).
+ * Live content URL for overwrite checks: content-index known URLs only
+ * (same stack as Redirects → Test / MCP inspect). Locale-home aliases always
+ * return false (they must 301 to canonical homes).
+ *
+ * Validators must not invent “live” paths from folder slugs × locale patterns —
+ * call this (or isKnownUrl) instead of building a parallel URL set.
  */
 export function isLiveContentUrl(
   rawPath: string,

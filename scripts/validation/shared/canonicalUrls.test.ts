@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildValidUrlSet, matchContentFilesForUrl, normalizeUrl } from "./canonicalUrls";
+import { matchContentFilesForUrl, normalizeUrl } from "./canonicalUrls";
 import type { ContentFile } from "./types";
 
 function file(overrides: Partial<ContentFile> & Pick<ContentFile, "slug" | "type" | "locale" | "url">): ContentFile {
@@ -77,36 +77,5 @@ describe("normalizeUrl", () => {
     expect(normalizeUrl("/en/payment-component/?program=ai-flex&plan=pro")).toBe(
       "/en/payment-component",
     );
-  });
-});
-
-describe("buildValidUrlSet", () => {
-  it("includes the folder-slug URL when a locale file overrides slug", () => {
-    const files: ContentFile[] = [
-      file({
-        slug: "apply",
-        type: "page",
-        locale: "en",
-        url: "/en/aplica",
-        entryFields: { slug: "aplica" },
-      }),
-      file({
-        slug: "apply",
-        type: "page",
-        locale: "es",
-        url: "/es/apply",
-      }),
-    ];
-    const urls = buildValidUrlSet(files);
-    expect(urls.has("/en/apply")).toBe(true);
-    expect(urls.has("/es/aplica")).toBe(true);
-  });
-
-  it("does not inject locale-home aliases", () => {
-    const urls = buildValidUrlSet([]);
-    expect(urls.has("/")).toBe(false);
-    expect(urls.has("/us")).toBe(false);
-    expect(urls.has("/en")).toBe(false);
-    expect(urls.has("/es")).toBe(false);
   });
 });

@@ -6,7 +6,6 @@ function makeContext(files: ContentFile[]): ValidationContext {
   return {
     contentFiles: files,
     redirectMap: new Map(),
-    validUrls: new Set(),
     availableSchemas: new Set(),
     sitemapEntries: [],
   };

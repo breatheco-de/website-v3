@@ -27,7 +27,6 @@ function context(file: ContentFile, contentRoot?: string): ValidationContext {
   return {
     contentFiles: [file],
     redirectMap: new Map(),
-    validUrls: new Set(),
     availableSchemas: new Set(),
     sitemapEntries: [],
     contentRoot,

@@ -1787,10 +1787,19 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               (orphans from the v4→v5 cache migration). Other issues and run metadata stay.
               {legacyIssueCount > 0
                 ? ` Currently ${legacyIssueCount} legacy issue${legacyIssueCount === 1 ? "" : "s"} in this cache.`
-                : " No legacy issues are currently loaded."}
+                : null}{" "}
               {isDev
-                ? " In development this updates local validation-cache.json only; run the same action on production (or upload via Cloud Sync) to update GCS."
-                : " On production the updated cache is uploaded to GCS."}
+                ? "In development this updates local validation-cache.json only; run the same action on production (or upload via Cloud Sync) to update GCS."
+                : "On production the updated cache is uploaded to GCS."}
+              {legacyIssueCount === 0 ? (
+                <Badge
+                  variant="outline"
+                  className="mt-2 flex w-fit gap-1.5 whitespace-normal border-green-500/40 bg-green-500/10 font-bold text-green-700 dark:text-green-400"
+                >
+                  <Check className="h-3.5 w-3.5 shrink-0" />
+                  No legacy issues are currently loaded.
+                </Badge>
+              ) : null}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

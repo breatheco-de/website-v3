@@ -61,7 +61,6 @@ describe("seoIntentValidator funnel only", () => {
     const ctx: ValidationContext = {
       contentFiles: [file],
       redirectMap: new Map(),
-      validUrls: new Set(),
       availableSchemas: new Set(),
       sitemapEntries: [],
       contentRoot,
@@ -84,7 +83,6 @@ describe("seoIntentValidator funnel only", () => {
     const ctx: ValidationContext = {
       contentFiles: [file],
       redirectMap: new Map(),
-      validUrls: new Set(),
       availableSchemas: new Set(),
       sitemapEntries: [],
       contentRoot,

@@ -44,7 +44,6 @@ function context(file: ContentFile): ValidationContext {
   return {
     contentFiles: [file],
     redirectMap: new Map(),
-    validUrls: new Set(),
     availableSchemas: new Set(),
     sitemapEntries: [],
   };
@@ -123,7 +122,6 @@ describe("contentQualityValidator SECTION_MISSING_TYPE", () => {
         },
       ],
       redirectMap: new Map(),
-      validUrls: new Set(),
       availableSchemas: new Set(),
       sitemapEntries: [],
       contentRoot: dir,

@@ -582,7 +582,6 @@ export function registerValidationRoutes(app: Express): void {
       res.json({
         contentFiles: typeCounts,
         totalFiles: contentFiles.length,
-        validUrls: context.validUrls.size,
         availableSchemas: context.availableSchemas.length,
         redirects: context.redirectMap.size,
       });

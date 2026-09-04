@@ -62,7 +62,6 @@ describe("seoValidationScope", () => {
     const ctx: ValidationContext = {
       contentFiles: [live, variant],
       redirectMap: new Map(),
-      validUrls: new Set(),
       availableSchemas: new Set(),
       sitemapEntries: [],
     };

@@ -305,7 +305,6 @@ export interface ValidationContext {
   contentIndex?: ContentIndex;
   contentFiles: ContentFile[];
   redirectMap: Map<string, RedirectEntry>;
-  validUrls: Set<string>;
   availableSchemas: Set<string>;
   sitemapEntries: SitemapEntry[];
   sitemapXml?: string;

@@ -11,7 +11,6 @@ function makeContext(contentRoot: string, files: ContentFile[]): ValidationConte
     contentRoot,
     contentFiles: files,
     redirectMap: new Map(),
-    validUrls: new Set(),
     availableSchemas: new Set(),
     sitemapEntries: [],
   };

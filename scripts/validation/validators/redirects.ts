@@ -1,12 +1,15 @@
 /**
  * Redirect Validator
- * 
+ *
  * Validates redirect configurations:
  * - Detects conflicts (same URL claimed by multiple pages)
  * - Checks for self-redirects
  * - Detects redirect loops
  * - Validates redirects don't conflict with existing content URLs
  * - Validates custom redirects from custom-redirects.yml
+ *
+ * Overwrite checks use isLiveContentUrl (contentIndex.isKnownUrl) — same as
+ * Redirects → Test / MCP inspect. Do not invent live URLs from folder slugs.
  */
 
 import * as fs from "fs";
@@ -16,7 +19,8 @@ import type { Validator, ValidatorResult, ValidationContext, ValidationIssue, Re
 import { normalizeUrl, getCanonicalUrl } from "../shared/canonicalUrls";
 import { isLiveRedirectSource } from "../shared/draftFiles";
 import { formatSitePath } from "../../../shared/formatSitePath";
-import { isLocaleHomeAlias } from "@shared/public-app-routes";
+import { contentIndex as defaultContentIndex } from "../../../server/content-index";
+import { isLiveContentUrl } from "../../../server/redirects";
 import { REDIRECTS_ISSUE_CODES } from "./redirects.issueCodes";
 
 interface CustomRedirectEntry {
@@ -84,6 +88,7 @@ export const redirectValidator: Validator = {
     const errors: ValidationIssue[] = [];
     const warnings: ValidationIssue[] = [];
     const redirectMap = new Map<string, RedirectEntry>();
+    const ci = context.contentIndex ?? defaultContentIndex;
 
     function getContentFolder(filePath: string): string {
       const parts = filePath.split("/");
@@ -152,7 +157,7 @@ export const redirectValidator: Validator = {
           continue;
         }
 
-        if (context.validUrls.has(normalizedRedirect) && !isLocaleHomeAlias(normalizedRedirect)) {
+        if (isLiveContentUrl(normalizedRedirect, ci)) {
           errors.push({
             type: "error",
             code: "REDIRECT_OVERWRITES_CONTENT",
@@ -197,7 +202,7 @@ export const redirectValidator: Validator = {
         continue;
       }
 
-      if (context.validUrls.has(normalizedFrom) && !isLocaleHomeAlias(normalizedFrom)) {
+      if (isLiveContentUrl(normalizedFrom, ci)) {
         errors.push({
           type: "error",
           code: "REDIRECT_OVERWRITES_CONTENT",
