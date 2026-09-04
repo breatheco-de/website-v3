@@ -40,7 +40,9 @@ Values: `none` | `add_to_cart` | `begin_checkout`.
 
 ## Ecommerce product scope + funnels
 
-For product scope (`ecommerce_products`, `programs[].id`, inherit), conversion funnels, and “no CMS plans”, call **`explain_site` topic `ecommerce`** — it lists exact property paths per component.
+For product scope (`ecommerce_products`, `programs[].id`, inherit) and per-SKU journey tools, call **`explain_site` topic `ecommerce`**.
+
+For page `funnel.stage` / money-page inventory (`list_entries`), call **`explain_site` topic `funnel`**.
 
 ## Lead conversion names (closed list)
 

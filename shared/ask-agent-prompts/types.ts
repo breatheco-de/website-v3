@@ -33,6 +33,7 @@ export type AskAgentPromptId =
   | "organic-link-gaps"
   | "page-diagnostics"
   | "draft-feedback"
+  | "redirect-overwrites-content"
   | "polish-ask-agent-prompt";
 
 /** All registered templates (including meta polish). */
@@ -43,6 +44,7 @@ export const ASK_AGENT_PROMPT_IDS: AskAgentPromptId[] = [
   "organic-link-gaps",
   "page-diagnostics",
   "draft-feedback",
+  "redirect-overwrites-content",
   "polish-ask-agent-prompt",
 ];
 

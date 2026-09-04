@@ -128,6 +128,14 @@ import {
   listLiveLocaleFiles,
 } from "../lib/translate-entry.js";
 import { applyPurchasableToRecord, ecommerceManager, PURCHASABLE_FIELD } from "../../server/ecommerce/ecommerce-manager.js";
+import { commonYmlPath, readFunnelBlockFromFile } from "../../server/funnel-fields.js";
+import { FUNNEL_STAGES } from "@shared/funnel";
+import {
+  assertFunnelFilterConflict,
+  enrichFunnelFields,
+  hasAnyFunnelFilter,
+  pageMatchesFunnelFilters,
+} from "../lib/list-entries-funnel.js";
 import { isKnownSeoFieldPath, SEO_YAML_KEY, resolveEntryUpdatedAtDetail } from "../../server/content-types.js";
 import {
   applyEditorialUpdatedAtToData,
@@ -1193,44 +1201,161 @@ export function registerPageTools(
     "Static single_template types (e.g. blog) ARE listed — they are YAML, not DB. " +
     "Use get_content_type_info to see db_backed vs single_template. " +
     MULTI_SITE_TOOL_BLURB + " " +
-    "Optional filters (AND): contentType, locale, slugs, search. Requires content_view.",
+    "Optional filters (AND): contentType, locale, slugs, search, " +
+    "funnel_stage (awareness|consideration|decision|post-enrollment), funnel_product (SKU; uses effective products — program pages include self), " +
+    "is_money_page (true = funnel.stage decision / BOFU only; untagged purchasable programs are excluded). " +
+    "is_money_page + conflicting funnel_stage fails. When any funnel filter is set, rows include funnel + is_money_page + stage_missing. " +
+    "Site inventory is catalog tags; get_product_funnel always pins the product page as decision even if untagged — see explain_site topic funnel. " +
+    "Requires content_view.",
     {
       contentType: z.string().optional().describe("Restrict to one content type, e.g. 'program', 'blog', or 'landing'"),
       locale: z.string().optional().describe("Only return entries that have this locale available, e.g. 'en' or 'es'"),
       slugs: z.array(z.string()).optional().describe("Restrict to a specific list of slugs"),
       search: z.string().optional().describe("Case-insensitive substring match against slug and title"),
+      funnel_stage: z
+        .enum(FUNNEL_STAGES as unknown as [string, ...string[]])
+        .optional()
+        .describe("Exact match on _common.yml funnel.stage"),
+      funnel_product: z
+        .string()
+        .optional()
+        .describe("Page effective funnel.products includes this SKU (or all); program pages always include self"),
+      is_money_page: z
+        .boolean()
+        .optional()
+        .describe("true = funnel.stage is decision (BOFU money pages); false = not decision (includes untagged)"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, locale, slugs, search, site }) => {
+    async ({
+      contentType,
+      locale,
+      slugs,
+      search,
+      funnel_stage: funnelStage,
+      funnel_product: funnelProduct,
+      is_money_page: isMoneyPage,
+      site,
+    }) => {
       const viewDenied = await denyUnlessContentView(mcpToken, contentType, grants);
       if (viewDenied) return viewDenied;
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return siteFailResult(siteResult.error, "list_entries", { contentType, locale, slugs, search });
-      const { contentPath } = siteResult;
+      if (!siteResult.ok) {
+        return siteFailResult(siteResult.error, "list_entries", {
+          contentType,
+          locale,
+          slugs,
+          search,
+          funnel_stage: funnelStage,
+          funnel_product: funnelProduct,
+          is_money_page: isMoneyPage,
+        });
+      }
+      const { contentPath, contentFolder } = siteResult;
+      const funnelFilters = {
+        funnel_stage: funnelStage,
+        funnel_product: funnelProduct,
+        is_money_page: isMoneyPage,
+      };
+      const useFunnel = hasAnyFunnelFilter(funnelFilters);
+      if (useFunnel) {
+        const conflict = assertFunnelFilterConflict(funnelFilters);
+        if (!conflict.ok) {
+          return fail(conflict.error, { code: conflict.code });
+        }
+      }
+
       let pages = scanPages(contentPath);
       const allowedTypes = grants ? visibleContentTypes(grants) : null;
       if (allowedTypes) {
-        pages = pages.filter(p => allowedTypes.has(p.contentType));
+        pages = pages.filter((p) => allowedTypes.has(p.contentType));
       }
       if (contentType) {
-        pages = pages.filter(p => p.contentType === contentType);
+        pages = pages.filter((p) => p.contentType === contentType);
       }
       if (locale) {
-        pages = pages.filter(p => p.locales.includes(locale));
+        pages = pages.filter((p) => p.locales.includes(locale));
       }
       if (slugs && slugs.length > 0) {
         const slugSet = new Set(slugs);
-        pages = pages.filter(p => slugSet.has(p.slug));
+        pages = pages.filter((p) => slugSet.has(p.slug));
       }
       if (search) {
         const q = search.toLowerCase();
-        pages = pages.filter(p =>
-          p.slug.toLowerCase().includes(q) ||
-          (p.title ?? "").toLowerCase().includes(q)
+        pages = pages.filter(
+          (p) =>
+            p.slug.toLowerCase().includes(q) ||
+            (p.title ?? "").toLowerCase().includes(q),
         );
       }
-      return { content: [{ type: "text", text: JSON.stringify(pages, null, 2) }] };
-    }
+
+      if (!useFunnel) {
+        return { content: [{ type: "text", text: JSON.stringify(pages, null, 2) }] };
+      }
+
+      const enriched: Array<Record<string, unknown>> = [];
+      for (const p of pages) {
+        const funnel = readFunnelBlockFromFile(
+          commonYmlPath(p.contentType, p.slug, contentFolder),
+        );
+        const ctx = { contentType: p.contentType, contentSlug: p.slug };
+        if (!pageMatchesFunnelFilters(funnel, funnelFilters, ctx)) continue;
+        const fields = enrichFunnelFields(funnel, ctx);
+        enriched.push({ ...p, ...fields });
+      }
+
+      const warnings: McpWarning[] = [
+        {
+          code: "money_page_is_decision",
+          message:
+            "is_money_page / money inventory means funnel.stage === \"decision\" (BOFU). No separate YAML money_page field.",
+        },
+        {
+          code: "inventory_vs_product_journey",
+          message:
+            "list_entries money/stage inventory uses catalog tags only. get_product_funnel always pins the product page as the decision step even when untagged. See explain_site topic funnel.",
+        },
+      ];
+
+      if (isMoneyPage === true) {
+        const untaggedPurchasable: string[] = [];
+        for (const product of ecommerceManager.getAllProducts()) {
+          const ct = product.content_type;
+          const slug = product.content_slug;
+          if (contentType && ct !== contentType) continue;
+          if (allowedTypes && !allowedTypes.has(ct)) continue;
+          const funnel = readFunnelBlockFromFile(commonYmlPath(ct, slug, contentFolder));
+          const stage =
+            typeof funnel.stage === "string" && funnel.stage.trim() ? funnel.stage.trim() : "";
+          if (stage !== "decision") {
+            untaggedPurchasable.push(`${ct}/${slug}`);
+          }
+        }
+        if (untaggedPurchasable.length > 0) {
+          warnings.push({
+            code: "untagged_purchasable_excluded",
+            message: `${untaggedPurchasable.length} purchasable product page(s) lack funnel.stage=decision and were excluded from is_money_page:true (strict catalog). Examples: ${untaggedPurchasable.slice(0, 8).join(", ")}${untaggedPurchasable.length > 8 ? ", …" : ""}`,
+          });
+        }
+      }
+
+      return ok(
+        {
+          message: `list_entries with funnel filters (${enriched.length} match${enriched.length === 1 ? "" : "es"})`,
+          count: enriched.length,
+          entries: enriched,
+        },
+        {
+          warnings,
+          next_actions: [
+            {
+              tool: "explain_site",
+              args_hint: { topic: "funnel" },
+              reason: "Stage / money-page inventory vs product journey semantics",
+            },
+          ],
+        },
+      );
+    },
   );
 
   mcp.tool(

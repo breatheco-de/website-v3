@@ -33,7 +33,9 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 | `semantic_search` | Qdrant, local embeddings, database `vector_search`, keyword fallback |
 | `local_databases` | Local YAML private DBs; MCP item CRUD; global index; FAQ database (`frequently_asked_questions`) |
 | `component-behaviors` | behaviors ids, CTA `tracking`, conversion_events catalog, CRM tags allowlist |
-| `ecommerce` | products, funnels, product scope property paths, no CMS plan catalog |
+| `seo` | meta gates, locale `seo:`, clustering inventory, GSC/Bing, SEO diagnostics |
+| `funnel` | `funnel.stage` / products, money pages (`decision`), `list_entries` filters, inventory vs journey |
+| `ecommerce` | products, product scope property paths, `get_product_funnel` journey (stage inventory → `funnel`) |
 | `shared-layout` | `single_template` / DB shared shell; create_entry playbook; blog as example |
 | `relation-fields` | Relation editor, authors hubs, listing vs hydrate, delete reassign |
 | `lead-forms` | Catalog `source` (`content_type` / `database` / `related_field`), required `value_path`/`label_path`, required `query` on ecommerce catalogs, `purchasable` vs `actively_selling` |

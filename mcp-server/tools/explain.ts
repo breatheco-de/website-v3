@@ -21,6 +21,8 @@ const VALID_TOPICS = [
   "semantic_search",
   "local_databases",
   "component-behaviors",
+  "seo",
+  "funnel",
   "ecommerce",
   "shared-layout",
   "relation-fields",
@@ -32,7 +34,7 @@ type Topic = (typeof VALID_TOPICS)[number];
 
 const TOPIC_DESC: Record<string, string> = {
   overview: "Start here — architectural summary and guide to all topics",
-  content_system: "YAML content files, _common.yml merge, SEO clustering inventory + links, safeYamlLoad",
+  content_system: "YAML content files, _common.yml merge, safeYamlLoad (SEO → topic seo)",
   routing:
     "URL patterns, locale prefixes (/en/, /es/), dynamic routes, ?cache=false HTML cache bypass",
   images: "Image registry, UniversalImage, image_id, get_or_set_image_to_gallery MCP",
@@ -42,7 +44,10 @@ const TOPIC_DESC: Record<string, string> = {
   local_databases:
     "Local YAML private DBs; MCP item CRUD; global index; FAQ database; sync + reindex",
   "component-behaviors": "CTA tracking, conversion_events catalog, CRM tags allowlist",
-  ecommerce: "products, funnels, product scope property paths, no CMS plans",
+  seo: "meta gates, locale seo:, clustering inventory, GSC/Bing reads, SEO diagnostics",
+  funnel:
+    "funnel.stage / products on _common.yml, money pages (decision), list_entries filters, inventory vs journey",
+  ecommerce: "products, product scope paths, get_product_funnel journey (stage inventory → funnel)",
   "shared-layout":
     "single_template / shared shell, create_entry playbook, blog as example",
   "relation-fields":
@@ -310,7 +315,9 @@ export function registerExplainTools(
       "'semantic_search' (Qdrant, local embeddings, vector_search config, keyword fallback), " +
       "'local_databases' (local YAML private DBs, MCP item CRUD, global index, FAQ database), " +
       "'component-behaviors' (CTA tracking, conversion_events, CRM tags allowlist), " +
-      "'ecommerce' (products, funnels, product scope property paths, no CMS plans), " +
+      "'seo' (meta gates, locale seo:, clustering, GSC/Bing, SEO diagnostics), " +
+      "'funnel' (funnel.stage/products, money pages, list_entries filters, inventory vs journey), " +
+      "'ecommerce' (products, product scope paths, get_product_funnel journey; stage inventory → funnel), " +
       "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example), " +
       "'relation-fields' (relation editor, authors CT, listing vs hydrate, delete_entries reassign), " +
       "'lead-forms' (catalog source.content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling), " +
@@ -323,7 +330,7 @@ export function registerExplainTools(
       topic: z
         .string()
         .describe(
-          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, ecommerce, shared-layout, relation-fields, lead-forms, redirects. Topic routing includes ?cache=false HTML page-cache bypass.",
+          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, seo, funnel, ecommerce, shared-layout, relation-fields, lead-forms, redirects, proposals.",
         ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },

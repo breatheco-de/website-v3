@@ -37,7 +37,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `list_sites` | Configured domains + content folders (`sites.yml`) |
 | `explain_site` | Architecture playbooks + live per-site catalogs (conversion_events, CRM tags, locales). Pass `site`. |
 | `bootstrap_agent` | Call once near the start of an MCP content run (Claude.ai / Grok / connectors). Returns technical playbook + conversation conventions (`skill.content` on first call) + 6-day changelog. Later calls: `include_skill_content: false` / `known_skill_version`. Does not refresh host tool list. |
-| `list_entries` | List YAML (non-DB) entries with slug, content type, locales, title, urls |
+| `list_entries` | List YAML (non-DB) entries; optional funnel/money filters |
 | `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, strategy, observed URL-param values, create_via, body_model, template_vars_note |
 | `get_entry_content` | Merged entry content without meta/SEO |
 | `get_entry_seo` | SEO/meta + resolved schema.org preview + companion/CT gaps for one entry |
@@ -78,7 +78,15 @@ Returns `{ count, sites: [{ domain, contentFolder }], hint }`.
 
 Lists YAML-driven content entries (includes static `single_template` types such as blog; excludes `database.slug` types).
 
-**Parameters:** optional `contentType`, `locale`, `slugs`, `search`, `site`.
+**Parameters:** optional `contentType`, `locale`, `slugs`, `search`, `site`, plus funnel filters (AND):
+
+| Parameter | Description |
+|---|---|
+| `funnel_stage` | Exact `_common.yml` `funnel.stage` (`awareness` \| `consideration` \| `decision` \| `post-enrollment`) |
+| `funnel_product` | Effective products include this SKU (program pages always include self) |
+| `is_money_page` | `true` = `stage === decision` (BOFU); untagged purchasable programs excluded + warned |
+
+When any funnel filter is set, response is an `ok()` envelope with `entries[]` including `funnel`, `is_money_page`, `stage_missing`. Conflicting `is_money_page` + `funnel_stage` fails. Inventory vs product journey: see `explain_site` topic `funnel`.
 
 ### `get_content_type_info`
 

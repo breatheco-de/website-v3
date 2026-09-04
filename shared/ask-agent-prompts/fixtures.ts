@@ -56,6 +56,13 @@ export const ASK_AGENT_PROMPT_FIXTURES: Record<AskAgentPromptId, Record<string, 
     variant: "draft1",
     mcp_url: "http://localhost:5000/mcp",
   },
+  "redirect-overwrites-content": {
+    redirect_url: "/en/career-programs/cybersecurity",
+    source_file: "site_4geeks-com/programs/other/en.yml",
+    code: "REDIRECT_OVERWRITES_CONTENT",
+    description: "This redirect is hiding an existing page. Remove it so visitors can see the page.",
+    mcp_url: "http://localhost:5000/mcp",
+  },
   "polish-ask-agent-prompt": {
     target_id: "organic-page2",
     target_title: "Page 2 opportunity",

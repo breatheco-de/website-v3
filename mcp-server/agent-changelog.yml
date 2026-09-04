@@ -5,6 +5,22 @@
 window_days: 6
 
 entries:
+  - date: "2026-09-04"
+    summary: "list_entries funnel/money filters + explain topics seo and funnel"
+    agent_impact:
+      - "list_entries accepts funnel_stage, funnel_product (effective products), is_money_page (decision=BOFU). Conflicts fail. Funnel-filtered rows include funnel + is_money_page + stage_missing. Money inventory is strict tags; get_product_funnel still pins the product page."
+      - "explain_site topics seo (meta/clusters/GSC) and funnel (stage/money inventory) are new. content_system SEO mega-sections moved to seo. ecommerce owns product journey only. Reconnect MCP so tools/list and explain topic list refresh."
+      - "Call explain_site topic funnel before money-page work; topic seo for clustering/meta — not content_system alone."
+    paths:
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/list-entries-funnel.ts
+      - mcp-server/tools/explain.ts
+      - mcp-server/explain/seo.md
+      - mcp-server/explain/funnel.md
+      - mcp-server/explain/ecommerce.md
+      - mcp-server/explain/content_system.md
+      - mcp-server/explain/overview.md
+    tools_changed: true
   - date: "2026-09-03"
     summary: "SEO write layer + seo-index sync on go-live"
     agent_impact:

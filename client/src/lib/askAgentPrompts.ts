@@ -10,6 +10,7 @@ import organicMissingSerp from "@shared/ask-agent-prompts/organic-missing-serp.m
 import organicLinkGaps from "@shared/ask-agent-prompts/organic-link-gaps.md?raw";
 import pageDiagnostics from "@shared/ask-agent-prompts/page-diagnostics.md?raw";
 import draftFeedback from "@shared/ask-agent-prompts/draft-feedback.md?raw";
+import redirectOverwritesContent from "@shared/ask-agent-prompts/redirect-overwrites-content.md?raw";
 import polishAskAgentPrompt from "@shared/ask-agent-prompts/polish-ask-agent-prompt.md?raw";
 
 const RAW: Record<AskAgentPromptId, string> = {
@@ -19,6 +20,7 @@ const RAW: Record<AskAgentPromptId, string> = {
   "organic-link-gaps": organicLinkGaps,
   "page-diagnostics": pageDiagnostics,
   "draft-feedback": draftFeedback,
+  "redirect-overwrites-content": redirectOverwritesContent,
   "polish-ask-agent-prompt": polishAskAgentPrompt,
 };
 

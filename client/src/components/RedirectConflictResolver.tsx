@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Wrench, X } from "lucide-react";
+import { Bot, Check, Wrench, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,6 +11,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getApiErrorMessage } from "@/components/editing/AddRedirectDialog";
+import { McpRequiredForAiModal } from "@/components/mcp/McpRequiredForAiModal";
+import type { McpSetupTabId } from "@/components/mcp/mcpUrlHelpers";
+import { getMcpServerUrl } from "@/components/mcp/mcpUrlHelpers";
+import {
+  SolveWithAiAgentDropdown,
+  type SolveWithAiAgentSelectPayload,
+} from "@/components/DebugBubble/SolveWithAiAgentDropdown";
+import type { SolveWithAiAgentId } from "@/components/DebugBubble/solveWithAiPrompt";
+import { renderAskAgentPrompt } from "@shared/ask-agent-prompts";
+import "@/lib/askAgentPrompts";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugUserName } from "@/hooks/useDebugAuth";
@@ -296,12 +306,27 @@ export function RedirectConflictResolverModal({
   const { toast } = useToast();
   const [resolving, setResolving] = useState(false);
   const [pendingAction, setPendingAction] = useState<{ fileToRemove: string; keepFile: string } | null>(null);
+  const [mcpRequiredForAiOpen, setMcpRequiredForAiOpen] = useState(false);
+  const [mcpRequiredSetupTab, setMcpRequiredSetupTab] = useState<McpSetupTabId>("cursor");
+  const [mcpRequiredAgentId, setMcpRequiredAgentId] = useState<SolveWithAiAgentId>("copy-prompt");
+  const [mcpRequiredAgentLabel, setMcpRequiredAgentLabel] = useState("AI Agent");
+  const [mcpRequiredPrompt, setMcpRequiredPrompt] = useState("");
+  const [mcpRequiredPrefillPrefix, setMcpRequiredPrefillPrefix] = useState<string | undefined>();
   const { data: siteInfo } = useQuery<{ contentFolder: string }>({
     queryKey: ["/api/site/info"],
   });
   const pathOptions: FormatSitePathOptions | undefined = siteInfo?.contentFolder
     ? { contentFolder: siteInfo.contentFolder }
     : undefined;
+
+  function openAskAgent(payload: SolveWithAiAgentSelectPayload) {
+    setMcpRequiredAgentId(payload.agentId);
+    setMcpRequiredSetupTab(payload.setupTab);
+    setMcpRequiredAgentLabel(payload.label);
+    setMcpRequiredPrompt(payload.prompt);
+    setMcpRequiredPrefillPrefix(payload.prefillUrlPrefix);
+    setMcpRequiredForAiOpen(true);
+  }
 
   const handleResolve = async (fileToRemoveFrom: string) => {
     if (!conflict) return;
@@ -346,11 +371,25 @@ export function RedirectConflictResolverModal({
   const isSimpleRemoval = conflict.code === "SELF_REDIRECT" || conflict.code === "REDIRECT_OVERWRITES_CONTENT";
   const isConflict = conflict.code === "REDIRECT_CONFLICT";
   const isOverlap = conflict.code === "REDIRECT_OVERLAP";
+  const isOverwrites = conflict.code === "REDIRECT_OVERWRITES_CONTENT";
 
   const commonFile = conflict.files.find(f => f.includes("_common.yml"));
   const localeFiles = conflict.files.filter(f => !f.includes("_common.yml"));
 
+  const overwriteAskAgentPrompt = isOverwrites
+    ? renderAskAgentPrompt("redirect-overwrites-content", {
+        redirect_url: conflict.redirectUrl,
+        source_file: conflict.files[0]
+          ? formatFilePath(conflict.files[0])
+          : "(unknown source)",
+        code: conflict.code,
+        description: getConflictDescription(conflict),
+        mcp_url: typeof window !== "undefined" ? getMcpServerUrl() : "/mcp",
+      })
+    : "";
+
   return (
+    <>
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md" style={{ borderRadius: "0.8rem" }}>
         <DialogHeader>
@@ -504,7 +543,18 @@ export function RedirectConflictResolverModal({
         </div>
 
         {!pendingAction && (
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:justify-end flex-wrap">
+            {isOverwrites ? (
+              <SolveWithAiAgentDropdown
+                label="Ask Agent"
+                icon={Bot}
+                prompt={overwriteAskAgentPrompt}
+                disabled={resolving || !overwriteAskAgentPrompt}
+                buttonVariant="outline"
+                testId="resolve-overwrite-ask-agent"
+                onAgentSelect={openAskAgent}
+              />
+            ) : null}
             <Button variant="ghost" onClick={() => handleClose(false)} disabled={resolving} data-testid="button-cancel-resolve">
               Cancel
             </Button>
@@ -512,6 +562,16 @@ export function RedirectConflictResolverModal({
         )}
       </DialogContent>
     </Dialog>
+    <McpRequiredForAiModal
+      open={mcpRequiredForAiOpen}
+      onOpenChange={setMcpRequiredForAiOpen}
+      defaultTab={mcpRequiredSetupTab}
+      agentId={mcpRequiredAgentId}
+      agentLabel={mcpRequiredAgentLabel}
+      prompt={mcpRequiredPrompt}
+      prefillUrlPrefix={mcpRequiredPrefillPrefix}
+    />
+    </>
   );
 }
 
