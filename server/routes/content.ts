@@ -4463,6 +4463,7 @@ export function registerContentRoutes(app: Express): void {
       if (!result.success) {
         res.status(result.statusCode || 400).json({
           error: result.error || "Failed to write mapped fields",
+          code: result.code,
           storage: result.storage,
           path: result.relativePath,
           isVariantLayer: result.isVariantLayer,

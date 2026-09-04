@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Brain, Check, ChevronDown, Copy, Crosshair, Download, DownloadCloud, ExternalLink, Filter, Globe, Info, Loader2, MoreVertical, MousePointerClick, Network, Pencil, Plus, RefreshCw, ShieldCheck, Star, TrendingUp, Unlink, type LucideIcon } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Brain, Check, ChevronDown, Copy, Crosshair, Download, DownloadCloud, ExternalLink, Filter, Globe, History, Info, Loader2, MoreVertical, MousePointerClick, Network, Pencil, Plus, RefreshCw, ShieldCheck, Star, TrendingUp, Unlink, type LucideIcon } from "lucide-react";
 import { OpenRushFetchControl } from "@/components/seo/OpenRushFetchControl";
 import { formatOpenRushFetchedAge } from "@/components/seo/openrushFetchAge";
+import { SeoIndexReindexControl } from "@/components/seo/SeoIndexReindexControl";
 import * as CountryFlags from "country-flag-icons/react/3x2";
 import { SiGoogle } from "react-icons/si";
 import { Link } from "wouter";
@@ -89,8 +90,9 @@ import { deslugifyLabel } from "@shared/relation-field";
 import { formatSitePath } from "@shared/formatSitePath";
 import { SitemapSearch, SitemapLocaleFilter } from "@/components/menus/SitemapSearch";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
-import type { SitemapSearchEntry } from "@/lib/sitemapSearch";
 import { PageHealthIndicators } from "@/components/DebugBubble/components/PageHealthIndicators";
+import { EntryActivityBadge } from "@/components/pipeline/EntryActivityBadge";
+import type { SitemapSearchEntry } from "@/lib/sitemapSearch";
 import type { CrawlerBadgeState } from "@/lib/crawlerStatus";
 import { useMutation } from "@tanstack/react-query";
 
@@ -183,9 +185,9 @@ function ClusterPillarPath({
   );
 }
 
-type ClusterSortBy = "name" | "page-count" | "clicks" | "volume" | "issues" | "priority";
+type ClusterSortBy = "name" | "page-count" | "clicks" | "volume" | "issues" | "writes" | "priority";
 type ClusterSortDir = "asc" | "desc";
-type ClusterPerspective = "traffic" | "potential" | "integrity";
+type ClusterPerspective = "traffic" | "potential" | "integrity" | "activity";
 type ClusterPriority = 1 | 2 | 3;
 
 const CLUSTER_PERSPECTIVES: {
@@ -196,6 +198,7 @@ const CLUSTER_PERSPECTIVES: {
   { value: "traffic", label: "Traffic", Icon: MousePointerClick },
   { value: "potential", label: "Potential", Icon: TrendingUp },
   { value: "integrity", label: "Integrity", Icon: ShieldCheck },
+  { value: "activity", label: "Activity", Icon: History },
 ];
 
 const CLUSTER_SORT_ALWAYS: { value: ClusterSortBy; label: string; defaultDir: ClusterSortDir }[] = [
@@ -212,7 +215,9 @@ function clusterSortFieldsForPerspective(
       ? ({ value: "clicks" as const, label: "Clicks", defaultDir: "desc" as const })
       : perspective === "potential"
         ? ({ value: "volume" as const, label: "Volume", defaultDir: "desc" as const })
-        : ({ value: "issues" as const, label: "Issues", defaultDir: "desc" as const });
+        : perspective === "activity"
+          ? ({ value: "writes" as const, label: "Writes", defaultDir: "desc" as const })
+          : ({ value: "issues" as const, label: "Issues", defaultDir: "desc" as const });
   return [...CLUSTER_SORT_ALWAYS, metric];
 }
 
@@ -695,14 +700,31 @@ type IntegrityMetricsPayload = {
   }>;
 };
 
+type ActivityMetricsPayload = {
+  perspective: "activity";
+  windowDays: number;
+  since: number;
+  clusters: Array<{
+    hubId: string;
+    hubWriteCount: number;
+    clusterWriteCount: number;
+    members: Array<{ id: string; writeCount: number }>;
+  }>;
+};
+
 type ClusterMetricsPayload =
   | TrafficMetricsPayload
   | PotentialMetricsPayload
-  | IntegrityMetricsPayload;
+  | IntegrityMetricsPayload
+  | ActivityMetricsPayload;
 
 function fmtVolume(n: number | null | undefined): string {
   if (typeof n !== "number") return "—";
   return Math.round(n).toLocaleString();
+}
+
+function stopClusterRowToggle(e: { stopPropagation: () => void }) {
+  e.stopPropagation();
 }
 
 function ClusterPotentialBadges({
@@ -2193,39 +2215,44 @@ function ClusterMemberAssignFlow({
   );
 }
 
-function ClusterMemberRow({
-  member,
-  hubPillarUrl,
+function ClusterEntryPopover({
+  contentType,
+  slug,
+  locale,
+  fallback,
   hubId,
-  clusters,
-  gscConfigured,
   canEditSeo,
   onEditSeo,
-  metricChips,
+  gscConfigured,
+  stopRowToggle = false,
+  triggerClassName,
+  children,
 }: {
-  member: ClusterMember;
-  hubPillarUrl: string;
+  contentType: string;
+  slug: string;
+  locale: string;
+  fallback?: { path?: string | null; keyword?: string | null; lastmod?: string | null };
   hubId: string;
-  clusters: SeoOverview["clusters"];
-  gscConfigured?: boolean;
   canEditSeo: boolean;
   onEditSeo: (contentType: string, slug: string, locale: string) => void;
-  metricChips?: ReactNode;
+  gscConfigured?: boolean;
+  stopRowToggle?: boolean;
+  triggerClassName?: string;
+  children:
+    | ReactNode
+    | ((ctx: { data: ClusterEntryInfo | undefined; href: string }) => ReactNode);
 }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
-  const [changeOpen, setChangeOpen] = useState(false);
-  const [removeOpen, setRemoveOpen] = useState(false);
-  const [removing, setRemoving] = useState(false);
   const [refreshingKeyword, setRefreshingKeyword] = useState(false);
   const { data, isLoading, isError, error, refetch } = useQuery<ClusterEntryInfo>({
-    queryKey: ["/api/seo/entry", member.contentType, member.slug, member.locale],
-    enabled: open && !!member.contentType && !!member.slug,
+    queryKey: ["/api/seo/entry", contentType, slug, locale],
+    enabled: open && !!contentType && !!slug,
     staleTime: 60_000,
     queryFn: async () => {
-      const params = new URLSearchParams({ locale: member.locale || "en" });
+      const params = new URLSearchParams({ locale: locale || "en" });
       const res = await fetch(
-        `/api/seo/entry/${encodeURIComponent(member.contentType)}/${encodeURIComponent(member.slug)}?${params}`,
+        `/api/seo/entry/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}?${params}`,
         { credentials: "include", headers: getSessionHeaders() },
       );
       if (!res.ok) {
@@ -2236,17 +2263,18 @@ function ClusterMemberRow({
     },
   });
 
-  const href = data?.path || member.path;
-  const heading =
-    data?.title || data?.page_title || deslugifyLabel(member.slug);
-  const lastmod = data?.lastmod || member.lastmod || null;
-  const keyword = (data?.main_keyword || member.keyword || "").trim();
+  const href = data?.path || fallback?.path || "";
+  const heading = data?.title || data?.page_title || deslugifyLabel(slug);
+  const lastmod = data?.lastmod || fallback?.lastmod || null;
+  const keyword = (data?.main_keyword || fallback?.keyword || "").trim();
   const metrics = data?.keyword_metrics;
   const displayVolume = metrics?.kw_monthly_volume ?? data?.kw_monthly_volume;
   const displayDifficulty = metrics?.kw_difficulty ?? data?.kw_difficulty;
   const hasVolume = typeof displayVolume === "number";
   const hasDifficulty = typeof displayDifficulty === "number";
   const openrushConfigured = metrics?.openrush_configured === true;
+  const trigger =
+    typeof children === "function" ? children({ data, href }) : children;
 
   const handleRefreshKeyword = async () => {
     if (!openrushConfigured) return;
@@ -2261,9 +2289,9 @@ function ClusterMemberRow({
           ...getSessionHeaders(),
         },
         body: JSON.stringify({
-          contentType: member.contentType,
-          slug: member.slug,
-          locale: member.locale,
+          contentType,
+          slug,
+          locale,
           keyword: keyword || undefined,
           author: author || undefined,
         }),
@@ -2290,6 +2318,208 @@ function ClusterMemberRow({
     }
   };
 
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={triggerClassName}
+          onClick={stopRowToggle ? stopClusterRowToggle : undefined}
+        >
+          {trigger}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-80 space-y-3 bg-popover text-popover-foreground"
+        data-testid={`popover-cluster-entry-${slug}`}
+        onClick={stopRowToggle ? stopClusterRowToggle : undefined}
+      >
+        {isLoading ? (
+          <div className="space-y-2" data-testid="cluster-entry-loading">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+        ) : isError ? (
+          <p className="text-xs text-destructive" data-testid="cluster-entry-error">
+            {error instanceof Error ? error.message : "Could not load this entry."}
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <div>
+              <p className="text-sm font-medium text-foreground leading-snug" data-testid="text-cluster-entry-title">
+                {heading}
+              </p>
+              {data?.description ? (
+                <p className="text-xs text-muted-foreground mt-1 line-clamp-3">{data.description}</p>
+              ) : null}
+            </div>
+            {keyword ? (
+              <div
+                className="flex items-start gap-1.5 rounded border border-border/60 px-2 py-1.5"
+                data-testid="cluster-entry-keyword-card"
+              >
+                <div className="min-w-0 flex-1">
+                  <p
+                    className="text-xs font-medium text-foreground truncate leading-tight"
+                    title={keyword}
+                  >
+                    {keyword}
+                  </p>
+                  <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">
+                    vol {hasVolume ? displayVolume!.toLocaleString() : "No data"}
+                    {" · "}
+                    KD {hasDifficulty ? displayDifficulty! : "No data"}
+                  </p>
+                  {metrics?.may_not_be_recent ? (
+                    <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                      May not be recent
+                    </p>
+                  ) : null}
+                  {metrics?.notes ? (
+                    <p className="mt-0.5 text-[10px] text-muted-foreground line-clamp-2" title={metrics.notes}>
+                      {metrics.notes}
+                    </p>
+                  ) : null}
+                </div>
+                <OpenRushFetchControl
+                  kind="keyword"
+                  queryLabel={keyword || "this keyword"}
+                  openrushConfigured={openrushConfigured}
+                  fetchedAt={metrics?.fetched_at}
+                  stale={metrics?.stale}
+                  disabled={!canEditSeo || refreshingKeyword}
+                  loading={refreshingKeyword}
+                  data-testid={`button-cluster-refresh-keyword-${slug}`}
+                  dialogTestId={`dialog-cluster-refresh-keyword-${slug}`}
+                  title={
+                    !canEditSeo
+                      ? `You need seo_edit for content type "${contentType}"`
+                      : undefined
+                  }
+                  onConfirm={handleRefreshKeyword}
+                />
+              </div>
+            ) : (
+              <div
+                className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2"
+                data-testid="cluster-entry-keyword-missing"
+                role="status"
+              >
+                <p className="text-xs text-destructive">No keyword configured</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 shrink-0 px-2 text-[10px]"
+                  data-testid={`button-cluster-set-keyword-${slug}`}
+                  disabled={!canEditSeo}
+                  title={
+                    !canEditSeo
+                      ? `You need seo_edit for content type "${contentType}"`
+                      : undefined
+                  }
+                  onClick={() => {
+                    setOpen(false);
+                    onEditSeo(contentType, slug, locale);
+                  }}
+                >
+                  Set now
+                </Button>
+              </div>
+            )}
+            <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
+              <dt className="text-muted-foreground">Type</dt>
+              <dd className="text-foreground truncate">{data?.contentType || contentType}</dd>
+              <dt className="text-muted-foreground">Locale</dt>
+              <dd className="text-foreground uppercase">{data?.locale || locale}</dd>
+              {href ? (
+                <>
+                  <dt className="text-muted-foreground">Path</dt>
+                  <dd className="text-foreground font-mono truncate" title={href}>{href}</dd>
+                </>
+              ) : null}
+              {lastmod ? (
+                <>
+                  <dt className="text-muted-foreground">Lastmod</dt>
+                  <dd>
+                    <ClusterMemberLastmod lastmod={lastmod} />
+                  </dd>
+                </>
+              ) : (
+                <>
+                  <dt className="text-muted-foreground">Lastmod</dt>
+                  <dd>
+                    <ClusterMemberMissingLastmod />
+                  </dd>
+                </>
+              )}
+              {href ? (
+                <>
+                  <dt className="text-muted-foreground">Google</dt>
+                  <dd>
+                    <ClusterGscIndexChip
+                      entryPath={href}
+                      gscStatus={data?.gscStatus}
+                      gscConfigured={gscConfigured}
+                    />
+                  </dd>
+                </>
+              ) : null}
+            </dl>
+            {data?.is_pillar ? (
+              <Badge variant="secondary" className="text-[10px]">Pillar</Badge>
+            ) : null}
+            {data?.file ? (
+              <p className="text-[11px] text-muted-foreground font-mono truncate" title={data.file}>
+                {formatSitePath(data.file)}
+              </p>
+            ) : null}
+          </div>
+        )}
+        {href ? (
+          <Button asChild size="sm" className="w-full" data-testid={`button-cluster-entry-url-${slug}`}>
+            <a href={href} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="h-3.5 w-3.5" />
+              Open page
+            </a>
+          </Button>
+        ) : (
+          <Button size="sm" className="w-full" disabled data-testid={`button-cluster-entry-url-${slug}`}>
+            <ExternalLink className="h-3.5 w-3.5" />
+            Open page
+          </Button>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ClusterMemberRow({
+  member,
+  hubPillarUrl,
+  hubId,
+  clusters,
+  gscConfigured,
+  canEditSeo,
+  onEditSeo,
+  metricChips,
+}: {
+  member: ClusterMember;
+  hubPillarUrl: string;
+  hubId: string;
+  clusters: SeoOverview["clusters"];
+  gscConfigured?: boolean;
+  canEditSeo: boolean;
+  onEditSeo: (contentType: string, slug: string, locale: string) => void;
+  metricChips?: ReactNode;
+}) {
+  const { toast } = useToast();
+  const [changeOpen, setChangeOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
   const handleRemove = async () => {
     setRemoving(true);
     try {
@@ -2305,7 +2535,6 @@ function ClusterMemberRow({
       });
       invalidateClusterQueries(hubId);
       setRemoveOpen(false);
-      setOpen(false);
     } catch (err) {
       toast({
         title: "Could not remove",
@@ -2319,13 +2548,27 @@ function ClusterMemberRow({
 
   return (
     <>
-      <Popover open={open} onOpenChange={setOpen}>
-        <div
-          className="flex w-full items-center gap-2 py-1.5 hover:bg-muted/50 rounded-sm px-1 -mx-1 group"
-          data-testid={`cluster-slug-${member.slug}`}
+      <div
+        className="flex w-full items-center gap-2 py-1.5 hover:bg-muted/50 rounded-sm px-1 -mx-1 group"
+        data-testid={`cluster-slug-${member.slug}`}
+      >
+        <ClusterEntryPopover
+          contentType={member.contentType}
+          slug={member.slug}
+          locale={member.locale}
+          fallback={{
+            path: member.path,
+            keyword: member.keyword,
+            lastmod: member.lastmod,
+          }}
+          hubId={hubId}
+          canEditSeo={canEditSeo}
+          onEditSeo={onEditSeo}
+          gscConfigured={gscConfigured}
+          triggerClassName="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
-          <PopoverTrigger asChild>
-            <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          {({ data, href }) => (
+            <>
               <LocaleFlag
                 locale={member.locale || "en"}
                 className="h-3 w-4 shrink-0 rounded-sm"
@@ -2341,216 +2584,71 @@ function ClusterMemberRow({
                   gscConfigured={gscConfigured}
                 />
               ) : null}
-            </button>
-          </PopoverTrigger>
-          <ClusterMemberLastmodSlot lastmod={lastmod} />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 hover:bg-muted text-muted-foreground transition-opacity"
-                aria-label="Cluster member actions"
-                data-testid={`button-cluster-actions-${member.slug}`}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreVertical className="h-3.5 w-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem
-                data-testid={`button-cluster-edit-seo-${member.slug}`}
-                disabled={!canEditSeo}
-                title={
-                  !canEditSeo
-                    ? `You need seo_edit for content type "${member.contentType}"`
-                    : undefined
-                }
-                onSelect={() => onEditSeo(member.contentType, member.slug, member.locale)}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                Edit SEO
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                data-testid={`button-cluster-change-${member.slug}`}
-                onSelect={() => setChangeOpen(true)}
-              >
-                <ArrowRightLeft className="h-3.5 w-3.5" />
-                Change cluster
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                data-testid={`button-cluster-remove-${member.slug}`}
-                onSelect={() => setRemoveOpen(true)}
-              >
-                <Unlink className="h-3.5 w-3.5 text-destructive" />
-                Remove from cluster
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <PopoverContent
-          align="start"
-          className="w-80 space-y-3 bg-popover text-popover-foreground"
-          data-testid={`popover-cluster-entry-${member.slug}`}
-        >
-          {isLoading ? (
-            <div className="space-y-2" data-testid="cluster-entry-loading">
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-3 w-full" />
-              <Skeleton className="h-3 w-2/3" />
-            </div>
-          ) : isError ? (
-            <p className="text-xs text-destructive" data-testid="cluster-entry-error">
-              {error instanceof Error ? error.message : "Could not load this entry."}
-            </p>
-          ) : (
-            <div className="space-y-2">
-              <div>
-                <p className="text-sm font-medium text-foreground leading-snug" data-testid="text-cluster-entry-title">
-                  {heading}
-                </p>
-                {data?.description ? (
-                  <p className="text-xs text-muted-foreground mt-1 line-clamp-3">{data.description}</p>
-                ) : null}
-              </div>
-              {keyword ? (
-                <div
-                  className="flex items-start gap-1.5 rounded border border-border/60 px-2 py-1.5"
-                  data-testid="cluster-entry-keyword-card"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p
-                      className="text-xs font-medium text-foreground truncate leading-tight"
-                      title={keyword}
-                    >
-                      {keyword}
-                    </p>
-                    <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">
-                      vol {hasVolume ? displayVolume!.toLocaleString() : "No data"}
-                      {" · "}
-                      KD {hasDifficulty ? displayDifficulty! : "No data"}
-                    </p>
-                    {metrics?.may_not_be_recent ? (
-                      <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-300">
-                        May not be recent
-                      </p>
-                    ) : null}
-                    {metrics?.notes ? (
-                      <p className="mt-0.5 text-[10px] text-muted-foreground line-clamp-2" title={metrics.notes}>
-                        {metrics.notes}
-                      </p>
-                    ) : null}
-                  </div>
-                  <OpenRushFetchControl
-                    kind="keyword"
-                    queryLabel={keyword || "this keyword"}
-                    openrushConfigured={openrushConfigured}
-                    fetchedAt={metrics?.fetched_at}
-                    stale={metrics?.stale}
-                    disabled={!canEditSeo || refreshingKeyword}
-                    loading={refreshingKeyword}
-                    data-testid={`button-cluster-refresh-keyword-${member.slug}`}
-                    dialogTestId={`dialog-cluster-refresh-keyword-${member.slug}`}
-                    title={
-                      !canEditSeo
-                        ? `You need seo_edit for content type "${member.contentType}"`
-                        : undefined
-                    }
-                    onConfirm={handleRefreshKeyword}
-                  />
-                </div>
-              ) : (
-                <div
-                  className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2"
-                  data-testid="cluster-entry-keyword-missing"
-                  role="status"
-                >
-                  <p className="text-xs text-destructive">No keyword configured</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-6 shrink-0 px-2 text-[10px]"
-                    data-testid={`button-cluster-set-keyword-${member.slug}`}
-                    disabled={!canEditSeo}
-                    title={
-                      !canEditSeo
-                        ? `You need seo_edit for content type "${member.contentType}"`
-                        : undefined
-                    }
-                    onClick={() => {
-                      setOpen(false);
-                      onEditSeo(member.contentType, member.slug, member.locale);
-                    }}
-                  >
-                    Set now
-                  </Button>
-                </div>
-              )}
-              <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
-                <dt className="text-muted-foreground">Type</dt>
-                <dd className="text-foreground truncate">{data?.contentType || member.contentType}</dd>
-                <dt className="text-muted-foreground">Locale</dt>
-                <dd className="text-foreground uppercase">{data?.locale || member.locale}</dd>
-                {href ? (
-                  <>
-                    <dt className="text-muted-foreground">Path</dt>
-                    <dd className="text-foreground font-mono truncate" title={href}>{href}</dd>
-                  </>
-                ) : null}
-                {lastmod ? (
-                  <>
-                    <dt className="text-muted-foreground">Lastmod</dt>
-                    <dd>
-                      <ClusterMemberLastmod lastmod={lastmod} />
-                    </dd>
-                  </>
-                ) : (
-                  <>
-                    <dt className="text-muted-foreground">Lastmod</dt>
-                    <dd>
-                      <ClusterMemberMissingLastmod />
-                    </dd>
-                  </>
-                )}
-                {href ? (
-                  <>
-                    <dt className="text-muted-foreground">Google</dt>
-                    <dd>
-                      <ClusterGscIndexChip
-                        entryPath={href}
-                        gscStatus={data?.gscStatus}
-                        gscConfigured={gscConfigured}
-                      />
-                    </dd>
-                  </>
-                ) : null}
-              </dl>
-              {data?.is_pillar ? (
-                <Badge variant="secondary" className="text-[10px]">Pillar</Badge>
-              ) : null}
-              {data?.file ? (
-                <p className="text-[11px] text-muted-foreground font-mono truncate" title={data.file}>
-                  {formatSitePath(data.file)}
-                </p>
-              ) : null}
-            </div>
+            </>
           )}
-          {href ? (
-            <Button asChild size="sm" className="w-full" data-testid={`button-cluster-entry-url-${member.slug}`}>
-              <a href={href} target="_blank" rel="noopener noreferrer">
+        </ClusterEntryPopover>
+        <ClusterMemberLastmodSlot lastmod={member.lastmod || null} />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 hover:bg-muted text-muted-foreground transition-opacity"
+              aria-label="Cluster member actions"
+              data-testid={`button-cluster-actions-${member.slug}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreVertical className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem
+              asChild
+              disabled={!member.path}
+              data-testid={`button-cluster-open-page-${member.slug}`}
+            >
+              <a
+                href={member.path || undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => {
+                  if (!member.path) e.preventDefault();
+                }}
+              >
                 <ExternalLink className="h-3.5 w-3.5" />
                 Open page
               </a>
-            </Button>
-          ) : (
-            <Button size="sm" className="w-full" disabled data-testid={`button-cluster-entry-url-${member.slug}`}>
-              <ExternalLink className="h-3.5 w-3.5" />
-              Open page
-            </Button>
-          )}
-        </PopoverContent>
-      </Popover>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-testid={`button-cluster-edit-seo-${member.slug}`}
+              disabled={!canEditSeo}
+              title={
+                !canEditSeo
+                  ? `You need seo_edit for content type "${member.contentType}"`
+                  : undefined
+              }
+              onSelect={() => onEditSeo(member.contentType, member.slug, member.locale)}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit SEO
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-testid={`button-cluster-change-${member.slug}`}
+              onSelect={() => setChangeOpen(true)}
+            >
+              <ArrowRightLeft className="h-3.5 w-3.5" />
+              Change cluster
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              data-testid={`button-cluster-remove-${member.slug}`}
+              onSelect={() => setRemoveOpen(true)}
+            >
+              <Unlink className="h-3.5 w-3.5 text-destructive" />
+              Remove from cluster
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
       <AssignClusterDialog
         open={changeOpen}
@@ -2564,7 +2662,6 @@ function ClusterMemberRow({
         testIdPrefix="cluster-change"
         onAssigned={() => {
           invalidateClusterQueries(hubId);
-          setOpen(false);
         }}
       />
 
@@ -3115,97 +3212,13 @@ function SeoOverviewCollapsibleCard({
   );
 }
 
-type SeoReindexResponse = {
-  ok: boolean;
-  entries: number;
-  clusters: number;
-  orphans: number;
-  warnings: number;
-  durationMs: number;
-};
-
 function ClusterReindexButton() {
-  const { toast } = useToast();
-  const [confirmOpen, setConfirmOpen] = useState(false);
-
-  const reindexMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequestWithAuth("POST", "/api/seo/reindex");
-      return res.json() as Promise<SeoReindexResponse>;
-    },
-    onSuccess: (result) => {
-      invalidateClusterQueries();
-      toast({
-        title: "SEO index rebuilt",
-        description: `${result.entries} entries, ${result.clusters} clusters, ${result.orphans} broken refs — in ${(result.durationMs / 1000).toFixed(1)}s.`,
-      });
-    },
-    onError: (e) => {
-      toast({
-        title: "Re-index failed",
-        description: e instanceof Error ? e.message : "Could not rebuild the SEO index.",
-        variant: "destructive",
-      });
-    },
-  });
-
   return (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-8"
-        disabled={reindexMutation.isPending}
-        onClick={() => setConfirmOpen(true)}
-        data-testid="button-cluster-reindex"
-      >
-        {reindexMutation.isPending ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <RefreshCw className="h-3.5 w-3.5" />
-        )}
-        Re-index
-      </Button>
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent data-testid="dialog-cluster-reindex">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Rebuild the SEO index?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2 text-sm">
-                <p>
-                  Re-indexing rescans every content YAML file and rebuilds the cached SEO index
-                  that powers this page — cluster memberships, pillar assignments, and the health
-                  counts above.
-                </p>
-                <p>
-                  The cache only updates automatically when pages are saved through the app. Edits
-                  made outside it (git pulls, scripts, manual file changes) can leave these stats
-                  out of sync until a rebuild runs.
-                </p>
-                <p className="text-muted-foreground">
-                  It is safe and non-destructive — no content is modified. It usually takes a few
-                  seconds, up to about a minute on large sites. The stats refresh automatically
-                  when it finishes.
-                </p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setConfirmOpen(false);
-                reindexMutation.mutate();
-              }}
-              data-testid="button-cluster-reindex-confirm"
-            >
-              Rebuild index
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+    <SeoIndexReindexControl
+      onSuccess={() => {
+        invalidateClusterQueries();
+      }}
+    />
   );
 }
 
@@ -4427,6 +4440,7 @@ export function SeoTab({
   const trafficMetrics = metrics?.perspective === "traffic" ? metrics : null;
   const potentialMetrics = metrics?.perspective === "potential" ? metrics : null;
   const integrityMetrics = metrics?.perspective === "integrity" ? metrics : null;
+  const activityMetrics = metrics?.perspective === "activity" ? metrics : null;
 
   const organicWindow = trafficMetrics?.organicTraffic?.window ?? null;
   const trafficAvailable = Boolean(organicWindow);
@@ -4447,6 +4461,9 @@ export function SeoTab({
   );
   const integrityByHub = new Map(
     (integrityMetrics?.clusters ?? []).map((c) => [c.hubId, c] as const),
+  );
+  const activityByHub = new Map(
+    (activityMetrics?.clusters ?? []).map((c) => [c.hubId, c] as const),
   );
 
   const sortFields = clusterSortFieldsForPerspective(perspective);
@@ -4485,6 +4502,11 @@ export function SeoTab({
       const aIss = integrityByHub.get(aHub)?.cluster.issueCount ?? -1;
       const bIss = integrityByHub.get(bHub)?.cluster.issueCount ?? -1;
       cmp = aIss - bIss;
+      if (cmp === 0) cmp = compareClustersByName(a, b);
+    } else if (clusterSortBy === "writes") {
+      const aW = activityByHub.get(aHub)?.clusterWriteCount ?? -1;
+      const bW = activityByHub.get(bHub)?.clusterWriteCount ?? -1;
+      cmp = aW - bW;
       if (cmp === 0) cmp = compareClustersByName(a, b);
     } else {
       cmp = compareClustersByName(a, b);
@@ -4702,7 +4724,9 @@ export function SeoTab({
             <div className="space-y-2 mb-3">
               <p className="text-xs text-muted-foreground leading-relaxed" data-testid="cluster-perspective-help">
                 Perspectives change which metrics appear on hubs and spokes. Only the active
-                perspective loads its data. Star a cluster to mark High, Mid, or Low priority.
+                perspective loads its data. Activity shows how many content saves people and agents
+                made on each page in the last two weeks — open a count for a short timeline. Star a
+                cluster to mark High, Mid, or Low priority.
               </p>
               <Collapsible>
                 <CollapsibleTrigger asChild>
@@ -4716,6 +4740,10 @@ export function SeoTab({
                   <p>Traffic: organic-days cache via GET /api/seo/cluster-metrics?perspective=traffic</p>
                   <p>Potential: kw_monthly_volume / kw_difficulty (YAML + OpenRush cache)</p>
                   <p>Integrity: validation cache-summary + GSC inspection store</p>
+                  <p>
+                    Activity: event-store people+agent writes (14d) via
+                    GET /api/seo/cluster-metrics?perspective=activity
+                  </p>
                   <p>Agents do not set cluster priority via MCP in this change.</p>
                 </CollapsibleContent>
               </Collapsible>
@@ -4831,6 +4859,7 @@ export function SeoTab({
                   const trafficOverlay = trafficByHub.get(hubId);
                   const potentialOverlay = potentialByHub.get(hubId);
                   const integrityOverlay = integrityByHub.get(hubId);
+                  const activityOverlay = activityByHub.get(hubId);
                   const memberTraffic = new Map(
                     (trafficOverlay?.members ?? []).map((m) => [m.id, m.traffic] as const),
                   );
@@ -4839,6 +4868,9 @@ export function SeoTab({
                   );
                   const memberIntegrity = new Map(
                     (integrityOverlay?.members ?? []).map((m) => [m.id, m] as const),
+                  );
+                  const memberActivity = new Map(
+                    (activityOverlay?.members ?? []).map((m) => [m.id, m.writeCount] as const),
                   );
 
                   let hubMetricChips: ReactNode = null;
@@ -4861,26 +4893,57 @@ export function SeoTab({
                       </span>
                     );
                   } else if (perspective === "potential") {
-                    hubMetricChips = metricsBusy && !potentialOverlay ? (
-                      <Skeleton className="h-5 w-24 ml-auto" />
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 shrink-0 flex-wrap justify-end ml-auto">
-                        <ClusterPotentialBadges
-                          volume={potentialOverlay?.hub.kw_monthly_volume}
-                          difficulty={potentialOverlay?.hub.kw_difficulty}
-                          testIdPrefix={`cluster-hub-potential-${hubId}`}
-                        />
-                        {potentialOverlay?.clusterVolumeSum != null ? (
-                          <Badge
-                            variant="outline"
-                            className="h-5 px-1.5 text-[10px] font-normal tabular-nums"
-                            data-testid={`cluster-hub-volume-sum-${hubId}`}
-                          >
-                            Σ {fmtVolume(potentialOverlay.clusterVolumeSum)}
-                          </Badge>
-                        ) : null}
-                      </span>
-                    );
+                    if (metricsBusy && !potentialOverlay) {
+                      hubMetricChips = <Skeleton className="h-5 w-24 ml-auto" />;
+                    } else {
+                      const potentialChips = (
+                        <>
+                          <ClusterPotentialBadges
+                            volume={potentialOverlay?.hub.kw_monthly_volume}
+                            difficulty={potentialOverlay?.hub.kw_difficulty}
+                            testIdPrefix={`cluster-hub-potential-${hubId}`}
+                          />
+                          {potentialOverlay?.clusterVolumeSum != null ? (
+                            <Badge
+                              variant="outline"
+                              className="h-5 px-1.5 text-[10px] font-normal tabular-nums"
+                              data-testid={`cluster-hub-volume-sum-${hubId}`}
+                            >
+                              Σ {fmtVolume(potentialOverlay.clusterVolumeSum)}
+                            </Badge>
+                          ) : null}
+                        </>
+                      );
+                      hubMetricChips = hubTarget ? (
+                        <ClusterEntryPopover
+                          contentType={hubTarget.contentType}
+                          slug={hubTarget.slug}
+                          locale={hubTarget.locale}
+                          fallback={{
+                            path: cluster.pillarUrl,
+                            keyword: cluster.keyword,
+                          }}
+                          hubId={hubId}
+                          canEditSeo={canEditSeoFor(hubTarget.contentType)}
+                          onEditSeo={(contentType, slug, locale) => {
+                            void beginEditSeo(contentType, slug, locale, "keywords");
+                          }}
+                          gscConfigured={gsc?.configured}
+                          stopRowToggle
+                          triggerClassName="inline-flex items-center gap-1.5 shrink-0 flex-wrap justify-end ml-auto"
+                        >
+                          {potentialChips}
+                        </ClusterEntryPopover>
+                      ) : (
+                        <span
+                          className="inline-flex items-center gap-1.5 shrink-0 flex-wrap justify-end ml-auto"
+                          onClick={stopClusterRowToggle}
+                          onPointerDown={stopClusterRowToggle}
+                        >
+                          {potentialChips}
+                        </span>
+                      );
+                    }
                   } else if (perspective === "integrity") {
                     hubMetricChips = metricsBusy && !integrityOverlay ? (
                       <Skeleton className="h-5 w-28 ml-auto" />
@@ -4896,6 +4959,22 @@ export function SeoTab({
                         />
                       </span>
                     );
+                  } else if (perspective === "activity") {
+                    hubMetricChips = metricsBusy && !activityOverlay ? (
+                      <Skeleton className="h-5 w-20 ml-auto" />
+                    ) : hubId ? (
+                      <span
+                        className="ml-auto shrink-0 inline-flex items-center gap-1.5"
+                        onClick={stopClusterRowToggle}
+                        onPointerDown={stopClusterRowToggle}
+                      >
+                        <EntryActivityBadge
+                          entryKey={hubId}
+                          writeCount={activityOverlay?.hubWriteCount ?? 0}
+                          testIdPrefix={`cluster-hub-activity-${hubId}`}
+                        />
+                      </span>
+                    ) : null;
                   }
 
                   return (
@@ -4913,7 +4992,6 @@ export function SeoTab({
                       <div className="min-w-0 flex-1 [&_h3]:w-full">
                         <AccordionTrigger className="w-full text-xs py-2 hover:no-underline">
                           <div className="flex min-w-0 flex-1 items-center gap-2 text-left pr-2">
-                            <Network className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                             <LocaleFlag
                               locale={hubLocale}
                               className="h-3 w-4 shrink-0 rounded-sm"
@@ -4981,6 +5059,14 @@ export function SeoTab({
                                 warningCount={integ?.warningCount ?? 0}
                                 loading={metricsBusy && !integ}
                                 crawlerState={integ?.crawlerState ?? { kind: "none", count: 0 }}
+                              />
+                            );
+                          } else if (perspective === "activity") {
+                            metricChips = (
+                              <EntryActivityBadge
+                                entryKey={member.id}
+                                writeCount={memberActivity.get(member.id) ?? 0}
+                                testIdPrefix={`cluster-member-activity-${member.slug}`}
                               />
                             );
                           }

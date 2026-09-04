@@ -4,6 +4,7 @@
  */
 
 import {
+  ENTRY_ACTIVITY_WRITE_TYPES,
   eventMatchesAgentFilter,
   type AgentFilterId,
   type EventActorId,
@@ -26,6 +27,16 @@ import {
   systemJobAttribution,
   unionAttribution,
 } from "./types";
+
+/** Stamp window: only recent writes without a SHA get commitSha (R2-4A). */
+export const COMMIT_SHA_STAMP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** Write types that carry payload.path and should receive commitSha after push. */
+const COMMIT_SHA_STAMP_EVENT_TYPES: readonly string[] = [
+  ...ENTRY_ACTIVITY_WRITE_TYPES,
+  "site_redirects_changed",
+  "registry_file_saved",
+];
 
 function dispatchTypePlaceholders(): string {
   return OUTBOX_DISPATCHABLE_EVENT_TYPES.map(() => "?").join(", ");
@@ -280,6 +291,90 @@ export function markEventsPublished(site: string, ids: number[]): void {
   db.prepare(`UPDATE events SET published = 1 WHERE id IN (${placeholders})`).run(...ids);
 }
 
+function normalizeEventPath(p: string): string {
+  return p.replace(/\\/g, "/").replace(/^\/+/, "").trim();
+}
+
+/**
+ * After a successful content push, attach commitSha to matching write events
+ * that still lack one and were created within 24h before the commit.
+ * Returns number of rows updated.
+ */
+export function attachCommitShaToEvents(opts: {
+  site: string;
+  commitSha: string;
+  paths: string[];
+  committedAt?: number;
+}): number {
+  const commitSha = opts.commitSha.trim();
+  if (!commitSha || !opts.site || opts.paths.length === 0) return 0;
+
+  const committedAt = opts.committedAt ?? Date.now();
+  const since = committedAt - COMMIT_SHA_STAMP_WINDOW_MS;
+  const paths = [...new Set(opts.paths.map(normalizeEventPath).filter(Boolean))];
+  if (paths.length === 0) return 0;
+
+  ensureSchema(opts.site);
+  const db = getSiteSqlite(opts.site);
+  const typePlaceholders = COMMIT_SHA_STAMP_EVENT_TYPES.map(() => "?").join(", ");
+  const pathPlaceholders = paths.map(() => "?").join(", ");
+
+  const rows = db
+    .prepare(
+      `SELECT id, payload_json FROM events
+       WHERE site = ?
+         AND type IN (${typePlaceholders})
+         AND created_at >= ?
+         AND created_at <= ?
+         AND json_extract(payload_json, '$.path') IN (${pathPlaceholders})
+         AND (
+           json_extract(payload_json, '$.commitSha') IS NULL
+           OR json_extract(payload_json, '$.commitSha') = ''
+         )`,
+    )
+    .all(opts.site, ...COMMIT_SHA_STAMP_EVENT_TYPES, since, committedAt, ...paths) as Array<{
+    id: number;
+    payload_json: string;
+  }>;
+
+  if (rows.length === 0) return 0;
+
+  const update = db.prepare(`UPDATE events SET payload_json = ? WHERE id = ? AND site = ?`);
+  const tx = db.transaction(() => {
+    let n = 0;
+    for (const row of rows) {
+      const payload = parsePayload(row.payload_json);
+      if (typeof payload.commitSha === "string" && payload.commitSha.trim()) continue;
+      payload.commitSha = commitSha;
+      update.run(JSON.stringify(payload), row.id, opts.site);
+      n += 1;
+    }
+    return n;
+  });
+  return tx();
+}
+
+/**
+ * Resolve site (content root name) from explicit contentRoot or first path prefix,
+ * then stamp commitSha onto matching events.
+ */
+export function attachCommitShaForCommittedFiles(
+  commitSha: string,
+  paths: string[],
+  contentRoot?: string,
+): number {
+  const site =
+    (typeof contentRoot === "string" && contentRoot.replace(/\/$/, "").trim()) ||
+    (() => {
+      const first = paths.map(normalizeEventPath).find(Boolean);
+      if (!first) return "";
+      const top = first.split("/")[0] ?? "";
+      return top.startsWith("site_") ? top : "";
+    })();
+  if (!site) return 0;
+  return attachCommitShaToEvents({ site, commitSha, paths });
+}
+
 export function getUnpublishedEvents(site: string, limit = 100): ContentEvent[] {
   ensureSchema(site);
   const db = getSiteSqlite(site);
@@ -301,8 +396,13 @@ export type ListEventsOpts = {
   actors?: EventActorId[];
   /** Agent id or Staff & system sentinel; matched in app after SQL filters. */
   agent?: AgentFilterId;
+  /** Entry keys (`contentType/slug/locale`); match resource triple or payload.entryKey. */
+  entries?: string[];
   since?: number;
+  /** Inclusive upper bound on created_at (epoch ms). */
+  until?: number;
   cause?: string;
+  /** Pagination cursor: only rows with id strictly less than this. */
   before?: number;
   triggeredBy?: number;
   agentSessionId?: string;
@@ -334,6 +434,10 @@ function listEventsWhere(
   if (opts.since) {
     clauses.push("created_at >= ?");
     params.push(opts.since);
+  }
+  if (opts.until != null && Number.isFinite(opts.until)) {
+    clauses.push("created_at <= ?");
+    params.push(opts.until);
   }
   if (opts.cause) {
     clauses.push("cause = ?");
@@ -374,6 +478,15 @@ function listEventsWhere(
     if (actorClauses.length > 0) {
       clauses.push(`(${actorClauses.join(" OR ")})`);
     }
+  }
+  if (opts.entries && opts.entries.length > 0) {
+    const entryClauses: string[] = [];
+    const resourceKeyExpr = `(json_extract(resource_json, '$.contentType') || '/' || json_extract(resource_json, '$.slug') || '/' || json_extract(resource_json, '$.locale'))`;
+    for (const key of opts.entries) {
+      entryClauses.push(`(${resourceKeyExpr} = ? OR json_extract(payload_json, '$.entryKey') = ?)`);
+      params.push(key, key);
+    }
+    clauses.push(`(${entryClauses.join(" OR ")})`);
   }
   return { clauses, params };
 }

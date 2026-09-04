@@ -183,6 +183,108 @@ export function seoEntryId(contentType: string, slug: string, locale: string): s
   return `${contentType}/${slug}/${locale}`;
 }
 
+/** Live seo-index owner of a main_keyword (exact string after trim). */
+export type MainKeywordOwner = {
+  id: string;
+  content_type: string;
+  slug: string;
+  locale: string;
+  path: string;
+};
+
+/**
+ * Map exact trimmed main_keyword → owners across the whole live seo-index.
+ * Empty/null keywords are skipped. Matching is case-sensitive (exact after trim).
+ */
+export function buildMainKeywordOwners(index: SeoIndex): Map<string, MainKeywordOwner[]> {
+  const map = new Map<string, MainKeywordOwner[]>();
+  for (const [id, row] of Object.entries(index.entries)) {
+    const kw = typeof row.main_keyword === "string" ? row.main_keyword.trim() : "";
+    if (!kw) continue;
+    const owner: MainKeywordOwner = {
+      id,
+      content_type: row.content_type,
+      slug: row.slug,
+      locale: row.locale,
+      path: row.path || "",
+    };
+    const list = map.get(kw);
+    if (list) list.push(owner);
+    else map.set(kw, [owner]);
+  }
+  return map;
+}
+
+/** First other live entry that already owns this exact keyword, or null. */
+export function findMainKeywordConflict(opts: {
+  index: SeoIndex;
+  keyword: string;
+  excludeId: string;
+}): MainKeywordOwner | null {
+  const kw = opts.keyword.trim();
+  if (!kw) return null;
+  const owners = buildMainKeywordOwners(opts.index).get(kw) || [];
+  return owners.find((o) => o.id !== opts.excludeId) ?? null;
+}
+
+export type MainKeywordAvailability =
+  | { ok: true }
+  | { ok: false; code: "seo_index_unavailable" | "seo_keyword_taken"; error: string; owner?: MainKeywordOwner };
+
+/**
+ * Hard uniqueness gate for live main_keyword (on-disk seo-index only).
+ * Empty keyword → ok. Missing/invalid index → unavailable (do not skip).
+ */
+export function assertMainKeywordAvailable(opts: {
+  contentRoot?: string;
+  keyword: string | null | undefined;
+  contentType: string;
+  slug: string;
+  locale: string;
+}): MainKeywordAvailability {
+  const kw = typeof opts.keyword === "string" ? opts.keyword.trim() : "";
+  if (!kw) return { ok: true };
+  const index = readSeoIndexFile(opts.contentRoot);
+  if (!index) {
+    return {
+      ok: false,
+      code: "seo_index_unavailable",
+      error: "SEO index is unavailable. Rebuild the cluster index, then try saving again.",
+    };
+  }
+  const excludeId = seoEntryId(opts.contentType, opts.slug, opts.locale);
+  const owner = findMainKeywordConflict({ index, keyword: kw, excludeId });
+  if (owner) {
+    const where = owner.path.trim() || `${owner.content_type}/${owner.slug}/${owner.locale}`;
+    return {
+      ok: false,
+      code: "seo_keyword_taken",
+      error: `Main keyword "${kw}" is already used by ${where}.`,
+      owner,
+    };
+  }
+  return { ok: true };
+}
+
+/** JSON shape for GET /api/seo/keyword-owners. */
+export function mainKeywordOwnersRecord(
+  index: SeoIndex,
+): Record<string, Array<{ contentType: string; slug: string; locale: string; path: string }>> {
+  const out: Record<
+    string,
+    Array<{ contentType: string; slug: string; locale: string; path: string }>
+  > = {};
+  for (const [kw, owners] of buildMainKeywordOwners(index)) {
+    out[kw] = owners.map((o) => ({
+      contentType: o.content_type,
+      slug: o.slug,
+      locale: o.locale,
+      path: o.path,
+    }));
+  }
+  return out;
+}
+
 export function seoIndexPath(contentRoot?: string): string {
   const raw = contentRoot ?? getDefaultContentRoot();
   const abs = path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
@@ -764,8 +866,26 @@ export function writeSeoFields(opts: {
     return { success: false, error: validated.error, code: validated.code, statusCode: 400 };
   }
 
-  const nextYaml = surgicalReplaceSeoBlock(original, validated.coerced);
   const isVariant = !isLiveLocaleBasename(filePath);
+  if (!isVariant) {
+    const keywordGate = assertMainKeywordAvailable({
+      contentRoot,
+      keyword: validated.coerced.main_keyword,
+      contentType: opts.contentType,
+      slug: opts.slug,
+      locale: opts.locale,
+    });
+    if (!keywordGate.ok) {
+      return {
+        success: false,
+        error: keywordGate.error,
+        code: keywordGate.code,
+        statusCode: keywordGate.code === "seo_index_unavailable" ? 503 : 400,
+      };
+    }
+  }
+
+  const nextYaml = surgicalReplaceSeoBlock(original, validated.coerced);
   const filesToMark: string[] = [];
   if (nextYaml !== original) {
     fs.writeFileSync(filePath, nextYaml, "utf-8");

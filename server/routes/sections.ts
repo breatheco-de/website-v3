@@ -1299,7 +1299,8 @@ export function registerSectionsRoutes(app: Express): void {
         }
         res.json(response);
       } else {
-        res.status(400).json({
+        const status = result.errorCode === "seo_index_unavailable" ? 503 : 400;
+        res.status(status).json({
           error: result.error,
           ...(result.errorCode ? { code: result.errorCode } : {}),
           ...(result.missingFields?.length

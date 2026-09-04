@@ -118,6 +118,7 @@ import type { ConsentValues } from "./ConsentCard";
 import { WebhookCard, type WebhookSource } from "./WebhookCard";
 import { SuccessCard } from "./SuccessCard";
 import { RequireSignupCard } from "./RequireSignupCard";
+import { applyRawValuesAtPaths } from "./applyRawValueAtPath";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import CodeMirror from "@uiw/react-codemirror";
 import type { EditorView } from "@codemirror/view";
@@ -1488,83 +1489,39 @@ export function SectionEditorPanel({
     updateProperties({ [key]: value });
   };
 
+  // Apply multiple raw property updates in one YAML parse/dump cycle.
+  // Use this when a single user action must write more than one key (e.g. Require
+  // account off clears is_signup + allow_signup), so consecutive setState reads
+  // don't clobber each other.
+  const updatePropertiesWithValues = (updates: Record<string, unknown>) => {
+    try {
+      const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") return;
+
+      pushUndoState(yamlContent);
+      applyRawValuesAtPaths(parsed, updates);
+
+      const newYaml = safeYamlDump(parsed, {
+        lineWidth: -1,
+        noRefs: true,
+        quotingType: '"',
+      });
+
+      setYamlContent(newYaml);
+      setHasChanges(true);
+      setParseError(null);
+
+      if (onPreviewChange) {
+        onPreviewChange(parsed as Section);
+      }
+    } catch (error) {
+      console.error("Error updating properties:", error);
+    }
+  };
+
   // Update a property with a raw value (e.g. boolean) so YAML dumps natively (layout_reversed: true)
   const updatePropertyWithValue = (key: string, value: unknown) => {
-    try {
-        const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
-        if (!parsed || typeof parsed !== "object") return;
-
-        pushUndoState(yamlContent);
-
-        const pathParts = key.split(".");
-        const leaf = pathParts[pathParts.length - 1] ?? "";
-        // Persist YAML null for identity opt-out (missing ≠ off after duplicate wipe)
-        const persistNull =
-          value === null &&
-          (leaf === "conversion_name" ||
-            leaf === "ecommerce_products" ||
-            key.endsWith(".conversion_name") ||
-            key.endsWith(".ecommerce_products"));
-        const shouldDelete =
-          value === undefined ||
-          (value === null && !persistNull) ||
-          (value === "" && !persistNull);
-
-        if (pathParts.length === 1) {
-          if (!shouldDelete) {
-            parsed[key] = value;
-          } else {
-            delete parsed[key];
-          }
-        } else {
-          let current: Record<string, unknown> = parsed;
-          for (let i = 0; i < pathParts.length - 1; i++) {
-            const part = pathParts[i];
-            if (!current[part] || typeof current[part] !== "object") {
-              current[part] = {};
-            }
-            current = current[part] as Record<string, unknown>;
-          }
-          const finalKey = pathParts[pathParts.length - 1];
-          if (!shouldDelete) {
-            current[finalKey] = value;
-          } else {
-            delete current[finalKey];
-            // Clean up empty parent objects after deletion
-            if (!persistNull) {
-              for (let i = pathParts.length - 2; i >= 0; i--) {
-                const parentPath = pathParts.slice(0, i);
-                let parent: Record<string, unknown> = parsed;
-                for (const p of parentPath) {
-                  parent = parent[p] as Record<string, unknown>;
-                }
-                const child = parent[pathParts[i]];
-                if (child && typeof child === "object" && Object.keys(child as Record<string, unknown>).length === 0) {
-                  delete parent[pathParts[i]];
-                } else {
-                  break;
-                }
-              }
-            }
-          }
-        }
-
-        const newYaml = safeYamlDump(parsed, {
-          lineWidth: -1,
-          noRefs: true,
-          quotingType: '"',
-        });
-
-        setYamlContent(newYaml);
-        setHasChanges(true);
-        setParseError(null);
-
-        if (onPreviewChange) {
-          onPreviewChange(parsed as Section);
-        }
-      } catch (error) {
-        console.error("Error updating property:", error);
-      }
+    updatePropertiesWithValues({ [key]: value });
   };
 
   // Update an array property in the YAML (e.g., related_features)
@@ -8004,14 +7961,16 @@ export function SectionEditorPanel({
                       data-testid="button-clear-form"
                       onClick={() => {
                         if (formSettingsPath === "" || formSettingsPath == null) {
-                          updatePropertyWithValue("conversion_name", undefined);
-                          updatePropertyWithValue("fields", undefined);
-                          updatePropertyWithValue("routes", undefined);
-                          updatePropertyWithValue("webhook", undefined);
-                          updatePropertyWithValue("success", undefined);
-                          updatePropertyWithValue("consent", undefined);
-                          updatePropertyWithValue("tags", undefined);
-                          updatePropertyWithValue("automations", undefined);
+                          updatePropertiesWithValues({
+                            conversion_name: undefined,
+                            fields: undefined,
+                            routes: undefined,
+                            webhook: undefined,
+                            success: undefined,
+                            consent: undefined,
+                            tags: undefined,
+                            automations: undefined,
+                          });
                         } else {
                           updatePropertyWithValue(formSettingsPath, undefined);
                         }
@@ -8072,8 +8031,6 @@ export function SectionEditorPanel({
                 const storedConversionName =
                   typeof rawConversion === "string" ? rawConversion : "";
                 const showPicker = conversionNameEditing || (!storedConversionName && !isOff);
-                const isSignupEnabled =
-                  getValueAtFieldPath(parsedSection, formProp("is_signup")) === true;
                 const authCfg = parseAuthConversionEventConfig(
                   (trackingSettings ?? {}) as Record<string, unknown>,
                 );
@@ -8085,9 +8042,7 @@ export function SectionEditorPanel({
                       ? "This form’s goal is login. Choose below whether new visitors may also create an account."
                       : isOff
                         ? "Conversion tracking is off for this form."
-                        : isSignupEnabled
-                          ? "GTM event for the lead/action after the visitor has an account."
-                          : "GTM event fired on form submission. Must match a configured conversion event.";
+                        : "GTM event fired on form submission. Must match a configured conversion event.";
                 return (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -8148,25 +8103,25 @@ export function SectionEditorPanel({
                               typeof nextName === "string" ? nextName : null,
                               authCfg,
                             );
-                            updatePropertyWithValue(
-                              formProp("conversion_name"),
-                              nextName,
-                            );
+                            const updates: Record<string, unknown> = {
+                              [formProp("conversion_name")]: nextName,
+                            };
                             if (nextName === null) {
                               // Off → clear account gate (Require account hidden until a name is chosen)
-                              updatePropertyWithValue(formProp("is_signup"), undefined);
-                              updatePropertyWithValue(formProp("allow_signup"), undefined);
+                              updates[formProp("is_signup")] = undefined;
+                              updates[formProp("allow_signup")] = undefined;
                             } else if (nextKind === "signup") {
-                              updatePropertyWithValue(formProp("is_signup"), true);
-                              updatePropertyWithValue(formProp("allow_signup"), true);
+                              updates[formProp("is_signup")] = true;
+                              updates[formProp("allow_signup")] = true;
                             } else if (nextKind === "login") {
-                              updatePropertyWithValue(formProp("is_signup"), true);
-                              updatePropertyWithValue(formProp("allow_signup"), false);
+                              updates[formProp("is_signup")] = true;
+                              updates[formProp("allow_signup")] = false;
                             } else if (prevKind) {
                               // Leaving an auth goal → clear account gate
-                              updatePropertyWithValue(formProp("is_signup"), undefined);
-                              updatePropertyWithValue(formProp("allow_signup"), undefined);
+                              updates[formProp("is_signup")] = undefined;
+                              updates[formProp("allow_signup")] = undefined;
                             }
+                            updatePropertiesWithValues(updates);
                             setConversionNameEditing(false);
                           }}
                           data-testid="select-conversion-name"
@@ -8246,17 +8201,17 @@ export function SectionEditorPanel({
                     allowSignup={allowSignup}
                     onChange={(enabled) => {
                       if (isLoginGoal || isSignupGoal) return;
-                      updatePropertyWithValue(
-                        formProp("is_signup"),
-                        enabled ? true : undefined,
-                      );
+                      const updates: Record<string, unknown> = {
+                        [formProp("is_signup")]: enabled ? true : undefined,
+                      };
                       if (!enabled) {
-                        updatePropertyWithValue(formProp("allow_signup"), undefined);
+                        updates[formProp("allow_signup")] = undefined;
                       } else if (
                         getValueAtFieldPath(parsedSection, formProp("allow_signup")) === undefined
                       ) {
-                        updatePropertyWithValue(formProp("allow_signup"), true);
+                        updates[formProp("allow_signup")] = true;
                       }
+                      updatePropertiesWithValues(updates);
                     }}
                     onAllowSignupChange={
                       isSignupGoal

@@ -916,10 +916,11 @@ export function registerSeoRoutes(app: Express): void {
         buildTrafficClusterMetrics,
         buildPotentialClusterMetrics,
         buildIntegrityClusterMetrics,
+        buildActivityClusterMetrics,
       } = await import("../seo-cluster-metrics");
       if (!isClusterMetricsPerspective(perspectiveRaw)) {
         res.status(400).json({
-          error: "Invalid perspective. Must be one of: traffic, potential, integrity",
+          error: "Invalid perspective. Must be one of: traffic, potential, integrity, activity",
         });
         return;
       }
@@ -950,6 +951,15 @@ export function registerSeoRoutes(app: Express): void {
             seoIndex,
             contentRoot,
             contentFolder,
+          }),
+        );
+        return;
+      }
+      if (perspectiveRaw === "activity") {
+        res.json(
+          buildActivityClusterMetrics({
+            seoIndex,
+            site: contentFolder,
           }),
         );
         return;
@@ -1706,12 +1716,23 @@ export function registerSeoRoutes(app: Express): void {
       const pullLatest = String(req.query.pull_latest || "1") !== "0";
       const { buildOrganicOpportunities } = await import("../seo-organic-opportunities");
       const ci = getCI(res);
+      const site = getContentRootName(res);
       const data = await buildOrganicOpportunities({
         contentRoot: getContentRoot(res),
-        contentFolder: getContentRootName(res),
+        contentFolder: site,
         decayWindow,
         pullLatest,
         isKnownUrl: (path) => ci.isKnownUrl(path),
+        resolveUrl: (path) => {
+          const r = ci.resolveUrl(path);
+          if (!r) return null;
+          return {
+            contentType: r.contentType,
+            slug: r.slug,
+            patternLocale: r.patternLocale,
+          };
+        },
+        site,
       });
       res.json(data);
     } catch (err) {
@@ -1810,6 +1831,31 @@ export function registerSeoRoutes(app: Express): void {
     } catch (err) {
       log.error({ err }, "organic serp refresh failed");
       res.status(500).json({ error: err instanceof Error ? err.message : "SERP refresh failed" });
+    }
+  });
+
+  /**
+   * Live main_keyword → owners map from on-disk seo-index (exact strings after trim).
+   * 503 when index file is missing/invalid — clients must not treat keywords as free.
+   */
+  api.get(app, "/api/seo/keyword-owners", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const auth = await requireStaffSession(req, res);
+      if (!auth.authorized) return;
+
+      const { readSeoIndexFile, mainKeywordOwnersRecord } = await import("../seo-index");
+      const contentRoot = getContentRoot(res);
+      const index = readSeoIndexFile(contentRoot);
+      if (!index) {
+        return res.status(503).json({
+          error: "SEO index is unavailable. Rebuild the cluster index, then try again.",
+          code: "seo_index_unavailable",
+        });
+      }
+      res.json({ owners: mainKeywordOwnersRecord(index) });
+    } catch (err) {
+      log.error({ err }, "keyword-owners failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load keyword owners" });
     }
   });
 

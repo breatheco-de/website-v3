@@ -731,6 +731,13 @@ export async function commitAndPush(
     // So the GitHub webhook skips auto-pull for this self-push (same as auto-commit).
     const { recordLastCommitSha } = await import("./auto-commit");
     recordLastCommitSha(newCommitSha);
+
+    try {
+      const { attachCommitShaForCommittedFiles } = await import("./events/event-store");
+      attachCommitShaForCommittedFiles(newCommitSha, committedFiles, options?.contentRoot);
+    } catch (err) {
+      log.warn({ err }, "[GitHub] Failed to attach commitSha to events after commitAndPush");
+    }
     
     log.info(`Committed and pushed to GitHub via API: ${newCommitSha}`);
     return { success: true, commitHash: newCommitSha };
@@ -2214,6 +2221,12 @@ export async function commitSingleFile(options: {
     if (commitSha) {
       const { recordLastCommitSha } = await import("./auto-commit");
       recordLastCommitSha(commitSha);
+      try {
+        const { attachCommitShaForCommittedFiles } = await import("./events/event-store");
+        attachCommitShaForCommittedFiles(commitSha, [options.filePath], contentRoot);
+      } catch (err) {
+        log.warn({ err }, "[GitHub] Failed to attach commitSha to events after commitSingleFile");
+      }
     }
 
     const { logSync, refreshGithubCommit } = await import("./sync-log");

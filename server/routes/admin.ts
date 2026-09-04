@@ -50,6 +50,7 @@ import {
   expandKindIdsToTypes,
   parseActorIds,
   parseAgentFilter,
+  parseEntryFilterKeys,
   parseKindIds,
 } from "@shared/event-log-filters";
 import { listActiveLeases } from "../leases";
@@ -606,6 +607,33 @@ export function registerAdminRoutes(app: Express): void {
     res.json({ alerts: await collectSystemAlerts() });
   });
 
+  api.get(app, "/api/admin/entry-activity-count", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    const site = (req.query.site as string) || res.locals.site?.contentRootName;
+    if (!site) {
+      res.status(400).json({ error: "Missing site" });
+      return;
+    }
+    const entry =
+      typeof req.query.entry === "string" && req.query.entry.trim()
+        ? req.query.entry.trim()
+        : "";
+    if (!entry) {
+      res.status(400).json({ error: "Missing entry" });
+      return;
+    }
+    const { ENTRY_ACTIVITY_WINDOW_DAYS } = await import("@shared/event-log-filters");
+    const { countEntryActivityWrites } = await import("../seo-cluster-metrics");
+    const counts = countEntryActivityWrites({ site });
+    res.json({
+      entryKey: entry,
+      writeCount: counts.get(entry) ?? 0,
+      windowDays: ENTRY_ACTIVITY_WINDOW_DAYS,
+    });
+  });
+
   app.get("/api/admin/events", async (req, res) => {
     const auth = await requireStaffSession(req, res);
     if (!auth.authorized) return;
@@ -630,7 +658,10 @@ export function registerAdminRoutes(app: Express): void {
     const agent = parseAgentFilter(
       typeof req.query.agent === "string" ? req.query.agent : undefined,
     );
-    const since = req.query.since ? Number(req.query.since) : undefined;
+    const sinceRaw = req.query.since != null ? Number(req.query.since) : NaN;
+    const since = Number.isFinite(sinceRaw) ? sinceRaw : undefined;
+    const untilRaw = req.query.until != null ? Number(req.query.until) : NaN;
+    const until = Number.isFinite(untilRaw) ? untilRaw : undefined;
     const cause = req.query.cause as string | undefined;
     const before = req.query.before ? Number(req.query.before) : undefined;
     const triggeredBy = req.query.triggeredBy ? Number(req.query.triggeredBy) : undefined;
@@ -640,6 +671,9 @@ export function registerAdminRoutes(app: Express): void {
         : undefined;
     const unscopedOnly = req.query.unscoped === "1" || req.query.unscoped === "true";
     const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const entries = parseEntryFilterKeys(
+      typeof req.query.entry === "string" ? req.query.entry : undefined,
+    );
 
     const events = listEvents({
       site,
@@ -647,7 +681,9 @@ export function registerAdminRoutes(app: Express): void {
       types: types && types.length > 0 ? types : undefined,
       actors: actors.length > 0 ? actors : undefined,
       agent: agent ?? undefined,
+      entries: entries.length > 0 ? entries : undefined,
       since,
+      until,
       cause,
       before,
       triggeredBy,

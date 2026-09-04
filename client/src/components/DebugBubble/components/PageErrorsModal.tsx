@@ -1352,6 +1352,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
             prompt={solvePrompt}
             disabled={!canSolveWithAi}
             onAgentSelect={(payload) => onSolveWithAi?.(payload)}
+            entryKey={entryKey}
           />
           <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-close-page-errors">
             Close

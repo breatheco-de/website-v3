@@ -3,7 +3,18 @@ import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetRegistry } from "./content-types";
-import { invalidateSeoIndexCache, loadSeoIndex, resetSeoOverlayField, writeSeoFields } from "./seo-index";
+import {
+  assertMainKeywordAvailable,
+  buildMainKeywordOwners,
+  findMainKeywordConflict,
+  invalidateSeoIndexCache,
+  loadSeoIndex,
+  readSeoIndexFile,
+  resetSeoOverlayField,
+  seoEntryId,
+  writeSeoFields,
+  type SeoIndex,
+} from "./seo-index";
 import type { ContentIndex } from "./content-index";
 
 vi.mock("./events/emit-entry-events", () => ({
@@ -22,6 +33,19 @@ function stubCi(selfPath: string): ContentIndex {
     isKnownUrl: (url: string) => url === selfPath || url.startsWith("/en/"),
     findBySlug: () => [],
   } as unknown as ContentIndex;
+}
+
+function seedEmptySeoIndex(): void {
+  const index: SeoIndex = {
+    version: 1,
+    generated_at: new Date().toISOString(),
+    entries: {},
+    by_path: {},
+    clusters: {},
+    orphans: [],
+    warnings: [],
+  };
+  fs.writeFileSync(path.join(contentRoot, "seo-index.json"), `${JSON.stringify(index, null, 2)}\n`, "utf-8");
 }
 
 beforeEach(() => {
@@ -52,6 +76,7 @@ meta:
 `,
     "utf-8",
   );
+  seedEmptySeoIndex();
   resetRegistry();
   invalidateSeoIndexCache();
   process.chdir(tempDir);
@@ -217,6 +242,172 @@ describe("resetSeoOverlayField", () => {
     });
     expect(result.success).toBe(true);
     expect(result.noop).toBe(true);
+  });
+});
+
+describe("main keyword uniqueness", () => {
+  it("buildMainKeywordOwners keys by exact trimmed keyword", () => {
+    const index: SeoIndex = {
+      version: 1,
+      generated_at: new Date().toISOString(),
+      entries: {
+        "blog/a/en": {
+          content_type: "blog",
+          slug: "a",
+          locale: "en",
+          file: "blog/a/en.yml",
+          path: "/en/blog/a",
+          main_keyword: "AI Tools",
+          kw_monthly_volume: null,
+          kw_difficulty: null,
+          is_pillar: false,
+          pillar_path: "",
+          pillar_live: null,
+        },
+        "blog/b/en": {
+          content_type: "blog",
+          slug: "b",
+          locale: "en",
+          file: "blog/b/en.yml",
+          path: "/en/blog/b",
+          main_keyword: "ai tools",
+          kw_monthly_volume: null,
+          kw_difficulty: null,
+          is_pillar: false,
+          pillar_path: "",
+          pillar_live: null,
+        },
+      },
+      by_path: {},
+      clusters: {},
+      orphans: [],
+      warnings: [],
+    };
+    const owners = buildMainKeywordOwners(index);
+    expect(owners.get("AI Tools")?.map((o) => o.slug)).toEqual(["a"]);
+    expect(owners.get("ai tools")?.map((o) => o.slug)).toEqual(["b"]);
+    expect(
+      findMainKeywordConflict({
+        index,
+        keyword: "AI Tools",
+        excludeId: "blog/a/en",
+      }),
+    ).toBeNull();
+    expect(
+      findMainKeywordConflict({
+        index,
+        keyword: "AI Tools",
+        excludeId: "blog/other/en",
+      })?.slug,
+    ).toBe("a");
+  });
+
+  it("allows re-saving the same keyword on the current entry", () => {
+    const first = writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: { main_keyword: "learn javascript" },
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    expect(first.success).toBe(true);
+    const again = writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: { main_keyword: "learn javascript", is_pillar: false },
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    expect(again.success).toBe(true);
+  });
+
+  it("blocks another entry from taking an exact keyword", () => {
+    writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: { main_keyword: "learn javascript" },
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    fs.mkdirSync(path.join(contentRoot, "blog", "post-b"), { recursive: true });
+    fs.writeFileSync(
+      path.join(contentRoot, "blog", "post-b", "en.yml"),
+      `slug: post-b
+meta:
+  page_title: Post B
+  description: SEO
+`,
+      "utf-8",
+    );
+    const taken = writeSeoFields({
+      contentType: "blog",
+      slug: "post-b",
+      locale: "en",
+      updates: { main_keyword: "learn javascript" },
+      contentRoot,
+      ci: stubCi("/en/blog/post-b"),
+    });
+    expect(taken.success).toBe(false);
+    if (taken.success) throw new Error("expected failure");
+    expect(taken.code).toBe("seo_keyword_taken");
+    expect(taken.error).toMatch(/already used/i);
+
+    const differentCase = writeSeoFields({
+      contentType: "blog",
+      slug: "post-b",
+      locale: "en",
+      updates: { main_keyword: "Learn javascript" },
+      contentRoot,
+      ci: stubCi("/en/blog/post-b"),
+    });
+    expect(differentCase.success).toBe(true);
+  });
+
+  it("skips uniqueness for empty keyword", () => {
+    const gate = assertMainKeywordAvailable({
+      contentRoot,
+      keyword: "   ",
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+    });
+    expect(gate.ok).toBe(true);
+  });
+
+  it("blocks when seo-index.json is missing", () => {
+    fs.unlinkSync(path.join(contentRoot, "seo-index.json"));
+    invalidateSeoIndexCache();
+    const gate = assertMainKeywordAvailable({
+      contentRoot,
+      keyword: "anything",
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+    });
+    expect(gate.ok).toBe(false);
+    if (gate.ok) throw new Error("expected failure");
+    expect(gate.code).toBe("seo_index_unavailable");
+    expect(readSeoIndexFile(contentRoot)).toBeNull();
+
+    const write = writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: { main_keyword: "anything" },
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    expect(write.success).toBe(false);
+    if (write.success) throw new Error("expected failure");
+    expect(write.code).toBe("seo_index_unavailable");
+    expect(write.statusCode).toBe(503);
+  });
+
+  it("seoEntryId matches exclude id format", () => {
+    expect(seoEntryId("blog", "post-a", "en")).toBe("blog/post-a/en");
   });
 });
 

@@ -1,5 +1,5 @@
 /**
- * Lazy Cluster Map perspective metrics (traffic / potential / integrity).
+ * Lazy Cluster Map perspective metrics (traffic / potential / integrity / activity).
  */
 
 import {
@@ -7,6 +7,12 @@ import {
   googleToCrawlerStatus,
   type CrawlerBadgeState,
 } from "@shared/search-engine-status";
+import {
+  ENTRY_ACTIVITY_WINDOW_DAYS,
+  ENTRY_ACTIVITY_WRITE_TYPES,
+} from "@shared/event-log-filters";
+import { getSiteSqlite } from "./db";
+import { ensurePipelineDb } from "./pipeline-db/runner";
 import { resolveKeywordMetrics } from "./openrush-keyword-cache";
 import {
   buildOrganicPathTraffic,
@@ -28,10 +34,10 @@ import {
 import type { SeoIndex, SeoIndexEntry } from "./seo-index";
 import { getValidationCacheService } from "./services/validationCacheService";
 
-export type ClusterMetricsPerspective = "traffic" | "potential" | "integrity";
+export type ClusterMetricsPerspective = "traffic" | "potential" | "integrity" | "activity";
 
 export function isClusterMetricsPerspective(v: string): v is ClusterMetricsPerspective {
-  return v === "traffic" || v === "potential" || v === "integrity";
+  return v === "traffic" || v === "potential" || v === "integrity" || v === "activity";
 }
 
 function memberFromEntry(id: string, row?: SeoIndexEntry) {
@@ -290,6 +296,103 @@ export function buildIntegrityClusterMetrics(opts: {
   return {
     perspective: "integrity" as const,
     gscConfigured: configured,
+    clusters,
+  };
+}
+
+/**
+ * Resolve entry key for activity counting: prefer payload.entryKey, else resource triple.
+ * Returns null when incomplete (skipped).
+ */
+export function resolveActivityEntryKey(opts: {
+  payloadEntryKey?: unknown;
+  contentType?: unknown;
+  slug?: unknown;
+  locale?: unknown;
+}): string | null {
+  if (typeof opts.payloadEntryKey === "string" && opts.payloadEntryKey.trim()) {
+    return opts.payloadEntryKey.trim();
+  }
+  const contentType = typeof opts.contentType === "string" ? opts.contentType.trim() : "";
+  const slug = typeof opts.slug === "string" ? opts.slug.trim() : "";
+  const locale = typeof opts.locale === "string" ? opts.locale.trim() : "";
+  if (!contentType || !slug || !locale) return null;
+  return `${contentType}/${slug}/${locale}`;
+}
+
+/** Count people+agent entry writes in the rolling window, keyed by entry id. */
+export function countEntryActivityWrites(opts: {
+  site: string;
+  since?: number;
+  now?: number;
+}): Map<string, number> {
+  const now = opts.now ?? Date.now();
+  const since =
+    opts.since ?? now - ENTRY_ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  ensurePipelineDb(opts.site);
+  const db = getSiteSqlite(opts.site);
+  const placeholders = ENTRY_ACTIVITY_WRITE_TYPES.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT
+         COALESCE(
+           NULLIF(TRIM(json_extract(payload_json, '$.entryKey')), ''),
+           CASE
+             WHEN json_extract(resource_json, '$.contentType') IS NOT NULL
+              AND json_extract(resource_json, '$.slug') IS NOT NULL
+              AND json_extract(resource_json, '$.locale') IS NOT NULL
+             THEN json_extract(resource_json, '$.contentType')
+               || '/' || json_extract(resource_json, '$.slug')
+               || '/' || json_extract(resource_json, '$.locale')
+             ELSE NULL
+           END
+         ) AS entry_key
+       FROM events
+       WHERE site = ?
+         AND created_at >= ?
+         AND type IN (${placeholders})
+         AND json_extract(attribution_json, '$[0].actor.type') IN ('ui', 'mcp')`,
+    )
+    .all(opts.site, since, ...ENTRY_ACTIVITY_WRITE_TYPES) as Array<{ entry_key: string | null }>;
+
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const key = row.entry_key?.trim();
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export function buildActivityClusterMetrics(opts: {
+  seoIndex: SeoIndex;
+  site: string;
+  now?: number;
+}) {
+  const now = opts.now ?? Date.now();
+  const since = now - ENTRY_ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const counts = countEntryActivityWrites({ site: opts.site, since, now });
+
+  const clusters = Object.entries(opts.seoIndex.clusters).map(([hubId, cluster]) => {
+    const hubWriteCount = counts.get(hubId) ?? 0;
+    const members = cluster.members.map((id) => ({
+      id,
+      writeCount: counts.get(id) ?? 0,
+    }));
+    const clusterWriteCount =
+      hubWriteCount + members.reduce((sum, m) => sum + m.writeCount, 0);
+    return {
+      hubId,
+      hubWriteCount,
+      clusterWriteCount,
+      members,
+    };
+  });
+
+  return {
+    perspective: "activity" as const,
+    windowDays: ENTRY_ACTIVITY_WINDOW_DAYS,
+    since,
     clusters,
   };
 }

@@ -6,6 +6,17 @@ window_days: 6
 
 entries:
   - date: "2026-09-04"
+    summary: "Live seo.main_keyword uniqueness (exact, site-wide hard block)"
+    agent_impact:
+      - "update_fields / SEO writes reject duplicate live main_keyword with code seo_keyword_taken (exact after trim; self may re-save). Missing seo-index.json → seo_index_unavailable. Drafts/variants not checked."
+      - "Failures return code + warnings; no YAML write on reject. Prefer get_entry_seo then pick another exact phrase."
+      - "Reconnect MCP so update_fields / get_entry_fields system_hints refresh."
+    paths:
+      - server/seo-index.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/live-required-fields.ts
+    tools_changed: false
+  - date: "2026-09-04"
     summary: "list_entries funnel/money filters + explain topics seo and funnel"
     agent_impact:
       - "list_entries accepts funnel_stage, funnel_product (effective products), is_money_page (decision=BOFU). Conflicts fail. Funnel-filtered rows include funnel + is_money_page + stage_missing. Money inventory is strict tags; get_product_funnel still pins the product page."

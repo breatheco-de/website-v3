@@ -57,6 +57,62 @@ export const EVENT_KIND_TYPES: Record<EventKindId, readonly string[]> = {
   ],
 };
 
+/**
+ * Entry-scoped writes for Activity perspective / EntryActivityBadge.
+ * Excludes site-wide write kinds (redirects registry, site redirects, etc.).
+ */
+export const ENTRY_ACTIVITY_WRITE_TYPES = [
+  "entry_locale_saved",
+  "entry_common_saved",
+  "entry_seo_changed",
+  "entry_redirects_changed",
+  "content_file_written",
+] as const;
+
+export type EntryActivityWriteType = (typeof ENTRY_ACTIVITY_WRITE_TYPES)[number];
+
+const ENTRY_ACTIVITY_WRITE_TYPE_SET = new Set<string>(ENTRY_ACTIVITY_WRITE_TYPES);
+
+export function isEntryActivityWriteType(type: string): boolean {
+  return ENTRY_ACTIVITY_WRITE_TYPE_SET.has(type);
+}
+
+/**
+ * Session-scoped context for Activity write detail (claims / completes / session notes).
+ * Issue events must still be filtered to the badge entryKey; session notes are run-wide.
+ */
+export const ENTRY_ACTIVITY_RELATED_TYPES = [
+  ...EVENT_KIND_TYPES.claims,
+  ...EVENT_KIND_TYPES.completes,
+  ...EVENT_KIND_TYPES.session,
+] as const;
+
+export type EntryActivityRelatedType = (typeof ENTRY_ACTIVITY_RELATED_TYPES)[number];
+
+const ENTRY_ACTIVITY_RELATED_TYPE_SET = new Set<string>(ENTRY_ACTIVITY_RELATED_TYPES);
+
+export function isEntryActivityRelatedType(type: string): boolean {
+  return ENTRY_ACTIVITY_RELATED_TYPE_SET.has(type);
+}
+
+/** Issue workflow types that must match payload.entryKey for related history. */
+export const ENTRY_ACTIVITY_RELATED_ISSUE_TYPES = [
+  ...EVENT_KIND_TYPES.claims,
+  ...EVENT_KIND_TYPES.completes,
+] as const;
+
+const ENTRY_ACTIVITY_RELATED_ISSUE_TYPE_SET = new Set<string>(ENTRY_ACTIVITY_RELATED_ISSUE_TYPES);
+
+export function isEntryActivityRelatedIssueType(type: string): boolean {
+  return ENTRY_ACTIVITY_RELATED_ISSUE_TYPE_SET.has(type);
+}
+
+/** Max related events shown under one write detail. */
+export const ENTRY_ACTIVITY_RELATED_CAP = 10;
+
+/** Rolling window for entry activity counts (Cluster Map Activity + badge). */
+export const ENTRY_ACTIVITY_WINDOW_DAYS = 14;
+
 export const EVENT_ACTOR_IDS = ["people", "agents", "system"] as const;
 
 export type EventActorId = (typeof EVENT_ACTOR_IDS)[number];
@@ -203,6 +259,28 @@ export function parseActorIds(raw: string | null | undefined): EventActorId[] {
     if (seen.has(id)) continue;
     seen.add(id);
     out.push(id as EventActorId);
+  }
+  return out;
+}
+
+/**
+ * Parse comma-list of entry keys (`contentType/slug/locale`).
+ * Drops empties and tokens that are not at least three slash-separated parts.
+ * Dedupes; preserves order. Optional `@variant` suffix is kept if present.
+ */
+export function parseEntryFilterKeys(raw: string | null | undefined): string[] {
+  if (!raw?.trim()) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const part of raw.split(",")) {
+    const id = part.trim();
+    if (!id) continue;
+    const withoutVariant = id.includes("@") ? id.slice(0, id.lastIndexOf("@")) : id;
+    const segments = withoutVariant.split("/");
+    if (segments.length < 3 || segments.some((s) => !s)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
   }
   return out;
 }

@@ -8,6 +8,7 @@ import {
 import {
   isLiveRequiredFieldsError,
   liveRequiredFieldsActionRequired,
+  editApiErrorResult,
 } from "./live-required-fields";
 
 describe("liveSeoGate helpers", () => {
@@ -82,5 +83,22 @@ describe("MCP live required fields guidance", () => {
     ]);
     expect(payload.next_actions[0]?.tool).toBe("update_fields");
     expect(payload.next_actions[0]?.args_hint?.updates).toHaveLength(2);
+  });
+
+  it("surfaces seo_keyword_taken with code and warnings", () => {
+    const result = editApiErrorResult(
+      'Main keyword "learn javascript" is already used by /en/blog/post-a.',
+      { code: "seo_keyword_taken" },
+      { slug: "post-b", locale: "en", contentType: "blog" },
+    );
+    expect(result.isError).toBe(true);
+    const payload = JSON.parse(result.content[0].text) as {
+      success: boolean;
+      code: string;
+      warnings: Array<{ code: string }>;
+    };
+    expect(payload.success).toBe(false);
+    expect(payload.code).toBe("seo_keyword_taken");
+    expect(payload.warnings.some((w) => w.code === "seo_keyword_taken")).toBe(true);
   });
 });

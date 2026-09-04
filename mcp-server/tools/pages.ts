@@ -2724,6 +2724,7 @@ export function registerPageTools(
     "seo.include_in_clustering (MCP-only boolean, never YAML) expands to pillar_path/is_pillar — requires content-type seo_monitoring.enabled; " +
     "research writes: if any of main_keyword|kw_monthly_volume|kw_difficulty is in updates, omitted metrics are forced to null (pass both integers to keep them); " +
     "kw_monthly_volume ≥ 0 integer; kw_difficulty 0–100 integer; planning estimates not GSC; " +
+    "live seo.main_keyword must be unique site-wide (exact after trim; self may re-save); conflict → seo_keyword_taken; missing seo-index.json → seo_index_unavailable (hard block); " +
     "on=true needs non-empty seo.pillar_path or seo.is_pillar:true after merge; on=false → pillar_path:null + is_pillar:false; " +
     "raw seo.pillar_path:null still opts out (warns). While ORPHAN_PAGE / PARTIALLY_SET_CLUSTER is open, " +
     "becoming a hub (is_pillar) or opting out requires confirm_cluster_resolution: true (joining a hub does not). " +
@@ -3941,8 +3942,42 @@ export function registerPageTools(
           storage?: "root_key" | "field_overrides";
           path?: string;
           isVariantLayer?: boolean;
+          code?: string;
         };
-        if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
+        if (!res.ok) {
+          return fail(data.error || `Server error: ${res.status}`, {
+            ...(data.code ? { code: data.code } : {}),
+            warnings:
+              data.code === "seo_keyword_taken" || data.code === "seo_index_unavailable"
+                ? [
+                    {
+                      code: data.code,
+                      message:
+                        data.code === "seo_keyword_taken"
+                          ? "Live seo.main_keyword must be unique across the whole site (exact after trim). Current entry may keep its own keyword. Drafts/variants not checked. No YAML write."
+                          : "seo-index.json missing/invalid — uniqueness cannot be verified. Rebuild cluster index, then retry. No YAML write.",
+                    },
+                  ]
+                : [],
+            side_effects: [],
+            next_actions:
+              data.code === "seo_keyword_taken" || data.code === "seo_index_unavailable"
+                ? [
+                    {
+                      tool: "get_entry_seo",
+                      priority: "recommended",
+                      reason: "Confirm current main_keyword before retrying.",
+                      args_hint: {
+                        slug,
+                        locale,
+                        contentType: ct,
+                        ...(variant ? { variant } : {}),
+                      },
+                    },
+                  ]
+                : [],
+          });
+        }
         const storage = data.storage || (isStatic ? "root_key" : "field_overrides");
         const writtenPath = data.path || relPathFallback;
         const isPublishedAt = field === "published_at";
@@ -4067,7 +4102,12 @@ export function registerPageTools(
                         "If any of main_keyword|kw_monthly_volume|kw_difficulty is in a write, omitted metrics are forced to null — pass both metrics to keep them.",
                         "Not a documented template token ({{ seo.kw_* }} not supported as a product feature).",
                       ]
-                    : [];
+                    : name === "seo.main_keyword"
+                      ? [
+                          "Live uniqueness: exact string after trim must be free site-wide (seo-index). Same entry may re-save its keyword. Case differs are allowed. Drafts/variants not checked.",
+                          "Conflict → code seo_keyword_taken (names the other path). Missing index → seo_index_unavailable (hard block, no write).",
+                        ]
+                      : [];
                 return {
                   ...f,
                   system_hints: [

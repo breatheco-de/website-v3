@@ -5,7 +5,9 @@ import {
   classifyLowCtr,
   classifyMissingSerp,
   classifyPage2,
+  enrichCmsActivity,
   enrichCmsKnown,
+  entryKeyFromResolvedUrl,
   gscUrlToPath,
   type AggregatedGscRow,
 } from "./seo-organic-opportunities";
@@ -35,6 +37,52 @@ describe("cms_known enrichment", () => {
       (path) => known.has(path),
     );
     expect(out.map((r) => r.cms_known)).toEqual([true, false]);
+  });
+
+  it("entryKeyFromResolvedUrl maps default locale to en", () => {
+    expect(
+      entryKeyFromResolvedUrl({ contentType: "blog", slug: "hello", patternLocale: "default" }),
+    ).toBe("blog/hello/en");
+    expect(
+      entryKeyFromResolvedUrl({ contentType: "page", slug: "home", patternLocale: "es" }),
+    ).toBe("page/home/es");
+  });
+
+  it("enrichCmsActivity adds entry_key and write_count for known URLs", () => {
+    const counts = new Map([["blog/hello/en", 3]]);
+    const out = enrichCmsActivity(
+      [
+        agg({ query: "q", url: "https://example.com/en/blog/hello" }),
+        agg({ query: "q", url: "https://example.com/unknown" }),
+      ],
+      {
+        isKnownUrl: (path) => path === "/en/blog/hello",
+        resolveUrl: (path) =>
+          path === "/en/blog/hello"
+            ? { contentType: "blog", slug: "hello", patternLocale: "en" }
+            : null,
+        writeCounts: counts,
+      },
+    );
+    expect(out[0]).toMatchObject({
+      cms_known: true,
+      entry_key: "blog/hello/en",
+      write_count: 3,
+    });
+    expect(out[1]).toMatchObject({
+      cms_known: false,
+      entry_key: null,
+      write_count: 0,
+    });
+  });
+
+  it("enrichCmsActivity leaves entry_key null when resolve fails on known URL", () => {
+    const out = enrichCmsActivity([agg({ query: "q", url: "/known" })], {
+      isKnownUrl: () => true,
+      resolveUrl: () => null,
+      writeCounts: new Map(),
+    });
+    expect(out[0]).toMatchObject({ cms_known: true, entry_key: null, write_count: 0 });
   });
 });
 

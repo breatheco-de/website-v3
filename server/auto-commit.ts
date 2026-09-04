@@ -444,6 +444,12 @@ async function commitBatch(
   if (result.success && result.commitSha) {
     recordLastCommitSha(result.commitSha);
     updateSyncStateAfterCommit(result.commitSha, files, contentRootForLog);
+    try {
+      const { attachCommitShaForCommittedFiles } = await import("./events/event-store");
+      attachCommitShaForCommittedFiles(result.commitSha, files, contentRootForLog);
+    } catch (err) {
+      log.warn({ err }, "[AutoCommit] Failed to attach commitSha to events after batch commit");
+    }
     log.info(`[AutoCommit] Committed ${files.length} file(s) by ${author}: ${result.commitSha.substring(0, 7)}`);
     const { logSync, refreshGithubCommit } = await import("./sync-log");
     logSync('COMMIT', `Auto-commit ${result.commitSha.substring(0, 7)} by ${author}: ${fileNames}`, author, undefined, contentRootForLog);
@@ -493,6 +499,12 @@ async function retryIndividualFiles(
           return file.path.startsWith(prefix);
         })?.contentFolder ?? contentRootForLog;
       updateSyncStateAfterCommit(result.commitSha, [file.path], fileContentRoot);
+      try {
+        const { attachCommitShaForCommittedFiles } = await import("./events/event-store");
+        attachCommitShaForCommittedFiles(result.commitSha, [file.path], fileContentRoot);
+      } catch (err) {
+        log.warn({ err }, "[AutoCommit] Failed to attach commitSha to events after individual commit");
+      }
       log.info(`[AutoCommit] Individual commit succeeded: ${fileName}`);
     } else {
       const { getSiteConfigs } = await import('./site-config');
@@ -513,6 +525,12 @@ async function retryIndividualFiles(
         if (retry.success && retry.commitSha) {
           recordLastCommitSha(retry.commitSha);
           updateSyncStateAfterCommit(retry.commitSha, [file.path], fileContentRoot);
+          try {
+            const { attachCommitShaForCommittedFiles } = await import("./events/event-store");
+            attachCommitShaForCommittedFiles(retry.commitSha, [file.path], fileContentRoot);
+          } catch (err) {
+            log.warn({ err }, "[AutoCommit] Failed to attach commitSha to events after seo-index retry");
+          }
           log.info(`[AutoCommit] seo-index.json rebuilt and committed after overlap`);
           continue;
         }

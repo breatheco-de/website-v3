@@ -77,7 +77,7 @@ import {
 import { extractSeoUpdatesFromOps } from "./seo-fields";
 import { writeSeoFields } from "./seo-index";
 
-function applySeoUpdatesAfterWrite<T extends { success: boolean; error?: string }>(
+function applySeoUpdatesAfterWrite<T extends { success: boolean; error?: string; errorCode?: string }>(
   result: T,
   seoUpdates: Record<string, unknown>,
   opts: {
@@ -89,7 +89,7 @@ function applySeoUpdatesAfterWrite<T extends { success: boolean; error?: string 
     variant?: string;
     ci?: ContentIndex;
   },
-): T | { success: false; error: string } {
+): T | { success: false; error: string; errorCode?: string; statusCode?: number } {
   if (!result.success || Object.keys(seoUpdates).length === 0) return result;
   const seoResult = writeSeoFields({
     contentType: opts.contentType,
@@ -101,7 +101,14 @@ function applySeoUpdatesAfterWrite<T extends { success: boolean; error?: string 
     variant: opts.variant,
     ci: opts.ci,
   });
-  if (!seoResult.success) return { success: false, error: seoResult.error };
+  if (!seoResult.success) {
+    return {
+      success: false,
+      error: seoResult.error,
+      errorCode: seoResult.code,
+      statusCode: seoResult.statusCode,
+    };
+  }
   return result;
 }
 
@@ -592,7 +599,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
       ci,
     });
     if (!seoResult.success) {
-      return { success: false, error: seoResult.error };
+      return { success: false, error: seoResult.error, errorCode: seoResult.code };
     }
     return { success: true, updatedSections: [] };
   }
@@ -1375,7 +1382,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
         ci,
       });
       if (!seoResult.success) {
-        return { success: false, error: seoResult.error };
+        return { success: false, error: seoResult.error, errorCode: seoResult.code };
       }
     }
     

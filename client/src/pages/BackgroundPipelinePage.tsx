@@ -16,9 +16,13 @@ import {
 } from "@shared/event-log-filters";
 import {
   EVENT_LOG_VIEW_DEFAULTS,
+  buildShowAroundHref,
+  eventFocusDomId,
   eventLogActiveFilterCount,
   eventLogHasActiveFilters,
+  eventLogHasTimeWindow,
   eventLogSessionToApi,
+  parseEventFocusHash,
   parseEventLogSearch,
   serializeEventLogSearch,
   type EventLogViewState,
@@ -85,6 +89,8 @@ import {
   AgentSessionPickerModal,
   SESSION_UNSCOPED,
 } from "@/components/pipeline/AgentSessionPickerModal";
+import { SitemapSearch } from "@/components/menus/SitemapSearch";
+import { sitemapEntrySeoId, type SitemapSearchEntry } from "@/lib/sitemapSearch";
 import {
   AGENT_FILTER_OTHER,
   AGENT_IDS,
@@ -899,8 +905,11 @@ type EventRowProps = {
   isFailure: boolean;
   isExpanded: boolean;
   isNew: boolean;
+  isFocused: boolean;
   loadedEventIds: ReadonlySet<number>;
   reduceMotion: boolean;
+  /** When set, show “Show around this” link next to Payload (filtered views only). */
+  showAroundHref: string | null;
   onToggleExpand: (eventId: number) => void;
   onNavigateToEvent: (eventId: number) => void;
   setRowRef: (id: number, el: HTMLLIElement | null) => void;
@@ -911,8 +920,10 @@ const EventRow = memo(function EventRow({
   isFailure,
   isExpanded,
   isNew,
+  isFocused,
   loadedEventIds,
   reduceMotion,
+  showAroundHref,
   onToggleExpand,
   onNavigateToEvent,
   setRowRef,
@@ -954,12 +965,15 @@ const EventRow = memo(function EventRow({
           : { type: "spring", stiffness: 420, damping: 26, mass: 0.7 }
       }
       style={{ overflow: "hidden" }}
+      id={eventFocusDomId(event.id)}
       ref={(el) => setRowRef(event.id, el)}
       className={cn(
         "relative flex gap-4 pb-6 last:pb-0",
         !isNew && "event-row",
+        isFocused && "event-row-focus",
       )}
       data-testid={`event-row-${event.id}`}
+      data-focused={isFocused ? "true" : undefined}
     >
       {agentReport ? (
         <Popover>
@@ -1059,6 +1073,16 @@ const EventRow = memo(function EventRow({
             {isExpanded ? "Hide" : hasTypedDetails ? "Details" : "Payload"}
           </button>
         )}
+        {showAroundHref ? (
+          <a
+            href={showAroundHref}
+            className="block text-xs text-primary hover:underline mt-1"
+            title="Remove filters and show this event in the full log for this hour"
+            data-testid={`link-show-around-${event.id}`}
+          >
+            Show around this
+          </a>
+        ) : null}
       </div>
     </motion.li>
   );
@@ -1080,7 +1104,9 @@ function EventLogPanel({
     actors: actorList,
     agent: agentFilter,
     type: typeFilter,
+    entries: entryList,
   } = filterView;
+  const hasTimeWindow = eventLogHasTimeWindow(filterView);
   const kindChips = useMemo(() => new Set(kindList), [kindList]);
   const actorChips = useMemo(() => new Set(actorList), [actorList]);
   /** Stable key so filter changes always remount the fetch effect (arrays are referential). */
@@ -1097,12 +1123,19 @@ function EventLogPanel({
 
   const patchFilterView = useCallback(
     (patch: Partial<EventLogViewState>) => {
-      writeFilterView({ ...filterView, ...patch });
+      // Leaving time-window mode when staff change filters.
+      writeFilterView({
+        ...filterView,
+        ...patch,
+        startingAt: null,
+        endingAt: null,
+      });
     },
     [filterView, writeFilterView],
   );
 
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
+  const [entryPickerOpen, setEntryPickerOpen] = useState(false);
   const [events, setEvents] = useState<ContentEvent[]>([]);
   const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
   const [sessionDetail, setSessionDetail] = useState<AgentSessionDetail | null>(null);
@@ -1132,6 +1165,12 @@ function EventLogPanel({
   const programmaticScrollClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventsForSyncRef = useRef<ContentEvent[]>([]);
   const loadGenerationRef = useRef(0);
+  /** Toast once per window+hash when focus target is missing (edge 1A). */
+  const focusMissingToastKeyRef = useRef<string | null>(null);
+  /** Scroll-to-focus only once per window+hash (polls must not re-yank). */
+  const focusScrolledKeyRef = useRef<string | null>(null);
+  /** When set, timeline sync may dim but must not auto-scroll the page. */
+  const focusedEventIdRef = useRef<number | null>(null);
 
   const stickyTimelineBottom = useCallback(() => {
     const timeline = document.querySelector<HTMLElement>('[data-testid="event-timeline"]');
@@ -1183,8 +1222,8 @@ function EventLogPanel({
     }
     dimmedIdsRef.current = nextDimmed;
 
-    // User is browsing the list — keep dimming in sync, but do not yank page scroll.
-    if (listOwnsScrollRef.current) return;
+    // User is browsing the list, or a hash-focused row is pinned — dim only.
+    if (listOwnsScrollRef.current || focusedEventIdRef.current != null) return;
 
     // Newest-first list: first event at or before the window's right edge.
     let anchor: ContentEvent | undefined;
@@ -1225,15 +1264,21 @@ function EventLogPanel({
       // Always parse from the live querystring so the API request matches the URL.
       const view = parseEventLogSearch(filterSearchKey);
       const params = new URLSearchParams({ site, limit: String(EVENT_LOG_FETCH_LIMIT) });
-      if (view.type) params.set("type", view.type);
-      if (view.kinds.length > 0) params.set("kind", view.kinds.join(","));
-      if (view.actors.length > 0) params.set("actor", view.actors.join(","));
-      if (view.agent) {
-        params.set("agent", view.agent === AGENT_FILTER_OTHER ? "other" : view.agent);
+      if (eventLogHasTimeWindow(view)) {
+        params.set("since", String(view.startingAt));
+        params.set("until", String(view.endingAt));
+      } else {
+        if (view.type) params.set("type", view.type);
+        if (view.kinds.length > 0) params.set("kind", view.kinds.join(","));
+        if (view.actors.length > 0) params.set("actor", view.actors.join(","));
+        if (view.agent) {
+          params.set("agent", view.agent === AGENT_FILTER_OTHER ? "other" : view.agent);
+        }
+        if (view.entries.length > 0) params.set("entry", view.entries.join(","));
+        const sessionApi = eventLogSessionToApi(view.session);
+        if (sessionApi.unscoped) params.set("unscoped", "1");
+        else if (sessionApi.agentSessionId) params.set("agentSessionId", sessionApi.agentSessionId);
       }
-      const sessionApi = eventLogSessionToApi(view.session);
-      if (sessionApi.unscoped) params.set("unscoped", "1");
-      else if (sessionApi.agentSessionId) params.set("agentSessionId", sessionApi.agentSessionId);
       const res = await apiFetch(`/api/admin/events?${params}`);
       if (!res.ok) return;
       if (generation !== loadGenerationRef.current) return;
@@ -1382,6 +1427,7 @@ function EventLogPanel({
     setNewIds(new Set());
     maxSeenIdRef.current = null;
     dimmedIdsRef.current = new Set();
+    focusScrolledKeyRef.current = null;
   }, [filterSearchKey]);
 
   useEffect(() => {
@@ -1409,7 +1455,7 @@ function EventLogPanel({
     };
   }, [loadEvents, loadSessions, loadSessionDetail]);
 
-  // List / page scroll takes ownership until the user scrubs the timeline or jumps to latest.
+  // List / page scroll takes ownership until Jump to latest (timeline scrub only dims).
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
@@ -1432,7 +1478,7 @@ function EventLogPanel({
     };
     const onWheel = (e: WheelEvent) => {
       if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
-      if (el.contains(e.target as Node)) markOwns();
+      markOwns();
     };
     const onScroll = () => {
       if (programmaticScrollRef.current) return;
@@ -1480,6 +1526,49 @@ function EventLogPanel({
     [scrollRowIntoViewBelowSticky],
   );
 
+  // Match timeline scrubber to the URL time window.
+  useEffect(() => {
+    if (!hasTimeWindow || filterView.startingAt == null || filterView.endingAt == null) return;
+    setRangeCommand({ start: filterView.startingAt, end: filterView.endingAt });
+  }, [hasTimeWindow, filterView.startingAt, filterView.endingAt]);
+
+  // Focus `#event-N` only when a valid time window is present (edge 2A).
+  // Scroll once per window+hash — new polls must not keep re-centering the row.
+  useEffect(() => {
+    if (!hasTimeWindow || loading) return;
+    const focusId = parseEventFocusHash(window.location.hash);
+    if (focusId == null) return;
+
+    const toastKey = `${filterView.startingAt}-${filterView.endingAt}-${focusId}`;
+    if (!events.some((e) => e.id === focusId)) {
+      if (focusMissingToastKeyRef.current !== toastKey) {
+        focusMissingToastKeyRef.current = toastKey;
+        toast({
+          title: `Event #${focusId} isn’t in this time range.`,
+          description: "It may have been purged, or this hour has more events than the open log can show.",
+        });
+      }
+      return;
+    }
+
+    if (focusScrolledKeyRef.current === toastKey) return;
+    focusScrolledKeyRef.current = toastKey;
+    listOwnsScrollRef.current = true;
+
+    const t = window.setTimeout(() => {
+      scrollToEvent(focusId);
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [
+    hasTimeWindow,
+    loading,
+    events,
+    filterView.startingAt,
+    filterView.endingAt,
+    scrollToEvent,
+    toast,
+  ]);
+
   const onToggleExpand = useCallback((eventId: number) => {
     setExpanded((prev) => (prev === eventId ? null : eventId));
   }, []);
@@ -1488,6 +1577,14 @@ function EventLogPanel({
 
   const activeFilterCount = eventLogActiveFilterCount(filterView);
   const hasActiveFilters = eventLogHasActiveFilters(filterView);
+  const pathOnly = pathname.split("?")[0];
+  const showAroundLinks = hasActiveFilters && !hasTimeWindow;
+  /** Hash focus only applies in time-window mode (edge 2A). */
+  const focusedEventId = useMemo(() => {
+    if (!hasTimeWindow) return null;
+    return parseEventFocusHash(typeof window !== "undefined" ? window.location.hash : "");
+  }, [hasTimeWindow, filterSearchKey]);
+  focusedEventIdRef.current = focusedEventId;
 
   const toggleKindChip = useCallback(
     (id: EventKindId) => {
@@ -1507,6 +1604,30 @@ function EventLogPanel({
       patchFilterView({ actors: [...next] as EventActorId[] });
     },
     [actorChips, patchFilterView],
+  );
+
+  const addEntryFilter = useCallback(
+    (entry: SitemapSearchEntry) => {
+      const key = sitemapEntrySeoId(entry);
+      if (!key) {
+        toast({
+          title: "Missing entry metadata",
+          description: "Pick a page with content type, slug, and locale — not URL alone.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (entryList.includes(key)) return;
+      patchFilterView({ entries: [...entryList, key] });
+    },
+    [entryList, patchFilterView, toast],
+  );
+
+  const removeEntryFilter = useCallback(
+    (key: string) => {
+      patchFilterView({ entries: entryList.filter((e) => e !== key) });
+    },
+    [entryList, patchFilterView],
   );
 
   /** Outline buttons tuned for the dark help bar; labels hide on small screens. */
@@ -1614,6 +1735,62 @@ function EventLogPanel({
                 );
               })}
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium">Entries</p>
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              Limit the log to these pages. Add from the sitemap.
+            </p>
+            {entryList.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {entryList.map((key) => (
+                  <span
+                    key={key}
+                    className="inline-flex max-w-full items-center gap-1 rounded-md border border-primary/40 bg-primary/15 px-2 py-1 text-[11px] text-foreground"
+                    data-testid={`chip-event-entry-${key}`}
+                  >
+                    <span className="min-w-0 truncate font-mono" title={key}>
+                      {key}
+                    </span>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground"
+                      aria-label={`Remove ${key}`}
+                      onClick={() => removeEntryFilter(key)}
+                    >
+                      <IconX className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            <Popover open={entryPickerOpen} onOpenChange={setEntryPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 w-full text-xs"
+                  data-testid="button-event-entry-add"
+                >
+                  Add page
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-72 p-0 bg-popover" sideOffset={4}>
+                <SitemapSearch
+                  embedded
+                  value=""
+                  onChange={() => {}}
+                  hideCustomUrl
+                  excludeIds={entryList}
+                  onSelectEntry={(entry) => {
+                    addEntryFilter(entry);
+                  }}
+                  onClose={() => setEntryPickerOpen(false)}
+                  testId="event-log-entry-picker"
+                />
+              </PopoverContent>
+            </Popover>
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium" htmlFor="event-type-filter">
@@ -1755,7 +1932,6 @@ function EventLogPanel({
           visibleRange={rangeCommand}
           onRangeChange={handleRangeChange}
           onSelect={scrollToEvent}
-          onUserInteract={releaseListScrollOwnership}
           onJumpToLatest={() => {
             releaseListScrollOwnership();
             setRangeCommand(jumpToLatestRange());
@@ -1914,21 +2090,27 @@ function EventLogPanel({
           </div>
         ) : events.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            {hasActiveFilters
-              ? "No events match these filters."
-              : "No background events in the last 7 days retention window."}
+            {hasTimeWindow
+              ? "No events in this time range."
+              : hasActiveFilters
+                ? "No events match these filters."
+                : "No background events in the last 7 days retention window."}
           </p>
         ) : (
           <div
             ref={listRef}
-            className="event-list-scroll relative overflow-x-hidden pr-1"
+            className="event-list-scroll relative pr-1"
             data-testid="event-list-scroll"
           >
             <p className="text-[11px] text-muted-foreground mb-2" data-testid="event-list-count">
               Showing {events.length}
               {events.length >= EVENT_LOG_FETCH_LIMIT ? "+" : ""} event
               {events.length === 1 ? "" : "s"}
-              {hasActiveFilters ? " matching filters" : ""}
+              {hasTimeWindow
+                ? " in this time range"
+                : hasActiveFilters
+                  ? " matching filters"
+                  : ""}
               {loading ? " · refreshing…" : ""}
             </p>
             <div className="relative">
@@ -1945,8 +2127,14 @@ function EventLogPanel({
                       isFailure={e.type === "job_failed" || failureIds.has(e.id)}
                       isExpanded={expanded === e.id}
                       isNew={newIds.has(e.id)}
+                      isFocused={focusedEventId === e.id}
                       loadedEventIds={loadedEventIds}
                       reduceMotion={reduceMotion}
+                      showAroundHref={
+                        showAroundLinks
+                          ? buildShowAroundHref(e.id, e.created_at, pathOnly)
+                          : null
+                      }
                       onToggleExpand={onToggleExpand}
                       onNavigateToEvent={scrollToEvent}
                       setRowRef={setRowRef}

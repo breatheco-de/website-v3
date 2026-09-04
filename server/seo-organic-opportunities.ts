@@ -17,6 +17,7 @@ import { getGscBigQueryConfigStatus } from "./gsc-bigquery-client";
 import { getOpenRushSettings } from "./settings";
 import { loadSerpCache, rankOfUrlInOrganic, serpEntryFresh, type OpenRushSerpEntry } from "./openrush-serp-cache";
 import { getDefaultContentFolder } from "./site-config";
+import { countEntryActivityWrites } from "./seo-cluster-metrics";
 
 const PAGE2_MIN = 11;
 const PAGE2_MAX = 20;
@@ -39,6 +40,18 @@ export type AggregatedGscRow = {
 
 export type WithCmsKnown<T extends { url: string }> = T & { cms_known: boolean };
 
+export type WithCmsActivity<T extends { url: string }> = T & {
+  cms_known: boolean;
+  entry_key: string | null;
+  write_count: number;
+};
+
+export type OrganicResolveUrlResult = {
+  contentType: string;
+  slug: string;
+  patternLocale?: string;
+} | null;
+
 /** Pathname for contentIndex.isKnownUrl (GSC rows are often absolute URLs). */
 export function gscUrlToPath(url: string): string {
   const trimmed = url.trim();
@@ -57,6 +70,19 @@ export function gscUrlToPath(url: string): string {
   }
 }
 
+/** Build type/slug/locale from contentIndex.resolveUrl shape. */
+export function entryKeyFromResolvedUrl(resolved: {
+  contentType: string;
+  slug: string;
+  patternLocale?: string;
+}): string {
+  const locale =
+    !resolved.patternLocale || resolved.patternLocale === "default"
+      ? "en"
+      : resolved.patternLocale;
+  return `${resolved.contentType}/${resolved.slug}/${locale}`;
+}
+
 export function enrichCmsKnown<T extends { url: string }>(
   rows: T[],
   isKnownUrl: (path: string) => boolean,
@@ -65,6 +91,31 @@ export function enrichCmsKnown<T extends { url: string }>(
     ...r,
     cms_known: isKnownUrl(gscUrlToPath(r.url)),
   }));
+}
+
+/** cms_known + optional entry_key / write_count for Ask Agent activity gate. */
+export function enrichCmsActivity<T extends { url: string }>(
+  rows: T[],
+  opts: {
+    isKnownUrl: (path: string) => boolean;
+    resolveUrl?: (path: string) => OrganicResolveUrlResult;
+    writeCounts?: Map<string, number>;
+  },
+): Array<WithCmsActivity<T>> {
+  return rows.map((r) => {
+    const path = gscUrlToPath(r.url);
+    const cms_known = opts.isKnownUrl(path);
+    if (!cms_known || !opts.resolveUrl) {
+      return { ...r, cms_known, entry_key: null, write_count: 0 };
+    }
+    const resolved = opts.resolveUrl(path);
+    if (!resolved?.contentType || !resolved.slug) {
+      return { ...r, cms_known, entry_key: null, write_count: 0 };
+    }
+    const entry_key = entryKeyFromResolvedUrl(resolved);
+    const write_count = opts.writeCounts?.get(entry_key) ?? 0;
+    return { ...r, cms_known, entry_key, write_count };
+  });
 }
 
 export function aggregateDayRows(days: { rows: GscDayRow[] }[]): AggregatedGscRow[] {
@@ -295,9 +346,9 @@ export type OrganicOpportunitiesResponse = {
     decay_prior: { start: string; end: string } | null;
   };
   cards: {
-    page2: Array<WithCmsKnown<AggregatedGscRow>>;
-    low_ctr: Array<WithCmsKnown<AggregatedGscRow & { expected_ctr: number; gap: number }>>;
-    link_gaps: Array<WithCmsKnown<AggregatedGscRow & { inbound: number }>>;
+    page2: Array<WithCmsActivity<AggregatedGscRow>>;
+    low_ctr: Array<WithCmsActivity<AggregatedGscRow & { expected_ctr: number; gap: number }>>;
+    link_gaps: Array<WithCmsActivity<AggregatedGscRow & { inbound: number }>>;
     decay: Array<{
       url: string;
       clicks: number;
@@ -307,7 +358,7 @@ export type OrganicOpportunitiesResponse = {
       click_drop: number;
     }>;
     cannibalization: ReturnType<typeof classifyCannibalization>;
-    missing_serp: Array<WithCmsKnown<SerpOpportunityRow>>;
+    missing_serp: Array<WithCmsActivity<SerpOpportunityRow>>;
   };
 };
 
@@ -339,6 +390,10 @@ export async function buildOrganicOpportunities(opts: {
   pullLatest?: boolean;
   /** When set, Ask Agent cards get cms_known from contentIndex.isKnownUrl. */
   isKnownUrl?: (path: string) => boolean;
+  /** Resolve path → entry for activity gate entry_key. */
+  resolveUrl?: (path: string) => OrganicResolveUrlResult;
+  /** Site folder for pipeline write counts (same as events site). */
+  site?: string;
 }): Promise<OrganicOpportunitiesResponse> {
   const folder = opts.contentFolder || getDefaultContentFolder();
   const bq = getGscBigQueryConfigStatus(opts.contentRoot);
@@ -376,6 +431,15 @@ export async function buildOrganicOpportunities(opts: {
   const serp_incomplete = openrush_configured && missing_serp.some((r) => !r.serp_fetched || r.serp_stale);
 
   const known = opts.isKnownUrl ?? (() => false);
+  const writeCounts = opts.site
+    ? countEntryActivityWrites({ site: opts.site })
+    : new Map<string, number>();
+  const enrich = <T extends { url: string }>(rows: T[]) =>
+    enrichCmsActivity(rows, {
+      isKnownUrl: known,
+      resolveUrl: opts.resolveUrl,
+      writeCounts,
+    });
 
   return {
     bq_configured: bq.configured,
@@ -389,12 +453,12 @@ export async function buildOrganicOpportunities(opts: {
     serp_incomplete,
     windows: { d7, d28, decay_current: decayCur, decay_prior: decayPrior },
     cards: {
-      page2: enrichCmsKnown(classifyPage2(rows7), known),
-      low_ctr: enrichCmsKnown(classifyLowCtr(rows7), known),
-      link_gaps: enrichCmsKnown(classifyLinkGaps(rows7, opts.contentRoot), known),
+      page2: enrich(classifyPage2(rows7)),
+      low_ctr: enrich(classifyLowCtr(rows7)),
+      link_gaps: enrich(classifyLinkGaps(rows7, opts.contentRoot)),
       decay: classifyDecay(rowsDecayCur, rowsDecayPrior),
       cannibalization: classifyCannibalization(rows28),
-      missing_serp: enrichCmsKnown(missing_serp, known),
+      missing_serp: enrich(missing_serp),
     },
   };
 }

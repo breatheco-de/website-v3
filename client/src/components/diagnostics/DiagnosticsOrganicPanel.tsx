@@ -1,19 +1,28 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   AlertTriangle,
   Bot,
-  ChevronDown,
+  Copy,
+  ExternalLink,
   Info,
+  Link as LinkIcon,
   Loader2,
+  Pencil,
   RefreshCw,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Progress } from "@/components/ui/progress";
 import {
   Select,
@@ -33,6 +42,7 @@ import {
 import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
+import { useContentTypes } from "@/hooks/useContentTypes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { McpRequiredForAiModal } from "@/components/mcp/McpRequiredForAiModal";
@@ -42,10 +52,21 @@ import {
   type SolveWithAiAgentSelectPayload,
 } from "@/components/DebugBubble/SolveWithAiAgentDropdown";
 import type { SolveWithAiAgentId } from "@/components/DebugBubble/solveWithAiPrompt";
+import { detectContentInfo } from "@/components/DebugBubble/utils/debugHelpers";
+import {
+  ManagedSeoModal,
+  type ManagedSeoModalTarget,
+} from "@/components/editing/ManagedSeoModal";
+import {
+  SeoContextPickerDialog,
+  resolveSeoContexts,
+  type SeoContextChoice,
+} from "@/components/editing/SeoContextPickerDialog";
 import {
   buildOrganicAskAgentPrompt,
   formatOrganicSerpStatus,
 } from "@/lib/organicAskAgentPrompt";
+import { localeFromPath } from "@shared/runtime-issues";
 
 type AggRow = {
   query: string;
@@ -55,6 +76,8 @@ type AggRow = {
   position: number;
   ctr: number;
   cms_known?: boolean;
+  entry_key?: string | null;
+  write_count?: number;
 };
 
 type OrganicOpportunities = {
@@ -135,9 +158,9 @@ export function DiagnosticsOrganicPanel() {
   const { toast } = useToast();
   const { hasCapability } = useDebugAuth();
   const canEdit = hasCapability("seo_settings");
+  const contentTypesMap = useContentTypes();
   const queryClient = useQueryClient();
   const [decayWindow, setDecayWindow] = useState<"7" | "28">("7");
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [backfill, setBackfill] = useState<{
     running: boolean;
     mode: "missing" | "rebuild_60";
@@ -151,6 +174,14 @@ export function DiagnosticsOrganicPanel() {
   const [mcpRequiredAgentLabel, setMcpRequiredAgentLabel] = useState("AI Agent");
   const [mcpRequiredPrompt, setMcpRequiredPrompt] = useState("");
   const [mcpRequiredPrefillPrefix, setMcpRequiredPrefillPrefix] = useState<string | undefined>();
+  const [seoModalOpen, setSeoModalOpen] = useState(false);
+  const [seoModalTarget, setSeoModalTarget] = useState<ManagedSeoModalTarget | null>(null);
+  const [seoPickerOpen, setSeoPickerOpen] = useState(false);
+  const [seoPickerPending, setSeoPickerPending] = useState<{
+    contentType: string;
+    slug: string;
+    locale: string;
+  } | null>(null);
 
   function openAskAgent(payload: SolveWithAiAgentSelectPayload) {
     setMcpRequiredAgentId(payload.agentId);
@@ -160,6 +191,46 @@ export function DiagnosticsOrganicPanel() {
     setMcpRequiredPrefillPrefix(payload.prefillUrlPrefix);
     setMcpRequiredForAiOpen(true);
   }
+
+  const openSeoMetaForUrl = useCallback(
+    async (url: string) => {
+      const path = shortUrl(url);
+      const info = detectContentInfo(path, contentTypesMap);
+      if (!info.type || !info.slug) {
+        toast({
+          title: "Cannot open SEO Meta",
+          description: "This URL is not recognized as a CMS page.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const locale = localeFromPath(path);
+      try {
+        const contexts = await resolveSeoContexts(info.type, info.slug, locale);
+        if (contexts.contexts.length <= 1) {
+          const choice: SeoContextChoice =
+            contexts.default ?? contexts.contexts[0] ?? { type: "live" };
+          setSeoModalTarget({
+            contentType: info.type,
+            slug: info.slug,
+            locale,
+            variant: choice.type === "variant" ? choice.variant : undefined,
+          });
+          setSeoModalOpen(true);
+          return;
+        }
+        setSeoPickerPending({ contentType: info.type, slug: info.slug, locale });
+        setSeoPickerOpen(true);
+      } catch (e) {
+        toast({
+          title: "Failed to load SEO contexts",
+          description: e instanceof Error ? e.message : "Could not list LIVE/variant contexts.",
+          variant: "destructive",
+        });
+      }
+    },
+    [contentTypesMap, toast],
+  );
 
   const { data, isLoading, error, refetch } = useQuery<OrganicOpportunities>({
     queryKey: ["/api/seo/organic/opportunities", decayWindow],
@@ -285,21 +356,6 @@ export function DiagnosticsOrganicPanel() {
         complete days; cannibalization uses 28 days; decay compares 7 or 28 days to the period
         before. Data lags about 2–3 days — use Search Console for yesterday and live queries.
       </p>
-      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <CollapsibleTrigger asChild>
-          <Button variant="ghost" size="sm" className="px-0 h-auto text-xs" data-testid="button-organic-read-more">
-            Read more (advanced)
-            <ChevronDown className={`h-3.5 w-3.5 ml-1 transition-transform ${advancedOpen ? "rotate-180" : ""}`} />
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="text-xs font-mono text-muted-foreground space-y-1">
-          <p>.cache/{"{site}"}/gsc-organic-days/YYYY-MM-DD.json</p>
-          <p>keep_rules_version {data.keep_rules_version}</p>
-          <p>GET /api/seo/organic/opportunities</p>
-          <p>POST /api/seo/organic/days/backfill</p>
-          <p>Refreshing days updates the shared cache used elsewhere. It does not write content YAML or start a GSC export.</p>
-        </CollapsibleContent>
-      </Collapsible>
 
       <Alert data-testid="alert-organic-lag">
         <Info className="h-4 w-4" />
@@ -424,7 +480,12 @@ export function DiagnosticsOrganicPanel() {
               <SimpleTable
                 headers={["Query / URL", "Impr.", "Pos.", ""]}
                 rows={data.cards.page2.map((r) => [
-                  <QueryUrlCell key={`${r.query}-${r.url}`} query={r.query} url={r.url} />,
+                  <QueryUrlCell
+                    key={`${r.query}-${r.url}`}
+                    query={r.query}
+                    url={r.url}
+                    onOpenSeoMeta={openSeoMetaForUrl}
+                  />,
                   fmtInt(r.impressions),
                   fmtPos(r.position),
                   r.cms_known ? (
@@ -439,6 +500,8 @@ export function DiagnosticsOrganicPanel() {
                         window_label: d7Label,
                       })}
                       onAgentSelect={openAskAgent}
+                      entryKey={r.entry_key}
+                      writeCount={r.write_count}
                     />
                   ) : (
                     ""
@@ -472,7 +535,7 @@ export function DiagnosticsOrganicPanel() {
                   "Query / URL",
                   "Impr.",
                   <span key="ctr-exp-head" className="inline-flex items-center gap-1">
-                    CTR / Exp.
+                    CTR
                     <CardInfoPopover
                       testId="info-organic-ctr-exp"
                       className="h-4 w-4"
@@ -493,7 +556,12 @@ export function DiagnosticsOrganicPanel() {
                   "",
                 ]}
                 rows={data.cards.low_ctr.map((r) => [
-                  <QueryUrlCell key={`${r.query}-${r.url}`} query={r.query} url={r.url} />,
+                  <QueryUrlCell
+                    key={`${r.query}-${r.url}`}
+                    query={r.query}
+                    url={r.url}
+                    onOpenSeoMeta={openSeoMetaForUrl}
+                  />,
                   fmtInt(r.impressions),
                   <StackedMetricCell
                     key={`ctr-${r.query}-${r.url}`}
@@ -514,6 +582,8 @@ export function DiagnosticsOrganicPanel() {
                         window_label: d7Label,
                       })}
                       onAgentSelect={openAskAgent}
+                      entryKey={r.entry_key}
+                      writeCount={r.write_count}
                     />
                   ) : (
                     ""
@@ -532,6 +602,7 @@ export function DiagnosticsOrganicPanel() {
             onRefreshQuery={(query) => serpRefresh.mutate({ query })}
             onRefreshStale={() => serpRefresh.mutate({ mode: "stale" })}
             onAskAgent={openAskAgent}
+            onOpenSeoMeta={openSeoMetaForUrl}
           />
 
           <OpportunityCard
@@ -572,6 +643,8 @@ export function DiagnosticsOrganicPanel() {
                         window_label: d7Label,
                       })}
                       onAgentSelect={openAskAgent}
+                      entryKey={r.entry_key}
+                      writeCount={r.write_count}
                     />
                   ) : (
                     ""
@@ -697,6 +770,37 @@ export function DiagnosticsOrganicPanel() {
       prefillUrlPrefix={mcpRequiredPrefillPrefix}
       defaultRoleId="seo_specialist"
     />
+    <ManagedSeoModal
+      open={seoModalOpen}
+      onOpenChange={(open) => {
+        setSeoModalOpen(open);
+        if (!open) setSeoModalTarget(null);
+      }}
+      target={seoModalTarget}
+    />
+    {seoPickerPending ? (
+      <SeoContextPickerDialog
+        open={seoPickerOpen}
+        onOpenChange={(open) => {
+          setSeoPickerOpen(open);
+          if (!open) setSeoPickerPending(null);
+        }}
+        contentType={seoPickerPending.contentType}
+        slug={seoPickerPending.slug}
+        locale={seoPickerPending.locale}
+        onConfirm={(choice) => {
+          setSeoModalTarget({
+            contentType: seoPickerPending.contentType,
+            slug: seoPickerPending.slug,
+            locale: seoPickerPending.locale,
+            variant: choice.type === "variant" ? choice.variant : undefined,
+          });
+          setSeoPickerOpen(false);
+          setSeoPickerPending(null);
+          setSeoModalOpen(true);
+        }}
+      />
+    ) : null}
     </>
   );
 }
@@ -768,25 +872,119 @@ function OpportunityCard({
   );
 }
 
-function QueryUrlCell({ query, url }: { query: string; url: string }) {
+function QueryUrlCell({
+  query,
+  url,
+  onOpenSeoMeta,
+}: {
+  query: string;
+  url: string;
+  onOpenSeoMeta: (url: string) => void;
+}) {
+  const { toast } = useToast();
   const path = shortUrl(url);
+  const absolute =
+    /^https?:\/\//i.test(url.trim())
+      ? url.trim()
+      : typeof window !== "undefined"
+        ? `${window.location.origin}${path.startsWith("/") ? path : `/${path}`}`
+        : path;
+
+  async function copy(label: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: `${label} copied` });
+    } catch {
+      toast({ title: "Copy failed", variant: "destructive" });
+    }
+  }
+
   return (
     <div className="min-w-0 max-w-[250px] space-y-0.5">
       <p className="text-sm font-medium text-foreground truncate" title={query}>
         {query}
       </p>
-      <p className="text-[11px] text-muted-foreground truncate" title={path}>
-        {path}
-      </p>
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="block w-full min-w-0 text-left text-[11px] text-muted-foreground truncate hover:text-foreground hover:underline"
+            title={path}
+            data-testid={`button-organic-url-menu-${path}`}
+          >
+            {path}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuItem asChild>
+            <a
+              href={path.startsWith("/") ? path : `/${path}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid={`menu-organic-url-open-${path}`}
+            >
+              <ExternalLink className="h-4 w-4" />
+              Open in new tab
+            </a>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => void copy("Relative path", path)}
+            data-testid={`menu-organic-url-copy-relative-${path}`}
+          >
+            <LinkIcon className="h-4 w-4" />
+            Copy relative path
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => void copy("Absolute path", absolute)}
+            data-testid={`menu-organic-url-copy-absolute-${path}`}
+          >
+            <Copy className="h-4 w-4" />
+            Copy absolute path
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => onOpenSeoMeta(url)}
+            data-testid={`menu-organic-url-seo-meta-${path}`}
+          >
+            <Pencil className="h-4 w-4" />
+            Open SEO Meta
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
 
 function StackedMetricCell({ primary, secondary }: { primary: string; secondary: string }) {
   return (
-    <div className="space-y-0.5 leading-tight" title={`${primary} / ${secondary}`}>
-      <p className="text-xs text-foreground">{primary}</p>
-      <p className="text-[11px] text-muted-foreground">{secondary}</p>
+    <div className="space-y-0.5 leading-tight">
+      <p className="text-xs text-foreground" title={`CTR ${primary}`}>
+        {primary}
+      </p>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              "text-[11px] text-muted-foreground underline-offset-2 hover:underline hover:text-foreground",
+              "transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm",
+            )}
+            aria-label={`Expected CTR ${secondary}. What this means`}
+          >
+            {secondary}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-72 space-y-2 text-sm text-muted-foreground">
+          <p>
+            <span className="font-medium text-foreground">Expected</span> is the typical click rate
+            for this ranking position — what similar results usually get at that spot.
+          </p>
+          <p>
+            Your real CTR is the number above. When it sits well below expected, people see your
+            listing but choose someone else — often fixable in the title or description.
+          </p>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
@@ -795,11 +993,16 @@ function AskAgentCell({
   prompt,
   onAgentSelect,
   testId,
+  entryKey,
+  writeCount,
 }: {
   prompt: string;
   onAgentSelect: (payload: SolveWithAiAgentSelectPayload) => void;
   testId: string;
+  entryKey?: string | null;
+  writeCount?: number;
 }) {
+  const resolvedKey = entryKey?.trim() || undefined;
   return (
     <div className="flex justify-end">
       <SolveWithAiAgentDropdown
@@ -810,6 +1013,8 @@ function AskAgentCell({
         buttonVariant="ghost"
         testId={testId}
         onAgentSelect={onAgentSelect}
+        entryKey={resolvedKey}
+        writeCount={resolvedKey ? writeCount ?? 0 : undefined}
       />
     </div>
   );
@@ -867,6 +1072,7 @@ function SerpCard({
   onRefreshQuery,
   onRefreshStale,
   onAskAgent,
+  onOpenSeoMeta,
 }: {
   configured: boolean;
   rows: OrganicOpportunities["cards"]["missing_serp"];
@@ -876,6 +1082,7 @@ function SerpCard({
   onRefreshQuery: (query: string) => void;
   onRefreshStale: () => void;
   onAskAgent: (payload: SolveWithAiAgentSelectPayload) => void;
+  onOpenSeoMeta: (url: string) => void;
 }) {
   if (!configured) {
     return (
@@ -958,7 +1165,7 @@ function SerpCard({
                 {rows.map((r) => (
                   <TableRow key={`${r.query}-${r.url}`}>
                     <TableCell className="px-2 py-1.5 align-top">
-                      <QueryUrlCell query={r.query} url={r.url} />
+                      <QueryUrlCell query={r.query} url={r.url} onOpenSeoMeta={onOpenSeoMeta} />
                       {r.alt_urls.length > 0 && (
                         <span className="block text-[10px] text-muted-foreground mt-0.5">
                           Also ranks: {r.alt_urls.length} more URL{r.alt_urls.length === 1 ? "" : "s"}
@@ -994,6 +1201,8 @@ function SerpCard({
                               window_label: wLabel,
                             })}
                             onAgentSelect={onAskAgent}
+                            entryKey={r.entry_key}
+                            writeCount={r.write_count}
                           />
                         )}
                         {canEdit && (

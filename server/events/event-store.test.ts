@@ -20,6 +20,9 @@ import {
   clearAllEvents,
   listAgentSessions,
   getAgentSessionDetail,
+  getEventById,
+  attachCommitShaToEvents,
+  attachCommitShaForCommittedFiles,
 } from "./event-store";
 import { singleAttribution } from "./types";
 
@@ -296,6 +299,46 @@ describe("event-store", () => {
     expect(listEvents({ site, triggeredBy: write.id, limit: 10 })[0]!.type).toBe("index_snapshot_ready");
   });
 
+  it("filters by entry resource or payload.entryKey", () => {
+    const site = `${TEST_SITE}-entry-filter-${Date.now()}`;
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      resource: { contentType: "blog", slug: "demo-post", locale: "en" },
+    });
+    emitEvent({
+      site,
+      type: "validation_results_ready",
+      payload: { entryKey: "blog/demo-post/en" },
+    });
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      resource: { contentType: "page", slug: "home", locale: "en" },
+    });
+    emitEvent({
+      site,
+      type: "index_snapshot_ready",
+      payload: { generation: 1 },
+    });
+
+    const matched = listEvents({ site, entries: ["blog/demo-post/en"], limit: 10 });
+    expect(matched.map((e) => e.type).sort()).toEqual([
+      "entry_locale_saved",
+      "validation_results_ready",
+    ]);
+
+    const multi = listEvents({
+      site,
+      entries: ["blog/demo-post/en", "page/home/en"],
+      limit: 10,
+    });
+    expect(multi).toHaveLength(3);
+    expect(multi.some((e) => e.type === "index_snapshot_ready")).toBe(false);
+
+    expect(listEvents({ site, entries: [], limit: 10 }).length).toBeGreaterThanOrEqual(4);
+  });
+
   it("filters by agent id with batch scan and __other__", () => {
     const site = `${TEST_SITE}-agent-${Date.now()}`;
     emitEvent({
@@ -422,6 +465,102 @@ describe("event-store", () => {
     expect(detail!.summary.attribution.some((a) => a.actor?.type === "mcp")).toBe(true);
     expect(detail!.files.some((f) => f.includes("en.yml"))).toBe(true);
     expect(detail!.headline?.startsWith("summary")).toBe(true);
+  });
+
+  it("listEvents since+until are inclusive created_at bounds; before stays id cursor", () => {
+    const site = `${TEST_SITE}-window-${Date.now()}`;
+    const t0 = Date.now() - 10_000;
+    const mid = t0 + 5_000;
+    const t1 = t0 + 10_000;
+
+    const early = emitEvent({ site, type: "entry_locale_saved", payload: { path: "a" } });
+    const inWindow = emitEvent({ site, type: "entry_locale_saved", payload: { path: "b" } });
+    const late = emitEvent({ site, type: "entry_locale_saved", payload: { path: "c" } });
+
+    const db = new Database(path.join("data", site.replace(/\//g, "-"), "app.db"));
+    db.prepare(`UPDATE events SET created_at = ? WHERE id = ?`).run(t0 - 1, early.id);
+    db.prepare(`UPDATE events SET created_at = ? WHERE id = ?`).run(mid, inWindow.id);
+    db.prepare(`UPDATE events SET created_at = ? WHERE id = ?`).run(t1 + 1, late.id);
+    db.close();
+
+    const windowed = listEvents({ site, since: t0, until: t1, limit: 10 });
+    expect(windowed.map((e) => e.id)).toEqual([inWindow.id]);
+
+    // Inclusive endpoints
+    const atEdges = listEvents({ site, since: mid, until: mid, limit: 10 });
+    expect(atEdges.map((e) => e.id)).toEqual([inWindow.id]);
+
+    // before = id cursor (not a time bound)
+    const newer = emitEvent({ site, type: "entry_locale_saved", payload: { path: "d" } });
+    const olderThanNewer = listEvents({ site, before: newer.id, limit: 10 });
+    expect(olderThanNewer.every((e) => e.id < newer.id)).toBe(true);
+    expect(olderThanNewer.some((e) => e.id === late.id)).toBe(true);
+  });
+
+  describe("attachCommitShaToEvents", () => {
+    it("stamps matching recent path rows and skips others", () => {
+      const site = `${TEST_SITE}-sha-${Date.now()}`;
+      const pathA = `${site}/blog/a/en.yml`;
+      const pathB = `${site}/blog/b/en.yml`;
+
+      const recentA = emitEvent({
+        site,
+        type: "entry_locale_saved",
+        payload: { path: pathA, parts: ["sections"] },
+      });
+      const recentB = emitEvent({
+        site,
+        type: "entry_locale_saved",
+        payload: { path: pathB, parts: ["meta"] },
+      });
+      const already = emitEvent({
+        site,
+        type: "entry_locale_saved",
+        payload: { path: pathA, parts: ["seo"], commitSha: "oldsha" },
+      });
+
+      const oldId = emitEvent({
+        site,
+        type: "entry_locale_saved",
+        payload: { path: pathA, parts: ["sections"] },
+      }).id;
+      const db = new Database(path.join("data", site.replace(/\//g, "-"), "app.db"));
+      db.prepare(`UPDATE events SET created_at = ? WHERE id = ?`).run(
+        Date.now() - 48 * 60 * 60 * 1000,
+        oldId,
+      );
+      db.close();
+
+      const committedAt = Date.now() + 1_000;
+      const n = attachCommitShaToEvents({
+        site,
+        commitSha: "newsha123",
+        paths: [pathA],
+        committedAt,
+      });
+      expect(n).toBe(1);
+
+      const stamped = getEventById(site, recentA.id)!;
+      expect(stamped.payload.commitSha).toBe("newsha123");
+      expect(stamped.payload.parts).toEqual(["sections"]);
+
+      expect(getEventById(site, recentB.id)!.payload.commitSha).toBeUndefined();
+      expect(getEventById(site, already.id)!.payload.commitSha).toBe("oldsha");
+      expect(getEventById(site, oldId)!.payload.commitSha).toBeUndefined();
+    });
+
+    it("attachCommitShaForCommittedFiles resolves site from contentRoot", () => {
+      const site = `${TEST_SITE}-sha-root-${Date.now()}`;
+      const filePath = `${site}/pages/home/en.yml`;
+      const ev = emitEvent({
+        site,
+        type: "entry_locale_saved",
+        payload: { path: filePath, parts: ["meta"] },
+      });
+      const n = attachCommitShaForCommittedFiles("abc", [filePath], site);
+      expect(n).toBe(1);
+      expect(getEventById(site, ev.id)!.payload.commitSha).toBe("abc");
+    });
   });
 
 });

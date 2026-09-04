@@ -1,26 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Calculator, ChevronDown, Info, Link2, Loader2, Pencil, RotateCcw } from "lucide-react";
+import { AlertTriangle, Calculator, Check, ChevronDown, Info, Link2, Loader2, Pencil, RotateCcw, X } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,14 +26,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
+import { SitemapSearch } from "@/components/menus/SitemapSearch";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { queryClient } from "@/lib/queryClient";
 import type { EditorHint } from "@/components/editing/EditorTypeDialog";
-import { deslugifyLabel } from "@shared/relation-field";
 import type { SeoModalSavedDetail } from "@/components/editing/seoModalSaved";
 import { notifySeoModalSaved } from "@/components/editing/seoModalSaved";
 import { NotMetaFieldBadge } from "@/components/editing/NotMetaFieldBadge";
+import { OpenRushFetchControl } from "@/components/seo/OpenRushFetchControl";
+import { SeoIndexReindexControl } from "@/components/seo/SeoIndexReindexControl";
+import { getSessionHeaders } from "@/lib/sessionHeaders";
+import { cn } from "@/lib/utils";
 
 type FieldSource = "original" | "db_override" | "ct_override" | "entry_default";
 
@@ -365,11 +355,15 @@ function SeoFieldsEditor({
   portalContainer?: HTMLElement | null;
 }) {
   const { toast } = useToast();
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [resettingField, setResettingField] = useState<string | null>(null);
-  const [chooserOpen, setChooserOpen] = useState(false);
   const [seoFieldsEditing, setSeoFieldsEditing] = useState(false);
+  /** When OpenRush is on, staff expand this to type YAML volume/difficulty overrides. */
+  const [metricsManualEditing, setMetricsManualEditing] = useState(false);
+  const [refreshingKeyword, setRefreshingKeyword] = useState(false);
+  const [debouncedMainKeyword, setDebouncedMainKeyword] = useState(
+    kwRow?.effective == null ? "" : String(kwRow.effective),
+  );
   const kwRow = rows.find((r) => r.field === "seo.main_keyword");
   const volumeRow = rows.find((r) => r.field === "seo.kw_monthly_volume");
   const difficultyRow = rows.find((r) => r.field === "seo.kw_difficulty");
@@ -394,6 +388,7 @@ function SeoFieldsEditor({
     setKwDifficulty(metricFromProvenance(difficultyRow));
     setPillarPath(typeof pillarRow?.effective === "string" ? pillarRow.effective : "");
     setIsPillar(hubRow?.effective === true || hubRow?.effective === "true");
+    setMetricsManualEditing(false);
   }, [
     seoFieldsEditing,
     kwRow?.effective,
@@ -403,6 +398,11 @@ function SeoFieldsEditor({
     pillarRow?.layer_has_key,
     hubRow?.effective,
   ]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedMainKeyword(mainKeyword), 300);
+    return () => clearTimeout(t);
+  }, [mainKeyword]);
 
   const researchFieldsPayload = () => ({
     "seo.main_keyword": mainKeyword,
@@ -445,13 +445,85 @@ function SeoFieldsEditor({
     },
   });
   const resolvedKm = entryKeywordMetrics?.keyword_metrics;
+  const openrushConfigured = resolvedKm?.openrush_configured === true;
+  const metricsFormEmpty =
+    parseMetricInput(kwMonthlyVolume) === null && parseMetricInput(kwDifficulty) === null;
+  const openrushAutoMetrics = openrushConfigured && metricsFormEmpty && !metricsManualEditing;
+  const showMetricsInputs = !openrushConfigured || metricsManualEditing;
   const researchIncompleteForDisplay =
     researchIncomplete &&
+    !openrushAutoMetrics &&
     !(
       resolvedKm?.source === "openrush_cache" &&
       typeof resolvedKm.kw_monthly_volume === "number" &&
       typeof resolvedKm.kw_difficulty === "number"
     );
+  const showResearchIncompleteHint =
+    researchIncomplete && !(openrushConfigured && metricsFormEmpty && !metricsManualEditing);
+
+  type KeywordOwnerRow = { contentType: string; slug: string; locale: string; path: string };
+  const {
+    data: keywordOwnersData,
+    isError: keywordOwnersError,
+    isLoading: keywordOwnersLoading,
+  } = useQuery<{ owners: Record<string, KeywordOwnerRow[]> }>({
+    queryKey: ["/api/seo/keyword-owners"],
+    enabled: !isVariantLayer,
+    staleTime: 60_000,
+    retry: false,
+    queryFn: async () => {
+      const res = await fetch("/api/seo/keyword-owners", {
+        credentials: "include",
+        headers: getSessionHeaders(),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        owners?: Record<string, KeywordOwnerRow[]>;
+        error?: string;
+        code?: string;
+      };
+      if (!res.ok) {
+        throw new Error(body.error || "SEO index unavailable");
+      }
+      return { owners: body.owners || {} };
+    },
+  });
+
+  const keywordDebouncePending = debouncedMainKeyword !== mainKeyword;
+  const keywordUniqueness = useMemo(() => {
+    const kw = debouncedMainKeyword.trim();
+    if (!kw) return { status: "empty" as const };
+    if (keywordDebouncePending) return { status: "pending" as const };
+    if (keywordOwnersLoading && !keywordOwnersData) return { status: "pending" as const };
+    if (keywordOwnersError || !keywordOwnersData) {
+      return { status: "index_unavailable" as const };
+    }
+    const owners = keywordOwnersData.owners[kw] || [];
+    const other = owners.find(
+      (o) => !(o.contentType === contentType && o.slug === slug && o.locale === locale),
+    );
+    if (other) {
+      const label = other.path.trim() || `${other.contentType}/${other.slug}/${other.locale}`;
+      return { status: "taken" as const, label };
+    }
+    return { status: "free" as const };
+  }, [
+    debouncedMainKeyword,
+    keywordDebouncePending,
+    keywordOwnersLoading,
+    keywordOwnersData,
+    keywordOwnersError,
+    contentType,
+    slug,
+    locale,
+  ]);
+
+  const keywordSaveBlocked =
+    !isVariantLayer &&
+    mainKeyword.trim() !== "" &&
+    (keywordUniqueness.status === "taken" ||
+      keywordUniqueness.status === "index_unavailable" ||
+      keywordUniqueness.status === "pending" ||
+      keywordDebouncePending);
 
   const localeHubs = useMemo(() => {
     const loc = locale.toLowerCase();
@@ -473,20 +545,41 @@ function SeoFieldsEditor({
     overview != null &&
     !knownHub;
 
-  const pathLocked = disabled || saving || isPillar;
+  const pathLocked = disabled || saving;
 
   const handleTogglePillar = (checked: boolean) => {
     setIsPillar(checked);
-    if (checked && canonicalPath) setPillarPath(canonicalPath);
+    if (checked && canonicalPath) {
+      setPillarPath(canonicalPath);
+    } else if (
+      !checked &&
+      canonicalPath &&
+      pillarPath.trim() === canonicalPath.trim()
+    ) {
+      // Drop self-reference so staff pick a hub (or leave empty for a cluster gap).
+      setPillarPath("");
+    }
   };
 
   const handleClusterSeoToggle = async (checked: boolean) => {
     if (disabled || saving) return;
+    if (checked && keywordSaveBlocked) {
+      toast({
+        title: "Cannot activate monitoring",
+        description:
+          keywordUniqueness.status === "taken"
+            ? `Main keyword is already used by ${keywordUniqueness.label}.`
+            : keywordUniqueness.status === "index_unavailable"
+              ? "SEO index is unavailable. Rebuild the cluster index, then try again."
+              : "Wait for keyword uniqueness check to finish.",
+        variant: "destructive",
+      });
+      return;
+    }
     const previous = clusterSeoOn;
     setClusterSeoOn(checked);
     if (!checked) {
       setIsPillar(false);
-      setChooserOpen(false);
     }
     setSaving(true);
     try {
@@ -503,6 +596,7 @@ function SeoFieldsEditor({
           "seo.is_pillar": isPillar,
         });
       }
+      await queryClient.invalidateQueries({ queryKey: ["/api/seo/keyword-owners"] });
     } catch (err) {
       setClusterSeoOn(previous);
       toast({
@@ -512,6 +606,50 @@ function SeoFieldsEditor({
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRefreshKeyword = async () => {
+    const keyword = mainKeyword.trim();
+    if (!openrushConfigured || !keyword) return;
+    setRefreshingKeyword(true);
+    try {
+      const author = await resolveAuthorName();
+      const res = await fetch("/api/seo/keyword/refresh", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...getSessionHeaders(),
+        },
+        body: JSON.stringify({
+          contentType,
+          slug,
+          locale,
+          keyword,
+          author: author || undefined,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((body as { error?: string }).error || "Keyword refresh failed");
+      }
+      toast({
+        title: "Keyword metrics updated",
+        description: "Volume and difficulty were refreshed from OpenRush into the shared cache.",
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["/api/seo/entry", contentType, slug, locale],
+      });
+    } catch (err) {
+      toast({
+        title: "Could not refresh keyword",
+        description: err instanceof Error ? err.message : "Refresh failed",
+        variant: "destructive",
+      });
+      throw err;
+    } finally {
+      setRefreshingKeyword(false);
     }
   };
 
@@ -569,9 +707,9 @@ function SeoFieldsEditor({
         <p className="font-medium text-foreground">SEO fields</p>
         <dl className="space-y-2">
           <div>
-            <dt className="text-xs text-muted-foreground">Include in SEO clustering</dt>
+            <dt className="text-xs text-muted-foreground">Activate SEO Monitoring</dt>
             <dd className="text-sm text-foreground" data-testid="text-seo-cluster-on-preview">
-              {clusterSeoOn ? "On" : "Off — opted out of cluster monitoring"}
+              {clusterSeoOn ? "On" : "Off — this page is not monitored"}
             </dd>
           </div>
           {clusterSeoOn ? (
@@ -598,6 +736,10 @@ function SeoFieldsEditor({
                     resolvedKm.kw_monthly_volume.toLocaleString()
                   ) : kwMonthlyVolume.trim() ? (
                     Number(kwMonthlyVolume).toLocaleString()
+                  ) : openrushConfigured && mainKeyword.trim() ? (
+                    <span className="italic text-muted-foreground font-normal">
+                      Download from OpenRush to fill
+                    </span>
                   ) : (
                     <span className="italic text-muted-foreground font-normal">Not set</span>
                   )}
@@ -610,6 +752,10 @@ function SeoFieldsEditor({
                     resolvedKm.kw_difficulty
                   ) : kwDifficulty.trim() ? (
                     kwDifficulty
+                  ) : openrushConfigured && mainKeyword.trim() ? (
+                    <span className="italic text-muted-foreground font-normal">
+                      Download from OpenRush to fill
+                    </span>
                   ) : (
                     <span className="italic text-muted-foreground font-normal">Not set</span>
                   )}
@@ -652,6 +798,7 @@ function SeoFieldsEditor({
                   {isPillar ? "Yes — this page is the hub" : "No"}
                 </dd>
               </div>
+              {!isPillar ? (
               <div>
                 <dt className="text-xs text-muted-foreground flex items-center gap-2">
                   Pillar path
@@ -667,6 +814,7 @@ function SeoFieldsEditor({
                   )}
                 </dd>
               </div>
+              ) : null}
             </>
           ) : null}
         </dl>
@@ -674,66 +822,24 @@ function SeoFieldsEditor({
       ) : (
       <div className="rounded-md border border-border bg-muted/20 p-3 space-y-3 text-sm text-muted-foreground">
         <p className="font-medium text-foreground">SEO fields</p>
-        <p>
-          <span className="font-medium text-foreground">Include in SEO clustering</span> saves
-          immediately. Off excludes this page from cluster monitoring (writes{" "}
-          <code className="font-mono text-xs">pillar_path: null</code>) even when the content type has SEO
-          monitoring on. When on, set keyword and hub below, then save. Monthly volume and difficulty are
-          planning estimates for the main keyword — not live traffic. Leaving either blank on save clears
-          that estimate.
-        </p>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
-          onClick={() => setShowAdvanced((v) => !v)}
-          data-testid="button-toggle-seo-fields-advanced"
-        >
-          {showAdvanced ? "Hide advanced details" : "Read more (advanced)"}
-          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`} />
-        </button>
-        {showAdvanced && (
-          <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2 text-xs">
-            <p>
-              Nested <code className="font-mono">seo:</code> on{" "}
-              <code className="font-mono">
-                {directory}/{slug}/{layerFileName || `${locale}.yml`}
-              </code>
-              . Cluster SEO is writable only on live{" "}
-              <code className="font-mono">{`{locale}.yml`}</code> or{" "}
-              <code className="font-mono">{`draft.${locale}.yml`}</code> before any live locale exists.
-              Promoting an experiment keeps live <code className="font-mono">seo:</code>. Opt-out
-              persists as <code className="font-mono">seo.pillar_path: null</code> (empty string is a
-              cluster gap, not opt-out). Research keys:{" "}
-              <code className="font-mono">seo.kw_monthly_volume</code> (integer ≥ 0) and{" "}
-              <code className="font-mono">seo.kw_difficulty</code> (0–100) — not GSC, not template tokens. DB
-              baselines via <code className="font-mono">field_mapping</code>{" "}
-              <code className="font-mono">seo_main_keyword</code> /{" "}
-              <code className="font-mono">seo_is_pillar</code> /{" "}
-              <code className="font-mono">seo_pillar_path</code> only (
-              <code className="font-mono">server/seo-effective-seo.ts</code>). Index:{" "}
-              <code className="font-mono">{"{contentRoot}/seo-index.json"}</code>. Rejected on{" "}
-              <code className="font-mono">_common.yml</code>.
-            </p>
-          </div>
-        )}
         <div className="space-y-3 pt-1">
           <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-background/50 px-3 py-2">
             <div className="min-w-0 space-y-0.5">
               <Label htmlFor="seo-cluster-on" className="text-xs text-foreground">
-                Include in SEO clustering
+                Activate SEO Monitoring
               </Label>
               <p className="text-xs text-muted-foreground">
                 {saving
                   ? "Saving…"
                   : clusterSeoOn
-                    ? "Keyword and pillar fields are editable."
-                    : "Page is excluded from cluster monitoring."}
+                    ? "We’ll track this page’s keyword and hub for SEO clustering. Set those below, then save."
+                    : "This page is left out of SEO monitoring."}
               </p>
             </div>
             <Switch
               id="seo-cluster-on"
               checked={clusterSeoOn}
-              disabled={disabled || saving}
+              disabled={disabled || saving || (!clusterSeoOn && keywordSaveBlocked)}
               onCheckedChange={(checked) => void handleClusterSeoToggle(checked)}
               data-testid="switch-seo-cluster-on"
             />
@@ -780,16 +886,164 @@ function SeoFieldsEditor({
                 </Button>
               )}
             </div>
-            <Input
-              id="seo-main-keyword"
-              className="bg-background"
-              value={mainKeyword}
-              disabled={disabled || saving}
-              onChange={(e) => setMainKeyword(e.target.value)}
-              data-testid="input-seo-main-keyword"
-            />
+            <div className="relative">
+              <Input
+                id="seo-main-keyword"
+                className={cn(
+                  "bg-background",
+                  mainKeyword.trim() &&
+                    !keywordDebouncePending &&
+                    (keywordUniqueness.status === "taken" ||
+                      keywordUniqueness.status === "index_unavailable")
+                    ? "pr-16"
+                    : mainKeyword.trim()
+                      ? "pr-9"
+                      : undefined,
+                )}
+                value={mainKeyword}
+                disabled={disabled || saving}
+                onChange={(e) => setMainKeyword(e.target.value)}
+                data-testid="input-seo-main-keyword"
+              />
+              {!isVariantLayer && mainKeyword.trim() && !keywordDebouncePending ? (
+                <span
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5"
+                  data-testid="icon-seo-keyword-uniqueness"
+                >
+                  {keywordUniqueness.status === "free" ? (
+                    <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" aria-label="Keyword is free" />
+                  ) : keywordUniqueness.status === "taken" ? (
+                    <X className="h-4 w-4 text-destructive" aria-label="Keyword already used" />
+                  ) : keywordUniqueness.status === "index_unavailable" ? (
+                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" aria-label="SEO index unavailable" />
+                  ) : keywordUniqueness.status === "pending" ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Checking keyword" />
+                  ) : null}
+                  {keywordUniqueness.status === "taken" ||
+                  keywordUniqueness.status === "index_unavailable" ? (
+                    <SeoIndexReindexControl
+                      size="compact"
+                      disabled={disabled || saving}
+                      data-testid="button-seo-keyword-reindex"
+                      dialogTestId="dialog-seo-keyword-reindex"
+                      confirmTestId="button-seo-keyword-reindex-confirm"
+                    />
+                  ) : null}
+                </span>
+              ) : null}
+            </div>
+            {!isVariantLayer && mainKeyword.trim() && !keywordDebouncePending ? (
+              keywordUniqueness.status === "taken" ? (
+                <p className="text-xs text-destructive" data-testid="hint-seo-keyword-taken">
+                  Already used by {keywordUniqueness.label}. Save is blocked until you pick a different
+                  exact keyword. If this looks wrong, rebuild the SEO index.
+                </p>
+              ) : keywordUniqueness.status === "index_unavailable" ? (
+                <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="hint-seo-keyword-index-unavailable">
+                  SEO index is unavailable — cannot verify uniqueness. Rebuild the index to continue.
+                </p>
+              ) : keywordUniqueness.status === "free" ? (
+                <p className="text-xs text-muted-foreground" data-testid="hint-seo-keyword-free">
+                  Free on the live site (exact match).
+                </p>
+              ) : null
+            ) : null}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {openrushConfigured && !showMetricsInputs ? (
+              mainKeyword.trim() !== "" ? (
+              <div
+                className="sm:col-span-2 relative rounded-md border border-border bg-background/60 p-3 pr-28 space-y-1.5"
+                data-testid="card-seo-metrics-openrush"
+              >
+                <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-1">
+                  {metricsFormEmpty ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
+                      disabled={disabled || saving}
+                      data-testid="button-seo-metrics-set-manually"
+                      onClick={() => setMetricsManualEditing(true)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Set manually
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      disabled={disabled || saving}
+                      data-testid="button-seo-metrics-edit"
+                      title="Edit volume and difficulty"
+                      aria-label="Edit volume and difficulty"
+                      onClick={() => setMetricsManualEditing(true)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                  <OpenRushFetchControl
+                    kind="keyword"
+                    queryLabel={mainKeyword.trim()}
+                    openrushConfigured={openrushConfigured}
+                    fetchedAt={resolvedKm?.fetched_at}
+                    stale={resolvedKm?.stale}
+                    disabled={disabled || saving || refreshingKeyword}
+                    loading={refreshingKeyword}
+                    data-testid="button-seo-metrics-openrush-refresh"
+                    dialogTestId="dialog-seo-metrics-openrush-refresh"
+                    onConfirm={handleRefreshKeyword}
+                  />
+                </div>
+                <p className="text-xs font-medium text-foreground">Volume &amp; difficulty</p>
+                {metricsFormEmpty &&
+                !(
+                  resolvedKm?.source === "openrush_cache" &&
+                  (typeof resolvedKm.kw_monthly_volume === "number" ||
+                    typeof resolvedKm.kw_difficulty === "number")
+                ) ? (
+                  <p className="text-xs text-muted-foreground" data-testid="text-seo-metrics-openrush-auto">
+                    Download from OpenRush to fill volume and difficulty for this keyword (shared cache —
+                    not page YAML until you set them manually).
+                  </p>
+                ) : (
+                  <>
+                  {metricsFormEmpty ? (
+                    <p className="text-xs text-muted-foreground" data-testid="text-seo-metrics-openrush-auto">
+                      Showing shared OpenRush cache for this keyword (not saved to page YAML unless you set
+                      them manually).
+                    </p>
+                  ) : null}
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-foreground">
+                    <div>
+                      <dt className="text-[11px] text-muted-foreground">Monthly search volume</dt>
+                      <dd data-testid="text-seo-metrics-card-volume">
+                        {kwMonthlyVolume.trim()
+                          ? Number(kwMonthlyVolume).toLocaleString()
+                          : typeof resolvedKm?.kw_monthly_volume === "number"
+                            ? resolvedKm.kw_monthly_volume.toLocaleString()
+                            : "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[11px] text-muted-foreground">Keyword difficulty</dt>
+                      <dd data-testid="text-seo-metrics-card-difficulty">
+                        {kwDifficulty.trim() ||
+                          (typeof resolvedKm?.kw_difficulty === "number"
+                            ? resolvedKm.kw_difficulty
+                            : "—")}
+                      </dd>
+                    </div>
+                  </dl>
+                  </>
+                )}
+              </div>
+              ) : null
+            ) : (
+              <>
             <div className="space-y-1">
               <div className="flex items-center justify-between gap-2">
                 <Label htmlFor="seo-kw-monthly-volume" className="text-xs text-foreground">
@@ -877,8 +1131,27 @@ function SeoFieldsEditor({
                 data-testid="input-seo-kw-difficulty"
               />
             </div>
+            {openrushConfigured ? (
+              <div className="sm:col-span-2">
+                <button
+                  type="button"
+                  className="text-[11px] text-primary hover:underline"
+                  disabled={disabled || saving}
+                  data-testid="button-seo-metrics-use-openrush"
+                  onClick={() => {
+                    setKwMonthlyVolume("");
+                    setKwDifficulty("");
+                    setMetricsManualEditing(false);
+                  }}
+                >
+                  Use OpenRush only
+                </button>
+              </div>
+            ) : null}
+              </>
+            )}
           </div>
-          {researchIncomplete ? (
+          {showResearchIncompleteHint ? (
             <p
               className="text-xs text-amber-700 dark:text-amber-300 flex items-start gap-1.5"
               data-testid="hint-seo-research-incomplete"
@@ -888,28 +1161,28 @@ function SeoFieldsEditor({
               keyword). Blank fields clear the saved estimate on save.
             </p>
           ) : null}
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="seo-is-pillar"
-              checked={isPillar}
-              disabled={disabled || saving}
-              onCheckedChange={(v) => handleTogglePillar(v === true)}
-              data-testid="checkbox-seo-is-pillar"
-            />
-            <Label htmlFor="seo-is-pillar" className="text-xs text-foreground flex items-center gap-2 flex-1">
-              Is pillar
-              {seoSourceBadge(hubRow) && (
-                <Badge variant={seoSourceBadge(hubRow)!.variant} className="text-[10px] font-normal">
-                  {seoSourceBadge(hubRow)!.label}
-                </Badge>
-              )}
-            </Label>
+          <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-background/50 px-3 py-2">
+            <div className="min-w-0 space-y-0.5 flex-1">
+              <Label htmlFor="seo-is-pillar" className="text-xs text-foreground flex items-center gap-2">
+                Is pillar
+                {seoSourceBadge(hubRow) && (
+                  <Badge variant={seoSourceBadge(hubRow)!.variant} className="text-[10px] font-normal">
+                    {seoSourceBadge(hubRow)!.label}
+                  </Badge>
+                )}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {isPillar
+                  ? "This page is the hub for its cluster."
+                  : "Off — pick which hub this page belongs to."}
+              </p>
+            </div>
             {onResetField && hubRow?.layer_has_key && !disabled && (
               <Button
                 type="button"
                 size="icon"
                 variant="ghost"
-                className="h-7 w-7"
+                className="h-7 w-7 shrink-0"
                 title="Reset to database baseline"
                 disabled={!!resettingField || saving}
                 data-testid="button-reset-seo-is_pillar"
@@ -929,10 +1202,18 @@ function SeoFieldsEditor({
                 )}
               </Button>
             )}
+            <Switch
+              id="seo-is-pillar"
+              checked={isPillar}
+              disabled={disabled || saving}
+              onCheckedChange={(checked) => handleTogglePillar(checked)}
+              data-testid="switch-seo-is-pillar"
+            />
           </div>
+          {!isPillar ? (
           <div className="space-y-1">
             <div className="flex items-center justify-between gap-2">
-              <Label htmlFor="seo-pillar-path" className="text-xs text-foreground flex items-center gap-2">
+              <Label className="text-xs text-foreground flex items-center gap-2">
                 Pillar path
                 {seoSourceBadge(pillarRow) && (
                   <Badge variant={seoSourceBadge(pillarRow)!.variant} className="text-[10px] font-normal">
@@ -947,7 +1228,7 @@ function SeoFieldsEditor({
                   variant="ghost"
                   className="h-7 w-7"
                   title="Reset to database baseline"
-                  disabled={!!resettingField || saving || pathLocked}
+                  disabled={!!resettingField || pathLocked}
                   data-testid="button-reset-seo-pillar_path"
                   onClick={() => {
                     setResettingField("seo.pillar_path");
@@ -968,95 +1249,40 @@ function SeoFieldsEditor({
                 </Button>
               )}
             </div>
-            <div className="flex gap-2 min-w-0">
-              <Input
-                id="seo-pillar-path"
-                className="bg-background font-mono text-xs flex-1 min-w-0"
+            <div
+              className={cn(
+                "flex items-center gap-2 min-w-0 rounded-md border border-border bg-background px-2 py-1.5",
+                pathLocked && "pointer-events-none opacity-60",
+              )}
+            >
+              <SitemapSearch
                 value={pillarPath}
-                disabled={pathLocked}
-                onChange={(e) => setPillarPath(e.target.value)}
-                data-testid="input-seo-pillar-path"
+                onChange={(path) => setPillarPath(path)}
+                locale={locale}
+                portalContainer={portalContainer}
+                hideCustomUrl
+                excludePaths={canonicalPath ? [canonicalPath] : undefined}
+                placeholder="Choose hub from sitemap…"
+                testId="seo-pillar-path"
               />
-              <Popover open={chooserOpen} onOpenChange={setChooserOpen} modal={false}>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="shrink-0"
-                    disabled={pathLocked}
-                    data-testid="button-choose-pillar"
-                    onMouseDown={(e) => e.preventDefault()}
-                  >
-                    Choose pillar
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  className="w-80 p-0 z-[10001] pointer-events-auto"
-                  align="end"
-                  container={portalContainer}
-                  onOpenAutoFocus={(e) => {
-                    e.preventDefault();
-                    const input = e.currentTarget.querySelector<HTMLInputElement>("input");
-                    input?.focus({ preventScroll: true });
-                  }}
-                  onCloseAutoFocus={(e) => e.preventDefault()}
-                  onPointerDown={(e) => e.stopPropagation()}
+              {pillarPath.trim() ? (
+                <button
+                  type="button"
+                  className="text-[11px] text-muted-foreground hover:text-foreground shrink-0"
+                  disabled={pathLocked}
+                  data-testid="button-clear-seo-pillar-path"
+                  onClick={() => setPillarPath("")}
                 >
-                  <Command>
-                    <CommandInput
-                      placeholder="Search hubs…"
-                      data-testid="input-choose-pillar-search"
-                    />
-                    <CommandList>
-                      <CommandEmpty data-testid="empty-choose-pillar">
-                        {localeHubs.length === 0
-                          ? "No pillar pages for this locale yet"
-                          : "No matching pillars."}
-                      </CommandEmpty>
-                      {localeHubs.length > 0 && (
-                        <CommandGroup>
-                          {localeHubs.map((cluster) => {
-                            const keyword =
-                              typeof cluster.keyword === "string" ? cluster.keyword.trim() : "";
-                            const slugLabel = deslugifyLabel(
-                              cluster.pillarUrl.replace(/\/+$/, "").split("/").filter(Boolean).pop() || "",
-                            );
-                            const label = keyword
-                              ? deslugifyLabel(keyword)
-                              : slugLabel || cluster.pillarUrl;
-                            return (
-                              <CommandItem
-                                key={cluster.hubId || cluster.pillarUrl}
-                                value={`${label} ${keyword} ${cluster.pillarUrl} ${cluster.hubId ?? ""}`}
-                                onSelect={() => {
-                                  setPillarPath(cluster.pillarUrl);
-                                  setChooserOpen(false);
-                                }}
-                                data-testid={`option-pillar-${cluster.pillarUrl}`}
-                              >
-                                <span className="flex-1 min-w-0 text-xs truncate">
-                                  {label}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground ml-2 shrink-0">
-                                  {cluster.clusterCount} member{cluster.clusterCount === 1 ? "" : "s"}
-                                </span>
-                              </CommandItem>
-                            );
-                          })}
-                        </CommandGroup>
-                      )}
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+                  Clear
+                </button>
+              ) : null}
             </div>
             <p className="text-xs">
-              Choose a hub or type a path. Empty path = cluster gap (still monitored).
+              Pick the hub page from the sitemap. Empty = cluster gap (still monitored).
             </p>
             {isVariantLayer && !seoWriteBlocked && (
               <p className="text-xs" data-testid="text-pillar-chooser-variant-live">
-                List is live hubs. This draft SEO applies when you publish the page.
+                Sitemap lists live public pages. This draft SEO applies when you publish the page.
               </p>
             )}
             {localeMismatch && (
@@ -1078,11 +1304,25 @@ function SeoFieldsEditor({
               </p>
             )}
           </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
-              disabled={disabled || saving}
+              disabled={disabled || saving || keywordSaveBlocked}
               onClick={async () => {
+                if (keywordSaveBlocked) {
+                  toast({
+                    title: "Cannot save SEO fields",
+                    description:
+                      keywordUniqueness.status === "taken"
+                        ? `Main keyword is already used by ${keywordUniqueness.label}.`
+                        : keywordUniqueness.status === "index_unavailable"
+                          ? "SEO index is unavailable. Rebuild the cluster index, then try again."
+                          : "Wait for keyword uniqueness check to finish.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
                 setSaving(true);
                 try {
                   await onSave({
@@ -1090,6 +1330,7 @@ function SeoFieldsEditor({
                     "seo.pillar_path": pillarPath,
                     "seo.is_pillar": isPillar,
                   });
+                  await queryClient.invalidateQueries({ queryKey: ["/api/seo/keyword-owners"] });
                   setSeoFieldsEditing(false);
                 } catch (err) {
                   toast({

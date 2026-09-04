@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   expandKindIdsToTypes,
   formatAgentLabel,
+  isEntryActivityRelatedIssueType,
+  isEntryActivityRelatedType,
   parseActorIds,
   parseAgentFilter,
+  parseEntryFilterKeys,
   parseKindIds,
   primaryActorBucket,
   AGENT_FILTER_OTHER,
+  ENTRY_ACTIVITY_RELATED_TYPES,
   resolveAgentId,
   serializeAgentFilter,
 } from "@shared/event-log-filters";
@@ -74,5 +78,22 @@ describe("parse helpers", () => {
   it("expands kinds to types", () => {
     expect(expandKindIdsToTypes(["completes"])).toEqual(["validation_issue_completed"]);
     expect(expandKindIdsToTypes(["bogus"])).toEqual([]);
+  });
+
+  it("parses entry filter keys", () => {
+    expect(parseEntryFilterKeys("blog/a/en,page/home/en")).toEqual(["blog/a/en", "page/home/en"]);
+    expect(parseEntryFilterKeys("bad,blog/a/en,blog/a/en")).toEqual(["blog/a/en"]);
+    expect(parseEntryFilterKeys("landing/foo/es@draft")).toEqual(["landing/foo/es@draft"]);
+  });
+});
+
+describe("ENTRY_ACTIVITY_RELATED_TYPES", () => {
+  it("covers claims, completes, and session kinds only", () => {
+    expect(ENTRY_ACTIVITY_RELATED_TYPES).toContain("validation_issue_claimed");
+    expect(ENTRY_ACTIVITY_RELATED_TYPES).toContain("validation_issue_completed");
+    expect(ENTRY_ACTIVITY_RELATED_TYPES).toContain("agent_session_note");
+    expect(isEntryActivityRelatedType("seo_index_ready")).toBe(false);
+    expect(isEntryActivityRelatedIssueType("agent_session_note")).toBe(false);
+    expect(isEntryActivityRelatedIssueType("validation_issue_claimed")).toBe(true);
   });
 });

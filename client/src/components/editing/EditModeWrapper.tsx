@@ -525,6 +525,11 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
               prompt={draftFeedbackPrompt}
               disabled={!draftFeedbackPrompt}
               testId="share-draft-ai-agent"
+              entryKey={
+                contentInfo.type && contentInfo.slug
+                  ? `${contentInfo.type}/${contentInfo.slug}/${urlLocale}`
+                  : undefined
+              }
               onAgentSelect={({ agentId, setupTab, label, prompt, prefillUrlPrefix }) => {
                 setShareDraftOpen(false);
                 setMcpRequiredAgentId(agentId);

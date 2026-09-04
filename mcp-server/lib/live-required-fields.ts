@@ -132,5 +132,42 @@ export function editApiErrorResult(
       contentType: ctx?.contentType,
     });
   }
-  return fail(errMsg);
+  if (data.code === "seo_keyword_taken" || data.code === "seo_index_unavailable") {
+    return fail(errMsg, {
+      code: data.code,
+      warnings: [
+        {
+          code: String(data.code),
+          message:
+            data.code === "seo_keyword_taken"
+              ? "Live seo.main_keyword must be unique across the whole site (exact string after trim). Case differs are allowed. Current entry may keep its own keyword. Does not check drafts/variants."
+              : "On-disk seo-index.json is missing or invalid — uniqueness cannot be verified. Rebuild the cluster index, then retry. No YAML write occurred.",
+        },
+      ],
+      side_effects: [],
+      next_actions: [
+        {
+          tool: "get_entry_seo",
+          priority: "recommended" as const,
+          reason: "Confirm current main_keyword before retrying.",
+          args_hint: {
+            slug: ctx?.slug,
+            locale: ctx?.locale ?? "en",
+            contentType: ctx?.contentType,
+          },
+        },
+        ...(data.code === "seo_keyword_taken"
+          ? [
+              {
+                tool: "list_seo_cluster_entries",
+                priority: "optional" as const,
+                reason: "Find which live entry already owns this exact keyword.",
+                args_hint: { bucket: "clustered", q: errMsg },
+              },
+            ]
+          : []),
+      ],
+    });
+  }
+  return fail(errMsg, data.code ? { code: data.code } : undefined);
 }
