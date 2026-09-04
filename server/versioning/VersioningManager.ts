@@ -24,7 +24,26 @@ import {
 } from "../shared-layout-paths";
 const log = child({ module: "versioning/VersioningManager" });
 
+export type VariantContentSuccess = { ok: true; data: unknown };
+export type VariantContentFailure = {
+  ok: false;
+  reason: "missing" | "parse_error";
+  message: string;
+  /** Absolute path when known (parse_error); empty when missing. */
+  filePath: string;
+};
+export type VariantContentResult = VariantContentSuccess | VariantContentFailure;
 
+function formatYamlLoadError(error: unknown): string {
+  if (error && typeof error === "object" && "mark" in error) {
+    const e = error as { message?: string; mark?: { line: number; column: number } };
+    if (e.mark && typeof e.mark.line === "number") {
+      const base = e.message?.trim() || "YAML parse error";
+      return `${base} (line ${e.mark.line + 1}, column ${(e.mark.column ?? 0) + 1})`;
+    }
+  }
+  return error instanceof Error ? error.message : String(error);
+}
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
@@ -417,16 +436,16 @@ export class VersioningManager {
     return null;
   }
 
-  private loadVariantContent(
+  private loadVariantContentResult(
     contentType: string,
     slug: string,
     variantSlug: string,
     locale: string
-  ): unknown | null {
+  ): VariantContentResult {
     const cacheKey = `${contentType}:${slug}:${variantSlug}.${locale}`;
 
     if (this.contentCache.has(cacheKey)) {
-      return this.contentCache.get(cacheKey);
+      return { ok: true, data: this.contentCache.get(cacheKey) };
     }
 
     const templateMode = isTemplateVersioningSlug(slug);
@@ -434,10 +453,16 @@ export class VersioningManager {
     const filePath = this.findVariantFile(contentDir, variantSlug, locale, templateMode);
 
     if (!filePath) {
-      log.warn(
-        `[Versioning] Variant file not found: ${templateMode ? variantTemplateBasename(variantSlug, locale) : `${variantSlug}.${locale}.yml`} in ${contentDir}`,
-      );
-      return null;
+      const expected = templateMode
+        ? variantTemplateBasename(variantSlug, locale)
+        : `${variantSlug}.${locale}.yml`;
+      log.warn(`[Versioning] Variant file not found: ${expected} in ${contentDir}`);
+      return {
+        ok: false,
+        reason: "missing",
+        message: `Variant file not found: ${expected}`,
+        filePath: "",
+      };
     }
 
     try {
@@ -447,7 +472,7 @@ export class VersioningManager {
         const vParsed = yaml.load(vEsc) as Record<string, unknown>;
         const variantData = (vParsed ? unescapeObjectVars(vParsed, vMap) : {}) as Record<string, unknown>;
         this.contentCache.set(cacheKey, variantData);
-        return variantData;
+        return { ok: true, data: variantData };
       }
 
       const commonPath = path.join(contentDir, "_common.yml");
@@ -466,10 +491,16 @@ export class VersioningManager {
 
       const merged = deepMerge(commonData, variantData);
       this.contentCache.set(cacheKey, merged);
-      return merged;
+      return { ok: true, data: merged };
     } catch (error) {
+      const message = formatYamlLoadError(error);
       log.error({ err: error }, `[Versioning] Error loading variant content:`);
-      return null;
+      return {
+        ok: false,
+        reason: "parse_error",
+        message,
+        filePath,
+      };
     }
   }
 
@@ -571,6 +602,18 @@ export class VersioningManager {
   }
 
   /**
+   * Load variant content with structured success/failure (missing vs parse error).
+   */
+  public getVariantContentResult(
+    contentType: string,
+    slug: string,
+    variantSlug: string,
+    locale: string
+  ): VariantContentResult {
+    return this.loadVariantContentResult(contentType, slug, variantSlug, locale);
+  }
+
+  /**
    * Load variant content. Used when force_variant is set or after assignment.
    */
   public getVariantContent(
@@ -579,7 +622,8 @@ export class VersioningManager {
     variantSlug: string,
     locale: string
   ): unknown | null {
-    return this.loadVariantContent(contentType, slug, variantSlug, locale);
+    const result = this.loadVariantContentResult(contentType, slug, variantSlug, locale);
+    return result.ok ? result.data : null;
   }
 
   /**

@@ -161,6 +161,23 @@ describe("buildStaff404Model", () => {
     expect(model.actions).not.toContain("openDraft");
   });
 
+  it("yaml load failed → distinct title and Edit YAML even without yamlExists", () => {
+    const model = buildStaff404Model(
+      defaultStaff404Facts({
+        yamlExists: false,
+        yamlLoadFailed: true,
+        yamlLoadDetails: "bad indentation (line 12, column 3)",
+        yamlLoadFile: "site_4geeks-com/landings/x/draft.es.yml",
+        requestedVariant: "draft",
+        typeLabel: "Landing",
+      }),
+    );
+    expect(model.title).toBe("This draft’s YAML couldn’t be loaded");
+    expect(model.happened[0]).toContain("could not be read");
+    expect(model.happened[0]).not.toContain("was not found");
+    expect(model.actions).toContain("editYaml");
+  });
+
   it("invalid type → no dashboard; Go back only if history; plus rebuild", () => {
     const model = buildStaff404Model(
       defaultStaff404Facts({

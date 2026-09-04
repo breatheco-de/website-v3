@@ -20,7 +20,7 @@ import {
   loadSectionComponent,
   normalizeSectionVariant,
 } from "@/components/sectionRegistry";
-
+import { SectionRenderErrorBoundary } from "@/components/editing/SectionRenderErrorBoundary";
 
 // Spacing presets in pixels (top, bottom)
 const SPACING_PRESETS: Record<string, { top: string; bottom: string }> = {
@@ -410,6 +410,8 @@ interface SectionRendererProps {
   /** When false, hide entry-scoped structural actions on attached shared-layout pages. */
   allowEntryStructuralOverrides?: boolean;
   perEntryRemovedSections?: Array<{ section: Record<string, unknown>; originalIndex: number }>;
+  /** Staff preview: open raw YAML editor when a section fails to render. */
+  onEditYaml?: () => void;
 }
 
 function EmptyPageState({ 
@@ -644,7 +646,7 @@ function toSingularLabel(ct: string | undefined, rawTypes: { name: string; label
   return lower;
 }
 
-export function SectionRenderer({ sections, settings, contentType, slug, locale, variant, version, programSlug, landingLocations, isSharedTemplate, singleEntry, meta, param, funnel, allowEntryStructuralOverrides = true, perEntryRemovedSections }: SectionRendererProps) {
+export function SectionRenderer({ sections, settings, contentType, slug, locale, variant, version, programSlug, landingLocations, isSharedTemplate, singleEntry, meta, param, funnel, allowEntryStructuralOverrides = true, perEntryRemovedSections, onEditYaml }: SectionRendererProps) {
   const { toast } = useToast();
   const editMode = useEditModeOptional();
   const isEditMode = editMode?.isEditMode ?? false;
@@ -1603,36 +1605,42 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
                 </>
               )}
               <div style={contentLayerStyles}>
-                {isEditMode ? (
-                  <Suspense fallback={null}>
-                    <EditableSection
-                      section={rawSection}
-                      index={index}
-                      sectionType={sectionType}
-                      contentType={contentType}
-                      slug={slug}
-                      locale={locale}
-                      variant={variant}
-                      totalSections={sections.length}
-                      allSections={sections}
-                      isSharedTemplate={isSharedTemplate}
-                      singleEntry={singleEntry}
-                      allowEntryStructuralOverrides={allowEntryStructuralOverrides}
-                      onMoveUp={handleMoveUp}
-                      onMoveDown={handleMoveDown}
-                      onDelete={handleDelete}
-                      onDuplicate={handleDuplicate}
-                    >
-                      <VariableHighlightProvider sectionIndex={index} contentType={contentType} hasSingleVars={!!singleEntry} singleEntry={singleEntry}>
-                        {renderedSection}
-                      </VariableHighlightProvider>
-                    </EditableSection>
-                  </Suspense>
-                ) : (
-                  <VariableHighlightProvider sectionIndex={index} contentType={contentType} hasSingleVars={!!singleEntry} singleEntry={singleEntry}>
-                    {renderedSection}
-                  </VariableHighlightProvider>
-                )}
+                <SectionRenderErrorBoundary
+                  sectionType={sectionType}
+                  sectionId={sectionId}
+                  onEditYaml={onEditYaml}
+                >
+                  {isEditMode ? (
+                    <Suspense fallback={null}>
+                      <EditableSection
+                        section={rawSection}
+                        index={index}
+                        sectionType={sectionType}
+                        contentType={contentType}
+                        slug={slug}
+                        locale={locale}
+                        variant={variant}
+                        totalSections={sections.length}
+                        allSections={sections}
+                        isSharedTemplate={isSharedTemplate}
+                        singleEntry={singleEntry}
+                        allowEntryStructuralOverrides={allowEntryStructuralOverrides}
+                        onMoveUp={handleMoveUp}
+                        onMoveDown={handleMoveDown}
+                        onDelete={handleDelete}
+                        onDuplicate={handleDuplicate}
+                      >
+                        <VariableHighlightProvider sectionIndex={index} contentType={contentType} hasSingleVars={!!singleEntry} singleEntry={singleEntry}>
+                          {renderedSection}
+                        </VariableHighlightProvider>
+                      </EditableSection>
+                    </Suspense>
+                  ) : (
+                    <VariableHighlightProvider sectionIndex={index} contentType={contentType} hasSingleVars={!!singleEntry} singleEntry={singleEntry}>
+                      {renderedSection}
+                    </VariableHighlightProvider>
+                  )}
+                </SectionRenderErrorBoundary>
                 {isEditMode && (
                   <Suspense fallback={null}>
                     <AddSectionButton

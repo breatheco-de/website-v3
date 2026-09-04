@@ -1,4 +1,12 @@
-export { VersioningManager, getVersioningManager } from "./VersioningManager";
+export {
+  VersioningManager,
+  getVersioningManager,
+} from "./VersioningManager";
+export type {
+  VariantContentResult,
+  VariantContentSuccess,
+  VariantContentFailure,
+} from "./VersioningManager";
 export {
   readUserId,
   getVersioningCookie,

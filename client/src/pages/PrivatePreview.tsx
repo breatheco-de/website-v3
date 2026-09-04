@@ -59,6 +59,16 @@ type PreviewVariantRow = PreviewVariantOption & {
   allocation: number | null;
 };
 
+type PreviewLoadError = Error & {
+  code?: string;
+  details?: string;
+  file?: string;
+};
+
+function isYamlParsePreviewError(err: unknown): err is PreviewLoadError {
+  return !!err && typeof err === "object" && (err as PreviewLoadError).code === "yaml_parse";
+}
+
 // Only special-case types whose API path differs from their registry directory name.
 // For all other known content types, the directory from the registry is used as the API path.
 const STATIC_API_PATHS: Record<string, string> = {
@@ -124,7 +134,20 @@ export default function PrivatePreview() {
       try {
         const response = await apiFetch(url, { signal: timeoutCtrl.signal });
         if (!response.ok) {
-          throw new Error("Content not found");
+          let body: { error?: string; code?: string; details?: string; file?: string } | null = null;
+          try {
+            body = await response.json();
+          } catch {
+            /* ignore non-JSON error bodies */
+          }
+          if (body?.code === "yaml_parse") {
+            const err = new Error(body.error || "YAML could not be loaded") as PreviewLoadError;
+            err.code = "yaml_parse";
+            err.details = body.details;
+            err.file = body.file;
+            throw err;
+          }
+          throw new Error(body?.error || "Content not found");
         }
         return response.json();
       } catch (err) {
@@ -142,11 +165,20 @@ export default function PrivatePreview() {
 
   const contentMissing = !!error || !content;
   const recoveryEnabled = !!slug && isValidContentType && !typesLoading && !isLoading && contentMissing && !isDeviceShell;
+  const yamlLoadFailed = isYamlParsePreviewError(error);
+  const yamlLoadDetails = yamlLoadFailed ? error.details ?? null : null;
+  const yamlLoadFile = yamlLoadFailed ? error.file ?? null : null;
 
   const { data: rawFileCheck } = useQuery<{ exists: boolean }>({
-    queryKey: ["/api/content/raw-file", normalizedType, slug, locale],
+    queryKey: ["/api/content/raw-file", normalizedType, slug, locale, variant],
     queryFn: async () => {
-      const res = await fetch(`/api/content/raw-file?contentType=${normalizedType}&slug=${slug}&locale=${locale}`);
+      const qs = new URLSearchParams({
+        contentType: normalizedType,
+        slug: slug!,
+        locale,
+      });
+      if (variant) qs.set("variantSlug", variant);
+      const res = await fetch(`/api/content/raw-file?${qs.toString()}`);
       if (!res.ok) return { exists: false };
       const data = await res.json();
       return { exists: !!data.exists };
@@ -343,10 +375,13 @@ export default function PrivatePreview() {
               hasEntryVariants={!listingSharedTemplate && availableVariants.length > 0}
               variantsLoading={variantsPending}
               hasTemplateVariants={listingSharedTemplate && availableVariants.length > 0}
-              requestedVariantMissing={requestedVariantMissing}
+              requestedVariantMissing={requestedVariantMissing && !yamlLoadFailed}
               requestedVariant={variant}
               locale={locale}
-              yamlExists={!!rawFileCheck?.exists}
+              yamlExists={!!rawFileCheck?.exists || yamlLoadFailed}
+              yamlLoadFailed={yamlLoadFailed}
+              yamlLoadDetails={yamlLoadDetails}
+              yamlLoadFile={yamlLoadFile}
               staffOrEditMode
               onEditYaml={() => setShowRawEditor(true)}
               onEditTemplates={() => setVariantModal("templates")}
@@ -374,6 +409,7 @@ export default function PrivatePreview() {
               contentType={normalizedType}
               slug={slug}
               locale={locale}
+              variantSlug={variant ?? undefined}
               onClose={() => setShowRawEditor(false)}
               onSaved={() => window.location.reload()}
             />
@@ -387,6 +423,19 @@ export default function PrivatePreview() {
   const isSharedLayout = !!(typeInfo?.has_database || typeInfo?.single_template);
   const isSharedTemplate = isSharedLayout && !pageDetached;
   const isDetached = isSharedLayout && pageDetached;
+
+  const rawEditor = showRawEditor ? (
+    <Suspense fallback={null}>
+      <RawFileEditorPanel
+        contentType={normalizedType}
+        slug={slug!}
+        locale={locale}
+        variantSlug={variant ?? undefined}
+        onClose={() => setShowRawEditor(false)}
+        onSaved={() => window.location.reload()}
+      />
+    </Suspense>
+  ) : null;
 
   return (
     <div data-testid={`preview-${contentType}-${slug}`}>
@@ -422,6 +471,7 @@ export default function PrivatePreview() {
           meta={(content as any).meta}
           param={(content as any).param}
           allowEntryStructuralOverrides={!isSharedLayout || pageDetached}
+          onEditYaml={() => setShowRawEditor(true)}
         />
       </MenuVisualContextProvider>
       <div className="group relative">
@@ -443,6 +493,7 @@ export default function PrivatePreview() {
           isDetached={isDetached}
         />
       </div>
+      {rawEditor}
     </div>
   );
 }

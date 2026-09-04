@@ -28,6 +28,10 @@ export interface Staff404Facts {
   requestedVariant?: string | null;
   locale?: string;
   yamlExists: boolean;
+  /** Variant YAML exists but could not be parsed/loaded. */
+  yamlLoadFailed?: boolean;
+  yamlLoadDetails?: string | null;
+  yamlLoadFile?: string | null;
   hops: RedirectTraceHop[];
   rebuilt: boolean;
   historyLength: number;
@@ -104,6 +108,10 @@ export function buildStaff404Model(facts: Staff404Facts): Staff404Model {
 
   if (!facts.isValidType && facts.surface === "privatePreview") {
     happened.push(`\`${facts.contentType ?? ""}\` is not a valid content type.`);
+  } else if (facts.yamlLoadFailed) {
+    happened.push(
+      "This draft’s YAML file could not be read, so the preview cannot build. Use Edit YAML to fix it.",
+    );
   } else if (facts.surface === "public") {
     happened.push(STAFF_404_UNKNOWN_PUBLIC_PAGE);
   } else if (facts.listingSharedTemplate) {
@@ -130,6 +138,8 @@ export function buildStaff404Model(facts: Staff404Facts): Staff404Model {
   let title: string;
   if (!facts.isValidType && facts.surface === "privatePreview") {
     title = "Invalid Content Type";
+  } else if (facts.yamlLoadFailed) {
+    title = "This draft’s YAML couldn’t be loaded";
   } else if (facts.listingSharedTemplate) {
     title = `${facts.typeLabel} not found`;
   } else if (facts.isDraftOnly && facts.surface === "privatePreview") {
@@ -173,7 +183,7 @@ export function buildStaff404Model(facts: Staff404Facts): Staff404Model {
     actions.push("rebuild");
   }
 
-  if (facts.yamlExists) {
+  if (facts.yamlExists || facts.yamlLoadFailed) {
     actions.push("editYaml");
   }
 
@@ -226,7 +236,7 @@ export function staff404ActionCopy(
     case "editYaml":
       return {
         title: "Edit YAML",
-        description: "Open the YAML file on disk",
+        description: "Open the YAML file on disk and fix it",
         buttonLabel: "Edit YAML",
       };
     case "openRedirects":
@@ -276,6 +286,9 @@ export function defaultStaff404Facts(overrides: Partial<Staff404Facts> = {}): St
     hasTemplateVariants: false,
     requestedVariantMissing: false,
     yamlExists: false,
+    yamlLoadFailed: false,
+    yamlLoadDetails: null,
+    yamlLoadFile: null,
     hops: [],
     rebuilt: false,
     historyLength: 2,

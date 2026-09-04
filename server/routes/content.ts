@@ -416,6 +416,33 @@ function getContentRoot(res: Response): string {
   return (res.locals.site as any)?.contentRoot ?? getDefaultContentRoot();
 }
 
+/** Relative path for staff-facing YAML parse errors under the site content folder. */
+function toContentRelativePath(absPath: string): string {
+  const cwd = process.cwd();
+  if (absPath.startsWith(cwd + path.sep)) {
+    return absPath.slice(cwd.length + 1);
+  }
+  return absPath;
+}
+
+/**
+ * When force_variant YAML exists but won't parse, respond 422 and return true.
+ * Missing variants return false so callers keep existing fallthrough / 404 behavior.
+ */
+function tryRespondForceVariantYamlParseError(
+  res: Response,
+  result: import("../versioning").VariantContentResult,
+): boolean {
+  if (result.ok || result.reason !== "parse_error") return false;
+  res.status(422).json({
+    error: "YAML could not be loaded",
+    code: "yaml_parse",
+    details: result.message,
+    file: result.filePath ? toContentRelativePath(result.filePath) : undefined,
+  });
+  return true;
+}
+
 function contentParamBag(
   req: { query: Request["query"] },
   res: Response,
@@ -472,9 +499,10 @@ export function registerContentRoutes(app: Express): void {
     // If force_variant is provided, load that variant directly (for preview)
     if (forceVariant) {
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
-      const forcedContent = versioningManager.getVariantContent("program", slug, forceVariant, locale);
-      if (forcedContent) {
-        program = forcedContent as unknown as CareerProgram;
+      const forcedResult = versioningManager.getVariantContentResult("program", slug, forceVariant, locale);
+      if (tryRespondForceVariantYamlParseError(res, forcedResult)) return;
+      if (forcedResult.ok) {
+        program = forcedResult.data as unknown as CareerProgram;
       }
     }
 
@@ -585,9 +613,10 @@ export function registerContentRoutes(app: Express): void {
     // If force_variant is provided, load that variant directly (for preview)
     if (forceVariant) {
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
-      const forcedContent = versioningManager.getVariantContent("landing", baseSlug, forceVariant, locale);
-      if (forcedContent) {
-        landing = forcedContent as LandingPage;
+      const forcedResult = versioningManager.getVariantContentResult("landing", baseSlug, forceVariant, locale);
+      if (tryRespondForceVariantYamlParseError(res, forcedResult)) return;
+      if (forcedResult.ok) {
+        landing = forcedResult.data as LandingPage;
       }
     }
 
@@ -685,9 +714,10 @@ export function registerContentRoutes(app: Express): void {
 
     if (forceVariant) {
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
-      const forcedContent = versioningManager.getVariantContent("location", slug, forceVariant, locale);
-      if (forcedContent) {
-        location = forcedContent as ReturnType<typeof loadLocationPage>;
+      const forcedResult = versioningManager.getVariantContentResult("location", slug, forceVariant, locale);
+      if (tryRespondForceVariantYamlParseError(res, forcedResult)) return;
+      if (forcedResult.ok) {
+        location = forcedResult.data as ReturnType<typeof loadLocationPage>;
       }
     }
 
@@ -795,9 +825,10 @@ export function registerContentRoutes(app: Express): void {
 
     if (forceVariant) {
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
-      const forcedContent = versioningManager.getVariantContent("page", "apply", forceVariant, locale);
-      if (forcedContent) {
-        page = forcedContent as ReturnType<typeof loadTemplatePage>;
+      const forcedResult = versioningManager.getVariantContentResult("page", "apply", forceVariant, locale);
+      if (tryRespondForceVariantYamlParseError(res, forcedResult)) return;
+      if (forcedResult.ok) {
+        page = forcedResult.data as ReturnType<typeof loadTemplatePage>;
       }
     }
 
@@ -842,9 +873,10 @@ export function registerContentRoutes(app: Express): void {
 
     if (forceVariant) {
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
-      const forcedContent = versioningManager.getVariantContent("page", slug, forceVariant, locale);
-      if (forcedContent) {
-        page = forcedContent as ReturnType<typeof loadTemplatePage>;
+      const forcedResult = versioningManager.getVariantContentResult("page", slug, forceVariant, locale);
+      if (tryRespondForceVariantYamlParseError(res, forcedResult)) return;
+      if (forcedResult.ok) {
+        page = forcedResult.data as ReturnType<typeof loadTemplatePage>;
       }
     }
 
@@ -1128,9 +1160,10 @@ export function registerContentRoutes(app: Express): void {
     if (forceVariant) {
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       const versioningSlug = resolveVersioningReadSlug(contentType, slug, root);
-      const forcedContent = versioningManager.getVariantContent(contentType, versioningSlug, forceVariant, locale);
-      if (forcedContent) {
-        variantPage = forcedContent as Record<string, unknown>;
+      const forcedResult = versioningManager.getVariantContentResult(contentType, versioningSlug, forceVariant, locale);
+      if (tryRespondForceVariantYamlParseError(res, forcedResult)) return;
+      if (forcedResult.ok) {
+        variantPage = forcedResult.data as Record<string, unknown>;
       }
     }
 

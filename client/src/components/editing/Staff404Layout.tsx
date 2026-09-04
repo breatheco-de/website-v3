@@ -49,6 +49,9 @@ export default function Staff404Layout({
   requestedVariant,
   locale,
   yamlExists = false,
+  yamlLoadFailed = false,
+  yamlLoadDetails = null,
+  yamlLoadFile = null,
   staffOrEditMode = true,
   headingOverride,
   compact = false,
@@ -70,6 +73,9 @@ export default function Staff404Layout({
   requestedVariant?: string | null;
   locale?: string;
   yamlExists?: boolean;
+  yamlLoadFailed?: boolean;
+  yamlLoadDetails?: string | null;
+  yamlLoadFile?: string | null;
   staffOrEditMode?: boolean;
   headingOverride?: string;
   compact?: boolean;
@@ -80,6 +86,7 @@ export default function Staff404Layout({
   const hops = useRedirectTraceHops();
   const { busy, rebuild, confirmOpen, setConfirmOpen, requestRebuild } = useRebuildContentUrls();
   const [hopsExpanded, setHopsExpanded] = useState(false);
+  const [yamlAdvancedOpen, setYamlAdvancedOpen] = useState(false);
   const [historyLength, setHistoryLength] = useState(1);
   const searchString = useSearch();
   const rebuilt = hasRebuiltQueryParam(searchString);
@@ -104,6 +111,9 @@ export default function Staff404Layout({
       requestedVariant,
       locale,
       yamlExists,
+      yamlLoadFailed,
+      yamlLoadDetails,
+      yamlLoadFile,
       hops,
       rebuilt,
       historyLength,
@@ -124,6 +134,9 @@ export default function Staff404Layout({
       requestedVariant,
       locale,
       yamlExists,
+      yamlLoadFailed,
+      yamlLoadDetails,
+      yamlLoadFile,
       hops,
       rebuilt,
       historyLength,
@@ -170,6 +183,36 @@ export default function Staff404Layout({
             ),
           )}
         </div>
+        {yamlLoadFailed && (yamlLoadDetails || yamlLoadFile) && (
+          <div className="mt-3">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setYamlAdvancedOpen((v) => !v)}
+              data-testid="button-toggle-yaml-advanced"
+            >
+              {yamlAdvancedOpen ? "Hide details" : "Read more (advanced)"}
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${yamlAdvancedOpen ? "rotate-180" : ""}`}
+              />
+            </button>
+            {yamlAdvancedOpen && (
+              <div
+                className="mt-2 rounded-md border border-border bg-card p-3 space-y-1.5 text-left"
+                data-testid="staff-404-yaml-advanced"
+              >
+                {yamlLoadFile && (
+                  <p className="text-xs font-mono text-foreground break-all">{yamlLoadFile}</p>
+                )}
+                {yamlLoadDetails && (
+                  <p className="text-xs font-mono text-muted-foreground whitespace-pre-wrap break-words">
+                    {yamlLoadDetails}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {hops.length > 0 && lastHop && (
           <div className="mt-3 rounded-md border border-border bg-card p-3">
             {!multiHop ? (
