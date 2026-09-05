@@ -1,13 +1,47 @@
 name: Geekchart
 version: "1.0"
 component: Geekchart
-file: client/src/components/chart/variants/ChartDefault.tsx
+file: client/src/components/geekchart/variants/GeekchartDefault.tsx
 description: An animated mermaid diagram, drawn server-side into a designed SVG.
 when_to_use: |
   Use to place a diagram — a flowchart, sequence, or similar mermaid chart — as its
   own section on any page. The mermaid source is the same syntax used in a
   ```mermaid fence inside an `article` body; this section renders it standalone,
   with an optional caption underneath.
+
+  AUTHORING RULES — follow these and the chart comes out clean; ignore them and
+  it will render, but worse:
+
+  Shapes that render beautifully (prefer these):
+  - A linear chain of steps (A --> B --> C): wraps into tidy reading-order rows.
+  - A decision (diamond) with yes/no branches: terminal outcomes sit beside the
+    diamond; a cascade of checks reads as one spine.
+  - A hub fanning out to (or in from) several boxes: drawn as one bus with one
+    shared trunk. Label every branch or none.
+  - A tree / org chart: every parent centres over its children.
+  - A cycle (last node back to the first): drawn as a ring.
+  - Subgraphs: compact titled panels; point cross-panel edges at the SHAPES
+    inside, not at the subgraph name, unless you mean "into the whole system".
+
+  Hard numeric limits the renderer enforces:
+  - Edge labels: 28 characters max per line; wraps to two lines; longer is cut
+    and warned. A label that long is a sentence — put sentences in captions.
+  - Node names: keep them short. Boxes are fixed-size; a name that cannot wrap
+    to two lines is shortened with an ellipsis, never given a wider box.
+  - Two-tier nodes read best: Name<br/>short caption (e.g. "Deploy<br/>ships
+    to Production").
+  - Height: more than ~6 rows of boxes triggers a phone-height warning. If you
+    get it, switch the direction to LR FIRST — it usually fixes the height
+    without losing content; only then consider fewer boxes or two short charts.
+  - Keep it under ~15 nodes. These are editorial diagrams, not system maps.
+
+  VALIDATE BEFORE YOU FINISH — never ship a chart you have not previewed:
+  1. Create a preview with create_component_section_demo and this section's
+     YAML; it validates the source and returns a preview_url.
+  2. The tool's response carries render_warnings from the chart renderer.
+     Fix the source and create a new demo until render_warnings is empty —
+     a warning means a rule above was broken.
+  3. Only then add the section to the real entry.
 props:
   source:
     type: string

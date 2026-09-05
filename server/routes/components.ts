@@ -235,6 +235,7 @@ import {
   readDemo,
   readDemoYamlText,
 } from "../component-section-demos";
+import { renderToSvg } from "geekchart/server";
 import { child } from "../logger";
 const log = child({ module: "routes/components" });
 
@@ -335,12 +336,34 @@ export function registerComponentsRoutes(app: Express): void {
         throw e;
       }
 
+      // A geekchart demo is rendered here, at demo-creation time, so the
+      // caller (an MCP agent, usually) sees the same DESIGN warnings the
+      // editor shows a human - the feedback loop that lets it iterate to a
+      // clean chart instead of shipping the first draft.
+      let renderWarnings: string[] | undefined;
+      let renderError: string | undefined;
+      if (componentType === "geekchart") {
+        const src = typeof validated.section.source === "string" ? validated.section.source : "";
+        const dur = typeof validated.section.duration === "number" ? validated.section.duration : undefined;
+        try {
+          const r = await renderToSvg(src, {
+            display: { desktop: 612, phone: 358 },
+            ...(dur ? { duration: dur } : {}),
+          });
+          renderWarnings = (r.warnings ?? []).map(String);
+        } catch (e) {
+          renderError = (e as Error).message;
+        }
+      }
+
       res.status(201).json({
         hash: created.hash,
         preview_url: created.previewUrl,
         path: created.relativePath,
         componentType,
         version: validated.version,
+        ...(renderWarnings !== undefined ? { render_warnings: renderWarnings } : {}),
+        ...(renderError !== undefined ? { render_error: renderError } : {}),
       });
     } catch (error) {
       log.error({ err: error }, "Failed to create component section demo");
