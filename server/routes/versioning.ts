@@ -348,6 +348,14 @@ export function registerVersioningRoutes(app: Express): void {
     }
     const hasLiveDefault = hasAnyLiveLocale(contentDir, templateMode, availableLocales);
 
+    // Editorial title from ContentIndex (YAML `title`), not deslugified folder slug
+    let title: string | null = null;
+    if (entrySlug) {
+      const indexed = getCI(res).findBySlug(entrySlug, { contentType });
+      const indexedTitle = indexed[0]?.title?.trim();
+      if (indexedTitle) title = indexedTitle;
+    }
+
     if (!versioning) {
       res.json({
         versioning: null,
@@ -360,6 +368,7 @@ export function registerVersioningRoutes(app: Express): void {
         hasLiveDefault,
         liveByLocale,
         isDraft: !hasLiveDefault && !shared,
+        title,
       });
       return;
     }
@@ -375,6 +384,7 @@ export function registerVersioningRoutes(app: Express): void {
       hasLiveDefault,
       liveByLocale,
       isDraft: !hasLiveDefault && !shared,
+      title,
     });
   });
 

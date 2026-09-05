@@ -44,6 +44,7 @@ YAML merge / content types → topic `content_system`. Page funnel stage / money
 ### Live SEO meta gates
 
 - **Live locale writes / publish / promote** require resolved non-empty `meta.page_title` and `meta.description` (no leftover `{{ }}`). Draft-only writes are exempt. Gate: `server/live-entry-seo-gate.ts` + `shared/validateRequiredMeta.ts`.
+- **Diagnostics `meta` validator** resolves site vars (`global.*` / `brand.*`) the same way as that live gate (`resolveAllTemplateVars` with `skipSiteVars: false`) before required-title/description checks — resolved templates are not false `MISSING_*` / `META_USES_GLOBAL_VAR`.
 - **Circular trap (meta vs body):** When a micro-save **touches** required SEO meta or editor.required paths (or on publish / full replace), the gate validates those fields on the post-write merged document. If both `meta.description` and body `description` are empty strings, fixing only one side still fails the other gate. Remedy: set all missing paths in **one** multi-field write — MCP `update_fields` (or `edit-sections` with multiple `update_field` ops). Multi-entry `update_meta_fields` is meta-only and cannot set body `description`. Failures return `code: live_required_fields` + `missing_fields` and MCP `action_required: fix_live_required_fields`. Structural micro-saves with empty `touchedPaths` skip this sweep (gaps → Diagnostics).
 
 Field-level `editor.required`, reattach gates, schema_org companions, and empty-locale rules → topic `content_system`.

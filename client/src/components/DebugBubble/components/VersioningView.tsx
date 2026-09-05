@@ -208,6 +208,10 @@ export function VersioningView({
       : contentInfo.slug) ||
     "";
   const contentTypeLabel = contentInfo.label || contentInfo.type || "entries";
+  const pageTitle =
+    (versioningData?.title && versioningData.title.trim()) ||
+    (contentInfo.slug ? deslugify(contentInfo.slug) : "") ||
+    "Page details";
   const isDraftEntry = !!versioningData?.isDraft || versioningData?.hasLiveDefault === false;
   const liveLocales = (() => {
     const byLocale = versioningData?.liveByLocale;
@@ -732,10 +736,10 @@ export function VersioningView({
             <div className="min-w-0">
               <p
                 className="font-semibold text-sm text-foreground break-words"
-                title={contentInfo.slug ? deslugify(contentInfo.slug) : undefined}
+                title={pageTitle}
                 data-testid="text-versioning-page-title"
               >
-                {contentInfo.slug ? deslugify(contentInfo.slug) : "Page details"}
+                {pageTitle}
               </p>
               {contentInfo.slug && (
                 <button

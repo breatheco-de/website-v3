@@ -77,6 +77,19 @@ describe("formatEventHeadlinePlain", () => {
     ).toBe("#41 The site index was refreshed after your blog en/demo-post");
   });
 
+  it("omits activity id when includeId is false", () => {
+    expect(
+      formatEventHeadlinePlain(
+        baseEvent({
+          id: 12696,
+          type: "index_snapshot_ready",
+          attribution: [{ actor: { type: "system", source: "index-refresh" } }],
+        }),
+        { includeId: false },
+      ),
+    ).toBe("The site index was refreshed");
+  });
+
   it("formats validation ready as system executor", () => {
     expect(
       formatEventHeadlinePlain(

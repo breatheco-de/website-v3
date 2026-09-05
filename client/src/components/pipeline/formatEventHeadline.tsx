@@ -359,11 +359,14 @@ export type EventHeadlineResult = {
   muted: boolean;
 };
 
-/** Plain-text headline with `#id` prefix — timeline chips, filters, aria. */
+/** Plain-text headline — `#id` prefix by default (filters, aria); omit for timeline chips. */
 export function formatEventHeadlinePlain(
   event: Pick<PipelineContentEvent, "id" | "type" | "resource" | "payload" | "attribution">,
+  opts?: { includeId?: boolean },
 ): string {
-  return `#${event.id} ${partsToPlain(sentenceParts(event))}`;
+  const body = partsToPlain(sentenceParts(event));
+  if (opts?.includeId === false) return body;
+  return `#${event.id} ${body}`;
 }
 
 export function formatEventHeadline(

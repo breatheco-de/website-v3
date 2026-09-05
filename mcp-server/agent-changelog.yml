@@ -6,6 +6,16 @@ window_days: 6
 
 entries:
   - date: "2026-09-04"
+    summary: "Diagnostics meta validator resolves site vars like the live SEO gate"
+    agent_impact:
+      - "meta validator now resolves global.*/brand.* in meta.page_title / meta.description before MISSING_* checks — same path as live-entry-seo-gate."
+      - "Resolved site-var titles/descriptions no longer false-flag as MISSING_* or META_USES_GLOBAL_VAR; leftover {{ }} → UNRESOLVED_META_TEMPLATE."
+      - "Stale cached Diagnostics rows clear on re-check or next full run (no auto-wipe)."
+    paths:
+      - scripts/validation/validators/meta.ts
+      - mcp-server/explain/seo.md
+    tools_changed: false
+  - date: "2026-09-04"
     summary: "Live seo.main_keyword uniqueness (exact, site-wide hard block)"
     agent_impact:
       - "update_fields / SEO writes reject duplicate live main_keyword with code seo_keyword_taken (exact after trim; self may re-save). Missing seo-index.json → seo_index_unavailable. Drafts/variants not checked."

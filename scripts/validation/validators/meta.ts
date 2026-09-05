@@ -5,11 +5,16 @@
  * - Required fields (page_title, description) as errors on live files
  * - Priority values (0-1)
  * - Change frequency values
+ *
+ * Resolves {{ single.* }} / {{ entry.* }} and site vars (global.* / brand.*)
+ * the same way as the live SEO gate before required checks.
  */
 
+import * as path from "path";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { validateRequiredMeta } from "../../../shared/validateRequiredMeta";
-import { resolveSingleVars } from "../../../server/single-resolver";
+import { resolveAllTemplateVars } from "../../../server/resolve-template-vars";
+import { getDefaultContentRoot } from "../../../server/site-config";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
 import { META_ISSUE_CODES } from "./meta.issueCodes";
 
@@ -24,7 +29,38 @@ const VALID_CHANGE_FREQUENCIES = [
 ];
 
 const TEMPLATE_RE = /\{\{[\s\S]*?\}\}/;
-const GLOBAL_VAR_RE = /\{\{\s*global\./;
+
+function resolveContentRoot(context: ValidationContext): string {
+  if (context.contentRoot) {
+    return path.isAbsolute(context.contentRoot)
+      ? context.contentRoot
+      : path.join(process.cwd(), context.contentRoot);
+  }
+  return path.resolve(getDefaultContentRoot());
+}
+
+function buildSingleEntry(file: {
+  entryFields?: Record<string, unknown>;
+  title?: string;
+  description?: string;
+  slug?: string;
+  locale?: string;
+}): Record<string, unknown> {
+  const fromEntry =
+    file.entryFields && typeof file.entryFields === "object" ? { ...file.entryFields } : {};
+  return {
+    ...fromEntry,
+    title: fromEntry.title ?? file.title,
+    description: fromEntry.description ?? file.description,
+    slug: fromEntry.slug ?? file.slug,
+  };
+}
+
+function entryRegion(entryFields: Record<string, unknown> | undefined): string | undefined {
+  const region = entryFields?.region;
+  if (typeof region === "string" && region.trim()) return region.trim();
+  return undefined;
+}
 
 export const metaValidator: Validator = {
   name: "meta",
@@ -38,40 +74,45 @@ export const metaValidator: Validator = {
     const startTime = Date.now();
     const errors: ValidationIssue[] = [];
     const warnings: ValidationIssue[] = [];
+    const contentRoot = resolveContentRoot(context);
 
     for (const file of liveFilesForSeo(context)) {
-      const rawMeta = file.meta || {};
-      // Resolve {{ single.* }} against file data when possible so template-only meta fails if empty
-      const bag: Record<string, unknown> = {
-        ...(file as unknown as Record<string, unknown>),
-        title: (file as { title?: string }).title,
-        description: (file as { description?: string }).description,
-        slug: (file as { slug?: string }).slug,
-      };
-      const resolvedMeta = resolveSingleVars({ meta: rawMeta }, bag) as {
-        meta?: Record<string, unknown>;
-      };
-      const meta = resolvedMeta.meta || rawMeta;
+      const rawMeta =
+        file.meta && typeof file.meta === "object" && !Array.isArray(file.meta)
+          ? (file.meta as Record<string, unknown>)
+          : {};
+      const singleEntry = buildSingleEntry(file);
+      const region = entryRegion(file.entryFields);
 
-      // Warn when global.* vars appear in meta — the validator bag has no global data,
-      // so the live value is always the pipe fallback. Make sure a fallback exists.
-      if (
-        GLOBAL_VAR_RE.test(String(rawMeta.page_title || "")) ||
-        GLOBAL_VAR_RE.test(String(rawMeta.description || ""))
-      ) {
-        warnings.push({
-          type: "warning",
-          code: "META_USES_GLOBAL_VAR",
-          message:
-            "meta.page_title / meta.description uses {{ global.* }} which cannot be resolved at validation time — ensure a pipe fallback is set (e.g. {{ global.global_job_placement_rate | '84' }})",
+      const meta = resolveAllTemplateVars(rawMeta, {
+        singleEntry,
+        meta: rawMeta,
+        contentRoot,
+        context: { locale: file.locale, region },
+        skipSiteVars: false,
+      }) as Record<string, unknown>;
+
+      const titleHasTemplate = TEMPLATE_RE.test(String(meta.page_title ?? "").trim());
+      const descHasTemplate = TEMPLATE_RE.test(String(meta.description ?? "").trim());
+
+      if (titleHasTemplate || descHasTemplate) {
+        errors.push({
+          type: "error",
+          code: "UNRESOLVED_META_TEMPLATE",
+          message: "meta.page_title / meta.description still contain unresolved {{ }} templates",
           file: file.filePath,
-          suggestion: "Add a pipe fallback value so the meta renders correctly even when the global variable is unavailable",
+          suggestion:
+            "Ensure mapped single.*/entry.* fields and site vars (global.*/brand.*) that feed meta are filled, or add a pipe fallback",
         });
       }
 
       const required = validateRequiredMeta(meta);
       if (!required.ok) {
         for (const err of required.errors) {
+          const fieldHasTemplate =
+            err.field === "meta.page_title" ? titleHasTemplate : descHasTemplate;
+          // Leftover templates are reported as UNRESOLVED_META_TEMPLATE above — not MISSING_*.
+          if (fieldHasTemplate) continue;
           errors.push({
             type: "error",
             code: err.field === "meta.page_title" ? "MISSING_PAGE_TITLE" : "MISSING_DESCRIPTION",
@@ -83,14 +124,6 @@ export const metaValidator: Validator = {
                 : "Add a meta description (150-160 characters) for better SEO",
           });
         }
-      } else if (TEMPLATE_RE.test(String(meta.page_title || "")) || TEMPLATE_RE.test(String(meta.description || ""))) {
-        errors.push({
-          type: "error",
-          code: "UNRESOLVED_META_TEMPLATE",
-          message: "meta.page_title / meta.description still contain unresolved {{ }} templates",
-          file: file.filePath,
-          suggestion: "Ensure mapped single.* fields that feed meta are filled on the entry",
-        });
       }
 
       if (file.meta?.priority !== undefined) {

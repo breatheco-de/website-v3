@@ -1573,7 +1573,10 @@ function EventLogPanel({
     setExpanded((prev) => (prev === eventId ? null : eventId));
   }, []);
 
-  const getActivityLabel = useCallback((event: ContentEvent) => formatEventHeadlinePlain(event), []);
+  const getActivityLabel = useCallback(
+    (event: ContentEvent) => formatEventHeadlinePlain(event, { includeId: false }),
+    [],
+  );
 
   const activeFilterCount = eventLogActiveFilterCount(filterView);
   const hasActiveFilters = eventLogHasActiveFilters(filterView);

@@ -130,6 +130,20 @@ program:
     menu:
       top: main-navbar
       bottom: main-footer
+  preview:
+    component: og_image_preview
+    variant: default
+    version: v1.0
+    theme: light
+    widths:
+      - 1200
+    maxHeight: 630
+    dirty_on_prop_change: false
+    props:
+      logo: brand.logo
+      category: brand.title
+      title: title
+      author: meta.description
   seo_monitoring:
     enabled: true
     require_cluster: true
@@ -178,6 +192,20 @@ location:
     - city
   schema_org_requirements:
     - schema_type: LocalBusiness
+  preview:
+    component: og_image_preview
+    variant: default
+    version: v1.0
+    theme: light
+    widths:
+      - 1200
+    maxHeight: 630
+    dirty_on_prop_change: false
+    props:
+      logo: brand.logo
+      category: brand.title
+      title: name
+      author: meta.description
   seo_monitoring:
     enabled: true
     require_cluster: true
@@ -531,6 +559,21 @@ authors:
         Editorial go-live timestamp for the author hub (reserved published_at on _common.yml). Auto-stamped on first
         live create; editable to backdate. Not Schema.org Person — used for listings/sitemap freshness. Cannot clear to
         empty.
+  preview:
+    component: og_image_preview
+    variant: default
+    version: v1.0
+    theme: light
+    widths:
+      - 1200
+    maxHeight: 630
+    dirty_on_prop_change: false
+    props:
+      logo: brand.logo
+      category: job_title
+      title: name
+      content: bio
+      author: brand.title
 downloadable:
   insights_intent: lead_generation
   strategy:
@@ -559,6 +602,20 @@ downloadable:
   editor:
     pdf_url:
       type: pdf
+  preview:
+    component: og_image_preview
+    variant: default
+    version: v1.0
+    theme: light
+    widths:
+      - 1200
+    maxHeight: 630
+    dirty_on_prop_change: false
+    props:
+      logo: brand.logo
+      category: brand.title
+      title: title
+      author: meta.description
 outcome-report:
   insights_intent: outcome
   strategy:
@@ -586,6 +643,21 @@ outcome-report:
       bottom: main-footer
   unique_fields:
     - slug
+  preview:
+    component: og_image_preview
+    variant: default
+    version: v1.0
+    theme: light
+    widths:
+      - 1200
+    maxHeight: 630
+    dirty_on_prop_change: false
+    props:
+      logo: brand.logo
+      category: brand.title
+      title: title
+      content: content
+      author: brand.title
 how-to:
   strategy:
     purpose: "Step-by-step learning guides for discovery and nurture."
@@ -616,6 +688,26 @@ how-to:
       top: main-navbar
       bottom: main-footer
   single_template: true
+  editor:
+    technologies:
+      type: tags
+      populate_options: true
+      split_comma_values: true
+  preview:
+    component: og_image_preview
+    variant: default
+    version: v1.0
+    theme: light
+    widths:
+      - 1200
+    maxHeight: 630
+    dirty_on_prop_change: false
+    props:
+      logo: brand.logo
+      category: technologies
+      title: title
+      content: content
+      author: brand.title
 interactive-exercise:
   strategy:
     purpose: "Hands-on LearnPack exercises for practice and related-exercise discovery."
@@ -661,6 +753,21 @@ interactive-exercise:
   unique_fields:
     - slug
   single_template: true
+  preview:
+    component: og_image_preview
+    variant: default
+    version: v1.0
+    theme: light
+    widths:
+      - 1200
+    maxHeight: 630
+    dirty_on_prop_change: false
+    props:
+      logo: brand.logo
+      category: category
+      title: title
+      content: content
+      author: brand.title
 lesson:
   strategy:
     purpose: "Curriculum lesson pages for structured learning."
@@ -705,3 +812,11 @@ lesson:
       logo: brand.logo_dark
       content: content
       author: brand.title
+  editor:
+    tags:
+      type: tags
+      populate_options: true
+      split_comma_values: true
+    _image:
+      type: image
+      cache_images: true

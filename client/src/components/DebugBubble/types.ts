@@ -46,6 +46,8 @@ export interface VersioningResponse {
   liveByLocale?: Record<string, boolean>;
   /** True when entry has no live locale (unpublished draft) */
   isDraft?: boolean;
+  /** Editorial YAML `title` from ContentIndex (not the folder slug) */
+  title?: string | null;
 }
 
 export interface ContentInfo {

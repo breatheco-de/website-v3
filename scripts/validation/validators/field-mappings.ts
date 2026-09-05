@@ -1,12 +1,25 @@
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { getAllConfigs } from "../../../server/content-types";
+import {
+  effectiveRequiredMode,
+  type EditorRequiredHint,
+} from "../../../shared/validateRequiredFields";
 import { validateFieldMapping } from "../shared/fieldMappingValidator";
 import { FIELD_MAPPINGS_ISSUE_CODES } from "./field-mappings.issueCodes";
+
+/** editor.required true | "attached" — optional / unset fields never raise integrity issues. */
+function isEditorRequiredField(
+  editor: Record<string, EditorRequiredHint> | undefined,
+  fieldKey: string,
+): boolean {
+  return effectiveRequiredMode(editor?.[fieldKey]) != null;
+}
 
 export const fieldMappingsValidator: Validator = {
   name: "field-mappings",
   issueCodes: FIELD_MAPPINGS_ISSUE_CODES,
-  description: "Validates that non-identity field mapping sources exist in all non-database content entries",
+  description:
+    "Validates that required (editor.required) field mapping sources exist in non-database content entries; optional fields are ignored",
   apiExposed: true,
   estimatedDuration: "medium",
   category: "integrity",
@@ -25,6 +38,7 @@ export const fieldMappingsValidator: Validator = {
       if (!config.field_mapping) continue;
 
       const rawMapping = config.field_mapping;
+      const editor = config.editor as Record<string, EditorRequiredHint> | undefined;
 
       const normalizedMapping: Record<string, string> = {};
       for (const [key, value] of Object.entries(rawMapping)) {
@@ -42,6 +56,8 @@ export const fieldMappingsValidator: Validator = {
 
       for (const [fieldKey, fieldResult] of Object.entries(result.results)) {
         totalChecked++;
+        if (!isEditorRequiredField(editor, fieldKey)) continue;
+
         const source = normalizedMapping[fieldKey];
 
         if (fieldResult.found === 0 && fieldResult.total > 0) {
