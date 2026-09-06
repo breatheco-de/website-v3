@@ -76,6 +76,11 @@ import {
 } from "./shared-layout-sync";
 import { extractSeoUpdatesFromOps } from "./seo-fields";
 import { writeSeoFields } from "./seo-index";
+import {
+  validateTouchedJsonFieldsInDocument,
+} from "./json-field-validate";
+import { getTrackingSettings } from "./settings";
+
 
 function applySeoUpdatesAfterWrite<T extends { success: boolean; error?: string; errorCode?: string }>(
   result: T,
@@ -537,6 +542,66 @@ function applyOperation(
     }
   }
   return result;
+}
+
+
+/** CT editor + optional DB editor (DB first, CT overrides). */
+function resolveEditorHintsForJsonValidation(
+  contentType: string,
+  contentRoot?: string,
+): Record<string, { type?: string; schema?: unknown }> {
+  const ct = getContentTypeConfig(contentType, contentRoot);
+  let editor: Record<string, { type?: string; schema?: unknown }> = {
+    ...(ct?.editor || {}),
+  };
+  const dbSlug = ct?.database?.slug;
+  if (dbSlug && databaseManager.exists(dbSlug)) {
+    try {
+      const dbConfig = databaseManager.get(dbSlug) as {
+        editor?: Record<string, { type?: string; schema?: unknown }>;
+      };
+      editor = { ...(dbConfig.editor || {}), ...editor };
+    } catch {
+      /* ignore missing DB editor */
+    }
+  }
+  return editor;
+}
+
+function jsonSemanticsForContentRoot(contentRoot?: string) {
+  const tracking = getTrackingSettings(contentRoot);
+  return {
+    conversionNames: tracking.conversion_events.map((e) => e.name),
+    crmTags: tracking.leads_expected_tags ?? [],
+  };
+}
+
+function enforceTouchedJsonFieldSchemas(opts: {
+  data: Record<string, unknown>;
+  touchedPaths: string[];
+  contentType: string;
+  contentRoot?: string;
+}): { ok: true } | { ok: false; error: string } {
+  const editor = resolveEditorHintsForJsonValidation(opts.contentType, opts.contentRoot);
+  const result = validateTouchedJsonFieldsInDocument(
+    opts.data,
+    opts.touchedPaths,
+    editor,
+    jsonSemanticsForContentRoot(opts.contentRoot),
+  );
+  if (!result.ok) {
+    const first = result.failures[0];
+    return {
+      ok: false,
+      error: first
+        ? `Invalid json field "${first.field}": ${first.error}`
+        : "Invalid json field(s)",
+    };
+  }
+  for (const [k, v] of Object.entries(result.fields)) {
+    opts.data[k] = v;
+  }
+  return { ok: true };
 }
 
 export async function editContent(request: ContentEditRequest): Promise<{
@@ -1310,6 +1375,17 @@ export async function editContent(request: ContentEditRequest): Promise<{
       return { success: false, error: legacySingleErr, errorCode: "legacy_single_template_var" };
     }
 
+
+    const jsonSchemaGate = enforceTouchedJsonFieldSchemas({
+      data: localeData,
+      touchedPaths: touchedPathsFromOperations(resolvedOperations),
+      contentType,
+      contentRoot,
+    });
+    if (!jsonSchemaGate.ok) {
+      return { success: false, error: jsonSchemaGate.error };
+    }
+
     // Live locale writes: require resolved meta + editor.required fields.
     // Draft variant files and shared template.*.yml (legacy single.*) edits skip this gate.
     const writingLiveLocale =
@@ -1856,6 +1932,16 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
     const legacySingleEntry = getLegacySingleVarWriteError(entryData);
     if (legacySingleEntry) {
       return { success: false, error: legacySingleEntry, errorCode: "legacy_single_template_var" };
+    }
+
+    const jsonSchemaGate = enforceTouchedJsonFieldSchemas({
+      data: entryData,
+      touchedPaths: touchedPathsFromOperations(operations),
+      contentType,
+      contentRoot: opts.contentRoot,
+    });
+    if (!jsonSchemaGate.ok) {
+      return { success: false, error: jsonSchemaGate.error };
     }
 
     const ciGate = contentIndex;
@@ -2408,6 +2494,16 @@ export function editCommonContent(request: CommonEditRequest): {
       } else {
         setValueAtPath(commonData, op.path, op.value);
       }
+    }
+
+    const jsonSchemaGate = enforceTouchedJsonFieldSchemas({
+      data: commonData,
+      touchedPaths: touchedPathsFromOperations(operations),
+      contentType,
+      contentRoot: contentRootName,
+    });
+    if (!jsonSchemaGate.ok) {
+      return { success: false, error: jsonSchemaGate.error };
     }
 
     const seoGateErr = evaluateCommonContentLiveGate({

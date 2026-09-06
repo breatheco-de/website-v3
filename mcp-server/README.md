@@ -53,8 +53,8 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `add_section` / `remove_section` / `reorder_sections` / `replace_entry_sections` | Section topology |
 | `translate_entry` | Translate locale fields (attached) or sections (detached/classic); draft-first for new locales |
 | `set_entry_attachment` | Detach/reattach shared-layout shell ownership (`confirm` required to execute) |
-| `run_entry_diagnostics` | One slug → sync `completed` + paginated `issues[]`; 2+/unscoped → async job (poll `get_diagnostics_job`); cached when fresh |
-| `get_diagnostics_job` | Poll multi-slug / unscoped async jobs; `issues_offset` / `issues_limit` page the issue list only |
+| `run_entry_diagnostics` | One slug → sync `completed` + paginated `open_issues[]` (open work queue); 2+/unscoped → async job (poll `get_diagnostics_job`); cached when fresh |
+| `get_diagnostics_job` | Poll multi-slug / unscoped async jobs; `open_issues_offset` / `open_issues_limit` page the open work queue; `issue_status` filters open/claimed/completed/all |
 | `get_section_bindings` | Binding-group membership |
 | `list_components` / `get_component_schema` / `get_component_variant` / `create_component_section_demo` | Component registry + disposable section demos |
 | `list_databases` / `list_database_items` / `get_database_item` | Local private DB discovery + read (global `index`) |
