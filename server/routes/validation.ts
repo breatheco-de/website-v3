@@ -906,6 +906,9 @@ export function registerValidationRoutes(app: Express): void {
     };
     const triedRaw = req.query.priorAttempts ?? req.query.tried;
     const priorAttempts = triedRaw === "1" || triedRaw === "true";
+    const includeCompletedRaw = req.query.includeCompleted;
+    const includeCompleted =
+      includeCompletedRaw === "1" || includeCompletedRaw === "true";
     const filters = {
       entryKey: typeof req.query.entryKey === "string" ? req.query.entryKey : undefined,
       url: typeof req.query.url === "string" ? req.query.url : undefined,
@@ -928,6 +931,8 @@ export function registerValidationRoutes(app: Express): void {
             ? req.query.path
             : undefined,
       priorAttempts: priorAttempts || undefined,
+      // Default remains open-only (staff Diagnostics unchanged). MCP passes true for completed/all.
+      includeCompleted: includeCompleted || undefined,
     };
     const result = listCacheIssues(getValidationCache(res), filters);
     res.json(result);
