@@ -77,3 +77,10 @@ Do not write `seo.*` on A/B experiment variants, and do not write draft SEO once
 
 **Worked example:** after promoting `variant: "b"`, call `update_fields` without `variant` to set `seo.pillar_path`, not another write on `b`.
 
+### 4. Diagnostics `open_issues` is an open work queue
+
+Treat `run_entry_diagnostics` / `get_diagnostics_job` `open_issues[]` as **actionable open work** (default), not a full validation dump. Soft-completed and other-author claims are excluded unless you pass `issue_status: "completed" | "claimed" | "all"`. Prefer one-slug sync (`freshness: "hard"`) before claim/edit; do not treat bulk/unscoped `open_issues[]` as live proof. Skip ids in `claimed_issues` / `completed_issues` (or `status !== "open"` and not `claimed_by_me`).
+
+**Worked example:** after edits, call `run_entry_diagnostics` with `slugs: [slug]`, `freshness: "hard"`, then claim from `open_issues[]` — not from a stale unscoped page.
+
+

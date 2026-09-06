@@ -5,6 +5,19 @@
 window_days: 6
 
 entries:
+  - date: "2026-09-06"
+    summary: "Diagnostics open_issues work queue (breaking): default excludes completed + other claims"
+    agent_impact:
+      - "BREAKING: run_entry_diagnostics / get_diagnostics_job rename issues[] → open_issues[] (and issues_offset/limit/next_offset/total_matching/by_code/truncated/returned → open_issues_*). Reconnect MCP so tools/list refreshes."
+      - "Default open_issues is an open work queue only (incomplete + unclaimed, or claimed by you). Soft-completed and other-author claims no longer consume the default 50-slot page."
+      - "New issue_status: open|claimed|completed|all (default open). all returns sibling claimed_issues + completed_issues with status on every row. Counts: open_count, claimed_by_others_count, completed_count. Prefer one-slug sync before claim/edit; bulk open_issues is not live-authoritative."
+    paths:
+      - mcp-server/lib/diagnostics-issue-queue.ts
+      - mcp-server/tools/pages.ts
+      - server/routes/validation.ts
+      - mcp-server/explain/seo.md
+      - mcp-server/agent-conventions.md
+    tools_changed: true
   - date: "2026-09-04"
     summary: "Diagnostics meta validator resolves site vars like the live SEO gate"
     agent_impact:
