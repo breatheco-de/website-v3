@@ -12,9 +12,9 @@ describe("parseGlobalHealthSearch", () => {
     expect(parseGlobalHealthSearch("?")).toEqual(GLOBAL_HEALTH_VIEW_DEFAULTS);
   });
 
-  it("parses kpi, path, scope, validators, and tried", () => {
+  it("parses kpi, path, scope, validators, tried, and q", () => {
     const view = parseGlobalHealthSearch(
-      "kpi=errors&path=/en/home&scope=seo,components&validators=meta,seo-depth&tried=1",
+      "kpi=errors&path=/en/home&scope=seo,components&validators=meta,seo-depth&tried=1&q=empty+field",
     );
     expect(view).toEqual({
       kpi: "errors",
@@ -22,6 +22,7 @@ describe("parseGlobalHealthSearch", () => {
       scope: ["seo", "components"],
       validators: ["meta", "seo-depth"],
       priorAttempts: true,
+      q: "empty field",
     });
   });
 
@@ -55,6 +56,7 @@ describe("serializeGlobalHealthSearch", () => {
       scope: ["seo"],
       validators: ["seo-depth"],
       priorAttempts: true,
+      q: "meta title",
     });
     const params = new URLSearchParams(qs);
     expect(params.get("kpi")).toBe("warnings");
@@ -62,6 +64,7 @@ describe("serializeGlobalHealthSearch", () => {
     expect(params.get("scope")).toBe("seo");
     expect(params.get("validators")).toBe("seo-depth");
     expect(params.get("tried")).toBe("1");
+    expect(params.get("q")).toBe("meta title");
   });
 
   it("preserves unknown existing params", () => {
@@ -73,7 +76,7 @@ describe("serializeGlobalHealthSearch", () => {
 
   it("round-trips", () => {
     const view = parseGlobalHealthSearch(
-      "kpi=coverage&path=/x&scope=forms,bindings&validators=section-variants&tried=1",
+      "kpi=coverage&path=/x&scope=forms,bindings&validators=section-variants&tried=1&q=hello",
     );
     expect(parseGlobalHealthSearch(serializeGlobalHealthSearch(view))).toEqual(view);
   });
@@ -81,16 +84,14 @@ describe("serializeGlobalHealthSearch", () => {
 
 describe("buildCacheIssuesQuery", () => {
   it("maps view state to cache-issues query params", () => {
-    const params = buildCacheIssuesQuery(
-      {
-        kpi: "errors",
-        path: "/es/blog",
-        scope: ["seo", "content"],
-        validators: ["schema-completeness", "meta"],
-        priorAttempts: true,
-      },
-      "empty field",
-    );
+    const params = buildCacheIssuesQuery({
+      kpi: "errors",
+      path: "/es/blog",
+      scope: ["seo", "content"],
+      validators: ["schema-completeness", "meta"],
+      priorAttempts: true,
+      q: "empty field",
+    });
     expect(params.get("severity")).toBe("error");
     expect(params.get("urlPath")).toBe("/es/blog");
     expect(params.get("categories")).toBe("seo,content");

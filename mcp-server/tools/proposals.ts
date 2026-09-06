@@ -7,6 +7,12 @@ import { resolveSiteContext } from "../lib/content.js";
 import { getTokenUsername } from "../lib/oauth.js";
 import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
+import {
+  clampProposalLimit,
+  clampProposalOffset,
+  isProposalsScoped,
+  proposalNextOffset,
+} from "../lib/list-proposals-mcp.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
@@ -168,14 +174,18 @@ export function registerProposalTools(
 
   mcp.tool(
     "list_proposals",
-    "List or fetch content proposals. Pass proposal_id for one record. query searches title/summary/tags (keyword; RAG when Qdrant is up). " +
-      "Filters: status, kind, issue_id (only proposals linked to that validation issue). Requires content_view or seo_edit.",
+    "List or fetch content proposals (stats-first). With no filters, returns proposal_stats only " +
+      "(counts by status/kind) — not a full proposals[] dump. Pass proposal_id, query, issue_id, status, or kind " +
+      "to unlock paginated proposals[] (default limit 20, max 200; use offset / next_offset). " +
+      "proposal_stats stay site-wide even when the list is filtered. Requires content_view or seo_edit.",
     {
       proposal_id: z.string().optional(),
       query: z.string().optional(),
       status: z.enum(["open", "partial", "finished", "rejected", "withdrawn"]).optional(),
       kind: z.enum(["edits", "notes"]).optional(),
       issue_id: z.string().optional(),
+      limit: z.number().optional().describe("Page size when scoped (default 20, max 200)"),
+      offset: z.number().optional().describe("Offset when scoped"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async (args) => {
@@ -183,19 +193,72 @@ export function registerProposalTools(
       if (denied) return denied;
       const siteResult = resolveSiteContext(args.site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
+
+      const scoped = isProposalsScoped(args);
+      const limit = clampProposalLimit(args.limit);
+      const offset = clampProposalOffset(args.offset);
+      const warnings: Array<{ code: string; message: string }> = [];
+
+      if (!scoped) {
+        warnings.push({
+          code: "proposals_need_filter",
+          message:
+            "Unscoped list_proposals returns proposal_stats only. Pass status, kind, query, issue_id, or proposal_id to load proposals[].",
+        });
+        if (args.limit != null || args.offset != null) {
+          warnings.push({
+            code: "proposals_need_filter",
+            message: "limit/offset without a scope filter are ignored.",
+          });
+        }
+      }
+
       const qs = new URLSearchParams();
-      if (args.proposal_id) qs.set("proposal_id", args.proposal_id);
-      if (args.query) qs.set("q", args.query);
-      if (args.status) qs.set("status", args.status);
-      if (args.kind) qs.set("kind", args.kind);
-      if (args.issue_id) qs.set("issue_id", args.issue_id);
+      if (scoped) {
+        if (args.proposal_id) qs.set("proposal_id", args.proposal_id);
+        if (args.query) qs.set("q", args.query);
+        if (args.status) qs.set("status", args.status);
+        if (args.kind) qs.set("kind", args.kind);
+        if (args.issue_id) qs.set("issue_id", args.issue_id);
+        qs.set("limit", String(limit));
+        qs.set("offset", String(offset));
+      } else {
+        // Stats come from the list endpoint; avoid loading a large default page.
+        qs.set("limit", "1");
+        qs.set("offset", "0");
+      }
       const extra = qs.toString();
       try {
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/admin/proposals${siteQuery(siteResult.domain, extra)}`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
-        const data = (await res.json()) as Record<string, unknown>;
+        const data = (await res.json()) as {
+          proposals?: unknown[];
+          total?: number;
+          stats?: unknown;
+          error?: string;
+        };
         if (!res.ok) return fail(String(data.error ?? "list_proposals failed"));
-        return ok({ ...data, next_actions: [] });
+
+        const proposal_stats = data.stats ?? null;
+        if (!scoped) {
+          return ok({
+            proposal_stats,
+            next_actions: [],
+          }, { warnings });
+        }
+
+        const proposals = data.proposals ?? [];
+        const total = typeof data.total === "number" ? data.total : proposals.length;
+        const next_offset = proposalNextOffset(offset, limit, total, proposals.length);
+        return ok({
+          proposal_stats,
+          proposals,
+          total,
+          limit,
+          offset,
+          next_offset,
+          next_actions: [],
+        }, { warnings });
       } catch (e) {
         return fail((e as Error).message);
       }

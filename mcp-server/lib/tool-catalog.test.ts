@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  IDENTITY_TOOLS,
   allowedToolNames,
   grantsCanMutateMetrics,
   hasCapAnyScope,
@@ -49,15 +48,16 @@ describe("allowedToolNames", () => {
     expect(admin.has("update_proposal")).toBe(false);
   });
 
-  it("Metrics Viewer sees only identity tools", () => {
-    const names = allowedToolNames(metricsViewer);
-    expect(names).toEqual([...IDENTITY_TOOLS].sort());
-    expect(names).not.toContain("list_entries");
-    expect(names).not.toContain("run_entry_diagnostics");
-    expect(names).not.toContain("update_fields");
-    expect(names).not.toContain("propose_change");
-    expect(names).not.toContain("list_proposals");
-    expect(names).not.toContain("update_proposal");
+  it("Metrics Viewer sees identity tools plus get_validation_issues", () => {
+    const names = new Set(allowedToolNames(metricsViewer));
+    expect(names.has("get_current_user")).toBe(true);
+    expect(names.has("get_validation_issues")).toBe(true);
+    expect(names.has("list_entries")).toBe(false);
+    expect(names.has("run_entry_diagnostics")).toBe(false);
+    expect(names.has("update_fields")).toBe(false);
+    expect(names.has("propose_change")).toBe(false);
+    expect(names.has("list_proposals")).toBe(false);
+    expect(names.has("update_proposal")).toBe(false);
   });
 
   it("Content Viewer sees YAML/component reads, not writes or diagnostics or FAQ", () => {
@@ -79,6 +79,7 @@ describe("allowedToolNames", () => {
     expect(names.has("list_databases")).toBe(false);
     expect(names.has("run_entry_diagnostics")).toBe(true);
     expect(names.has("get_diagnostics_job")).toBe(false);
+    expect(names.has("get_validation_issues")).toBe(false);
     expect(names.has("propose_change")).toBe(true);
     expect(names.has("list_proposals")).toBe(true);
     expect(names.has("update_proposal")).toBe(false);
@@ -102,6 +103,7 @@ describe("allowedToolNames", () => {
     expect(names.has("update_fields")).toBe(true);
     expect(names.has("create_entry")).toBe(true);
     expect(names.has("run_entry_diagnostics")).toBe(true);
+    expect(names.has("get_validation_issues")).toBe(true);
     expect(names.has("reindex_database")).toBe(true);
     expect(names.has("test_redirect")).toBe(true);
     expect(names.has("update_redirect")).toBe(true);

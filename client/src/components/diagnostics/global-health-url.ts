@@ -5,6 +5,7 @@ export const GLOBAL_HEALTH_SEARCH_KEYS = {
   scope: "scope",
   validators: "validators",
   tried: "tried",
+  q: "q",
 } as const;
 
 export const GLOBAL_HEALTH_SCOPE_KEYS = [
@@ -27,6 +28,8 @@ export interface GlobalHealthViewState {
   validators: string[];
   /** Only open issues that have prior release/TTL attempts. */
   priorAttempts: boolean;
+  /** Free-text search for issues (URL key `q`). */
+  q: string;
 }
 
 export const GLOBAL_HEALTH_VIEW_DEFAULTS: GlobalHealthViewState = {
@@ -35,6 +38,7 @@ export const GLOBAL_HEALTH_VIEW_DEFAULTS: GlobalHealthViewState = {
   scope: [],
   validators: [],
   priorAttempts: false,
+  q: "",
 };
 
 const SCOPE_SET = new Set<string>(GLOBAL_HEALTH_SCOPE_KEYS);
@@ -76,6 +80,7 @@ export function parseGlobalHealthSearch(search: string): GlobalHealthViewState {
     scope: parseScope(params.get(GLOBAL_HEALTH_SEARCH_KEYS.scope)),
     validators: parseCsvList(params.get(GLOBAL_HEALTH_SEARCH_KEYS.validators)),
     priorAttempts: tried === "1" || tried === "true",
+    q: (params.get(GLOBAL_HEALTH_SEARCH_KEYS.q) ?? "").trim(),
   };
 }
 
@@ -100,14 +105,14 @@ export function serializeGlobalHealthSearch(
   if (!view.priorAttempts) params.delete(GLOBAL_HEALTH_SEARCH_KEYS.tried);
   else params.set(GLOBAL_HEALTH_SEARCH_KEYS.tried, "1");
 
+  if (!view.q.trim()) params.delete(GLOBAL_HEALTH_SEARCH_KEYS.q);
+  else params.set(GLOBAL_HEALTH_SEARCH_KEYS.q, view.q.trim());
+
   return params.toString();
 }
 
 /** Build GET /api/validation/cache-issues query params for Global Health. */
-export function buildCacheIssuesQuery(
-  view: GlobalHealthViewState,
-  search = "",
-): URLSearchParams {
+export function buildCacheIssuesQuery(view: GlobalHealthViewState): URLSearchParams {
   const params = new URLSearchParams();
   if (view.kpi === "errors") params.set("severity", "error");
   else if (view.kpi === "warnings") params.set("severity", "warning");
@@ -115,6 +120,6 @@ export function buildCacheIssuesQuery(
   if (view.scope.length > 0) params.set("categories", view.scope.join(","));
   if (view.validators.length > 0) params.set("validators", view.validators.join(","));
   if (view.priorAttempts) params.set("priorAttempts", "1");
-  if (search.trim()) params.set("search", search.trim());
+  if (view.q.trim()) params.set("search", view.q.trim());
   return params;
 }

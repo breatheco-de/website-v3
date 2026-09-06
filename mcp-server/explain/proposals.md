@@ -7,10 +7,16 @@ Read-only agents and staff can **propose** entry field changes (or a write-up wh
 | Tool | Caps | Job |
 |---|---|---|
 | `propose_change` | `content_view` or `seo_edit` | Create. `entries[]` → kind edits; omit → notes. Optional `related_issue_ids` (must exist). |
-| `list_proposals` | same | List / get one (`proposal_id`) / search (`query`) / filter `issue_id`, `status`, `kind`. |
+| `list_proposals` | same | **Stats-first:** no filters → `proposal_stats` only. Pass `proposal_id` / `query` / `issue_id` / `status` / `kind` for paginated `proposals[]` (`limit`/`offset`). |
 | `update_proposal` | `content_edit_text` or `seo_edit` | `action`: claim \| release \| withdraw \| apply \| acknowledge \| reject |
 
 Do not invent `get_proposal`, `apply_proposal`, etc.
+
+## `list_proposals` (token hygiene)
+
+- Unscoped call returns **counts only** (`proposal_stats` by status/kind) plus warning `proposals_need_filter`.
+- Any of `status`, `kind`, `query`, `issue_id`, `proposal_id` unlocks the list (default page size 20).
+- `proposal_stats` stay **site-wide** even when the list is filtered.
 
 ## Rules
 

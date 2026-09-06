@@ -271,11 +271,56 @@ export type ProposalServiceDeps = {
   indexSearch?: (proposal: ProposalRecord) => Promise<void>;
 };
 
+export type ProposalStats = {
+  total: number;
+  by_status: Record<ProposalStatus, number>;
+  by_kind: Record<ProposalKind, number>;
+};
+
+const EMPTY_STATUS_COUNTS: Record<ProposalStatus, number> = {
+  open: 0,
+  partial: 0,
+  finished: 0,
+  rejected: 0,
+  withdrawn: 0,
+};
+
+const EMPTY_KIND_COUNTS: Record<ProposalKind, number> = {
+  edits: 0,
+  notes: 0,
+};
+
 export function createProposalService(deps: ProposalServiceDeps) {
   const site = deps.site;
 
   function get(id: string): ProposalRecord | null {
     return loadProposal(dbFor(site), id);
+  }
+
+  function stats(): ProposalStats {
+    const db = dbFor(site);
+    const by_status = { ...EMPTY_STATUS_COUNTS };
+    const by_kind = { ...EMPTY_KIND_COUNTS };
+    const statusRows = db
+      .prepare(`SELECT status, COUNT(*) AS n FROM content_proposals WHERE site = ? GROUP BY status`)
+      .all(site) as Array<{ status: ProposalStatus; n: number }>;
+    for (const row of statusRows) {
+      if (row.status in by_status) by_status[row.status] = Number(row.n) || 0;
+    }
+    const kindRows = db
+      .prepare(`SELECT kind, COUNT(*) AS n FROM content_proposals WHERE site = ? GROUP BY kind`)
+      .all(site) as Array<{ kind: ProposalKind; n: number }>;
+    for (const row of kindRows) {
+      if (row.kind in by_kind) by_kind[row.kind] = Number(row.n) || 0;
+    }
+    const totalRow = db
+      .prepare(`SELECT COUNT(*) AS n FROM content_proposals WHERE site = ?`)
+      .get(site) as { n: number };
+    return {
+      total: Number(totalRow?.n) || 0,
+      by_status,
+      by_kind,
+    };
   }
 
   function list(opts: {
@@ -285,39 +330,58 @@ export function createProposalService(deps: ProposalServiceDeps) {
     query?: string;
     proposal_id?: string;
     limit?: number;
-  }): ProposalRecord[] {
+    offset?: number;
+  }): { proposals: ProposalRecord[]; total: number } {
     if (opts.proposal_id) {
       const one = get(opts.proposal_id);
-      return one ? [one] : [];
+      return { proposals: one ? [one] : [], total: one ? 1 : 0 };
     }
     const db = dbFor(site);
     const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
-    let sql = `SELECT * FROM content_proposals WHERE site = ?`;
+    const offset = Math.max(0, opts.offset ?? 0);
+
+    let where = `WHERE site = ?`;
     const params: unknown[] = [site];
     if (opts.status) {
-      sql += ` AND status = ?`;
+      where += ` AND status = ?`;
       params.push(opts.status);
     }
     if (opts.kind) {
-      sql += ` AND kind = ?`;
+      where += ` AND kind = ?`;
       params.push(opts.kind);
     }
     if (opts.issue_id) {
-      sql += ` AND related_issue_ids_json LIKE ?`;
+      where += ` AND related_issue_ids_json LIKE ?`;
       params.push(`%${opts.issue_id}%`);
     }
     if (opts.query?.trim()) {
-      sql += ` AND search_text LIKE ?`;
+      where += ` AND search_text LIKE ?`;
       params.push(`%${opts.query.trim().toLowerCase()}%`);
     }
-    sql += ` ORDER BY updated_at DESC LIMIT ?`;
-    params.push(limit);
-    const rows = db.prepare(sql).all(...params) as ProposalRow[];
-    let records = rows.map((r) => mapProposal(r, loadEntries(db, r.id)));
+
+    // issue_id needs exact array membership — load then filter in memory.
     if (opts.issue_id) {
-      records = records.filter((p) => p.related_issue_ids.includes(opts.issue_id!));
+      const rows = db
+        .prepare(`SELECT * FROM content_proposals ${where} ORDER BY updated_at DESC`)
+        .all(...params) as ProposalRow[];
+      let records = rows
+        .map((r) => mapProposal(r, loadEntries(db, r.id)))
+        .filter((p) => p.related_issue_ids.includes(opts.issue_id!));
+      const total = records.length;
+      return { proposals: records.slice(offset, offset + limit), total };
     }
-    return records;
+
+    const totalRow = db
+      .prepare(`SELECT COUNT(*) AS n FROM content_proposals ${where}`)
+      .get(...params) as { n: number };
+    const total = Number(totalRow?.n) || 0;
+    const rows = db
+      .prepare(
+        `SELECT * FROM content_proposals ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+      )
+      .all(...params, limit, offset) as ProposalRow[];
+    const proposals = rows.map((r) => mapProposal(r, loadEntries(db, r.id)));
+    return { proposals, total };
   }
 
   async function create(
@@ -607,7 +671,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
     return { ok: false, code: "unknown_action", error: `Unknown action: ${action}` };
   }
 
-  return { get, list, create, update };
+  return { get, list, stats, create, update };
 }
 
 function inferCategory(entries: ProposalEntryInput[]): ProposalCategory {

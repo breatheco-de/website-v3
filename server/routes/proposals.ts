@@ -44,14 +44,19 @@ export function registerProposalRoutes(app: Express): void {
     const kind = typeof req.query.kind === "string" ? req.query.kind : undefined;
     const query = typeof req.query.q === "string" ? req.query.q : undefined;
     const proposalId = typeof req.query.proposal_id === "string" ? req.query.proposal_id : undefined;
-    const list = svc.list({
+    const limitRaw = req.query.limit ? Number(req.query.limit) : undefined;
+    const offsetRaw = req.query.offset ? Number(req.query.offset) : undefined;
+    const stats = svc.stats();
+    const { proposals, total } = svc.list({
       issue_id: issueId,
       status: status as never,
       kind: kind as never,
       query,
       proposal_id: proposalId,
+      limit: Number.isFinite(limitRaw) ? limitRaw : undefined,
+      offset: Number.isFinite(offsetRaw) ? offsetRaw : undefined,
     });
-    res.json({ proposals: list });
+    res.json({ proposals, total, stats });
   });
 
   api.get(app, "/api/admin/proposals/:id", { rate: "staffWrite" }, async (req, res) => {

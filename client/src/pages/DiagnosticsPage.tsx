@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import {AlertTriangle, ArrowLeft, Bot, Brain, Check, CircleCheck, ChevronDown, Crosshair, DownloadCloud, Eraser, Filter, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, Bot, Brain, Check, CircleCheck, ChevronDown, Crosshair, Download, DownloadCloud, Eraser, Filter, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Link, useLocation, useSearch } from "wouter";
@@ -64,6 +64,10 @@ import {
   type GlobalHealthScopeKey,
   type GlobalHealthViewState,
 } from "@/components/diagnostics/global-health-url";
+import {
+  downloadGlobalHealthIssuesCsv,
+  downloadGlobalHealthResolvedCsv,
+} from "@/components/diagnostics/global-health-csv";
 import { normalizeIssuePath } from "@shared/normalizeIssuePath";
 import { resolveDiagnosticsTab, type DiagnosticsTabId } from "@/lib/diagnostics-tab";
 import { parseEntryKey } from "@/lib/parseEntryKey";
@@ -264,8 +268,8 @@ function DiagnosticsHowItWorksPopover() {
           <code className="text-xs">validation-cache.json</code>. Use{" "}
           <strong className="text-foreground font-medium">Page or URL</strong> to filter by sitemap page;
           open the live page + DebugBubble for in-context fixes (Page Analysis tab removed).
-          KPI (Errors/Warnings), Page or URL, Error scope, and Validators filters persist in the URL query
-          string so a refresh keeps your view.
+          KPI (Errors/Warnings), Page or URL, Error scope, Validators, Search, and Has prior attempts
+          persist in the URL query string so a refresh keeps your view.
           <strong className="text-foreground font-medium"> Validation Coverage</strong> shows average entry-local
           validator coverage and fully-covered URLs. Under Refresh, an in-flight
           job shows while queued/running; otherwise the last <em>site-wide</em> run (Refresh / Hard refresh,
@@ -292,9 +296,10 @@ function DiagnosticsHowItWorksPopover() {
             <li><code>server/services/diagnosticsJobService.ts</code> — parent job orchestration + IPC + confirm gate (<code>needs_confirm</code>)</li>
             <li><code>scripts/validation/diagnostics-worker.ts</code> — forked worker that runs validators</li>
             <li><code>{"{contentRoot}/validation-cache.json"}</code> — issue cache (GCS <code>{"{site}/sync/validation-cache.json"}</code> in prod). <code>lastFullRunAt</code> (per URL / any full stamp) vs <code>lastSiteWideRunAt</code> (Refresh / Hard refresh / site-wide validators)</li>
+            <li><code>{"{contentRoot}/validation-resolved-archive.json"}</code> — resolved history (rolling 60 days by <code>resolvedAt</code>; safety cap 40,000 rows)</li>
             <li><code>scripts/validation/shared/runClass.ts</code> — <code>ENTRY_LOCAL_VALIDATOR_NAMES</code> drives coverage denominator</li>
             <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes + results files (duration stats for confirm dialog)</li>
-            <li><code>client/src/components/diagnostics/global-health-url.ts</code> — Global Health query params (<code>kpi</code>, <code>path</code>, <code>scope</code>, <code>validators</code>)</li>
+            <li><code>client/src/components/diagnostics/global-health-url.ts</code> — Global Health query params (<code>kpi</code>, <code>path</code>, <code>scope</code>, <code>validators</code>, <code>tried</code>, <code>q</code>)</li>
             <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code> (<code>confirm: true</code> when starting), <code>GET /api/validation/cache-issues</code>, <code>GET /api/validation/cache-freshness</code>, <code>GET /api/validation/cache-freshness-urls</code>, <code>POST /api/validation/purge-legacy-issues</code>{isDev ? <>, <code>POST /api/validation/pull-from-gcs</code> (dev only)</> : null}</li>
             <li>MCP <code>run_entry_diagnostics</code> — same confirm gate (<code>confirm_run_diagnostics</code>); mid-run poll returns URLs flushed since job start only</li>
           </ul>
@@ -895,8 +900,14 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const [pathname, setLocation] = useLocation();
   const searchString = useSearch();
   const view = useMemo(() => parseGlobalHealthSearch(searchString), [searchString]);
-  const { kpi: activeKpiTab, path: pagePathFilter, scope: categoryFilters, validators: validatorFilters, priorAttempts: priorAttemptsFilter } =
-    view;
+  const {
+    kpi: activeKpiTab,
+    path: pagePathFilter,
+    scope: categoryFilters,
+    validators: validatorFilters,
+    priorAttempts: priorAttemptsFilter,
+    q: searchQuery,
+  } = view;
 
   const writeView = useCallback(
     (next: GlobalHealthViewState) => {
@@ -949,7 +960,9 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     [patchView, view.validators],
   );
 
-  const [search, setSearch] = useState("");
+  const [searchDraft, setSearchDraft] = useState(searchQuery);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [csvExporting, setCsvExporting] = useState(false);
   const [validatorSearch, setValidatorSearch] = useState("");
   const [pageFilterOpen, setPageFilterOpen] = useState(false);
   const [rerunValidator, setRerunValidator] = useState<string>("");
@@ -964,6 +977,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         : "issues";
   const [resolvedOffset, setResolvedOffset] = useState(0);
   const RESOLVED_PAGE_SIZE = 50;
+  const RESOLVED_CSV_PAGE_SIZE = 200;
   const [jobPanel, setJobPanel] = useState<JobPanelState | null>(null);
   const [clearCacheOpen, setClearCacheOpen] = useState(false);
   const [purgeLegacyOpen, setPurgeLegacyOpen] = useState(false);
@@ -984,6 +998,48 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const [mcpRequiredAgentLabel, setMcpRequiredAgentLabel] = useState("AI Agent");
   const [mcpRequiredPrompt, setMcpRequiredPrompt] = useState("");
   const [mcpRequiredPrefillPrefix, setMcpRequiredPrefillPrefix] = useState<string | undefined>();
+
+  useEffect(() => {
+    setSearchDraft(searchQuery);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, []);
+
+  const flushSearchToUrl = useCallback(
+    (raw: string) => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+        searchDebounceRef.current = null;
+      }
+      const q = raw.trim();
+      if (q !== searchQuery) {
+        setResolvedOffset(0);
+        patchView({ q });
+      }
+      return q;
+    },
+    [patchView, searchQuery],
+  );
+
+  const onSearchDraftChange = useCallback(
+    (value: string) => {
+      setSearchDraft(value);
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = setTimeout(() => {
+        searchDebounceRef.current = null;
+        const q = value.trim();
+        if (q !== searchQuery) {
+          setResolvedOffset(0);
+          patchView({ q });
+        }
+      }, 300);
+    },
+    [patchView, searchQuery],
+  );
 
   function openAskAgent(payload: SolveWithAiAgentSelectPayload) {
     setMcpRequiredAgentId(payload.agentId);
@@ -1052,7 +1108,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     categoryFilters.join(","),
     validatorFilters.join(","),
     priorAttemptsFilter,
-    search,
+    searchQuery,
   ] as const;
 
   const { data: cacheIssuesData, refetch: refetchCacheIssues, isLoading: cacheIssuesLoading } =
@@ -1060,7 +1116,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     queryKey: cacheIssuesQueryKey,
     enabled: freshKpiView === "issues",
     queryFn: async () => {
-      const params = buildCacheIssuesQuery(view, search);
+      const params = buildCacheIssuesQuery(view);
       const qs = params.toString();
       const res = await apiFetch(
         qs ? `/api/validation/cache-issues?${qs}` : "/api/validation/cache-issues",
@@ -1101,7 +1157,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       "list",
       resolvedOffset,
       pagePathFilter,
-      search,
+      searchQuery,
       categoryFilters.join(","),
       validatorFilters.join(","),
     ],
@@ -1112,7 +1168,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         offset: String(resolvedOffset),
       });
       if (pagePathFilter.trim()) params.set("url", pagePathFilter.trim());
-      if (search.trim()) params.set("search", search.trim());
+      if (searchQuery.trim()) params.set("search", searchQuery.trim());
       if (categoryFilters.length === 1) params.set("category", categoryFilters[0]!);
       if (validatorFilters.length === 1) params.set("validator", validatorFilters[0]!);
       const res = await apiFetch(`/api/validation/resolved-issues?${params.toString()}`);
@@ -1588,7 +1644,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     categoryFilters.join(","),
     validatorFilters.join(","),
     priorAttemptsFilter,
-    search,
+    searchQuery,
   ].join("|");
   const coverageSummary = coverageSummaryData?.coverage;
   const freshUrlItems = freshUrlsData?.items ?? [];
@@ -1622,6 +1678,90 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const completedKpiActive = activeKpiTab === "completed";
   const resolvedRows = resolvedIssuesData?.rows ?? [];
   const resolvedTotal = resolvedIssuesData?.total ?? 0;
+
+  const downloadGlobalHealthCsv = useCallback(async () => {
+    if (csvExporting) return;
+    setCsvExporting(true);
+    try {
+      const q = flushSearchToUrl(searchDraft);
+      const exportView: GlobalHealthViewState = { ...view, q };
+
+      if (freshKpiView === "resolved") {
+        const allRows: ResolvedArchiveRow[] = [];
+        let offset = 0;
+        let total = Infinity;
+        while (offset < total) {
+          const params = new URLSearchParams({
+            limit: String(RESOLVED_CSV_PAGE_SIZE),
+            offset: String(offset),
+          });
+          if (exportView.path.trim()) params.set("url", exportView.path.trim());
+          if (q) params.set("search", q);
+          if (exportView.scope.length === 1) params.set("category", exportView.scope[0]!);
+          if (exportView.validators.length === 1) {
+            params.set("validator", exportView.validators[0]!);
+          }
+          const res = await apiFetch(`/api/validation/resolved-issues?${params.toString()}`, {
+            credentials: "include",
+          });
+          if (!res.ok) {
+            throw new Error(`Failed to load resolved issues (${res.status})`);
+          }
+          const data = (await res.json()) as ResolvedIssuesResponse;
+          total = data.total;
+          allRows.push(...data.rows);
+          if (data.rows.length === 0) break;
+          offset += data.rows.length;
+        }
+        if (allRows.length === 0) {
+          toast({
+            title: "Nothing to export",
+            description: "No resolved issues match your filters.",
+            variant: "destructive",
+          });
+          return;
+        }
+        downloadGlobalHealthResolvedCsv(allRows);
+        return;
+      }
+
+      const params = buildCacheIssuesQuery(exportView);
+      const qs = params.toString();
+      const res = await apiFetch(
+        qs ? `/api/validation/cache-issues?${qs}` : "/api/validation/cache-issues",
+        { credentials: "include" },
+      );
+      if (!res.ok) {
+        throw new Error(`Failed to load cache issues (${res.status})`);
+      }
+      const data = (await res.json()) as CacheIssuesResponse;
+      const rows = data.issues ?? [];
+      if (rows.length === 0) {
+        toast({
+          title: "Nothing to export",
+          description: "No open issues match your filters.",
+          variant: "destructive",
+        });
+        return;
+      }
+      downloadGlobalHealthIssuesCsv(rows);
+    } catch (err) {
+      toast({
+        title: "CSV export failed",
+        description: err instanceof Error ? err.message : "Could not download CSV.",
+        variant: "destructive",
+      });
+    } finally {
+      setCsvExporting(false);
+    }
+  }, [
+    csvExporting,
+    flushSearchToUrl,
+    searchDraft,
+    view,
+    freshKpiView,
+    toast,
+  ]);
 
   const kpiActiveClass = (active: boolean) =>
     active ? "bg-muted/70 border-b-0 -mb-px" : "bg-card";
@@ -2112,6 +2252,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                 {resolvedSummaryData?.resolvedCount ?? "—"}
               </p>
               <p className="text-xs text-muted-foreground">Resolved</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Last ~2 months</p>
               {resolvedSummaryData && resolvedSummaryData.reopened > 0 ? (
                 <p className="text-[11px] text-muted-foreground mt-0.5" data-testid="text-resolved-reopened">
                   {resolvedSummaryData.reopened} reopened
@@ -2128,8 +2269,8 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search issues…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={searchDraft}
+                onChange={(e) => onSearchDraftChange(e.target.value)}
                 className="pl-10"
                 data-testid="input-search-issues"
               />
@@ -2330,14 +2471,37 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                   </PopoverContent>
                 </Popover>
               )}
+              {freshKpiView === "issues" && (
+                <Button
+                  variant={priorAttemptsFilter ? "default" : "outline"}
+                  size="sm"
+                  className="toggle-elevate"
+                  onClick={() => patchView({ priorAttempts: !priorAttemptsFilter })}
+                  data-testid="button-filter-prior-attempts"
+                >
+                  Has prior attempts
+                </Button>
+              )}
               <Button
-                variant={priorAttemptsFilter ? "default" : "outline"}
+                variant="outline"
                 size="sm"
-                className="toggle-elevate"
-                onClick={() => patchView({ priorAttempts: !priorAttemptsFilter })}
-                data-testid="button-filter-prior-attempts"
+                className="shrink-0"
+                title="Download filtered issues as CSV"
+                onClick={() => void downloadGlobalHealthCsv()}
+                disabled={
+                  csvExporting ||
+                  (freshKpiView === "issues"
+                    ? cacheIssuesLoading || filteredIssueCount === 0
+                    : resolvedIssuesLoading || resolvedTotal === 0)
+                }
+                data-testid="button-download-global-health-csv"
               >
-                Has prior attempts
+                {csvExporting ? (
+                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-1.5" />
+                )}
+                CSV
               </Button>
             </div>
           </div>
@@ -2637,8 +2801,9 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               Resolved issues ({resolvedTotal})
             </CardTitle>
             <p className="text-xs text-muted-foreground font-normal">
-              History of fixes, not current blockers. Open a row for the suggested fix and what they
-              said they did. Reopened means diagnostics found the problem again.
+              Issues completed in the last ~2 months (60 days) — not current blockers. Open a row for
+              the suggested fix and what they said they did. Reopened means diagnostics found the
+              problem again.
             </p>
           </CardHeader>
           <CardContent className="max-h-[32rem] overflow-auto !p-0">

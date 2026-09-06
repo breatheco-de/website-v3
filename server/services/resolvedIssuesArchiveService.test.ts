@@ -6,8 +6,11 @@ import {
   ResolvedIssuesArchiveService,
   STAFF_DEFAULT_REPORT,
   issueToArchiveRow,
+  pruneArchiveRows,
+  ARCHIVE_RETENTION_MS,
+  ARCHIVE_MAX_ROWS,
 } from "./resolvedIssuesArchiveService";
-import type { StoredValidationIssue } from "../../scripts/validation/shared/types";
+import type { ResolvedIssueArchiveRow, StoredValidationIssue } from "../../scripts/validation/shared/types";
 
 function tempRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "resolved-archive-"));
@@ -26,6 +29,65 @@ function sampleIssue(id: string, entryKey = "page/home/en"): StoredValidationIss
     lastRunAt: new Date().toISOString(),
   };
 }
+
+function archiveRow(id: string, resolvedAt: string): ResolvedIssueArchiveRow {
+  return issueToArchiveRow(sampleIssue(id), {
+    resolvedBy: "agent",
+    resolvedAt,
+    resolution: "verified_gone",
+  });
+}
+
+describe("pruneArchiveRows", () => {
+  const now = Date.parse("2026-09-06T12:00:00.000Z");
+
+  it("drops rows older than retention window", () => {
+    const fresh = archiveRow("fresh", new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString());
+    const stale = archiveRow("stale", new Date(now - 61 * 24 * 60 * 60 * 1000).toISOString());
+    const { rows, prunedByAge, prunedByCap } = pruneArchiveRows([fresh, stale], {
+      now,
+      retentionMs: ARCHIVE_RETENTION_MS,
+    });
+    expect(prunedByAge).toBe(1);
+    expect(prunedByCap).toBe(0);
+    expect(rows.map((r) => r.issueId)).toEqual(["fresh"]);
+  });
+
+  it("keeps rows inside the retention window", () => {
+    const edge = archiveRow(
+      "edge",
+      new Date(now - ARCHIVE_RETENTION_MS + 1000).toISOString(),
+    );
+    const { rows, prunedByAge } = pruneArchiveRows([edge], { now });
+    expect(prunedByAge).toBe(0);
+    expect(rows).toHaveLength(1);
+  });
+
+  it("drops invalid or missing resolvedAt as expired", () => {
+    const bad = { ...archiveRow("bad", "not-a-date") };
+    const { rows, prunedByAge } = pruneArchiveRows([bad], { now });
+    expect(prunedByAge).toBe(1);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("applies safety cap after age prune (newest first)", () => {
+    const rows = [
+      archiveRow("n0", new Date(now - 1000).toISOString()),
+      archiveRow("n1", new Date(now - 2000).toISOString()),
+      archiveRow("n2", new Date(now - 3000).toISOString()),
+      archiveRow("old", new Date(now - 90 * 24 * 60 * 60 * 1000).toISOString()),
+    ];
+    const result = pruneArchiveRows(rows, { now, maxRows: 2 });
+    expect(result.prunedByAge).toBe(1);
+    expect(result.prunedByCap).toBe(1);
+    expect(result.rows.map((r) => r.issueId)).toEqual(["n0", "n1"]);
+  });
+
+  it("exports production safety cap of 40000", () => {
+    expect(ARCHIVE_MAX_ROWS).toBe(40_000);
+    expect(ARCHIVE_RETENTION_MS).toBe(60 * 24 * 60 * 60 * 1000);
+  });
+});
 
 describe("ResolvedIssuesArchiveService", () => {
   const roots: string[] = [];
@@ -141,6 +203,56 @@ describe("ResolvedIssuesArchiveService", () => {
     const page = archive.list({ limit: 2, offset: 2 });
     expect(page.rows).toHaveLength(2);
     expect(page.total).toBe(5);
+  });
+
+  it("drops stale rows on load from disk", () => {
+    const root = tempRoot();
+    roots.push(root);
+    const file = path.join(root, "validation-resolved-archive.json");
+    const now = Date.now();
+    const payload = {
+      meta: { version: 1 as const },
+      rows: [
+        archiveRow("keep", new Date(now - 5 * 24 * 60 * 60 * 1000).toISOString()),
+        archiveRow("gone", new Date(now - 90 * 24 * 60 * 60 * 1000).toISOString()),
+      ],
+    };
+    fs.writeFileSync(file, JSON.stringify(payload, null, 2) + "\n", "utf-8");
+
+    const archive = new ResolvedIssuesArchiveService(root);
+    const { rows, summary } = archive.list();
+    expect(rows.map((r) => r.issueId)).toEqual(["keep"]);
+    expect(summary.total).toBe(1);
+
+    const onDisk = JSON.parse(fs.readFileSync(file, "utf-8")) as { rows: { issueId: string }[] };
+    expect(onDisk.rows.map((r) => r.issueId)).toEqual(["keep"]);
+  });
+
+  it("keeps in-window rows when appending a new resolve", async () => {
+    const root = tempRoot();
+    roots.push(root);
+    const file = path.join(root, "validation-resolved-archive.json");
+    const now = Date.now();
+    fs.writeFileSync(
+      file,
+      JSON.stringify(
+        {
+          meta: { version: 1 },
+          rows: [archiveRow("recent", new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString())],
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf-8",
+    );
+    const archive = new ResolvedIssuesArchiveService(root);
+    await archive.appendResolved(sampleIssue("new"), {
+      resolvedBy: "agent",
+      resolution: "verified_gone",
+    });
+    const ids = archive.list().rows.map((r) => r.issueId);
+    expect(ids[0]).toBe("new");
+    expect(ids).toContain("recent");
   });
 });
 

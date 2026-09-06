@@ -5,6 +5,18 @@
 window_days: 6
 
 entries:
+  - date: "2026-09-06"
+    summary: "get_validation_issues for Metrics Viewer; list_proposals is stats-first"
+    agent_impact:
+      - "New get_validation_issues (metrics_view): always open_stats + resolved_stats (60-day archive). Rows only with a scope filter AND set: open|resolved (required). Does not run diagnostics."
+      - "list_proposals without filters now returns proposal_stats only (breaking). Pass status/kind/query/issue_id/proposal_id for paginated proposals[]."
+      - "Reconnect MCP so tools/list picks up get_validation_issues for Metrics Viewer roles."
+    paths:
+      - mcp-server/tools/validation-issues.ts
+      - mcp-server/tools/proposals.ts
+      - shared/mcp-tool-catalog.ts
+      - server/content-proposals/service.ts
+    tools_changed: true
   - date: "2026-09-04"
     summary: "Diagnostics meta validator resolves site vars like the live SEO gate"
     agent_impact:

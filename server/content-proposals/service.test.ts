@@ -277,6 +277,44 @@ describe("content proposals", () => {
     expect(created.proposal.kind).toBe("notes");
     const ack = await svc.update(created.proposal.id, "acknowledge", { username: "bob" });
     expect(ack.ok).toBe(true);
-    if (ack.ok) expect(ack.proposal.status).toBe("finished");
+    if (!ack.ok) return;
+    expect(ack.proposal.status).toBe("finished");
+  });
+
+  it("stats counts by status and kind; list supports offset", async () => {
+    const svc = makeService();
+    const summary =
+      "Replace the live CTA title with a clearer next step for this Spanish blog post. ".repeat(2);
+    for (let i = 0; i < 3; i++) {
+      const created = await svc.create(
+        {
+          title: `CTA ${i}`,
+          summary,
+          entries: [sampleEntry({ slug: `post-${i}` })],
+        },
+        { username: "alice" },
+      );
+      expect(created.ok).toBe(true);
+    }
+    const notes = await svc.create(
+      {
+        title: "Handoff",
+        summary: "Tried updating meta then hit a permission wall; recommend setting the title from H1. ".repeat(2),
+      },
+      { username: "alice" },
+    );
+    expect(notes.ok).toBe(true);
+
+    const s = svc.stats();
+    expect(s.total).toBe(4);
+    expect(s.by_kind.edits).toBe(3);
+    expect(s.by_kind.notes).toBe(1);
+    expect(s.by_status.open).toBe(4);
+
+    const page = svc.list({ kind: "edits", limit: 2, offset: 0 });
+    expect(page.total).toBe(3);
+    expect(page.proposals).toHaveLength(2);
+    const page2 = svc.list({ kind: "edits", limit: 2, offset: 2 });
+    expect(page2.proposals).toHaveLength(1);
   });
 });

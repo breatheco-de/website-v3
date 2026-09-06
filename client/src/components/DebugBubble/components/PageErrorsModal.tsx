@@ -1244,8 +1244,8 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
               {!unpublishedVariant && (
               <TabsContent value="completed" className="mt-3 space-y-2">
                 <p className="text-xs text-muted-foreground" data-testid="text-completed-education">
-                  History of issues marked fixed for this page (including fixes that removed them from
-                  Errors/Warnings). Reopened means diagnostics found the problem again.
+                  Issues marked fixed for this page in the last ~2 months (60 days), including fixes that
+                  removed them from Errors/Warnings. Reopened means diagnostics found the problem again.
                 </p>
                 {resolvedArchiveQuery.isLoading && entryKey ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground p-3">

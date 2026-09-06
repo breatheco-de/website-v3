@@ -57,7 +57,7 @@ const TOPIC_DESC: Record<string, string> = {
   redirects:
     "CMS 301/302: two stores, first-match, test_redirect (read_redirects) + update_redirect (edit_redirects), before_from custom-only",
   proposals:
-    "Entry change proposals and issue handoff notes; three MCP tools; four-eyes apply",
+    "Entry change proposals and issue handoff notes; three MCP tools; four-eyes apply; list_proposals is stats-first",
 };
 
 type TagResolver = (contentPath: string) => string;

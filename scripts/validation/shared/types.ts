@@ -141,7 +141,7 @@ export interface ValidationIssueClaim {
  * Prior claim attempt that was released or expired — keyed by issue id.
  * Newest-first array; capped by site llm.yml `validation_issues.max_attempts`.
  */
-/** Append-only resolved issue snapshot (validation-resolved-archive.json). */
+/** Resolved issue snapshot (validation-resolved-archive.json); rolling 60-day retention. */
 export interface ResolvedIssueArchiveRow {
   issueId: string;
   entryKey: string;

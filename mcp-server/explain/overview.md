@@ -40,6 +40,8 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 | `relation-fields` | Relation editor, authors hubs, listing vs hydrate, delete reassign |
 | `lead-forms` | Catalog `source` (`content_type` / `database` / `related_field`), required `value_path`/`label_path`, required `query` on ecommerce catalogs, `purchasable` vs `actively_selling` |
 | `redirects` | CMS 301/302: two stores, first-match, `test_redirect` (`read_redirects`) + `update_redirect` (`edit_redirects`) |
-| `proposals` | Entry change proposals + issue handoff notes: 3 tools, four-eyes apply |
+| `proposals` | Entry change proposals + issue handoff notes: 3 tools, four-eyes apply; `list_proposals` is stats-first |
+
+**Metrics Viewer:** use `get_validation_issues` for open/resolved KPI stats (and scoped rows with `set`). Content agents keep `run_entry_diagnostics` to refresh/fix issues.
 
 **Before making any structural change to this codebase, call `explain_site` with the relevant topic.**

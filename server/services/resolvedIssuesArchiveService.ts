@@ -1,5 +1,5 @@
 /**
- * Append-only archive of successfully resolved validation issues.
+ * Archive of successfully resolved validation issues (rolling 60-day retention).
  * Persists to validation-resolved-archive.json + GCS in production.
  */
 
@@ -23,8 +23,47 @@ import type { ValidationCacheService } from "./validationCacheService";
 const log = child({ module: "resolvedIssuesArchive" });
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
-export const ARCHIVE_MAX_ROWS = 2000;
+/** Rolling retention window for resolved archive rows (by `resolvedAt`). */
+export const ARCHIVE_RETENTION_MS = 60 * 24 * 60 * 60 * 1000;
+/** Safety cap after age prune — newest-first list, oldest beyond this are dropped. */
+export const ARCHIVE_MAX_ROWS = 40_000;
 export const STAFF_DEFAULT_REPORT = "Marked fixed in UI.";
+
+/**
+ * Drop rows older than the retention window, then apply a max-row safety cap.
+ * Invalid/missing `resolvedAt` values are treated as expired.
+ */
+export function pruneArchiveRows(
+  rows: ResolvedIssueArchiveRow[],
+  options?: {
+    now?: number;
+    retentionMs?: number;
+    maxRows?: number;
+  },
+): { rows: ResolvedIssueArchiveRow[]; prunedByAge: number; prunedByCap: number } {
+  const now = options?.now ?? Date.now();
+  const retentionMs = options?.retentionMs ?? ARCHIVE_RETENTION_MS;
+  const maxRows = options?.maxRows ?? ARCHIVE_MAX_ROWS;
+  const cutoff = now - retentionMs;
+
+  const kept: ResolvedIssueArchiveRow[] = [];
+  let prunedByAge = 0;
+  for (const row of rows) {
+    const ts = Date.parse(row.resolvedAt);
+    if (!Number.isFinite(ts) || ts < cutoff) {
+      prunedByAge += 1;
+      continue;
+    }
+    kept.push(row);
+  }
+
+  let prunedByCap = 0;
+  if (kept.length > maxRows) {
+    prunedByCap = kept.length - maxRows;
+    return { rows: kept.slice(0, maxRows), prunedByAge, prunedByCap };
+  }
+  return { rows: kept, prunedByAge, prunedByCap };
+}
 
 export type ResolvedIssuesListFilters = {
   entryKey?: string;
@@ -136,6 +175,14 @@ export class ResolvedIssuesArchiveService {
     const data = readArchiveFile(this.archiveFile);
     this.meta = data.meta ?? { version: 1 };
     this.rows = data.rows ?? [];
+    if (this.enforceRetention()) {
+      try {
+        this.writeLocalFile();
+      } catch (err) {
+        log.error({ err }, "[ResolvedArchive] Failed to persist retention prune on load");
+      }
+      this.saveToBucket();
+    }
   }
 
   private buildFile(): ResolvedIssuesArchiveFileV1 {
@@ -169,11 +216,26 @@ export class ResolvedIssuesArchiveService {
     this.saveToBucket();
   }
 
-  private enforceCap(): void {
-    if (this.rows.length <= ARCHIVE_MAX_ROWS) return;
-    const pruned = this.rows.length - ARCHIVE_MAX_ROWS;
-    this.rows = this.rows.slice(0, ARCHIVE_MAX_ROWS);
-    log.debug({ pruned, cap: ARCHIVE_MAX_ROWS }, "[ResolvedArchive] Pruned oldest rows");
+  /** @returns true if any rows were removed */
+  private enforceRetention(now = Date.now()): boolean {
+    const before = this.rows.length;
+    const { rows, prunedByAge, prunedByCap } = pruneArchiveRows(this.rows, { now });
+    this.rows = rows;
+    if (prunedByAge > 0 || prunedByCap > 0) {
+      log.debug(
+        {
+          prunedByAge,
+          prunedByCap,
+          before,
+          after: this.rows.length,
+          retentionMs: ARCHIVE_RETENTION_MS,
+          maxRows: ARCHIVE_MAX_ROWS,
+        },
+        "[ResolvedArchive] Pruned archive rows",
+      );
+      return true;
+    }
+    return false;
   }
 
   async appendResolved(
@@ -198,7 +260,7 @@ export class ResolvedIssuesArchiveService {
         resolution: args.resolution,
       }),
     );
-    this.enforceCap();
+    this.enforceRetention();
     await this.flush();
   }
 
@@ -228,7 +290,7 @@ export class ResolvedIssuesArchiveService {
       }),
     );
     this.rows.unshift(...newRows);
-    this.enforceCap();
+    this.enforceRetention();
     await this.flush();
   }
 
@@ -237,6 +299,7 @@ export class ResolvedIssuesArchiveService {
     const idx = this.rows.findIndex((r) => r.issueId === issueId && !r.reopenedAt);
     if (idx < 0) return false;
     this.rows[idx] = { ...this.rows[idx]!, reopenedAt: at };
+    this.enforceRetention();
     await this.flush();
     return true;
   }
@@ -266,7 +329,7 @@ export class ResolvedIssuesArchiveService {
       migrated += 1;
     }
     if (migrated > 0) {
-      this.enforceCap();
+      this.enforceRetention();
     }
     this.meta = { ...this.meta, migratedCompletions: true };
     await this.flush();
@@ -356,7 +419,9 @@ export class ResolvedIssuesArchiveService {
       if (!parsed || parsed.meta?.version !== 1 || !Array.isArray(parsed.rows)) return;
       this.meta = parsed.meta;
       this.rows = parsed.rows;
+      const pruned = this.enforceRetention();
       this.writeLocalFile();
+      if (pruned) this.saveToBucket();
       log.info(`[ResolvedArchive] Loaded ${this.rows.length} rows from GCS`);
     } catch (err) {
       log.error({ err }, "[ResolvedArchive] Error loading from bucket");
@@ -424,6 +489,7 @@ export class ResolvedIssuesArchiveService {
 
       this.meta = parsed.meta;
       this.rows = parsed.rows;
+      this.enforceRetention();
       this.writeLocalFile();
       return {
         success: true,
