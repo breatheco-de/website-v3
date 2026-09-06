@@ -107,3 +107,44 @@ export function jsonFieldFailureHttpBody(failures: JsonFieldValidationFailure[])
     errors: first?.errors,
   };
 }
+
+/** Structural YAML keys that are never entry Fields JSON. */
+const NON_FIELD_ROOTS = new Set(["sections", "layout", "meta"]);
+
+/** Root field keys touched by dotted update paths (e.g. call_to_action.title → call_to_action). */
+export function rootFieldKeysFromTouchedPaths(paths: string[]): string[] {
+  const keys = new Set<string>();
+  for (const p of paths) {
+    if (!p || typeof p !== "string") continue;
+    const root = p.split(".")[0]?.trim();
+    if (!root || NON_FIELD_ROOTS.has(root)) continue;
+    keys.add(root);
+  }
+  return Array.from(keys);
+}
+
+/**
+ * When a touched Field has editor.type json + schema, coerce/validate the post-merge
+ * document value. Clears (null/undefined / missing) skip schema. Returns coerced
+ * subset to write back onto the document.
+ */
+export function validateTouchedJsonFieldsInDocument(
+  data: Record<string, unknown>,
+  touchedPaths: string[],
+  editor: Record<string, { type?: string; schema?: unknown }> | undefined | null,
+  semantics?: JsonFieldSemanticContext,
+): ValidateJsonFieldsResult {
+  if (!editor) return { ok: true, fields: {} };
+  const subset: Record<string, unknown> = {};
+  for (const key of rootFieldKeysFromTouchedPaths(touchedPaths)) {
+    const hint = editor[key];
+    if (!hint || hint.type !== "json") continue;
+    if (!hint.schema || typeof hint.schema !== "object" || Array.isArray(hint.schema)) {
+      continue;
+    }
+    if (!(key in data) || data[key] === undefined || data[key] === null) continue;
+    subset[key] = data[key];
+  }
+  if (Object.keys(subset).length === 0) return { ok: true, fields: {} };
+  return validateAndCoerceJsonFields(subset, editor, semantics);
+}
