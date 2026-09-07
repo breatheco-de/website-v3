@@ -18,13 +18,36 @@ export interface ComponentSaveRejection {
   message: string;
 }
 
+/**
+ * What the platform knows about the save being validated, handed to the
+ * hooks so components never import platform code. Capabilities are plain
+ * functions the route closes over.
+ */
+export interface SectionValidationContext {
+  /** True when the save arrives through the MCP server (an agent authored it). */
+  isMcpAuthor: boolean;
+  /** Stored demo sections for a component type (the preview store). */
+  listDemoSections(componentType: string): Array<Record<string, unknown>>;
+}
+
+/**
+ * A hook's verdict: a plain violation list uses the module's `saveRejection`
+ * envelope; the object form overrides code/message for this verdict — for a
+ * component whose different failure classes need different wire codes.
+ */
+export type SectionValidationVerdict =
+  | string[]
+  | { violations: string[]; code?: string; message?: string };
+
 export interface ComponentServerHooks {
   /**
-   * Validate one section of this component's type at save time. Returned
-   * strings are violations: any violation rejects the whole save with a 422
-   * carrying `saveRejection`. Return [] to accept.
+   * Validate one section of this component's type at save time. Any
+   * violation rejects the whole save with a 422. Return [] to accept.
    */
-  validateSection?(section: Record<string, unknown>): Promise<string[]>;
+  validateSection?(
+    section: Record<string, unknown>,
+    ctx: SectionValidationContext,
+  ): Promise<SectionValidationVerdict>;
 
   /**
    * Validate a single-field update targeting `sections.<n>.<field>` at save
@@ -32,7 +55,11 @@ export interface ComponentServerHooks {
    * which type owns the section from the operation alone), so implementations
    * must return [] for fields that aren't theirs.
    */
-  validateFieldUpdate?(field: string, value: unknown): Promise<string[]>;
+  validateFieldUpdate?(
+    field: string,
+    value: unknown,
+    ctx: SectionValidationContext,
+  ): Promise<SectionValidationVerdict>;
 
   /** Rejection envelope used when validateSection/validateFieldUpdate find violations. */
   saveRejection?: ComponentSaveRejection;

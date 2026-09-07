@@ -10,6 +10,12 @@ import {
   allComponentServerHooks,
   getComponentServerHooks,
 } from "@shared/component-registry/server-hooks";
+import type {
+  ComponentServerHooks,
+  SectionValidationContext,
+  SectionValidationVerdict,
+} from "@shared/component-registry/_common/server-hooks";
+import { listDemoSections } from "./component-section-demos";
 
 export type SectionSaveResult =
   | { ok: true }
@@ -17,9 +23,36 @@ export type SectionSaveResult =
 
 const SECTION_FIELD_PATH = /^sections\.\d+\.([A-Za-z0-9_]+)$/;
 
+function buildContext(isMcpAuthor: boolean): SectionValidationContext {
+  return {
+    isMcpAuthor,
+    listDemoSections: (componentType) => listDemoSections(componentType),
+  };
+}
+
+/** Fold a hook's verdict into the route's rejection shape, or null to accept. */
+function toRejection(
+  verdict: SectionValidationVerdict,
+  hooks: ComponentServerHooks,
+  fallbackMessage: string,
+): SectionSaveResult | null {
+  const violations = Array.isArray(verdict) ? verdict : verdict.violations;
+  if (!violations.length) return null;
+  const override = Array.isArray(verdict) ? undefined : verdict;
+  return {
+    ok: false,
+    code: override?.code ?? hooks.saveRejection?.code ?? "section_validation",
+    message:
+      override?.message ?? hooks.saveRejection?.message ?? fallbackMessage,
+    violations,
+  };
+}
+
 export async function validateSectionOperations(
   operations: ReadonlyArray<Record<string, unknown>>,
+  opts: { isMcpAuthor: boolean },
 ): Promise<SectionSaveResult> {
+  const ctx = buildContext(opts.isMcpAuthor);
   for (const op of operations) {
     // Every shape a section can enter the edit endpoint through. The real
     // MCP add tool sends {action:"add_item", path:"sections", item:{...}};
@@ -34,17 +67,12 @@ export async function validateSectionOperations(
     if (data && typeof data.type === "string") {
       const hooks = await getComponentServerHooks(data.type);
       if (hooks?.validateSection) {
-        const violations = await hooks.validateSection(data);
-        if (violations.length) {
-          return {
-            ok: false,
-            code: hooks.saveRejection?.code ?? "section_validation",
-            message:
-              hooks.saveRejection?.message ??
-              `${data.type} section rejected: fix the reported violations and retry`,
-            violations,
-          };
-        }
+        const rejection = toRejection(
+          await hooks.validateSection(data, ctx),
+          hooks,
+          `${data.type} section rejected: fix the reported violations and retry`,
+        );
+        if (rejection) return rejection;
       }
       continue;
     }
@@ -59,17 +87,12 @@ export async function validateSectionOperations(
       for (const hooksPromise of allComponentServerHooks()) {
         const hooks = await hooksPromise;
         if (!hooks.validateFieldUpdate) continue;
-        const violations = await hooks.validateFieldUpdate(m[1], op.value);
-        if (violations.length) {
-          return {
-            ok: false,
-            code: hooks.saveRejection?.code ?? "section_validation",
-            message:
-              hooks.saveRejection?.message ??
-              "section field update rejected: fix the reported violations and retry",
-            violations,
-          };
-        }
+        const rejection = toRejection(
+          await hooks.validateFieldUpdate(m[1], op.value, ctx),
+          hooks,
+          "section field update rejected: fix the reported violations and retry",
+        );
+        if (rejection) return rejection;
       }
     }
   }

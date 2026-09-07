@@ -12,7 +12,10 @@
  * The geekchart bundle (mermaid + font measurement) costs seconds to load,
  * so it is imported on the first actual render, never at module load.
  */
-import type { ComponentServerHooks } from "../../_common/server-hooks";
+import type {
+  ComponentServerHooks,
+  SectionValidationContext,
+} from "../../_common/server-hooks";
 
 let mod: Promise<typeof import("geekchart/server")> | null = null;
 function loadRenderer() {
@@ -41,6 +44,32 @@ async function renderViolations(source: string, duration?: number): Promise<stri
   }
 }
 
+/**
+ * Preview-first (owner's ruling, 2026-09-08): an MCP agent may only save a
+ * chart whose exact source it has already demoed — creating the demo is what
+ * produces the preview link a human sees. Matching is on the trimmed source
+ * alone, so re-tuning duration or caption on an approved chart never forces
+ * a fresh preview round. Human editor saves are exempt: the human is already
+ * looking at the chart.
+ */
+function previewRequired(
+  source: string,
+  ctx: SectionValidationContext,
+): { violations: string[]; code: string; message: string } | null {
+  if (!ctx.isMcpAuthor) return null;
+  const wanted = source.trim();
+  const demoed = ctx
+    .listDemoSections("geekchart")
+    .some((s) => typeof s.source === "string" && s.source.trim() === wanted);
+  if (demoed) return null;
+  return {
+    code: "geekchart_preview_required",
+    message:
+      "geekchart section rejected: this chart has not been previewed. Create a component section demo with this exact source, share its preview link with the user, and retry the save after they have seen it",
+    violations: ["no demo exists with this chart source — preview it first"],
+  };
+}
+
 export const hooks: ComponentServerHooks = {
   saveRejection: {
     code: "geekchart_geometry",
@@ -48,18 +77,22 @@ export const hooks: ComponentServerHooks = {
       "geekchart section rejected: the chart's drawing fails geometry checks — fix the mermaid source and retry (see the geekchart component's authoring rules)",
   },
 
-  async validateSection(section) {
+  async validateSection(section, ctx) {
     const source = typeof section.source === "string" ? section.source : "";
     if (!source.trim()) return [];
+    const unpreviewed = previewRequired(source, ctx);
+    if (unpreviewed) return unpreviewed;
     const duration =
       typeof section.duration === "number" ? section.duration : undefined;
     return renderViolations(source, duration);
   },
 
-  async validateFieldUpdate(field, value) {
+  async validateFieldUpdate(field, value, ctx) {
     if (field !== "source" || typeof value !== "string" || !value.trim()) {
       return [];
     }
+    const unpreviewed = previewRequired(value, ctx);
+    if (unpreviewed) return unpreviewed;
     return renderViolations(value);
   },
 

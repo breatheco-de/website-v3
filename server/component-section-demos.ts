@@ -365,3 +365,24 @@ export function readDemoYamlText(hash: string, cwd = process.cwd()): string | nu
     return null;
   }
 }
+
+/**
+ * Every stored demo section of one component type. Backs preview-first save
+ * validation (a component hook checks whether a section was demoed before an
+ * agent may publish it), so it reads the store fresh on each call — saves
+ * are rare and demo files are small.
+ */
+export function listDemoSections(
+  componentType: string,
+  cwd = process.cwd(),
+): Array<Record<string, unknown>> {
+  const dir = demosDir(cwd);
+  if (!fs.existsSync(dir)) return [];
+  const sections: Array<Record<string, unknown>> = [];
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith(".yml")) continue;
+    const demo = readDemo(name.slice(0, -4), cwd);
+    if (demo && demo.component_type === componentType) sections.push(demo.section);
+  }
+  return sections;
+}
