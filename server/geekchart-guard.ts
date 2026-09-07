@@ -28,19 +28,7 @@ export async function checkGeekchartSections(
   operations: ReadonlyArray<Record<string, unknown>>,
 ): Promise<GeekchartGuardResult> {
   const violations: string[] = [];
-  for (const op of operations) {
-    // The operations-array format carries the section as `section`; the
-    // simplified single-op format arrives here already normalized to the
-    // same shape, but accept `sectionData` too so no caller shape slips
-    // past the stop. (Found live: a probe using `sectionData` in the array
-    // format was silently ignored by the writer AND missed by this guard's
-    // first version - the two mistakes cancelled in testing and would have
-    // let real saves bypass the stop.)
-    const data = (op?.section ?? op?.sectionData) as Record<string, unknown> | undefined;
-    if (!data || data.type !== "geekchart") continue;
-    const source = typeof data.source === "string" ? data.source : "";
-    if (!source.trim()) continue; // empty source is the schema's problem
-    const duration = typeof data.duration === "number" ? data.duration : undefined;
+  const renderAndCollect = async (source: string, duration?: number) => {
     try {
       const r = await renderToSvg(source, {
         display: { desktop: 612, phone: 358 },
@@ -49,6 +37,37 @@ export async function checkGeekchartSections(
       violations.push(...geometryViolations((r.warnings ?? []).map(String)));
     } catch (e) {
       violations.push(`render failed: ${(e as Error).message}`);
+    }
+  };
+  for (const op of operations) {
+    // Every shape a chart can enter this endpoint through gets rendered.
+    // The real MCP add tool sends {action:"add_item", path:"sections",
+    // item:{...}}; update_section carries `section`; the simplified
+    // single-op format normalizes to `section` upstream but `sectionData`
+    // is accepted for safety; and update_field can rewrite one section's
+    // `source` in place. Each of these was found the hard way: three probe
+    // rounds each caught this guard reading a pocket the writer ignored
+    // while the writer used one the guard ignored.
+    const data = (op?.item ?? op?.section ?? op?.sectionData) as
+      | Record<string, unknown>
+      | undefined;
+    if (data && data.type === "geekchart") {
+      const source = typeof data.source === "string" ? data.source : "";
+      if (source.trim()) {
+        const duration = typeof data.duration === "number" ? data.duration : undefined;
+        await renderAndCollect(source, duration);
+      }
+      continue;
+    }
+    // update_field aimed at a section's mermaid source.
+    if (
+      op?.action === "update_field" &&
+      typeof op.path === "string" &&
+      /^sections\.\d+\.source$/.test(op.path) &&
+      typeof op.value === "string" &&
+      op.value.trim()
+    ) {
+      await renderAndCollect(op.value);
     }
   }
   return violations.length ? { ok: false, violations } : { ok: true };

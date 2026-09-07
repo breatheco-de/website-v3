@@ -535,6 +535,17 @@ function applyOperation(
       });
       break;
     }
+    default: {
+      // An unknown action name used to fall through here doing nothing while
+      // editContent still reported success - a caller sending a dead name
+      // like "add_section" (the MCP tool translates it to add_item before
+      // the wire; a raw API caller may not know that) got a green light and
+      // an untouched file. Refusing loudly is the only honest answer.
+      throw new Error(
+        `Unknown edit operation action "${(operation as { action?: string }).action}" - ` +
+          `supported: update_field, reorder_sections, add_item, remove_item, update_section, replace_all_sections`,
+      );
+    }
   }
   return result;
 }

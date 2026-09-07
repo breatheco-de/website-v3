@@ -17,6 +17,18 @@ describe("geometryViolations", () => {
 });
 
 describe("checkGeekchartSections", () => {
+  it("reads the real MCP add shape: add_item with item", async () => {
+    const r = await checkGeekchartSections([
+      { action: "add_item", path: "sections", item: { type: "geekchart", source: "flowchart LR\n  A[--> broken ]]]" } },
+    ]);
+    expect(r.ok).toBe(false);
+  });
+  it("reads update_field aimed at a section's source", async () => {
+    const r = await checkGeekchartSections([
+      { action: "update_field", path: "sections.2.source", value: "flowchart LR\n  A[--> broken ]]]" },
+    ]);
+    expect(r.ok).toBe(false);
+  });
   it("reads the operations-array 'section' field, not only sectionData", async () => {
     const r = await checkGeekchartSections([
       { action: "add_section", section: { type: "geekchart", source: "flowchart LR\n  A[--> broken ]]]" } },
