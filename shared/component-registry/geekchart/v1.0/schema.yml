@@ -28,8 +28,12 @@ when_to_use: |
     and warned. A label that long is a sentence — put sentences in captions.
   - Node names: keep them short. Boxes are fixed-size; a name that cannot wrap
     to two lines is shortened with an ellipsis, never given a wider box.
-  - Two-tier nodes read best: Name<br/>short caption (e.g. "Deploy<br/>ships
-    to Production").
+  - A caption is a DESCRIPTION under a name, never the name's continuation:
+    "Deploy<br/>ships to Production" is right; "Clean &<br/>transform" is a
+    broken phrase. Never insert <br/> to manage width — a one-line name up
+    to ~18 characters fits its box as-is, and the renderer wraps longer
+    ones itself. Caption all of a chart's boxes or none of them; one
+    captioned box among plain ones reads as a mistake.
   - Height: more than ~6 rows of boxes triggers a phone-height warning. If you
     get it, switch the direction to LR FIRST — it usually fixes the height
     without losing content; only then consider fewer boxes or two short charts.
