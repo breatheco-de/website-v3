@@ -6,6 +6,18 @@ window_days: 6
 
 entries:
   - date: "2026-09-06"
+    summary: "Article/blog body: Markdown + fenced mermaid (geekchart)"
+    agent_impact:
+      - "article.content and blog entry.content are Markdown. Fenced ```mermaid blocks render via geekchart (optional speed=/duration=); bad diagrams stay as code."
+      - "Read get_component_variant (article) or explain_site topics sections + shared-layout. Blog authors body on entry.content bound into the template article."
+      - "Prefer mermaid fences inside the body for inline diagrams — not a separate geekchart section."
+    paths:
+      - shared/component-registry/article/v1.0/schema.yml
+      - shared/component-registry/article/v1.0/schema.ts
+      - mcp-server/explain/sections.md
+      - mcp-server/explain/shared-layout.md
+    tools_changed: false
+  - date: "2026-09-06"
     summary: "BREAKING: get_or_set_media_to_gallery (was get_or_set_image_to_gallery); media_id; URL import + bytes"
     agent_impact:
       - "BREAKING: tool renamed get_or_set_image_to_gallery → get_or_set_media_to_gallery. Arg/response image_id → media_id (nested media, not image). No aliases. Reconnect MCP so tools/list refreshes."

@@ -77,6 +77,14 @@ Long-form pages often insert a CTA between two halves of an article. Use **two (
 - See `get_component_variant` → article example `article_split_toc_group`.
 - `add_section` / replace may return `article_split_always_share`, `article_lead_toc_misconfigured`, or `article_lead_order_suspicious` with `next_actions`.
 
+## Article body format
+
+`article.content` is **Markdown** (headings, lists, links, code fences) — not plain text and not HTML-first.
+
+Fenced **mermaid** code blocks (language `mermaid`) render server-side as animated charts (geekchart). Optional fence meta such as `speed=` / `duration=` is supported. Invalid diagrams stay as code and do not break the page. Prefer mermaid fences inside the body for inline diagrams (do not use a separate geekchart section for that).
+
+This format applies to every `article` section on a page. Call `get_component_variant` with `componentType: article` for the field contract and examples.
+
 ## Shared-layout content types
 
 Types with `database.slug` **or** `single_template: true` (e.g. static `blog`) render sections from shared `template.{locale}.yml` (plus optional per-entry overlays when detached; legacy `single.*` still loads). Changes to the shared template affect **all attached** entries. Per-entry YAML **does** exist for static shared-layout types (`_common.yml` + `{locale}.yml`) and holds locale fields such as `title` / `content` — not a full page shell. See `explain_site` topic `shared-layout`.

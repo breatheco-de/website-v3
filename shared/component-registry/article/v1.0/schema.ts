@@ -4,6 +4,9 @@
  * Variants:
  * - default: Full-width article with optional top or side table of contents
  *
+ * Body: Markdown; fenced ```mermaid blocks render via geekchart (optional
+ * fence meta speed=/duration=). Bad diagrams stay as code.
+ *
  * Split pages: 2+ article sections always continue one piece. TOC on/off =
  * first article's show_toc; reading time + meta only on the first (combined
  * bodies); mobile/top TOC only on the first; desktop side TOC may still appear
@@ -14,7 +17,11 @@ import { z } from "zod";
 export const articleSectionSchema = z.object({
   type: z.literal("article"),
   variant: z.enum(["default"]).optional(),
-  content: z.string().describe("Markdown content for the article body"),
+  content: z
+    .string()
+    .describe(
+      "Markdown body. Fenced ```mermaid blocks render via geekchart (optional fence meta: speed=, duration=). Bad diagrams stay as code; they do not break the page.",
+    ),
   show_toc: z
     .boolean()
     .optional()

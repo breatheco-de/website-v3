@@ -2,11 +2,20 @@ name: Article
 version: "1.0"
 component: Article
 file: client/src/components/article/variants/ArticleDefault.tsx
-description: Renders formatted markdown content with an optional auto-generated table of contents (top or sticky side)
+description: >
+  Renders Markdown article bodies (including fenced ```mermaid diagrams via geekchart) with an optional auto-generated
+  table of contents (top or sticky side).
 when_to_use: |
   Use for long-form content pages such as blog posts, documentation, terms of service,
   privacy policies, or any rich text content that benefits from structured headings
   and optional navigation via a table of contents.
+
+  Body format: `content` is Markdown (headings, lists, links, code fences). Fenced
+  ```mermaid blocks render server-side as animated charts (geekchart). Optional fence
+  meta such as `speed=` / `duration=` is supported; invalid diagrams stay as code and
+  do not break the page. The same format applies to every article section on a page.
+  Prefer mermaid fences inside the body — do not use a separate geekchart section for
+  inline article diagrams.
 
   IMPORTANT — splitting an article around a mid-page CTA (or any other section):
   Prefer two (or more) `article` sections on the same page rather than one giant block.
@@ -31,11 +40,18 @@ props:
   content:
     type: string
     required: true
-    description: Markdown content for the article body
+    description: >
+      Markdown body. Fenced ```mermaid blocks render via geekchart (optional fence meta: speed=, duration=). Bad
+      diagrams stay as code; they do not break the page.
     example: |-
       # Welcome
 
       This is an example article with **bold** and *italic* text.
+
+      ```mermaid
+      flowchart LR
+        A[Start] --> B[End]
+      ```
   show_toc:
     type: boolean
     required: false
