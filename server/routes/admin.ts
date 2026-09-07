@@ -3773,6 +3773,7 @@ export function registerAdminRoutes(app: Express): void {
         label: role.label,
         description: role.description ?? "",
         allowedTools: allowedToolNames(role.capabilities ?? []),
+        agentic: role.agentic === true,
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
 

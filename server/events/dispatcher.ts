@@ -14,6 +14,7 @@ import { getSiteContextMap } from "../site-manager";
 import { buildEntryKey } from "../../scripts/validation/shared/entryKey";
 import { setPendingValidationWriteId } from "../pipeline-state";
 import { scheduleOnSaveValidationJob } from "../services/onSaveValidationScheduler";
+import { scheduleOgCaptureFromLocaleEvent } from "../entry-preview-lifecycle";
 import { scheduleRedirectsValidation } from "../services/onSaveValidation";
 import { queueLinkIndexRemove, entryKeysFromDeletedPaths } from "../link-index";
 import { child } from "../logger";
@@ -119,6 +120,7 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
       await enqueueIndexRefresh(event, ctx.contentRoot);
       if (isLiveLocaleEvent(event)) {
         await maybeScheduleValidation(event, ctx);
+        void scheduleOgCaptureFromLocaleEvent(event);
       }
       await enqueueSyncStateFlush(event.site, ctx.contentRoot);
       break;

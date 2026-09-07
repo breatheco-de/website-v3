@@ -1280,6 +1280,45 @@ export function registerPageTools(
       }
 
       let pages = scanPages(contentPath);
+      // #region agent log
+      {
+        const searchNeedle = typeof search === "string" ? search : "";
+        const slugHits = pages.filter(
+          (p) =>
+            p.slug?.includes("building-an-mcp") ||
+            p.slug?.includes("mcp-server") ||
+            (searchNeedle &&
+              (p.slug?.toLowerCase().includes(searchNeedle.toLowerCase()) ||
+                String(p.title ?? "")
+                  .toLowerCase()
+                  .includes(searchNeedle.toLowerCase()))),
+        );
+        fetch("http://127.0.0.1:7585/ingest/7dd1bcc0-ea77-4f87-be7d-1ea690313598", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "574959" },
+          body: JSON.stringify({
+            sessionId: "574959",
+            hypothesisId: "B",
+            location: "mcp-server/tools/pages.ts:list_entries",
+            message: "list_entries scanPages (YAML-only)",
+            data: {
+              contentType: contentType ?? null,
+              search: search ?? null,
+              slugs: slugs ?? null,
+              totalScanned: pages.length,
+              sampleTypes: [...new Set(pages.map((p) => p.contentType))].slice(0, 20),
+              mcpRelatedHits: slugHits.map((p) => ({
+                contentType: p.contentType,
+                slug: p.slug,
+                title: p.title ?? null,
+              })),
+              hasInteractiveExerciseType: pages.some((p) => p.contentType === "interactive-exercise"),
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+      }
+      // #endregion
       const allowedTypes = grants ? visibleContentTypes(grants) : null;
       if (allowedTypes) {
         pages = pages.filter((p) => allowedTypes.has(p.contentType));
@@ -1419,6 +1458,31 @@ export function registerPageTools(
       return { content: [{ type: "text", text: (e as Error).message }], isError: true };
     }
     const resolved = resolveContentType(slug, contentType, contentPath);
+    // #region agent log
+    fetch("http://127.0.0.1:7585/ingest/7dd1bcc0-ea77-4f87-be7d-1ea690313598", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "574959" },
+      body: JSON.stringify({
+        sessionId: "574959",
+        hypothesisId: "C",
+        location: "mcp-server/tools/pages.ts:resolvePagePayload",
+        message: "resolvePagePayload YAML folder lookup",
+        data: {
+          slug,
+          locale,
+          contentTypeHint: contentType ?? null,
+          resolved: resolved
+            ? {
+                contentType: resolved.contentType,
+                dbSlug: (resolved.config as { database?: { slug?: string } })?.database?.slug ?? null,
+                directory: (resolved.config as { directory?: string })?.directory ?? null,
+              }
+            : null,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     if (!resolved) {
       return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
     }
@@ -2012,23 +2076,27 @@ export function registerPageTools(
   // regenerate_entry_previews
   mcp.tool(
     "regenerate_entry_previews",
-    "Queue Cloudflare Browser Run captures for entry-preview / OG images. " +
+    "Queue Cloudflare Browser Run captures for entry-preview / OG (social) images. " +
     "Requires locales (non-empty). Optional slugs scopes to those entries. " +
     "mode: missing (needs capture), all (force dirty+regen), failed (retry failures). " +
-    "On success writes WebP under images/entry-previews/ and updates live locale YAML meta.og_image " +
-    "(with ?t= cache-bust) unless a distinct gallery/editorial image is set. Variants are never captured. " +
+    "overwrite:true replaces hand-picked meta.og_image; default false skips hand-picked social. " +
+    "Cover (_image) is never written. On success: WebP under images/entry-previews/ + live YAML meta.og_image " +
+    "(DB types: WebP only; og filled at render). Variants never captured. " +
+    "Pipeline also auto-enqueues on live save/promote when social is missing/dirty. " +
     "Does not commit/push content GitHub by itself (AutoCommitQueue when enabled). " +
-    "Cloudflare creds: host env only (CLOUDFLARE_* / ENTRY_PREVIEW_CAPTURE_SECRET; staff SEO/GEO → OG Image is display/test only). " +
-    "Does not edit Brand or schema-org.yml. " +
-    "Requires content_edit_media.",
+    "Cloudflare creds: host env only. Does not edit Brand or schema-org.yml. Requires content_edit_media.",
     {
       content_type: z.string().describe("Content type with preview: config, e.g. 'blog'"),
       locales: z.array(z.string()).min(1).describe("Required live locales to capture (e.g. ['en','es']). No implicit all/primary."),
       mode: z.enum(["missing", "all", "failed"]).default("missing"),
+      overwrite: z
+        .boolean()
+        .optional()
+        .describe("When true, replace hand-picked meta.og_image. Default false. Does not touch cover/_image."),
       slugs: z.array(z.string()).optional().describe("Optional entry slugs to regenerate; omit for all in those locales"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ content_type, locales, mode, slugs, site }) => {
+    async ({ content_type, locales, mode, overwrite, slugs, site }) => {
       if (mcpToken && !(await checkCap(mcpToken, "content_edit_media"))) {
         return denyResponse("content_edit_media");
       }
@@ -2044,6 +2112,7 @@ export function registerPageTools(
       }
 
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      const forceOverwrite = overwrite === true;
       try {
         const res = await fetch(
           `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(content_type)}/entry-previews/enqueue${q}`,
@@ -2053,6 +2122,7 @@ export function registerPageTools(
             body: JSON.stringify({
               locales,
               mode: mode ?? "missing",
+              overwrite: forceOverwrite,
               slugs: slugs && slugs.length > 0 ? slugs : undefined,
             }),
           },
@@ -2075,11 +2145,19 @@ export function registerPageTools(
             message: `These entry locales exist but were not in locales[] and will not be regenerated: ${omitted.join(", ")}`,
           });
         }
-        warnings.push({
-          code: "editorial_og_not_overwritten",
-          message:
-            "Entries with a distinct gallery/editorial meta.og_image or _image keep that URL; YAML is not overwritten.",
-        });
+        if (forceOverwrite) {
+          warnings.push({
+            code: "og_overwrite",
+            message:
+              "overwrite/mode=all replaces meta.og_image including hand-picked social URLs. Cover (_image) is not modified.",
+          });
+        } else {
+          warnings.push({
+            code: "hand_picked_og_skipped",
+            message:
+              "Entries with a distinct hand-picked meta.og_image are skipped. Pass overwrite:true or mode:all to replace them. Cover (_image) never blocks or receives OG.",
+          });
+        }
         warnings.push({
           code: "no_content_github_push",
           message:
@@ -2088,6 +2166,10 @@ export function registerPageTools(
         warnings.push({
           code: "variants_skipped",
           message: "Draft/variant YAML files are never captured or written.",
+        });
+        warnings.push({
+          code: "cover_image_non_effect",
+          message: "_image / entry.image (cover) is never written by this tool.",
         });
         warnings.push({
           code: "creds_env_only",

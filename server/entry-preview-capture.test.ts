@@ -89,12 +89,21 @@ describe("entry-preview-og-yaml policy", () => {
     if (!r.write) expect(r.reason).toBe("editorial_image");
   });
 
-  it("skips when _image is distinct editorial", () => {
+  it("does not treat cover _image as editorial for OG (cover ≠ social)", () => {
     const r = shouldWriteGeneratedOgToYaml({
       entry: { _image: "https://cdn.example.com/gallery/hero.webp", meta: {} },
       previousGeneratedUrl: generated,
     });
-    expect(r.write).toBe(false);
+    expect(r.write).toBe(true);
+  });
+
+  it("overwrite forces write despite hand-picked og_image", () => {
+    const r = shouldWriteGeneratedOgToYaml({
+      entry: { meta: { og_image: "https://cdn.example.com/gallery/hero.webp" } },
+      previousGeneratedUrl: generated,
+      overwrite: true,
+    });
+    expect(r.write).toBe(true);
   });
 
   it("buildOgImageYamlValue adds ?t=", () => {

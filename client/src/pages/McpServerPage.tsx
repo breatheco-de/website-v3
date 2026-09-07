@@ -12,6 +12,8 @@ import {
   IconArrowLeft,
   IconArrowRight,
   IconPencil,
+  IconRobot,
+  IconUser,
 } from "@tabler/icons-react";
 import { Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -23,7 +25,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -141,6 +145,8 @@ interface McpRoleFilter {
   label: string;
   description?: string;
   allowedTools: string[];
+  /** True for MCP swarm / agent roles (vs staff human roles). */
+  agentic?: boolean;
 }
 
 function toolFromFetched(t: FetchedTool): McpTool {
@@ -646,11 +652,44 @@ function ToolsPanel({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ROLE_FILTER_ALL}>All roles</SelectItem>
-              {roles.map((role) => (
-                <SelectItem key={role.id} value={role.id}>
-                  {role.label}
-                </SelectItem>
-              ))}
+              {(() => {
+                const humanRoles = roles.filter((r) => !r.agentic);
+                const agentRoles = roles.filter((r) => r.agentic);
+                return (
+                  <>
+                    {humanRoles.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel className="text-xs font-semibold text-muted-foreground">
+                          Human roles
+                        </SelectLabel>
+                        {humanRoles.map((role) => (
+                          <SelectItem key={role.id} value={role.id}>
+                            <span className="inline-flex items-center gap-1.5">
+                              <IconUser className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                              {role.label}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                    {agentRoles.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel className="text-xs font-semibold text-muted-foreground">
+                          Agent Roles
+                        </SelectLabel>
+                        {agentRoles.map((role) => (
+                          <SelectItem key={role.id} value={role.id}>
+                            <span className="inline-flex items-center gap-1.5">
+                              <IconRobot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                              {role.label}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                  </>
+                );
+              })()}
             </SelectContent>
           </Select>
           <div className="relative w-64">

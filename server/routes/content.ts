@@ -3718,16 +3718,10 @@ export function registerContentRoutes(app: Express): void {
         const locale = localeKey
           ? String(entry[localeKey] || "en")
           : String(entry.lang ?? entry.locale ?? entry.language ?? "en");
-        const imageStr =
-          typeof entry[IMAGE_ALIAS_FIELD] === "string"
-            ? (entry[IMAGE_ALIAS_FIELD] as string).trim()
-            : typeof entry[RESERVED_IMAGE_FIELD] === "string"
-              ? (entry[RESERVED_IMAGE_FIELD] as string).trim()
-              : typeof entry.preview === "string"
-                ? (entry.preview as string).trim()
-                : "";
-        const fromSource = !!(imageStr && !/\{\{/.test(imageStr));
         const meta = await epm.getMeta(type, slug, locale, width);
+        const { isHandPickedOgImage } = await import("../entry-preview-og-yaml");
+        // fromSource = hand-picked meta.og_image (cover/_image is not social)
+        const fromSource = isHandPickedOgImage(entry, meta?.url || null);
         let propsHash: string | undefined;
         if (preview) {
           const ctx = await buildPreviewPropResolveContext({
@@ -3746,7 +3740,7 @@ export function registerContentRoutes(app: Express): void {
           captureReady &&
           !fromSource &&
           !!preview &&
-          epm.needsCapture(meta, propsHash, !!preview.dirty_on_prop_change);
+          epm.needsCapture(meta, propsHash, true);
         index[`${slug}:${locale}`] = {
           slug,
           locale,
@@ -3783,9 +3777,9 @@ export function registerContentRoutes(app: Express): void {
       const preview = getPreviewConfig(type, ctRoot(res));
       const captureReady = isPreviewCaptureReady(preview);
       const mappingValidation = preview ? validatePreviewPropMappings(preview) : null;
-      // Avoid hydrating every article body unless stats must recompute props hashes.
+      // Hydrate mapped content whenever preview is configured (props-hash always on for auto dirty).
       const entries = await loadEntriesForPreview(res, type, undefined, {
-        hydrateMappedContent: !!preview?.dirty_on_prop_change,
+        hydrateMappedContent: !!preview,
       });
       const localeKey = getLocaleKey(type, ctRoot(res));
       const stats = await getEntryPreviewManager(res).stats(
@@ -4163,6 +4157,7 @@ export function registerContentRoutes(app: Express): void {
       const slugs = Array.isArray(req.body?.slugs)
         ? req.body.slugs.map((s: unknown) => String(s)).filter(Boolean)
         : undefined;
+      const overwrite = req.body?.overwrite === true;
 
       const {
         enqueueEntryPreviewsForType,
@@ -4174,10 +4169,12 @@ export function registerContentRoutes(app: Express): void {
           locales,
           slugs,
           mode,
+          overwrite,
         });
         res.json({
           success: true,
           mode,
+          overwrite,
           locales,
           ...result,
           queue: (

@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertCircle, Image, ImageOff, Loader2, Pencil, RefreshCw, Wand2, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { AlertCircle, Image, ImageOff, Loader2, MoreVertical, Pencil, RefreshCw, Wand2, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +12,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ToastAction } from "@/components/ui/toast";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -160,6 +167,7 @@ export function EntryPreviewConfigDialog({
   preview,
   fieldMapping,
   onFinished,
+  onRequestRegenerateAll,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -168,6 +176,8 @@ export function EntryPreviewConfigDialog({
   fieldMapping?: EntryPreviewFieldMapping;
   /** Fired when the user finishes (save / cancel / clear), not when swapping to the component picker. */
   onFinished?: () => void;
+  /** After preview config save — offer force regenerate all social images. */
+  onRequestRegenerateAll?: () => void | Promise<void>;
 }) {
   const { toast } = useToast();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -539,8 +549,23 @@ export function EntryPreviewConfigDialog({
       }
       if (data.warning) {
         toast({ title: "Saved with warning", description: data.warning });
+      } else if (clear) {
+        toast({ title: "Preview config cleared" });
       } else {
-        toast({ title: clear ? "Preview config cleared" : "Preview config saved" });
+        toast({
+          title: "Preview config saved",
+          description:
+            "Social layouts may be stale. Regenerate all og images if the card design changed.",
+          action: onRequestRegenerateAll ? (
+            <ToastAction
+              altText="Regenerate all og images"
+              onClick={() => void onRequestRegenerateAll()}
+              data-testid="toast-regenerate-after-preview-config"
+            >
+              Regenerate all
+            </ToastAction>
+          ) : undefined,
+        });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
       queryClient.invalidateQueries({
@@ -982,6 +1007,8 @@ export function EntryPreviewCard({
   fieldMapping,
   onRetryQueued,
   onGenerateAll,
+  onForceRegenerateAll,
+  forceRegenerateCount = 0,
   generateAllCounts,
   queueBusyCount = 0,
   queuePaused = false,
@@ -993,6 +1020,9 @@ export function EntryPreviewCard({
   /** Called after failed metas are cleared so the parent can force-enqueue captures. */
   onRetryQueued?: (failures: EntryPreviewFailure[]) => void;
   onGenerateAll?: (mode: "missing" | "all") => void;
+  /** Force overwrite all social OG images (including hand-picked). */
+  onForceRegenerateAll?: () => void | Promise<void>;
+  forceRegenerateCount?: number;
   generateAllCounts?: { missing: number; all: number };
   /** Queued + capturing jobs — poll stats while > 0 so the KPI line moves live. */
   queueBusyCount?: number;
@@ -1003,6 +1033,8 @@ export function EntryPreviewCard({
   const { toast } = useToast();
   const [confirmRetryOpen, setConfirmRetryOpen] = useState(false);
   const [generateAllOpen, setGenerateAllOpen] = useState(false);
+  const [forceRegenOpen, setForceRegenOpen] = useState(false);
+  const [forceRegenPending, setForceRegenPending] = useState(false);
   const [generateMode, setGenerateMode] = useState<"missing" | "all">("missing");
   const [configOpen, setConfigOpen] = useState(false);
 
@@ -1010,6 +1042,8 @@ export function EntryPreviewCard({
   const allCount = generateAllCounts?.all ?? 0;
   const canGenerateAll = !!onGenerateAll && missingCount + allCount > 0;
   const selectedGenerateCount = generateMode === "missing" ? missingCount : allCount;
+  const canForceRegenerate =
+    !!onForceRegenerateAll && forceRegenerateCount > 0 && !configError && queueBusyCount === 0;
 
   const openGenerateAllDialog = () => {
     setGenerateMode(missingCount > 0 ? "missing" : "all");
@@ -1084,11 +1118,11 @@ export function EntryPreviewCard({
                 size="icon"
                 variant="ghost"
                 onClick={openGenerateAllDialog}
-                disabled={queueBusyCount > 0}
+                disabled={queueBusyCount > 0 || !!configError}
                 title={
                   queueBusyCount > 0
                     ? `Generating ${queueBusyCount}…`
-                    : "Generate OG previews"
+                    : "Generate missing OG previews"
                 }
                 data-testid="button-generate-all-entry-previews-header"
               >
@@ -1097,6 +1131,29 @@ export function EntryPreviewCard({
                 />
               </Button>
             )}
+            {hasPreview ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    data-testid="button-entry-preview-more"
+                    title="OG preview actions"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    disabled={!canForceRegenerate || forceRegenPending}
+                    onClick={() => setForceRegenOpen(true)}
+                    data-testid="menu-regenerate-all-og-images"
+                  >
+                    Regenerate all og images
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             {configError ? (
               <Popover>
                 <PopoverTrigger asChild>
@@ -1122,16 +1179,16 @@ export function EntryPreviewCard({
                   </p>
                 </PopoverContent>
               </Popover>
-            ) : (
+            ) : !hasPreview ? (
               <Image className="h-4 w-4 text-muted-foreground" />
-            )}
+            ) : null}
           </div>
         </CardHeader>
         <CardContent className="space-y-2">
           <p className="text-xs text-muted-foreground leading-relaxed">
             {hasPreview
-              ? "Use Cloudflare to generate the images that show when your pages are published on social media."
-              : "Configure a component to generate OG / list thumbnails when image is empty."}
+              ? "Cloudflare generates the social share images for your pages. Cover images stay separate."
+              : "Configure a component to generate social share images (OG) when missing."}
           </p>
           {hasPreview ? (
             <details className="text-xs text-muted-foreground">
@@ -1140,14 +1197,13 @@ export function EntryPreviewCard({
                 <p>
                   {preview.component}
                   {preview.variant ? ` / ${preview.variant}` : ""} — server captures via Cloudflare Browser
-                  Run for admin thumbs and og:image. On success, locale YAML meta.og_image is set (unless a
-                  gallery/editorial image is already set). You can close this tab after Generate.
+                  Run. On success, locale YAML meta.og_image is set (covers / _image are not overwritten).
+                  Pipeline events auto-queue when social is missing or OG card inputs change. You can close
+                  this tab after Generate.
                 </p>
                 <p>
                   Queue: server/entry-preview-capture-queue.ts · CF client: server/cloudflare-browser.ts ·
                   Storage: server/entry-preview-manager.ts · Frame: client/src/pages/EntryPreviewFrame.tsx.
-                  Component gallery thumbs still use client modern-screenshot. Auto-commit batches YAML when
-                  GitHub sync flags are on; WebPs under images/entry-previews/ are not in content git.
                 </p>
               </div>
             </details>
@@ -1261,10 +1317,10 @@ export function EntryPreviewCard({
                   <code className="text-xs">og:image</code> when the reserved image field is empty.
                 </p>
                 <ul className="list-disc pl-4 space-y-1 text-xs">
-                  <li>Runs one at a time in this browser tab (short pause between each).</li>
-                  <li>Keep this tab open — the queue pauses when the tab is hidden.</li>
-                  <li>Does not overwrite entries that already use a source/DB image.</li>
-                  <li>Regenerate all will re-capture even when a preview already exists.</li>
+                  <li>Runs on the server (Cloudflare), paced between captures.</li>
+                  <li>Does not overwrite hand-picked social images — use “Regenerate all og images” in the ⋯ menu for that.</li>
+                  <li>Cover / listing images are never changed.</li>
+                  <li>Regenerate all (soft) re-captures generated social when dirty or missing.</li>
                 </ul>
               </div>
             </DialogDescription>
@@ -1336,12 +1392,59 @@ export function EntryPreviewCard({
         </DialogContent>
       </Dialog>
 
+      <Dialog open={forceRegenOpen} onOpenChange={setForceRegenOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Regenerate all og images?</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  Replace social preview images for about {forceRegenerateCount} entries in all
+                  languages on this type — including custom social images. Cover images on the pages
+                  stay as they are.
+                </p>
+                <p className="text-xs">
+                  Jobs run on the server. Failures stay listed for Retry. You can close this tab.
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setForceRegenOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!canForceRegenerate || forceRegenPending}
+              onClick={async () => {
+                setForceRegenPending(true);
+                try {
+                  await onForceRegenerateAll?.();
+                  setForceRegenOpen(false);
+                } finally {
+                  setForceRegenPending(false);
+                }
+              }}
+              data-testid="button-confirm-force-regenerate-og"
+            >
+              {forceRegenPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+              ) : (
+                <Wand2 className="h-3.5 w-3.5 mr-1" />
+              )}
+              Regenerate {forceRegenerateCount}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <EntryPreviewConfigDialog
         open={configOpen}
         onOpenChange={setConfigOpen}
         contentType={contentType}
         preview={preview}
         fieldMapping={fieldMapping}
+        onRequestRegenerateAll={onForceRegenerateAll}
       />
     </>
   );

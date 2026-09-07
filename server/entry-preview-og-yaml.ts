@@ -1,11 +1,11 @@
 /**
  * Persist generated entry-preview URL into locale YAML meta.og_image.
- * Respects gallery/editorial images; uses ?t= cache-bust for social crawlers.
+ * Cover (`_image` / `image`) is never treated as social — only `meta.og_image` gates soft writes.
+ * Uses ?t= cache-bust for social crawlers.
  */
 
 import type { ContentIndex } from "./content-index";
 import { editContent } from "./content-editor";
-import { RESERVED_IMAGE_FIELD, IMAGE_ALIAS_FIELD } from "./content-types";
 import { isUsableOgImageUrl } from "@shared/ogImageUrl";
 import { stripOgCacheBust } from "./entry-preview-capture-auth";
 import { markFileAsModified } from "./sync-state";
@@ -20,21 +20,13 @@ export type PersistOgYamlResult =
   | { wrote: true; ogImage: string; relativePath: string }
   | { wrote: false; reason: "editorial_image" | "edit_failed" | "unchanged"; detail?: string };
 
-function getEntryImageFields(entry: Record<string, unknown>): {
-  ogImage: string;
-  sourceImage: string;
-} {
+/** Read `meta.og_image` from an entry bag (listing or full YAML). */
+export function getEntryMetaOgImage(entry: Record<string, unknown>): string {
   const meta =
     entry.meta && typeof entry.meta === "object" && !Array.isArray(entry.meta)
       ? (entry.meta as Record<string, unknown>)
       : {};
-  const ogImage = typeof meta.og_image === "string" ? meta.og_image.trim() : "";
-  const sourceImage =
-    (typeof entry[IMAGE_ALIAS_FIELD] === "string" && (entry[IMAGE_ALIAS_FIELD] as string).trim()) ||
-    (typeof entry[RESERVED_IMAGE_FIELD] === "string" && (entry[RESERVED_IMAGE_FIELD] as string).trim()) ||
-    (typeof entry.image === "string" && entry.image.trim()) ||
-    "";
-  return { ogImage, sourceImage };
+  return typeof meta.og_image === "string" ? meta.og_image.trim() : "";
 }
 
 /** True if url is the previous generated preview (same path, ignore ?t=). */
@@ -46,16 +38,30 @@ export function isPreviousGeneratedOgUrl(
   return stripOgCacheBust(existing) === stripOgCacheBust(previousGeneratedUrl);
 }
 
+/**
+ * Hand-picked social image: usable meta.og_image that is not the previous generated capture.
+ * Cover / `_image` is ignored (cover ≠ social).
+ */
+export function isHandPickedOgImage(
+  entry: Record<string, unknown>,
+  previousGeneratedUrl: string | null | undefined,
+): boolean {
+  const ogImage = getEntryMetaOgImage(entry);
+  if (!ogImage || /\{\{/.test(ogImage) || !isUsableOgImageUrl(ogImage)) return false;
+  return !isPreviousGeneratedOgUrl(ogImage, previousGeneratedUrl);
+}
+
 export function shouldWriteGeneratedOgToYaml(opts: {
   entry: Record<string, unknown>;
   previousGeneratedUrl: string | null | undefined;
+  /** When true, replace even hand-picked meta.og_image. */
+  overwrite?: boolean;
 }): { write: true } | { write: false; reason: "editorial_image" } {
-  const { ogImage, sourceImage } = getEntryImageFields(opts.entry);
+  if (opts.overwrite) return { write: true };
+
+  const ogImage = getEntryMetaOgImage(opts.entry);
   const prev = opts.previousGeneratedUrl || "";
 
-  if (sourceImage && isUsableOgImageUrl(sourceImage) && !isPreviousGeneratedOgUrl(sourceImage, prev)) {
-    return { write: false, reason: "editorial_image" };
-  }
   if (ogImage && isUsableOgImageUrl(ogImage) && !isPreviousGeneratedOgUrl(ogImage, prev)) {
     return { write: false, reason: "editorial_image" };
   }
@@ -72,6 +78,7 @@ export function buildOgImageYamlValue(publicUrl: string, capturedAt: string): st
 
 /**
  * After successful upsertWebp, write meta.og_image into live locale YAML when allowed.
+ * Always uses skipPreviewCapture to avoid re-enqueue loops via editContent / pipeline.
  */
 export async function persistGeneratedOgImageToEntryYaml(opts: {
   contentType: string;
@@ -87,17 +94,19 @@ export async function persistGeneratedOgImageToEntryYaml(opts: {
   /** Pre-loaded entry (meta + image fields). */
   entry: Record<string, unknown>;
   author?: string;
+  overwrite?: boolean;
 }): Promise<PersistOgYamlResult> {
   const gate = shouldWriteGeneratedOgToYaml({
     entry: opts.entry,
     previousGeneratedUrl: opts.previousGeneratedUrl,
+    overwrite: opts.overwrite,
   });
   if (!gate.write) {
     return { wrote: false, reason: "editorial_image" };
   }
 
   const ogImage = buildOgImageYamlValue(opts.publicUrl, opts.capturedAt);
-  const { ogImage: existingOg } = getEntryImageFields(opts.entry);
+  const existingOg = getEntryMetaOgImage(opts.entry);
   if (existingOg === ogImage) {
     return { wrote: false, reason: "unchanged" };
   }
@@ -108,6 +117,7 @@ export async function persistGeneratedOgImageToEntryYaml(opts: {
     locale: opts.locale,
     contentRoot: opts.contentRoot,
     ci: opts.ci,
+    skipPreviewCapture: true,
     operations: [{ action: "update_field", path: "meta.og_image", value: ogImage }],
   });
 

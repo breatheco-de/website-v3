@@ -19,6 +19,8 @@ import {
   IconKey,
   IconInfoCircle,
   IconSparkles,
+  IconRobot,
+  IconLock,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
@@ -27,6 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -45,7 +48,6 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useDebugAuth, getDebugUserName } from "@/hooks/useDebugAuth";
 import { CAPABILITY_REGISTRY, CONTENT_MUTATE_CAPABILITIES } from "@shared/capabilities";
-import { IconLock } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { AuthTab } from "@/components/settings/AuthTab";
@@ -71,6 +73,38 @@ function resolveSecurityTab(pathname: string): SecurityTab | null {
   if (pathname === "/private/security/auth") return "auth";
   if (pathname === "/private/security/captcha") return "captcha";
   return null;
+}
+
+/** Compact marker for MCP swarm / agent roles — icon only; click explains. */
+function AgentRoleMarker({ roleId }: { roleId: string }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 p-0.5 -m-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          aria-label="About agent roles"
+          data-testid={`badge-agent-role-${roleId}`}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          <IconRobot className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-64 space-y-1.5 text-xs text-muted-foreground leading-relaxed"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="font-medium text-foreground text-sm">Agent role</p>
+        <p>
+          This is an agent role meant to be used in an agent swarm, with several agents collaborating.
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
 }
 interface CapabilityGrant {
   name: string;
@@ -1301,7 +1335,6 @@ function UsersTab() {
   const [assignTargetUsername, setAssignTargetUsername] = useState("");
   const [assignSaving, setAssignSaving] = useState(false);
   const [mcpAccessSaving, setMcpAccessSaving] = useState<string | null>(null);
-  const [mcpAdvancedOpen, setMcpAdvancedOpen] = useState(false);
 
   const allRoles = rolesData ? Object.entries(rolesData) : [];
   const allUsers = users ?? [];
@@ -1585,41 +1618,100 @@ function UsersTab() {
 
       {allUsers.length > 0 && (
         <div className="space-y-2">
-          {pending.length > 0 && <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Active</p>}
-          <div className="rounded-md border bg-muted/40 px-3 py-2 space-y-1.5">
-            <p className="text-xs text-muted-foreground">
-              MCP read lets agents look up and explain content. MCP write lets agents change content.
-              These toggles do not change what the person can do in the CMS.
+          <div className="flex items-center gap-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Active Users
             </p>
-            <Collapsible open={mcpAdvancedOpen} onOpenChange={setMcpAdvancedOpen}>
-              <CollapsibleTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-auto px-0 py-0 text-xs text-muted-foreground hover:text-foreground">
-                  {mcpAdvancedOpen ? "Hide advanced details" : "Read more (advanced)"}
-                  <IconChevronDown className={`h-3.5 w-3.5 ml-1 transition-transform ${mcpAdvancedOpen ? "rotate-180" : ""}`} />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0"
+                  aria-label="About MCP access toggles"
+                  data-testid="button-active-users-mcp-info"
+                >
+                  <IconInfoCircle className="h-3.5 w-3.5 text-muted-foreground" />
                 </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="pt-1 space-y-1 text-xs text-muted-foreground">
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-80 space-y-2 text-xs text-muted-foreground leading-relaxed"
+              >
+                <p className="font-medium text-foreground text-sm">MCP access on each user</p>
                 <p>
-                  Write-off keeps only view capabilities for MCP: <code className="font-mono text-[11px]">content_view</code>,{" "}
-                  <code className="font-mono text-[11px]">metrics_view</code>,{" "}
-                  <code className="font-mono text-[11px]">read_redirects</code>.
+                  MCP read lets agents look up and explain content. MCP write lets agents change content.
+                  These toggles do not change what the person can do in the CMS.
                 </p>
-                <p>Enforced on MCP requests via the server secret; CMS login and roles are unchanged. Missing flags default to both on.</p>
-              </CollapsibleContent>
-            </Collapsible>
+                <details className="group">
+                  <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground list-none flex items-center gap-1">
+                    Read more (advanced)
+                    <IconChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="pt-2 space-y-1.5">
+                    <p>
+                      Write-off keeps only view capabilities for MCP:{" "}
+                      <code className="font-mono text-[11px]">content_view</code>,{" "}
+                      <code className="font-mono text-[11px]">metrics_view</code>,{" "}
+                      <code className="font-mono text-[11px]">read_redirects</code>.
+                    </p>
+                    <p>
+                      Enforced on MCP requests via the server secret; CMS login and roles are unchanged.
+                      Missing flags default to both on.
+                    </p>
+                  </div>
+                </details>
+              </PopoverContent>
+            </Popover>
           </div>
           {allUsers.map((user) => {
             const { mcpReadEnabled, mcpWriteEnabled } = normalizeUserMcpAccess(user);
             const mcpBusy = mcpAccessSaving === user.username;
+            const assignedRoleIds =
+              editingUser === user.username ? userRoles : user.roles;
+            let hasHumanRole = false;
+            let hasAgentRole = false;
+            for (const roleId of assignedRoleIds) {
+              const role = rolesData?.[roleId];
+              if (!role) continue;
+              if (role.agentic) hasAgentRole = true;
+              else hasHumanRole = true;
+            }
+            const displayName = [user.firstName, user.lastName].filter(Boolean).join(" ");
+            const emailNorm = user.email?.trim().toLowerCase() ?? "";
+            const usernameIsEmail =
+              Boolean(emailNorm) && user.username.toLowerCase() === emailNorm;
             return (
             <Card key={user.username} data-testid={`card-user-${user.username}`}>
               <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium">
-                      {[user.firstName, user.lastName].filter(Boolean).join(" ") || user.username}
+                      {displayName || user.username}
                     </span>
-                    <code className="text-xs font-mono text-muted-foreground">{user.username}</code>
+                    {displayName && !usernameIsEmail && (
+                      <code className="text-xs font-mono text-muted-foreground">{user.username}</code>
+                    )}
+                    {!hasHumanRole && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] gap-1 font-medium text-amber-700 dark:text-amber-400 border-amber-500/40"
+                        data-testid={`badge-no-human-roles-${user.username}`}
+                      >
+                        <IconAlertCircle className="h-3 w-3" aria-hidden />
+                        No human roles assigned
+                      </Badge>
+                    )}
+                    {!hasAgentRole && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] gap-1 font-medium text-amber-700 dark:text-amber-400 border-amber-500/40"
+                        data-testid={`badge-no-agent-roles-${user.username}`}
+                      >
+                        <IconAlertCircle className="h-3 w-3" aria-hidden />
+                        No agent roles assigned
+                      </Badge>
+                    )}
                     {!mcpReadEnabled && (
                       <Badge variant="outline" className="text-xs" data-testid={`badge-mcp-off-${user.username}`}>
                         MCP off
@@ -1631,7 +1723,7 @@ function UsersTab() {
                       </Badge>
                     )}
                   </div>
-                  {user.email && (
+                  {user.email && !( !displayName && usernameIsEmail) && (
                     <p className="text-xs text-muted-foreground">{user.email}</p>
                   )}
                 </div>
@@ -1703,15 +1795,7 @@ function UsersTab() {
                           className="text-xs cursor-pointer inline-flex items-center gap-1.5"
                         >
                           {role.label}
-                          {role.agentic && (
-                            <Badge
-                              variant="secondary"
-                              className="text-[10px] px-1.5 py-0 font-semibold uppercase tracking-wide"
-                              data-testid={`badge-agent-role-${roleId}`}
-                            >
-                              Agent
-                            </Badge>
-                          )}
+                          {role.agentic && <AgentRoleMarker roleId={roleId} />}
                         </label>
                       </div>
                     ))}
@@ -1725,9 +1809,7 @@ function UsersTab() {
                       user.roles.map((roleId) => (
                         <Badge key={roleId} variant="secondary" className="text-xs gap-1">
                           {rolesData?.[roleId]?.label || roleId}
-                          {rolesData?.[roleId]?.agentic && (
-                            <span className="uppercase tracking-wide text-[10px] opacity-80">Agent</span>
-                          )}
+                          {rolesData?.[roleId]?.agentic && <AgentRoleMarker roleId={roleId} />}
                         </Badge>
                       ))
                     )}

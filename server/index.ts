@@ -619,6 +619,12 @@ app.use((req, res, next) => {
       logger.error({ err, worker: "JobQueue" }, "failed to configure job queue for enqueue");
     });
     startEventDispatcher();
+    // Restart bridge: in-memory capture queue is empty — re-queue dirty/missing OG jobs.
+    void import("./entry-preview-lifecycle")
+      .then(({ requeueDirtyEntryPreviewsOnBoot }) => requeueDirtyEntryPreviewsOnBoot())
+      .catch((err) => {
+        logger.warn({ err }, "[entry-preview] boot re-queue failed");
+      });
     startJobApplier();
     startEngineWatchdog();
     startEventPruneTimer(siteNames);

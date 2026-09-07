@@ -213,14 +213,14 @@ const CONFIG_HEADER = `# Content Types Configuration
 #
 # field_mapping — reserved / system:
 #   _slug: entry identity (aliased to entry.slug / legacy single.slug at runtime)
-#   _image: preview / OG image URL source (aliased to single.image at runtime)
+#   _image: cover / listing / hero URL source (aliased to single.image at runtime) — not social OG
 #   _updated_at: last content-change source (aliased to single.updated_at; default updated_at)
 #   published_at: reserved editorial go-live (authored; always ensured in field_mapping)
 #   Do not use plain "slug" or "image" as field_mapping keys.
 #
 # preview (optional):
-#   Component used to generate OG / entry list thumbnails when \`_image\` is
-#   missing or 404. Screenshots are stored in the site media bucket (not image-registry).
+#   Component used to generate social OG images (meta.og_image) via Cloudflare Browser Run.
+#   Cover (_image) is separate — capture runs when social is missing/dirty even if cover is set.
 #     component: registry section type (e.g. hero)
 #     variant / version / theme: optional
 #     widths: [1200] (OG default); maxHeight: 630

@@ -5,6 +5,18 @@
 window_days: 6
 
 entries:
+  - date: "2026-09-07"
+    summary: "regenerate_entry_previews: overwrite + cover≠social; pipeline auto-lifecycle"
+    agent_impact:
+      - "Cover (_image) no longer blocks or receives OG. Social is meta.og_image + generated WebP only."
+      - "New overwrite boolean (and mode=all) replaces hand-picked meta.og_image. Soft missing skips hand-picked."
+      - "Live entry_locale_saved/promoted pipeline events auto-enqueue when social missing/dirty; delete cleans preview assets."
+    paths:
+      - mcp-server/tools/pages.ts
+      - server/entry-preview-og-yaml.ts
+      - server/entry-preview-capture-queue.ts
+      - server/events/dispatcher.ts
+    tools_changed: true
   - date: "2026-09-06"
     summary: "Article/blog body: Markdown + fenced mermaid (geekchart)"
     agent_impact:

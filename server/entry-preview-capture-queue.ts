@@ -27,6 +27,8 @@ export type EntryPreviewCaptureJob = {
   locale: string;
   width: number;
   theme?: "dark" | "light";
+  /** Force write meta.og_image even when hand-picked. */
+  overwrite?: boolean;
 };
 
 export type QueueStats = {
@@ -213,6 +215,7 @@ async function runOneJob(job: InternalJob): Promise<void> {
       ci: site.contentIndex,
       autoCommitQueue: site.autoCommitQueue,
       entry: entryForYaml,
+      overwrite: !!job.overwrite,
     });
   }
 }
@@ -332,6 +335,8 @@ export async function enqueueEntryPreviewsForType(
     locales: string[];
     slugs?: string[];
     mode: CaptureMode;
+    /** Force overwrite hand-picked meta.og_image on successful capture. */
+    overwrite?: boolean;
   },
 ): Promise<EnqueueManyResult> {
   const preview = getPreviewConfig(opts.contentType, site.contentRoot);
@@ -359,9 +364,10 @@ export async function enqueueEntryPreviewsForType(
   const width = preview!.widths?.[0] || DEFAULT_PREVIEW_WIDTH;
   const theme: "dark" | "light" = preview!.theme === "light" ? "light" : "dark";
   const slugFilter = opts.slugs?.length ? new Set(opts.slugs) : null;
+  const overwrite = !!opts.overwrite;
 
-  // Discover available locales for warning (from listing without locale filter)
   const { queryEntries } = await import("./query-entries");
+  const { isHandPickedOgImage } = await import("./entry-preview-og-yaml");
   const { items: allItems } = await queryEntries(
     { from: { contentType: opts.contentType } },
     {
@@ -402,6 +408,7 @@ export async function enqueueEntryPreviewsForType(
       if (slugFilter && !slugFilter.has(slug)) continue;
 
       const meta = await manager.getMeta(opts.contentType, slug, locale, width);
+      const entry = item as Record<string, unknown>;
 
       if (opts.mode === "failed") {
         if (!meta?.failedAt) {
@@ -410,28 +417,34 @@ export async function enqueueEntryPreviewsForType(
         }
         await manager.retryFailed(opts.contentType, slug, locale, width);
       } else if (opts.mode === "all") {
+        if (!overwrite && isHandPickedOgImage(entry, meta?.url || null)) {
+          skipped.push({ slug, locale, reason: "editorial_image" });
+          continue;
+        }
         await manager.markDirty(opts.contentType, slug, locale, width);
       } else {
-        // missing: dirty / no url / (optional) props hash drift
-        let propsHash: string | undefined;
-        if (preview!.dirty_on_prop_change) {
-          try {
-            const ctx = await buildPreviewPropResolveContext({
-              contentType: opts.contentType,
-              slug,
-              locale,
-              entry: item as Record<string, unknown>,
-              contentRoot: site.contentRoot,
-              db: site.database,
-              mediaGallery: site.mediaGallery,
-              theme,
-            });
-            propsHash = hashPreviewProps(preview!.props, ctx);
-          } catch {
-            propsHash = undefined;
-          }
+        // missing: soft path skips hand-picked social
+        if (!overwrite && isHandPickedOgImage(entry, meta?.url || null)) {
+          skipped.push({ slug, locale, reason: "editorial_image" });
+          continue;
         }
-        const needs = manager.needsCapture(meta, propsHash, !!preview!.dirty_on_prop_change);
+        let propsHash: string | undefined;
+        try {
+          const ctx = await buildPreviewPropResolveContext({
+            contentType: opts.contentType,
+            slug,
+            locale,
+            entry,
+            contentRoot: site.contentRoot,
+            db: site.database,
+            mediaGallery: site.mediaGallery,
+            theme,
+          });
+          propsHash = hashPreviewProps(preview!.props, ctx);
+        } catch {
+          propsHash = undefined;
+        }
+        const needs = manager.needsCapture(meta, propsHash, true);
         if (!needs) {
           skipped.push({ slug, locale, reason: "not_needed" });
           continue;
@@ -444,6 +457,7 @@ export async function enqueueEntryPreviewsForType(
         locale,
         width,
         theme,
+        overwrite,
       });
       if (result.enqueued) enqueued.push(result.key);
       else skipped.push({ slug, locale, reason: result.reason || "already_queued" });
@@ -453,7 +467,7 @@ export async function enqueueEntryPreviewsForType(
   return { enqueued, skipped, omittedLocales };
 }
 
-/** Used by auto-on-save for a single live locale. */
+/** Used by auto-on-save / pipeline for a single live locale. */
 export async function maybeEnqueueAfterEntrySave(
   site: SiteContext,
   opts: {
@@ -471,42 +485,41 @@ export async function maybeEnqueueAfterEntrySave(
     return { enqueued: false, reason: "capture_misconfigured" };
   }
 
-  const { shouldWriteGeneratedOgToYaml } = await import("./entry-preview-og-yaml");
+  const { isHandPickedOgImage } = await import("./entry-preview-og-yaml");
   const locale = normalizeLocale(opts.locale);
   const width = preview!.widths?.[0] || DEFAULT_PREVIEW_WIDTH;
   const manager = site.entryPreviewManager;
   const meta = await manager.getMeta(opts.contentType, opts.slug, locale, width);
 
-  // Distinct editorial image → do not auto-capture for OG
-  const gate = shouldWriteGeneratedOgToYaml({
-    entry: opts.entry,
-    previousGeneratedUrl: meta?.url || null,
-  });
-  if (!gate.write) {
+  if (isHandPickedOgImage(opts.entry, meta?.url || null)) {
     return { enqueued: false, reason: "editorial_image" };
   }
 
-  let propsHash: string | undefined;
-  if (preview!.dirty_on_prop_change) {
-    try {
-      const theme: "dark" | "light" = preview!.theme === "light" ? "light" : "dark";
-      const ctx = await buildPreviewPropResolveContext({
-        contentType: opts.contentType,
-        slug: opts.slug,
-        locale,
-        entry: opts.entry,
-        contentRoot: site.contentRoot,
-        db: site.database,
-        mediaGallery: site.mediaGallery,
-        theme,
-      });
-      propsHash = hashPreviewProps(preview!.props, ctx);
-    } catch {
-      propsHash = undefined;
-    }
+  // Failed stays failed until Retry / force
+  if (meta?.failedAt) {
+    return { enqueued: false, reason: "failed_until_retry" };
   }
 
-  if (!manager.needsCapture(meta, propsHash, !!preview!.dirty_on_prop_change)) {
+  let propsHash: string | undefined;
+  try {
+    const theme: "dark" | "light" = preview!.theme === "light" ? "light" : "dark";
+    const ctx = await buildPreviewPropResolveContext({
+      contentType: opts.contentType,
+      slug: opts.slug,
+      locale,
+      entry: opts.entry,
+      contentRoot: site.contentRoot,
+      db: site.database,
+      mediaGallery: site.mediaGallery,
+      theme,
+    });
+    propsHash = hashPreviewProps(preview!.props, ctx);
+  } catch {
+    propsHash = undefined;
+  }
+
+  // Always-on dirty props-hash for configured preview types
+  if (!manager.needsCapture(meta, propsHash, true)) {
     return { enqueued: false, reason: "not_needed" };
   }
 

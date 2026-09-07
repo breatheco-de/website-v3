@@ -2953,19 +2953,18 @@ const SPECIAL_FIELD_INFO: Record<
     expected: "ISO-8601 UTC string after normalize (e.g. \"2024-03-15T12:30:00.000Z\").",
   },
   _image: {
-    title: "_image — Preview / OG image",
+    title: "_image — Cover / listing image",
     summary:
-      "System field for entry list thumbnails and Open Graph. Exposed as {{ entry.image }} and {{ entry._image }}. You cannot declare a custom field named image.",
+      "System field for entry list thumbnails and heroes. Exposed as {{ entry.image }} and {{ entry._image }}. Social share images use meta.og_image (OG Preview card), not this field. You cannot declare a custom field named image.",
     howItWorks: [
       "Maps to a URL (or path) on the entry / database row.",
-      "When empty, optional preview.component screenshots can fill the gap.",
+      "Separate from social OG — Cloudflare previews write meta.og_image only.",
       "Not indexable or unique.",
     ],
     howToSet: [
-      "Activate automatic preview generation on the content type.",
-      "Upload a specific image per entry.",
+      "Upload a specific cover image per entry.",
       "Or use Code → Use a function to build a dynamic URL.",
-      "On DB types you can also map to an image URL field (e.g. featured_image, og_image).",
+      "On DB types you can also map to an image URL field (e.g. featured_image).",
     ],
     expected: "A URL string, or empty.",
   },
@@ -4964,6 +4963,9 @@ function FieldMappingDialog({
       contentType={contentType}
       preview={config?.preview}
       fieldMapping={mappings}
+      onRequestRegenerateAll={async () => {
+        // Parent manage page may not have force handler in this dialog scope — soft message only.
+      }}
       onFinished={() => {
         if (!reopenMappingAfterPreviewRef.current) return;
         reopenMappingAfterPreviewRef.current = false;
@@ -6023,6 +6025,7 @@ export default function ContentTypeManagePage() {
       mode: "missing" | "all" | "failed";
       locales: string[];
       slugs?: string[];
+      overwrite?: boolean;
     }) => {
       try {
         const r = await apiRequest(
@@ -6058,13 +6061,15 @@ export default function ContentTypeManagePage() {
   );
 
   const entryPreviewGenCounts = useMemo(() => {
-    if (!entryPreviewsData?.index) return { missing: 0, all: 0 };
-    const rows = Object.values(entryPreviewsData.index).filter(
+    if (!entryPreviewsData?.index) return { missing: 0, all: 0, force: 0 };
+    const softRows = Object.values(entryPreviewsData.index).filter(
       (r) => !r.fromSource && !r.meta?.failedAt,
     );
+    const forceRows = Object.values(entryPreviewsData.index);
     return {
-      missing: rows.filter((r) => r.needsCapture).length,
-      all: rows.length,
+      missing: softRows.filter((r) => r.needsCapture).length,
+      all: softRows.length,
+      force: forceRows.length,
     };
   }, [entryPreviewsData]);
 
@@ -6078,10 +6083,19 @@ export default function ContentTypeManagePage() {
       if (targets.length === 0) return;
       const locales = [...new Set(targets.map((r) => r.locale))];
       const slugs = [...new Set(targets.map((r) => r.slug))];
-      await enqueueServerPreviews({ mode, locales, slugs });
+      await enqueueServerPreviews({ mode, locales, slugs, overwrite: false });
     },
     [entryPreviewsData, enqueueServerPreviews],
   );
+
+  const handleForceRegenerateAllOg = useCallback(async () => {
+    if (!entryPreviewsData?.preview || entryPreviewsData.captureReady === false) return;
+    const rows = Object.values(entryPreviewsData.index);
+    if (rows.length === 0) return;
+    const locales = [...new Set(rows.map((r) => r.locale))];
+    const slugs = [...new Set(rows.map((r) => r.slug))];
+    await enqueueServerPreviews({ mode: "all", locales, slugs, overwrite: true });
+  }, [entryPreviewsData, enqueueServerPreviews]);
 
   const markEntryPreviewDirty = async (slug: string, locale: string) => {
     const previewKey = `${slug}:${locale}`;
@@ -6091,7 +6105,7 @@ export default function ContentTypeManagePage() {
       return next;
     });
     try {
-      await enqueueServerPreviews({ mode: "all", locales: [locale], slugs: [slug] });
+      await enqueueServerPreviews({ mode: "all", locales: [locale], slugs: [slug], overwrite: true });
     } catch {
       /* toast already shown */
     }
@@ -7429,7 +7443,9 @@ export default function ContentTypeManagePage() {
             fieldMapping={typeConfig?.field_mapping}
             queueBusyCount={entryPreviewQueueBusyCount}
             generateAllCounts={entryPreviewGenCounts}
+            forceRegenerateCount={entryPreviewGenCounts.force}
             onGenerateAll={handleGenerateAllPreviews}
+            onForceRegenerateAll={handleForceRegenerateAllOg}
             onRetryQueued={handleRetryQueuedPreviews}
             configError={entryPreviewQueueData?.configError ?? null}
           />
@@ -8003,7 +8019,6 @@ export default function ContentTypeManagePage() {
                                   )}
                                 </div>
                                 {typeConfig?.preview?.component &&
-                                  !previewRow?.fromSource &&
                                   entryPreviewsData?.captureReady !== false && (
                                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                                       <button
@@ -8121,15 +8136,45 @@ export default function ContentTypeManagePage() {
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-end gap-1.5 flex-wrap">
                                 {issues.length > 0 && (
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px] px-1.5 py-0 h-5 border-destructive/50 text-destructive bg-destructive/10"
-                                    title={issues.map((i) => i.message).join("\n")}
-                                    data-testid={`badge-meta-errors-${rowKey}`}
-                                  >
-                                    <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
-                                    {issues.length}
-                                  </Badge>
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="inline-flex focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md"
+                                        aria-label={`${issues.length} meta ${issues.length === 1 ? "issue" : "issues"}`}
+                                        data-testid={`badge-meta-errors-${rowKey}`}
+                                      >
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px] px-1.5 py-0 h-5 border-destructive/50 text-destructive bg-destructive/10 cursor-pointer"
+                                        >
+                                          <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
+                                          {issues.length}
+                                        </Badge>
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent
+                                      className="w-80 p-3 space-y-2"
+                                      align="end"
+                                      data-testid={`popover-meta-errors-${rowKey}`}
+                                    >
+                                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                        Meta issues
+                                      </p>
+                                      <ul className="space-y-2">
+                                        {issues.map((issue) => (
+                                          <li key={issue.code} className="space-y-0.5">
+                                            <p className="text-xs text-foreground leading-snug">
+                                              {issue.message}
+                                            </p>
+                                            <p className="text-[10px] font-mono text-muted-foreground">
+                                              {issue.code}
+                                            </p>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </PopoverContent>
+                                  </Popover>
                                 )}
                                 {entry.url && (
                                   <Button
@@ -8855,7 +8900,6 @@ export default function ContentTypeManagePage() {
                                     {item.slug}
                                   </div>
                                   {typeConfig?.preview?.component &&
-                                    !previewRow?.fromSource &&
                                     entryPreviewsData?.captureReady !== false && (
                                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                                         <button
@@ -9012,7 +9056,7 @@ export default function ContentTypeManagePage() {
                                     <RefreshCw className="h-4 w-4 mr-2" />
                                     Refresh Cache
                                   </DropdownMenuItem>
-                                  {typeConfig?.preview?.component && !previewRow?.fromSource && (
+                                  {typeConfig?.preview?.component && (
                                     <DropdownMenuItem
                                       onClick={() => markEntryPreviewDirty(String(item.slug), itemLocale)}
                                       data-testid={`button-regenerate-preview-${item.id || item.slug}`}

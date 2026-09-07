@@ -4,6 +4,7 @@ import type { ContentEvent } from "./types";
 const mocks = vi.hoisted(() => {
   const enqueueJob = vi.fn().mockResolvedValue(undefined);
   const scheduleOnSaveValidationJob = vi.fn();
+  const scheduleOgCaptureFromLocaleEvent = vi.fn().mockResolvedValue(undefined);
   const scheduleRedirectsValidation = vi.fn();
   const setPendingValidationWriteId = vi.fn();
   const queueLinkIndexRemove = vi.fn();
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => {
   return {
     enqueueJob,
     scheduleOnSaveValidationJob,
+    scheduleOgCaptureFromLocaleEvent,
     scheduleRedirectsValidation,
     setPendingValidationWriteId,
     queueLinkIndexRemove,
@@ -23,6 +25,9 @@ const mocks = vi.hoisted(() => {
 vi.mock("../jobs/queue", () => ({ enqueueJob: mocks.enqueueJob }));
 vi.mock("../services/onSaveValidationScheduler", () => ({
   scheduleOnSaveValidationJob: mocks.scheduleOnSaveValidationJob,
+}));
+vi.mock("../entry-preview-lifecycle", () => ({
+  scheduleOgCaptureFromLocaleEvent: mocks.scheduleOgCaptureFromLocaleEvent,
 }));
 vi.mock("../services/onSaveValidation", () => ({
   scheduleRedirectsValidation: mocks.scheduleRedirectsValidation,
@@ -75,6 +80,7 @@ describe("event dispatcher", () => {
   beforeEach(() => {
     mocks.enqueueJob.mockClear();
     mocks.scheduleOnSaveValidationJob.mockClear();
+    mocks.scheduleOgCaptureFromLocaleEvent.mockClear();
     mocks.scheduleRedirectsValidation.mockClear();
     mocks.setPendingValidationWriteId.mockClear();
     mocks.queueLinkIndexRemove.mockClear();
@@ -82,14 +88,15 @@ describe("event dispatcher", () => {
     mocks.flush.mockClear();
   });
 
-  it("entry_locale_saved (live) enqueues index, validation, sync flush", async () => {
+  it("entry_locale_saved (live) enqueues index, validation, sync flush, and OG capture", async () => {
     await dispatchEventForTest(baseEvent("entry_locale_saved"));
     expect(jobNames()).toContain("index_refresh");
     expect(jobNames()).toContain("sync_state_flush");
     expect(mocks.scheduleOnSaveValidationJob).toHaveBeenCalled();
+    expect(mocks.scheduleOgCaptureFromLocaleEvent).toHaveBeenCalled();
   });
 
-  it("entry_locale_saved (variant) skips validation", async () => {
+  it("entry_locale_saved (variant) skips validation and OG capture", async () => {
     await dispatchEventForTest(
       baseEvent("entry_locale_saved", {
         resource: { contentType: "page", slug: "home", locale: "en", layer: "variant" },
@@ -99,6 +106,12 @@ describe("event dispatcher", () => {
     expect(jobNames()).toContain("index_refresh");
     expect(jobNames()).toContain("sync_state_flush");
     expect(mocks.scheduleOnSaveValidationJob).not.toHaveBeenCalled();
+    expect(mocks.scheduleOgCaptureFromLocaleEvent).not.toHaveBeenCalled();
+  });
+
+  it("entry_locale_promoted (live) schedules OG capture", async () => {
+    await dispatchEventForTest(baseEvent("entry_locale_promoted"));
+    expect(mocks.scheduleOgCaptureFromLocaleEvent).toHaveBeenCalled();
   });
 
   it("entry_common_saved enqueues index and sync flush", async () => {

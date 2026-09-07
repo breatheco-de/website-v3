@@ -396,16 +396,23 @@ export class EntryPreviewManager {
     }
   }
 
-  async resolveEffectiveImage(
+  /**
+   * Resolve social OG URL only — never uses cover (`_image` / `image`).
+   * Precedence: usable meta.og_image → generated WebP → none.
+   */
+  async resolveEffectiveOgImage(
     entry: Record<string, unknown>,
     previewConfig: ContentTypePreviewConfig | null | undefined,
     opts?: { contentType: string; width?: number; skipHeadCheck?: boolean },
-  ): Promise<{ url: string | null; source: "db" | "generated" | "none" }> {
-    const rawImage = entry[IMAGE_ALIAS_FIELD] ?? entry[RESERVED_IMAGE_FIELD] ?? entry.preview;
-    const imageStr = typeof rawImage === "string" ? rawImage.trim() : "";
-    if (imageStr) {
-      const ok = opts?.skipHeadCheck ? true : await this.urlLooksUsable(imageStr);
-      if (ok) return { url: imageStr, source: "db" };
+  ): Promise<{ url: string | null; source: "meta" | "generated" | "none" }> {
+    const metaBag =
+      entry.meta && typeof entry.meta === "object" && !Array.isArray(entry.meta)
+        ? (entry.meta as Record<string, unknown>)
+        : {};
+    const ogStr = typeof metaBag.og_image === "string" ? metaBag.og_image.trim() : "";
+    if (ogStr && !/\{\{/.test(ogStr)) {
+      const ok = opts?.skipHeadCheck ? true : await this.urlLooksUsable(ogStr);
+      if (ok) return { url: ogStr, source: "meta" };
     }
 
     if (!previewConfig || !opts?.contentType) {
@@ -423,6 +430,73 @@ export class EntryPreviewManager {
       return { url: busted, source: "generated" };
     }
     return { url: null, source: "none" };
+  }
+
+  /** @deprecated Prefer resolveEffectiveOgImage — cover is not social. */
+  async resolveEffectiveImage(
+    entry: Record<string, unknown>,
+    previewConfig: ContentTypePreviewConfig | null | undefined,
+    opts?: { contentType: string; width?: number; skipHeadCheck?: boolean },
+  ): Promise<{ url: string | null; source: "db" | "generated" | "none" | "meta" }> {
+    const og = await this.resolveEffectiveOgImage(entry, previewConfig, opts);
+    if (og.source === "meta") return { url: og.url, source: "meta" };
+    if (og.source === "generated") return { url: og.url, source: "generated" };
+    return { url: null, source: "none" };
+  }
+
+  /** Delete generated WebP + .meta.json for a slug (all locales or one). */
+  async deletePreviewAssets(
+    contentType: string,
+    slug: string,
+    opts?: { locale?: string; width?: number },
+  ): Promise<number> {
+    const provider = this.provider();
+    const width = opts?.width ?? DEFAULT_PREVIEW_WIDTH;
+    let removed = 0;
+    const locales = opts?.locale
+      ? [opts.locale]
+      : await this.listLocalesForSlug(contentType, slug);
+
+    for (const locale of locales) {
+      for (const ext of ["webp", "meta.json"] as const) {
+        const key = this.storageKey(contentType, slug, locale, width, ext);
+        try {
+          if (provider.name === "gcs" && typeof (provider as StorageProvider & { delete?: (k: string) => Promise<void> }).delete === "function") {
+            await (provider as StorageProvider & { delete: (k: string) => Promise<void> }).delete(key);
+            removed++;
+          } else {
+            const disk = this.localDiskPath(key);
+            if (fs.existsSync(disk)) {
+              fs.unlinkSync(disk);
+              removed++;
+            }
+          }
+        } catch (err) {
+          log.warn({ err, key }, "Failed to delete entry-preview asset");
+        }
+      }
+    }
+    this.invalidateListCache(contentType);
+    return removed;
+  }
+
+  private async listLocalesForSlug(contentType: string, slug: string): Promise<string[]> {
+    const locales = new Set<string>();
+    const root = path.join(
+      this.contentRoot,
+      "images",
+      "entry-previews",
+      sanitizeSegment(contentType),
+      sanitizeSegment(slug),
+    );
+    if (fs.existsSync(root)) {
+      for (const name of fs.readdirSync(root)) {
+        const full = path.join(root, name);
+        if (fs.statSync(full).isDirectory()) locales.add(name);
+      }
+    }
+    if (locales.size === 0) locales.add("en");
+    return [...locales];
   }
 
   async listMetas(contentType: string): Promise<EntryPreviewMeta[]> {
@@ -500,8 +574,10 @@ export class EntryPreviewManager {
     previewConfig: ContentTypePreviewConfig | null,
     localeKey: string | null,
   ): Promise<EntryPreviewStats> {
+    const { getEntryMetaOgImage, isHandPickedOgImage } = await import("./entry-preview-og-yaml");
     const width = previewConfig?.widths?.[0] ?? DEFAULT_PREVIEW_WIDTH;
-    const dirtyOnPropChange = !!previewConfig?.dirty_on_prop_change;
+    // Auto lifecycle: always compare props hash when preview is configured.
+    const dirtyOnPropChange = !!previewConfig;
     let fromSource = 0;
     let generated = 0;
     let missing = 0;
@@ -514,26 +590,25 @@ export class EntryPreviewManager {
       const locale = localeKey
         ? String(entry[localeKey] || "en")
         : String(entry.lang ?? entry.locale ?? entry.language ?? "en");
-      const imageStr =
-        typeof entry[IMAGE_ALIAS_FIELD] === "string"
-          ? (entry[IMAGE_ALIAS_FIELD] as string).trim()
-          : typeof entry[RESERVED_IMAGE_FIELD] === "string"
-            ? (entry[RESERVED_IMAGE_FIELD] as string).trim()
-            : typeof entry.preview === "string"
-              ? (entry.preview as string).trim()
-              : "";
-
-      if (imageStr && !/\{\{/.test(imageStr)) {
-        fromSource++;
-        continue;
-      }
 
       if (!previewConfig || !slug) {
-        missing++;
+        const og = getEntryMetaOgImage(entry);
+        if (og && !/\{\{/.test(og) && isUsableOgImageUrl(og)) {
+          fromSource++;
+        } else {
+          missing++;
+        }
         continue;
       }
 
       const meta = await this.getMeta(contentType, slug, locale, width);
+
+      // Hand-picked social (not cover) counts as fromSource — soft generate skips these.
+      if (isHandPickedOgImage(entry, meta?.url || null)) {
+        fromSource++;
+        continue;
+      }
+
       if (meta?.failedAt) {
         failed++;
         failures.push({
@@ -549,9 +624,6 @@ export class EntryPreviewManager {
         dirty++;
         continue;
       }
-      // Only pay for props-hash resolution when the type opts into dirty-on-change.
-      // Otherwise stats would hydrate/resolve every entry on each KPI poll (very slow
-      // for static types that map `content` for reading time).
       if (dirtyOnPropChange) {
         const propsHash = hashPreviewProps(
           previewConfig.props,
@@ -582,8 +654,8 @@ export class EntryPreviewManager {
 }
 
 /**
- * Fill reserved `image` / `meta.og_image` from source or generated preview when missing.
- * Mutates `entry` and optional `pageData` in place.
+ * Fill pageData.meta.og_image from existing meta or generated preview when missing.
+ * Never writes into cover (`image` / `_image`). Mutates pageData in place.
  */
 export async function applyEntryPreviewOgImage(
   manager: EntryPreviewManager,
@@ -596,24 +668,36 @@ export async function applyEntryPreviewOgImage(
   },
 ): Promise<string | null> {
   const { contentType, entry, previewConfig, pageData, skipHeadCheck } = opts;
-  const resolved = await manager.resolveEffectiveImage(entry, previewConfig, {
+
+  // Prefer og already on pageData (template / entry merge), then resolve generated.
+  if (pageData) {
+    const meta = (pageData.meta as Record<string, unknown>) || {};
+    const existing = typeof meta.og_image === "string" ? meta.og_image.trim() : "";
+    if (isUsableOgImageUrl(existing) && !/\{\{/.test(existing)) {
+      return existing;
+    }
+  }
+
+  const entryForResolve = pageData
+    ? {
+        ...entry,
+        meta: {
+          ...((entry.meta as Record<string, unknown>) || {}),
+          ...((pageData.meta as Record<string, unknown>) || {}),
+        },
+      }
+    : entry;
+
+  const resolved = await manager.resolveEffectiveOgImage(entryForResolve, previewConfig, {
     contentType,
     skipHeadCheck,
   });
   if (!resolved.url) return null;
 
-  const existing =
-    (typeof entry[IMAGE_ALIAS_FIELD] === "string" && (entry[IMAGE_ALIAS_FIELD] as string).trim()) ||
-    (typeof entry[RESERVED_IMAGE_FIELD] === "string" && (entry[RESERVED_IMAGE_FIELD] as string).trim());
-  if (!existing) {
-    entry[IMAGE_ALIAS_FIELD] = resolved.url;
-  }
-
   if (pageData) {
     const meta = (pageData.meta as Record<string, unknown>) || {};
-    const existing =
-      typeof meta.og_image === "string" ? meta.og_image.trim() : "";
-    if (!isUsableOgImageUrl(existing)) {
+    const existing = typeof meta.og_image === "string" ? meta.og_image.trim() : "";
+    if (!isUsableOgImageUrl(existing) || /\{\{/.test(existing)) {
       meta.og_image = resolved.url;
       pageData.meta = meta;
     }

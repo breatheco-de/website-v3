@@ -54,6 +54,28 @@ export class EntryDeleteCleanupJob extends Job {
     }
     flushRelationIndexPendingSync(contentRoot);
 
+    // Generated OG / entry-preview WebP + meta
+    try {
+      const { getSiteContextMap } = await import("../../site-manager");
+      let epm = null as import("../../entry-preview-manager").EntryPreviewManager | null;
+      for (const site of getSiteContextMap().values()) {
+        if (site.contentRoot === contentRoot || site.contentRootName === payload.site) {
+          epm = site.entryPreviewManager;
+          break;
+        }
+      }
+      if (epm) {
+        for (const entryKey of entryKeys) {
+          const parts = entryKey.split("/");
+          if (parts.length < 2) continue;
+          const [contentType, slug, locale] = parts;
+          await epm.deletePreviewAssets(contentType, slug, locale ? { locale } : undefined);
+        }
+      }
+    } catch (err) {
+      log.warn({ err }, "[EntryDeleteCleanupJob] entry-preview cleanup failed");
+    }
+
     log.info(
       { site: payload.site, entryKeys: entryKeys.length },
       "[EntryDeleteCleanupJob] cache cleared; link + relation index remove queued",

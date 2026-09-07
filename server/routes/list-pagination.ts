@@ -13,6 +13,8 @@ const RESERVED_LIST_QUERY_KEYS = new Set([
   "q",
   "sortDir",
   "errorsOnly",
+  /** Dev site override injected on every /api fetch — never a row filter. */
+  "__site",
 ]);
 
 export type ListPagination =
@@ -102,7 +104,8 @@ export function collectQueryFieldFilters(
 ): Array<{ field: string; value: string }> {
   const out: Array<{ field: string; value: string }> = [];
   for (const [key, val] of Object.entries(query)) {
-    if (RESERVED_LIST_QUERY_KEYS.has(key)) continue;
+    // `_`-prefixed keys are infra (e.g. `__site`, future `__*`) — never row filters.
+    if (key.startsWith("_") || RESERVED_LIST_QUERY_KEYS.has(key)) continue;
     const values = Array.isArray(val) ? val : [val];
     for (const v of values) {
       if (v === undefined || v === null || v === "") continue;

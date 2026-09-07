@@ -98,6 +98,25 @@ function assertLocal(
   config: DbConfigResponse["config"],
   dbName: string,
 ): { ok: true; filename: string } | { ok: false; message: string } {
+  // #region agent log
+  fetch("http://127.0.0.1:7585/ingest/7dd1bcc0-ea77-4f87-be7d-1ea690313598", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "574959" },
+    body: JSON.stringify({
+      sessionId: "574959",
+      hypothesisId: "A",
+      location: "mcp-server/tools/databases.ts:assertLocal",
+      message: "assertLocal gate",
+      data: {
+        dbName,
+        sourceType: config.source?.type ?? null,
+        isLocal: config.source?.type === "local",
+        hasFilename: Boolean(config.source?.local?.filename),
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
   if (config.source?.type !== "local") {
     return {
       ok: false,
