@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { geometryViolations, checkGeekchartSections } from "./geekchart-guard";
+import { validateSectionOperations } from "./section-save-validation";
+import { geometryViolations } from "@shared/component-registry/geekchart/v1.0/server";
 
-describe("geometryViolations", () => {
+describe("geekchart geometryViolations", () => {
   it("blocks only the -runtime geometry class", () => {
     const warnings = [
       "6.1-runtime edge L_A_B_0 (A→B) passes 3.0 from C, under the 16 clearance floor",
@@ -16,38 +17,40 @@ describe("geometryViolations", () => {
   });
 });
 
-describe("checkGeekchartSections", () => {
+describe("validateSectionOperations", () => {
   it("reads the real MCP add shape: add_item with item", async () => {
-    const r = await checkGeekchartSections([
+    const r = await validateSectionOperations([
       { action: "add_item", path: "sections", item: { type: "geekchart", source: "flowchart LR\n  A[--> broken ]]]" } },
     ]);
     expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("geekchart_geometry");
   });
   it("reads update_field aimed at a section's source", async () => {
-    const r = await checkGeekchartSections([
+    const r = await validateSectionOperations([
       { action: "update_field", path: "sections.2.source", value: "flowchart LR\n  A[--> broken ]]]" },
     ]);
     expect(r.ok).toBe(false);
   });
   it("reads the operations-array 'section' field, not only sectionData", async () => {
-    const r = await checkGeekchartSections([
+    const r = await validateSectionOperations([
       { action: "add_section", section: { type: "geekchart", source: "flowchart LR\n  A[--> broken ]]]" } },
     ]);
     expect(r.ok).toBe(false);
   });
-  it("ignores non-geekchart operations", async () => {
-    const r = await checkGeekchartSections([
+  it("ignores sections of types that declare no server hooks", async () => {
+    const r = await validateSectionOperations([
       { sectionData: { type: "article", content: "hi" } },
       { action: "reorder_sections" },
+      { action: "update_field", path: "sections.1.title", value: "hello" },
     ]);
     expect(r.ok).toBe(true);
   });
   it("accepts a clean chart and rejects an unparseable one", async () => {
-    const clean = await checkGeekchartSections([
+    const clean = await validateSectionOperations([
       { sectionData: { type: "geekchart", source: "flowchart LR\n  A[One] --> B[Two]" } },
     ]);
     expect(clean.ok).toBe(true);
-    const broken = await checkGeekchartSections([
+    const broken = await validateSectionOperations([
       { sectionData: { type: "geekchart", source: "flowchart LR\n  A[--> ]]]" } },
     ]);
     expect(broken.ok).toBe(false);

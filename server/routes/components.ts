@@ -235,7 +235,7 @@ import {
   readDemo,
   readDemoYamlText,
 } from "../component-section-demos";
-import { loadGeekchart } from "../geekchart-lazy";
+import { getComponentServerHooks } from "@shared/component-registry/server-hooks";
 import { child } from "../logger";
 const log = child({ module: "routes/components" });
 
@@ -336,25 +336,19 @@ export function registerComponentsRoutes(app: Express): void {
         throw e;
       }
 
-      // A geekchart demo is rendered here, at demo-creation time, so the
-      // caller (an MCP agent, usually) sees the same DESIGN warnings the
-      // editor shows a human - the feedback loop that lets it iterate to a
-      // clean chart instead of shipping the first draft.
+      // A component that declares a preview hook is rendered here, at
+      // demo-creation time, so the caller (an MCP agent, usually) sees the
+      // same authoring warnings the editor shows a human - the feedback
+      // loop that lets it iterate to a clean section instead of shipping
+      // the first draft. Which components render what lives in the
+      // component registry (shared/component-registry/server-hooks.ts).
       let renderWarnings: string[] | undefined;
       let renderError: string | undefined;
-      if (componentType === "geekchart") {
-        const src = typeof validated.section.source === "string" ? validated.section.source : "";
-        const dur = typeof validated.section.duration === "number" ? validated.section.duration : undefined;
-        try {
-          const { renderToSvg } = await loadGeekchart();
-          const r = await renderToSvg(src, {
-            display: { desktop: 612, phone: 358 },
-            ...(dur ? { duration: dur } : {}),
-          });
-          renderWarnings = (r.warnings ?? []).map(String);
-        } catch (e) {
-          renderError = (e as Error).message;
-        }
+      const serverHooks = await getComponentServerHooks(componentType);
+      if (serverHooks?.previewSection) {
+        const preview = await serverHooks.previewSection(validated.section);
+        renderWarnings = preview.warnings;
+        renderError = preview.error;
       }
 
       res.status(201).json({
