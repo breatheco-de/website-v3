@@ -17,7 +17,7 @@ import rehypePrettyCode from "rehype-pretty-code";
 import rehypeStringify from "rehype-stringify";
 import type { Root, Element, ElementContent, Text, Parents } from "hast";
 import { visit } from "unist-util-visit";
-import { renderToHtml } from "geekchart/server";
+import { loadGeekchart } from "./geekchart-lazy";
 import {
   normalizeMathDelimiters,
   remarkMathOptions,
@@ -265,6 +265,7 @@ function rehypeGeekchart() {
       jobs.push(
         (async () => {
           try {
+            const { renderToHtml } = await loadGeekchart();
             const html = (await renderToHtml(source, { display: ARTICLE_COLUMN_PX, ...(duration ? { duration } : speed ? { speed } : {}) })).replace(/\n\s*\n/g, "\n");
             host.children[at] = {
               type: "raw",
@@ -348,7 +349,7 @@ async function enhanceGeekchartSection(section: Record<string, unknown>): Promis
   if (!source) return;
   const duration = typeof section.duration === "number" ? section.duration : undefined;
   try {
-    section.html = await renderToHtml(source, {
+    section.html = await (await loadGeekchart()).renderToHtml(source, {
       display: ARTICLE_COLUMN_PX,
       ...(duration ? { duration } : {}),
     });

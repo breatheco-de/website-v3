@@ -187,7 +187,7 @@ export function registerComponentTools(
   // create_component_section_demo
   mcp.tool(
     "create_component_section_demo",
-    "Create a disposable single-section preview for humans. Pass componentType plus YAML for exactly one section (use-case-specific copy/stats). Validates against the registry schema, writes `.cache/component-section-demos/{hash}.yml`, and returns preview_url at /private/demo/{hash}. Hash is the only access control (no staff login). Demos are wiped on every production redeploy and are not a page publish. Requires content_view.",
+    "Create a disposable single-section preview for humans. Pass componentType plus YAML for exactly one section (use-case-specific copy/stats). Validates against the registry schema, writes `.cache/component-section-demos/{hash}.yml`, and returns preview_url at /private/demo/{hash}. For geekchart sections the response also carries render_warnings from the chart renderer - fix the source and re-create the demo until render_warnings is empty BEFORE putting the section on a real entry. Hash is the only access control (no staff login). Demos are wiped on every production redeploy and are not a page publish. Requires content_view.",
     {
       componentType: z.string().describe("Component type name, e.g. 'graduates_stats', 'value_proof_panel'"),
       yaml: z
@@ -256,6 +256,8 @@ export function registerComponentTools(
             path: relativePath,
             componentType,
             version: json.version ?? version ?? null,
+            ...(Array.isArray(json.render_warnings) ? { render_warnings: json.render_warnings } : {}),
+            ...(typeof json.render_error === "string" ? { render_error: json.render_error } : {}),
           },
           {
             warnings: [

@@ -235,6 +235,7 @@ import {
   readDemo,
   readDemoYamlText,
 } from "../component-section-demos";
+import { getComponentServerHooks } from "@shared/component-registry/server-hooks";
 import { child } from "../logger";
 const log = child({ module: "routes/components" });
 
@@ -335,12 +336,29 @@ export function registerComponentsRoutes(app: Express): void {
         throw e;
       }
 
+      // A component that declares a preview hook is rendered here, at
+      // demo-creation time, so the caller (an MCP agent, usually) sees the
+      // same authoring warnings the editor shows a human - the feedback
+      // loop that lets it iterate to a clean section instead of shipping
+      // the first draft. Which components render what lives in the
+      // component registry (shared/component-registry/server-hooks.ts).
+      let renderWarnings: string[] | undefined;
+      let renderError: string | undefined;
+      const serverHooks = await getComponentServerHooks(componentType);
+      if (serverHooks?.previewSection) {
+        const preview = await serverHooks.previewSection(validated.section);
+        renderWarnings = preview.warnings;
+        renderError = preview.error;
+      }
+
       res.status(201).json({
         hash: created.hash,
         preview_url: created.previewUrl,
         path: created.relativePath,
         componentType,
         version: validated.version,
+        ...(renderWarnings !== undefined ? { render_warnings: renderWarnings } : {}),
+        ...(renderError !== undefined ? { render_error: renderError } : {}),
       });
     } catch (error) {
       log.error({ err: error }, "Failed to create component section demo");
