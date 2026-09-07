@@ -106,6 +106,7 @@ import multer from "multer";
 import { contentIndex, type ContentType } from "../content-index";
 import { runScan as runComponentInsightsScan, readInsightsFile, suggestNext as suggestNextComponent } from "../component-insights";
 import { validateFieldSource, validateFieldMapping, extractByDotPath } from "../../scripts/validation/shared/fieldMappingValidator";
+import { validateSectionOperations } from "../section-save-validation";
 import {
   getFolder,
   getType,
@@ -1082,6 +1083,24 @@ export function registerSectionsRoutes(app: Express): void {
             section: sectionData,
           },
         ];
+      }
+
+      // The save-time hard stop: a section that fails its component's own
+      // server-side validation never reaches a page. The rejection carries
+      // the violations so the caller — usually an MCP agent — fixes the
+      // section and retries; advisory warnings still save. Which components
+      // validate what is the component registry's business, not this
+      // route's (shared/component-registry/server-hooks.ts).
+      if (Array.isArray(finalOperations)) {
+        const guard = await validateSectionOperations(finalOperations);
+        if (!guard.ok) {
+          res.status(422).json({
+            error: guard.message,
+            code: guard.code,
+            violations: guard.violations,
+          });
+          return;
+        }
       }
 
       if (

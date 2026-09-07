@@ -107,6 +107,7 @@ async function startServer() {
       versioningManager,
       entryPreviewManager: {
         resolveEffectiveImage: async () => ({ url: null }),
+        resolveEffectiveOgImage: async () => ({ url: null }),
       },
     } as any;
     next();

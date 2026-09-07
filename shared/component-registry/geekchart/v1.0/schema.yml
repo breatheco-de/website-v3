@@ -1,13 +1,59 @@
 name: Geekchart
 version: "1.0"
 component: Geekchart
-file: client/src/components/chart/variants/ChartDefault.tsx
+file: client/src/components/geekchart/variants/GeekchartDefault.tsx
 description: An animated mermaid diagram, drawn server-side into a designed SVG.
 when_to_use: |
   Use to place a diagram — a flowchart, sequence, or similar mermaid chart — as its
   own section on any page. The mermaid source is the same syntax used in a
   ```mermaid fence inside an `article` body; this section renders it standalone,
   with an optional caption underneath.
+
+  AUTHORING RULES — follow these and the chart comes out clean; ignore them and
+  it will render, but worse:
+
+  Shapes that render beautifully (prefer these):
+  - A linear chain of steps (A --> B --> C): wraps into tidy reading-order rows.
+  - A decision (diamond) with yes/no branches: terminal outcomes sit beside the
+    diamond; a cascade of checks reads as one spine.
+  - A hub fanning out to (or in from) several boxes: drawn as one bus with one
+    shared trunk. Label every branch or none.
+  - A tree / org chart: every parent centres over its children.
+  - A cycle (last node back to the first): drawn as a ring.
+  - Subgraphs: compact titled panels; point cross-panel edges at the SHAPES
+    inside, not at the subgraph name, unless you mean "into the whole system".
+
+  Hard numeric limits the renderer enforces:
+  - Edge labels: 28 characters max per line; wraps to two lines; longer is cut
+    and warned. A label that long is a sentence — put sentences in captions.
+  - Node names: keep them short. Boxes are fixed-size; a name that cannot wrap
+    to two lines is shortened with an ellipsis, never given a wider box.
+  - A caption is a DESCRIPTION under a name, never the name's continuation:
+    "Deploy<br/>ships to Production" is right; "Clean &<br/>transform" is a
+    broken phrase. Never insert <br/> to manage width — a one-line name up
+    to ~18 characters fits its box as-is, and the renderer wraps longer
+    ones itself. Caption all of a chart's boxes or none of them; one
+    captioned box among plain ones reads as a mistake.
+  - Height: more than ~6 rows of boxes triggers a phone-height warning. If you
+    get it, switch the direction to LR FIRST — it usually fixes the height
+    without losing content; only then consider fewer boxes or two short charts.
+    Height costs add up: a fan-in AND a fan-out in one chart each spend rows,
+    and a decision diamond costs more than a plain box — when trimming,
+    widen one side only, and prefer a plain fork over a diamond when the
+    question itself isn't the point.
+  - Keep it under ~15 nodes. These are editorial diagrams, not system maps.
+
+  VALIDATE BEFORE YOU FINISH — never ship a chart you have not previewed:
+  1. Create a preview with create_component_section_demo and this section's
+     YAML; it validates the source and returns a preview_url.
+  2. The tool's response carries render_warnings from the chart renderer.
+     Fix the source and create a new demo until render_warnings is empty —
+     a warning means a rule above was broken.
+  3. Only then add the section to the real entry. Saving is enforced: a
+     section whose chart fails the renderer's geometry checks is REJECTED
+     with the violations in the error — fix the source and retry. Stuck
+     after two attempts? Simplify the chart or split it in two rather than
+     fighting the same warning again.
 props:
   source:
     type: string
