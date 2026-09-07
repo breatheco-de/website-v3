@@ -17,6 +17,12 @@ describe("geometryViolations", () => {
 });
 
 describe("checkGeekchartSections", () => {
+  it("reads the operations-array 'section' field, not only sectionData", async () => {
+    const r = await checkGeekchartSections([
+      { action: "add_section", section: { type: "geekchart", source: "flowchart LR\n  A[--> broken ]]]" } },
+    ]);
+    expect(r.ok).toBe(false);
+  });
   it("ignores non-geekchart operations", async () => {
     const r = await checkGeekchartSections([
       { sectionData: { type: "article", content: "hi" } },

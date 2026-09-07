@@ -29,7 +29,14 @@ export async function checkGeekchartSections(
 ): Promise<GeekchartGuardResult> {
   const violations: string[] = [];
   for (const op of operations) {
-    const data = op?.sectionData as Record<string, unknown> | undefined;
+    // The operations-array format carries the section as `section`; the
+    // simplified single-op format arrives here already normalized to the
+    // same shape, but accept `sectionData` too so no caller shape slips
+    // past the stop. (Found live: a probe using `sectionData` in the array
+    // format was silently ignored by the writer AND missed by this guard's
+    // first version - the two mistakes cancelled in testing and would have
+    // let real saves bypass the stop.)
+    const data = (op?.section ?? op?.sectionData) as Record<string, unknown> | undefined;
     if (!data || data.type !== "geekchart") continue;
     const source = typeof data.source === "string" ? data.source : "";
     if (!source.trim()) continue; // empty source is the schema's problem
