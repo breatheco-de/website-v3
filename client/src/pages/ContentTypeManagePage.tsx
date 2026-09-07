@@ -5910,7 +5910,6 @@ export default function ContentTypeManagePage() {
   const {
     data: schemaOrgCoverage,
     isLoading: schemaOrgCoverageLoading,
-    refetch: refetchSchemaOrgCoverage,
   } = useQuery<SchemaOrgCoverageResponse>({
     queryKey: ["/api/content-types", contentType, "schema-org-coverage"],
     queryFn: () =>
@@ -5921,42 +5920,11 @@ export default function ContentTypeManagePage() {
     staleTime: 30_000,
   });
 
-  const [schemaOrgEnsuring, setSchemaOrgEnsuring] = useState(false);
   /** After Generate OG, show a Refresh link until the user reloads the thumb. */
   const [ogAwaitingRefresh, setOgAwaitingRefresh] = useState<Set<string>>(() => new Set());
   const [ogThumbBustByKey, setOgThumbBustByKey] = useState<Record<string, number>>({});
   const [schemaOrgMissingOpen, setSchemaOrgMissingOpen] = useState(false);
-
-  const handleSchemaOrgEnsure = async () => {
-    if (!contentType || !hasSchemaOrgRequirements) return;
-    setSchemaOrgEnsuring(true);
-    try {
-      const res = await apiRequest(
-        "POST",
-        `/api/content-types/${encodeURIComponent(contentType)}/schema-org-ensure`,
-        {},
-      );
-      const result = await res.json();
-      if (result.error) throw new Error(result.error);
-      toast({
-        title: "Schema.org sections attached",
-        description: `Added ${result.added ?? 0}, already present ${result.already_present ?? 0}${
-          result.errors ? `, errors ${result.errors}` : ""
-        }.`,
-      });
-      await refetchSchemaOrgCoverage();
-      queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "static-entries"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "items"] });
-    } catch (err: any) {
-      toast({
-        title: "Failed to attach Schema.org",
-        description: err?.message || String(err),
-        variant: "destructive",
-      });
-    } finally {
-      setSchemaOrgEnsuring(false);
-    }
-  };
+  const [schemaOrgEducationAdvanced, setSchemaOrgEducationAdvanced] = useState(false);
 
   const { data: entryPreviewsData } = useQuery<{
     preview: ContentTypePreviewConfig | null;
@@ -7578,9 +7546,40 @@ export default function ContentTypeManagePage() {
                     Content-type requirements
                   </p>
                   <p>
-                    Every location needs LocalBusiness; hubs are seeded from Miami/Madrid templates.
-                    Attach binds a leading <code className="font-mono">schema_org</code> section on missing entries.
+                    Every entry must include the Schema.org companion(s) listed below as a leading{" "}
+                    <code className="font-mono">schema_org</code> section. Gaps show in Diagnostics and
+                    block publish/promote — fix each missing entry by adding a filled section.
                   </p>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                    onClick={() => setSchemaOrgEducationAdvanced((v) => !v)}
+                    data-testid="button-schema-org-ct-education-advanced"
+                  >
+                    {schemaOrgEducationAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+                    <IconChevronDown
+                      className={`h-3.5 w-3.5 transition-transform ${schemaOrgEducationAdvanced ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  {schemaOrgEducationAdvanced ? (
+                    <div className="space-y-1.5 pt-1 font-mono text-[11px]">
+                      <p>
+                        Config:{" "}
+                        <span className="text-foreground">content-types.yml → schema_org_requirements</span>
+                      </p>
+                      <p>
+                        Validator:{" "}
+                        <span className="text-foreground">
+                          scripts/validation/validators/schema-org-companions.ts
+                        </span>
+                      </p>
+                      <p className="font-sans text-muted-foreground">
+                        Bulk seed for migrations only: MCP{" "}
+                        <code className="font-mono">ensure_content_type_schema_org</code> (no staff button;
+                        seeded shells still need real properties).
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
                 {schemaOrgCoverageLoading ? (
                   <p className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -7635,20 +7634,6 @@ export default function ContentTypeManagePage() {
                     })}
                   </>
                 )}
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={schemaOrgEnsuring || schemaOrgCoverageLoading}
-                  onClick={handleSchemaOrgEnsure}
-                  data-testid="button-schema-org-ensure"
-                >
-                  {schemaOrgEnsuring ? (
-                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  ) : (
-                    <LinkIcon className="h-3.5 w-3.5 mr-1.5" />
-                  )}
-                  Attach / bind
-                </Button>
               </CardContent>
             </Card>
           )}

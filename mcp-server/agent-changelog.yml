@@ -6,6 +6,44 @@ window_days: 6
 
 entries:
   - date: "2026-09-07"
+    summary: "list_entries unified inventory (stats + paginated entries for all types)"
+    agent_impact:
+      - "No contentType → mode type_stats (per-type counts + next_actions). Pass contentType for paginated one-row-per-slug entries (static and catalog-sourced alike)."
+      - "New params: page, limit (max 200), detail. Always ok() envelope. Typed catalog failure fails hard; stats mode can partial-fail with warnings."
+      - "Create/delete still blocked for catalog-sourced types; list/read/update are not. Funnel filters need contentType (overlay _common.yml)."
+    paths:
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/list-entries-resolve.ts
+      - mcp-server/README.md
+      - mcp-server/explain/funnel.md
+      - mcp-server/explain/overview.md
+      - mcp-server/explain/content_system.md
+    tools_changed: true
+  - date: "2026-09-07"
+    summary: "list/get private DB items for api/remote caches; list summaries; refresh; mutate → overrides"
+    agent_impact:
+      - "list_database_items / get_database_item work for local|api|remote. List returns summary rows (summary:true); get returns the full row. Optional refresh:true is expensive; ignored when page>1; refresh fail may still return cache."
+      - "Mutate (add/update/delete) stays local YAML only. On non-local fail, next_actions point to get_entry_fields / update_entry_field when a content type links the DB."
+      - "Call explain_site topic local_databases for read vs write vs override mental model."
+    paths:
+      - mcp-server/tools/databases.ts
+      - mcp-server/lib/database-items.ts
+      - mcp-server/explain/local_databases.md
+      - mcp-server/README.md
+    tools_changed: true
+  - date: "2026-09-07"
+    summary: "Schema.org CT gaps: diagnostics + filled add_section; ensure is migration-only"
+    agent_impact:
+      - "get_content_type_info missing_slugs → run_entry_diagnostics then add_section with filled schema_org (not ensure as primary)."
+      - "ensure_content_type_schema_org remains for bulk/migration seed only; warns that shells still need properties."
+      - "Staff CT manage no longer has Attach/bind; coverage KPI + Diagnostics remain."
+    paths:
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/content_system.md
+      - scripts/validation/validators/schema-org-companions.ts
+      - client/src/pages/ContentTypeManagePage.tsx
+    tools_changed: false
+  - date: "2026-09-07"
     summary: "regenerate_entry_previews: overwrite + cover≠social; pipeline auto-lifecycle"
     agent_impact:
       - "Cover (_image) no longer blocks or receives OG. Social is meta.og_image + generated WebP only."

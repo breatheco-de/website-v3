@@ -10,6 +10,11 @@ import {
   prepareBatchUpdate,
   abortRemainingPatches,
   summarizeUsage,
+  summarizeDatabaseItem,
+  SUMMARY_MAX_STRING_CHARS,
+  databaseReadWarnings,
+  resolveContentTypesForDatabase,
+  nonLocalMutateFailDetails,
   validateBulkLength,
   validateFaqItem,
   withGlobalIndices,
@@ -303,5 +308,109 @@ describe("abortRemainingPatches", () => {
     if (!results[1].ok) expect(results[1].code).toBe("aborted");
     expect(results[2].ok).toBe(false);
     if (!results[2].ok) expect(results[2].code).toBe("aborted");
+  });
+});
+
+describe("summarizeDatabaseItem", () => {
+  it("keeps slug/title/index and drops long content", () => {
+    const long = "x".repeat(300);
+    const out = summarizeDatabaseItem({
+      index: 3,
+      slug: "hello-world",
+      title: "Hello",
+      content: long,
+      readme: { decoded: long },
+      tags: ["a", "b"],
+    });
+    expect(out.index).toBe(3);
+    expect(out.slug).toBe("hello-world");
+    expect(out.title).toBe("Hello");
+    expect(out.tags).toEqual(["a", "b"]);
+    expect(out.content).toBeUndefined();
+    expect(out.readme).toBeUndefined();
+  });
+
+  it("omits strings longer than SUMMARY_MAX_STRING_CHARS", () => {
+    const out = summarizeDatabaseItem({
+      description: "y".repeat(SUMMARY_MAX_STRING_CHARS + 1),
+      short: "ok",
+    });
+    expect(out.short).toBe("ok");
+    expect(out.description).toBeUndefined();
+  });
+});
+
+describe("databaseReadWarnings", () => {
+  it("includes refresh_ignored_pagination and non-local codes", () => {
+    const codes = databaseReadWarnings({
+      sourceType: "api",
+      refreshIgnoredPagination: true,
+      refreshFailed: true,
+    }).map((w) => w.code);
+    expect(codes).toContain("refresh_ignored_pagination");
+    expect(codes).toContain("refresh_failed");
+    expect(codes).toContain("read_only_cache");
+    expect(codes).toContain("index_not_writable");
+    expect(codes).not.toContain("global_index");
+  });
+
+  it("includes global_index for local and refresh_done when refreshed", () => {
+    const codes = databaseReadWarnings({
+      sourceType: "local",
+      refreshed: true,
+    }).map((w) => w.code);
+    expect(codes).toContain("global_index");
+    expect(codes).toContain("refresh_done");
+  });
+});
+
+describe("resolveContentTypesForDatabase / nonLocalMutateFailDetails", () => {
+  it("finds linked content types", () => {
+    expect(
+      resolveContentTypesForDatabase("interactive-exercises", {
+        "interactive-exercise": { database: { slug: "interactive-exercises" } },
+        blog: { database: null },
+        how_to: { database: { slug: "how_to" } },
+      }),
+    ).toEqual(["interactive-exercise"]);
+  });
+
+  it("suggests override next_actions when CT + slug present", () => {
+    const details = nonLocalMutateFailDetails({
+      database: "interactive-exercises",
+      sourceType: "api",
+      contentTypes: ["interactive-exercise"],
+      slug: "python-lists",
+      site: "4geeks.com",
+    });
+    expect(details.code).toBe("not_local_database");
+    expect(details.next_actions.map((a) => a.tool)).toEqual([
+      "get_entry_fields",
+      "update_entry_field",
+    ]);
+    expect(details.next_actions[1].args_hint?.level).toBe("database");
+    expect(details.warnings.some((w) => w.code === "use_field_overrides")).toBe(true);
+  });
+
+  it("omits override next_actions when no linked CT", () => {
+    const details = nonLocalMutateFailDetails({
+      database: "upcoming_cohorts",
+      sourceType: "api",
+      contentTypes: [],
+      slug: "some-cohort",
+    });
+    expect(details.next_actions).toEqual([]);
+    expect(details.warnings.some((w) => w.code === "no_linked_content_type")).toBe(true);
+  });
+
+  it("omits override next_actions when slug missing", () => {
+    const details = nonLocalMutateFailDetails({
+      database: "interactive-exercises",
+      sourceType: "api",
+      contentTypes: ["interactive-exercise"],
+      slug: null,
+    });
+    expect(details.next_actions).toEqual([]);
+    expect(details.warnings.some((w) => w.code === "override_needs_slug")).toBe(true);
   });
 });

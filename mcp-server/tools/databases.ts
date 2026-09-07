@@ -1,12 +1,12 @@
 /**
- * MCP tools for local-source private database item CRUD (FAQ bank and others).
+ * MCP tools for private database item read + local YAML CRUD (FAQ bank and others).
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { checkCap, denyResponse } from "../lib/auth.js";
 import { ok, fail, actionRequired, type McpWarning, type NextAction } from "../lib/respond.js";
-import { resolveSiteContext } from "../lib/content.js";
+import { loadContentTypes, resolveSiteContext } from "../lib/content.js";
 import { getTokenUsername } from "../lib/oauth.js";
 import {
   FAQ_DB_NAME,
@@ -18,6 +18,10 @@ import {
   prepareBatchUpdate,
   abortRemainingPatches,
   summarizeUsage,
+  summarizeDatabaseItem,
+  databaseReadWarnings,
+  resolveContentTypesForDatabase,
+  nonLocalMutateFailDetails,
   validateBulkLength,
   validateFaqItem,
   withGlobalIndices,
@@ -26,6 +30,9 @@ import {
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
+
+const REFRESH_ARG_DESC =
+  "Force rebuild the database cache before reading. Expensive for api/remote sources (hits the external API). Use sparingly when stale cache is blocking; prefer the default TTL cache. Ignored when page > 1 on list (refresh on page 1 only).";
 
 function internalHeaders(mcpToken?: string): Record<string, string> {
   const headers: Record<string, string> = {
@@ -98,25 +105,6 @@ function assertLocal(
   config: DbConfigResponse["config"],
   dbName: string,
 ): { ok: true; filename: string } | { ok: false; message: string } {
-  // #region agent log
-  fetch("http://127.0.0.1:7585/ingest/7dd1bcc0-ea77-4f87-be7d-1ea690313598", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "574959" },
-    body: JSON.stringify({
-      sessionId: "574959",
-      hypothesisId: "A",
-      location: "mcp-server/tools/databases.ts:assertLocal",
-      message: "assertLocal gate",
-      data: {
-        dbName,
-        sourceType: config.source?.type ?? null,
-        isLocal: config.source?.type === "local",
-        hasFilename: Boolean(config.source?.local?.filename),
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   if (config.source?.type !== "local") {
     return {
       ok: false,
@@ -128,6 +116,29 @@ function assertLocal(
     return { ok: false, message: `Database "${dbName}" is local but missing source.local.filename` };
   }
   return { ok: true, filename };
+}
+
+function itemFileForConfig(
+  dbName: string,
+  config: DbConfigResponse["config"],
+): string | null {
+  if (config.source?.type !== "local") return null;
+  const filename = config.source.local?.filename;
+  return filename ? `db/${dbName}/${filename}` : null;
+}
+
+async function forceRefreshDatabase(
+  dbName: string,
+  domain: string | null,
+  mcpToken?: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/refresh${siteQuery(domain)}`;
+  const res = await fetch(url, { method: "POST", headers: internalHeaders(mcpToken) });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, message: data.error || `Refresh failed: ${res.status}` };
+  }
+  return { ok: true };
 }
 
 async function fetchAllItems(
@@ -162,6 +173,92 @@ async function fetchAllItems(
     }
   }
   return { ok: true, items };
+}
+
+/** Resolve refresh intent: ignore on page>1; soft-fail refresh then still read items. */
+async function prepareDatabaseRead(opts: {
+  database: string;
+  domain: string | null;
+  mcpToken?: string;
+  refresh?: boolean;
+  page?: number;
+}): Promise<
+  | {
+      ok: true;
+      items: Record<string, unknown>[];
+      refreshed: boolean;
+      refreshFailed: boolean;
+      refreshIgnoredPagination: boolean;
+    }
+  | { ok: false; message: string }
+> {
+  const page = opts.page ?? 1;
+  let refreshIgnoredPagination = false;
+  let refreshed = false;
+  let refreshFailed = false;
+
+  const wantRefresh = opts.refresh === true;
+  if (wantRefresh && page > 1) {
+    refreshIgnoredPagination = true;
+  } else if (wantRefresh) {
+    const fr = await forceRefreshDatabase(opts.database, opts.domain, opts.mcpToken);
+    if (fr.ok) {
+      refreshed = true;
+    } else {
+      refreshFailed = true;
+    }
+  }
+
+  const all = await fetchAllItems(opts.database, opts.domain, opts.mcpToken);
+  if (!all.ok) {
+    if (refreshFailed) {
+      return {
+        ok: false,
+        message: `Forced refresh failed and items could not be read: ${all.message}`,
+      };
+    }
+    return { ok: false, message: all.message };
+  }
+
+  return {
+    ok: true,
+    items: all.items,
+    refreshed,
+    refreshFailed,
+    refreshIgnoredPagination,
+  };
+}
+
+async function failNonLocalMutate(opts: {
+  database: string;
+  config: DbConfigResponse["config"];
+  contentPath: string;
+  site?: string | null;
+  domain: string | null;
+  mcpToken?: string;
+  index?: number;
+}): Promise<ReturnType<typeof fail>> {
+  const configs = loadContentTypes(opts.contentPath);
+  const contentTypes = resolveContentTypesForDatabase(opts.database, configs);
+  let slug: string | null = null;
+  if (opts.index !== undefined && contentTypes.length > 0) {
+    const all = await fetchAllItems(opts.database, opts.domain, opts.mcpToken);
+    if (all.ok && all.items[opts.index]) {
+      const raw = all.items[opts.index].slug;
+      slug = typeof raw === "string" && raw.trim() ? raw.trim() : null;
+    }
+  }
+  const details = nonLocalMutateFailDetails({
+    database: opts.database,
+    sourceType: opts.config.source?.type,
+    contentTypes,
+    slug,
+    site: opts.site,
+  });
+  return fail(
+    `Database "${opts.database}" is not local (source.type=${opts.config.source?.type ?? "unknown"}). MCP cannot edit upstream api/remote rows — use field overrides when a content type links this database.`,
+    details,
+  );
 }
 
 function syncWarnings(relPath: string): McpWarning[] {
@@ -308,9 +405,11 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
 
   mcp.tool(
     "list_database_items",
-    "List items from a local private database. Each row includes global `index` (full-array position). Filters do not renumber indices — use `index` for update/delete. FAQ: filter by locale recommended.",
+    "List private database items (local, api, or remote). Returns summary rows (not full bodies) with global `index`. " +
+      "Use get_database_item for a full row. Mutate tools only work for local YAML. " +
+      "Optional refresh:true rebuilds cache (expensive for api/remote; ignored when page>1). FAQ: filter by locale recommended.",
     {
-      database: z.string().describe("Database slug, e.g. frequently_asked_questions"),
+      database: z.string().describe("Database slug, e.g. frequently_asked_questions or interactive-exercises"),
       page: z.number().int().positive().optional().describe("Page number (default 1)"),
       limit: z.number().int().positive().max(1000).optional().describe("Page size (default 50)"),
       locale: z.string().optional().describe("Filter item.locale (does not change index)"),
@@ -318,46 +417,60 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         .record(z.string(), z.union([z.string(), z.array(z.string())]))
         .optional()
         .describe("Extra field filters (OR within field, AND across fields)"),
+      refresh: z.boolean().optional().describe(REFRESH_ARG_DESC),
       site: z.string().optional(),
     },
-    async ({ database, page, limit, locale, filter, site }) => {
+    async ({ database, page, limit, locale, filter, refresh, site }) => {
       const denied = await requireItemCap(mcpToken);
       if (denied) return denied;
 
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return fail(siteResult.error);
       const domain = siteResult.domain;
+      const pageNum = page ?? 1;
 
       try {
         const cfg = await fetchDbConfig(database, domain, mcpToken);
         if (!cfg.ok) return fail(cfg.message);
-        const local = assertLocal(cfg.data.config, database);
-        if (!local.ok) return fail(local.message);
+        const sourceType = cfg.data.config.source?.type ?? null;
+        const local = sourceType === "local";
 
-        const all = await fetchAllItems(database, domain, mcpToken);
-        if (!all.ok) return fail(all.message);
+        const prepared = await prepareDatabaseRead({
+          database,
+          domain,
+          mcpToken,
+          refresh,
+          page: pageNum,
+        });
+        if (!prepared.ok) return fail(prepared.message);
 
-        const indexed = withGlobalIndices(all.items);
+        const indexed = withGlobalIndices(prepared.items);
         const filters: Record<string, string | string[]> = { ...(filter ?? {}) };
         if (locale) filters.locale = locale;
         const filtered = filterIndexedItems(indexed, filters);
-        const pageResult = paginateItems(filtered, page ?? 1, limit ?? 50);
+        const pageResult = paginateItems(filtered, pageNum, limit ?? 50);
+        const summaryItems = pageResult.items.map((row) => summarizeDatabaseItem(row));
 
         return ok(
           {
-            message: `Listed ${pageResult.items.length} of ${pageResult.total_count} item(s) (global index preserved)`,
+            message: `Listed ${summaryItems.length} of ${pageResult.total_count} item(s) (summary; global index preserved)`,
             database,
-            item_file: `db/${database}/${local.filename}`,
-            ...pageResult,
+            source_type: sourceType,
+            local,
+            item_file: itemFileForConfig(database, cfg.data.config),
+            summary: true,
+            items: summaryItems,
+            page: pageResult.page,
+            limit: pageResult.limit,
+            total_count: pageResult.total_count,
           },
           {
-            warnings: [
-              {
-                code: "global_index",
-                message:
-                  "Use the `index` field on each row for update_database_item / delete_database_item — not the position within this filtered page.",
-              },
-            ],
+            warnings: databaseReadWarnings({
+              sourceType,
+              refreshed: prepared.refreshed,
+              refreshFailed: prepared.refreshFailed,
+              refreshIgnoredPagination: prepared.refreshIgnoredPagination,
+            }),
             next_actions: [],
           },
         );
@@ -369,13 +482,16 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
 
   mcp.tool(
     "get_database_item",
-    "Get one local database item by global index. Prefer passing expect.question on later updates using the returned question.",
+    "Get one private database item (full row) by global index. Works for local, api, and remote caches. " +
+      "Mutate only for local YAML — for api/remote use update_entry_field overrides when a content type links the DB. " +
+      "Optional refresh:true rebuilds cache (expensive).",
     {
       database: z.string(),
       index: z.number().int().min(0).describe("Global array index"),
+      refresh: z.boolean().optional().describe(REFRESH_ARG_DESC),
       site: z.string().optional(),
     },
-    async ({ database, index, site }) => {
+    async ({ database, index, refresh, site }) => {
       const denied = await requireItemCap(mcpToken);
       if (denied) return denied;
 
@@ -386,24 +502,40 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       try {
         const cfg = await fetchDbConfig(database, domain, mcpToken);
         if (!cfg.ok) return fail(cfg.message);
-        const local = assertLocal(cfg.data.config, database);
-        if (!local.ok) return fail(local.message);
+        const sourceType = cfg.data.config.source?.type ?? null;
+        const local = sourceType === "local";
 
-        const all = await fetchAllItems(database, domain, mcpToken);
-        if (!all.ok) return fail(all.message);
-        if (index < 0 || index >= all.items.length) {
-          return fail(`Item at index ${index} not found (length=${all.items.length})`);
+        const prepared = await prepareDatabaseRead({
+          database,
+          domain,
+          mcpToken,
+          refresh,
+          page: 1,
+        });
+        if (!prepared.ok) return fail(prepared.message);
+        if (index < 0 || index >= prepared.items.length) {
+          return fail(`Item at index ${index} not found (length=${prepared.items.length})`);
         }
 
         return ok(
           {
             message: `Item ${index} from ${database}`,
             database,
+            source_type: sourceType,
+            local,
             index,
-            item: all.items[index],
-            item_file: `db/${database}/${local.filename}`,
+            item: prepared.items[index],
+            item_file: itemFileForConfig(database, cfg.data.config),
           },
-          { warnings: [], next_actions: [] },
+          {
+            warnings: databaseReadWarnings({
+              sourceType,
+              refreshed: prepared.refreshed,
+              refreshFailed: prepared.refreshFailed,
+              refreshIgnoredPagination: false,
+            }),
+            next_actions: [],
+          },
         );
       } catch (e) {
         return fail(`get_database_item failed: ${(e as Error).message}`);
@@ -432,7 +564,16 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const cfg = await fetchDbConfig(database, domain, mcpToken);
         if (!cfg.ok) return fail(cfg.message);
         const local = assertLocal(cfg.data.config, database);
-        if (!local.ok) return fail(local.message);
+        if (!local.ok) {
+          return failNonLocalMutate({
+            database,
+            config: cfg.data.config,
+            contentPath: siteResult.contentPath,
+            site,
+            domain,
+            mcpToken,
+          });
+        }
 
         let toWrite: Record<string, unknown> = { ...item };
         const warnings: McpWarning[] = [...syncWarnings(`db/${database}/${local.filename}`)];
@@ -552,7 +693,16 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const cfg = await fetchDbConfig(database, domain, mcpToken);
         if (!cfg.ok) return fail(cfg.message);
         const local = assertLocal(cfg.data.config, database);
-        if (!local.ok) return fail(local.message);
+        if (!local.ok) {
+          return failNonLocalMutate({
+            database,
+            config: cfg.data.config,
+            contentPath: siteResult.contentPath,
+            site,
+            domain,
+            mcpToken,
+          });
+        }
 
         const all = await fetchAllItems(database, domain, mcpToken);
         if (!all.ok) return fail(all.message);
@@ -698,7 +848,17 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const cfg = await fetchDbConfig(database, domain, mcpToken);
         if (!cfg.ok) return fail(cfg.message);
         const local = assertLocal(cfg.data.config, database);
-        if (!local.ok) return fail(local.message);
+        if (!local.ok) {
+          return failNonLocalMutate({
+            database,
+            config: cfg.data.config,
+            contentPath: siteResult.contentPath,
+            site,
+            domain,
+            mcpToken,
+            index,
+          });
+        }
 
         const all = await fetchAllItems(database, domain, mcpToken);
         if (!all.ok) return fail(all.message);
@@ -844,7 +1004,21 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const cfg = await fetchDbConfig(database, domain, mcpToken);
         if (!cfg.ok) return fail(cfg.message);
         const local = assertLocal(cfg.data.config, database);
-        if (!local.ok) return fail(local.message);
+        if (!local.ok) {
+          const firstIndex =
+            updates.length > 0 && typeof updates[0]?.index === "number"
+              ? updates[0].index
+              : undefined;
+          return failNonLocalMutate({
+            database,
+            config: cfg.data.config,
+            contentPath: siteResult.contentPath,
+            site,
+            domain,
+            mcpToken,
+            index: firstIndex,
+          });
+        }
 
         const all = await fetchAllItems(database, domain, mcpToken);
         if (!all.ok) return fail(all.message);
@@ -994,7 +1168,17 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const cfg = await fetchDbConfig(database, domain, mcpToken);
         if (!cfg.ok) return fail(cfg.message);
         const local = assertLocal(cfg.data.config, database);
-        if (!local.ok) return fail(local.message);
+        if (!local.ok) {
+          return failNonLocalMutate({
+            database,
+            config: cfg.data.config,
+            contentPath: siteResult.contentPath,
+            site,
+            domain,
+            mcpToken,
+            index,
+          });
+        }
 
         const all = await fetchAllItems(database, domain, mcpToken);
         if (!all.ok) return fail(all.message);

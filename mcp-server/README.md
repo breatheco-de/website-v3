@@ -37,12 +37,12 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `list_sites` | Configured domains + content folders (`sites.yml`) |
 | `explain_site` | Architecture playbooks + live per-site catalogs (conversion_events, CRM tags, locales). Pass `site`. |
 | `bootstrap_agent` | Call once near the start of an MCP content run (Claude.ai / Grok / connectors). Returns technical playbook + conversation conventions (`skill.content` on first call) + 6-day changelog. Later calls: `include_skill_content: false` / `known_skill_version`. Does not refresh host tool list. |
-| `list_entries` | List YAML (non-DB) entries; optional funnel/money filters |
+| `list_entries` | Unified inventory: no `contentType` → type stats; with type → paginated entries (all sources) |
 | `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, strategy, observed URL-param values, create_via, body_model, template_vars_note |
 | `get_entry_content` | Merged entry content without meta/SEO |
 | `get_entry_seo` | SEO/meta + resolved schema.org preview + companion/CT gaps for one entry |
 | `update_content_type` | Patch `content-types.yml`: `strategy`, one field (`field_action` + confirm), or shared layout (`single_template` + `template_mode`). Cap: `content_types_manage`. |
-| `ensure_content_type_schema_org` | Attach seeded schema_org companions for CT `schema_org_requirements` |
+| `ensure_content_type_schema_org` | Migration/bulk seed only for CT `schema_org_requirements`; prefer diagnostics + filled `add_section` |
 | `list_entry_seo` | SEO listing; **unfiltered = minimal sample**; pass `slugs` for full meta |
 | `create_entry` | Create YAML entry (draft-first or live shared-layout); not for DB-backed types |
 | `update_fields` | Single-entry field writes (meta + body + one section); `updates[]` length ≥ 1 |
@@ -57,7 +57,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `get_diagnostics_job` | Poll multi-slug / unscoped async jobs; `open_issues_offset` / `open_issues_limit` page the open work queue; `issue_status` filters open/claimed/completed/all |
 | `get_section_bindings` | Binding-group membership |
 | `list_components` / `get_component_schema` / `get_component_variant` / `create_component_section_demo` | Component registry + disposable section demos |
-| `list_databases` / `list_database_items` / `get_database_item` | Local private DB discovery + read (global `index`) |
+| `list_databases` / `list_database_items` / `get_database_item` | Private DB discovery + read (all sources; list=summary, get=full; optional `refresh`) |
 | `add_database_item` / `add_database_items` / `update_database_item` / `update_database_items` / `delete_database_item` | Local YAML item CRUD (FAQ database etc.; bulk max 40, best-effort) |
 | `reindex_database` | Vector reindex after item writes (`databases_manage`) |
 | `get_product_funnel` / `update_product_funnel` | Product conversion funnels |
@@ -76,17 +76,24 @@ Returns `{ count, sites: [{ domain, contentFolder }], hint }`.
 
 ### `list_entries`
 
-Lists YAML-driven content entries (includes static `single_template` types such as blog; excludes `database.slug` types).
+Unified entry inventory for **every** content type (static YAML and catalog/DB-sourced). Listing matches site cards (cache + overrides). Create/delete of catalog-sourced identities remains blocked (`get_content_type_info` → `create_via`).
 
-**Parameters:** optional `contentType`, `locale`, `slugs`, `search`, `site`, plus funnel filters (AND):
+**Modes:**
+
+| Mode | When | Response |
+|---|---|---|
+| `type_stats` | `contentType` omitted | Per-type counts + `next_actions` to pass `contentType` (no combined entry dump) |
+| `entries` | `contentType` set | Paginated one-row-per-slug entries (`locales` / `urls` merged) |
+
+**Parameters:** optional `contentType`, `locale` (strict), `slugs`, `search`, `page`, `limit` (default 50, max 200), `detail` (extra non-body scalars), `site`, plus funnel filters (AND, **entry mode only**):
 
 | Parameter | Description |
 |---|---|
-| `funnel_stage` | Exact `_common.yml` `funnel.stage` (`awareness` \| `consideration` \| `decision` \| `post-enrollment`) |
+| `funnel_stage` | Exact overlay `_common.yml` `funnel.stage` (`awareness` \| `consideration` \| `decision` \| `post-enrollment`) |
 | `funnel_product` | Effective products include this SKU (program pages always include self) |
-| `is_money_page` | `true` = `stage === decision` (BOFU); untagged purchasable programs excluded + warned |
+| `is_money_page` | `true` = `stage === decision` (BOFU) |
 
-When any funnel filter is set, response is an `ok()` envelope with `entries[]` including `funnel`, `is_money_page`, `stage_missing`. Conflicting `is_money_page` + `funnel_stage` fails. Inventory vs product journey: see `explain_site` topic `funnel`.
+Always returns `ok()` on success. Typed catalog load failure → `fail` (`catalog_unreachable`). Stats mode with a failed type → partial success + warning. Conflicting `is_money_page` + `funnel_stage` fails. Inventory vs product journey: see `explain_site` topic `funnel`.
 
 ### `get_content_type_info`
 

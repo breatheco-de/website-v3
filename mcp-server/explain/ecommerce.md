@@ -23,7 +23,7 @@ Purchase completes off-site. This site never fires `purchase`.
 - **`update_product_funnel` is retired** — edit membership on each page (Funnel tab / funnel write APIs), not `_ecommerce.yml` funnel.steps
 - Do **not** use `update_fields` looking for `funnel` on a hero
 
-The product page is always the **locked decision step** in the journey response, even when `_common.yml` has no `funnel.stage`. Site-wide money-page lists (`list_entries` + `is_money_page`) use **catalog tags only** — see topic `funnel` (inventory vs journey).
+The product page is always the **locked decision step** in the journey response, even when `_common.yml` has no `funnel.stage`. Site money-page lists (`list_entries` + `contentType` + `is_money_page`) use overlay `_common.yml` tags — see topic `funnel` (inventory vs journey).
 
 ## Product scope — exact property paths per component
 

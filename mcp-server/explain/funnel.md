@@ -35,22 +35,24 @@ funnel:
 
 ### Site inventory (`list_entries`)
 
-Optional AND filters:
+- **No `contentType`:** `mode: type_stats` — per-type counts and guidance to narrow (funnel filters alone do not dump all catalogs).
+- **With `contentType`:** paginated one-row-per-slug entries for that type (static and catalog-sourced alike). Pass `locale` for a strict language filter; use `detail: true` for extra non-body scalars.
+
+Optional AND funnel filters (**entry mode**):
 
 - `is_money_page: true` → only tagged `decision` (strict catalog)
 - `is_money_page: false` → missing stage or not `decision`
-- `funnel_stage` → exact stage match
+- `funnel_stage` → exact stage match on overlay `_common.yml` (works for catalog-sourced types that have a per-slug overlay)
 - `funnel_product` → page **effective** products include that SKU (`products: all`, list match, or **program page always includes itself**)
 - Conflicting `is_money_page` + `funnel_stage` → **fail**
 - When any funnel filter is set, rows include `funnel`, `is_money_page`, `stage_missing`
 - `funnel_product` alone may match pages with no stage; those rows have `stage_missing: true`
-- `is_money_page: true` warns when purchasable programs lack `decision` and were excluded
 
 ### Inventory vs product journey
 
 | View | Tool | Behavior |
 |------|------|----------|
-| Site / SEO inventory | `list_entries` + money/stage filters | **Catalog tags only** — untagged program pages are not money pages |
+| Site / SEO inventory | `list_entries` + `contentType` + money/stage filters | Overlay `_common.yml` tags only — untagged program pages are not money pages |
 | Per-SKU journey | `get_product_funnel` / `get_product_funnel_analytics` | Always **pins the product’s own page** as the decision step even if `_common.yml` has no stage |
 
 Do not treat those two answers as the same list. Tag programs as `decision` so inventory and journey align. Journey tools and product scope details → topic `ecommerce`.

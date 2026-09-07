@@ -522,3 +522,215 @@ export function abortRemainingPatches(
   }
   return count;
 }
+
+/** Max string length kept on list summaries (longer values omitted). */
+export const SUMMARY_MAX_STRING_CHARS = 240;
+
+const HEAVY_SUMMARY_KEYS = new Set(["content", "readme", "manifest", "decoded"]);
+
+function isHeavySummaryKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  if (HEAVY_SUMMARY_KEYS.has(lower)) return true;
+  if (lower.endsWith(".decoded") || lower.endsWith("_decoded")) return true;
+  return false;
+}
+
+/**
+ * Project a DB row for list_database_items: keep short identity/meta; drop heavy
+ * bodies and long strings. Preserves `index` when present. Same shape for all limits.
+ */
+export function summarizeDatabaseItem(
+  item: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(item)) {
+    if (isHeavySummaryKey(key)) continue;
+    if (typeof value === "string") {
+      if (value.length > SUMMARY_MAX_STRING_CHARS) continue;
+      out[key] = value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      const keep = value.every((el) => {
+        if (el == null) return true;
+        if (typeof el === "string") return el.length <= SUMMARY_MAX_STRING_CHARS;
+        return typeof el === "number" || typeof el === "boolean";
+      });
+      if (keep) out[key] = value;
+      continue;
+    }
+    if (value !== null && typeof value === "object") {
+      // Nested objects (e.g. readme blobs) omitted from list summaries.
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+export type DatabaseReadWarning = { code: string; message: string };
+
+/** Stable warning codes for list/get across local and non-local sources. */
+export function databaseReadWarnings(opts: {
+  sourceType: string | null | undefined;
+  refreshed?: boolean;
+  refreshFailed?: boolean;
+  refreshIgnoredPagination?: boolean;
+}): DatabaseReadWarning[] {
+  const sourceType = opts.sourceType ?? "unknown";
+  const local = sourceType === "local";
+  const warnings: DatabaseReadWarning[] = [];
+
+  if (opts.refreshIgnoredPagination) {
+    warnings.push({
+      code: "refresh_ignored_pagination",
+      message:
+        "refresh:true is ignored when page > 1 — using cache. Force refresh on page 1 only.",
+    });
+  }
+  if (opts.refreshFailed) {
+    warnings.push({
+      code: "refresh_failed",
+      message:
+        "Forced cache refresh failed; returning last available items which may be stale.",
+    });
+  } else if (opts.refreshed) {
+    warnings.push({
+      code: "refresh_done",
+      message: local
+        ? "Forced cache rebuild completed before this read."
+        : "Forced cache rebuild completed (external source was fetched).",
+    });
+  }
+
+  if (local) {
+    warnings.push({
+      code: "global_index",
+      message:
+        "Use the `index` field on each row for update_database_item / delete_database_item — not the position within this filtered page.",
+    });
+  } else {
+    warnings.push({
+      code: "read_only_cache",
+      message:
+        "Rows come from the CMS cache of an api/remote database. MCP cannot add/update/delete source rows — customize via field overrides when a content type links this DB, or edit upstream and refresh.",
+    });
+    warnings.push({
+      code: "index_not_writable",
+      message:
+        "`index` is the cache-array position for get_database_item only — not a mutate key for api/remote databases.",
+    });
+  }
+
+  return warnings;
+}
+
+/** Content-type keys whose database.slug matches this private DB name. */
+export function resolveContentTypesForDatabase(
+  database: string,
+  configs: Record<string, { database?: { slug?: string } | null }>,
+): string[] {
+  const out: string[] = [];
+  for (const [key, config] of Object.entries(configs)) {
+    if (config?.database?.slug === database) out.push(key);
+  }
+  return out.sort();
+}
+
+export type OverrideNextAction = {
+  tool: string;
+  reason: string;
+  args_hint?: Record<string, unknown>;
+  priority?: "required" | "recommended" | "optional";
+};
+
+/**
+ * next_actions when mutate is refused for a non-local DB.
+ * Requires a linked content type and a row slug to suggest override tools.
+ */
+export function nonLocalMutateOverrideNextActions(opts: {
+  database: string;
+  contentTypes: string[];
+  slug: string | null | undefined;
+  site?: string | null;
+}): OverrideNextAction[] {
+  const contentType = opts.contentTypes[0];
+  const slug =
+    typeof opts.slug === "string" && opts.slug.trim() ? opts.slug.trim() : null;
+  if (!contentType || !slug) return [];
+
+  const site = opts.site ?? undefined;
+  return [
+    {
+      tool: "get_entry_fields",
+      reason: "Inspect field provenance (original vs db_override vs ct_override) before writing",
+      args_hint: { slug, contentType, ...(site ? { site } : {}) },
+      priority: "recommended",
+    },
+    {
+      tool: "update_entry_field",
+      reason:
+        "Set a CMS override (level=database for listings+pages, or level=content_type for page-only) — does not edit the upstream API row",
+      args_hint: {
+        slug,
+        contentType,
+        field: "title",
+        level: "database",
+        ...(site ? { site } : {}),
+      },
+      priority: "recommended",
+    },
+  ];
+}
+
+export function nonLocalMutateFailDetails(opts: {
+  database: string;
+  sourceType: string | null | undefined;
+  contentTypes: string[];
+  slug?: string | null;
+  site?: string | null;
+}): {
+  code: string;
+  source_type: string;
+  linked_content_types: string[];
+  entry_slug: string | null;
+  warnings: DatabaseReadWarning[];
+  next_actions: OverrideNextAction[];
+} {
+  const contentTypes = opts.contentTypes;
+  const slug =
+    typeof opts.slug === "string" && opts.slug.trim() ? opts.slug.trim() : null;
+  const next_actions = nonLocalMutateOverrideNextActions({
+    database: opts.database,
+    contentTypes,
+    slug,
+    site: opts.site,
+  });
+  const warnings: DatabaseReadWarning[] = [];
+  if (contentTypes.length === 0) {
+    warnings.push({
+      code: "no_linked_content_type",
+      message: `No content type links database "${opts.database}" via database.slug — field overrides are not available for this bank. Edit the upstream source (or use a linked type).`,
+    });
+  } else if (!slug) {
+    warnings.push({
+      code: "override_needs_slug",
+      message:
+        "This database is linked to a content type, but no entry slug was available on the row. List/get the item, then call get_entry_fields / update_entry_field with its slug.",
+    });
+  } else {
+    warnings.push({
+      code: "use_field_overrides",
+      message:
+        "Customize mapped fields with update_entry_field (overrides). Do not use update_database_item / delete_database_item on api/remote databases.",
+    });
+  }
+  return {
+    code: "not_local_database",
+    source_type: opts.sourceType ?? "unknown",
+    linked_content_types: contentTypes,
+    entry_slug: slug,
+    warnings,
+    next_actions,
+  };
+}

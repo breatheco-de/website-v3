@@ -1572,6 +1572,29 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
+  app.get("/api/settings/entry-preview/queue", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    try {
+      const site = res.locals.site as import("../site-manager").SiteContext | undefined;
+      if (!site) {
+        res.status(500).json({ error: "Site context missing" });
+        return;
+      }
+      const pageRaw = typeof req.query.page === "string" ? Number(req.query.page) : 1;
+      const pageSizeRaw =
+        typeof req.query.pageSize === "string" ? Number(req.query.pageSize) : 10;
+      const { getEntryPreviewQueuePage } = await import("../entry-preview-capture-queue");
+      const payload = await getEntryPreviewQueuePage(site, {
+        page: Number.isFinite(pageRaw) ? pageRaw : 1,
+        pageSize: Number.isFinite(pageSizeRaw) ? pageSizeRaw : 10,
+      });
+      res.json(payload);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to load entry-preview queue" });
+    }
+  });
+
   app.put("/api/settings/entry-preview", async (req, res) => {
     const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;

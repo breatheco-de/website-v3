@@ -63,7 +63,7 @@ export const schemaOrgCompanionsValidator: Validator = {
           code: "SCHEMA_ORG_CONTENT_TYPE_REQUIREMENT",
           message: gap.message,
           file: file.filePath,
-          suggestion: `Add a leading schema_org section with schema_type: ${gap.schema_type} (or run ensure_content_type_schema_org / CT Attach)`,
+          suggestion: `Add a leading filled schema_org section with schema_type: ${gap.schema_type} on this entry (Diagnostics / publish gate). Prefer real properties over empty shells; ensure_content_type_schema_org is migration/bulk seed only.`,
         });
       }
     }

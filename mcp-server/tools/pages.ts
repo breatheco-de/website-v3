@@ -8,7 +8,6 @@ import {
   isDbBacked,
   isSharedLayoutConfig,
   resolveContentType,
-  scanPages,
   loadPage,
   loadVariantPage,
   safeLoad,
@@ -128,14 +127,18 @@ import {
   listLiveLocaleFiles,
 } from "../lib/translate-entry.js";
 import { applyPurchasableToRecord, ecommerceManager, PURCHASABLE_FIELD } from "../../server/ecommerce/ecommerce-manager.js";
-import { commonYmlPath, readFunnelBlockFromFile } from "../../server/funnel-fields.js";
 import { FUNNEL_STAGES } from "@shared/funnel";
 import {
   assertFunnelFilterConflict,
-  enrichFunnelFields,
   hasAnyFunnelFilter,
-  pageMatchesFunnelFilters,
 } from "../lib/list-entries-funnel.js";
+import {
+  clampListLimit,
+  clampListPage,
+  collectTypeStats,
+  createDefaultFetchItems,
+  resolveEntryList,
+} from "../lib/list-entries-resolve.js";
 import { isKnownSeoFieldPath, SEO_YAML_KEY, resolveEntryUpdatedAtDetail } from "../../server/content-types.js";
 import {
   applyEditorialUpdatedAtToData,
@@ -1210,27 +1213,30 @@ export function registerPageTools(
   // list_entries
   mcp.tool(
     "list_entries",
-    "List YAML-driven content entries (any content type that is not database-backed). " +
-    "Returns slug, contentType, locales, title, and urls. " +
-    "IMPORTANT: Types with database.slug in content-types.yml are NOT listed here. " +
-    "Static single_template types (e.g. blog) ARE listed — they are YAML, not DB. " +
-    "Use get_content_type_info to see db_backed vs single_template. " +
-    MULTI_SITE_TOOL_BLURB + " " +
-    "Optional filters (AND): contentType, locale, slugs, search, " +
-    "funnel_stage (awareness|consideration|decision|post-enrollment), funnel_product (SKU; uses effective products — program pages include self), " +
-    "is_money_page (true = funnel.stage decision / BOFU only; untagged purchasable programs are excluded). " +
-    "is_money_page + conflicting funnel_stage fails. When any funnel filter is set, rows include funnel + is_money_page + stage_missing. " +
-    "Site inventory is catalog tags; get_product_funnel always pins the product page as decision even if untagged — see explain_site topic funnel. " +
-    "Requires content_view.",
+    "Unified entry inventory for every content type (static YAML and catalog/DB-sourced alike — cache + overrides resolve the same way site cards do). " +
+    "Without contentType: returns per-type counts (type_stats) plus next_actions to narrow — does not dump a combined entry feed. " +
+    "With contentType: paginated one-row-per-slug entries (locales/urls merged). " +
+    "Optional detail:true adds safe non-body scalars (never full content/readme). " +
+    "Optional filters (AND, entry mode): locale (strict — slug must have that locale), slugs, search, " +
+    "funnel_stage / funnel_product / is_money_page (overlay _common.yml funnel; missing file = untagged). " +
+    "is_money_page + conflicting funnel_stage fails. Funnel-filtered rows include funnel + is_money_page + stage_missing. " +
+    "Create/delete of catalog-sourced identities still blocked — see get_content_type_info create_via. " +
+    MULTI_SITE_TOOL_BLURB + " Requires content_view.",
     {
-      contentType: z.string().optional().describe("Restrict to one content type, e.g. 'program', 'blog', or 'landing'"),
+      contentType: z.string().optional().describe("Restrict to one content type for entry rows, e.g. 'program', 'blog', or 'interactive-exercise'. Omit for type_stats."),
       locale: z.string().optional().describe("Only return entries that have this locale available, e.g. 'en' or 'es'"),
       slugs: z.array(z.string()).optional().describe("Restrict to a specific list of slugs"),
       search: z.string().optional().describe("Case-insensitive substring match against slug and title"),
+      page: z.number().int().positive().optional().describe("Entry-mode page (default 1)"),
+      limit: z.number().int().positive().max(200).optional().describe("Entry-mode page size (default 50, max 200)"),
+      detail: z
+        .boolean()
+        .optional()
+        .describe("When true, include extra non-body scalars (category, tags, …). Default lean."),
       funnel_stage: z
         .enum(FUNNEL_STAGES as unknown as [string, ...string[]])
         .optional()
-        .describe("Exact match on _common.yml funnel.stage"),
+        .describe("Exact match on overlay _common.yml funnel.stage"),
       funnel_product: z
         .string()
         .optional()
@@ -1246,6 +1252,9 @@ export function registerPageTools(
       locale,
       slugs,
       search,
+      page: pageRaw,
+      limit: limitRaw,
+      detail,
       funnel_stage: funnelStage,
       funnel_product: funnelProduct,
       is_money_page: isMoneyPage,
@@ -1265,7 +1274,7 @@ export function registerPageTools(
           is_money_page: isMoneyPage,
         });
       }
-      const { contentPath, contentFolder } = siteResult;
+      const { contentPath, contentFolder, domain } = siteResult;
       const funnelFilters = {
         funnel_stage: funnelStage,
         funnel_product: funnelProduct,
@@ -1279,135 +1288,159 @@ export function registerPageTools(
         }
       }
 
-      let pages = scanPages(contentPath);
-      // #region agent log
-      {
-        const searchNeedle = typeof search === "string" ? search : "";
-        const slugHits = pages.filter(
-          (p) =>
-            p.slug?.includes("building-an-mcp") ||
-            p.slug?.includes("mcp-server") ||
-            (searchNeedle &&
-              (p.slug?.toLowerCase().includes(searchNeedle.toLowerCase()) ||
-                String(p.title ?? "")
-                  .toLowerCase()
-                  .includes(searchNeedle.toLowerCase()))),
-        );
-        fetch("http://127.0.0.1:7585/ingest/7dd1bcc0-ea77-4f87-be7d-1ea690313598", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "574959" },
-          body: JSON.stringify({
-            sessionId: "574959",
-            hypothesisId: "B",
-            location: "mcp-server/tools/pages.ts:list_entries",
-            message: "list_entries scanPages (YAML-only)",
-            data: {
-              contentType: contentType ?? null,
-              search: search ?? null,
-              slugs: slugs ?? null,
-              totalScanned: pages.length,
-              sampleTypes: [...new Set(pages.map((p) => p.contentType))].slice(0, 20),
-              mcpRelatedHits: slugHits.map((p) => ({
-                contentType: p.contentType,
-                slug: p.slug,
-                title: p.title ?? null,
-              })),
-              hasInteractiveExerciseType: pages.some((p) => p.contentType === "interactive-exercise"),
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-      }
-      // #endregion
+      const configs = loadContentTypes(contentPath);
       const allowedTypes = grants ? visibleContentTypes(grants) : null;
-      if (allowedTypes) {
-        pages = pages.filter((p) => allowedTypes.has(p.contentType));
-      }
-      if (contentType) {
-        pages = pages.filter((p) => p.contentType === contentType);
-      }
-      if (locale) {
-        pages = pages.filter((p) => p.locales.includes(locale));
-      }
-      if (slugs && slugs.length > 0) {
-        const slugSet = new Set(slugs);
-        pages = pages.filter((p) => slugSet.has(p.slug));
-      }
-      if (search) {
-        const q = search.toLowerCase();
-        pages = pages.filter(
-          (p) =>
-            p.slug.toLowerCase().includes(q) ||
-            (p.title ?? "").toLowerCase().includes(q),
+      const allTypeNames = Object.keys(configs).sort();
+      const visibleTypeNames = allowedTypes
+        ? allTypeNames.filter((t) => allowedTypes.has(t))
+        : allTypeNames;
+
+      const fetchItems = createDefaultFetchItems(MAIN_SERVER_PORT, internalHeaders(mcpToken));
+
+      // Stats mode — no contentType
+      if (!contentType) {
+        const { types, failed_types, total_entries } = await collectTypeStats({
+          contentTypes: visibleTypeNames,
+          domain,
+          fetchItems,
+        });
+        const warnings: McpWarning[] = [
+          {
+            code: "list_entries_type_stats",
+            message:
+              "No contentType: returning per-type counts only. Pass contentType (and optional locale/search/funnel filters) to list entry rows.",
+          },
+        ];
+        const next_actions: NextAction[] = [
+          {
+            tool: "list_entries",
+            args_hint: {
+              contentType: types[0]?.contentType ?? visibleTypeNames[0] ?? "blog",
+              locale: locale ?? "en",
+            },
+            reason: "List paginated entries for one content type",
+          },
+        ];
+        if (failed_types.length > 0) {
+          warnings.push({
+            code: "catalog_partial_failure",
+            message: `Failed to load counts for ${failed_types.length} type(s): ${failed_types
+              .map((f) => f.contentType)
+              .join(", ")}. Other types are included. Retry list_entries with that contentType.`,
+          });
+          for (const f of failed_types.slice(0, 5)) {
+            next_actions.push({
+              tool: "list_entries",
+              args_hint: { contentType: f.contentType },
+              reason: `Retry inventory for failed type ${f.contentType}`,
+            });
+          }
+        }
+        if (useFunnel) {
+          warnings.push({
+            code: "funnel_needs_content_type",
+            message:
+              "Funnel filters apply in entry mode only. Pass contentType to filter by funnel.stage / money page / product.",
+          });
+        }
+        return ok(
+          {
+            message: `list_entries type_stats (${types.length} type(s), ${total_entries} listing row(s)${failed_types.length ? `, ${failed_types.length} failed` : ""})`,
+            mode: "type_stats",
+            types,
+            total_entries,
+            ...(failed_types.length ? { failed_types } : {}),
+          },
+          { warnings, next_actions },
         );
       }
 
-      if (!useFunnel) {
-        return { content: [{ type: "text", text: JSON.stringify(pages, null, 2) }] };
+      if (!configs[contentType]) {
+        return fail(
+          `Unknown contentType '${contentType}'. Known: ${visibleTypeNames.join(", ") || allTypeNames.join(", ")}`,
+        );
+      }
+      if (allowedTypes && !allowedTypes.has(contentType)) {
+        return denyResponse("content_view", contentType);
       }
 
-      const enriched: Array<Record<string, unknown>> = [];
-      for (const p of pages) {
-        const funnel = readFunnelBlockFromFile(
-          commonYmlPath(p.contentType, p.slug, contentFolder),
-        );
-        const ctx = { contentType: p.contentType, contentSlug: p.slug };
-        if (!pageMatchesFunnelFilters(funnel, funnelFilters, ctx)) continue;
-        const fields = enrichFunnelFields(funnel, ctx);
-        enriched.push({ ...p, ...fields });
+      const page = clampListPage(pageRaw);
+      const limit = clampListLimit(limitRaw);
+      const resolved = await resolveEntryList({
+        contentType,
+        domain,
+        contentPath,
+        contentFolder,
+        locale,
+        slugs,
+        search,
+        funnelFilters: useFunnel ? funnelFilters : undefined,
+        page,
+        limit,
+        detail: !!detail,
+        fetchItems,
+      });
+      if (!resolved.ok) {
+        return fail(resolved.error, { code: "catalog_unreachable" });
       }
 
       const warnings: McpWarning[] = [
         {
-          code: "money_page_is_decision",
+          code: "listing_vs_page_overrides",
           message:
-            "is_money_page / money inventory means funnel.stage === \"decision\" (BOFU). No separate YAML money_page field.",
-        },
-        {
-          code: "inventory_vs_product_journey",
-          message:
-            "list_entries money/stage inventory uses catalog tags only. get_product_funnel always pins the product page as the decision step even when untagged. See explain_site topic funnel.",
+            "List rows match site card resolve (cache + DB overrides). Page-only field_overrides are not applied here — use get_entry_fields for effective page fields.",
         },
       ];
-
-      if (isMoneyPage === true) {
-        const untaggedPurchasable: string[] = [];
-        for (const product of ecommerceManager.getAllProducts()) {
-          const ct = product.content_type;
-          const slug = product.content_slug;
-          if (contentType && ct !== contentType) continue;
-          if (allowedTypes && !allowedTypes.has(ct)) continue;
-          const funnel = readFunnelBlockFromFile(commonYmlPath(ct, slug, contentFolder));
-          const stage =
-            typeof funnel.stage === "string" && funnel.stage.trim() ? funnel.stage.trim() : "";
-          if (stage !== "decision") {
-            untaggedPurchasable.push(`${ct}/${slug}`);
-          }
-        }
-        if (untaggedPurchasable.length > 0) {
-          warnings.push({
-            code: "untagged_purchasable_excluded",
-            message: `${untaggedPurchasable.length} purchasable product page(s) lack funnel.stage=decision and were excluded from is_money_page:true (strict catalog). Examples: ${untaggedPurchasable.slice(0, 8).join(", ")}${untaggedPurchasable.length > 8 ? ", …" : ""}`,
-          });
-        }
+      const next_actions: NextAction[] = [];
+      if (useFunnel) {
+        warnings.push(
+          {
+            code: "money_page_is_decision",
+            message:
+              "is_money_page / money inventory means funnel.stage === \"decision\" (BOFU). No separate YAML money_page field.",
+          },
+          {
+            code: "inventory_vs_product_journey",
+            message:
+              "list_entries money/stage inventory uses overlay _common.yml tags. get_product_funnel always pins the product page as the decision step even when untagged. See explain_site topic funnel.",
+          },
+        );
+        next_actions.push({
+          tool: "explain_site",
+          args_hint: { topic: "funnel" },
+          reason: "Stage / money-page inventory vs product journey semantics",
+        });
+      }
+      if (resolved.has_more) {
+        next_actions.push({
+          tool: "list_entries",
+          args_hint: {
+            contentType,
+            locale,
+            page: resolved.page + 1,
+            limit: resolved.limit,
+            ...(detail ? { detail: true } : {}),
+            ...(search ? { search } : {}),
+            ...(funnelStage ? { funnel_stage: funnelStage } : {}),
+            ...(funnelProduct ? { funnel_product: funnelProduct } : {}),
+            ...(isMoneyPage !== undefined ? { is_money_page: isMoneyPage } : {}),
+          },
+          reason: "Fetch next page of entries",
+        });
       }
 
       return ok(
         {
-          message: `list_entries with funnel filters (${enriched.length} match${enriched.length === 1 ? "" : "es"})`,
-          count: enriched.length,
-          entries: enriched,
+          message: `list_entries entries for ${contentType} (${resolved.count} of ${resolved.total})`,
+          mode: "entries",
+          count: resolved.count,
+          total: resolved.total,
+          page: resolved.page,
+          limit: resolved.limit,
+          has_more: resolved.has_more,
+          entries: resolved.entries,
         },
-        {
-          warnings,
-          next_actions: [
-            {
-              tool: "explain_site",
-              args_hint: { topic: "funnel" },
-              reason: "Stage / money-page inventory vs product journey semantics",
-            },
-          ],
-        },
+        { warnings, next_actions },
       );
     },
   );
@@ -7731,7 +7764,8 @@ export function registerPageTools(
     "For editor.type json fields, read editor.<field>.schema (JSON Schema) before writing values via " +
     "update_fields — schema is required and returned again on validation failure. " +
     "Call this before create_entry when unsure how a type works. Requires content_view. " +
-    "When coverage shows missing_slugs, call ensure_content_type_schema_org to attach seeded companions. " +
+    "When coverage shows missing_slugs, fix per entry: run_entry_diagnostics then add_section with a filled leading schema_org " +
+    "(ensure_content_type_schema_org is migration/bulk seed only — shells still need real properties). " +
     "When strategy is missing while required fields exist, call update_content_type. " +
     MULTI_SITE_TOOL_BLURB,
     {
@@ -7870,11 +7904,13 @@ export function registerPageTools(
         );
         if (missing.length > 0) {
           next_actions.push({
-            tool: "ensure_content_type_schema_org",
-            reason: "Attach seeded schema_org companions on missing entries",
+            tool: "run_entry_diagnostics",
+            reason:
+              "Confirm SCHEMA_ORG_CONTENT_TYPE_REQUIREMENT on missing_slugs, then add_section with a filled leading schema_org per entry. " +
+              "ensure_content_type_schema_org is migration/bulk seed only.",
             args_hint: {
               contentType,
-              schema_type: schema_org_requirements[0]?.schema_type,
+              slug: missing[0],
               site,
             },
             priority: "recommended",
@@ -8404,9 +8440,11 @@ export function registerPageTools(
   // ensure_content_type_schema_org
   mcp.tool(
     "ensure_content_type_schema_org",
-    "Ensure every entry of a content type has a leading schema_org section for the given schema_type " +
-    "(e.g. location → LocalBusiness). Seeds missing entries from legacy catalog or miami-usa/madrid-spain templates. " +
-    "Call get_content_type_info first to see coverage. Requires seo_settings. " +
+    "Migration/bulk seed only: insert a leading schema_org section for schema_type on entries missing it " +
+    "(e.g. location → LocalBusiness from catalog / miami-usa|madrid-spain). " +
+    "Prefer run_entry_diagnostics + add_section with filled properties for day-to-day gaps. " +
+    "Non-LocalBusiness seeds are often empty shells — still fill properties afterward (get_entry_seo). " +
+    "Call get_content_type_info first for coverage. Requires seo_settings. " +
     MULTI_SITE_TOOL_BLURB,
     {
       contentType: z.string().describe("Content type key, e.g. 'location'"),
@@ -8465,6 +8503,12 @@ export function registerPageTools(
             code: "no_schema_org_yml_write",
             message: "Site schema-org.yml is not modified by this tool.",
           },
+          {
+            code: "seed_not_filled_properties",
+            message:
+              "Bulk seed does not guarantee valid JSON-LD field completeness. Prefer per-entry filled schema_org via add_section; " +
+              "after ensure, inspect get_entry_seo and fill properties (non-LocalBusiness shells are often empty).",
+          },
         ];
         if (dry_run) {
           warnings.push({
@@ -8498,6 +8542,16 @@ export function registerPageTools(
                 tool: "get_content_type_info",
                 reason: "Re-check schema_org_requirements coverage after ensure",
                 args_hint: { contentType, site },
+                priority: "recommended",
+              },
+              {
+                tool: "get_entry_seo",
+                reason: "Verify resolved JSON-LD and fill seeded properties on a sample missing/added entry",
+                args_hint: {
+                  contentType,
+                  slug: Array.isArray(slugs) && slugs[0] ? slugs[0] : undefined,
+                  site,
+                },
                 priority: "recommended",
               },
             ],

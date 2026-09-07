@@ -99,8 +99,8 @@
 #   List of companion schema_org sections required on every entry, e.g.
 #     schema_org_requirements:
 #       - schema_type: LocalBusiness
-#   Validated by schema-org-companions + live SEO gate. Attach via ensure API / MCP
-#   ensure_content_type_schema_org.
+#   Validated by schema-org-companions + live SEO gate. Fix per entry (Diagnostics /
+#   filled schema_org). Migration bulk seed only: ensure_content_type_schema_org.
 
 program:
   insights_intent: product_service

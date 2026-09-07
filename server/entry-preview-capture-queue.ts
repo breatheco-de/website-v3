@@ -10,7 +10,7 @@ import {
 } from "./entry-preview-manager";
 import { getPreviewConfig, getLocaleKey, getContentTypeConfig } from "./content-types";
 import { isPreviewCaptureReady } from "./entry-preview-config";
-import { captureScreenshotToWebp, cloudflareBrowserConfigError } from "./cloudflare-browser";
+import { captureScreenshotToWebp, cloudflareBrowserConfigError, getPublicSiteUrl } from "./cloudflare-browser";
 import { buildSignedEntryPreviewFrameUrl } from "./entry-preview-capture-auth";
 import { persistGeneratedOgImageToEntryYaml } from "./entry-preview-og-yaml";
 import { buildPreviewPropResolveContext } from "./entry-preview-resolve";
@@ -314,6 +314,104 @@ export function getEntryPreviewQueueStats(contentRootName: string): QueueStats {
     active: q.active.size,
     completedSession: q.completedSession,
     failedSession: q.failedSession,
+    jobs,
+  };
+}
+
+export type EntryPreviewQueueJobDetail = {
+  key: string;
+  contentType: string;
+  slug: string;
+  locale: string;
+  status: "pending" | "active";
+  title: string | null;
+  url: string | null;
+};
+
+export type EntryPreviewQueuePage = {
+  total: number;
+  pending: number;
+  active: number;
+  completedSession: number;
+  failedSession: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  jobs: EntryPreviewQueueJobDetail[];
+};
+
+function resolveEntryDisplayTitle(
+  entry: Record<string, unknown> | null,
+  slug: string,
+): string {
+  if (!entry) return slug;
+  const meta = entry.meta;
+  if (meta && typeof meta === "object" && meta !== null) {
+    const pageTitle = (meta as Record<string, unknown>).page_title;
+    if (typeof pageTitle === "string" && pageTitle.trim()) return pageTitle.trim();
+  }
+  for (const key of ["title", "name", "label"] as const) {
+    const value = entry[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return slug;
+}
+
+function resolveEntryPublicUrl(
+  site: SiteContext,
+  contentType: string,
+  slug: string,
+  locale: string,
+): string | null {
+  try {
+    const alts = site.contentIndex.getAlternateUrls(slug, contentType, {
+      includeEmptyLocales: true,
+    });
+    const pathPart = alts[locale] || Object.values(alts)[0] || null;
+    if (!pathPart) return null;
+    const base = getPublicSiteUrl();
+    if (!base) return pathPart;
+    return `${base.replace(/\/$/, "")}${pathPart.startsWith("/") ? pathPart : `/${pathPart}`}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Paginated capture queue for staff SEO/GEO → OG Image.
+ * Enriches the current page with entry title + public URL.
+ */
+export async function getEntryPreviewQueuePage(
+  site: SiteContext,
+  opts?: { page?: number; pageSize?: number },
+): Promise<EntryPreviewQueuePage> {
+  const pageSize = Math.min(50, Math.max(1, Math.floor(opts?.pageSize ?? 10)));
+  const stats = getEntryPreviewQueueStats(site.contentRootName);
+  const total = stats.pending + stats.active;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
+  const page = Math.min(totalPages, Math.max(1, Math.floor(opts?.page ?? 1)));
+  const start = (page - 1) * pageSize;
+  const slice = stats.jobs.slice(start, start + pageSize);
+
+  const jobs: EntryPreviewQueueJobDetail[] = [];
+  for (const job of slice) {
+    const entry = await loadEntryForCapture(site, job.contentType, job.slug, job.locale);
+    jobs.push({
+      ...job,
+      title: resolveEntryDisplayTitle(entry, job.slug),
+      url: resolveEntryPublicUrl(site, job.contentType, job.slug, job.locale),
+    });
+  }
+
+  return {
+    total,
+    pending: stats.pending,
+    active: stats.active,
+    completedSession: stats.completedSession,
+    failedSession: stats.failedSession,
+    page,
+    pageSize,
+    totalPages,
     jobs,
   };
 }

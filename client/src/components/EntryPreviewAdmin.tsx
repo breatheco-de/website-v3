@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertCircle, Image, ImageOff, Loader2, MoreVertical, Pencil, RefreshCw, Wand2, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { AlertCircle, Image, ImageOff, Info, Loader2, MoreVertical, Pencil, RefreshCw, Wand2, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1110,28 +1110,64 @@ export function EntryPreviewCard({
   return (
     <>
       <Card data-testid="card-entry-preview">
-        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">OG Preview</CardTitle>
-          <div className="flex items-center gap-1">
-            {hasPreview && canGenerateAll && (
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={openGenerateAllDialog}
-                disabled={queueBusyCount > 0 || !!configError}
-                title={
-                  queueBusyCount > 0
-                    ? `Generating ${queueBusyCount}…`
-                    : "Generate missing OG previews"
-                }
-                data-testid="button-generate-all-entry-previews-header"
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${queueBusyCount > 0 ? "animate-spin" : ""}`}
-                />
-              </Button>
-            )}
-            {hasPreview ? (
+        <CardHeader className="flex flex-col gap-2 space-y-0 pb-2">
+          <div className="flex flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-1 min-w-0">
+              <CardTitle className="text-sm font-medium text-muted-foreground">OG Preview</CardTitle>
+              {hasPreview ? (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6 shrink-0"
+                      aria-label="OG Preview advanced details"
+                      data-testid="button-og-preview-info"
+                    >
+                      <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    className="w-[min(22rem,calc(100vw-2rem))] space-y-2 text-xs text-muted-foreground leading-relaxed"
+                    data-testid="popover-og-preview-advanced"
+                  >
+                    <p className="font-medium text-foreground">Read more (advanced)</p>
+                    <p>
+                      {preview.component}
+                      {preview.variant ? ` / ${preview.variant}` : ""} — server captures via Cloudflare Browser
+                      Run. On success, locale YAML meta.og_image is set (covers / _image are not overwritten).
+                      Pipeline events auto-queue when social is missing or OG card inputs change. You can close
+                      this tab after Generate.
+                    </p>
+                    <p>
+                      Queue: server/entry-preview-capture-queue.ts · CF client: server/cloudflare-browser.ts ·
+                      Storage: server/entry-preview-manager.ts · Frame: client/src/pages/EntryPreviewFrame.tsx.
+                    </p>
+                  </PopoverContent>
+                </Popover>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-1">
+              {hasPreview && canGenerateAll && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={openGenerateAllDialog}
+                  disabled={queueBusyCount > 0 || !!configError}
+                  title={
+                    queueBusyCount > 0
+                      ? `Generating ${queueBusyCount}…`
+                      : "Generate missing OG previews"
+                  }
+                  data-testid="button-generate-all-entry-previews-header"
+                >
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 ${queueBusyCount > 0 ? "animate-spin" : ""}`}
+                  />
+                </Button>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -1145,44 +1181,55 @@ export function EntryPreviewCard({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem
-                    disabled={!canForceRegenerate || forceRegenPending}
-                    onClick={() => setForceRegenOpen(true)}
-                    data-testid="menu-regenerate-all-og-images"
+                    onClick={() => setConfigOpen(true)}
+                    data-testid="menu-edit-entry-preview-config"
                   >
-                    Regenerate all og images
+                    <Pencil className="h-4 w-4 mr-2" />
+                    {hasPreview ? "Edit preview config" : "Configure preview"}
                   </DropdownMenuItem>
+                  {hasPreview ? (
+                    <DropdownMenuItem
+                      disabled={!canForceRegenerate || forceRegenPending}
+                      onClick={() => setForceRegenOpen(true)}
+                      data-testid="menu-regenerate-all-og-images"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Regenerate all og images
+                    </DropdownMenuItem>
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
-            ) : null}
-            {configError ? (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="inline-flex shrink-0"
-                    data-testid="badge-entry-preview-config-error"
-                  >
-                    <Badge variant="destructive" className="gap-1 text-[10px] cursor-pointer">
-                      <AlertCircle className="h-3 w-3" />
-                      Action Required
-                    </Badge>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent
-                  className="w-72 text-xs"
-                  side="bottom"
-                  align="end"
-                  data-testid="popover-entry-preview-config-error"
-                >
-                  <p className="text-destructive leading-relaxed" data-testid="text-entry-preview-config-error">
-                    {configError}
-                  </p>
-                </PopoverContent>
-              </Popover>
-            ) : !hasPreview ? (
-              <Image className="h-4 w-4 text-muted-foreground" />
-            ) : null}
+              {!configError && !hasPreview ? (
+                <Image className="h-4 w-4 text-muted-foreground" />
+              ) : null}
+            </div>
           </div>
+          {configError ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex self-start"
+                  data-testid="badge-entry-preview-config-error"
+                >
+                  <Badge variant="destructive" className="gap-1 text-[10px] cursor-pointer">
+                    <AlertCircle className="h-3 w-3" />
+                    Action Required
+                  </Badge>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-72 text-xs"
+                side="bottom"
+                align="start"
+                data-testid="popover-entry-preview-config-error"
+              >
+                <p className="text-destructive leading-relaxed" data-testid="text-entry-preview-config-error">
+                  {configError}
+                </p>
+              </PopoverContent>
+            </Popover>
+          ) : null}
         </CardHeader>
         <CardContent className="space-y-2">
           <p className="text-xs text-muted-foreground leading-relaxed">
@@ -1190,24 +1237,6 @@ export function EntryPreviewCard({
               ? "Cloudflare generates the social share images for your pages. Cover images stay separate."
               : "Configure a component to generate social share images (OG) when missing."}
           </p>
-          {hasPreview ? (
-            <details className="text-xs text-muted-foreground">
-              <summary className="cursor-pointer text-primary hover:underline">Read more (advanced)</summary>
-              <div className="mt-1 space-y-2 leading-relaxed">
-                <p>
-                  {preview.component}
-                  {preview.variant ? ` / ${preview.variant}` : ""} — server captures via Cloudflare Browser
-                  Run. On success, locale YAML meta.og_image is set (covers / _image are not overwritten).
-                  Pipeline events auto-queue when social is missing or OG card inputs change. You can close
-                  this tab after Generate.
-                </p>
-                <p>
-                  Queue: server/entry-preview-capture-queue.ts · CF client: server/cloudflare-browser.ts ·
-                  Storage: server/entry-preview-manager.ts · Frame: client/src/pages/EntryPreviewFrame.tsx.
-                </p>
-              </div>
-            </details>
-          ) : null}
 
           {hasPreview && (
             <div className="space-y-1">
@@ -1250,14 +1279,6 @@ export function EntryPreviewCard({
             </div>
           )}
 
-          <button
-            type="button"
-            className="text-xs text-primary hover:underline"
-            onClick={() => setConfigOpen(true)}
-            data-testid="button-edit-entry-preview-config"
-          >
-            {hasPreview ? "Edit preview config" : "Configure preview"}
-          </button>
         </CardContent>
       </Card>
 

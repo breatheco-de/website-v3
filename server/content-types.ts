@@ -118,7 +118,7 @@ export interface ContentTypeEntry {
   /**
    * Required companion schema_org sections (by schema_type) on every entry of this type.
    * Validated by schema-org-companions; hard-gated on publish/promote / full replace
-   * (not on live micro structural saves). Attach via ensure API/MCP.
+   * (not on live micro structural saves). Fix per entry; ensure API/MCP is migration seed only.
    */
   schema_org_requirements?: Array<{ schema_type: string }>;
   /**
@@ -285,8 +285,8 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     schema_org_requirements:
 #       - schema_type: LocalBusiness
 #   Validated by schema-org-companions; hard-gated on publish/promote / full replace.
-#   Attach via ensure API / MCP
-#   ensure_content_type_schema_org.
+#   Fix gaps per entry (Diagnostics / add filled schema_org). Migration bulk seed only:
+#   ensure_content_type_schema_org / POST .../schema-org-ensure.
 `;
 
 function writeConfigWithHeader(allTypes: Record<string, ContentTypeEntry>, contentRoot?: string): void {
