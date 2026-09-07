@@ -33,6 +33,10 @@ when_to_use: |
   - Height: more than ~6 rows of boxes triggers a phone-height warning. If you
     get it, switch the direction to LR FIRST — it usually fixes the height
     without losing content; only then consider fewer boxes or two short charts.
+    Height costs add up: a fan-in AND a fan-out in one chart each spend rows,
+    and a decision diamond costs more than a plain box — when trimming,
+    widen one side only, and prefer a plain fork over a diamond when the
+    question itself isn't the point.
   - Keep it under ~15 nodes. These are editorial diagrams, not system maps.
 
   VALIDATE BEFORE YOU FINISH — never ship a chart you have not previewed:
