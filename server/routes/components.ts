@@ -235,7 +235,7 @@ import {
   readDemo,
   readDemoYamlText,
 } from "../component-section-demos";
-import { renderToSvg } from "geekchart/server";
+import { loadGeekchart } from "../geekchart-lazy";
 import { child } from "../logger";
 const log = child({ module: "routes/components" });
 
@@ -346,6 +346,7 @@ export function registerComponentsRoutes(app: Express): void {
         const src = typeof validated.section.source === "string" ? validated.section.source : "";
         const dur = typeof validated.section.duration === "number" ? validated.section.duration : undefined;
         try {
+          const { renderToSvg } = await loadGeekchart();
           const r = await renderToSvg(src, {
             display: { desktop: 612, phone: 358 },
             ...(dur ? { duration: dur } : {}),

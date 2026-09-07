@@ -8,7 +8,7 @@
  * The demo endpoint stays warn-only on purpose: previews are the practice
  * space, the page is not.
  */
-import { renderToSvg } from "geekchart/server";
+import { loadGeekchart } from "./geekchart-lazy";
 
 const GEOMETRY = /^6\.\d-runtime /;
 
@@ -30,6 +30,7 @@ export async function checkGeekchartSections(
   const violations: string[] = [];
   const renderAndCollect = async (source: string, duration?: number) => {
     try {
+      const { renderToSvg } = await loadGeekchart();
       const r = await renderToSvg(source, {
         display: { desktop: 612, phone: 358 },
         ...(duration ? { duration } : {}),
