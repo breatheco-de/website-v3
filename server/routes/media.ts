@@ -808,6 +808,10 @@ export function registerMediaRoutes(app: Express): void {
         }
         const alt = (req.body?.alt as string) || undefined;
         const tags = req.body?.tags ? JSON.parse(req.body.tags) : undefined;
+        const source_url =
+          typeof req.body?.source_url === "string" && req.body.source_url.trim()
+            ? req.body.source_url.trim()
+            : undefined;
         let origin: "upload" | "import" | "ai" | undefined;
         if (req.body?.origin === "upload" || req.body?.origin === "import" || req.body?.origin === "ai") {
           origin = req.body.origin;
@@ -894,7 +898,7 @@ export function registerMediaRoutes(app: Express): void {
           file.originalname,
           file.buffer,
           file.mimetype,
-          { alt, tags, origin, ai },
+          { alt, tags, origin, ai, source_url },
         );
 
         if (!result.duplicate && (origin === "ai" || ai?.generated)) {

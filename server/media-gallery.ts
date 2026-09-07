@@ -1174,6 +1174,7 @@ export class MediaGallery {
       ...(entry.quality_override != null ? { quality_override: entry.quality_override } : {}),
       ...(entry.origin ? { origin: entry.origin } : {}),
       ...(entry.ai ? { ai: entry.ai } : {}),
+      ...(entry.source_url ? { source_url: entry.source_url } : {}),
       ...(entry.last_impression_at ? { last_impression_at: entry.last_impression_at } : {}),
       registered_at: registeredAt,
     };
@@ -1504,6 +1505,8 @@ export class MediaGallery {
       alt?: string;
       tags?: string[];
       origin?: "upload" | "import" | "ai";
+      /** Original remote URL when origin is import. */
+      source_url?: string;
       ai?: {
         generated: true;
         generated_at?: string;
@@ -1607,6 +1610,7 @@ export class MediaGallery {
       hash,
       origin,
       registered_at: registeredAt,
+      ...(opts?.source_url ? { source_url: opts.source_url } : {}),
       ...(hotAi ? { ai: hotAi } : {}),
     });
 

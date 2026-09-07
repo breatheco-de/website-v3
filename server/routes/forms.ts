@@ -206,7 +206,7 @@ import {
 } from "./_helpers";
 import { getTrackingSettings } from "../settings";
 import { buildLeadPayload } from "../utils/buildLeadPayload";
-import { isPrivateDestination } from "./webhooks";
+import { isPrivateDestination } from "../../shared/ssrf";
 import { DatabaseManager } from "../database";
 import {
   fetchQueryOptions,

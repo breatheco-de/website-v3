@@ -39,57 +39,7 @@ const conversionWebhookBodySchema = z.object({
   payload: z.record(z.unknown()),
 });
 
-/**
- * Reject URLs that point to private/internal network destinations to prevent SSRF.
- * Blocks: localhost, loopback, RFC-1918 private ranges, link-local, IPv6 loopback,
- * and the AWS/GCP/Azure instance metadata endpoints.
- */
-export function isPrivateDestination(urlStr: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(urlStr);
-  } catch {
-    return true; // unparsable → block
-  }
-
-  // Only allow http and https
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return true;
-
-  const host = parsed.hostname.toLowerCase();
-
-  // IPv6 loopback / link-local
-  if (host === "::1" || host === "[::1]") return true;
-  if (host.startsWith("fe80")) return true;
-
-  // Metadata service hostnames used by cloud providers
-  const blockedHostnames = [
-    "metadata.google.internal",
-    "metadata.internal",
-    "169.254.169.254", // AWS/GCP/Azure IMDS
-  ];
-  if (blockedHostnames.includes(host)) return true;
-
-  // Reject numeric IPv4 addresses that are private/loopback
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (ipv4) {
-    const [, a, b, c] = ipv4.map(Number);
-    if (
-      a === 127 || // loopback 127.x.x.x
-      a === 10 || // RFC-1918 10.x.x.x
-      (a === 172 && b >= 16 && b <= 31) || // RFC-1918 172.16-31.x.x
-      (a === 192 && b === 168) || // RFC-1918 192.168.x.x
-      (a === 169 && b === 254) || // link-local 169.254.x.x
-      (a === 100 && b >= 64 && b <= 127) // CGNAT 100.64-127.x.x
-    ) {
-      return true;
-    }
-  }
-
-  // Block bare "localhost" hostname variants
-  if (host === "localhost" || host.endsWith(".localhost")) return true;
-
-  return false;
-}
+export { isPrivateDestination } from "../../shared/ssrf";
 
 export function registerWebhooksRoutes(app: Express): void {
   /**

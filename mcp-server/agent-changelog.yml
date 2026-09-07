@@ -6,6 +6,18 @@ window_days: 6
 
 entries:
   - date: "2026-09-06"
+    summary: "BREAKING: get_or_set_media_to_gallery (was get_or_set_image_to_gallery); media_id; URL import + bytes"
+    agent_impact:
+      - "BREAKING: tool renamed get_or_set_image_to_gallery → get_or_set_media_to_gallery. Arg/response image_id → media_id (nested media, not image). No aliases. Reconnect MCP so tools/list refreshes."
+      - "New modes: url + import:true (public fetch ≤50 MB, SSRF per redirect, strict type); bytes_base64 + filename (≤15 MB). Reuse existing gallery match before re-fetch. Gated Drive/Dropbox → bytes or staff upload."
+      - "Does not write YAML — use update_fields with returned media_id (schema key may still be image_id) or src for PDF/downloadable fields."
+    paths:
+      - mcp-server/tools/media.ts
+      - shared/mcp-tool-catalog.ts
+      - mcp-server/explain/images.md
+      - shared/ssrf.ts
+    tools_changed: true
+  - date: "2026-09-06"
     summary: "get_validation_issues for Metrics Viewer; list_proposals is stats-first"
     agent_impact:
       - "New get_validation_issues (metrics_view): always open_stats + resolved_stats (60-day archive). Rows only with a scope filter AND set: open|resolved (required). Does not run diagnostics."
@@ -16,6 +28,8 @@ entries:
       - mcp-server/tools/proposals.ts
       - shared/mcp-tool-catalog.ts
       - server/content-proposals/service.ts
+    tools_changed: true
+  - date: "2026-09-06"
     summary: "Diagnostics open_issues work queue (breaking): default excludes completed + other claims"
     agent_impact:
       - "BREAKING: run_entry_diagnostics / get_diagnostics_job rename issues[] → open_issues[] (and issues_offset/limit/next_offset/total_matching/by_code/truncated/returned → open_issues_*). Reconnect MCP so tools/list refreshes."
