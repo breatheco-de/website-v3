@@ -106,6 +106,7 @@ import multer from "multer";
 import { contentIndex, type ContentType } from "../content-index";
 import { runScan as runComponentInsightsScan, readInsightsFile, suggestNext as suggestNextComponent } from "../component-insights";
 import { validateFieldSource, validateFieldMapping, extractByDotPath } from "../../scripts/validation/shared/fieldMappingValidator";
+import { checkGeekchartSections } from "../geekchart-guard";
 import {
   getFolder,
   getType,
@@ -1082,6 +1083,23 @@ export function registerSectionsRoutes(app: Express): void {
             section: sectionData,
           },
         ];
+      }
+
+      // The geekchart hard stop (2026-09-07): a chart whose drawing fails
+      // the renderer's geometry checks never reaches a page. The rejection
+      // carries the violations so the caller — usually an MCP agent — fixes
+      // the mermaid and retries; advisory warnings still save.
+      if (Array.isArray(finalOperations)) {
+        const guard = await checkGeekchartSections(finalOperations);
+        if (!guard.ok) {
+          res.status(422).json({
+            error:
+              "geekchart section rejected: the chart's drawing fails geometry checks — fix the mermaid source and retry (see the geekchart component's authoring rules)",
+            code: "geekchart_geometry",
+            violations: guard.violations,
+          });
+          return;
+        }
       }
 
       if (

@@ -41,7 +41,11 @@ when_to_use: |
   2. The tool's response carries render_warnings from the chart renderer.
      Fix the source and create a new demo until render_warnings is empty —
      a warning means a rule above was broken.
-  3. Only then add the section to the real entry.
+  3. Only then add the section to the real entry. Saving is enforced: a
+     section whose chart fails the renderer's geometry checks is REJECTED
+     with the violations in the error — fix the source and retry. Stuck
+     after two attempts? Simplify the chart or split it in two rather than
+     fighting the same warning again.
 props:
   source:
     type: string
