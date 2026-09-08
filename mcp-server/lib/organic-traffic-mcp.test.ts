@@ -7,6 +7,7 @@ import {
   normalizePathBatch,
   paginateFlat,
   resolveSeriesInclusion,
+  seriesIgnoredForQueriesWarning,
   validateBatchSize,
   MAX_ORGANIC_PATHS,
   MAX_ORGANIC_HUBS,
@@ -109,5 +110,11 @@ describe("clamp opportunities pagination", () => {
     expect(clampOpportunitiesLimit(999)).toBe(OPPORTUNITIES_MAX_LIMIT);
     expect(clampOpportunitiesOffset(-5)).toBe(0);
     expect(clampOpportunitiesOffset(10)).toBe(10);
+  });
+});
+
+describe("seriesIgnoredForQueriesWarning", () => {
+  it("codes series_ignored_for_mode", () => {
+    expect(seriesIgnoredForQueriesWarning().code).toBe("series_ignored_for_mode");
   });
 });

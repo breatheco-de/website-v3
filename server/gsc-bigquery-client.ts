@@ -16,6 +16,13 @@ import {
 } from "./ecommerce/bigquery-client";
 import { child } from "./logger";
 import type { GscDayRow } from "./gsc-keep-filter";
+import {
+  finalizeOrganicUrlQueries,
+  organicUrlPathKey,
+  ORGANIC_URL_QUERIES_CAP,
+  sqlNormalizedPathExpression,
+  type OrganicUrlQueryRow,
+} from "./gsc-organic-url-queries";
 
 const log = child({ module: "gsc-bigquery-client" });
 
@@ -270,4 +277,245 @@ export async function querySiteOrganicDailyTotals(
       impressions: Number(rec.impressions) || 0,
     };
   }).filter((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.day));
+}
+
+export type OrganicQueryMatchMode = "contains" | "equals" | "starts_with";
+
+export type OrganicQueryUrlAggRow = {
+  query: string;
+  url: string;
+  clicks: number;
+  impressions: number;
+  sum_position: number;
+};
+
+/** Escape `%` / `_` / `\` for BigQuery LIKE patterns. */
+export function escapeLikePattern(raw: string): string {
+  return raw.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
+/**
+ * Build LOWER(query) predicate + params for query text filter.
+ * `needle` must already be trimmed + lowercased; LIKE modes escape wildcards.
+ */
+export function buildOrganicQueryMatchSql(
+  match: OrganicQueryMatchMode,
+  needle: string,
+): { sql: string; params: Record<string, string> } {
+  if (match === "equals") {
+    return {
+      sql: "LOWER(TRIM(COALESCE(query, ''))) = @needle",
+      params: { needle },
+    };
+  }
+  const escaped = escapeLikePattern(needle);
+  if (match === "starts_with") {
+    return {
+      sql: "LOWER(COALESCE(query, '')) LIKE CONCAT(@needle_like, '%') ESCAPE '\\\\'",
+      params: { needle_like: escaped },
+    };
+  }
+  return {
+    sql: "LOWER(COALESCE(query, '')) LIKE CONCAT('%', @needle_like, '%') ESCAPE '\\\\'",
+    params: { needle_like: escaped },
+  };
+}
+
+export type QueryOrganicByQueryFilterOpts = {
+  queryContains: string;
+  match: OrganicQueryMatchMode;
+  start: string;
+  end: string;
+  /** GSC alpha-3 lowercase; empty/omitted = worldwide (no country filter). */
+  countries?: string[];
+  contentRoot?: string;
+  /** Safety cap on returned query×url rows (default 100_000). */
+  rowCap?: number;
+};
+
+/**
+ * Query×URL aggregates for WEB search rows matching a query-text filter over a date range.
+ * Full export (no keep-filter). Caller nests/paginates.
+ */
+export async function queryOrganicByQueryFilter(
+  opts: QueryOrganicByQueryFilterOpts,
+): Promise<{ rows: OrganicQueryUrlAggRow[]; truncated: boolean }> {
+  const status = getGscBigQueryConfigStatus(opts.contentRoot);
+  if (!status.configured) {
+    throw new Error(status.warnings[0] || "Search Console BigQuery is not configured");
+  }
+  const settings = parseSearchConsoleBigQuerySettings(status.settings);
+  const client = createBigQueryClientForProject(settings.project_id, settings.location);
+  if (!client) {
+    throw new Error("Could not create BigQuery client (check GCS_CREDENTIALS_JSON / ADC)");
+  }
+  const needle = opts.queryContains.trim().toLowerCase();
+  const matchSql = buildOrganicQueryMatchSql(opts.match, needle);
+  const countries = (opts.countries || [])
+    .map((c) => c.trim().toLowerCase())
+    .filter(Boolean);
+  const countrySql =
+    countries.length > 0
+      ? "AND LOWER(TRIM(COALESCE(country, ''))) IN UNNEST(@countries)"
+      : "";
+  const rowCap = Math.max(1, Math.min(100_000, opts.rowCap ?? 100_000));
+  const table = settings.url_impression_table || "searchdata_url_impression";
+  const fq = fqTable(settings, table);
+  const [rows] = await client.query({
+    query: `
+      SELECT
+        COALESCE(query, '') AS query,
+        url,
+        SUM(clicks) AS clicks,
+        SUM(impressions) AS impressions,
+        SUM(sum_position) AS sum_position
+      FROM ${fq}
+      WHERE data_date BETWEEN @start AND @end
+        AND search_type = 'WEB'
+        AND (${matchSql.sql})
+        ${countrySql}
+      GROUP BY query, url
+      ORDER BY clicks DESC, impressions DESC
+      LIMIT @row_cap
+    `,
+    params: {
+      start: BigQuery.date(opts.start),
+      end: BigQuery.date(opts.end),
+      ...matchSql.params,
+      ...(countries.length > 0 ? { countries } : {}),
+      row_cap: rowCap,
+    },
+    location: settings.location || undefined,
+    maximumBytesBilled: "10000000000",
+  });
+  const mapped: OrganicQueryUrlAggRow[] = (rows || []).map((r) => {
+    const rec = r as Record<string, unknown>;
+    return {
+      query: typeof rec.query === "string" ? rec.query : "",
+      url: typeof rec.url === "string" ? rec.url : "",
+      clicks: Number(rec.clicks) || 0,
+      impressions: Number(rec.impressions) || 0,
+      sum_position: Number(rec.sum_position) || 0,
+    };
+  });
+  return { rows: mapped, truncated: mapped.length >= rowCap };
+}
+
+export type QueryUrlOrganicQueriesOpts = {
+  urlOrPath: string;
+  start: string;
+  end: string;
+  /** GSC alpha-3 lowercase; empty/omitted = worldwide. */
+  countries?: string[];
+  contentRoot?: string;
+  /** Max queries returned (default 100). */
+  rowCap?: number;
+};
+
+export type QueryUrlOrganicQueriesResult =
+  | {
+      ok: true;
+      queries: OrganicUrlQueryRow[];
+      truncated: boolean;
+      path: string;
+    }
+  | {
+      ok: false;
+      code: "bq_not_configured" | "invalid_path" | "bq_client_error" | "bq_query_error";
+      error: string;
+    };
+
+/**
+ * Per-query aggregates for one public path over a date range (full export, no keep-filter).
+ */
+export async function queryUrlOrganicQueries(
+  opts: QueryUrlOrganicQueriesOpts,
+): Promise<QueryUrlOrganicQueriesResult> {
+  const pathKey = organicUrlPathKey(opts.urlOrPath);
+  if (!pathKey) {
+    return { ok: false, code: "invalid_path", error: "Could not resolve a public path from the URL." };
+  }
+
+  const status = getGscBigQueryConfigStatus(opts.contentRoot);
+  if (!status.configured) {
+    return {
+      ok: false,
+      code: "bq_not_configured",
+      error: status.warnings[0] || "Search Console BigQuery is not configured",
+    };
+  }
+  const settings = parseSearchConsoleBigQuerySettings(status.settings);
+  const client = createBigQueryClientForProject(settings.project_id, settings.location);
+  if (!client) {
+    return {
+      ok: false,
+      code: "bq_client_error",
+      error: "Could not create BigQuery client (check GCS_CREDENTIALS_JSON / ADC)",
+    };
+  }
+
+  const countries = (opts.countries || [])
+    .map((c) => c.trim().toLowerCase())
+    .filter(Boolean);
+  const countrySql =
+    countries.length > 0
+      ? "AND LOWER(TRIM(COALESCE(country, ''))) IN UNNEST(@countries)"
+      : "";
+  const rowCap = Math.max(1, Math.min(ORGANIC_URL_QUERIES_CAP, opts.rowCap ?? ORGANIC_URL_QUERIES_CAP));
+  // Fetch one extra row to detect truncation without a separate COUNT.
+  const fetchLimit = rowCap + 1;
+  const table = settings.url_impression_table || "searchdata_url_impression";
+  const fq = fqTable(settings, table);
+  const pathExpr = sqlNormalizedPathExpression("url");
+
+  try {
+    const [rows] = await client.query({
+      query: `
+        SELECT
+          COALESCE(query, '') AS query,
+          SUM(clicks) AS clicks,
+          SUM(impressions) AS impressions,
+          SUM(sum_position) AS sum_position
+        FROM ${fq}
+        WHERE data_date BETWEEN @start AND @end
+          AND search_type = 'WEB'
+          AND TRIM(COALESCE(query, '')) != ''
+          AND ${pathExpr} = @path
+          ${countrySql}
+        GROUP BY query
+        ORDER BY impressions DESC, clicks DESC
+        LIMIT @fetch_limit
+      `,
+      params: {
+        start: BigQuery.date(opts.start),
+        end: BigQuery.date(opts.end),
+        path: pathKey,
+        ...(countries.length > 0 ? { countries } : {}),
+        fetch_limit: fetchLimit,
+      },
+      location: settings.location || undefined,
+      maximumBytesBilled: "10000000000",
+    });
+
+    const mapped = (rows || []).map((r) => {
+      const rec = r as Record<string, unknown>;
+      return {
+        query: typeof rec.query === "string" ? rec.query : "",
+        clicks: Number(rec.clicks) || 0,
+        impressions: Number(rec.impressions) || 0,
+        sum_position: Number(rec.sum_position) || 0,
+      };
+    });
+    const finalized = finalizeOrganicUrlQueries(mapped, rowCap);
+    return {
+      ok: true,
+      path: pathKey,
+      queries: finalized.queries,
+      truncated: finalized.truncated || mapped.length > rowCap,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn({ err, path: pathKey }, "[GscBigQuery] queryUrlOrganicQueries failed");
+    return { ok: false, code: "bq_query_error", error: message };
+  }
 }

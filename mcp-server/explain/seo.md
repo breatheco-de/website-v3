@@ -17,15 +17,16 @@ YAML merge / content types → topic `content_system`. Page funnel stage / money
 
 ### Organic traffic (`get_organic_traffic`)
 
-- **One mode per call:** `site` | `paths` | `clusters` | `opportunities`. Requires `metrics_view` or `seo_edit`.
+- **One mode per call:** `site` | `paths` | `clusters` | `opportunities` | `queries`. Requires `metrics_view` or `seo_edit`.
 - **site:** Whole-site KPI from BigQuery site totals (cached ~1h). `market` ignored (`market_ignored_for_mode`).
 - **paths:** 1–50 public paths or absolute URLs after dedupe (not slugs). Soft partial: `traffic: null` + `missing_paths`; empty array fails. Resolve live URLs via `get_entry_seo.urls` then retry.
 - **clusters:** 1–25 hub ids / pillar paths. Per-hub traffic + `selection_totals` over **unique paths** (`selection_not_site` — not site-wide). Unknown hubs → `unknown_hubs` + `partial_batch`.
 - **opportunities:** Flattened Diagnostics cards into `items[]` with `kind` (`page2` | `low_ctr` | `link_gaps` | `decay` | `cannibalization` | `missing_serp`), paginated (`opportunities_limit` / `opportunities_offset`). Read-only (`pullLatest: false`); no day backfill / SERP refresh.
-- **Series:** `include_series` default false. Allowed for `site`, or paths/clusters when batch ≤ 5; else `series_skipped_batch_too_large`.
+- **queries:** GSC-style query-text search. Required `query_contains` (min 2 chars). Optional `match` (`contains` default | `equals` | `starts_with`), `start`/`end` (both or neither; default last 28 complete days; max span 90), `market`, `limit`/`offset`, `pages_per_query` (default 5, max 15). BigQuery first; day-cache fallback (`organic_from_day_cache` — may miss keep-filtered long-tail). Rows grouped by query with nested landing `pages[]`. `selection_totals` = **all matches in window** (not just the page). Empty match → soft ok + `queries_no_matches`. `include_series` ignored (`series_ignored_for_mode`).
+- **Series:** `include_series` default false. Allowed for `site`, or paths/clusters when batch ≤ 5; else `series_skipped_batch_too_large`. Ignored for `queries`.
 - **Unconfigured:** Soft ok with `configured: false` + `organic_not_configured` (not a fake zero without the flag).
 - **Non-effects:** Not URL Inspection (`include_search_engines`); not `keyword_metrics` / `kw_monthly_volume`.
-
+- **market:** Honored for `paths` / `clusters` / `queries`. Ignored for `site` / `opportunities`.
 ### SEO clustering (per-entry + hub inventory)
 
 - **Write layer:** Cluster `seo:` may be written only on live `{locale}.yml`, or on `draft.{locale}.yml` when the entry has **no** live locales yet. A/B experiment variants are forbidden (`seo_variant_forbidden`). Draft-while-live is forbidden (`seo_draft_while_live_forbidden`). Do not set SEO on a variant then promote — promote over live **keeps live `seo:`** (`seo_not_promoted_from_variant`). First `publish_draft` / go-live with no live file still brings draft SEO onto live.

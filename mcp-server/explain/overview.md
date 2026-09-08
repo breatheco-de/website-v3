@@ -42,6 +42,6 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 | `redirects` | CMS 301/302: two stores, first-match, `test_redirect` (`read_redirects`) + `update_redirect` (`edit_redirects`) |
 | `proposals` | Entry change proposals + issue handoff notes: 3 tools, four-eyes apply; `list_proposals` is stats-first |
 
-**Metrics Viewer:** use `get_validation_issues` for open/resolved KPI stats (and scoped rows with `set`), and `get_organic_traffic` for GSC organic clicks (site / paths / clusters / opportunities). Content agents keep `run_entry_diagnostics` to refresh/fix issues; SEO agents with `seo_edit` also see `get_organic_traffic`.
+**Metrics Viewer:** use `get_validation_issues` for open/resolved KPI stats (and scoped rows with `set`), and `get_organic_traffic` for GSC organic clicks (site / paths / clusters / opportunities / queries). Content agents keep `run_entry_diagnostics` to refresh/fix issues; SEO agents with `seo_edit` also see `get_organic_traffic`.
 
 **Before making any structural change to this codebase, call `explain_site` with the relevant topic.**

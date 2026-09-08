@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Asterisk, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, HelpCircle, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Asterisk, Check, CircleDashed, Clipboard, Clock, Code, Copy, Crosshair, Database, Download, ExternalLink, Eye, EyeOff, FileText, Filter, Folder, GitBranch, Globe, HelpCircle, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
 import { IconChess, IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
@@ -11,7 +11,14 @@ import {
 } from "@/components/EntryPreviewAdmin";
 import { ContentUpdateTimeline } from "@/components/content/ContentUpdateTimeline";
 import { buildContentUpdateTimelineItems } from "@/components/content/buildContentUpdateTimelineItems";
-import { Link, useRoute, useLocation } from "wouter";
+import { Link, useRoute, useLocation, useSearch } from "wouter";
+import {
+  MANAGE_LIST_VIEW_DEFAULTS,
+  parseManageListSearch,
+  serializeManageListSearch,
+  type ManageListViewMode,
+  type ManageListViewState,
+} from "@/lib/content-type-manage-url";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -56,6 +63,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { DeletePageModal } from "@/components/DebugBubble/components/DeletePageModal";
+import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 import { BulkUpdateFunnelDialog } from "@/components/content-type/BulkUpdateFunnelDialog";
 import {
   BulkDeleteStaticDialog,
@@ -165,6 +173,57 @@ interface FunnelEntriesResponse {
   page?: number;
   pageSize?: number;
   totalPages?: number;
+}
+
+type OrganicTrafficMetrics = {
+  clicks: number;
+  impressions: number;
+  position: number;
+  ctr: number;
+};
+
+type OrganicSortField = "clicks" | "impressions" | "ctr" | "position" | "title";
+
+type OrganicMarketOption = {
+  id: string;
+  label: string;
+  kind: "rollup" | "country";
+  countries: string[];
+};
+
+interface OrganicEntry {
+  slug: string;
+  contentType: string;
+  locale: string;
+  url: string | null;
+  title: string;
+  pageTitle: string;
+  no_public_url: boolean;
+  traffic: OrganicTrafficMetrics | null;
+}
+
+interface OrganicEntriesResponse {
+  contentType: string;
+  source: string;
+  locale: string;
+  sort: OrganicSortField;
+  sortDir: "asc" | "desc";
+  count: number;
+  entries: OrganicEntry[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
+  window: { start: string; end: string } | null;
+  incomplete: boolean;
+  days_in_window: number;
+  days_expected: number;
+  market: OrganicMarketOption;
+  markets: OrganicMarketOption[];
+  market_warning?: string;
+  country_less: boolean;
+  truncated: boolean;
+  cache_status: "empty" | "incomplete" | "ok";
 }
 
 const FUNNEL_STAGE_LABELS: Record<string, string> = {
@@ -369,9 +428,205 @@ function UpdatedAtSortHeader({
         title="Sort by Updated"
       >
         Updated
-        <Icon className="h-3.5 w-3.5" />
+        <Icon className="h-3.5 w-3.5 opacity-70" />
       </button>
     </th>
+  );
+}
+
+function OrganicMetricSortHeader({
+  field,
+  label,
+  activeField,
+  dir,
+  onSort,
+  align = "right",
+}: {
+  field: OrganicSortField;
+  label: string;
+  activeField: OrganicSortField;
+  dir: "asc" | "desc";
+  onSort: (field: OrganicSortField) => void;
+  align?: "left" | "right";
+}) {
+  const active = activeField === field;
+  const Icon = !active ? ArrowUpDown : dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th
+      className={cn(
+        "px-4 py-3 font-medium text-muted-foreground",
+        align === "right" ? "text-right" : "text-left",
+      )}
+    >
+      <button
+        type="button"
+        className={cn(
+          "inline-flex items-center gap-1 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-sm",
+          align === "right" && "flex-row-reverse",
+        )}
+        onClick={() => onSort(field)}
+        data-testid={`button-sort-organic-${field}`}
+        title={`Sort by ${label}`}
+      >
+        {label}
+        <Icon className={cn("h-3.5 w-3.5", active ? "opacity-100" : "opacity-40")} />
+      </button>
+    </th>
+  );
+}
+
+function formatOrganicCtr(ctr: number): string {
+  return `${(ctr * 100).toFixed(1)}%`;
+}
+
+function formatOrganicPosition(position: number): string {
+  return position.toFixed(1);
+}
+
+function formatOrganicInt(n: number): string {
+  return n.toLocaleString();
+}
+
+interface OrganicUrlQueryRow {
+  query: string;
+  clicks: number;
+  impressions: number;
+  position: number;
+  ctr: number;
+}
+
+interface OrganicEntryQueriesResponse {
+  queries: OrganicUrlQueryRow[];
+  truncated?: boolean;
+  window?: { start: string; end: string } | null;
+  source?: string;
+  error?: string;
+  code?: string;
+}
+
+function OrganicShowQueriesPopover({
+  contentType,
+  slug,
+  locale,
+  market,
+  rowKey,
+}: {
+  contentType: string;
+  slug: string;
+  locale: string;
+  market: string;
+  rowKey: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading, isError, error, isFetching } = useQuery<OrganicEntryQueriesResponse>({
+    queryKey: ["organic-entry-queries", contentType, slug, locale, market],
+    queryFn: async () => {
+      const params = new URLSearchParams({ locale, market });
+      const res = await fetch(
+        `/api/content-types/${encodeURIComponent(contentType)}/organic-entries/${encodeURIComponent(slug)}/queries?${params.toString()}`,
+      );
+      const body = (await res.json().catch(() => ({}))) as OrganicEntryQueriesResponse & {
+        error?: string;
+        code?: string;
+      };
+      if (!res.ok) {
+        const err = new Error(body.error || `Failed to load queries (${res.status})`) as Error & {
+          code?: string;
+        };
+        err.code = body.code;
+        throw err;
+      }
+      return body;
+    },
+    enabled: open,
+    retry: false,
+  });
+
+  const errCode =
+    isError && error && typeof error === "object" && "code" in error
+      ? String((error as { code?: string }).code || "")
+      : "";
+  const errMessage =
+    isError && error instanceof Error ? error.message : isError ? "Failed to load queries" : "";
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center rounded-md border border-border px-1.5 py-0 h-5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+          data-testid={`button-show-queries-${rowKey}`}
+        >
+          Show queries
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[min(100vw-2rem,28rem)] p-3 space-y-2"
+        align="start"
+        data-testid={`popover-organic-queries-${rowKey}`}
+      >
+        <p className="text-[11px] text-muted-foreground leading-snug">
+          Positions here come from the full Search Console export and may not match the Position
+          column average.
+        </p>
+        {(isLoading || isFetching) && !data ? (
+          <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Loading queries…
+          </div>
+        ) : isError ? (
+          <div className="space-y-2 text-xs" data-testid={`text-organic-queries-error-${rowKey}`}>
+            <p className="text-destructive">{errMessage}</p>
+            {errCode === "bq_not_configured" && (
+              <p className="text-muted-foreground">
+                Configure Search Console BigQuery in{" "}
+                <Link
+                  href="/private/settings/seo/search-console"
+                  className="underline underline-offset-2 text-foreground"
+                >
+                  Settings → Search Console
+                </Link>
+                .
+              </p>
+            )}
+          </div>
+        ) : !data?.queries?.length ? (
+          <p className="text-xs text-muted-foreground py-2" data-testid={`text-organic-queries-empty-${rowKey}`}>
+            No queries in Search Console for this page in the selected window/market.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            <div className="max-h-64 overflow-y-auto -mx-1 px-1">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-muted-foreground border-b">
+                    <th className="text-left font-medium py-1 pr-2">Query</th>
+                    <th className="text-right font-medium py-1 px-1">Pos</th>
+                    <th className="text-right font-medium py-1 pl-1">Impr.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.queries.map((q) => (
+                    <tr key={q.query} className="border-b border-border/40 last:border-0">
+                      <td className="py-1.5 pr-2 break-words align-top">{q.query}</td>
+                      <td className="py-1.5 px-1 text-right tabular-nums align-top">
+                        {formatOrganicPosition(q.position)}
+                      </td>
+                      <td className="py-1.5 pl-1 text-right tabular-nums align-top">
+                        {formatOrganicInt(q.impressions)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {data.truncated && (
+              <p className="text-[10px] text-muted-foreground">Showing top queries only.</p>
+            )}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -5625,21 +5880,62 @@ function SeoSettingsDialog({
 export default function ContentTypeManagePage() {
   const { toast } = useToast();
   const [, params] = useRoute("/private/type/:contentType");
-  const [, navigate] = useLocation();
+  const [pathname, navigate] = useLocation();
+  const searchString = useSearch();
   const contentType = params?.contentType || "blog";
   const label = contentType.charAt(0).toUpperCase() + contentType.slice(1);
 
-  const [search, setSearch] = useState("");
-  /** Debounced value used for list API queries — avoids a request per keystroke. */
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [updatedSortDir, setUpdatedSortDir] = useState<UpdatedSortDir>(null);
-  const [tagFilters, setTagFilters] = useState<Record<string, string[]>>({});
-  const [listPage, setListPage] = useState(1);
+  const listView = useMemo(() => parseManageListSearch(searchString), [searchString]);
 
+  const { data: typeConfig } = useQuery<ContentTypeConfig>({
+    queryKey: ["/api/content-types", contentType, "config"],
+    queryFn: () => fetch(`/api/content-types/${contentType}/config`).then((r) => r.json()),
+    staleTime: 60000,
+  });
+  const hasDb = !!typeConfig?.database?.slug;
+  const defaultViewMode: ManageListViewMode = hasDb ? "db" : "static";
+
+  const listPerspective = listView.perspective;
+  const viewMode = listView.view ?? defaultViewMode;
+  const debouncedSearch = listView.q;
+  const listPage = listView.page;
+  const updatedSortDir = listView.updatedSortDir;
+  const tagFilters = listView.tagFilters;
+  const organicLocale = listView.organicLocale;
+  const organicMarket = listView.organicMarket;
+  const organicSort = listView.organicSort;
+  const organicSortDir = listView.organicSortDir;
+
+  const writeListView = useCallback(
+    (next: ManageListViewState) => {
+      const qs = serializeManageListSearch(next, searchString, { defaultViewMode });
+      const pathOnly = pathname.split("?")[0];
+      navigate(qs ? `${pathOnly}?${qs}` : pathOnly, { replace: true });
+    },
+    [defaultViewMode, navigate, pathname, searchString],
+  );
+
+  const setListPage = useCallback(
+    (page: number) => {
+      writeListView({ ...listView, page });
+    },
+    [listView, writeListView],
+  );
+
+  /** Local search box; debounced into `q` on the URL (shareable / back-forward). */
+  const [search, setSearch] = useState(listView.q);
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 400);
+    setSearch(listView.q);
+  }, [listView.q]);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const nextQ = search.trim();
+      if (nextQ === listView.q.trim()) return;
+      writeListView({ ...listView, q: nextQ, page: 1 });
+    }, 400);
     return () => clearTimeout(t);
-  }, [search]);
+  }, [search, listView, writeListView]);
+
   const [clearing, setClearing] = useState(false);
   const [dsDialogOpen, setDsDialogOpen] = useState(false);
   const [connectDbConfirmOpen, setConnectDbConfirmOpen] = useState(false);
@@ -5647,8 +5943,6 @@ export default function ContentTypeManagePage() {
   const [seoDialogOpen, setSeoDialogOpen] = useState(false);
   const [strategyDialogOpen, setStrategyDialogOpen] = useState(false);
   const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<"static" | "db">("static");
-  const [listPerspective, setListPerspective] = useState<"default" | "seo" | "funnel">("default");
   const [selectedSlugs, setSelectedSlugs] = useState<Set<string>>(() => new Set());
   const [bulkFunnelOpen, setBulkFunnelOpen] = useState(false);
   const [bulkDeleteStaticOpen, setBulkDeleteStaticOpen] = useState(false);
@@ -5675,20 +5969,20 @@ export default function ContentTypeManagePage() {
   const [semanticActive, setSemanticActive] = useState(false);
   const [semanticLoading, setSemanticLoading] = useState(false);
   const semanticDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevContentTypeRef = useRef(contentType);
 
   // Same route component is reused across /private/type/:contentType — list filters must
   // not leak. Timeline uses unfiltered meta; the table applies these and can look "empty"
   // while chips still appear above (orphaned keys are also invisible in the filter popover).
   useEffect(() => {
+    if (prevContentTypeRef.current === contentType) return;
+    prevContentTypeRef.current = contentType;
+    writeListView(MANAGE_LIST_VIEW_DEFAULTS);
     setSearch("");
-    setDebouncedSearch("");
-    setTagFilters({});
-    setUpdatedSortDir(null);
-    setListPage(1);
     setSemanticResults(null);
     setSemanticActive(false);
     setSemanticLoading(false);
-  }, [contentType]);
+  }, [contentType, writeListView]);
 
   const activeListFilterCount = Object.values(tagFilters).flat().length;
   const hasActiveListFilters = Boolean(debouncedSearch.trim()) || activeListFilterCount > 0;
@@ -5875,16 +6169,54 @@ export default function ContentTypeManagePage() {
     placeholderData: (prev) => prev,
   });
 
+  const { data: organicLocaleSettings } = useQuery<LocaleSettings>({
+    queryKey: ["/api/settings/locales"],
+    staleTime: Infinity,
+  });
+
+  const organicLocaleEffective =
+    organicLocale || organicLocaleSettings?.default_locale || "en";
+
+  const {
+    data: organicEntriesData,
+    isLoading: organicEntriesLoading,
+    isFetching: organicEntriesFetching,
+  } = useQuery<OrganicEntriesResponse>({
+    queryKey: [
+      "/api/content-types",
+      contentType,
+      "organic-entries",
+      listPage,
+      debouncedSearch,
+      organicLocaleEffective,
+      organicMarket,
+      organicSort,
+      organicSortDir,
+    ],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        page: String(listPage),
+        pageSize: String(MANAGE_LIST_PAGE_SIZE),
+        locale: organicLocaleEffective,
+        market: organicMarket,
+        sort: organicSort,
+        sortDir: organicSortDir,
+      });
+      if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
+      return fetch(
+        `/api/content-types/${contentType}/organic-entries?${params.toString()}`,
+      ).then((r) => r.json());
+    },
+    enabled: listPerspective === "organic" && !!organicLocaleEffective,
+    staleTime: 0,
+    refetchOnMount: "always",
+    placeholderData: (prev) => prev,
+  });
+
   const { data: cacheStatus } = useQuery<CacheStatus>({
     queryKey: ["/api/content-types", contentType, "cache-status"],
     queryFn: () => fetch(`/api/content-types/${contentType}/cache-status`).then(r => r.json()),
     staleTime: 30000,
-  });
-
-  const { data: typeConfig } = useQuery<ContentTypeConfig>({
-    queryKey: ["/api/content-types", contentType, "config"],
-    queryFn: () => fetch(`/api/content-types/${contentType}/config`).then(r => r.json()),
-    staleTime: 60000,
   });
 
   /** Full DB item set for KPI cards + partial-override slug membership (not the table). */
@@ -6271,10 +6603,6 @@ export default function ContentTypeManagePage() {
     };
   }, [debouncedSearch, viewMode, dbSlug, tagFilters, localeKey]);
 
-  useEffect(() => {
-    setListPage(1);
-  }, [debouncedSearch, updatedSortDir, tagFilters, viewMode, listPerspective, contentType]);
-
   const matchesFilter = (item: Record<string, unknown>, field: string, value: string) => {
     const needle = value.toLowerCase();
     const tokens = fieldValueTokens(item[field]).map((t) => t.toLowerCase());
@@ -6314,26 +6642,30 @@ export default function ContentTypeManagePage() {
     search !== debouncedSearch || staticLoading || staticFetching;
   const filteredSeoEntries = seoEntriesData?.entries || [];
   const filteredFunnelEntries = funnelEntriesData?.entries || [];
+  const filteredOrganicEntries = organicEntriesData?.entries || [];
   const funnelListLoading =
     search !== debouncedSearch || funnelEntriesLoading || (funnelEntriesFetching && !funnelEntriesData);
+  const organicListLoading =
+    search !== debouncedSearch ||
+    organicEntriesLoading ||
+    (organicEntriesFetching && !organicEntriesData) ||
+    (listPerspective === "organic" && !organicLocaleEffective);
 
   // Drop filter keys that aren't facets on this type (e.g. leftover from another content type).
   useEffect(() => {
     const facets = allItemsData?.facets ?? dbItemsMeta?.facets;
     if (!facets) return;
     const allowed = new Set(Object.keys(facets));
-    setTagFilters((prev) => {
-      const keys = Object.keys(prev);
-      if (keys.length === 0) return prev;
-      let changed = false;
-      const next: Record<string, string[]> = {};
-      for (const key of keys) {
-        if (allowed.has(key)) next[key] = prev[key];
-        else changed = true;
-      }
-      return changed ? next : prev;
-    });
-  }, [allItemsData?.facets, dbItemsMeta?.facets, contentType]);
+    const keys = Object.keys(tagFilters);
+    if (keys.length === 0) return;
+    let changed = false;
+    const next: Record<string, string[]> = {};
+    for (const key of keys) {
+      if (allowed.has(key)) next[key] = tagFilters[key];
+      else changed = true;
+    }
+    if (changed) writeListView({ ...listView, tagFilters: next, page: 1 });
+  }, [allItemsData?.facets, dbItemsMeta?.facets, contentType, tagFilters, listView, writeListView]);
 
   const selectionActive = selectedSlugs.size > 0;
   const selectedSlugList = useMemo(() => [...selectedSlugs], [selectedSlugs]);
@@ -6411,7 +6743,27 @@ export default function ContentTypeManagePage() {
   const funnelTotalPages = funnelEntriesData?.totalPages ?? 1;
   const funnelPage = funnelEntriesData?.page ?? listPage;
 
-  const hasDb = !!typeConfig?.database?.slug;
+  const organicTotal = organicEntriesData?.total ?? filteredOrganicEntries.length;
+  const organicTotalPages = organicEntriesData?.totalPages ?? 1;
+  const organicPage = organicEntriesData?.page ?? listPage;
+
+  const toggleOrganicSort = useCallback((field: OrganicSortField) => {
+    if (organicSort === field) {
+      writeListView({
+        ...listView,
+        organicSortDir: organicSortDir === "asc" ? "desc" : "asc",
+        page: 1,
+      });
+      return;
+    }
+    writeListView({
+      ...listView,
+      organicSort: field,
+      organicSortDir: field === "title" ? "asc" : "desc",
+      page: 1,
+    });
+  }, [listView, organicSort, organicSortDir, writeListView]);
+
   const singleTemplateEnabled = !!typeConfig?.single_template;
   const [singleTemplateSaving, setSingleTemplateSaving] = useState(false);
   const [seoMonitoringSaving, setSeoMonitoringSaving] = useState(false);
@@ -6635,15 +6987,6 @@ export default function ContentTypeManagePage() {
   const dbEntryCount = hasDb
     ? (dbItemsMetaLoading ? null : dbItemsMeta?.count ?? metaItems.length)
     : null;
-
-  const defaultViewMode = hasDb ? "db" : "static";
-  const prevDefaultRef = useRef(defaultViewMode);
-  useEffect(() => {
-    if (prevDefaultRef.current !== defaultViewMode) {
-      prevDefaultRef.current = defaultViewMode;
-      setViewMode(defaultViewMode);
-    }
-  }, [defaultViewMode]);
 
   const handleDeleteEntry = async (localesToDelete: string[]) => {
     if (!deletingEntry || deleteConfirmInput !== deletingEntry.slug) return;
@@ -6918,7 +7261,7 @@ export default function ContentTypeManagePage() {
         queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "items"] });
         queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "static-entries"] });
         queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "cache-status"] });
-        setViewMode("static");
+        writeListView({ ...listView, view: "static", page: 1 });
       } else {
         toast({
           title: "Conversion failed",
@@ -7187,7 +7530,9 @@ export default function ContentTypeManagePage() {
   const hasPublishedAt = metaItems.some(p => p.published_at);
 
   const toggleUpdatedSort = () => {
-    setUpdatedSortDir((prev) => (prev === null ? "desc" : prev === "desc" ? "asc" : null));
+    const next =
+      updatedSortDir === null ? "desc" : updatedSortDir === "desc" ? "asc" : null;
+    writeListView({ ...listView, updatedSortDir: next, page: 1 });
   };
 
   return (
@@ -7710,7 +8055,7 @@ export default function ContentTypeManagePage() {
                   variant="ghost"
                   size="sm"
                   className={`toggle-elevate ${viewMode === "static" ? "toggle-elevated" : ""}`}
-                  onClick={() => setViewMode("static")}
+                  onClick={() => writeListView({ ...listView, view: "static", page: 1 })}
                   data-testid="button-view-static"
                 >
                   <Folder className="h-4 w-4 mr-1" />
@@ -7723,7 +8068,7 @@ export default function ContentTypeManagePage() {
                   variant="ghost"
                   size="sm"
                   className={`toggle-elevate ${viewMode === "db" ? "toggle-elevated" : ""}`}
-                  onClick={() => setViewMode("db")}
+                  onClick={() => writeListView({ ...listView, view: "db", page: 1 })}
                   data-testid="button-view-db"
                 >
                   <Database className="h-4 w-4 mr-1" />
@@ -7764,7 +8109,7 @@ export default function ContentTypeManagePage() {
                       className="text-muted-foreground hover:text-foreground"
                       onClick={() => {
                         setSearch("");
-                        setDebouncedSearch("");
+                        writeListView({ ...listView, q: "", page: 1 });
                       }}
                       aria-label="Clear search"
                       data-testid="button-clear-search"
@@ -7783,38 +8128,189 @@ export default function ContentTypeManagePage() {
                     title="List perspective"
                     data-testid="button-list-perspective"
                   >
-                    <Columns3 className="h-4 w-4" />
+                    {listPerspective === "seo" ? (
+                      <Crosshair className="h-4 w-4" />
+                    ) : listPerspective === "funnel" ? (
+                      <Filter className="h-4 w-4" />
+                    ) : listPerspective === "organic" ? (
+                      <Search className="h-4 w-4" />
+                    ) : (
+                      <LayoutList className="h-4 w-4" />
+                    )}
                     {listPerspective === "seo"
                       ? "SEO"
                       : listPerspective === "funnel"
                         ? "Funnel"
-                        : "Default"}
+                        : listPerspective === "organic"
+                          ? "Organic"
+                          : "Default"}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem
-                    onClick={() => setListPerspective("default")}
+                    onClick={() => writeListView({ ...listView, perspective: "default", page: 1 })}
                     data-testid="menu-perspective-default"
                   >
                     <Check className={`h-4 w-4 mr-2 ${listPerspective === "default" ? "opacity-100" : "opacity-0"}`} />
+                    <LayoutList className="h-4 w-4 mr-2" />
                     Default
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => setListPerspective("seo")}
+                    onClick={() => writeListView({ ...listView, perspective: "seo", page: 1 })}
                     data-testid="menu-perspective-seo"
                   >
                     <Check className={`h-4 w-4 mr-2 ${listPerspective === "seo" ? "opacity-100" : "opacity-0"}`} />
+                    <Crosshair className="h-4 w-4 mr-2" />
                     SEO
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => setListPerspective("funnel")}
+                    onClick={() => writeListView({ ...listView, perspective: "funnel", page: 1 })}
                     data-testid="menu-perspective-funnel"
                   >
                     <Check className={`h-4 w-4 mr-2 ${listPerspective === "funnel" ? "opacity-100" : "opacity-0"}`} />
+                    <Filter className="h-4 w-4 mr-2" />
                     Funnel
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => writeListView({ ...listView, perspective: "organic", page: 1 })}
+                    data-testid="menu-perspective-organic"
+                  >
+                    <Check className={`h-4 w-4 mr-2 ${listPerspective === "organic" ? "opacity-100" : "opacity-0"}`} />
+                    <Search className="h-4 w-4 mr-2" />
+                    Organic
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              {listPerspective === "organic" && (() => {
+                const organicLocaleDefault =
+                  organicLocaleSettings?.default_locale || "en";
+                const organicMarketDefault = "worldwide";
+                const organicFilterCount =
+                  (organicLocaleEffective !== organicLocaleDefault ? 1 : 0) +
+                  (organicMarket !== organicMarketDefault ? 1 : 0);
+                return (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="shrink-0 relative"
+                        title="Organic filters"
+                        data-testid="button-organic-filters"
+                      >
+                        <SlidersHorizontal className="h-4 w-4" />
+                        {organicFilterCount > 0 && (
+                          <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-primary-foreground text-[9px] flex items-center justify-center font-medium leading-none">
+                            {organicFilterCount}
+                          </span>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="bottom"
+                      align="end"
+                      className="p-3 w-64"
+                      data-testid="organic-filter-bar"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium">Filters</p>
+                          {organicFilterCount > 0 && (
+                            <button
+                              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2"
+                              onClick={() => {
+                                writeListView({
+                                  ...listView,
+                                  organicLocale: "",
+                                  organicMarket: organicMarketDefault,
+                                  page: 1,
+                                });
+                              }}
+                              data-testid="button-clear-organic-filters"
+                            >
+                              Clear all
+                            </button>
+                          )}
+                        </div>
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                            Language
+                          </p>
+                          <Select
+                            value={organicLocaleEffective}
+                            onValueChange={(v) => {
+                              writeListView({ ...listView, organicLocale: v, page: 1 });
+                            }}
+                          >
+                            <SelectTrigger
+                              className="h-8"
+                              aria-label="Language"
+                              data-testid="select-organic-locale"
+                            >
+                              <SelectValue placeholder="Language" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(organicLocaleSettings?.supported_locales ?? [
+                                { code: "en", label: "English" },
+                                { code: "es", label: "Spanish" },
+                              ]).map((loc) => (
+                                <SelectItem
+                                  key={loc.code}
+                                  value={loc.code}
+                                  title={loc.label || loc.code.toUpperCase()}
+                                >
+                                  <span className="flex items-center gap-2">
+                                    <LocaleFlag
+                                      locale={loc.code}
+                                      className="h-3 w-4 rounded-sm"
+                                    />
+                                    <span>{loc.label || loc.code.toUpperCase()}</span>
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                            Market
+                          </p>
+                          <Select
+                            value={organicMarket}
+                            onValueChange={(v) => {
+                              writeListView({ ...listView, organicMarket: v, page: 1 });
+                            }}
+                          >
+                            <SelectTrigger
+                              className="h-8"
+                              data-testid="select-organic-market"
+                            >
+                              <SelectValue placeholder="Market" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(organicEntriesData?.markets?.length
+                                ? organicEntriesData.markets
+                                : [
+                                    {
+                                      id: "worldwide",
+                                      label: "Worldwide",
+                                      kind: "rollup" as const,
+                                      countries: [],
+                                    },
+                                  ]
+                              ).map((m) => (
+                                <SelectItem key={m.id} value={m.id}>
+                                  {m.label || m.id}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                );
+              })()}
               {(() => {
                 const facets = allItemsData?.facets ?? dbItemsMeta?.facets;
                 if (viewMode !== "db" || !facets || Object.keys(facets).length === 0) return null;
@@ -7843,7 +8339,7 @@ export default function ContentTypeManagePage() {
                           {activeFilterCount > 0 && (
                             <button
                               className="text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2"
-                              onClick={() => setTagFilters({})}
+                              onClick={() => writeListView({ ...listView, tagFilters: {}, page: 1 })}
                               data-testid="button-clear-tag-filters"
                             >
                               Clear all
@@ -7859,7 +8355,14 @@ export default function ContentTypeManagePage() {
                               <Select
                                 value=""
                                 onValueChange={(v) => {
-                                  setTagFilters((prev) => ({ ...prev, [field]: [...(prev[field] ?? []), v] }));
+                                  writeListView({
+                                    ...listView,
+                                    tagFilters: {
+                                      ...tagFilters,
+                                      [field]: [...(tagFilters[field] ?? []), v],
+                                    },
+                                    page: 1,
+                                  });
                                 }}
                               >
                                 <SelectTrigger className="h-7 text-xs" data-testid={`select-filter-${field}`}>
@@ -7885,13 +8388,14 @@ export default function ContentTypeManagePage() {
                                       <button
                                         className="ml-0.5 hover:text-foreground cursor-pointer"
                                         onClick={() => {
-                                          setTagFilters((prev) => {
-                                            const next = (prev[field] ?? []).filter((x) => x !== v);
-                                            if (next.length === 0) {
-                                              const { [field]: _, ...rest } = prev;
-                                              return rest;
-                                            }
-                                            return { ...prev, [field]: next };
+                                          const nextValues = (tagFilters[field] ?? []).filter((x) => x !== v);
+                                          const nextFilters = { ...tagFilters };
+                                          if (nextValues.length === 0) delete nextFilters[field];
+                                          else nextFilters[field] = nextValues;
+                                          writeListView({
+                                            ...listView,
+                                            tagFilters: nextFilters,
+                                            page: 1,
                                           });
                                         }}
                                       >
@@ -8377,6 +8881,166 @@ export default function ContentTypeManagePage() {
                   </div>
                 </div>
               )
+            ) : listPerspective === "organic" ? (
+              organicListLoading ? (
+                <div className="flex items-center justify-center py-12" data-testid="loading-organic-entries">
+                  <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-current border-r-transparent" />
+                  <span className="ml-2 text-sm text-muted-foreground">Loading organic entries...</span>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {organicEntriesData?.cache_status === "empty" && (
+                    <div className="px-4 pt-2 space-y-2 max-w-3xl">
+                      <div
+                        className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                        data-testid="banner-organic-cache-empty"
+                      >
+                        Search data is not loaded yet for this window. Empty metrics here do not mean zero traffic —
+                        backfill organic traffic from SEO / Diagnostics first.
+                      </div>
+                    </div>
+                  )}
+                  {filteredOrganicEntries.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground" data-testid="text-no-organic-results">
+                      No organic entries found
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm" data-testid="table-organic-entries">
+                        <thead>
+                          <tr className="border-b bg-muted/50">
+                            <OrganicMetricSortHeader
+                              field="title"
+                              label="Page title"
+                              activeField={organicSort}
+                              dir={organicSortDir}
+                              onSort={toggleOrganicSort}
+                              align="left"
+                            />
+                            <OrganicMetricSortHeader
+                              field="clicks"
+                              label="Clicks"
+                              activeField={organicSort}
+                              dir={organicSortDir}
+                              onSort={toggleOrganicSort}
+                            />
+                            <OrganicMetricSortHeader
+                              field="impressions"
+                              label="Impressions"
+                              activeField={organicSort}
+                              dir={organicSortDir}
+                              onSort={toggleOrganicSort}
+                            />
+                            <OrganicMetricSortHeader
+                              field="ctr"
+                              label="CTR"
+                              activeField={organicSort}
+                              dir={organicSortDir}
+                              onSort={toggleOrganicSort}
+                            />
+                            <OrganicMetricSortHeader
+                              field="position"
+                              label="Position"
+                              activeField={organicSort}
+                              dir={organicSortDir}
+                              onSort={toggleOrganicSort}
+                            />
+                            <th className="text-right px-4 py-3 font-medium text-muted-foreground w-[100px]">
+                              Open
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredOrganicEntries.map((entry) => {
+                            const rowKey = `${entry.slug}-${entry.locale}`;
+                            const displayTitle = entry.pageTitle || entry.title || entry.slug;
+                            const t = entry.traffic;
+                            return (
+                              <tr
+                                key={rowKey}
+                                className="border-b last:border-0 hover:bg-muted/30 transition-colors"
+                                data-testid={`row-organic-${rowKey}`}
+                              >
+                                <td className="px-4 py-3">
+                                  <div className="min-w-0 space-y-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="font-medium text-foreground truncate" title={displayTitle}>
+                                        {displayTitle}
+                                      </span>
+                                      {entry.no_public_url && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px] px-1.5 py-0 h-5"
+                                          data-testid={`badge-no-public-url-${rowKey}`}
+                                        >
+                                          No public URL
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                      <p className="text-xs text-muted-foreground font-mono truncate">
+                                        {entry.slug}
+                                      </p>
+                                      {entry.url && !entry.no_public_url ? (
+                                        <OrganicShowQueriesPopover
+                                          contentType={contentType}
+                                          slug={entry.slug}
+                                          locale={organicLocaleEffective}
+                                          market={organicMarket}
+                                          rowKey={rowKey}
+                                        />
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                </td>
+                                <td
+                                  className="px-4 py-3 text-right tabular-nums"
+                                  data-testid={`text-organic-clicks-${rowKey}`}
+                                >
+                                  {t ? formatOrganicInt(t.clicks) : "—"}
+                                </td>
+                                <td
+                                  className="px-4 py-3 text-right tabular-nums"
+                                  data-testid={`text-organic-impressions-${rowKey}`}
+                                >
+                                  {t ? formatOrganicInt(t.impressions) : "—"}
+                                </td>
+                                <td
+                                  className="px-4 py-3 text-right tabular-nums"
+                                  data-testid={`text-organic-ctr-${rowKey}`}
+                                >
+                                  {t ? formatOrganicCtr(t.ctr) : "—"}
+                                </td>
+                                <td
+                                  className="px-4 py-3 text-right tabular-nums"
+                                  data-testid={`text-organic-position-${rowKey}`}
+                                >
+                                  {t ? formatOrganicPosition(t.position) : "—"}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  {entry.url && !entry.no_public_url ? (
+                                    <Button variant="ghost" size="sm" className="text-xs gap-1" asChild>
+                                      <a
+                                        href={entry.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        data-testid={`button-open-organic-${rowKey}`}
+                                      >
+                                        <ExternalLink className="h-3.5 w-3.5" />
+                                        Open
+                                      </a>
+                                    </Button>
+                                  ) : null}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )
             ) : viewMode === "static" ? (
               staticListLoading ? (
                 <div className="flex items-center justify-center py-12" data-testid="loading-static">
@@ -8755,8 +9419,7 @@ export default function ContentTypeManagePage() {
                       size="sm"
                       onClick={() => {
                         setSearch("");
-                        setDebouncedSearch("");
-                        setTagFilters({});
+                        writeListView({ ...listView, q: "", tagFilters: {}, page: 1 });
                       }}
                       data-testid="button-clear-list-filters"
                     >
@@ -9133,6 +9796,46 @@ export default function ContentTypeManagePage() {
                           onClick={(e) => {
                             e.preventDefault();
                             if (funnelPage < funnelTotalPages) setListPage(funnelPage + 1);
+                          }}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                )}
+              </div>
+            )}
+            {listPerspective === "organic" && !organicListLoading && filteredOrganicEntries.length > 0 && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t"
+                data-testid="text-showing-organic-count"
+              >
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {organicTotalPages > 1
+                    ? `Page ${organicPage} of ${organicTotalPages} · ${organicTotal} organic entries`
+                    : `Showing ${filteredOrganicEntries.length} of ${organicTotal} organic entries`}
+                </span>
+                {organicTotalPages > 1 && (
+                  <Pagination className="mx-0 w-auto justify-end" data-testid="pagination-organic-entries">
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          href="#"
+                          aria-disabled={organicPage <= 1}
+                          className={organicPage <= 1 ? "pointer-events-none opacity-50" : undefined}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (organicPage > 1) setListPage(organicPage - 1);
+                          }}
+                        />
+                      </PaginationItem>
+                      <PaginationItem>
+                        <PaginationNext
+                          href="#"
+                          aria-disabled={organicPage >= organicTotalPages}
+                          className={organicPage >= organicTotalPages ? "pointer-events-none opacity-50" : undefined}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (organicPage < organicTotalPages) setListPage(organicPage + 1);
                           }}
                         />
                       </PaginationItem>

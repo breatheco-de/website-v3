@@ -25,14 +25,31 @@ import {
   type OrganicOpportunitiesResponse,
 } from "../../server/seo-organic-opportunities.js";
 import { contentIndex } from "../../server/content-index.js";
+import {
+  searchOrganicQueries,
+  QUERIES_DEFAULT_LIMIT,
+  QUERIES_MAX_LIMIT,
+  QUERIES_DEFAULT_PAGES_PER_QUERY,
+  QUERIES_MAX_PAGES_PER_QUERY,
+  QUERIES_MIN_CONTAINS_LEN,
+  parseOrganicQueryMatchMode,
+  type OrganicQueryMatchMode,
+} from "../../server/gsc-organic-query-search.js";
 
 export const MAX_ORGANIC_PATHS = 50;
 export const MAX_ORGANIC_HUBS = 25;
 export const SERIES_BATCH_MAX = 5;
 export const OPPORTUNITIES_DEFAULT_LIMIT = 25;
 export const OPPORTUNITIES_MAX_LIMIT = 50;
+export {
+  QUERIES_DEFAULT_LIMIT,
+  QUERIES_MAX_LIMIT,
+  QUERIES_DEFAULT_PAGES_PER_QUERY,
+  QUERIES_MAX_PAGES_PER_QUERY,
+  QUERIES_MIN_CONTAINS_LEN,
+};
 
-export type OrganicTrafficMode = "site" | "paths" | "clusters" | "opportunities";
+export type OrganicTrafficMode = "site" | "paths" | "clusters" | "opportunities" | "queries";
 
 export const OPPORTUNITY_KINDS = [
   "page2",
@@ -232,7 +249,14 @@ export function identityNonEffectWarnings(): McpWarning[] {
 export function marketIgnoredWarning(mode: OrganicTrafficMode): McpWarning {
   return warn(
     "market_ignored_for_mode",
-    `market applies only to paths/clusters modes. Ignored for mode=${mode}.`,
+    `market applies only to paths/clusters/queries modes. Ignored for mode=${mode}.`,
+  );
+}
+
+export function seriesIgnoredForQueriesWarning(): McpWarning {
+  return warn(
+    "series_ignored_for_mode",
+    "include_series is not applied for mode=queries. Daily series is omitted.",
   );
 }
 
@@ -749,5 +773,141 @@ export async function assembleOpportunitiesMode(opts: {
     },
     warnings,
     next_actions: configured ? [] : unconfiguredNextActions(opts.site),
+  };
+}
+
+export async function assembleQueriesMode(opts: {
+  contentRoot: string;
+  contentFolder: string;
+  query_contains: string;
+  match?: OrganicQueryMatchMode | string;
+  start?: string;
+  end?: string;
+  market?: string;
+  limit?: number;
+  offset?: number;
+  pages_per_query?: number;
+  include_series?: boolean;
+  site?: string;
+}): Promise<OrganicAssembleResult | { error: string }> {
+  const result = await searchOrganicQueries({
+    contentRoot: opts.contentRoot,
+    contentFolder: opts.contentFolder,
+    queryContains: opts.query_contains,
+    match: parseOrganicQueryMatchMode(opts.match),
+    start: opts.start,
+    end: opts.end,
+    market: opts.market,
+    limit: opts.limit,
+    offset: opts.offset,
+    pagesPerQuery: opts.pages_per_query,
+  });
+  if (!("items" in result)) {
+    return { error: result.error };
+  }
+  const data = result;
+
+  const warnings: McpWarning[] = [...identityNonEffectWarnings()];
+  if (opts.include_series === true) warnings.push(seriesIgnoredForQueriesWarning());
+
+  if (!data.configured) {
+    warnings.push(
+      warn(
+        "organic_not_configured",
+        data.error ||
+          "Search Console BigQuery is not configured and organic day cache is empty. Staff: Diagnostics → SEO → Organic.",
+      ),
+    );
+  } else {
+    warnings.push(
+      warn(
+        "organic_data_lag",
+        "Search Console / BigQuery organic data typically lags 2–3 days behind live queries.",
+      ),
+    );
+    if (data.source === "day_cache" || data.notes.includes("organic_from_day_cache")) {
+      warnings.push(
+        warn(
+          "organic_from_day_cache",
+          "Results came from the keep-filtered day cache (BigQuery unavailable or failed). Long-tail queries may be missing vs the full GSC export / UI.",
+        ),
+      );
+    }
+    if (data.incomplete) {
+      warnings.push(
+        warn(
+          "organic_incomplete_window",
+          `Organic window incomplete (${data.days_in_window}/${data.days_expected} days with data). Totals may under-count.`,
+        ),
+      );
+    }
+    if (data.truncated) {
+      warnings.push(
+        warn(
+          "organic_truncated_rows",
+          "Query×URL result hit the row cap; some matches may be missing. Narrow query_contains or the date range.",
+        ),
+      );
+    }
+    if (data.total === 0) {
+      warnings.push(
+        warn(
+          "queries_no_matches",
+          `No organic queries matched "${data.match.query_contains}" (${data.match.match}) in the window.`,
+        ),
+      );
+    }
+    if (data.market_warning) {
+      warnings.push(warn("market_filtered", data.market_warning));
+    } else if (data.market?.id && data.market.id !== "worldwide") {
+      warnings.push(
+        warn(
+          "market_filtered",
+          `Results filtered to market '${data.market.id}' (${data.market.label || data.market.id}).`,
+        ),
+      );
+    }
+  }
+
+  const next_actions: NextAction[] = [];
+  if (!data.configured) {
+    next_actions.push(...unconfiguredNextActions(opts.site));
+  } else if (data.items.length > 0) {
+    const firstPath = data.items[0]?.pages.find((p) => p.path)?.path;
+    if (firstPath) {
+      next_actions.push({
+        tool: "get_organic_traffic",
+        priority: "optional",
+        reason: "Get path-level traffic for a landing URL from this query search",
+        args_hint: { mode: "paths", paths: [firstPath], ...(opts.site ? { site: opts.site } : {}) },
+      });
+    }
+  }
+
+  return {
+    payload: {
+      mode: "queries",
+      configured: data.configured,
+      source: data.source,
+      window: data.window,
+      days_in_window: data.days_in_window,
+      days_expected: data.days_expected,
+      incomplete: data.incomplete,
+      truncated: data.truncated,
+      market: data.market,
+      markets: data.markets,
+      ...(data.market_warning ? { market_warning: data.market_warning } : {}),
+      match: data.match,
+      items: data.items,
+      selection_totals: data.selection_totals,
+      total: data.total,
+      offset: data.offset,
+      next_offset: data.next_offset,
+      pages_per_query: data.pages_per_query,
+      limit: data.limit,
+      ...(data.error ? { error: data.error } : {}),
+    },
+    warnings,
+    next_actions,
   };
 }

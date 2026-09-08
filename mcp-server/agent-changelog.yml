@@ -6,6 +6,19 @@ window_days: 6
 
 entries:
   - date: "2026-09-07"
+    summary: "get_organic_traffic mode=queries — GSC-style query text search"
+    agent_impact:
+      - "New exclusive mode queries on get_organic_traffic. Required query_contains (min 2 chars); optional match contains|equals|starts_with; start/end both-or-neither (default last 28 complete days, max 90)."
+      - "BigQuery first, day-cache fallback (organic_from_day_cache may miss keep-filtered long-tail). Items grouped by query with nested pages; selection_totals = all matches in window. include_series ignored."
+      - "Reconnect MCP so tools/list refreshes the get_organic_traffic schema (new params)."
+    paths:
+      - mcp-server/tools/organic-traffic.ts
+      - mcp-server/lib/organic-traffic-mcp.ts
+      - server/gsc-organic-query-search.ts
+      - server/gsc-bigquery-client.ts
+      - mcp-server/explain/seo.md
+    tools_changed: true
+  - date: "2026-09-07"
     summary: "get_organic_traffic — GSC clicks/impressions (site/paths/clusters/opportunities)"
     agent_impact:
       - "New read-only tool get_organic_traffic (metrics_view|seo_edit). Exclusive mode per call; paths/hubs batched+deduped; soft partial for missing; empty batch fails."

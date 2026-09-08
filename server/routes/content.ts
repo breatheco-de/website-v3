@@ -327,6 +327,14 @@ import {
   parseSortDir,
   sortByUpdatedAtField,
 } from "./list-pagination";
+import {
+  defaultOrganicSortDir,
+  deriveOrganicCacheStatus,
+  parseOrganicSortField,
+  sortOrganicEntries,
+  withTrafficCtr,
+  type OrganicEntrySortable,
+} from "../organic-entries";
 import { loadDatabaseSinglePage, mergeSingleTemplate, attachVariableFieldsToSections, hasStaticSharedLayoutEntryLocale } from "../database-single-loader";
 import {
   DEFAULT_PREVIEW_MAX_HEIGHT,
@@ -3682,6 +3690,422 @@ export function registerContentRoutes(app: Express): void {
       res.status(500).json({ error: String(err) });
     }
   });
+
+  // ── Organic traffic perspective (GSC path metrics per live entry) ───────────
+  api.get(app, "/api/content-types/:type/organic-entries", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const { type } = req.params;
+      const pagination = parseListPagination(req.query as Record<string, unknown>);
+      const q =
+        typeof req.query.q === "string" && req.query.q.trim()
+          ? req.query.q.trim().toLowerCase()
+          : "";
+      const contentRoot = getContentRoot(res);
+      const contentFolder = getContentRootName(res);
+      const localeRaw =
+        typeof req.query.locale === "string" && req.query.locale.trim()
+          ? req.query.locale.trim()
+          : getDefaultLocale(contentRoot);
+      const locale = normalizeLocale(localeRaw);
+      const marketParam =
+        typeof req.query.market === "string" && req.query.market.trim()
+          ? req.query.market.trim()
+          : "worldwide";
+      const sortField = parseOrganicSortField(req.query.sort);
+      const sortDir = defaultOrganicSortDir(sortField, parseSortDir(req.query.sortDir));
+
+      const config = getContentTypeConfig(type, ctRoot(res));
+      if (!config) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+      const urlPattern = config.url_pattern as Record<string, string> | undefined;
+
+      const resolveUrl = (slug: string, loc: string, item?: Record<string, unknown>): string | null => {
+        if (!urlPattern) return null;
+        const tpl = urlPattern[loc] || urlPattern["default"] || null;
+        if (!tpl) return null;
+        return tpl.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (_match, key: string) => {
+          if (key === "slug") return slug;
+          if (!item) return "";
+          const val = item[key];
+          if (val === undefined || val === null || val === "") return "";
+          if (typeof val === "object" && val !== null && "slug" in (val as Record<string, unknown>)) {
+            return String((val as Record<string, unknown>).slug) || "";
+          }
+          return String(val);
+        });
+      };
+
+      const pageTitleFromMeta = (meta: Record<string, unknown> | null | undefined): string => {
+        const raw = meta?.page_title;
+        if (typeof raw !== "string") return "";
+        const trimmed = raw.trim();
+        if (!trimmed || /\{\{.*?\}\}/.test(trimmed)) return "";
+        return trimmed;
+      };
+
+      type OrganicEntryRow = OrganicEntrySortable & {
+        slug: string;
+        contentType: string;
+        locale: string;
+        url: string | null;
+        title: string;
+        pageTitle: string;
+        no_public_url: boolean;
+      };
+
+      const { buildOrganicPathTraffic, lookupPathTraffic } = await import("../gsc-organic-path-traffic");
+      const organic = buildOrganicPathTraffic({
+        contentFolder,
+        contentRoot,
+        market: marketParam,
+      });
+      const cache_status = deriveOrganicCacheStatus({
+        window: organic.window,
+        days_in_window: organic.days_in_window,
+        incomplete: organic.incomplete,
+      });
+
+      const attachTraffic = (
+        row: Omit<OrganicEntryRow, "traffic" | "no_public_url"> & { url: string | null },
+      ): OrganicEntryRow => {
+        const no_public_url = !row.url;
+        if (!row.url) {
+          return { ...row, no_public_url: true, traffic: null };
+        }
+        const stats = lookupPathTraffic(organic.byPath, row.url);
+        return {
+          ...row,
+          no_public_url,
+          traffic: stats ? withTrafficCtr(stats) : null,
+        };
+      };
+
+      const matchesQuery = (entry: OrganicEntryRow) => {
+        if (!q) return true;
+        return (
+          entry.slug.toLowerCase().includes(q) ||
+          entry.title.toLowerCase().includes(q) ||
+          entry.pageTitle.toLowerCase().includes(q)
+        );
+      };
+
+      const finish = (raw: OrganicEntryRow[], source: "yaml" | "db") => {
+        const filtered = raw.filter(matchesQuery);
+        const sorted = sortOrganicEntries(filtered, sortField, sortDir);
+        const base = {
+          contentType: type,
+          source,
+          locale,
+          sort: sortField,
+          sortDir,
+          window: organic.window,
+          incomplete: organic.incomplete,
+          days_in_window: organic.days_in_window,
+          days_expected: organic.days_expected,
+          market: organic.market,
+          markets: organic.markets,
+          market_warning: organic.market_warning,
+          country_less: organic.country_less,
+          truncated: organic.truncated,
+          cache_status,
+        };
+        if (!pagination.paginate) {
+          res.json({ ...base, count: sorted.length, entries: sorted });
+          return;
+        }
+        const paged = paginateList(sorted, pagination.page, pagination.pageSize);
+        res.json({
+          ...base,
+          count: paged.pageItems.length,
+          entries: paged.pageItems,
+          total: paged.total,
+          page: paged.page,
+          pageSize: paged.pageSize,
+          totalPages: paged.totalPages,
+        });
+      };
+
+      // ── DB-backed: one row per slug for selected locale ─────────────────────
+      if (config.database?.slug) {
+        const dbName = config.database.slug;
+        if (!getDB(res).exists(dbName)) {
+          res.status(404).json({ error: `Database "${dbName}" not found` });
+          return;
+        }
+        const items = await getDB(res).fetchMappedItems(type);
+        const localeKey = getLocaleKey(type, ctRoot(res)) || "lang";
+        const template = mergeSingleTemplate(type, locale, undefined, undefined, contentRoot);
+        const entries: OrganicEntryRow[] = [];
+        for (const item of items) {
+          const itemLocale = String(item[localeKey] || "en");
+          if (itemLocale !== locale) continue;
+          const slug = typeof item.slug === "string" ? item.slug : "";
+          if (!slug) continue;
+          const title =
+            typeof item.title === "string" && item.title.trim()
+              ? item.title.trim()
+              : slug;
+          const rawMeta = resolveAllTemplateVars(template?.meta ?? {}, {
+            singleEntry: item as Record<string, unknown>,
+            contentRoot,
+            context: { locale },
+            skipSiteVars: false,
+          }) as Record<string, unknown>;
+          const resolvedMeta: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(rawMeta)) {
+            resolvedMeta[k] = typeof v === "string" && /\{\{.*?\}\}/.test(v) ? null : v;
+          }
+          const pageTitle = pageTitleFromMeta(resolvedMeta);
+          const url = resolveUrl(slug, locale, item as Record<string, unknown>);
+          entries.push(
+            attachTraffic({
+              slug,
+              contentType: type,
+              locale,
+              url,
+              title,
+              pageTitle,
+            }),
+          );
+        }
+        finish(entries, "db");
+        return;
+      }
+
+      // ── YAML-backed: live locale files only ─────────────────────────────────
+      const dir = getDirectory(type, contentRoot);
+      const contentDir = path.join(contentRoot, dir);
+      if (!fs.existsSync(contentDir)) {
+        res.status(404).json({
+          error: `Content directory not found: ${getContentRootName(res)}/${dir}`,
+        });
+        return;
+      }
+
+      const entries: OrganicEntryRow[] = [];
+      const slugDirs = fs.readdirSync(contentDir, { withFileTypes: true }).filter((d) => d.isDirectory());
+
+      for (const slugDir of slugDirs) {
+        const slug = slugDir.name;
+        const slugPath = path.join(contentDir, slug);
+        const localePathYml = path.join(slugPath, `${locale}.yml`);
+        const localePathYaml = path.join(slugPath, `${locale}.yaml`);
+        const localePath = fs.existsSync(localePathYml)
+          ? localePathYml
+          : fs.existsSync(localePathYaml)
+            ? localePathYaml
+            : null;
+        // Live only — skip draft-only / missing locale
+        if (!localePath) continue;
+
+        let commonData: Record<string, unknown> = {};
+        const commonPath = path.join(slugPath, "_common.yml");
+        if (fs.existsSync(commonPath)) {
+          try {
+            commonData =
+              (getCI(res).safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) as Record<
+                string,
+                unknown
+              > | null) || {};
+          } catch {
+            /* ignore */
+          }
+        }
+
+        let title =
+          typeof commonData.title === "string" && commonData.title.trim()
+            ? commonData.title.trim()
+            : slug;
+        let pageTitle = "";
+        try {
+          const localeData =
+            (getCI(res).safeYamlLoad(fs.readFileSync(localePath, "utf-8")) as Record<
+              string,
+              unknown
+            > | null) || {};
+          const merged = deepMerge(commonData, localeData) as Record<string, unknown>;
+          if (typeof merged.title === "string" && merged.title.trim()) {
+            title = merged.title.trim();
+          }
+          const rawMeta = (merged.meta as Record<string, unknown>) ?? {};
+          const resolvedMeta = resolveAllTemplateVars(rawMeta, {
+            contentRoot,
+            context: { locale },
+            skipSiteVars: false,
+          }) as Record<string, unknown>;
+          pageTitle = pageTitleFromMeta(resolvedMeta);
+        } catch {
+          /* keep title/slug */
+        }
+
+        const urls = getCI(res).getLocaleUrls(slug, type, { includeEmptyLocales: true });
+        const urlFromIndex =
+          typeof urls[locale] === "string" && urls[locale] ? urls[locale] : null;
+        const url = urlFromIndex || resolveUrl(slug, locale);
+
+        entries.push(
+          attachTraffic({
+            slug,
+            contentType: type,
+            locale,
+            url: url || null,
+            title,
+            pageTitle,
+          }),
+        );
+      }
+
+      finish(entries, "yaml");
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  api.get(
+    app,
+    "/api/content-types/:type/organic-entries/:slug/queries",
+    { rate: "staffWrite" },
+    async (req, res) => {
+      try {
+        const { type, slug: slugParam } = req.params;
+        const slug = typeof slugParam === "string" ? slugParam.trim() : "";
+        if (!slug) {
+          res.status(400).json({ error: "slug is required", code: "invalid_slug" });
+          return;
+        }
+
+        const contentRoot = getContentRoot(res);
+        const localeRaw =
+          typeof req.query.locale === "string" && req.query.locale.trim()
+            ? req.query.locale.trim()
+            : getDefaultLocale(contentRoot);
+        const locale = normalizeLocale(localeRaw);
+        const marketParam =
+          typeof req.query.market === "string" && req.query.market.trim()
+            ? req.query.market.trim()
+            : "worldwide";
+
+        const config = getContentTypeConfig(type, ctRoot(res));
+        if (!config) {
+          res.status(404).json({ error: `Content type "${type}" not found` });
+          return;
+        }
+
+        const urlPattern = config.url_pattern as Record<string, string> | undefined;
+        const resolveUrl = (s: string, loc: string, item?: Record<string, unknown>): string | null => {
+          if (!urlPattern) return null;
+          const tpl = urlPattern[loc] || urlPattern["default"] || null;
+          if (!tpl) return null;
+          return tpl.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (_match, key: string) => {
+            if (key === "slug") return s;
+            if (!item) return "";
+            const val = item[key];
+            if (val === undefined || val === null || val === "") return "";
+            if (typeof val === "object" && val !== null && "slug" in (val as Record<string, unknown>)) {
+              return String((val as Record<string, unknown>).slug) || "";
+            }
+            return String(val);
+          });
+        };
+
+        let url: string | null = null;
+        if (config.database?.slug) {
+          const dbName = config.database.slug;
+          if (!getDB(res).exists(dbName)) {
+            res.status(404).json({ error: `Database "${dbName}" not found` });
+            return;
+          }
+          const items = await getDB(res).fetchMappedItems(type);
+          const localeKey = getLocaleKey(type, ctRoot(res)) || "lang";
+          const item = items.find((it) => {
+            const itemLocale = String(it[localeKey] || "en");
+            return itemLocale === locale && typeof it.slug === "string" && it.slug === slug;
+          });
+          if (!item) {
+            res.status(404).json({ error: `Entry "${slug}" not found for locale ${locale}` });
+            return;
+          }
+          url = resolveUrl(slug, locale, item as Record<string, unknown>);
+        } else {
+          const urls = getCI(res).getLocaleUrls(slug, type, { includeEmptyLocales: true });
+          const urlFromIndex =
+            typeof urls[locale] === "string" && urls[locale] ? urls[locale] : null;
+          url = urlFromIndex || resolveUrl(slug, locale);
+        }
+
+        if (!url) {
+          res.status(404).json({
+            error: "This entry has no public URL for the selected language.",
+            code: "no_public_url",
+          });
+          return;
+        }
+
+        const { ORGANIC_TRAFFIC_WINDOW_DAYS } = await import("../gsc-organic-path-traffic");
+        const { completeDataDates } = await import("../gsc-organic-days");
+        const { getSearchConsoleSettings } = await import("../settings");
+        const { resolveMarket } = await import("../gsc-organic-markets");
+        const { queryUrlOrganicQueries } = await import("../gsc-bigquery-client");
+
+        const expected = completeDataDates();
+        const windowDays = ORGANIC_TRAFFIC_WINDOW_DAYS;
+        const endIdx = expected.length;
+        const startIdx = endIdx - windowDays;
+        if (startIdx < 0 || endIdx <= 0 || expected.length < windowDays) {
+          res.status(503).json({
+            error: "Organic date window is not available yet.",
+            code: "window_unavailable",
+          });
+          return;
+        }
+        const windowSlice = expected.slice(startIdx, endIdx);
+        const window = { start: windowSlice[0]!, end: windowSlice[windowSlice.length - 1]! };
+
+        const markets = getSearchConsoleSettings(contentRoot).organic_markets;
+        const resolved = resolveMarket(markets, marketParam);
+
+        const result = await queryUrlOrganicQueries({
+          urlOrPath: url,
+          start: window.start,
+          end: window.end,
+          countries: resolved.market.countries,
+          contentRoot,
+        });
+
+        if (!result.ok) {
+          const status =
+            result.code === "bq_not_configured"
+              ? 503
+              : result.code === "invalid_path"
+                ? 400
+                : 502;
+          res.status(status).json({
+            error: result.error,
+            code: result.code,
+          });
+          return;
+        }
+
+        res.json({
+          contentType: type,
+          slug,
+          locale,
+          url,
+          path: result.path,
+          window,
+          market: resolved.market,
+          market_warning: resolved.warning,
+          source: "bigquery" as const,
+          queries: result.queries,
+          truncated: result.truncated,
+        });
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    },
+  );
 
   // ── Entry preview screenshots (OG / admin thumbs) ───────────────────────────
   app.get("/api/content-types/:type/entry-previews", async (req, res) => {
