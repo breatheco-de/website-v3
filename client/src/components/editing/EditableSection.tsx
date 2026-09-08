@@ -381,7 +381,16 @@ export function EditableSection({ children, section, index, sectionType, content
   const { toast } = useToast();
   const contentTypesMap = useContentTypes();
   const { data: rawContentTypes } = useContentTypesRaw();
+  const { data: siteInfo } = useQuery<{ contentFolder: string }>({
+    queryKey: ["/api/site/info"],
+  });
   const singularLabel = getSingularLabel(contentType, rawContentTypes);
+
+  const buildPageYamlPath = useCallback(() => {
+    if (!contentType || !slug || !locale || !siteInfo?.contentFolder) return null;
+    const contentDir = contentTypesMap ? getFolderFromType(contentTypesMap, contentType) : contentType;
+    return `${siteInfo.contentFolder}/${contentDir}/${slug}/${locale}.yml`;
+  }, [contentType, slug, locale, siteInfo?.contentFolder, contentTypesMap]);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [currentSection, setCurrentSection] = useState<Section>(section);
   const [wasLocallyUpdated, setWasLocallyUpdated] = useState(false);
@@ -1351,9 +1360,12 @@ export function EditableSection({ children, section, index, sectionType, content
                     setMobileMoreOpen(false);
                     setHistoryOpen(true);
                     if (historyEntries.length === 0) {
+                      const filePath = buildPageYamlPath();
+                      if (!filePath) {
+                        setHistoryEntries([]);
+                        return;
+                      }
                       setHistoryLoading(true);
-                      const contentDir = contentTypesMap ? getFolderFromType(contentTypesMap, contentType) : contentType;
-                      const filePath = `4geeks-com/${contentDir}/${slug}/${locale}.yml`;
                       fetch(`/api/git/file-history?file=${encodeURIComponent(filePath)}&limit=20`)
                         .then(r => r.json())
                         .then(data => { setHistoryEntries(data.entries || []); })
@@ -1375,9 +1387,12 @@ export function EditableSection({ children, section, index, sectionType, content
           <Popover open={historyOpen} onOpenChange={(open) => {
             setHistoryOpen(open);
             if (open && historyEntries.length === 0) {
+              const filePath = buildPageYamlPath();
+              if (!filePath) {
+                setHistoryEntries([]);
+                return;
+              }
               setHistoryLoading(true);
-              const contentDir = contentTypesMap ? getFolderFromType(contentTypesMap, contentType) : contentType;
-              const filePath = `4geeks-com/${contentDir}/${slug}/${locale}.yml`;
               fetch(`/api/git/file-history?file=${encodeURIComponent(filePath)}&limit=20`)
                 .then(r => r.json())
                 .then(data => { setHistoryEntries(data.entries || []); })
@@ -1472,8 +1487,8 @@ export function EditableSection({ children, section, index, sectionType, content
                             setHistoryPreviewSection(null);
                             setHistoryPreviewLoading(true);
                             try {
-                              const contentDir = contentTypesMap ? getFolderFromType(contentTypesMap, contentType) : contentType;
-                              const filePath = `4geeks-com/${contentDir}/${slug}/${locale}.yml`;
+                              const filePath = buildPageYamlPath();
+                              if (!filePath) throw new Error("missing path");
                               const res = await fetch(`/api/git/file-at?file=${encodeURIComponent(filePath)}&sha=${entry.sha}`);
                               if (!res.ok) throw new Error("not found");
                               const text = await res.text();

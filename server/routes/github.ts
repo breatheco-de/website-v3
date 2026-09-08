@@ -910,77 +910,68 @@ export function registerGithubRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/git/file-history", (req, res) => {
+  app.get("/api/git/file-history", async (req, res) => {
     try {
-      const exec = _execSync;
       const filePath = req.query.file as string;
       const limit = Math.min(parseInt(String(req.query.limit || "20"), 10) || 20, 50);
       if (!filePath || typeof filePath !== "string") {
         res.status(400).json({ error: "file query param required" });
         return;
       }
-      if (/[;&|`$<>]/.test(filePath)) {
+      if (/[;&|`$<>]/.test(filePath) || filePath.includes("..") || path.isAbsolute(filePath)) {
         res.status(400).json({ error: "Invalid file path" });
         return;
       }
-      let raw: string;
-      try {
-        raw = exec(
-          `git log --follow --pretty=format:"%H|%aI|%an|%s" -n ${limit} -- "${filePath}"`,
-          { encoding: "utf-8", cwd: process.cwd() }
-        ) as string;
-      } catch {
-        res.json({ entries: [] });
+      const site = res.locals.site as { contentRootName?: string; config?: { githubRepoUrl?: string } } | undefined;
+      const { listFileCommits } = await import("../github");
+      const result = await listFileCommits(filePath, {
+        repoUrl: site?.config?.githubRepoUrl,
+        limit,
+      });
+      if (!result.success && result.error === "GitHub not configured") {
+        res.status(503).json({ error: result.error, entries: [] });
         return;
       }
-      const entries = raw
-        .split("\n")
-        .filter(l => l.trim())
-        .map(line => {
-          const idx1 = line.indexOf("|");
-          const idx2 = line.indexOf("|", idx1 + 1);
-          const idx3 = line.indexOf("|", idx2 + 1);
-          return {
-            sha: line.slice(0, idx1),
-            date: line.slice(idx1 + 1, idx2),
-            author: line.slice(idx2 + 1, idx3),
-            subject: line.slice(idx3 + 1),
-          };
-        });
-      res.json({ entries });
+      if (!result.success && result.entries.length === 0 && result.error) {
+        res.status(502).json({ error: result.error, entries: [] });
+        return;
+      }
+      res.json({ entries: result.entries, repoUrl: result.repoUrl ?? null });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
   });
 
-  app.get("/api/git/file-at", (req, res) => {
+  app.get("/api/git/file-at", async (req, res) => {
     try {
-      const exec = _execSync;
       const filePath = req.query.file as string;
       const sha = req.query.sha as string;
       if (!filePath || !sha) {
         res.status(400).json({ error: "file and sha query params required" });
         return;
       }
-      if (!/^[a-f0-9]{7,40}$/.test(sha)) {
+      if (!/^[a-f0-9]{7,40}$/i.test(sha)) {
         res.status(400).json({ error: "Invalid SHA format" });
         return;
       }
-      if (/[;&|`$<>]/.test(filePath)) {
+      if (/[;&|`$<>]/.test(filePath) || filePath.includes("..") || path.isAbsolute(filePath)) {
         res.status(400).json({ error: "Invalid file path" });
         return;
       }
-      let content: string;
-      try {
-        content = exec(`git show "${sha}:${filePath}"`, {
-          encoding: "utf-8",
-          cwd: process.cwd(),
-        }) as string;
-      } catch {
-        res.status(404).json({ error: "File not found at that revision" });
+      const site = res.locals.site as { contentRootName?: string; config?: { githubRepoUrl?: string } } | undefined;
+      const { getRemoteFileContent } = await import("../github");
+      const result = await getRemoteFileContent(filePath, {
+        repoUrl: site?.config?.githubRepoUrl,
+        ref: sha,
+      });
+      if (!result.success) {
+        const status = result.error === "File not found on remote" ? 404
+          : result.error === "GitHub not configured" ? 503
+          : 502;
+        res.status(status).json({ error: result.error || "File not found at that revision" });
         return;
       }
-      res.type("text/plain").send(content);
+      res.type("text/plain").send(result.content ?? "");
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

@@ -512,6 +512,94 @@ async function updateBranchRef(
   }
 }
 
+export interface FileCommitEntry {
+  sha: string;
+  date: string;
+  author: string;
+  subject: string;
+}
+
+/**
+ * List commits that touched a file (GitHub Commits API, filtered by path).
+ * Uses the site content repo — not the platform app git checkout.
+ */
+export async function listFileCommits(
+  filePath: string,
+  opts?: { repoUrl?: string; limit?: number },
+): Promise<{ success: boolean; entries: FileCommitEntry[]; error?: string; repoUrl?: string }> {
+  const { getSiteConfigs } = await import("./site-config");
+  const matchedSite = getSiteConfigs().find((site) => {
+    const prefix = site.contentFolder.replace(/\/$/, "") + "/";
+    return filePath === site.contentFolder || filePath.startsWith(prefix);
+  });
+  const repoUrl = opts?.repoUrl || matchedSite?.githubRepoUrl;
+  const config = getGitHubConfig(repoUrl);
+  if (!config) {
+    return { success: false, entries: [], error: "GitHub not configured", repoUrl: repoUrl || undefined };
+  }
+
+  const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 50);
+  const url =
+    `https://api.github.com/repos/${config.owner}/${config.repo}/commits` +
+    `?path=${encodeURIComponent(filePath)}` +
+    `&sha=${encodeURIComponent(config.branch)}` +
+    `&per_page=${limit}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+        Accept: "application/vnd.github.v3+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        success: false,
+        entries: [],
+        error: `GitHub API error: ${response.status} - ${errorText}`,
+        repoUrl: `https://github.com/${config.owner}/${config.repo}`,
+      };
+    }
+    const data = await response.json();
+    if (!Array.isArray(data)) {
+      return { success: false, entries: [], error: "Unexpected commits response" };
+    }
+    const entries: FileCommitEntry[] = data.map((row: any) => {
+      const message = String(row?.commit?.message || "");
+      const subject = message.split("\n")[0] || "";
+      const date =
+        row?.commit?.committer?.date ||
+        row?.commit?.author?.date ||
+        "";
+      const author =
+        row?.commit?.author?.name ||
+        row?.commit?.committer?.name ||
+        row?.author?.login ||
+        "";
+      return {
+        sha: String(row?.sha || ""),
+        date,
+        author,
+        subject,
+      };
+    }).filter((e: FileCommitEntry) => e.sha);
+
+    return {
+      success: true,
+      entries,
+      repoUrl: `https://github.com/${config.owner}/${config.repo}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      entries: [],
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
 /**
  * Get the date of the most recent commit that touched a specific file.
  * Uses the GitHub Commits API filtered by path — returns the file-specific
@@ -520,19 +608,11 @@ async function updateBranchRef(
  */
 async function getFileCommitDate(config: GitHubConfig, filePath: string): Promise<string | null> {
   try {
-    const url = `https://api.github.com/repos/${config.owner}/${config.repo}/commits?path=${encodeURIComponent(filePath)}&sha=${encodeURIComponent(config.branch)}&per_page=1`;
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${config.token}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
+    const listed = await listFileCommits(filePath, {
+      repoUrl: `https://github.com/${config.owner}/${config.repo}`,
+      limit: 1,
     });
-    if (!response.ok) return null;
-    const data = await response.json();
-    if (!Array.isArray(data) || data.length === 0) return null;
-    const commit = data[0].commit;
-    return commit?.committer?.date || commit?.author?.date || null;
+    return listed.entries[0]?.date || null;
   } catch {
     return null;
   }
@@ -1934,20 +2014,26 @@ async function deleteWebhook(config: GitHubConfig, webhookId: number): Promise<v
  */
 export async function getRemoteFileContent(
   filePath: string,
-  opts?: { repoUrl?: string },
+  opts?: { repoUrl?: string; /** Branch or commit SHA (default: configured branch) */ ref?: string },
 ): Promise<{
   success: boolean;
   content?: string;
   sha?: string;
   error?: string;
 }> {
-  const config = getGitHubConfig(opts?.repoUrl);
+  const { getSiteConfigs } = await import("./site-config");
+  const matchedSite = getSiteConfigs().find((site) => {
+    const prefix = site.contentFolder.replace(/\/$/, "") + "/";
+    return filePath === site.contentFolder || filePath.startsWith(prefix);
+  });
+  const config = getGitHubConfig(opts?.repoUrl || matchedSite?.githubRepoUrl);
 
   if (!config) {
     return { success: false, error: "GitHub not configured" };
   }
-  
-  const url = `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${filePath}?ref=${config.branch}`;
+
+  const ref = (opts?.ref || config.branch).trim();
+  const url = `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${filePath}?ref=${encodeURIComponent(ref)}`;
   
   try {
     const response = await fetch(url, {
