@@ -76,6 +76,14 @@ import {
   type SeoIndexWarning,
 } from "./seo-fields";
 import { assertSeoWriteLayerAllowed } from "./seo-write-layer";
+import {
+  isClusterPriority,
+  readClusterPriorities,
+  writeClusterPriority,
+  type ClusterPriority,
+} from "./seo-config";
+
+export { isClusterPriority, type ClusterPriority } from "./seo-config";
 
 const log = child({ module: "seo-index" });
 
@@ -158,13 +166,10 @@ export type SeoIndexEntry = {
   pillar_opted_out?: boolean;
 };
 
-/** Cluster triage priority: High=1, Mid=2, Low=3 (lower = better). */
-export type ClusterPriority = 1 | 2 | 3;
-
 export type SeoIndexCluster = {
   path: string;
   members: string[];
-  /** Staff triage priority; preserved across recompute/rebuild. */
+  /** Staff triage priority from seo-config.yml (overlaid on load/rebuild). */
   priority?: ClusterPriority;
 };
 
@@ -322,11 +327,7 @@ function indexEntryFromSeo(opts: {
   return row;
 }
 
-export function isClusterPriority(value: unknown): value is ClusterPriority {
-  return value === 1 || value === 2 || value === 3;
-}
-
-/** Snapshot hub priorities before clusters are rebuilt. */
+/** Snapshot hub priorities before clusters are rebuilt (legacy in-index values). */
 export function snapshotClusterPriorities(
   clusters: Record<string, SeoIndexCluster> | undefined | null,
 ): Record<string, ClusterPriority> {
@@ -350,6 +351,11 @@ export function applyClusterPriorities(
   }
 }
 
+/** Authored priorities from seo-config.yml (source of truth for triage). */
+export function loadClusterPrioritySnapshot(contentRoot?: string): Record<string, ClusterPriority> {
+  return readClusterPriorities(contentRoot);
+}
+
 /** Read seo-index.json from disk without rebuild (null if missing/invalid). */
 export function readSeoIndexFile(contentRoot?: string): SeoIndex | null {
   const file = seoIndexPath(contentRoot);
@@ -364,9 +370,12 @@ export function readSeoIndexFile(contentRoot?: string): SeoIndex | null {
   }
 }
 
-function recomputeGraph(index: SeoIndex, prioritySnapshot?: Record<string, ClusterPriority>): void {
+function recomputeGraph(
+  index: SeoIndex,
+  opts?: { prioritySnapshot?: Record<string, ClusterPriority>; contentRoot?: string },
+): void {
   const preserved =
-    prioritySnapshot ?? snapshotClusterPriorities(index.clusters);
+    opts?.prioritySnapshot ?? loadClusterPrioritySnapshot(opts?.contentRoot);
   const byPath: Record<string, string> = {};
   const clusters: Record<string, SeoIndexCluster> = {};
   const orphans: string[] = [];
@@ -431,6 +440,11 @@ export function loadSeoIndex(contentRoot?: string): SeoIndex {
     parsed.clusters = parsed.clusters || {};
     parsed.orphans = parsed.orphans || [];
     parsed.warnings = parsed.warnings || [];
+    // Overlay authored triage from seo-config.yml (seo-index priority is not source of truth).
+    for (const cluster of Object.values(parsed.clusters)) {
+      delete cluster.priority;
+    }
+    applyClusterPriorities(parsed.clusters, loadClusterPrioritySnapshot(contentRoot));
     memory = { root, index: parsed };
     return parsed;
   } catch (err) {
@@ -447,12 +461,21 @@ export function saveSeoIndex(
 ): string {
   const file = seoIndexPath(opts?.contentRoot);
   const rebuilt = opts?.keepRebuilt !== false ? index.rebuilt : undefined;
+  // Persist clusters without triage — priority source of truth is seo-config.yml.
+  const clustersForDisk: Record<string, SeoIndexCluster> = {};
+  for (const [hubId, cluster] of Object.entries(index.clusters || {})) {
+    clustersForDisk[hubId] = { path: cluster.path, members: [...cluster.members] };
+  }
   const out: SeoIndex = {
     ...index,
+    clusters: index.clusters,
     generated_at: new Date().toISOString(),
     rebuilt: rebuilt || undefined,
   };
-  const persisted = { ...out };
+  const persisted: SeoIndex = {
+    ...out,
+    clusters: clustersForDisk,
+  };
   if (!persisted.rebuilt) delete persisted.rebuilt;
   fs.writeFileSync(file, `${JSON.stringify(persisted, null, 2)}\n`, "utf-8");
   memory = { root: path.dirname(file), index: out };
@@ -540,7 +563,7 @@ export function patchSeoIndexAfterLiveWrite(opts: {
   if (opts.extraWarnings?.length) {
     index.warnings.push(...opts.extraWarnings);
   }
-  recomputeGraph(index);
+  recomputeGraph(index, { contentRoot: opts.contentRoot });
   const indexPath = saveSeoIndex(index, {
     contentRoot: opts.contentRoot,
     author: opts.author,
@@ -598,8 +621,8 @@ export function rebuildSeoIndex(opts?: {
 }): SeoIndex {
   const ci = opts?.ci ?? contentIndex;
   const contentRoot = contentRootAbs(opts?.contentRoot);
-  // Full rebuild starts from emptyIndex — snapshot priorities from disk first.
-  const priorPriorities = snapshotClusterPriorities(readSeoIndexFile(opts?.contentRoot)?.clusters);
+  // Full rebuild starts from emptyIndex — priorities live in seo-config.yml.
+  const priorPriorities = loadClusterPrioritySnapshot(opts?.contentRoot);
   const index = emptyIndex(true);
   const seenIds = new Set<string>();
 
@@ -667,7 +690,7 @@ export function rebuildSeoIndex(opts?: {
     }
   }
 
-  recomputeGraph(index, priorPriorities);
+  recomputeGraph(index, { prioritySnapshot: priorPriorities, contentRoot: opts?.contentRoot });
   saveSeoIndex(index, {
     contentRoot: opts?.contentRoot,
     author: opts?.author,
@@ -680,7 +703,7 @@ export function rebuildSeoIndex(opts?: {
   return index;
 }
 
-/** Set or clear cluster triage priority without a full rebuild. */
+/** Set or clear cluster triage priority in seo-config.yml (synced); mirrors onto in-memory index. */
 export function setClusterPriority(opts: {
   hubId: string;
   priority: ClusterPriority | null;
@@ -695,12 +718,22 @@ export function setClusterPriority(opts: {
   const index = loadSeoIndex(opts.contentRoot);
   const cluster = index.clusters[hubId];
   if (!cluster) return { success: false, error: "Cluster not found" };
+
+  const written = writeClusterPriority({
+    hubId,
+    priority: opts.priority,
+    contentRoot: opts.contentRoot,
+    author: opts.author,
+  });
+  if (!written.success) return { success: false, error: written.error };
+
   if (opts.priority == null) {
     delete cluster.priority;
   } else {
     cluster.priority = opts.priority;
   }
-  saveSeoIndex(index, { contentRoot: opts.contentRoot, author: opts.author });
+  // Derived index only — do not mark for GitHub sync (seo-index is untracked).
+  saveSeoIndex(index, { contentRoot: opts.contentRoot, author: opts.author, mark: false });
   return { success: true, hubId, priority: opts.priority };
 }
 
@@ -1256,7 +1289,7 @@ export function removeSeoIndexEntries(opts: {
     delete index.entries[id];
   }
   index.warnings = (index.warnings || []).filter((w) => !w.entry || !idSet.has(w.entry));
-  recomputeGraph(index);
+  recomputeGraph(index, { contentRoot });
   saveSeoIndex(index, { contentRoot, author: opts.author, mark: false });
 }
 

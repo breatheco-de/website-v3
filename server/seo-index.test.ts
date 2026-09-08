@@ -496,6 +496,11 @@ meta:
 `,
       "utf-8",
     );
+    fs.writeFileSync(
+      path.join(contentRoot, "seo-config.yml"),
+      `intents: {}\nintent_defaults: {}\nfocus_features: {}\ncluster_priority: {}\n`,
+      "utf-8",
+    );
     writeSeoFields({
       contentType: "blog",
       slug: "hub",
@@ -520,6 +525,7 @@ meta:
       rebuildSeoIndex,
       invalidateSeoIndexCache: invalidate,
     } = await import("./seo-index");
+    const { readClusterPriorities: readFromConfig } = await import("./seo-config");
     seedHubAndSpoke();
     const hubId = "blog/hub/en";
     expect(loadSeoIndex(contentRoot).clusters[hubId]).toBeDefined();
@@ -527,8 +533,9 @@ meta:
     const set = setClusterPriority({ hubId, priority: 1, contentRoot });
     expect(set.success).toBe(true);
     expect(loadSeoIndex(contentRoot).clusters[hubId]?.priority).toBe(1);
+    expect(readFromConfig(contentRoot)[hubId]).toBe(1);
 
-    // Patch a spoke — recomputeGraph must preserve priority
+    // Patch a spoke — recomputeGraph must preserve priority from seo-config
     writeSeoFields({
       contentType: "blog",
       slug: "post-a",
@@ -539,12 +546,13 @@ meta:
     });
     expect(loadSeoIndex(contentRoot).clusters[hubId]?.priority).toBe(1);
 
-    // Full rebuild from YAML — disk snapshot must restore priority
+    // Full rebuild from YAML — seo-config snapshot must restore priority
     invalidate();
     rebuildSeoIndex({ contentRoot, reason: "test", ci: stubCi("/en/blog/hub"), mark: false });
     expect(loadSeoIndex(contentRoot).clusters[hubId]?.priority).toBe(1);
+    expect(readFromConfig(contentRoot)[hubId]).toBe(1);
 
-    // Remove hub pillar → priority dropped
+    // Remove hub pillar → cluster gone; authored priority may remain in seo-config
     writeSeoFields({
       contentType: "blog",
       slug: "hub",
@@ -554,10 +562,12 @@ meta:
       ci: stubCi("/en/blog/hub"),
     });
     expect(loadSeoIndex(contentRoot).clusters[hubId]).toBeUndefined();
+    expect(readFromConfig(contentRoot)[hubId]).toBe(1);
   });
 
   it("setClusterPriority clears with null", async () => {
     const { setClusterPriority } = await import("./seo-index");
+    const { readClusterPriorities } = await import("./seo-config");
     seedHubAndSpoke();
     const hubId = "blog/hub/en";
     setClusterPriority({ hubId, priority: 2, contentRoot });
@@ -565,5 +575,6 @@ meta:
     const cleared = setClusterPriority({ hubId, priority: null, contentRoot });
     expect(cleared.success).toBe(true);
     expect(loadSeoIndex(contentRoot).clusters[hubId]?.priority).toBeUndefined();
+    expect(readClusterPriorities(contentRoot)[hubId]).toBeUndefined();
   });
 });

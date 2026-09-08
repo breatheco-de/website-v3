@@ -83,9 +83,11 @@ import type {
 import { gscHeadline, gscInspectModeLabel } from "@/lib/gscInspection";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { getDebugToken, resolveAuthorName, useDebugAuth } from "@/hooks/useDebugAuth";
+import { useOrganicDaysCatchUp } from "@/hooks/useOrganicDaysCatchUp";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequestWithAuth, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { deslugifyLabel } from "@shared/relation-field";
 import { formatSitePath } from "@shared/formatSitePath";
 import { SitemapSearch, SitemapLocaleFilter } from "@/components/menus/SitemapSearch";
@@ -3401,6 +3403,8 @@ function OrganicTrafficStatCard({
   series,
   scope,
   compareToClicks,
+  canCatchUp = false,
+  bqConfigured = false,
 }: {
   window: { start: string; end: string } | null;
   daysInWindow: number;
@@ -3411,7 +3415,13 @@ function OrganicTrafficStatCard({
   scope: "clusters" | "site";
   /** When set on the site card, show site − clusters delta next to clicks. */
   compareToClicks?: number | null;
+  /** Clusters catch-up: requires seo_settings. */
+  canCatchUp?: boolean;
+  /** Clusters catch-up: Search Console BigQuery configured. */
+  bqConfigured?: boolean;
 }) {
+  const { toast } = useToast();
+  const catchUp = useOrganicDaysCatchUp();
   const empty = !window || daysInWindow === 0;
   const daysIncomplete = Boolean(window) && daysInWindow < daysExpected;
   const clicksLabel = empty ? "—" : fmtTrafficClicks(totals?.clicks ?? 0);
@@ -3467,7 +3477,35 @@ function OrganicTrafficStatCard({
     : "stat-card-organic-incomplete";
   const incompleteHelp = isSite
     ? `We asked BigQuery for the last ${daysExpected} complete days. It only returned traffic for ${daysInWindow} of them. Search Console’s website can still show a full month while the BigQuery export is catching up. The clicks and impressions above only include the days BigQuery returned.`
-    : `We look for the last ${daysExpected} complete days. Only ${daysInWindow} of those days have traffic data so far — empty day files do not count. The clicks and impressions above only include days with data.`;
+    : `We look for the last ${daysExpected} complete days. Only ${daysInWindow} of those days have traffic data so far — empty day files do not count. The clicks and impressions above only include days with data. Use the refresh control to pull only days we do not have yet; progress shows as a percent. The badge can stay incomplete after catch-up if Search Console has not exported a full month.`;
+  const catchUpDisabledReason = !canCatchUp
+    ? "Needs SEO settings access"
+    : !bqConfigured
+      ? "Configure Search Console BigQuery first"
+      : null;
+  const showCatchUpControl =
+    !isSite && daysIncomplete && !catchUp.nothingLeftToPull;
+  const catchUpEnabled = showCatchUpControl && !catchUpDisabledReason && !catchUp.running;
+
+  async function handleCatchUp() {
+    if (!catchUpEnabled) return;
+    const result = await catchUp.start();
+    if (!result.ok && result.aborted) return;
+    if (!result.ok) {
+      toast({
+        title: "Could not catch up missing days",
+        description: result.error,
+        variant: "destructive",
+      });
+      return;
+    }
+    await queryClient.invalidateQueries({ queryKey: ["/api/seo/cluster-metrics"] });
+    toast({
+      title: "Caught up missing days",
+      description:
+        "Window may still be incomplete if Search Console hasn’t exported a full month yet.",
+    });
+  }
 
   const siteClicks = totals?.clicks ?? 0;
   const clusterClicksForDelta =
@@ -3580,36 +3618,108 @@ function OrganicTrafficStatCard({
               </div>
             </div>
             {daysIncomplete ? (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md"
-                    aria-label={`${daysInWindow} of ${daysExpected} days with traffic data. Open explanation.`}
-                  >
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] cursor-pointer bg-amber-500/15 text-amber-800 dark:text-amber-200 border-amber-500/40 hover:bg-amber-500/25"
-                      data-testid={incompleteBadgeTestId}
+              <div className="flex items-center gap-1">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md"
+                      aria-label={`${daysInWindow} of ${daysExpected} days with traffic data. Open explanation.`}
                     >
-                      {daysInWindow}/{daysExpected} days with data
-                    </Badge>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent
-                  align="end"
-                  className="w-72 space-y-1.5 p-3 bg-popover text-popover-foreground"
-                  data-testid={isSite ? "organic-site-incomplete-help" : "organic-incomplete-help"}
-                >
-                  <p className="text-xs font-medium text-foreground">Incomplete traffic window</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{incompleteHelp}</p>
-                  {incomplete && !isSite ? (
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Cluster Map may also warn if country filters or row caps need a refresh.
-                    </p>
-                  ) : null}
-                </PopoverContent>
-              </Popover>
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] cursor-pointer bg-amber-500/15 text-amber-800 dark:text-amber-200 border-amber-500/40 hover:bg-amber-500/25"
+                        data-testid={incompleteBadgeTestId}
+                      >
+                        {daysInWindow}/{daysExpected} days with data
+                      </Badge>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    className="w-72 space-y-1.5 p-3 bg-popover text-popover-foreground"
+                    data-testid={isSite ? "organic-site-incomplete-help" : "organic-incomplete-help"}
+                  >
+                    <p className="text-xs font-medium text-foreground">Incomplete traffic window</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{incompleteHelp}</p>
+                    {incomplete && !isSite ? (
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        Cluster Map may also warn if country filters or row caps need a refresh.
+                      </p>
+                    ) : null}
+                    {!isSite ? (
+                      <Collapsible>
+                        <CollapsibleTrigger asChild>
+                          <button
+                            type="button"
+                            className="text-[11px] text-primary underline-offset-2 hover:underline pt-0.5"
+                            data-testid="button-organic-incomplete-advanced"
+                          >
+                            Read more (advanced)
+                          </button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="pt-1.5 space-y-1 text-[11px] text-muted-foreground leading-relaxed">
+                          <p>
+                            Day cache:{" "}
+                            <code className="font-mono text-[10px]">
+                              .cache/{"{site}"}/gsc-organic-days
+                            </code>
+                            . Catch-up only fills missing day files; empty stubs need Settings → Search
+                            Console → Reset cache. Does not change page content or whole-site BigQuery
+                            totals.
+                          </p>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    ) : null}
+                  </PopoverContent>
+                </Popover>
+                {showCatchUpControl ? (
+                  catchUp.running ? (
+                    <span
+                      className="text-[10px] font-semibold tabular-nums text-amber-800 dark:text-amber-200 min-w-[2rem] text-right"
+                      data-testid="text-organic-catch-up-percent"
+                      aria-live="polite"
+                    >
+                      {catchUp.percent}%
+                    </span>
+                  ) : catchUpDisabledReason ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <button
+                            type="button"
+                            className="inline-flex items-center justify-center h-5 w-5 rounded-sm text-amber-800 dark:text-amber-200 opacity-40 cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            disabled
+                            aria-label="Catch up missing Search traffic days"
+                            title={catchUpDisabledReason}
+                            data-testid="button-organic-catch-up"
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                          </button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs max-w-[14rem]">
+                        {catchUpDisabledReason}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center h-5 w-5 rounded-sm text-amber-800 dark:text-amber-200 hover:bg-amber-500/20 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void handleCatchUp();
+                      }}
+                      aria-label="Catch up missing Search traffic days"
+                      title="Catch up missing Search traffic days"
+                      data-testid="button-organic-catch-up"
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                    </button>
+                  )
+                ) : null}
+              </div>
             ) : null}
           </div>
         </div>
@@ -4590,6 +4700,8 @@ export function SeoTab({
               incomplete={organicMeta.incomplete}
               totals={trafficMetrics?.organicTraffic?.totals}
               series={trafficMetrics?.organicTraffic?.series}
+              canCatchUp={hasCapability("seo_settings")}
+              bqConfigured={Boolean(trafficMetrics?.siteOrganicTraffic?.configured)}
             />
             <OrganicTrafficStatCard
               scope="site"
@@ -4736,7 +4848,7 @@ export function SeoTab({
                   </Button>
                 </CollapsibleTrigger>
                 <CollapsibleContent className="pt-1 space-y-0.5 font-mono text-[10px] text-muted-foreground">
-                  <p>Priority: seo-index.json clusters[hubId].priority (survives rebuilds)</p>
+                  <p>Priority: seo-config.yml cluster_priority[hubId] (synced; overlaid on seo-index)</p>
                   <p>Traffic: organic-days cache via GET /api/seo/cluster-metrics?perspective=traffic</p>
                   <p>Potential: kw_monthly_volume / kw_difficulty (YAML + OpenRush cache)</p>
                   <p>Integrity: validation cache-summary + GSC inspection store</p>
