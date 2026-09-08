@@ -72,3 +72,7 @@ props:
     type: number
     required: false
     description: "How long the build animation takes, in seconds (e.g. 6). Left empty, the chart plays at its designed pace."
+  wide:
+    type: boolean
+    required: false
+    description: "Hero placement: render the chart at its natural width and let it span wider than the article column. Use for a chart replacing the hero image; leave off for in-flow charts."

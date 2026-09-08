@@ -93,6 +93,23 @@ describe("geekgeekchart sections get server-rendered html", () => {
     expect(section.html).toContain("<svg");
   });
 
+  it("wide renders at natural width instead of the article column", async () => {
+    // The same 12-box chain fits differently: fitted to the 612 column it
+    // wraps into extra rows; at natural width it stays wider. Compare the
+    // emitted viewBox widths to prove `wide` skips the column fitting.
+    const src = "flowchart LR\n  " + Array.from({ length: 12 }, (_, i) => `N${i}[Step ${i}]`).join(" --> ");
+    const column = { sections: [{ type: "geekchart", source: src }] };
+    const hero = { sections: [{ type: "geekchart", source: src, wide: true }] };
+    await enhanceArticleSectionsInPage(column);
+    await enhanceArticleSectionsInPage(hero);
+    const widthOf = (s: { html?: string }) =>
+      Number(/viewBox="0 0 (\d+)/.exec(s.html ?? "")?.[1] ?? 0);
+    const columnW = widthOf(column.sections[0] as { html?: string });
+    const heroW = widthOf(hero.sections[0] as { html?: string });
+    expect(columnW).toBeGreaterThan(0);
+    expect(heroW).toBeGreaterThan(columnW);
+  });
+
   it("passes duration (seconds) through to the chart render", async () => {
     const pageData = {
       sections: [{ type: "geekchart", source: "flowchart LR\n  A --> B", duration: 60 }],

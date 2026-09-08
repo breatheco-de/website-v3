@@ -16,7 +16,7 @@ interface GeekchartSectionProps {
 type GeekchartSectionWithHtml = GeekchartSection & { html?: string };
 
 export function GeekchartDefault({ data }: GeekchartSectionProps) {
-  const { caption, html } = data as GeekchartSectionWithHtml;
+  const { caption, html, wide } = data as GeekchartSectionWithHtml & { wide?: boolean };
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Charts ship paused (`play: 'in-view'`) and start once scrolled into view,
@@ -42,7 +42,7 @@ export function GeekchartDefault({ data }: GeekchartSectionProps) {
       className="w-full px-4 py-8 md:px-6 lg:px-8"
       data-testid="section-geekchart"
     >
-      <figure className="geekchart mx-auto max-w-3xl">
+      <figure className={wide ? "geekchart mx-auto max-w-5xl" : "geekchart mx-auto max-w-3xl"}>
         {body}
         {caption && (
           <figcaption
