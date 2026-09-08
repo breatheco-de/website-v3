@@ -355,6 +355,12 @@ function SeoFieldsEditor({
   portalContainer?: HTMLElement | null;
 }) {
   const { toast } = useToast();
+  const kwRow = rows.find((r) => r.field === "seo.main_keyword");
+  const volumeRow = rows.find((r) => r.field === "seo.kw_monthly_volume");
+  const difficultyRow = rows.find((r) => r.field === "seo.kw_difficulty");
+  const pillarRow = rows.find((r) => r.field === "seo.pillar_path");
+  const hubRow = rows.find((r) => r.field === "seo.is_pillar");
+
   const [saving, setSaving] = useState(false);
   const [resettingField, setResettingField] = useState<string | null>(null);
   const [seoFieldsEditing, setSeoFieldsEditing] = useState(false);
@@ -364,11 +370,6 @@ function SeoFieldsEditor({
   const [debouncedMainKeyword, setDebouncedMainKeyword] = useState(
     kwRow?.effective == null ? "" : String(kwRow.effective),
   );
-  const kwRow = rows.find((r) => r.field === "seo.main_keyword");
-  const volumeRow = rows.find((r) => r.field === "seo.kw_monthly_volume");
-  const difficultyRow = rows.find((r) => r.field === "seo.kw_difficulty");
-  const pillarRow = rows.find((r) => r.field === "seo.pillar_path");
-  const hubRow = rows.find((r) => r.field === "seo.is_pillar");
   const [clusterSeoOn, setClusterSeoOn] = useState(() => !isPillarPathOptedOut(pillarRow));
   const [mainKeyword, setMainKeyword] = useState(
     kwRow?.effective == null ? "" : String(kwRow.effective),
