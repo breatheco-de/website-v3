@@ -30,11 +30,17 @@ export function geometryViolations(warnings: readonly string[]): string[] {
   return warnings.filter((w) => GEOMETRY.test(w));
 }
 
-async function renderViolations(source: string, duration?: number): Promise<string[]> {
+async function renderViolations(
+  source: string,
+  duration?: number,
+  wide?: boolean,
+): Promise<string[]> {
   try {
     const { renderToSvg } = await loadRenderer();
+    // A wide (hero) section renders at its natural width on the page, so it
+    // is validated the same way; column sections validate at column widths.
     const r = await renderToSvg(source, {
-      display: DISPLAY,
+      ...(wide ? {} : { display: DISPLAY }),
       ...(duration ? { duration } : {}),
     });
     return geometryViolations((r.warnings ?? []).map(String));
@@ -84,7 +90,7 @@ export const hooks: ComponentServerHooks = {
     if (unpreviewed) return unpreviewed;
     const duration =
       typeof section.duration === "number" ? section.duration : undefined;
-    return renderViolations(source, duration);
+    return renderViolations(source, duration, section.wide === true);
   },
 
   async validateFieldUpdate(field, value, ctx) {
@@ -103,7 +109,7 @@ export const hooks: ComponentServerHooks = {
     try {
       const { renderToSvg } = await loadRenderer();
       const r = await renderToSvg(source, {
-        display: DISPLAY,
+        ...(section.wide === true ? {} : { display: DISPLAY }),
         ...(duration ? { duration } : {}),
       });
       return { warnings: (r.warnings ?? []).map(String) };
