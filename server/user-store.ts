@@ -70,6 +70,14 @@ export interface RoleDefinition {
   agentic?: boolean;
 }
 
+export interface StaffProviderIdentity {
+  provider: string;
+  /** Immutable provider user id (GitHub numeric id as string). */
+  providerUserId: string;
+  /** Current handle for display (GitHub login). */
+  handle?: string;
+}
+
 export interface UserRecord {
   /** Human-readable, unique, immutable staff id (email local-part based). */
   id: string;
@@ -79,6 +87,9 @@ export interface UserRecord {
   email?: string;
   lastLoginAt?: string;
   roles: string[];
+  identities?: StaffProviderIdentity[];
+  /** Cached GitHub login for commits/display; not used for identity matching. */
+  githubLogin?: string;
   /**
    * MCP-only access overlay (CMS roles unchanged).
    * Missing ⇒ both true. Write requires read (read off ⇒ write off).
@@ -781,6 +792,8 @@ export function upsertUser(profile: {
     email: profile.email ?? existing?.email,
     lastLoginAt: new Date().toISOString(),
     roles: existing?.roles ? [...existing.roles] : [],
+    identities: existing?.identities ? [...existing.identities] : undefined,
+    githubLogin: existing?.githubLogin,
     mcpReadEnabled: existing?.mcpReadEnabled,
     mcpWriteEnabled: existing?.mcpWriteEnabled,
   };
@@ -1089,6 +1102,116 @@ export function deleteUser(username: string): { ok: boolean; error?: string } {
   delete state.users[username];
   save();
   return { ok: true };
+}
+
+export function findUserByIdentity(
+  provider: string,
+  providerUserId: string,
+): { key: string; user: UserRecord } | null {
+  ensureLoaded();
+  if (!provider || !providerUserId) return null;
+  for (const [key, user] of Object.entries(state.users)) {
+    if (
+      user.identities?.some(
+        (id) => id.provider === provider && id.providerUserId === providerUserId,
+      )
+    ) {
+      return { key, user };
+    }
+  }
+  return null;
+}
+
+export function findUsersByEmails(
+  emails: string[],
+): Array<{ key: string; user: UserRecord }> {
+  ensureLoaded();
+  const wanted = new Set(
+    emails.map((e) => e.toLowerCase().trim()).filter(Boolean),
+  );
+  if (wanted.size === 0) return [];
+  const found: Array<{ key: string; user: UserRecord }> = [];
+  const seen = new Set<string>();
+  for (const [key, user] of Object.entries(state.users)) {
+    const emailNorm = user.email?.toLowerCase().trim();
+    const keyNorm = key.toLowerCase().trim();
+    if (
+      (emailNorm && wanted.has(emailNorm)) ||
+      (keyNorm.includes("@") && wanted.has(keyNorm))
+    ) {
+      if (!seen.has(key)) {
+        seen.add(key);
+        found.push({ key, user });
+      }
+    }
+  }
+  return found;
+}
+
+export function peekPendingUsersForEmails(emails: string[]): PendingUserRecord[] {
+  ensureLoaded();
+  if (!state.pendingUsers) return [];
+  const wanted = new Set(
+    emails.map((e) => e.toLowerCase().trim()).filter(Boolean),
+  );
+  return Object.values(state.pendingUsers).filter((p) => wanted.has(p.email));
+}
+
+export function attachIdentity(
+  username: string,
+  identity: StaffProviderIdentity,
+  profile?: { email?: string; firstName?: string; lastName?: string; githubLogin?: string },
+): UserRecord | null {
+  ensureLoaded();
+  const found = findUserEntry(username, profile?.email);
+  if (!found) return null;
+  const user = state.users[found.key];
+  const identities = [...(user.identities ?? [])];
+  const idx = identities.findIndex(
+    (id) =>
+      id.provider === identity.provider &&
+      id.providerUserId === identity.providerUserId,
+  );
+  if (idx >= 0) identities[idx] = { ...identities[idx], ...identity };
+  else identities.push(identity);
+  user.identities = identities;
+  if (profile?.email) user.email = profile.email;
+  if (profile?.firstName) user.firstName = profile.firstName;
+  if (profile?.lastName) user.lastName = profile.lastName;
+  if (profile?.githubLogin) user.githubLogin = profile.githubLogin;
+  user.lastLoginAt = new Date().toISOString();
+  save();
+  return user;
+}
+
+export function createAdmittedUser(input: {
+  username: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  githubLogin?: string;
+  identity: StaffProviderIdentity;
+  roles: string[];
+}): UserRecord {
+  ensureLoaded();
+  const record: UserRecord = {
+    id: generateUniqueStaffId({ username: input.username, email: input.email }),
+    username: input.username,
+    email: input.email,
+    firstName: input.firstName,
+    lastName: input.lastName,
+    githubLogin: input.githubLogin,
+    lastLoginAt: new Date().toISOString(),
+    roles: [...input.roles],
+    identities: [input.identity],
+  };
+  state.users[input.username] = record;
+  save();
+  return record;
+}
+
+export function hasAnyRole(username: string, email?: string): boolean {
+  return getUserRoles(username, email).length > 0;
 }
 
 export function renameUser(oldUsername: string, newUsername: string): { ok: boolean; error?: string } {

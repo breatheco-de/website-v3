@@ -3633,6 +3633,10 @@ export function registerAdminRoutes(app: Express): void {
       return;
     }
     userStore.assignRoles(username, roles);
+    if (roles.length === 0) {
+      const { revokeAllStaffSessions } = await import("../staff-session");
+      await revokeAllStaffSessions(username);
+    }
     res.json({ ok: true });
   });
 
@@ -3659,6 +3663,10 @@ export function registerAdminRoutes(app: Express): void {
       res.status(409).json({ error: result.error });
       return;
     }
+    const { rekeyStaffSessions } = await import("../staff-session");
+    const { rekeyUserGitHubToken } = await import("../github-user-tokens");
+    await rekeyStaffSessions(username, trimmed);
+    await rekeyUserGitHubToken(username, trimmed);
     res.json({ ok: true });
   });
 
@@ -3696,6 +3704,8 @@ export function registerAdminRoutes(app: Express): void {
       res.status(404).json({ error: result.error });
       return;
     }
+    const { revokeAllStaffSessions } = await import("../staff-session");
+    await revokeAllStaffSessions(req.params.username);
     res.json({ ok: true });
   });
 

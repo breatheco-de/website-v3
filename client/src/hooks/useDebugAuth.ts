@@ -88,22 +88,18 @@ export function isDebugModeActive(): boolean {
 }
 
 export function getDebugToken(): string | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === "undefined") return null;
   const cachedToken = localStorage.getItem(DEBUG_TOKEN_KEY);
   const cachedExpiry = localStorage.getItem(DEBUG_SESSION_EXPIRY_KEY);
-  
+
   if (cachedToken && cachedExpiry) {
     const expiryTime = parseInt(cachedExpiry, 10);
     if (Date.now() < expiryTime) {
       return cachedToken;
     }
   }
-  
-  const urlParams = new URLSearchParams(window.location.search);
-  const urlToken = urlParams.get("token");
-  const envToken = import.meta.env.VITE_BREATHECODE_TOKEN;
-  
-  return urlToken || envToken || null;
+
+  return null;
 }
 
 export function getCachedCapabilities(): CapabilityGrant[] {
@@ -226,7 +222,10 @@ interface DebugAuthValue {
   canEdit: boolean;
   retryValidation: () => Promise<void>;
   validateManualToken: (manualToken: string) => Promise<void>;
+  startGitHubLogin: () => Promise<void>;
   clearToken: () => void;
+  logoutEverywhere: () => Promise<void>;
+  authError: string | null;
   /** Hide DebugBubble without clearing staff session. Restore with ?debug=true. */
   dismissDebugUi: () => void;
   checkSession: () => Promise<{ valid: boolean; expired?: boolean; networkError?: boolean }>;
@@ -276,12 +275,42 @@ function grantHasCapability(
   return true;
 }
 
+function applyValidSessionLocally(data: {
+  token: string;
+  capabilities?: unknown;
+  roles?: unknown;
+  userName?: string;
+  staffId?: string;
+  expiresAt?: string | null;
+}) {
+  localStorage.setItem(DEBUG_SESSION_KEY, "true");
+  const expiryTime = data.expiresAt
+    ? new Date(data.expiresAt).getTime()
+    : Date.now() + 7 * 24 * 60 * 60 * 1000;
+  localStorage.setItem(DEBUG_SESSION_EXPIRY_KEY, String(expiryTime));
+  localStorage.setItem(DEBUG_TOKEN_KEY, data.token);
+  setAuthToken(data.token);
+  if (data.capabilities) {
+    localStorage.setItem(
+      DEBUG_CAPABILITIES_KEY,
+      JSON.stringify(capabilityGrantsFromResponse(data.capabilities)),
+    );
+  }
+  const nextRoles = rolesFromResponse(data.roles);
+  cacheRoles(nextRoles);
+  if (data.userName || data.staffId) {
+    cacheStaffIdentity(data);
+  }
+  return { grants: capabilityGrantsFromResponse(data.capabilities), roles: nextRoles };
+}
+
 export function DebugAuthProvider({ children }: { children: ReactNode }) {
   const [isValidated, setIsValidated] = useState<boolean | null>(null);
   const [hasToken, setHasToken] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
   const [capabilities, setCapabilities] = useState<CapabilityGrant[]>(DEFAULT_CAPABILITIES);
   const [roles, setRoles] = useState<string[]>([]);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [isDebugMode, setIsDebugMode] = useState(() => isDebugModeActive());
   
   const isDevelopment = import.meta.env.DEV;
@@ -292,13 +321,53 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
 
   const validateToken = async (skipCache = false) => {
     const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get("token");
-    
-    const forceValidate = !!urlToken || skipCache;
-    
+    const staffSessionCode = urlParams.get("staff_session_code");
+    const staffAuthError = urlParams.get("staff_auth");
+    const staffAuthMessage = urlParams.get("message");
+
+    if (staffAuthError === "error" && staffAuthMessage) {
+      setAuthError(staffAuthMessage);
+      urlParams.delete("staff_auth");
+      urlParams.delete("code");
+      urlParams.delete("message");
+      const cleaned = `${window.location.pathname}${urlParams.toString() ? `?${urlParams}` : ""}${window.location.hash}`;
+      window.history.replaceState({}, "", cleaned);
+    }
+
+    if (staffSessionCode) {
+      setIsLoading(true);
+      try {
+        const response = await fetch("/api/staff/session/exchange", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: staffSessionCode }),
+        });
+        const data = await response.json();
+        urlParams.delete("staff_session_code");
+        urlParams.delete("github_write");
+        const cleaned = `${window.location.pathname}${urlParams.toString() ? `?${urlParams}` : ""}${window.location.hash}`;
+        window.history.replaceState({}, "", cleaned);
+        if (data.valid && data.token) {
+          const applied = applyValidSessionLocally(data);
+          setHasToken(true);
+          setCapabilities(applied.grants);
+          setRoles(applied.roles);
+          setIsValidated(true);
+          setAuthError(null);
+          refreshDebugMode();
+          setIsLoading(false);
+          return;
+        }
+        setAuthError(data.error || "Sign-in failed");
+      } catch (error) {
+        console.error("Staff session exchange error:", error);
+        setAuthError("Sign-in failed");
+      }
+    }
+
     let revalidateWithCachedToken = false;
 
-    if (!forceValidate) {
+    if (!skipCache) {
       const cachedValidation = localStorage.getItem(DEBUG_SESSION_KEY);
       const cachedExpiry = localStorage.getItem(DEBUG_SESSION_EXPIRY_KEY);
       const cachedToken = localStorage.getItem(DEBUG_TOKEN_KEY);
@@ -317,7 +386,6 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
               } catch {
               }
             }
-            // Roles were added later — refresh if missing, or if caps exist without roles (stale desync).
             if (
               localStorage.getItem(DEBUG_ROLES_KEY) === null ||
               (cachedRoles.length === 0 && cachedCapCount > 0)
@@ -351,9 +419,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
       clearRolesCache();
     }
 
-    const envToken = import.meta.env.VITE_BREATHECODE_TOKEN;
-    
-    const token = urlToken || envToken || (revalidateWithCachedToken ? localStorage.getItem(DEBUG_TOKEN_KEY) : null);
+    const token = revalidateWithCachedToken ? localStorage.getItem(DEBUG_TOKEN_KEY) : getDebugToken();
 
     if (!token) {
       setHasToken(false);
@@ -378,33 +444,13 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
       });
 
       const data = await response.json();
-      
-      if (urlToken) {
-        const url = new URL(window.location.href);
-        url.searchParams.delete("token");
-        window.history.replaceState({}, "", url.toString());
-      }
 
       if (data.valid) {
-        localStorage.setItem(DEBUG_SESSION_KEY, "true");
-        const expiryTime = data.expiresAt 
-          ? new Date(data.expiresAt).getTime() 
-          : Date.now() + (24 * 60 * 60 * 1000);
-        localStorage.setItem(DEBUG_SESSION_EXPIRY_KEY, String(expiryTime));
-        localStorage.setItem(DEBUG_TOKEN_KEY, token);
-        setAuthToken(token);
-        if (data.capabilities) {
-          const grants = capabilityGrantsFromResponse(data.capabilities);
-          localStorage.setItem(DEBUG_CAPABILITIES_KEY, JSON.stringify(grants));
-          setCapabilities(grants);
-        }
-        const nextRoles = rolesFromResponse(data.roles);
-        cacheRoles(nextRoles);
-        setRoles(nextRoles);
-        if (data.userName || data.staffId) {
-          cacheStaffIdentity(data);
-        }
+        const applied = applyValidSessionLocally({ ...data, token });
+        setCapabilities(applied.grants);
+        setRoles(applied.roles);
         setIsValidated(true);
+        setAuthError(null);
         refreshDebugMode();
       } else {
         localStorage.removeItem(DEBUG_SESSION_KEY);
@@ -417,6 +463,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
         setCapabilities(data.capabilities ? capabilityGrantsFromResponse(data.capabilities) : DEFAULT_CAPABILITIES);
         setRoles([]);
         setIsValidated(false);
+        if (data.error) setAuthError(data.error);
         refreshDebugMode();
       }
     } catch (error) {
@@ -442,6 +489,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     
     setHasToken(true);
     setIsLoading(true);
+    setAuthError(null);
     
     localStorage.removeItem(DEBUG_SESSION_KEY);
     localStorage.removeItem(DEBUG_SESSION_EXPIRY_KEY);
@@ -451,52 +499,64 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     clearStaffIdentity();
 
     try {
-      const response = await fetch("/api/debug/validate-token", {
+      const response = await fetch("/api/staff/session/validate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ token: manualToken }),
+        body: JSON.stringify({ token: manualToken.trim() }),
       });
 
       const data = await response.json();
       
       if (data.valid) {
-        localStorage.setItem(DEBUG_SESSION_KEY, "true");
-        const expiryTime = data.expiresAt 
-          ? new Date(data.expiresAt).getTime() 
-          : Date.now() + (24 * 60 * 60 * 1000);
-        localStorage.setItem(DEBUG_SESSION_EXPIRY_KEY, String(expiryTime));
-        localStorage.setItem(DEBUG_TOKEN_KEY, manualToken);
-        setAuthToken(manualToken);
-        if (data.capabilities) {
-          const grants = capabilityGrantsFromResponse(data.capabilities);
-          localStorage.setItem(DEBUG_CAPABILITIES_KEY, JSON.stringify(grants));
-          setCapabilities(grants);
-        }
-        const nextRoles = rolesFromResponse(data.roles);
-        cacheRoles(nextRoles);
-        setRoles(nextRoles);
-        if (data.userName || data.staffId) {
-          cacheStaffIdentity(data);
-        }
+        const applied = applyValidSessionLocally({ ...data, token: manualToken.trim() });
+        setCapabilities(applied.grants);
+        setRoles(applied.roles);
         setIsValidated(true);
         refreshDebugMode();
       } else {
         setAuthToken(undefined);
-        setCapabilities(data.capabilities ? capabilityGrantsFromResponse(data.capabilities) : DEFAULT_CAPABILITIES);
+        setHasToken(false);
+        setCapabilities(DEFAULT_CAPABILITIES);
         setRoles([]);
         setIsValidated(false);
+        setAuthError(data.error || "Invalid staff session");
         refreshDebugMode();
       }
     } catch (error) {
       console.error("Debug auth validation error:", error);
       setIsValidated(false);
+      setHasToken(false);
       setCapabilities(DEFAULT_CAPABILITIES);
       setRoles([]);
+      setAuthError("Could not validate session");
     }
 
     setIsLoading(false);
+  };
+
+  const startGitHubLogin = async () => {
+    setIsLoading(true);
+    setAuthError(null);
+    try {
+      const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}` || "/";
+      const res = await fetch(
+        `/api/staff/oauth/github/start?format=json&return_to=${encodeURIComponent(returnTo)}`,
+        { headers: { Accept: "application/json" } },
+      );
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        setAuthError(data.error || "GitHub login is not available");
+        setIsLoading(false);
+        return;
+      }
+      window.location.href = data.url;
+    } catch (error) {
+      console.error("GitHub login start error:", error);
+      setAuthError("Could not start GitHub login");
+      setIsLoading(false);
+    }
   };
 
   const checkSession = async (): Promise<{ valid: boolean; expired?: boolean; networkError?: boolean }> => {
@@ -546,7 +606,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const clearToken = () => {
+  const clearLocalSession = () => {
     localStorage.removeItem(DEBUG_SESSION_KEY);
     localStorage.removeItem(DEBUG_SESSION_EXPIRY_KEY);
     localStorage.removeItem(DEBUG_TOKEN_KEY);
@@ -560,6 +620,39 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     setCapabilities(DEFAULT_CAPABILITIES);
     setRoles([]);
     refreshDebugMode();
+  };
+
+  const clearToken = () => {
+    const token = localStorage.getItem(DEBUG_TOKEN_KEY);
+    if (token) {
+      void fetch("/api/staff/session/logout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Token ${token}`,
+        },
+        body: JSON.stringify({ token }),
+      }).catch(() => {});
+    }
+    clearLocalSession();
+  };
+
+  const logoutEverywhere = async () => {
+    const token = localStorage.getItem(DEBUG_TOKEN_KEY);
+    if (token) {
+      try {
+        await fetch("/api/staff/session/logout-all", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Token ${token}`,
+          },
+        });
+      } catch {
+        // still clear local
+      }
+    }
+    clearLocalSession();
   };
 
   const dismissDebugUi = () => {
@@ -594,7 +687,10 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     canEdit,
     retryValidation,
     validateManualToken,
+    startGitHubLogin,
     clearToken,
+    logoutEverywhere,
+    authError,
     dismissDebugUi,
     checkSession,
   };

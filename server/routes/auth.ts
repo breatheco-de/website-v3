@@ -164,10 +164,14 @@ import {
 import { resolveDynamicEntries } from "../dynamic-entries";
 import { loadDatabaseSinglePage, mergeSingleTemplate } from "../database-single-loader";
 import { getBaseUrl } from "../hreflang";
-import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
 import type { CapabilityName } from "../user-store";
 import { allowedToolNames } from "@shared/mcp-tool-catalog";
+import {
+  resolveOwnedStaffSession,
+  staffSessionJson,
+} from "../staff-session-resolve";
+import { revokeAllStaffSessions } from "../staff-session";
 
 
 import {
@@ -259,13 +263,13 @@ export function registerAuthRoutes(app: Express): void {
         return;
       }
     } else {
-      // Treat bearer as a Breathecode token and validate it
-      const profile = await userManager.validateToken(bearerToken);
-      if (!profile.valid || !profile.username) {
+      // Treat bearer as an owned staff session token
+      const session = await resolveOwnedStaffSession(bearerToken);
+      if (!session) {
         res.status(401).json({ error: "Invalid or expired token" });
         return;
       }
-      resolvedUsername = profile.username;
+      resolvedUsername = session.username;
     }
 
     // MCP-only read/write overlay (CMS sessions use role caps without this).
@@ -422,52 +426,21 @@ export function registerAuthRoutes(app: Express): void {
         return;
       }
 
-      const profile = await userManager.validateToken(token);
-
-      if (!profile.valid || !profile.username) {
-        res.json({ valid: false, capabilities: [], userName: "", expiresAt: profile.expiresAt ?? null, error: profile.error });
+      const resolved = await resolveOwnedStaffSession(token);
+      if (!resolved) {
+        res.json({
+          valid: false,
+          capabilities: [],
+          userName: "",
+          expiresAt: null,
+          code: "session_invalid",
+          error:
+            "That is not a valid staff session. Log in with GitHub, or paste a staff session token.",
+        });
         return;
       }
 
-      // Auto-register user; grant user_admin if no bootstrap admin exists
-      const needsBootstrap = userStore.needsBootstrapAdmin();
-      const userRecord = userStore.upsertUser({
-        username: profile.username,
-        firstName: profile.firstName,
-        lastName: profile.lastName,
-        email: profile.email,
-      });
-      if (needsBootstrap) {
-        userStore.assignRoles(profile.username, ["user_admin"], profile.email);
-        log.info(`[UserStore] Bootstrap: no user_admin existed — "${profile.username}" auto-assigned user_admin role`);
-      }
-
-      // Claim any pending pre-registration that matches this user's email
-      if (profile.email) {
-        const pendingRole = userStore.claimPendingUser(profile.email);
-        if (pendingRole) {
-          const currentRoles = userStore.getUserRoles(profile.username, profile.email);
-          if (!currentRoles.includes(pendingRole)) {
-            userStore.assignRoles(profile.username, [...currentRoles, pendingRole], profile.email);
-          }
-          log.info(`[UserStore] Claimed pending role "${pendingRole}" for user "${profile.username}" via email match`);
-        }
-      }
-
-      const capabilities = userStore.getEffectiveCapabilities(profile.username, profile.email);
-      const roles = userStore.getUserRoles(profile.username, profile.email);
-      const userName = profile.username;
-      const staffId = userStore.getOrCreateStaffUserId(profile.username, profile.email);
-
-      res.json({
-        valid: true,
-        capabilities,
-        roles,
-        userName,
-        username: profile.username,
-        staffId,
-        expiresAt: profile.expiresAt ?? null,
-      });
+      res.json(staffSessionJson(resolved));
     } catch (error) {
       log.error({ err: error }, "Token validation error:");
       res.json({ valid: false, capabilities: [] });
@@ -522,12 +495,12 @@ export function registerAuthRoutes(app: Express): void {
         return;
       }
     } else {
-      const profile = await userManager.validateToken(bearerToken);
-      if (!profile.valid || !profile.username) {
+      const session = await resolveOwnedStaffSession(bearerToken);
+      if (!session) {
         res.status(401).json({ error: "Invalid or expired token" });
         return;
       }
-      resolvedUsername = profile.username;
+      resolvedUsername = session.username;
     }
 
     const record = userStore.getUser(resolvedUsername);
@@ -774,7 +747,7 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
-  // Check token validity without full re-validation (for session refresh)
+  // Check staff session validity (for session refresh)
   app.post("/api/debug/check-session", async (req, res) => {
     try {
       const { token } = req.body;
@@ -784,58 +757,19 @@ export function registerAuthRoutes(app: Express): void {
         return;
       }
 
-      // Get token info including expiration from Breathecode
-      let tokenInfoResponse;
-      try {
-        tokenInfoResponse = await fetch(
-          `${BREATHECODE_HOST}/v1/auth/token/${token}`,
-          { method: "GET" },
-        );
-      } catch (networkError) {
-        // Network error - don't invalidate session, return error status
-        log.error({ err: networkError }, "Network error checking session:");
-        res.json({
-          valid: false,
-          networkError: true,
-          error: "Network error checking token",
-        });
-        return;
-      }
-
-      if (!tokenInfoResponse.ok) {
-        // Token is invalid or expired (401/404 etc)
+      const resolved = await resolveOwnedStaffSession(token);
+      if (!resolved) {
         res.json({ valid: false, expired: true });
         return;
-      }
-
-      const tokenInfo = (await tokenInfoResponse.json()) as {
-        token?: string;
-        token_type?: string;
-        expires_at?: string;
-        user_id?: number;
-      };
-
-      // Check if token is expired
-      if (tokenInfo.expires_at) {
-        const expiresAt = new Date(tokenInfo.expires_at);
-        if (expiresAt <= new Date()) {
-          res.json({
-            valid: false,
-            expired: true,
-            expiresAt: tokenInfo.expires_at,
-          });
-          return;
-        }
       }
 
       res.json({
         valid: true,
         expired: false,
-        expiresAt: tokenInfo.expires_at || null,
+        expiresAt: new Date(resolved.expiresAt).toISOString(),
       });
     } catch (error) {
       log.error({ err: error }, "Session check error:");
-      // Unknown error - don't invalidate session
       res.json({
         valid: false,
         networkError: true,

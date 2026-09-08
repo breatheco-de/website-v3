@@ -141,7 +141,7 @@ export function DebugBubble() {
     window.location.pathname.startsWith("/private/entry-preview-frame/")
   );
   
-  const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, clearToken, dismissDebugUi, checkSession } = useDebugAuth();
+  const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, startGitHubLogin, clearToken, logoutEverywhere, authError, dismissDebugUi, checkSession } = useDebugAuth();
   const { criticalAlerts } = useSystemAlerts();
   const { showCritical: githubConnectCritical, needsConnect: githubConnectRequired } =
     useGitHubUserConnection();
@@ -2030,10 +2030,13 @@ export function DebugBubble() {
     setTokenInput,
     setPendingAutoEditMode,
     validateManualToken,
+    startGitHubLogin,
+    authError,
     isLoading,
     breathecodeHost,
     retryValidation,
     clearToken,
+    logoutEverywhere,
     githubSyncStatus,
     pendingChanges,
     pendingChangesLoading,

@@ -5,6 +5,19 @@
 window_days: 6
 
 entries:
+  - date: "2026-09-08"
+    summary: "Staff MCP auth is owned CMS sessions (GitHub login or paste) — not Breathecode tokens"
+    agent_impact:
+      - "OAuth authorize UI: Log in with GitHub (via CMS) or paste a staff session token. Breathecode paste/login removed."
+      - "Direct Bearer credentials must be a CMS staff session (or an MCP access token issued after OAuth). Fail closed without roles / unverified email / not pre-registered."
+      - "Reconnect MCP after deploy so authorize pages and auth middleware match."
+    paths:
+      - mcp-server/index.ts
+      - mcp-server/lib/oauth.ts
+      - server/staff-admission.ts
+      - server/staff-session.ts
+      - INSTALL.md
+    tools_changed: false
   - date: "2026-09-07"
     summary: "get_organic_traffic mode=queries — GSC-style query text search"
     agent_impact:

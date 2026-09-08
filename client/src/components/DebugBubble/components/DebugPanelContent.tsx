@@ -75,10 +75,13 @@ export interface DebugPanelContentProps {
   setTokenInput: (v: string) => void;
   setPendingAutoEditMode: (v: boolean) => void;
   validateManualToken: (token: string) => void;
+  startGitHubLogin?: () => Promise<void>;
   isLoading: boolean;
+  authError?: string | null;
   breathecodeHost: BreathecodeHost | null;
   retryValidation: () => void;
   clearToken: () => void;
+  logoutEverywhere?: () => Promise<void>;
 
   githubSyncStatus: GitHubSyncStatus | null;
   pendingChanges: PendingChange[];
@@ -450,24 +453,37 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
             <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
           </div>
           <div className="flex-1">
-            <h3 className="font-semibold text-sm mb-1">No token detected</h3>
-            <p className="text-xs text-muted-foreground mb-1">
-              Enter your token below or add <code className="bg-muted px-1 rounded">?token=xxx</code> to URL, or{" "}
-              <a
-                href={`https://breathecode.herokuapp.com/v1/auth/view/login?url=${encodeURIComponent(window.location.href)}`}
-                className="text-primary underline hover:no-underline"
-                data-testid="link-login"
-              >
-                click here to login
-              </a>
-            </p>
+            <h3 className="font-semibold text-sm mb-1">Staff sign-in required</h3>
             <p className="text-xs text-muted-foreground mb-3">
-              Staff need a role with the right capabilities to edit the website. Assign roles in Security → Roles.
+              Staff sign-in uses GitHub. Only people pre-registered by an admin (or the first admin on an empty install) can get in. Your GitHub account must have a verified email.
+            </p>
+            {props.authError && (
+              <p className="text-xs text-destructive mb-3" data-testid="text-staff-auth-error">
+                {props.authError}
+              </p>
+            )}
+            <div className="flex flex-col gap-2 mb-3">
+              <Button
+                size="sm"
+                onClick={() => void props.startGitHubLogin?.()}
+                disabled={props.isLoading}
+                data-testid="button-github-login"
+              >
+                {props.isLoading ? (
+                  <RefreshCw className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <Github className="h-4 w-4 mr-1" />
+                )}
+                Log in with GitHub
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mb-2">
+              Or paste a staff session token from another signed-in browser (not a GitHub or Breathecode token).
             </p>
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="Enter token..."
+                placeholder="Staff session token..."
                 value={props.tokenInput}
                 onChange={(e) => props.setTokenInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -481,6 +497,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               />
               <Button
                 size="sm"
+                variant="secondary"
                 onClick={() => {
                   props.setPendingAutoEditMode(true);
                   props.validateManualToken(props.tokenInput.trim());
@@ -491,19 +508,10 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 {props.isLoading ? (
                   <RefreshCw className="h-4 w-4 animate-spin" />
                 ) : (
-                  "Validate"
+                  "Paste"
                 )}
               </Button>
             </div>
-            {props.breathecodeHost && !props.breathecodeHost.isDefault && (
-              <div className="flex items-start gap-1.5 mt-2 text-amber-600 dark:text-amber-400">
-                <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-                <div className="text-xs">
-                  <div>The host is pointing to</div>
-                  <div className="font-mono break-all">{props.breathecodeHost.host}</div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -1174,16 +1182,30 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                       )}
                     </div>
                     {props.hasToken && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-4 w-4 flex-shrink-0 text-muted-foreground hover:text-destructive"
-                        onClick={props.clearToken}
-                        title="Log out (destroy staff session token)"
-                        data-testid="button-panel-staff-session-logout"
-                      >
-                        <LogOut className="h-[5.6px] w-[5.6px]" />
-                      </Button>
+                      <div className="flex items-center gap-0.5">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-4 w-4 flex-shrink-0 text-muted-foreground hover:text-destructive"
+                          onClick={props.clearToken}
+                          title="Log out (this browser only)"
+                          data-testid="button-panel-staff-session-logout"
+                        >
+                          <LogOut className="h-[5.6px] w-[5.6px]" />
+                        </Button>
+                        {props.logoutEverywhere && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-5 px-1 text-[10px] text-muted-foreground hover:text-destructive"
+                            onClick={() => void props.logoutEverywhere?.()}
+                            title="Sign out everywhere (revoke all sessions)"
+                            data-testid="button-panel-staff-session-logout-all"
+                          >
+                            Everywhere
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </div>
                   {versionData?.version && (

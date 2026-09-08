@@ -24,10 +24,14 @@ export interface RegisteredClient {
   redirectUris: string[];
   clientName: string;
   registeredAt: string;
+  /** @deprecated use staffUsername */
   breathecodeUserId?: number;
   breathecodeFirstName?: string;
   breathecodeLastName?: string;
   breathecodeUsername?: string;
+  staffUsername?: string;
+  staffFirstName?: string;
+  staffLastName?: string;
 }
 
 const clients = new Map<string, RegisteredClient>();
@@ -147,6 +151,26 @@ export function lookupClient(clientId: string): RegisteredClient | null {
   return clients.get(clientId) ?? null;
 }
 
+export function updateClientStaffUser(
+  clientId: string,
+  firstName: string,
+  lastName: string,
+  username?: string,
+): void {
+  const client = clients.get(clientId);
+  if (!client) return;
+  client.staffFirstName = firstName;
+  client.staffLastName = lastName;
+  client.breathecodeFirstName = firstName;
+  client.breathecodeLastName = lastName;
+  if (username) {
+    client.staffUsername = username;
+    client.breathecodeUsername = username;
+  }
+  persistClients();
+}
+
+/** @deprecated use updateClientStaffUser */
 export function updateClientBreathecodeUser(
   clientId: string,
   userId: number,
@@ -157,10 +181,7 @@ export function updateClientBreathecodeUser(
   const client = clients.get(clientId);
   if (!client) return;
   client.breathecodeUserId = userId;
-  client.breathecodeFirstName = firstName;
-  client.breathecodeLastName = lastName;
-  if (username) client.breathecodeUsername = username;
-  persistClients();
+  updateClientStaffUser(clientId, firstName, lastName, username);
 }
 
 // ─── Pending auth store (in-memory, nonce-keyed) ──────────────────────────────
@@ -223,7 +244,7 @@ export function peekPendingAuth(nonce: string): PendingAuth | null {
 
 // ─── Breathecode token validation (via main app's centralized UserManager) ─────
 
-export interface BreathecodeValidationResult {
+export interface StaffSessionValidationResult {
   valid: boolean;
   userId?: number;
   firstName?: string;
@@ -232,16 +253,17 @@ export interface BreathecodeValidationResult {
   error?: string;
 }
 
+/** @deprecated alias */
+export type BreathecodeValidationResult = StaffSessionValidationResult;
+
 /**
- * Validate a Breathecode token by calling the main CMS app's validate-token endpoint.
- * This ensures MCP OAuth uses the same UserManager/UserStore as the CMS,
- * including first-user user_admin bootstrap and role assignment.
+ * Validate an owned CMS staff session token via the main app.
  */
-export async function validateBreathecodeToken(
+export async function validateStaffSessionToken(
   token: string,
-): Promise<BreathecodeValidationResult> {
+): Promise<StaffSessionValidationResult> {
   const mainAppPort = process.env.PORT || "5000";
-  const mainAppUrl = `http://localhost:${mainAppPort}/api/debug/validate-token`;
+  const mainAppUrl = `http://localhost:${mainAppPort}/api/staff/session/validate`;
 
   try {
     const res = await fetch(mainAppUrl, {
@@ -264,39 +286,46 @@ export async function validateBreathecodeToken(
     };
 
     if (!data.valid) {
-      return { valid: false, error: data.error || "Token is not valid or lacks required permissions" };
+      return { valid: false, error: data.error || "Staff session is not valid" };
     }
 
-    // Enforce that the user has at least one internal platform capability.
-    // A valid Breathecode identity alone is not sufficient — the user must be
-    // assigned a role in the CMS before MCP OAuth grants them an access token.
     if (!Array.isArray(data.capabilities) || data.capabilities.length === 0) {
       return {
         valid: false,
-        error: "Your account does not have platform write access. Contact an administrator to be assigned a role.",
+        error: "Your account does not have platform access. Contact an administrator to be assigned a role.",
       };
     }
 
-    // The main app returns userName (display) and username (breathecode slug)
-    const username = data.username || data.userName || "";
+    const username = data.username || data.userName;
+    if (!username) {
+      return { valid: false, error: "Staff session did not include a username" };
+    }
+
     return {
       valid: true,
       username,
-      // Attempt to split userName for backward-compat fields (firstName.lastName format)
-      firstName: username.split(".")[0] || "",
-      lastName: username.split(".").slice(1).join(".") || "",
+      firstName: "",
+      lastName: "",
     };
   } catch (err) {
-    // Main app is unreachable — fail closed to keep authorization internal-only.
-    // Do not fall back to direct Breathecode capability checks; instead deny access.
-    console.warn("[MCP] Main app unreachable for token validation, denying MCP access —", (err as Error).message);
-    return { valid: false, error: "Authorization service unavailable; cannot verify credentials" };
+    return { valid: false, error: (err as Error).message };
   }
 }
 
-// ─── Breathecode direct-token registry ───────────────────────────────────────
-// Maps a raw Breathecode token → { username, expiresAt } with 23hr TTL.
-// Populated by authMiddleware after a successful validateBreathecodeToken call so
+/** @deprecated use validateStaffSessionToken */
+export async function validateBreathecodeToken(
+  token: string,
+): Promise<StaffSessionValidationResult> {
+  return validateStaffSessionToken(token);
+}
+
+export function registerStaffSessionToken(token: string, username: string): void {
+  registerBreathecodeToken(token, username);
+}
+
+// ─── Staff session direct-token registry ─────────────────────────────────────
+// Maps a raw staff session token → { username, expiresAt } with 23hr TTL.
+// Populated by authMiddleware after a successful validateStaffSessionToken call so
 // that getTokenUsername() works transparently for both OAuth and direct callers.
 // Expired entries are skipped on load and evicted on access.
 
@@ -506,13 +535,14 @@ export function getTokenUsername(token: string): string | null {
   if (entry) {
     const client = clients.get(entry.clientId);
     if (client) {
+      if (client.staffUsername) return client.staffUsername;
       if (client.breathecodeUsername) return client.breathecodeUsername;
-      const first = client.breathecodeFirstName?.trim() || "";
-      const last = client.breathecodeLastName?.trim() || "";
+      const first = (client.staffFirstName || client.breathecodeFirstName)?.trim() || "";
+      const last = (client.staffLastName || client.breathecodeLastName)?.trim() || "";
       if (first || last) return [first, last].filter(Boolean).join(".").toLowerCase();
     }
   }
-  // Fall back to Breathecode direct-token cache
+  // Fall back to staff-session direct-token cache
   return getCachedBreathecodeUsername(token);
 }
 

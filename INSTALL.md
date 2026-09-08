@@ -117,8 +117,8 @@ Variables are listed by category. "Required" means the feature that depends on t
 
 | Variable | Required | Default | Description | Features enabled | Extra config needed |
 |---|---|---|---|---|---|
-| `VITE_BREATHECODE_HOST` | No | `https://breathecode.herokuapp.com` | Base URL for the 4Geeks Breathecode REST API. Available on both server and client because of the `VITE_` prefix. | Breathecode data fetching (programs, users) | None |
-| `BREATHECODE_HOST` | No | `https://breathecode.herokuapp.com` | Same as above but read by the MCP server process only. | MCP OAuth — Breathecode token validation | None |
+| `VITE_BREATHECODE_HOST` | No | `https://breathecode.herokuapp.com` | Base URL for the 4Geeks Breathecode REST API. Available on both server and client because of the `VITE_` prefix. Used for **consumer** login/signup and program data — not for staff CMS login. | Breathecode data fetching (programs, consumer auth) | None |
+| `BREATHECODE_HOST` | No | `https://breathecode.herokuapp.com` | Same host for server-side consumer auth proxies. | Consumer auth API | None |
 | `IPAPI_PRO_KEY` | No | — | API key for ipapi.pro, used to geo-locate visitors and redirect them to a locale-appropriate page. | IP-based locale detection | Register at ipapi.pro |
 | `TURNSTILE_SITE_KEY` | No | — | Cloudflare Turnstile public site key, embedded in the lead-capture form. | Bot-protection on lead forms | Must also set `TURNSTILE_SECRET_KEY` |
 | `TURNSTILE_SECRET_KEY` | No | — | Cloudflare Turnstile secret key, validated server-side. | Bot-protection on lead forms | Must also set `TURNSTILE_SITE_KEY` |
@@ -170,12 +170,15 @@ GitHub sync lets content editors commit YAML edits back to the repository automa
 | `GITHUB_BRANCH` | No | `main` | Branch to read from and commit to. | Branch targeting for sync operations | `GITHUB_SYNC_ENABLED=true` |
 | `GITHUB_AUTO_COMMIT_ENABLED` | No | `false` | Set to `true` to automatically commit local content changes to GitHub when files are saved. Requires `GITHUB_SYNC_ENABLED=true`. | Automatic commit on save | `GITHUB_SYNC_ENABLED=true` |
 | `GITHUB_AUTO_PULL_ENABLED` | No | `false` | Set to `true` to automatically pull remote changes from GitHub into the running server (triggered by a GitHub webhook). Requires `GITHUB_SYNC_ENABLED=true` and a registered webhook (auto-registered when `SITE_URL` is set). | Webhook-driven content pull | `GITHUB_SYNC_ENABLED=true`, `SITE_URL` |
-| `GITHUB_APP_CLIENT_ID` | No* | — | GitHub App **client ID** for staff Connect OAuth. Required in production when sync is enabled. | Per-user content commits | `GITHUB_SYNC_ENABLED=true`, production |
+| `GITHUB_APP_CLIENT_ID` | No* | — | GitHub App **client ID** for staff **login** OAuth and content Connect. Required for staff sign-in and for production content commits. | Staff auth + per-user content commits | App Email permission Read; production |
 | `GITHUB_APP_CLIENT_SECRET` | No* | — | GitHub App client secret. | OAuth code exchange | `GITHUB_APP_CLIENT_ID` |
 | `GITHUB_APP_SLUG` | No* | — | GitHub App slug (for install/docs URLs). | Connect setup | `GITHUB_APP_CLIENT_ID` |
 | `GITHUB_CONNECT_REQUIRED` | No | `false` | Set to `true` to force Connect for user commits even outside production (local testing). Still requires `GITHUB_SYNC_ENABLED=true`. | Dev Connect UI / commit gate | `GITHUB_SYNC_ENABLED=true`, App env |
+| `MCP_PUBLIC_URL` | No | `http://127.0.0.1:$MCP_PORT` | Public base URL of the MCP process (for OAuth return after GitHub staff login). | MCP GitHub login return | `MCP_PORT` |
 
-**GitHub Connect (production):** Create a GitHub App with Repository permission **Contents: Read and write**, install it on the content org/repo, set callback URL to `${SITE_URL}/api/github/oauth/callback`, and set `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, and `GITHUB_APP_SLUG`. Staff click **Connect** on the DebugBubble GitHub sync chip. Local/dev normally keeps using `GITHUB_TOKEN` for commits; set `GITHUB_CONNECT_REQUIRED=true` to exercise Connect locally. Tokens live in `data/github-user-tokens.json` (+ GCS when encryption is enabled).
+**Staff auth connectors vs GitHub content Connect:** Staff sign in through pluggable OAuth connectors (v1: GitHub only) and receive an **owned staff session** (7-day opaque token). Only pre-registered emails (Security → Pre-register) or the first admin bootstrap can get a session; verified GitHub email is required. Staff may paste an existing staff session token. Separately, **GitHub Connect** on the sync chip stores a commit token for content repo push — login can succeed without repo write. Create a GitHub App with **Account permissions → Email addresses: Read** and Repository **Contents: Read and write**, callback `${SITE_URL}/api/github/oauth/callback`, and set `GITHUB_APP_*`. Sessions: `data/staff-sessions.json`; commit tokens: `data/github-user-tokens.json` (+ GCS when encryption is enabled).
+
+**GitHub Connect (content):** After staff login, Connect binds the GitHub user token for production commits. Local/dev may still use `GITHUB_TOKEN` unless `GITHUB_CONNECT_REQUIRED=true`.
 
 ### Google Cloud Storage
 
@@ -213,8 +216,9 @@ These variables are embedded into the frontend bundle at build time by Vite. The
 
 | Variable | Required | Default | Description | Features enabled | Extra config needed |
 |---|---|---|---|---|---|
-| `VITE_BREATHECODE_HOST` | No | `https://breathecode.herokuapp.com` | Base URL for the Breathecode API as seen by the browser. Overrides the default endpoint for client-side Breathecode requests. | Client-side Breathecode API calls | None |
-| `VITE_BREATHECODE_TOKEN` | No | — | A Breathecode token pre-loaded into the browser for local development. Activates the debug toolbar and inline content editor without requiring a manual login. Do not set this in production. | Debug/edit mode in development | None |
+| `VITE_BREATHECODE_HOST` | No | `https://breathecode.herokuapp.com` | Base URL for the Breathecode API as seen by the browser (consumer forms). | Client-side Breathecode API calls | None |
+
+Staff CMS login no longer uses `VITE_BREATHECODE_TOKEN`. Use **Log in with GitHub** in DebugBubble (or paste a staff session).
 
 ---
 
@@ -228,8 +232,8 @@ npm run mcp
 
 The server starts on `MCP_PORT` (default `3001`) and is accessible through the main server at `/mcp/*` — the main Express process proxies those paths automatically, so clients only need to reach the main port.
 
-**Authentication:** Every MCP request must include an `Authorization: Bearer <MCP_API_KEY>` header. The server exits at startup if `MCP_API_KEY` is not set.
+**Authentication:** MCP OAuth uses the same **staff auth** as the CMS (GitHub login or paste staff session). Direct Bearer tokens must be owned staff sessions (or MCP access tokens issued after OAuth), not Breathecode tokens.
 
-**OAuth:** The MCP server implements an OAuth 2.0 authorisation-code flow backed by Breathecode token validation. This allows AI coding assistants that support OAuth to authenticate on behalf of a human editor. Pre-registered static clients can be configured with `OAUTH_CLIENT_ID` and `OAUTH_CLIENT_SECRET`; additional clients can register dynamically at `/oauth/register`.
+**OAuth:** Authorisation-code flow for AI assistants. Humans verify with GitHub (via the CMS) or by pasting a staff session. Pre-registered static clients: `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET`; dynamic registration at `/oauth/register`.
 
-**Public URL:** For OAuth redirects to work correctly in production, `SITE_URL` must be set to the base URL of the deployment. In development on Replit, `REPLIT_DEV_DOMAIN` is used automatically.
+**Public URL:** Set `SITE_URL` for the CMS (GitHub App callback). For MCP return after GitHub login, set `MCP_PUBLIC_URL` when the MCP origin is not `http://127.0.0.1:$MCP_PORT`.

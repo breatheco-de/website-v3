@@ -454,7 +454,11 @@ export function registerGithubRoutes(app: Express): void {
         return;
       }
 
-      const state = createOAuthState(username);
+      const state = createOAuthState({
+        purpose: "connect",
+        staffUsername: username,
+        returnTo: "/private/repository-sync",
+      });
       const url = getOAuthAuthorizeUrl(state);
 
       // JSON when client asks for it (Bearer session from DebugBubble).
@@ -477,14 +481,20 @@ export function registerGithubRoutes(app: Express): void {
     const failRedirect = (
       msg: string,
       extra?: Record<string, string | undefined>,
+      returnTo?: string,
     ) => {
+      const dest =
+        returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")
+          ? returnTo.split("?")[0]
+          : "/private/repository-sync";
       const q = new URLSearchParams({ github: "error", message: msg });
       if (extra) {
         for (const [key, value] of Object.entries(extra)) {
           if (value) q.set(key, value);
         }
       }
-      res.redirect(`/private/repository-sync?${q.toString()}`);
+      const join = dest.includes("?") ? "&" : "?";
+      res.redirect(`${dest}${join}${q.toString()}`);
     };
 
     try {
@@ -492,15 +502,6 @@ export function registerGithubRoutes(app: Express): void {
       const state = typeof req.query.state === "string" ? req.query.state : "";
       const oauthError =
         typeof req.query.error === "string" ? req.query.error : "";
-
-      if (oauthError) {
-        failRedirect(oauthError);
-        return;
-      }
-      if (!code || !state) {
-        failRedirect("Missing OAuth code or state");
-        return;
-      }
 
       const {
         consumeOAuthState,
@@ -510,13 +511,68 @@ export function registerGithubRoutes(app: Express): void {
         setUserGitHubToken,
       } = await import("../github-user-tokens");
 
-      const username = consumeOAuthState(state);
-      if (!username) {
-        failRedirect("Invalid or expired OAuth state. Try Connect again.");
+      const payload = state ? consumeOAuthState(state) : null;
+      const returnTo = payload?.returnTo;
+
+      if (oauthError) {
+        failRedirect(oauthError, undefined, returnTo);
+        return;
+      }
+      if (!code || !payload) {
+        failRedirect("Missing OAuth code or state", undefined, returnTo);
         return;
       }
 
       const exchanged = await exchangeOAuthCode(code);
+      const expiresIn =
+        typeof exchanged.expires_in === "number"
+          ? exchanged.expires_in
+          : 8 * 60 * 60;
+
+      if (payload.purpose === "login") {
+        const { fetchGitHubAuthIdentity } = await import(
+          "../staff-auth/connectors/github"
+        );
+        const { completeGitHubLogin } = await import("./staff-auth");
+        const { createSessionExchangeCode } = await import("../staff-session");
+        const identity = await fetchGitHubAuthIdentity(exchanged.access_token);
+        const result = await completeGitHubLogin({
+          accessToken: exchanged.access_token,
+          refreshToken: exchanged.refresh_token,
+          expiresIn,
+          identity,
+        });
+        const destRaw = returnTo || "/";
+        const destIsAbsolute = /^https?:\/\//i.test(destRaw);
+        const dest = destIsAbsolute
+          ? destRaw
+          : destRaw.startsWith("/") && !destRaw.startsWith("//")
+            ? destRaw
+            : "/";
+        if (!result.ok) {
+          const q = new URLSearchParams({
+            staff_auth: "error",
+            code: result.code,
+            message: result.error,
+          });
+          const join = dest.includes("?") ? "&" : "?";
+          res.redirect(`${dest}${join}${q.toString()}`);
+          return;
+        }
+        const exchange = createSessionExchangeCode(result.sessionToken);
+        const q = new URLSearchParams({ staff_session_code: exchange });
+        if (result.writeWarning) q.set("github_write", "missing");
+        const join = dest.includes("?") ? "&" : "?";
+        res.redirect(`${dest}${join}${q.toString()}`);
+        return;
+      }
+
+      const username = payload.staffUsername;
+      if (!username) {
+        failRedirect("Staff username required to Connect GitHub", undefined, returnTo);
+        return;
+      }
+
       const ghUser = await fetchGitHubUser(exchanged.access_token);
       const writeCheck = await verifyContentRepoWriteAccess(
         exchanged.access_token,
@@ -528,14 +584,10 @@ export function registerGithubRoutes(app: Express): void {
             code: writeCheck.code,
             repos: writeCheck.reposChecked.join(","),
           },
+          returnTo,
         );
         return;
       }
-
-      const expiresIn =
-        typeof exchanged.expires_in === "number"
-          ? exchanged.expires_in
-          : 8 * 60 * 60;
 
       await setUserGitHubToken(username, {
         accessToken: exchanged.access_token,

@@ -171,9 +171,9 @@ import { resolveDynamicEntries } from "../dynamic-entries";
 import { loadDatabaseSinglePage, mergeSingleTemplate } from "../database-single-loader";
 import { coerceProgramSlug } from "@shared/safe-href";
 import { getBaseUrl } from "../hreflang";
-import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
 import type { CapabilityName } from "../user-store";
+import { resolveOwnedStaffSession } from "../staff-session-resolve";
 import { child } from "../logger";
 const log = child({ module: "routes/_helpers" });
 
@@ -183,7 +183,7 @@ export const BREATHECODE_HOST =
   process.env.VITE_BREATHECODE_HOST || "https://breathecode.herokuapp.com";
 
 /**
- * Extract a Breathecode token from the request.
+ * Extract a staff session token from the request.
  * Checks Authorization header ("Token <token>") and X-Debug-Token header.
  */
 export function extractToken(req: Request): string | null {
@@ -197,7 +197,7 @@ export function extractToken(req: Request): string | null {
 /**
  * Verify that the requesting user has a specific capability.
  * In development mode, always grants access (returns authorized: true).
- * In production, validates the token via userManager and checks capability via userStore.
+ * In production, validates the owned staff session and checks capability via userStore.
  *
  * Returns { authorized, token, username }.
  * If not authorized, writes the appropriate error response before returning.
@@ -227,9 +227,9 @@ export async function requireCapability(
     // (set ENFORCE_CAPS_IN_DEV=1 to exercise production-like capability checks).
     if (token) {
       try {
-        const profile = await userManager.validateToken(token);
-        if (profile.valid && profile.username) {
-          return { authorized: true, token, username: profile.username, author: profile.username };
+        const session = await resolveOwnedStaffSession(token);
+        if (session) {
+          return { authorized: true, token, username: session.username, author: session.username };
         }
       } catch {
         // Ignore errors in dev
@@ -258,20 +258,18 @@ export async function requireCapability(
     return { authorized: false, token: null, username: null, author: null };
   }
 
-  const profile = await userManager.validateToken(token);
-  if (!profile.valid || !profile.username) {
+  const session = await resolveOwnedStaffSession(token);
+  if (!session) {
     res.status(401).json({ error: "Your session has expired. Please log in again." });
     return { authorized: false, token, username: null, author: null };
   }
 
-  if (!userStore.hasCapability(profile.username, capName, resolvedContentType)) {
+  if (!userStore.hasCapability(session.username, capName, resolvedContentType)) {
     res.status(403).json({ error: `Insufficient permissions: ${capName} required` });
-    return { authorized: false, token, username: profile.username, author: null };
+    return { authorized: false, token, username: session.username, author: null };
   }
 
-  // author = resolved Breathecode username (the single commit-author resolution path)
-  const author = await userManager.resolveCommitAuthor(token);
-  return { authorized: true, token, username: profile.username, author };
+  return { authorized: true, token, username: session.username, author: session.username };
 }
 
 /**
@@ -298,9 +296,9 @@ export async function requireAnyCapability(
   if (isDevelopment && !enforceCapsInDev) {
     if (token) {
       try {
-        const profile = await userManager.validateToken(token);
-        if (profile.valid && profile.username) {
-          return { authorized: true, token, username: profile.username, author: profile.username };
+        const session = await resolveOwnedStaffSession(token);
+        if (session) {
+          return { authorized: true, token, username: session.username, author: session.username };
         }
       } catch {
         // Ignore errors in dev
@@ -325,27 +323,26 @@ export async function requireAnyCapability(
     return { authorized: false, token: null, username: null, author: null };
   }
 
-  const profile = await userManager.validateToken(token);
-  if (!profile.valid || !profile.username) {
+  const session = await resolveOwnedStaffSession(token);
+  if (!session) {
     res.status(401).json({ error: "Your session has expired. Please log in again." });
     return { authorized: false, token, username: null, author: null };
   }
 
-  const ok = capNames.some((c) => userStore.hasCapability(profile.username!, c, resolvedContentType));
+  const ok = capNames.some((c) => userStore.hasCapability(session.username, c, resolvedContentType));
   if (!ok) {
     res.status(403).json({
       error: `Insufficient permissions: ${capNames.join(" or ")} required`,
     });
-    return { authorized: false, token, username: profile.username, author: null };
+    return { authorized: false, token, username: session.username, author: null };
   }
 
-  const author = await userManager.resolveCommitAuthor(token);
-  return { authorized: true, token, username: profile.username, author };
+  return { authorized: true, token, username: session.username, author: session.username };
 }
 
 /**
- * Validates that the request carries a valid Breathecode staff token.
- * Does not require a specific capability — any authenticated staff session is enough.
+ * Validates that the request carries a valid owned staff session.
+ * Does not require a specific capability — any authenticated staff session with at least one role is enough.
  */
 export async function requireStaffSession(
   req: Request,
@@ -357,9 +354,9 @@ export async function requireStaffSession(
   if (isDevelopment) {
     if (token) {
       try {
-        const profile = await userManager.validateToken(token);
-        if (profile.valid && profile.username) {
-          return { authorized: true, token, username: profile.username };
+        const session = await resolveOwnedStaffSession(token);
+        if (session) {
+          return { authorized: true, token, username: session.username };
         }
       } catch {
         // Ignore errors in dev
@@ -373,13 +370,13 @@ export async function requireStaffSession(
     return { authorized: false, token: null, username: null };
   }
 
-  const profile = await userManager.validateToken(token);
-  if (!profile.valid || !profile.username) {
+  const session = await resolveOwnedStaffSession(token);
+  if (!session) {
     res.status(401).json({ error: "Your session has expired. Please log in again." });
     return { authorized: false, token, username: null };
   }
 
-  return { authorized: true, token, username: profile.username };
+  return { authorized: true, token, username: session.username };
 }
 
 /**
@@ -400,9 +397,9 @@ export async function requireMutatingStaff(
   if (isDevelopment && !enforceCapsInDev) {
     if (token) {
       try {
-        const profile = await userManager.validateToken(token);
-        if (profile.valid && profile.username) {
-          return { authorized: true, token, username: profile.username, author: profile.username };
+        const session = await resolveOwnedStaffSession(token);
+        if (session) {
+          return { authorized: true, token, username: session.username, author: session.username };
         }
       } catch {
         // Ignore errors in dev
@@ -427,21 +424,20 @@ export async function requireMutatingStaff(
     return { authorized: false, token: null, username: null, author: null };
   }
 
-  const profile = await userManager.validateToken(token);
-  if (!profile.valid || !profile.username) {
+  const session = await resolveOwnedStaffSession(token);
+  if (!session) {
     res.status(401).json({ error: "Your session has expired. Please log in again." });
     return { authorized: false, token, username: null, author: null };
   }
 
-  if (!userStore.canMutateMetrics(profile.username)) {
+  if (!userStore.canMutateMetrics(session.username)) {
     res.status(403).json({
       error: "Insufficient permissions: mutating metrics requires more than metrics_view",
     });
-    return { authorized: false, token, username: profile.username, author: null };
+    return { authorized: false, token, username: session.username, author: null };
   }
 
-  const author = await userManager.resolveCommitAuthor(token);
-  return { authorized: true, token, username: profile.username, author };
+  return { authorized: true, token, username: session.username, author: session.username };
 }
 
 /** True when the request is a trusted MCP server loopback call. */
