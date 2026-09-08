@@ -1085,14 +1085,20 @@ export function registerSectionsRoutes(app: Express): void {
         ];
       }
 
+      const isMcpRequest = typeof req.headers["x-mcp-author"] === "string";
+
       // The save-time hard stop: a section that fails its component's own
       // server-side validation never reaches a page. The rejection carries
       // the violations so the caller — usually an MCP agent — fixes the
       // section and retries; advisory warnings still save. Which components
       // validate what is the component registry's business, not this
-      // route's (shared/component-registry/server-hooks.ts).
+      // route's (shared/component-registry/server-hooks.ts). Hooks also see
+      // whether an agent authored the save (MCP saves can carry stricter
+      // rules, e.g. preview-first).
       if (Array.isArray(finalOperations)) {
-        const guard = await validateSectionOperations(finalOperations);
+        const guard = await validateSectionOperations(finalOperations, {
+          isMcpAuthor: isMcpRequest,
+        });
         if (!guard.ok) {
           res.status(422).json({
             error: guard.message,
@@ -1114,8 +1120,6 @@ export function registerSectionsRoutes(app: Express): void {
 
       const effectiveVersion =
         effectiveVariant && version !== undefined ? version : undefined;
-
-      const isMcpRequest = typeof req.headers["x-mcp-author"] === "string";
       const resolvedLayoutTarget =
         layoutTarget === "entry" || isTypeLayoutTarget(layoutTarget) ? layoutTarget : undefined;
 
