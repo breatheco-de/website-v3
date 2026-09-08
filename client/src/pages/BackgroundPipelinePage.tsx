@@ -1657,7 +1657,11 @@ function EventLogPanel({
             ) : null}
           </Button>
         </PopoverTrigger>
-        <PopoverContent side="bottom" align="end" className="w-80 space-y-3 p-3">
+        <PopoverContent
+          side="bottom"
+          align="end"
+          className="grid max-h-[min(70vh,30rem)] w-80 gap-x-4 gap-y-3 overflow-y-auto p-3 sm:w-[34rem] sm:grid-cols-2"
+        >
           <div className="space-y-1">
             <p className="text-xs font-medium">Agent session</p>
             <p className="text-[11px] text-muted-foreground leading-snug">
@@ -1843,7 +1847,7 @@ function EventLogPanel({
             <Button
               variant="ghost"
               size="sm"
-              className="w-full h-7 text-xs"
+              className="h-7 w-full text-xs sm:col-span-2"
               onClick={() => writeFilterView({ ...EVENT_LOG_VIEW_DEFAULTS })}
             >
               <IconX className="h-3.5 w-3.5 mr-1" />

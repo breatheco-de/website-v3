@@ -27,9 +27,9 @@ import {
   createPendingAuth,
   consumePendingAuth,
   peekPendingAuth,
-  validateBreathecodeToken,
-  updateClientBreathecodeUser,
-  registerBreathecodeToken,
+  validateStaffSessionToken,
+  updateClientStaffUser,
+  registerStaffSessionToken,
   getCachedBreathecodeUsername,
   initGcsStore,
   flushGcsWrites,
@@ -134,6 +134,20 @@ function resolveMcpRoleId(roleId: string): string {
   return resolved;
 }
 
+function getMcpPublicBase(): string {
+  return (
+    process.env.MCP_PUBLIC_URL ||
+    `http://127.0.0.1:${PORT}`
+  ).replace(/\/$/, "");
+}
+
+function getCmsBase(): string {
+  return (
+    process.env.SITE_URL ||
+    `http://localhost:${process.env.PORT || "5000"}`
+  ).replace(/\/$/, "");
+}
+
 function renderAuthorizePage(opts: {
   nonce: string;
   clientId: string;
@@ -146,9 +160,10 @@ function renderAuthorizePage(opts: {
   /** When set, only that auth method step is shown. */
   authStep?: "choose" | "token" | "login";
 }): string {
-  const base = getBase();
-  const breathecodeLoginUrl = `https://breathecode.herokuapp.com/v1/auth/view/login?url=${encodeURIComponent(
-    `${base}/oauth/callback?nonce=${opts.nonce}`,
+  const mcpBase = getMcpPublicBase();
+  const cmsBase = getCmsBase();
+  const githubStartUrl = `${cmsBase}/api/staff/oauth/github/start?return_to=${encodeURIComponent(
+    `${mcpBase}/oauth/staff-return?nonce=${opts.nonce}`,
   )}`;
   const step = opts.authStep || "choose";
 
@@ -180,21 +195,22 @@ function renderAuthorizePage(opts: {
   const chooseHtml = `
   <div class="card">
     <h2>How do you want to verify?</h2>
-    <p class="muted">Choose one method. You can go back and pick the other if needed.</p>
+    <p class="muted">Staff sign-in uses GitHub (or a pasted staff session). Only pre-registered people can get in.</p>
     <form method="GET" action="/oauth/authorize/step" class="stack">
       <input type="hidden" name="nonce" value="${escapeHtml(opts.nonce)}">
-      <button type="submit" name="method" value="login">Log in with Breathecode</button>
-      <button type="submit" name="method" value="token" class="secondary">Paste Breathecode token</button>
+      <button type="submit" name="method" value="login">Log in with GitHub</button>
+      <button type="submit" name="method" value="token" class="secondary">Paste staff session token</button>
     </form>
   </div>`;
 
   const tokenHtml = `
   <div class="card">
-    <h2>Paste your Breathecode token</h2>
+    <h2>Paste your staff session token</h2>
+    <p class="muted">Use a session from a signed-in CMS browser — not a GitHub or Breathecode token.</p>
     <form method="POST" action="/oauth/authorize">
       <input type="hidden" name="nonce" value="${escapeHtml(opts.nonce)}">
-      <label for="token">Breathecode API token</label>
-      <input type="text" id="token" name="token" placeholder="Paste your token here" autocomplete="off" required>
+      <label for="token">Staff session token</label>
+      <input type="text" id="token" name="token" placeholder="Paste your staff session token" autocomplete="off" required>
       <button type="submit">Verify &amp; Authorize</button>
     </form>
     <a class="back" href="/oauth/authorize/step?nonce=${encodeURIComponent(opts.nonce)}&amp;method=choose">← Choose a different method</a>
@@ -202,8 +218,9 @@ function renderAuthorizePage(opts: {
 
   const loginHtml = `
   <div class="card">
-    <h2>Log in with Breathecode</h2>
-    <a class="login-link" href="${escapeHtml(breathecodeLoginUrl)}">Continue to Breathecode login</a>
+    <h2>Log in with GitHub</h2>
+    <p class="muted">You need a verified email on GitHub. Only pre-registered staff can sign in.</p>
+    <a class="login-link" href="${escapeHtml(githubStartUrl)}">Continue to GitHub</a>
     <a class="back" href="/oauth/authorize/step?nonce=${encodeURIComponent(opts.nonce)}&amp;method=choose">← Choose a different method</a>
   </div>`;
 
@@ -249,7 +266,7 @@ function renderAuthorizePage(opts: {
 </head>
 <body>
   <h1>Authorize MCP Access</h1>
-  <p class="subtitle">Verify your Breathecode identity to grant MCP server access.</p>
+  <p class="subtitle">Verify your staff identity (GitHub or staff session) to grant MCP server access.</p>
   ${errorHtml}
   ${roleHtml}
   ${bodyCard}
@@ -359,33 +376,25 @@ async function authMiddleware(
     return;
   }
 
-  // Path 2: Breathecode token presented via Authorization: Bearer or X-Api-Key.
-  // Validate it against the main app's /api/debug/validate-token endpoint (which
-  // proxies Breathecode and enforces that the user has at least one CMS capability).
-  // The static SERVER_SECRET is intentionally NOT accepted here — it is an internal
-  // credential for outbound loopback calls only, never for inbound callers.
+  // Path 2: CMS staff session presented via Authorization: Bearer or X-Api-Key.
   const candidate = bearerToken || apiKeyHeader || "";
   if (candidate) {
-    // Fast path: check the 23hr in-memory/GCS-backed cache before hitting the network.
     const cachedUsername = getCachedBreathecodeUsername(candidate);
     if (cachedUsername) {
-      console.log(`[MCP] OAuth: using cached Breathecode token for ${cachedUsername}`);
+      console.log(`[MCP] OAuth: using cached staff session for ${cachedUsername}`);
       if (!(await ensureMcpRead(cachedUsername))) return;
       next();
       return;
     }
 
-    const validation = await validateBreathecodeToken(candidate);
+    const validation = await validateStaffSessionToken(candidate);
     if (validation.valid && validation.username) {
-      // Register this token in the in-memory lookup (with 23hr TTL) so
-      // getTokenUsername() works in checkCap() and the /mcp handler, and
-      // so subsequent requests hit the cache instead of the network.
-      registerBreathecodeToken(candidate, validation.username);
+      registerStaffSessionToken(candidate, validation.username);
       if (!(await ensureMcpRead(validation.username))) return;
       next();
       return;
     }
-    const errMsg = validation.error || "Breathecode token validation failed.";
+    const errMsg = validation.error || "Staff session validation failed.";
     res.status(401).json({ error: `Unauthorized. ${errMsg}` });
     return;
   }
@@ -633,11 +642,11 @@ app.post("/oauth/authorize", async (req, res) => {
   }
 
   if (!token || !token.trim()) {
-    await reRender("Please paste your Breathecode token.", "token");
+    await reRender("Please paste your staff session token.", "token");
     return;
   }
 
-  const validation = await validateBreathecodeToken(token.trim());
+  const validation = await validateStaffSessionToken(token.trim());
   if (!validation.valid) {
     await reRender(
       validation.error || "Token validation failed. Please check your token and try again.",
@@ -658,9 +667,8 @@ app.post("/oauth/authorize", async (req, res) => {
     }
   }
 
-  updateClientBreathecodeUser(
+  updateClientStaffUser(
     pending.clientId,
-    validation.userId ?? 0,
     validation.firstName ?? "",
     validation.lastName ?? "",
     validation.username,
@@ -678,6 +686,131 @@ app.post("/oauth/authorize", async (req, res) => {
   redirectUrl.searchParams.set("code", code);
   if (pending.state) redirectUrl.searchParams.set("state", pending.state);
 
+  res.redirect(redirectUrl.toString());
+});
+
+app.get("/oauth/staff-return", async (req, res) => {
+  const { nonce, staff_session_code, staff_auth, message } = req.query as Record<
+    string,
+    string
+  >;
+
+  if (!nonce) {
+    res.status(400).json({ error: "invalid_request", error_description: "nonce is required" });
+    return;
+  }
+
+  const pending = peekPendingAuth(nonce);
+  if (!pending) {
+    res.status(400).json({
+      error: "invalid_request",
+      error_description: "Invalid or expired session. Please start the authorization flow again.",
+    });
+    return;
+  }
+
+  const roleMeta = pending.roleId ? await fetchRoleInfo(pending.roleId) : null;
+
+  async function reRender(error: string) {
+    const freshNonce = createPendingAuth(
+      pending!.clientId,
+      pending!.redirectUri,
+      pending!.state,
+      pending!.roleId,
+    );
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(
+      renderAuthorizePage({
+        nonce: freshNonce,
+        clientId: pending!.clientId,
+        redirectUri: pending!.redirectUri,
+        error,
+        authStep: "choose",
+        roleId: roleMeta?.roleId ?? pending!.roleId,
+        roleLabel: roleMeta?.label,
+        roleDescription: roleMeta?.description,
+        allowedTools: roleMeta?.allowedTools,
+      }),
+    );
+  }
+
+  if (staff_auth === "error") {
+    await reRender(message || "GitHub sign-in failed");
+    return;
+  }
+
+  if (!staff_session_code) {
+    await reRender("Missing staff session after GitHub login");
+    return;
+  }
+
+  const cmsBase = getCmsBase();
+  let exchange: {
+    valid?: boolean;
+    token?: string;
+    username?: string;
+    userName?: string;
+    error?: string;
+  };
+  try {
+    const exchangeRes = await fetch(`${cmsBase}/api/staff/session/exchange`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: staff_session_code }),
+    });
+    exchange = (await exchangeRes.json()) as typeof exchange;
+  } catch (err) {
+    await reRender(`Could not reach CMS to finish login: ${(err as Error).message}`);
+    return;
+  }
+
+  if (!exchange.valid || !exchange.token) {
+    await reRender(exchange.error || "Staff session exchange failed");
+    return;
+  }
+
+  const consumed = consumePendingAuth(nonce);
+  if (!consumed) {
+    await reRender("Invalid or expired session. Please start again.");
+    return;
+  }
+
+  const validation = await validateStaffSessionToken(exchange.token);
+  if (!validation.valid || !validation.username) {
+    await reRender(validation.error || "Staff session invalid");
+    return;
+  }
+
+  if (consumed.roleId) {
+    const ctx = await fetchRoleContext(validation.username, consumed.roleId);
+    if (!ctx.ok) {
+      await reRender(
+        ctx.error ||
+          `You are not assigned the role '${consumed.roleId}'. Ask an administrator to assign it.`,
+      );
+      return;
+    }
+  }
+
+  updateClientStaffUser(
+    consumed.clientId,
+    validation.firstName ?? "",
+    validation.lastName ?? "",
+    validation.username,
+  );
+  registerStaffSessionToken(exchange.token, validation.username);
+
+  let redirectUrl: URL;
+  try {
+    redirectUrl = new URL(consumed.redirectUri);
+  } catch {
+    res.status(400).json({ error: "invalid_request", error_description: "redirect_uri is not a valid URL" });
+    return;
+  }
+
+  const code = generateCode(consumed.clientId, consumed.redirectUri);
+  redirectUrl.searchParams.set("code", code);
+  if (consumed.state) redirectUrl.searchParams.set("state", consumed.state);
   res.redirect(redirectUrl.toString());
 });
 
@@ -709,7 +842,7 @@ app.get("/oauth/callback", async (req, res) => {
     return;
   }
 
-  const validation = await validateBreathecodeToken(token.trim());
+  const validation = await validateStaffSessionToken(token.trim());
   if (!validation.valid) {
     console.warn("[MCP] OAuth callback: token validation failed —", validation.error);
     redirectUrl.searchParams.set("error", "access_denied");
@@ -727,9 +860,8 @@ app.get("/oauth/callback", async (req, res) => {
     }
   }
 
-  updateClientBreathecodeUser(
+  updateClientStaffUser(
     pending.clientId,
-    validation.userId ?? 0,
     validation.firstName ?? "",
     validation.lastName ?? "",
     validation.username,
@@ -894,7 +1026,7 @@ async function startServer(): Promise<void> {
   app.listen(PORT, "127.0.0.1", () => {
     console.log(`[MCP] Content-pages MCP server running on port ${PORT}`);
     console.log(`[MCP] Endpoint: http://127.0.0.1:${PORT}/mcp`);
-    console.log(`[MCP] Auth: OAuth 2.0 (primary); legacy Breathecode token header still accepted`);
+    console.log(`[MCP] Auth: OAuth 2.0 via CMS staff session (GitHub login or paste)`);
     console.log(`[MCP] OAuth: http://127.0.0.1:${PORT}/oauth/authorize`);
     console.log(
       `[MCP] OAuth registration: http://127.0.0.1:${PORT}/oauth/register`,

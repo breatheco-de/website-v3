@@ -47,6 +47,8 @@ interface SessionModalProps {
   getDebugToken: () => string | null;
   getDebugUserName: () => string | null;
   clearToken: () => void;
+  /** Opens shared staff logout confirm; session modal should close so confirm stays usable. */
+  onRequestStaffLogout?: () => void;
   handleCheckSession: () => void;
   isCheckingSession: boolean;
 }
@@ -86,7 +88,7 @@ function SessionTokenCard({ title, token, onLogout, testIdPrefix }: SessionToken
             variant="ghost"
             className="h-8 w-8 flex-shrink-0 text-muted-foreground hover:text-destructive"
             onClick={onLogout}
-            title={`Log out (destroy ${title.toLowerCase()} token)`}
+            title={`Log out`}
             data-testid={`button-${testIdPrefix}-logout`}
           >
             <LogOut className="h-4 w-4" />
@@ -136,6 +138,7 @@ export function SessionModal(props: SessionModalProps) {
     getDebugToken,
     getDebugUserName,
     clearToken,
+    onRequestStaffLogout,
     handleCheckSession,
     isCheckingSession,
   } = props;
@@ -231,7 +234,17 @@ export function SessionModal(props: SessionModalProps) {
             <SessionTokenCard
               title="Staff Session"
               token={debugToken}
-              onLogout={clearToken}
+              onLogout={() => {
+                onOpenChange(false);
+                // Defer so Session modal can unmount before confirm opens (Radix focus trap).
+                queueMicrotask(() => {
+                  if (onRequestStaffLogout) {
+                    onRequestStaffLogout();
+                  } else {
+                    clearToken();
+                  }
+                });
+              }}
               testIdPrefix="staff-session"
             />
 

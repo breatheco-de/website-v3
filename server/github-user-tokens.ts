@@ -46,8 +46,16 @@ const tokens = new Map<string, GitHubUserTokenEntry>();
 let loaded = false;
 let loadPromise: Promise<void> | null = null;
 
-/** Pending OAuth CSRF states: state → { username, expiresAt } */
-const oauthStates = new Map<string, { username: string; expiresAt: number }>();
+/** Pending OAuth CSRF states */
+export type GitHubOAuthPurpose = "login" | "connect";
+
+export interface GitHubOAuthStatePayload {
+  purpose: GitHubOAuthPurpose;
+  returnTo?: string;
+  staffUsername?: string;
+}
+
+const oauthStates = new Map<string, GitHubOAuthStatePayload & { expiresAt: number }>();
 
 export function isGitHubConnectRequired(): boolean {
   if (process.env.GITHUB_SYNC_ENABLED !== "true") return false;
@@ -143,21 +151,35 @@ export async function deleteUserGitHubToken(username: string): Promise<void> {
   persist();
 }
 
-export function createOAuthState(username: string): string {
+export async function rekeyUserGitHubToken(
+  oldUsername: string,
+  newUsername: string,
+): Promise<void> {
+  if (!oldUsername || oldUsername === newUsername) return;
+  await ensureLoaded();
+  const entry = tokens.get(oldUsername);
+  if (!entry) return;
+  tokens.delete(oldUsername);
+  tokens.set(newUsername, entry);
+  persist();
+}
+
+export function createOAuthState(payload: GitHubOAuthStatePayload): string {
   const state = crypto.randomBytes(24).toString("hex");
   oauthStates.set(state, {
-    username,
+    ...payload,
     expiresAt: Date.now() + 10 * 60 * 1000,
   });
   return state;
 }
 
-export function consumeOAuthState(state: string): string | null {
+export function consumeOAuthState(state: string): GitHubOAuthStatePayload | null {
   const entry = oauthStates.get(state);
   oauthStates.delete(state);
   if (!entry) return null;
   if (entry.expiresAt < Date.now()) return null;
-  return entry.username;
+  const { expiresAt: _expiresAt, ...payload } = entry;
+  return payload;
 }
 
 export function getOAuthCallbackUrl(): string {

@@ -9,6 +9,9 @@ import {
   type OrganicQueryMatchMode,
   type OrganicQueryUrlAggRow,
 } from "./gsc-bigquery-client";
+// Re-exported: mcp-server/lib/organic-traffic-mcp.ts imports the type from
+// this module (it owns the parse/validate surface for match modes).
+export type { OrganicQueryMatchMode } from "./gsc-bigquery-client";
 import {
   completeDataDates,
   listOrganicDayDates,
