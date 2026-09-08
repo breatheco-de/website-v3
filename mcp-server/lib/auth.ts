@@ -218,6 +218,21 @@ export async function denyUnlessContentViewOrSeo(
   return null;
 }
 
+/** metrics_view or seo_edit (any scope) — organic traffic / SEO metrics reads. */
+export async function denyUnlessMetricsViewOrSeo(
+  mcpToken: string | undefined,
+  grants: CatalogGrant[] | undefined,
+) {
+  if (!mcpToken) return null;
+  if (grants) {
+    if (hasCapAnyScope(grants, "metrics_view") || hasCapAnyScope(grants, "seo_edit")) return null;
+    return denyResponse("metrics_view|seo_edit");
+  }
+  if (await checkCap(mcpToken, "metrics_view")) return null;
+  if (await checkCap(mcpToken, "seo_edit")) return null;
+  return denyResponse("metrics_view|seo_edit");
+}
+
 import type { McpTextResult } from "./respond.js";
 
 /**

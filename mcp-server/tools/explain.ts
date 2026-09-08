@@ -44,7 +44,7 @@ const TOPIC_DESC: Record<string, string> = {
   local_databases:
     "Local YAML private DBs; MCP item CRUD; global index; FAQ database; sync + reindex",
   "component-behaviors": "CTA tracking, conversion_events catalog, CRM tags allowlist",
-  seo: "meta gates, locale seo:, clustering inventory, GSC/Bing reads, SEO diagnostics",
+  seo: "meta gates, locale seo:, clustering inventory, GSC/Bing reads, organic traffic, SEO diagnostics",
   funnel:
     "funnel.stage / products on _common.yml, money pages (decision), list_entries filters, inventory vs journey",
   ecommerce: "products, product scope paths, get_product_funnel journey (stage inventory → funnel)",
@@ -315,7 +315,7 @@ export function registerExplainTools(
       "'semantic_search' (Qdrant, local embeddings, vector_search config, keyword fallback), " +
       "'local_databases' (local YAML private DBs, MCP item CRUD, global index, FAQ database), " +
       "'component-behaviors' (CTA tracking, conversion_events, CRM tags allowlist), " +
-      "'seo' (meta gates, locale seo:, clustering, GSC/Bing, SEO diagnostics), " +
+      "'seo' (meta gates, locale seo:, clustering, GSC/Bing, organic traffic, SEO diagnostics), " +
       "'funnel' (funnel.stage/products, money pages, list_entries filters, inventory vs journey), " +
       "'ecommerce' (products, product scope paths, get_product_funnel journey; stage inventory → funnel), " +
       "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example), " +

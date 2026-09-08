@@ -6,6 +6,18 @@ window_days: 6
 
 entries:
   - date: "2026-09-07"
+    summary: "get_organic_traffic — GSC clicks/impressions (site/paths/clusters/opportunities)"
+    agent_impact:
+      - "New read-only tool get_organic_traffic (metrics_view|seo_edit). Exclusive mode per call; paths/hubs batched+deduped; soft partial for missing; empty batch fails."
+      - "Not URL Inspection and not kw_monthly_volume. Opportunities return a flattened items[] with kind + pagination. Unconfigured → configured:false soft ok."
+      - "Reconnect MCP so tools/list includes get_organic_traffic."
+    paths:
+      - mcp-server/tools/organic-traffic.ts
+      - mcp-server/lib/organic-traffic-mcp.ts
+      - shared/mcp-tool-catalog.ts
+      - mcp-server/explain/seo.md
+    tools_changed: true
+  - date: "2026-09-07"
     summary: "list_entries unified inventory (stats + paginated entries for all types)"
     agent_impact:
       - "No contentType → mode type_stats (per-type counts + next_actions). Pass contentType for paginated one-row-per-slug entries (static and catalog-sourced alike)."

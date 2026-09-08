@@ -1,6 +1,6 @@
 # SEO (meta, clusters, search engines)
 
-Call this topic for page SEO meta, topic clusters, GSC/Bing reads, and live meta gates.
+Call this topic for page SEO meta, topic clusters, GSC/Bing reads, organic traffic, and live meta gates.
 
 YAML merge / content types → topic `content_system`. Page funnel stage / money pages → topic `funnel`.
 
@@ -12,7 +12,19 @@ YAML merge / content types → topic `content_system`. Page funnel stage / money
 
 - `get_entry_seo`, `list_entry_seo`, `update_fields` (meta.* / seo.*)
 - `list_seo_clusters`, `list_seo_cluster_entries`, `get_seo_cluster`
+- `get_organic_traffic` — GSC clicks/impressions (day cache / site BigQuery); not inspection, not planning volume
 - `run_entry_diagnostics` with `categories: ["seo"]`
+
+### Organic traffic (`get_organic_traffic`)
+
+- **One mode per call:** `site` | `paths` | `clusters` | `opportunities`. Requires `metrics_view` or `seo_edit`.
+- **site:** Whole-site KPI from BigQuery site totals (cached ~1h). `market` ignored (`market_ignored_for_mode`).
+- **paths:** 1–50 public paths or absolute URLs after dedupe (not slugs). Soft partial: `traffic: null` + `missing_paths`; empty array fails. Resolve live URLs via `get_entry_seo.urls` then retry.
+- **clusters:** 1–25 hub ids / pillar paths. Per-hub traffic + `selection_totals` over **unique paths** (`selection_not_site` — not site-wide). Unknown hubs → `unknown_hubs` + `partial_batch`.
+- **opportunities:** Flattened Diagnostics cards into `items[]` with `kind` (`page2` | `low_ctr` | `link_gaps` | `decay` | `cannibalization` | `missing_serp`), paginated (`opportunities_limit` / `opportunities_offset`). Read-only (`pullLatest: false`); no day backfill / SERP refresh.
+- **Series:** `include_series` default false. Allowed for `site`, or paths/clusters when batch ≤ 5; else `series_skipped_batch_too_large`.
+- **Unconfigured:** Soft ok with `configured: false` + `organic_not_configured` (not a fake zero without the flag).
+- **Non-effects:** Not URL Inspection (`include_search_engines`); not `keyword_metrics` / `kw_monthly_volume`.
 
 ### SEO clustering (per-entry + hub inventory)
 

@@ -48,10 +48,11 @@ describe("allowedToolNames", () => {
     expect(admin.has("update_proposal")).toBe(false);
   });
 
-  it("Metrics Viewer sees identity tools plus get_validation_issues", () => {
+  it("Metrics Viewer sees identity tools plus get_validation_issues and get_organic_traffic", () => {
     const names = new Set(allowedToolNames(metricsViewer));
     expect(names.has("get_current_user")).toBe(true);
     expect(names.has("get_validation_issues")).toBe(true);
+    expect(names.has("get_organic_traffic")).toBe(true);
     expect(names.has("list_entries")).toBe(false);
     expect(names.has("run_entry_diagnostics")).toBe(false);
     expect(names.has("update_fields")).toBe(false);
@@ -73,6 +74,7 @@ describe("allowedToolNames", () => {
     expect(names.has("get_product_funnel")).toBe(true);
     expect(names.has("get_product_funnel_analytics")).toBe(true);
     expect(names.has("get_or_set_media_to_gallery")).toBe(true);
+    expect(names.has("get_organic_traffic")).toBe(false);
     expect(names.has("update_fields")).toBe(false);
     expect(names.has("create_entry")).toBe(false);
     expect(names.has("test_redirect")).toBe(false);
@@ -130,6 +132,7 @@ describe("allowedToolNames", () => {
     expect(names.has("list_seo_clusters")).toBe(true);
     expect(names.has("list_seo_cluster_entries")).toBe(true);
     expect(names.has("get_seo_cluster")).toBe(true);
+    expect(names.has("get_organic_traffic")).toBe(true);
     expect(names.has("run_entry_diagnostics")).toBe(true);
     expect(names.has("get_diagnostics_job")).toBe(true);
     expect(names.has("update_meta_fields")).toBe(true);

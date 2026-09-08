@@ -33,7 +33,7 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 | `semantic_search` | Qdrant, local embeddings, database `vector_search`, keyword fallback |
 | `local_databases` | Local YAML private DBs; MCP item CRUD; global index; FAQ database (`frequently_asked_questions`) |
 | `component-behaviors` | behaviors ids, CTA `tracking`, conversion_events catalog, CRM tags allowlist |
-| `seo` | meta gates, locale `seo:`, clustering inventory, GSC/Bing, SEO diagnostics |
+| `seo` | meta gates, locale `seo:`, clustering inventory, GSC/Bing, organic traffic, SEO diagnostics |
 | `funnel` | `funnel.stage` / products, money pages (`decision`), `list_entries` filters, inventory vs journey |
 | `ecommerce` | products, product scope property paths, `get_product_funnel` journey (stage inventory → `funnel`) |
 | `shared-layout` | `single_template` / DB shared shell; create_entry playbook; blog as example |
@@ -42,6 +42,6 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 | `redirects` | CMS 301/302: two stores, first-match, `test_redirect` (`read_redirects`) + `update_redirect` (`edit_redirects`) |
 | `proposals` | Entry change proposals + issue handoff notes: 3 tools, four-eyes apply; `list_proposals` is stats-first |
 
-**Metrics Viewer:** use `get_validation_issues` for open/resolved KPI stats (and scoped rows with `set`). Content agents keep `run_entry_diagnostics` to refresh/fix issues.
+**Metrics Viewer:** use `get_validation_issues` for open/resolved KPI stats (and scoped rows with `set`), and `get_organic_traffic` for GSC organic clicks (site / paths / clusters / opportunities). Content agents keep `run_entry_diagnostics` to refresh/fix issues; SEO agents with `seo_edit` also see `get_organic_traffic`.
 
 **Before making any structural change to this codebase, call `explain_site` with the relevant topic.**
