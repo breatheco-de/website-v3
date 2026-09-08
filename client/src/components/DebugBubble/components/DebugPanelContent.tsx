@@ -81,7 +81,8 @@ export interface DebugPanelContentProps {
   breathecodeHost: BreathecodeHost | null;
   retryValidation: () => void;
   clearToken: () => void;
-  logoutEverywhere?: () => Promise<void>;
+  /** Opens the shared staff logout confirm dialog (this browser / everywhere). */
+  onRequestStaffLogout?: () => void;
 
   githubSyncStatus: GitHubSyncStatus | null;
   pendingChanges: PendingChange[];
@@ -1182,30 +1183,16 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                       )}
                     </div>
                     {props.hasToken && (
-                      <div className="flex items-center gap-0.5">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-4 w-4 flex-shrink-0 text-muted-foreground hover:text-destructive"
-                          onClick={props.clearToken}
-                          title="Log out (this browser only)"
-                          data-testid="button-panel-staff-session-logout"
-                        >
-                          <LogOut className="h-[5.6px] w-[5.6px]" />
-                        </Button>
-                        {props.logoutEverywhere && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-5 px-1 text-[10px] text-muted-foreground hover:text-destructive"
-                            onClick={() => void props.logoutEverywhere?.()}
-                            title="Sign out everywhere (revoke all sessions)"
-                            data-testid="button-panel-staff-session-logout-all"
-                          >
-                            Everywhere
-                          </Button>
-                        )}
-                      </div>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-4 w-4 flex-shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => props.onRequestStaffLogout?.()}
+                        title="Log out"
+                        data-testid="button-panel-staff-session-logout"
+                      >
+                        <LogOut className="h-[5.6px] w-[5.6px]" />
+                      </Button>
                     )}
                   </div>
                   {versionData?.version && (

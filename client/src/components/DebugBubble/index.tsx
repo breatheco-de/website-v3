@@ -70,6 +70,7 @@ import { deslugify, detectContentInfo, getPersistedMenuView } from "./utils/debu
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 const ContentTypesYmlEditorPanel = lazy(() => import("@/components/editing/ContentTypesYmlEditorPanel"));
 import { SessionModal } from "./components/SessionModal";
+import { StaffLogoutConfirmDialog } from "./components/StaffLogoutConfirmDialog";
 import { SyncModal } from "./components/SyncModal";
 import { PullConflictModal } from "./components/PullConflictModal";
 import { ConfirmPullFileModal } from "./components/ConfirmPullFileModal";
@@ -217,6 +218,7 @@ export function DebugBubble() {
   const prevIsValidatedRef = useRef<boolean | null>(null);
   const [redirectsList, setRedirectsList] = useState<RedirectItem[]>([]);
   const [sessionModalOpen, setSessionModalOpen] = useState(false);
+  const [staffLogoutConfirmOpen, setStaffLogoutConfirmOpen] = useState(false);
   const [siteManagerModalOpen, setSiteManagerModalOpen] = useState(false);
   const [switchSiteModalOpen, setSwitchSiteModalOpen] = useState(false);
   const [tokenCopied, setTokenCopied] = useState(false);
@@ -2036,7 +2038,7 @@ export function DebugBubble() {
     breathecodeHost,
     retryValidation,
     clearToken,
-    logoutEverywhere,
+    onRequestStaffLogout: () => setStaffLogoutConfirmOpen(true),
     githubSyncStatus,
     pendingChanges,
     pendingChangesLoading,
@@ -2427,8 +2429,15 @@ export function DebugBubble() {
         getDebugToken={getDebugToken}
         getDebugUserName={getDebugUserName}
         clearToken={clearToken}
+        onRequestStaffLogout={() => setStaffLogoutConfirmOpen(true)}
         handleCheckSession={handleCheckSession}
         isCheckingSession={isCheckingSession}
+      />
+      <StaffLogoutConfirmDialog
+        open={staffLogoutConfirmOpen}
+        onOpenChange={setStaffLogoutConfirmOpen}
+        clearToken={clearToken}
+        logoutEverywhere={logoutEverywhere}
       />
       <SyncModal
         open={commitModalOpen}
