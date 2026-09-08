@@ -91,6 +91,11 @@ import {
 } from "../lib/shared-layout.js";
 import { isTemplateVersioningSlug, variantTemplateBasename } from "@shared/sharedLayoutPaths";
 import {
+  assessSlugLocaleMatch,
+  SLUG_LOCALE_MISMATCH_CODE,
+  slugLocaleMismatchWarningMessage,
+} from "@shared/slug-locale-heuristic";
+import {
   hintsAfterAddArticle,
   hintsAfterReplaceSections,
   prepareArticleAddStamp,
@@ -166,6 +171,36 @@ const UPDATED_AT_STAMP_WARNING: McpWarning = {
   message:
     "title / meta.page_title / meta.description / section copy or images bump locale updated_at to now (overwrites a manual backdate). seo.*, meta.robots, redirects, og_image, priority, and change_frequency do not. Explicit updated_at-only saves do not bump. Variant save does not change live sitemap lastmod until promote.",
 };
+
+/** Soft advisory when a public URL slug looks like the wrong language (EN/ES function words). */
+function pushSlugLocaleMismatchWarning(
+  warnings: McpWarning[],
+  publicSlug: string,
+  locale: string,
+  next_actions?: NextAction[],
+  fixHint?: { contentType: string; folderSlug: string; site?: string },
+): void {
+  const result = assessSlugLocaleMatch(publicSlug, locale);
+  if (result.ok) return;
+  warnings.push({
+    code: SLUG_LOCALE_MISMATCH_CODE,
+    message: slugLocaleMismatchWarningMessage(publicSlug, result),
+  });
+  if (next_actions && fixHint) {
+    next_actions.push({
+      tool: "update_fields",
+      priority: "optional",
+      reason: "Set a locale-fitting public URL slug if the mismatch was unintentional.",
+      args_hint: {
+        contentType: fixHint.contentType,
+        slug: fixHint.folderSlug,
+        locale,
+        updates: [{ field_path: "slug", value: "…" }],
+        ...(fixHint.site ? { site: fixHint.site } : {}),
+      },
+    });
+  }
+}
 
 function resolvedUpdatedAtFields(
   contentType: string,
@@ -3573,6 +3608,11 @@ export function registerPageTools(
         }
         renameResult = renamed.data;
         results.push(`slug rename → ${String(renamed.data.newSlug || slugRenameValue)}`);
+        pushSlugLocaleMismatchWarning(
+          warnings,
+          String(renamed.data.newSlug || slugRenameValue),
+          locale,
+        );
       }
 
       const side_effects: McpSideEffect[] = [...(bindingPropagateSideEffects(boundUpdates) || [])];
@@ -5708,6 +5748,12 @@ export function registerPageTools(
         });
       }
 
+      pushSlugLocaleMismatchWarning(warnings, slug, primaryLocale, next_actions, {
+        contentType,
+        folderSlug: slug,
+        site,
+      });
+
       const title =
         (normalizedLocales[primaryLocale]?.fields?.title as string | undefined) ||
         (typeof common.title === "string" ? common.title : undefined);
@@ -6924,6 +6970,7 @@ export function registerPageTools(
             `Draft locale slug set to "${localeUrlSlug}". URL uniqueness is validated at promote/publish, not on draft write.`,
         });
       }
+      pushSlugLocaleMismatchWarning(warnings, localeUrlSlug, target_locale);
       if (writeAsDraft) {
         const missing = draftMissingRequiredWarnings(resolved.config, common, localeData);
         if (missing.length > 0) {
@@ -7055,6 +7102,21 @@ export function registerPageTools(
             },
           ]
         : [];
+
+      if (!assessSlugLocaleMatch(localeUrlSlug, target_locale).ok) {
+        next_actions.push({
+          tool: "update_fields",
+          priority: "optional",
+          reason: "Set a locale-fitting public URL slug if the mismatch was unintentional.",
+          args_hint: {
+            contentType: resolved.contentType,
+            slug,
+            locale: target_locale,
+            updates: [{ field_path: "slug", value: "…" }],
+            ...(site ? { site } : {}),
+          },
+        });
+      }
 
       const sectionsArr = Array.isArray(localeData.sections) ? localeData.sections : [];
       return ok(

@@ -514,12 +514,49 @@ export function registerGithubRoutes(app: Express): void {
       const payload = state ? consumeOAuthState(state) : null;
       const returnTo = payload?.returnTo;
 
+      const loginDest = (raw?: string): string => {
+        const destRaw = (raw || "/").trim() || "/";
+        if (/^https?:\/\//i.test(destRaw)) {
+          try {
+            const u = new URL(destRaw);
+            u.search = "";
+            return u.toString().replace(/\?$/, "") || "/";
+          } catch {
+            return "/";
+          }
+        }
+        if (destRaw.startsWith("/") && !destRaw.startsWith("//")) {
+          return destRaw.split("?")[0] || "/";
+        }
+        return "/";
+      };
+
+      const failLoginRedirect = (msg: string, code?: string) => {
+        const dest = loginDest(returnTo);
+        const q = new URLSearchParams({ staff_auth: "error", message: msg });
+        if (code) q.set("code", code);
+        const join = dest.includes("?") ? "&" : "?";
+        res.redirect(`${dest}${join}${q.toString()}`);
+      };
+
       if (oauthError) {
+        if (payload?.purpose === "login") {
+          failLoginRedirect(oauthError);
+          return;
+        }
         failRedirect(oauthError, undefined, returnTo);
         return;
       }
       if (!code || !payload) {
-        failRedirect("Missing OAuth code or state", undefined, returnTo);
+        // State is in-memory — a mid-flow server restart loses it.
+        const missingMsg =
+          "Missing OAuth code or state. If the server restarted during login, try again.";
+        if (payload?.purpose === "login" || (!payload && !oauthError)) {
+          // No payload: treat as staff login attempt when return would be site home.
+          failLoginRedirect(missingMsg);
+          return;
+        }
+        failRedirect(missingMsg, undefined, returnTo);
         return;
       }
 
@@ -542,21 +579,9 @@ export function registerGithubRoutes(app: Express): void {
           expiresIn,
           identity,
         });
-        const destRaw = returnTo || "/";
-        const destIsAbsolute = /^https?:\/\//i.test(destRaw);
-        const dest = destIsAbsolute
-          ? destRaw
-          : destRaw.startsWith("/") && !destRaw.startsWith("//")
-            ? destRaw
-            : "/";
+        const dest = loginDest(returnTo);
         if (!result.ok) {
-          const q = new URLSearchParams({
-            staff_auth: "error",
-            code: result.code,
-            message: result.error,
-          });
-          const join = dest.includes("?") ? "&" : "?";
-          res.redirect(`${dest}${join}${q.toString()}`);
+          failLoginRedirect(result.error, result.code);
           return;
         }
         const exchange = createSessionExchangeCode(result.sessionToken);

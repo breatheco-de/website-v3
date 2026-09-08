@@ -38,6 +38,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import type { ContentInfo, SeoMeta, SeoLocation, SlugCheckStatus } from "../types";
 import { useResolveString } from "@/hooks/useVariables";
 import { cn } from "@/lib/utils";
+import {
+  assessSlugLocaleMatch,
+  slugLocaleAckKey,
+  slugLocaleMismatchHint,
+} from "@shared/slug-locale-heuristic";
 
 type OpenRushSerpHit = { url: string; rank: number };
 
@@ -244,8 +249,42 @@ export function SeoModal({
   const [canonicalEditing, setCanonicalEditing] = useState(false);
   const [canonicalAdvancedOpen, setCanonicalAdvancedOpen] = useState(false);
   const [refreshingSerp, setRefreshingSerp] = useState(false);
+  const [slugLocalePrompt, setSlugLocalePrompt] = useState(false);
+  const [slugLocaleAckKeyState, setSlugLocaleAckKeyState] = useState<string | null>(null);
   const { toast } = useToast();
   const formatSitePath = useFormatSitePath();
+
+  const slugLocaleAssessment = useMemo(
+    () => assessSlugLocaleMatch(newSlugValue, locale),
+    [newSlugValue, locale],
+  );
+  const currentSlugLocaleAck = slugLocaleAckKey(locale, newSlugValue);
+  const slugLocaleAcked =
+    !slugLocaleAssessment.ok && slugLocaleAckKeyState === currentSlugLocaleAck;
+  const slugLocaleHint =
+    !slugLocaleAssessment.ok ? slugLocaleMismatchHint(slugLocaleAssessment) : null;
+
+  useEffect(() => {
+    if (slugLocaleAckKeyState && slugLocaleAckKeyState !== currentSlugLocaleAck) {
+      setSlugLocaleAckKeyState(null);
+      setSlugLocalePrompt(false);
+    }
+  }, [currentSlugLocaleAck, slugLocaleAckKeyState]);
+
+  const onApplySlugRename = () => {
+    if (!slugLocaleAssessment.ok && !slugLocaleAcked) {
+      setSlugLocalePrompt(true);
+      return;
+    }
+    setSlugLocalePrompt(false);
+    handleSlugRenameClick();
+  };
+
+  const onConfirmSlugLocale = () => {
+    setSlugLocaleAckKeyState(currentSlugLocaleAck);
+    setSlugLocalePrompt(false);
+    handleSlugRenameClick();
+  };
 
   const liveProbePath = useMemo(
     () => resolveSeoLiveProbePath(seoData, seoMeta.canonical_url),
@@ -507,11 +546,12 @@ export function SeoModal({
                     />
                     {newSlugValue &&
                       newSlugValue !== currentLocaleSlug &&
-                      !slugRedirectPrompt && (
+                      !slugRedirectPrompt &&
+                      !slugLocalePrompt && (
                         <>
                           <Button
                             size="sm"
-                            onClick={handleSlugRenameClick}
+                            onClick={onApplySlugRename}
                             disabled={slugCheckStatus !== "available" || slugRenaming}
                             data-testid="button-rename-slug"
                           >
@@ -535,6 +575,8 @@ export function SeoModal({
                       onClick={() => {
                         setNewSlugValue(currentLocaleSlug);
                         setSlugRedirectPrompt(false);
+                        setSlugLocalePrompt(false);
+                        setSlugLocaleAckKeyState(null);
                         setSlugEditing(false);
                       }}
                       disabled={slugRenaming}
@@ -554,12 +596,52 @@ export function SeoModal({
                   {slugCheckStatus === "taken" && slugCheckReason && (
                     <p className="text-xs text-destructive">{slugCheckReason}</p>
                   )}
+                  {slugLocaleHint &&
+                    newSlugValue !== currentLocaleSlug &&
+                    slugCheckStatus !== "taken" &&
+                    !slugLocalePrompt && (
+                      <p className="text-xs text-amber-700 dark:text-amber-400" data-testid="text-slug-locale-hint">
+                        {slugLocaleHint} Confirm when you apply, or change the slug.
+                      </p>
+                    )}
                 </div>
               )}
               {slugRenameDisabled && !slugEditing && (
                 <p className="text-xs" data-testid="text-slug-rename-disabled-variant">
                   Slug rename is disabled while editing a variant. Open LIVE context to rename.
                 </p>
+              )}
+              {slugLocalePrompt && !slugLocaleAssessment.ok && (
+                <div
+                  className="space-y-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-foreground"
+                  data-testid="panel-slug-locale-confirm"
+                >
+                  <p className="text-sm font-medium">Slug may not match the language</p>
+                  <p className="text-xs text-muted-foreground">
+                    {slugLocaleMismatchHint(slugLocaleAssessment)} Confirm to keep{" "}
+                    <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-xs">{newSlugValue}</code>
+                    , or cancel and edit.
+                  </p>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      onClick={onConfirmSlugLocale}
+                      disabled={slugRenaming}
+                      data-testid="button-confirm-slug-locale"
+                    >
+                      Confirm and continue
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSlugLocalePrompt(false)}
+                      disabled={slugRenaming}
+                      data-testid="button-cancel-slug-locale"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
               )}
               {slugRedirectPrompt && (
                 <div className="space-y-3 rounded-md border p-3 text-foreground">

@@ -6,6 +6,16 @@ window_days: 6
 
 entries:
   - date: "2026-09-08"
+    summary: "slug_locale_mismatch soft warning on create_entry / translate_entry / live slug rename"
+    agent_impact:
+      - "Success warnings may include code slug_locale_mismatch when a public URL slug has clear opposite-locale function words (EN vs ES). Create/rename still succeeds; slug is not auto-rewritten."
+      - "Optional next_actions may suggest update_fields with field_path slug. No acknowledge flag; not a hard fail."
+      - "Reconnect not required (tool schemas unchanged)."
+    paths:
+      - shared/slug-locale-heuristic.ts
+      - mcp-server/tools/pages.ts
+    tools_changed: false
+  - date: "2026-09-08"
     summary: "Staff MCP auth is owned CMS sessions (GitHub login or paste) — not Breathecode tokens"
     agent_impact:
       - "OAuth authorize UI: Log in with GitHub (via CMS) or paste a staff session token. Breathecode paste/login removed."

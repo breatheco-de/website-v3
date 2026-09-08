@@ -325,9 +325,14 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     const staffAuthError = urlParams.get("staff_auth");
     const staffAuthMessage = urlParams.get("message");
 
-    if (staffAuthError === "error" && staffAuthMessage) {
+    const githubAuthError = urlParams.get("github");
+    if (
+      (staffAuthError === "error" || githubAuthError === "error") &&
+      staffAuthMessage
+    ) {
       setAuthError(staffAuthMessage);
       urlParams.delete("staff_auth");
+      urlParams.delete("github");
       urlParams.delete("code");
       urlParams.delete("message");
       const cleaned = `${window.location.pathname}${urlParams.toString() ? `?${urlParams}` : ""}${window.location.hash}`;
@@ -540,7 +545,8 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setAuthError(null);
     try {
-      const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}` || "/";
+      // Path only — do not round-trip prior staff_auth/github error query params.
+      const returnTo = window.location.pathname || "/";
       const res = await fetch(
         `/api/staff/oauth/github/start?format=json&return_to=${encodeURIComponent(returnTo)}`,
         { headers: { Accept: "application/json" } },
@@ -551,7 +557,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
         return;
       }
-      window.location.href = data.url;
+      window.location.assign(data.url);
     } catch (error) {
       console.error("GitHub login start error:", error);
       setAuthError("Could not start GitHub login");

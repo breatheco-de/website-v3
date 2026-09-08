@@ -185,9 +185,11 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
     // Never serve the SPA shell for API paths — callers expect JSON.
+    // Prefer originalUrl: Express `*` can leave req.path as "/" even for /api/...
     if (req.path.startsWith("/api/") || req.originalUrl.startsWith("/api/")) {
       if (!res.headersSent) {
-        res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+        const apiPath = (req.originalUrl || req.url || req.path).split("?")[0];
+        res.status(404).json({ error: `API route not found: ${req.method} ${apiPath}` });
       }
       return;
     }
@@ -331,7 +333,8 @@ export function serveStatic(app: Express) {
   app.use("*", async (_req, res) => {
     if (_req.path.startsWith("/api/") || _req.originalUrl.startsWith("/api/")) {
       if (!res.headersSent) {
-        res.status(404).json({ error: `API route not found: ${_req.method} ${_req.path}` });
+        const apiPath = (_req.originalUrl || _req.url || _req.path).split("?")[0];
+        res.status(404).json({ error: `API route not found: ${_req.method} ${apiPath}` });
       }
       return;
     }
