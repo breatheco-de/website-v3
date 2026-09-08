@@ -348,9 +348,13 @@ async function enhanceGeekchartSection(section: Record<string, unknown>): Promis
   section.html = "";
   if (!source) return;
   const duration = typeof section.duration === "number" ? section.duration : undefined;
+  // wide (hero placement): the chart renders at its natural width and the
+  // client lets the figure span past the article column; without it the
+  // chart is fitted to the column like an in-flow figure.
+  const wide = section.wide === true;
   try {
     section.html = await (await loadGeekchart()).renderToHtml(source, {
-      display: ARTICLE_COLUMN_PX,
+      ...(wide ? {} : { display: ARTICLE_COLUMN_PX }),
       ...(duration ? { duration } : {}),
     });
   } catch (err) {

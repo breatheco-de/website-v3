@@ -20,6 +20,10 @@ export const geekchartSectionSchema = z.object({
     .optional()
     .default(1)
     .describe("How long the build animation takes, in seconds (e.g. 6). Left empty, the chart plays at its designed pace."),
+  wide: z
+    .boolean()
+    .optional()
+    .describe("Hero placement: render at the chart's natural width, spanning wider than the article column."),
 });
 
 export type GeekchartSection = z.infer<typeof geekchartSectionSchema>;
