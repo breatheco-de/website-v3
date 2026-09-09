@@ -1143,7 +1143,11 @@
    The SVG reads these variables with dark fallbacks baked in; only the light
    palette needs declaring here. */
 .geekchart {
-  margin: 2rem 0;
+  /* auto side margins: the figure centers in whatever container it gets —
+     the article column for in-flow charts, the full-width section for
+     wide/hero charts. The old `2rem 0` zeroed the sides and overrode the
+     figure's mx-auto, leaving wide charts flush-left in their section. */
+  margin: 2rem auto;
 }
 .geekchart > div {
   display: flex;
