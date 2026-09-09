@@ -454,11 +454,7 @@ export function registerGithubRoutes(app: Express): void {
         return;
       }
 
-      const state = createOAuthState({
-        purpose: "connect",
-        staffUsername: username,
-        returnTo: "/private/repository-sync",
-      });
+      const state = createOAuthState(username);
       const url = getOAuthAuthorizeUrl(state);
 
       // JSON when client asks for it (Bearer session from DebugBubble).
@@ -481,20 +477,14 @@ export function registerGithubRoutes(app: Express): void {
     const failRedirect = (
       msg: string,
       extra?: Record<string, string | undefined>,
-      returnTo?: string,
     ) => {
-      const dest =
-        returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")
-          ? returnTo.split("?")[0]
-          : "/private/repository-sync";
       const q = new URLSearchParams({ github: "error", message: msg });
       if (extra) {
         for (const [key, value] of Object.entries(extra)) {
           if (value) q.set(key, value);
         }
       }
-      const join = dest.includes("?") ? "&" : "?";
-      res.redirect(`${dest}${join}${q.toString()}`);
+      res.redirect(`/private/repository-sync?${q.toString()}`);
     };
 
     try {
@@ -502,6 +492,15 @@ export function registerGithubRoutes(app: Express): void {
       const state = typeof req.query.state === "string" ? req.query.state : "";
       const oauthError =
         typeof req.query.error === "string" ? req.query.error : "";
+
+      if (oauthError) {
+        failRedirect(oauthError);
+        return;
+      }
+      if (!code || !state) {
+        failRedirect("Missing OAuth code or state");
+        return;
+      }
 
       const {
         consumeOAuthState,
@@ -511,68 +510,13 @@ export function registerGithubRoutes(app: Express): void {
         setUserGitHubToken,
       } = await import("../github-user-tokens");
 
-      const payload = state ? consumeOAuthState(state) : null;
-      const returnTo = payload?.returnTo;
-
-      if (oauthError) {
-        failRedirect(oauthError, undefined, returnTo);
-        return;
-      }
-      if (!code || !payload) {
-        failRedirect("Missing OAuth code or state", undefined, returnTo);
+      const username = consumeOAuthState(state);
+      if (!username) {
+        failRedirect("Invalid or expired OAuth state. Try Connect again.");
         return;
       }
 
       const exchanged = await exchangeOAuthCode(code);
-      const expiresIn =
-        typeof exchanged.expires_in === "number"
-          ? exchanged.expires_in
-          : 8 * 60 * 60;
-
-      if (payload.purpose === "login") {
-        const { fetchGitHubAuthIdentity } = await import(
-          "../staff-auth/connectors/github"
-        );
-        const { completeGitHubLogin } = await import("./staff-auth");
-        const { createSessionExchangeCode } = await import("../staff-session");
-        const identity = await fetchGitHubAuthIdentity(exchanged.access_token);
-        const result = await completeGitHubLogin({
-          accessToken: exchanged.access_token,
-          refreshToken: exchanged.refresh_token,
-          expiresIn,
-          identity,
-        });
-        const destRaw = returnTo || "/";
-        const destIsAbsolute = /^https?:\/\//i.test(destRaw);
-        const dest = destIsAbsolute
-          ? destRaw
-          : destRaw.startsWith("/") && !destRaw.startsWith("//")
-            ? destRaw
-            : "/";
-        if (!result.ok) {
-          const q = new URLSearchParams({
-            staff_auth: "error",
-            code: result.code,
-            message: result.error,
-          });
-          const join = dest.includes("?") ? "&" : "?";
-          res.redirect(`${dest}${join}${q.toString()}`);
-          return;
-        }
-        const exchange = createSessionExchangeCode(result.sessionToken);
-        const q = new URLSearchParams({ staff_session_code: exchange });
-        if (result.writeWarning) q.set("github_write", "missing");
-        const join = dest.includes("?") ? "&" : "?";
-        res.redirect(`${dest}${join}${q.toString()}`);
-        return;
-      }
-
-      const username = payload.staffUsername;
-      if (!username) {
-        failRedirect("Staff username required to Connect GitHub", undefined, returnTo);
-        return;
-      }
-
       const ghUser = await fetchGitHubUser(exchanged.access_token);
       const writeCheck = await verifyContentRepoWriteAccess(
         exchanged.access_token,
@@ -584,10 +528,14 @@ export function registerGithubRoutes(app: Express): void {
             code: writeCheck.code,
             repos: writeCheck.reposChecked.join(","),
           },
-          returnTo,
         );
         return;
       }
+
+      const expiresIn =
+        typeof exchanged.expires_in === "number"
+          ? exchanged.expires_in
+          : 8 * 60 * 60;
 
       await setUserGitHubToken(username, {
         accessToken: exchanged.access_token,
@@ -989,6 +937,92 @@ export function registerGithubRoutes(app: Express): void {
         return;
       }
       res.json({ entries: result.entries, repoUrl: result.repoUrl ?? null });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.get("/api/git/section-history", async (req, res) => {
+    try {
+      const filePath = req.query.file as string;
+      const sectionIdRaw = req.query.sectionId;
+      const sectionId =
+        typeof sectionIdRaw === "string" && sectionIdRaw.trim() ? sectionIdRaw.trim() : null;
+      const sectionIndex = parseInt(String(req.query.sectionIndex ?? ""), 10);
+      const limit = Math.min(parseInt(String(req.query.limit || "10"), 10) || 10, 20);
+      const cursor = typeof req.query.cursor === "string" ? req.query.cursor : null;
+
+      if (!filePath || typeof filePath !== "string") {
+        res.status(400).json({ error: "file query param required" });
+        return;
+      }
+      if (/[;&|`$<>]/.test(filePath) || filePath.includes("..") || path.isAbsolute(filePath)) {
+        res.status(400).json({ error: "Invalid file path" });
+        return;
+      }
+      if (!Number.isFinite(sectionIndex) || sectionIndex < 0) {
+        res.status(400).json({ error: "sectionIndex query param required (non-negative integer)" });
+        return;
+      }
+
+      const site = res.locals.site as { contentRootName?: string; config?: { githubRepoUrl?: string } } | undefined;
+      const { listSectionHistory } = await import("../github-graphql");
+      const result = await listSectionHistory({
+        filePath,
+        sectionId,
+        sectionIndex,
+        repoUrl: site?.config?.githubRepoUrl,
+        limit,
+        cursor,
+      });
+
+      if (!result.success && result.error === "GitHub not configured") {
+        res.status(503).json({
+          error: result.error,
+          entries: [],
+          hasMore: false,
+          nextCursor: null,
+          skipped: 0,
+        });
+        return;
+      }
+      if (!result.success && result.entries.length === 0 && result.error) {
+        res.status(502).json({
+          error: result.error,
+          entries: [],
+          hasMore: false,
+          nextCursor: null,
+          skipped: result.skipped,
+        });
+        return;
+      }
+
+      let entries = result.entries;
+      const contentRoot = site?.contentRootName;
+      if (contentRoot && entries.length > 0) {
+        try {
+          const { findLatestWriteEventsByCommitShas } = await import("../events/event-store");
+          const bySha = findLatestWriteEventsByCommitShas({
+            site: contentRoot,
+            path: filePath,
+            commitShas: entries.map((e) => e.sha),
+          });
+          entries = entries.map((e) => {
+            const attached = bySha.get(e.sha.trim().toLowerCase());
+            return attached ? { ...e, event: attached } : e;
+          });
+        } catch (err) {
+          log.warn({ err }, "[Git] Failed to attach events to section-history");
+        }
+      }
+
+      res.json({
+        entries,
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
+        skipped: result.skipped,
+        repoUrl: result.repoUrl ?? null,
+      });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

@@ -517,6 +517,8 @@ export interface FileCommitEntry {
   date: string;
   author: string;
   subject: string;
+  /** First parent commit SHA when present (for commit-vs-parent diffs). */
+  parentSha?: string | null;
 }
 
 /**
@@ -525,7 +527,12 @@ export interface FileCommitEntry {
  */
 export async function listFileCommits(
   filePath: string,
-  opts?: { repoUrl?: string; limit?: number },
+  opts?: {
+    repoUrl?: string;
+    limit?: number;
+    /** 1-based GitHub commits API page (for Load more / multi-batch scan). */
+    page?: number;
+  },
 ): Promise<{ success: boolean; entries: FileCommitEntry[]; error?: string; repoUrl?: string }> {
   const { getSiteConfigs } = await import("./site-config");
   const matchedSite = getSiteConfigs().find((site) => {
@@ -539,11 +546,13 @@ export async function listFileCommits(
   }
 
   const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 50);
+  const page = Math.max(1, opts?.page ?? 1);
   const url =
     `https://api.github.com/repos/${config.owner}/${config.repo}/commits` +
     `?path=${encodeURIComponent(filePath)}` +
     `&sha=${encodeURIComponent(config.branch)}` +
-    `&per_page=${limit}`;
+    `&per_page=${limit}` +
+    `&page=${page}`;
 
   try {
     const response = await fetch(url, {
@@ -578,11 +587,17 @@ export async function listFileCommits(
         row?.commit?.committer?.name ||
         row?.author?.login ||
         "";
+      const parents = Array.isArray(row?.parents) ? row.parents : [];
+      const parentSha =
+        parents[0] && typeof parents[0].sha === "string" && parents[0].sha
+          ? String(parents[0].sha)
+          : null;
       return {
         sha: String(row?.sha || ""),
         date,
         author,
         subject,
+        parentSha,
       };
     }).filter((e: FileCommitEntry) => e.sha);
 

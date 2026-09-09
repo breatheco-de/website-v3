@@ -23,6 +23,7 @@ import {
   getEventById,
   attachCommitShaToEvents,
   attachCommitShaForCommittedFiles,
+  findLatestWriteEventsByCommitShas,
 } from "./event-store";
 import { singleAttribution } from "./types";
 
@@ -560,6 +561,51 @@ describe("event-store", () => {
       const n = attachCommitShaForCommittedFiles("abc", [filePath], site);
       expect(n).toBe(1);
       expect(getEventById(site, ev.id)!.payload.commitSha).toBe("abc");
+    });
+  });
+
+  describe("findLatestWriteEventsByCommitShas", () => {
+    it("returns newest event per sha for the path", () => {
+      const site = `${TEST_SITE}-lookup-${Date.now()}`;
+      const path = `${site}/pages/home/en.yml`;
+      const older = emitEvent({
+        site,
+        type: "entry_locale_saved",
+        attribution: singleAttribution("old@x.com", { type: "ui" }),
+        cause: "old cause",
+        payload: { path, parts: ["sections"], commitSha: "aaa1111bbb2222ccc3333ddd4444eee5555fff" },
+      });
+      const newer = emitEvent({
+        site,
+        type: "entry_locale_saved",
+        attribution: singleAttribution("new@x.com", {
+          type: "mcp",
+          client: "Cursor",
+          model: "claude-4-sonnet",
+        }),
+        cause: "new cause",
+        payload: { path, parts: ["sections"], commitSha: "aaa1111bbb2222ccc3333ddd4444eee5555fff" },
+      });
+      emitEvent({
+        site,
+        type: "entry_locale_saved",
+        payload: {
+          path: `${site}/pages/other/en.yml`,
+          parts: ["sections"],
+          commitSha: "aaa1111bbb2222ccc3333ddd4444eee5555fff",
+        },
+      });
+
+      const map = findLatestWriteEventsByCommitShas({
+        site,
+        path,
+        commitShas: ["AAA1111bbb2222ccc3333ddd4444eee5555fff"],
+      });
+      const hit = map.get("aaa1111bbb2222ccc3333ddd4444eee5555fff");
+      expect(hit?.id).toBe(newer.id);
+      expect(hit?.cause).toBe("new cause");
+      expect(hit?.attribution[0]?.author).toBe("new@x.com");
+      expect(older.id).not.toBe(newer.id);
     });
   });
 
