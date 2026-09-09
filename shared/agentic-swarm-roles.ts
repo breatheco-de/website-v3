@@ -8,6 +8,7 @@ import type { CapabilityName } from "./capabilities.js";
 export interface AgenticCapabilityGrant {
   name: CapabilityName;
   contentTypes?: string[] | "*";
+  databases?: string[] | "*";
 }
 
 export interface AgenticSwarmRoleDef {

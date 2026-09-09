@@ -14,16 +14,17 @@ import {
 } from "@shared/gcsKeys";
 import { gcs } from "./gcs";
 import {
-
   CAPABILITY_REGISTRY,
   SCOPED_CAPABILITIES,
   GLOBAL_CAPABILITIES,
   ALL_CAPABILITIES,
   CONTENT_MUTATE_CAPABILITIES,
   VIEW_ONLY_CAPABILITIES,
+  getCapabilityScopeKind,
   type ScopedCapability,
   type GlobalCapability,
   type CapabilityName,
+  type CapabilityScopeKind,
 } from "../shared/capabilities";
 import {
   AGENTIC_SWARM_ROLE_IDS,
@@ -34,8 +35,14 @@ import {
 import { child } from "./logger";
 const log = child({ module: "user-store" });
 
-export type { ScopedCapability, GlobalCapability, CapabilityName };
-export { SCOPED_CAPABILITIES, GLOBAL_CAPABILITIES, ALL_CAPABILITIES, CAPABILITY_REGISTRY };
+export type { ScopedCapability, GlobalCapability, CapabilityName, CapabilityScopeKind };
+export {
+  SCOPED_CAPABILITIES,
+  GLOBAL_CAPABILITIES,
+  ALL_CAPABILITIES,
+  CAPABILITY_REGISTRY,
+  getCapabilityScopeKind,
+};
 export {
   AGENTIC_SWARM_ROLE_IDS,
   AGENTIC_SWARM_ROLES_BY_ID,
@@ -59,7 +66,31 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 export interface CapabilityGrant {
   name: CapabilityName;
+  /** Scope for content_types caps (`*` = all current and future types). */
   contentTypes?: string[] | "*";
+  /** Scope for databases caps (`*` = all current and future private DBs). */
+  databases?: string[] | "*";
+}
+
+function cloneGrant(g: CapabilityGrant): CapabilityGrant {
+  return {
+    name: g.name,
+    ...(g.contentTypes !== undefined ? { contentTypes: g.contentTypes } : {}),
+    ...(g.databases !== undefined ? { databases: g.databases } : {}),
+  };
+}
+
+function mergeScopeField(
+  a: string[] | "*" | undefined,
+  b: string[] | "*" | undefined,
+): string[] | "*" | undefined {
+  if (a === "*" || b === "*") return "*";
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return Array.from(new Set([...a, ...b]));
+  }
+  if (Array.isArray(a)) return [...a];
+  if (Array.isArray(b)) return [...b];
+  return undefined;
 }
 
 export interface RoleDefinition {
@@ -157,7 +188,7 @@ const BUILT_IN_USER_ADMIN_ROLE: RoleDefinition = {
 const BUILT_IN_PLATFORM_STEWARD_ROLE: RoleDefinition = {
   label: "Platform Steward",
   description:
-    "Site health: diagnostics, runtime issues, redirects, SEO settings, content-type schema, and local databases. Use /mcp/role/platform_steward for update_content_type and reindex_database as well as SEO and redirect writes — not for user admin or infrastructure.",
+    "Site health: diagnostics, runtime issues, redirects, SEO settings, content-type schema, and private database definitions. Use /mcp/role/platform_steward for update_content_type, create_or_update_database, and reindex_database as well as SEO and redirect writes — not for row CRUD (needs Edit database data), user admin, or infrastructure.",
   capabilities: [
     { name: "metrics_view" },
     { name: "content_view", contentTypes: "*" },
@@ -209,10 +240,7 @@ function cloneRoleDefinition(def: RoleDefinition): RoleDefinition {
   return {
     label: def.label,
     description: def.description,
-    capabilities: def.capabilities.map((g) => ({
-      name: g.name,
-      ...(g.contentTypes !== undefined ? { contentTypes: g.contentTypes } : {}),
-    })),
+    capabilities: def.capabilities.map(cloneGrant),
     ...(def.agentic ? { agentic: true } : {}),
   };
 }
@@ -222,10 +250,7 @@ function agenticSwarmRoleFromCode(roleId: AgenticSwarmRoleId): RoleDefinition {
   return cloneRoleDefinition({
     label: def.label,
     description: def.description,
-    capabilities: def.capabilities.map((g) => ({
-      name: g.name,
-      ...(g.contentTypes !== undefined ? { contentTypes: g.contentTypes } : {}),
-    })),
+    capabilities: def.capabilities.map(cloneGrant),
     agentic: true,
   });
 }
@@ -473,6 +498,33 @@ export function migrateSeoEditSplit(roles: Record<string, RoleDefinition>): bool
   return changed;
 }
 
+/**
+ * Soft-migrate custom roles that have Edit text on all content types:
+ * add databases_edit_data with databases: "*".
+ * Built-ins (incl. platform_steward) are skipped — steward keeps databases_manage only.
+ * Blog-only (or any non-"*") content_edit_text does not auto-grant.
+ */
+export function ensureDatabasesEditDataOnAllContentEditors(
+  roles: Record<string, RoleDefinition>,
+): boolean {
+  let changed = false;
+  for (const [roleId, role] of Object.entries(roles)) {
+    if (isBuiltInRole(roleId) || role?.agentic || isAgenticSwarmRoleId(roleId)) continue;
+    if (!role?.capabilities) continue;
+    if (role.capabilities.some((g) => g.name === "databases_edit_data")) continue;
+
+    const textGrant = role.capabilities.find((g) => g.name === "content_edit_text");
+    if (!textGrant || textGrant.contentTypes !== "*") continue;
+
+    role.capabilities = [
+      ...role.capabilities,
+      { name: "databases_edit_data", databases: "*" },
+    ];
+    changed = true;
+  }
+  return changed;
+}
+
 /** True when grants include a mutating cap (not only metrics_view / content_view). */
 export function grantsCanMutateMetrics(caps: CapabilityGrant[]): boolean {
   return caps.some((g) => !VIEW_ONLY_CAPABILITIES.has(g.name));
@@ -493,6 +545,9 @@ function finishLoad(persist: "local" | "all"): void {
   }
   if (ensureDeleteVariantOnCreateVariantRoles(state.roles)) {
     log.info("[UserStore] Migrated custom roles: added content_delete_variant from content_create_variant");
+  }
+  if (ensureDatabasesEditDataOnAllContentEditors(state.roles)) {
+    log.info("[UserStore] Migrated custom roles: added databases_edit_data from content_edit_text:*");
   }
   if (ensureAgenticSwarmRoles(state.roles)) {
     log.info("[UserStore] Seeded agentic swarm roles");
@@ -941,20 +996,14 @@ export function getEffectiveCapabilities(username: string, email?: string): Capa
     for (const grant of role.capabilities) {
       const existing = grantMap.get(grant.name);
       if (!existing) {
-        grantMap.set(grant.name, { ...grant });
+        grantMap.set(grant.name, cloneGrant(grant));
       } else {
-        // Merge: "*" wins over a specific list
-        if (existing.contentTypes === "*" || grant.contentTypes === "*") {
-          grantMap.set(grant.name, { name: grant.name, contentTypes: "*" });
-        } else if (existing.contentTypes && grant.contentTypes) {
-          const merged = Array.from(
-            new Set([
-              ...(existing.contentTypes as string[]),
-              ...(grant.contentTypes as string[]),
-            ])
-          );
-          grantMap.set(grant.name, { name: grant.name, contentTypes: merged });
-        }
+        const merged: CapabilityGrant = { name: grant.name };
+        const contentTypes = mergeScopeField(existing.contentTypes, grant.contentTypes);
+        const databases = mergeScopeField(existing.databases, grant.databases);
+        if (contentTypes !== undefined) merged.contentTypes = contentTypes;
+        if (databases !== undefined) merged.databases = databases;
+        grantMap.set(grant.name, merged);
       }
     }
   }
@@ -968,22 +1017,39 @@ export function getUserRoles(username: string, email?: string): string[] {
   return findUserEntry(username, email)?.user.roles ?? [];
 }
 
-function grantAllowsCap(
+/**
+ * Whether a single grant authorizes `capName`.
+ * For content_types / databases scopeKind, `scope` is the content-type id or DB slug.
+ * Omit scope → fail-closed unless the grant is `"*"`.
+ */
+export function grantAllowsCap(
   grant: CapabilityGrant | undefined,
   capName: CapabilityName,
-  contentType?: string,
+  scope?: string,
 ): boolean {
   if (!grant) return false;
 
-  if (SCOPED_CAPABILITIES.includes(capName as ScopedCapability)) {
-    if (!contentType) {
+  const kind = getCapabilityScopeKind(capName);
+  if (kind === "content_types") {
+    if (!scope) {
       // No content type provided — only allow if the grant covers all content types.
       // Fail-closed for any scoped grant to prevent bypass via missing scope.
       return grant.contentTypes === "*";
     }
     if (grant.contentTypes === "*") return true;
     if (Array.isArray(grant.contentTypes)) {
-      return grant.contentTypes.includes(contentType);
+      return grant.contentTypes.includes(scope);
+    }
+    return false;
+  }
+
+  if (kind === "databases") {
+    if (!scope) {
+      return grant.databases === "*";
+    }
+    if (grant.databases === "*") return true;
+    if (Array.isArray(grant.databases)) {
+      return grant.databases.includes(scope);
     }
     return false;
   }
@@ -992,19 +1058,43 @@ function grantAllowsCap(
 }
 
 /**
- * Check if a user has a specific capability, optionally scoped to a content type.
+ * Check if a user has a specific capability.
+ * Optional `scope` is a content-type id or database slug depending on the cap's scopeKind.
  */
 export function hasCapability(
   username: string,
   capName: CapabilityName,
-  contentType?: string
+  scope?: string
 ): boolean {
   const caps = getEffectiveCapabilities(username);
   return grantAllowsCap(
     caps.find((g) => g.name === capName),
     capName,
-    contentType,
+    scope,
   );
+}
+
+/**
+ * True when a databases_edit_data grant authorizes browse (any bank list/get).
+ * Requires `*` or a non-empty slug list — omit/empty fails closed.
+ * Used by requireDatabasesBrowseAccess (OR databases_manage).
+ */
+export function grantAllowsAnyDatabasesEditDataAccess(
+  grant: CapabilityGrant | undefined,
+): boolean {
+  if (!grant || grant.name !== "databases_edit_data") return false;
+  if (grant.databases === "*") return true;
+  return Array.isArray(grant.databases) && grant.databases.length > 0;
+}
+
+/**
+ * True when the user may browse any private database (list/get items/config).
+ * Requires databases_edit_data with `*` or a non-empty slug list — omit/empty fails closed.
+ * Callers that also accept Manage databases should OR hasCapability(..., "databases_manage").
+ */
+export function hasAnyDatabasesEditDataAccess(username: string): boolean {
+  const grant = getEffectiveCapabilities(username).find((g) => g.name === "databases_edit_data");
+  return grantAllowsAnyDatabasesEditDataAccess(grant);
 }
 
 /** Whether the user is assigned the given role id. */
@@ -1020,7 +1110,7 @@ export function hasCapabilityInRole(
   username: string,
   roleId: string,
   capName: CapabilityName,
-  contentType?: string,
+  scope?: string,
   email?: string,
 ): boolean {
   if (!userHasRole(username, roleId, email)) return false;
@@ -1030,7 +1120,7 @@ export function hasCapabilityInRole(
   return grantAllowsCap(
     role.capabilities.find((g) => g.name === capName),
     capName,
-    contentType,
+    scope,
   );
 }
 

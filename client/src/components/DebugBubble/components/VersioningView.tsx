@@ -48,6 +48,39 @@ interface VersioningViewProps {
   onOpenPageErrors?: (tab: PageErrorsTab) => void;
 }
 
+function formatRelativeUpdatedAt(iso: string): { relative: string; absolute: string } | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const diffMs = Math.max(0, Date.now() - date.getTime());
+  const mins = Math.floor(diffMs / 60000);
+  let relative: string;
+  if (mins < 1) relative = "just now";
+  else if (mins < 60) relative = `${mins}m ago`;
+  else {
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) relative = `${hrs}h ago`;
+    else {
+      const days = Math.floor(hrs / 24);
+      if (days < 30) relative = `${days}d ago`;
+      else {
+        const months = Math.floor(days / 30);
+        if (months < 12) relative = `${months}mo ago`;
+        else relative = `${Math.floor(days / 365)}y ago`;
+      }
+    }
+  }
+  return {
+    relative,
+    absolute: date.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }),
+  };
+}
+
 function DefaultLiveRowActions({
   locale,
   allocation,
@@ -189,6 +222,13 @@ export function VersioningView({
   });
   const writeCount = activityCountQuery.data?.writeCount ?? 0;
   const windowDays = activityCountQuery.data?.windowDays ?? ENTRY_ACTIVITY_WINDOW_DAYS;
+  // Keep the control visible in read mode while diagnostics (entryKey) or write count load.
+  const writeCountLoading =
+    !entryKey
+      ? pageDiagnosticsLoading
+      : activityCountQuery.data === undefined &&
+        (activityCountQuery.isPending || activityCountQuery.isFetching);
+  const showActivityButton = Boolean(entryKey) || pageDiagnosticsLoading;
   const locales = versioningData?.versioning ? Object.keys(versioningData.versioning) : [];
   const dialogLocales = locales.length > 0 ? locales : (versioningData?.availableLocales ?? ["en"]);
 
@@ -212,6 +252,9 @@ export function VersioningView({
     (versioningData?.title && versioningData.title.trim()) ||
     (contentInfo.slug ? deslugify(contentInfo.slug) : "") ||
     "Page details";
+  const updatedAtLabel = versioningData?.updatedAt
+    ? formatRelativeUpdatedAt(versioningData.updatedAt)
+    : null;
   const isDraftEntry = !!versioningData?.isDraft || versioningData?.hasLiveDefault === false;
   const liveLocales = (() => {
     const byLocale = versioningData?.liveByLocale;
@@ -458,7 +501,15 @@ export function VersioningView({
         navigate("/private");
         return;
       }
-      toast({ title: `Variant "${deleteTarget.slug}" deleted` });
+      const openProposalWarn = Array.isArray(data.warnings)
+        ? (data.warnings as Array<{ code?: string; message?: string }>).find(
+            (w) => w.code === "open_proposal_references_variant",
+          )
+        : undefined;
+      toast({
+        title: `Variant "${deleteTarget.slug}" deleted`,
+        description: openProposalWarn?.message,
+      });
       emitVariantDeleted({ contentType: contentInfo.type, slug: contentInfo.slug, locale: deleteTarget.locale, variantSlug: deleteTarget.slug });
       setDeleteTarget(null);
       if (onVersioningDataUpdate) {
@@ -775,6 +826,20 @@ export function VersioningView({
                 ) : (
                   <span className="shrink-0">{contentInfo.label}</span>
                 )}
+                {updatedAtLabel && (
+                  <>
+                    <span className="text-muted-foreground/50 shrink-0" aria-hidden>
+                      ·
+                    </span>
+                    <span
+                      className="truncate tabular-nums shrink min-w-0"
+                      title={updatedAtLabel.absolute}
+                      data-testid="text-versioning-updated-at"
+                    >
+                      {updatedAtLabel.relative}
+                    </span>
+                  </>
+                )}
                 {isTemplateVersioning && (
                   <>
                     <span className="text-muted-foreground/50 shrink-0" aria-hidden>
@@ -811,23 +876,36 @@ export function VersioningView({
                     <IconHistory className="h-3.5 w-3.5" />
                   </Button>
                 )}
-                {entryKey ? (
+                {showActivityButton ? (
                   <Button
                     size="sm"
                     variant="ghost"
                     className="h-7 gap-1 px-1.5 text-xs"
-                    onClick={() => setActivityOpen(true)}
+                    onClick={() => {
+                      if (!entryKey) return;
+                      setActivityOpen(true);
+                    }}
+                    disabled={!entryKey && writeCountLoading}
                     data-testid="button-open-versioning-activity"
-                    title={`Activity · ${writeCount} write${writeCount === 1 ? "" : "s"} in the last ${windowDays} days`}
-                    aria-label={`${writeCount} write${writeCount === 1 ? "" : "s"} in the last ${windowDays} days`}
+                    title={
+                      writeCountLoading
+                        ? `Activity · loading writes in the last ${windowDays} days`
+                        : `Activity · ${writeCount} write${writeCount === 1 ? "" : "s"} in the last ${windowDays} days`
+                    }
+                    aria-label={
+                      writeCountLoading
+                        ? `Loading writes in the last ${windowDays} days`
+                        : `${writeCount} write${writeCount === 1 ? "" : "s"} in the last ${windowDays} days`
+                    }
+                    aria-busy={writeCountLoading || undefined}
                   >
                     <IconRobot className="h-3.5 w-3.5" />
                     <Badge
                       variant="secondary"
-                      className="h-5 px-1.5 text-[10px] font-normal tabular-nums bg-muted text-muted-foreground border border-border shadow-none"
+                      className="h-5 min-w-5 px-1.5 text-[10px] font-normal tabular-nums bg-muted text-muted-foreground border border-border shadow-none"
                       data-testid="badge-versioning-activity-count"
                     >
-                      {writeCount}
+                      {writeCountLoading ? "…" : writeCount}
                     </Badge>
                   </Button>
                 ) : null}

@@ -6,6 +6,46 @@ window_days: 6
 
 entries:
   - date: "2026-09-09"
+    summary: "Database caps split: create_or_update_database + scoped databases_edit_data for rows"
+    agent_impact:
+      - "New create_or_update_database (databases_manage only): create writes empty local items YAML; update is deep patch with confirm:true preview. Does not push sync, wire CTs, or delete banks."
+      - "Item read tools need databases_edit_data OR databases_manage; item writes need databases_edit_data for that slug. content_edit_text no longer opens DB tools. platform_steward manage-only sees definition/reindex/reads, not row mutators."
+      - "Reconnect MCP; re-bootstrap_agent. explain_site topic local_databases documents definition vs rows."
+    paths:
+      - mcp-server/tools/databases.ts
+      - mcp-server/tools/pages.ts
+      - shared/mcp-tool-catalog.ts
+      - mcp-server/explain/local_databases.md
+      - mcp-server/explain/semantic_search.md
+      - server/database.ts
+    tools_changed: true
+  - date: "2026-09-09"
+    summary: "Proposal–variant collaboration (blockers, promote_on_apply, one proposal per draft)"
+    agent_impact:
+      - "propose_change supports variant + promote_on_apply + agent_session_id; empty updates OK for go-live drafts. One open proposal per variant (proposal_exists → join)."
+      - "update_proposal adds attach_variant, add_blocker, resolve_blocker, reopen_blocker. Open blockers block apply only. Claimant-only resolve; re-preview before apply."
+      - "delete_variant warns when an open proposal references the variant. Reconnect MCP; re-bootstrap_agent for conventions v10."
+    paths:
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/proposals.md
+      - mcp-server/agent-conventions.md
+      - server/content-proposals/service.ts
+    tools_changed: true
+  - date: "2026-09-09"
+    summary: "seo.refresh_tier + SEO field catalog (fill_intent / system_hints)"
+    agent_impact:
+      - "New locale seo.refresh_tier: fast|medium|evergreen (fact-staleness). Cannot clear — pick another tier. Omit to leave unchanged."
+      - "get_entry_fields attaches catalog fill_intent + system_hints for each seo.*; list_entries supports refresh_tier filter (seo-index only); get_entry_seo / list_entry_seo expose index.refresh_tier."
+      - "Pick help: get_entry_fields or explain_site topic seo. Reconnect MCP; re-bootstrap_agent for conventions v9."
+    paths:
+      - server/seo-field-defs.ts
+      - server/seo-fields.ts
+      - server/seo-index.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/seo.md
+      - mcp-server/agent-conventions.md
+    tools_changed: true
+  - date: "2026-09-09"
     summary: "list_entry_seo includes seo-index keyword / volume / difficulty"
     agent_impact:
       - "seo-entries / list_entry_seo now return main_keyword, kw_monthly_volume, kw_difficulty from the live seo-index (not OpenRush effective metrics)."

@@ -12,8 +12,10 @@ import {
   SEO_RESEARCH_WRITE_FIELDS,
   SEO_YAML_KEY,
   isKnownSeoFieldPath,
+  isSeoRefreshTier,
   seoFieldFromPath,
   type KnownSeoField,
+  type SeoRefreshTier,
   type SeoResearchMetricField,
 } from "./content-types";
 import type { ContentIndex } from "./content-index";
@@ -23,10 +25,13 @@ import { createPublicUrlResolver, toPublicUrlPath } from "./redirects";
 export {
   KNOWN_SEO_FIELDS,
   SEO_YAML_KEY,
+  SEO_REFRESH_TIERS,
   isKnownSeoFieldPath,
+  isSeoRefreshTier,
   seoFieldFromPath,
-};
-export type { KnownSeoField };
+  getSeoFieldDef,
+} from "./content-types";
+export type { KnownSeoField, SeoRefreshTier };
 
 const MAX_REDIRECT_HOPS = 12;
 
@@ -45,6 +50,8 @@ export type SeoBlock = {
   kw_difficulty?: number | null;
   pillar_path?: string | null;
   is_pillar?: boolean;
+  /** Fact-staleness tier for substantive refresh priority. */
+  refresh_tier?: SeoRefreshTier | null;
   intent?: string;
   focus_features?: string[];
   pillar?: string;
@@ -80,6 +87,19 @@ export function parseSeoResearchMetric(
   return { ok: false };
 }
 
+export type SeoSaveError = {
+  ok: false;
+  error: string;
+  code: string;
+};
+
+export type SeoSaveOk = {
+  ok: true;
+  coerced: SeoBlock;
+  warnings: SeoIndexWarning[];
+  pillarLive: boolean | null;
+};
+
 export function coerceSeoResearchMetrics(seo: SeoBlock): SeoSaveError | null {
   for (const field of SEO_RESEARCH_METRIC_FIELDS) {
     if (!(field in seo) || seo[field] === undefined) continue;
@@ -111,6 +131,54 @@ export function coerceSeoResearchMetrics(seo: SeoBlock): SeoSaveError | null {
   return null;
 }
 
+/** Validate refresh_tier on the merged block (null/missing OK; invalid string fails). */
+export function coerceSeoRefreshTier(seo: SeoBlock): SeoSaveError | null {
+  if (!("refresh_tier" in seo) || seo.refresh_tier === undefined) return null;
+  if (seo.refresh_tier === null) {
+    // Explicit null on disk/block after a clear attempt — reject clears at update time;
+    // leftover null from YAML: strip so inventory stays honest.
+    delete seo.refresh_tier;
+    return null;
+  }
+  if (!isSeoRefreshTier(seo.refresh_tier)) {
+    return {
+      ok: false,
+      error: "seo.refresh_tier must be fast, medium, or evergreen (cannot clear — pick another tier).",
+      code: "seo_refresh_tier_invalid",
+    };
+  }
+  return null;
+}
+
+/**
+ * Reject explicit clear/empty of refresh_tier in a write payload.
+ * Omitting the key leaves the prior value unchanged.
+ */
+export function assertRefreshTierWriteAllowed(
+  updates: Record<string, unknown>,
+): SeoSaveError | null {
+  for (const [rawKey, value] of Object.entries(updates)) {
+    const field = isKnownSeoFieldPath(rawKey) ? seoFieldFromPath(rawKey) : (rawKey as KnownSeoField);
+    if (field !== "refresh_tier") continue;
+    if (value === null || value === "" || value === undefined) {
+      return {
+        ok: false,
+        error:
+          "seo.refresh_tier cannot be cleared. Pick fast, medium, or evergreen (omit the field to leave unchanged).",
+        code: "seo_refresh_tier_clear_forbidden",
+      };
+    }
+    if (!isSeoRefreshTier(value)) {
+      return {
+        ok: false,
+        error: "seo.refresh_tier must be fast, medium, or evergreen.",
+        code: "seo_refresh_tier_invalid",
+      };
+    }
+  }
+  return null;
+}
+
 /**
  * If a write touches any research key (main_keyword / metrics), omitted metrics
  * are forced to null so stale estimates cannot survive a partial save.
@@ -135,19 +203,6 @@ export function applyResearchClearRule(
   }
   return out;
 }
-
-export type SeoSaveError = {
-  ok: false;
-  error: string;
-  code: string;
-};
-
-export type SeoSaveOk = {
-  ok: true;
-  coerced: SeoBlock;
-  warnings: SeoIndexWarning[];
-  pillarLive: boolean | null;
-};
 
 function yamlScalar(value: string): string {
   if (value === "") return '""';
@@ -283,6 +338,11 @@ export function normalizeSeoBlock(raw: SeoBlock): SeoBlock {
     const parsed = parseSeoResearchMetric(out[field]);
     out[field] = parsed.ok ? parsed.value : out[field];
   }
+  if (out.refresh_tier !== undefined && out.refresh_tier !== null && !isSeoRefreshTier(out.refresh_tier)) {
+    // Leave invalid for coerceSeoRefreshTier to reject when validating a save.
+  } else if (out.refresh_tier === null) {
+    delete out.refresh_tier;
+  }
   if (out.pillar_path === null) {
     delete out[LEGACY_SEO_PILLAR_KEY];
     const isPillarRaw = out.is_pillar as unknown;
@@ -371,6 +431,8 @@ export function validateSeoSave(opts: {
   const coerced = normalizeSeoBlock(opts.next);
   const metricErr = coerceSeoResearchMetrics(coerced);
   if (metricErr) return metricErr;
+  const tierErr = coerceSeoRefreshTier(coerced);
+  if (tierErr) return tierErr;
   const warnings: SeoIndexWarning[] = [];
   let pillarLive: boolean | null = null;
 
@@ -428,6 +490,11 @@ export function mergeSeoUpdates(current: SeoBlock, updates: Record<string, unkno
     const field = isKnownSeoFieldPath(rawKey) ? seoFieldFromPath(rawKey) : (rawKey as KnownSeoField);
     if (!field || !(KNOWN_SEO_FIELDS as readonly string[]).includes(field)) continue;
     if (value === undefined) continue;
+    if (field === "refresh_tier") {
+      // Clear/invalid rejected by assertRefreshTierWriteAllowed before merge.
+      if (isSeoRefreshTier(value)) next.refresh_tier = value;
+      continue;
+    }
     if (field === "is_pillar") {
       next.is_pillar = value === true || value === "true";
       continue;

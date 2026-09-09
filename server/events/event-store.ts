@@ -4,6 +4,7 @@
  */
 
 import {
+  AUTHOR_FILTER_NONE,
   ENTRY_ACTIVITY_WRITE_TYPES,
   eventMatchesAgentFilter,
   type AgentFilterId,
@@ -469,6 +470,11 @@ export type ListEventsOpts = {
   actors?: EventActorId[];
   /** Agent id or Staff & system sentinel; matched in app after SQL filters. */
   agent?: AgentFilterId;
+  /**
+   * Primary `attribution[0].author` exact match, or `AUTHOR_FILTER_NONE` for
+   * missing/empty primary author. Orthogonal to Actor / Agent filters.
+   */
+  author?: string;
   /** Entry keys (`contentType/slug/locale`); match resource triple or payload.entryKey. */
   entries?: string[];
   since?: number;
@@ -483,6 +489,13 @@ export type ListEventsOpts = {
   unscopedOnly?: boolean;
   limit?: number;
 };
+
+/** Cap distinct authors returned for the event-log Author picker. */
+export const EVENT_AUTHORS_LIST_CAP = 500;
+
+function primaryAuthorExpr(): string {
+  return `json_extract(attribution_json, '$[0].author')`;
+}
 
 const AGENT_SCAN_BATCH = 200;
 const AGENT_SCAN_MAX_BATCHES = 50;
@@ -561,6 +574,15 @@ function listEventsWhere(
     }
     clauses.push(`(${entryClauses.join(" OR ")})`);
   }
+  if (opts.author === AUTHOR_FILTER_NONE) {
+    const a = primaryAuthorExpr();
+    clauses.push(
+      `(attribution_json IS NULL OR attribution_json = '' OR attribution_json = '[]' OR ${a} IS NULL OR ${a} = '')`,
+    );
+  } else if (opts.author) {
+    clauses.push(`${primaryAuthorExpr()} = ?`);
+    params.push(opts.author);
+  }
   return { clauses, params };
 }
 
@@ -576,6 +598,29 @@ function listEventsSql(
     .prepare(`SELECT * FROM events WHERE ${clauses.join(" AND ")} ORDER BY id DESC LIMIT ?`)
     .all(...params) as Record<string, unknown>[];
   return rows.map(rowToEvent);
+}
+
+/**
+ * Distinct non-empty primary authors for a site (Author filter picker).
+ * Sorted case-insensitively; capped at {@link EVENT_AUTHORS_LIST_CAP}.
+ */
+export function listEventAuthors(site: string, limit = EVENT_AUTHORS_LIST_CAP): string[] {
+  ensureSchema(site);
+  const db = getSiteSqlite(site);
+  const cap = Math.min(Math.max(1, limit), EVENT_AUTHORS_LIST_CAP);
+  const a = primaryAuthorExpr();
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT ${a} AS author
+       FROM events
+       WHERE site = ?
+         AND ${a} IS NOT NULL
+         AND ${a} != ''
+       ORDER BY author COLLATE NOCASE ASC
+       LIMIT ?`,
+    )
+    .all(site, cap) as Array<{ author: string }>;
+  return rows.map((r) => r.author).filter((v) => typeof v === "string" && v.trim());
 }
 
 export function listEvents(opts: ListEventsOpts): ContentEvent[] {

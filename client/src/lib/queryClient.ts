@@ -2,6 +2,7 @@ import { QueryClient, QueryFunction, hashKey } from "@tanstack/react-query";
 import { getSessionHeaders } from "./sessionHeaders";
 import { getDebugToken } from "@/hooks/useDebugAuth";
 import { getDevSiteOverride } from "./devSite";
+import { maybeRetryWithProductionStaffToken } from "./productionStaffTokenGate";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -11,13 +12,16 @@ async function throwIfResNotOk(res: Response) {
 }
 
 export function apiFetch(url: string, init?: RequestInit): Promise<Response> {
-  return fetch(url, {
-    ...init,
-    headers: {
-      ...(init?.headers || {}),
-      ...getSessionHeaders(),
-    },
-  });
+  const doFetch = () =>
+    fetch(url, {
+      ...init,
+      headers: {
+        ...(init?.headers || {}),
+        ...getSessionHeaders(),
+      },
+    });
+
+  return doFetch().then((res) => maybeRetryWithProductionStaffToken(res, doFetch));
 }
 
 export async function apiRequest(
@@ -25,16 +29,18 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
-    method,
-    headers: {
-      ...(data ? { "Content-Type": "application/json" } : {}),
-      ...getSessionHeaders(),
-    },
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  const doFetch = () =>
+    fetch(url, {
+      method,
+      headers: {
+        ...(data ? { "Content-Type": "application/json" } : {}),
+        ...getSessionHeaders(),
+      },
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
 
+  const res = await maybeRetryWithProductionStaffToken(await doFetch(), doFetch);
   await throwIfResNotOk(res);
   return res;
 }
@@ -44,18 +50,21 @@ export async function apiRequestWithAuth(
   url: string,
   data?: unknown,
 ): Promise<Response> {
-  const token = getDebugToken();
-  const res = await fetch(url, {
-    method,
-    headers: {
-      ...(data ? { "Content-Type": "application/json" } : {}),
-      ...getSessionHeaders(),
-      ...(token ? { Authorization: `Token ${token}` } : {}),
-    },
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  const doFetch = () => {
+    const token = getDebugToken();
+    return fetch(url, {
+      method,
+      headers: {
+        ...(data ? { "Content-Type": "application/json" } : {}),
+        ...getSessionHeaders(),
+        ...(token ? { Authorization: `Token ${token}` } : {}),
+      },
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
+  };
 
+  const res = await maybeRetryWithProductionStaffToken(await doFetch(), doFetch);
   await throwIfResNotOk(res);
   return res;
 }
@@ -67,10 +76,13 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const url = Array.isArray(queryKey) ? (queryKey as string[]).join("/") : (queryKey as string);
-    const res = await fetch(url, {
-      credentials: "include",
-      headers: getSessionHeaders(),
-    });
+    const doFetch = () =>
+      fetch(url, {
+        credentials: "include",
+        headers: getSessionHeaders(),
+      });
+
+    const res = await maybeRetryWithProductionStaffToken(await doFetch(), doFetch);
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

@@ -173,6 +173,7 @@ import { coerceProgramSlug } from "@shared/safe-href";
 import { getBaseUrl } from "../hreflang";
 import * as userStore from "../user-store";
 import type { CapabilityName } from "../user-store";
+import { getCapabilityScopeKind } from "../user-store";
 import { resolveOwnedStaffSession } from "../staff-session-resolve";
 import { child } from "../logger";
 const log = child({ module: "routes/_helpers" });
@@ -194,10 +195,107 @@ export function extractToken(req: Request): string | null {
   return null;
 }
 
+type CapAuthResult = {
+  authorized: boolean;
+  token: string | null;
+  username: string | null;
+  author: string | null;
+};
+
+/**
+ * Resolve scope for hasCapability based on the cap's scopeKind.
+ * Database-scoped caps use DB slug (`params.name` / `database`); content-type caps keep CT ids.
+ * Passing an explicit `scope` always wins.
+ */
+export function resolveCapabilityScope(
+  req: Request,
+  capName: CapabilityName,
+  explicitScope?: string,
+): string | undefined {
+  if (explicitScope) return explicitScope;
+  const kind = getCapabilityScopeKind(capName);
+  const params = req.params as Record<string, string>;
+  if (kind === "databases") {
+    return (
+      params.name ||
+      params.database ||
+      (typeof req.body?.database === "string" ? req.body.database : undefined) ||
+      (typeof req.body?.name === "string" ? req.body.name : undefined) ||
+      undefined
+    );
+  }
+  if (kind === "content_types") {
+    return (
+      params.contentType ||
+      params.type ||
+      (typeof req.body?.contentType === "string" ? req.body.contentType : undefined) ||
+      (typeof req.body?.type === "string" ? req.body.type : undefined) ||
+      undefined
+    );
+  }
+  return undefined;
+}
+
+async function resolveStaffCapAuth(
+  req: Request,
+  res: Response,
+): Promise<CapAuthResult & { sessionUsername?: string }> {
+  const isDevelopment = process.env.NODE_ENV !== "production";
+  const enforceCapsInDev = process.env.ENFORCE_CAPS_IN_DEV === "1";
+  const token = extractToken(req);
+
+  if (isDevelopment && !enforceCapsInDev) {
+    if (token) {
+      try {
+        const session = await resolveOwnedStaffSession(token);
+        if (session) {
+          return { authorized: true, token, username: session.username, author: session.username };
+        }
+      } catch {
+        // Ignore errors in dev
+      }
+    }
+    return { authorized: true, token, username: null, author: null };
+  }
+
+  const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
+  if (MCP_SERVER_SECRET) {
+    const authHeader = req.headers.authorization || "";
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    if (bearerToken === MCP_SERVER_SECRET) {
+      const mcpAuthorHeader = req.headers["x-mcp-author"];
+      const author = typeof mcpAuthorHeader === "string" && mcpAuthorHeader ? mcpAuthorHeader : null;
+      return { authorized: true, token: bearerToken, username: author, author };
+    }
+  }
+
+  if (!token) {
+    res.status(401).json({ error: "Authorization required" });
+    return { authorized: false, token: null, username: null, author: null };
+  }
+
+  const session = await resolveOwnedStaffSession(token);
+  if (!session) {
+    res.status(401).json({ error: "Your session has expired. Please log in again." });
+    return { authorized: false, token, username: null, author: null };
+  }
+
+  return {
+    authorized: true,
+    token,
+    username: session.username,
+    author: session.username,
+    sessionUsername: session.username,
+  };
+}
+
 /**
  * Verify that the requesting user has a specific capability.
  * In development mode, always grants access (returns authorized: true).
  * In production, validates the owned staff session and checks capability via userStore.
+ *
+ * Optional `scope` is a content-type id or database slug depending on the cap's scopeKind.
+ * If omitted, scope is resolved from the request (see resolveCapabilityScope).
  *
  * Returns { authorized, token, username }.
  * If not authorized, writes the appropriate error response before returning.
@@ -206,138 +304,89 @@ export async function requireCapability(
   req: Request,
   res: Response,
   capName: CapabilityName,
-  contentType?: string
-): Promise<{ authorized: boolean; token: string | null; username: string | null; author: string | null }> {
-  // Resolve effective content type: prefer the explicit arg, then fall back to
-  // common request locations so scoped routes that omit the arg are still enforced.
-  const resolvedContentType: string | undefined =
-    contentType ||
-    (req.params as Record<string, string>).contentType ||
-    (req.params as Record<string, string>).type ||
-    req.body?.contentType ||
-    req.body?.type ||
-    undefined;
-
-  const isDevelopment = process.env.NODE_ENV !== "production";
-  const enforceCapsInDev = process.env.ENFORCE_CAPS_IN_DEV === "1";
-  const token = extractToken(req);
-
-  if (isDevelopment && !enforceCapsInDev) {
-    // In dev mode, resolve username from token if present, but always allow
-    // (set ENFORCE_CAPS_IN_DEV=1 to exercise production-like capability checks).
-    if (token) {
-      try {
-        const session = await resolveOwnedStaffSession(token);
-        if (session) {
-          return { authorized: true, token, username: session.username, author: session.username };
-        }
-      } catch {
-        // Ignore errors in dev
-      }
-    }
-    return { authorized: true, token, username: null, author: null };
+  scope?: string
+): Promise<CapAuthResult> {
+  const base = await resolveStaffCapAuth(req, res);
+  if (!base.authorized) return base;
+  // Dev / MCP bypass already authorized without a session capability check.
+  if (!base.sessionUsername) {
+    return { authorized: true, token: base.token, username: base.username, author: base.author };
   }
 
-  // Trusted-internal bypass: MCP server loopback calls send
-  // "Authorization: Bearer <MCP_SERVER_SECRET>" (not the standard
-  // "Token <...>" format that extractToken parses). Read it directly here,
-  // mirroring the same pattern used in /api/auth/check-capability.
-  const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
-  if (MCP_SERVER_SECRET) {
-    const authHeader = req.headers.authorization || "";
-    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-    if (bearerToken === MCP_SERVER_SECRET) {
-      const mcpAuthorHeader = req.headers["x-mcp-author"];
-      const author = typeof mcpAuthorHeader === "string" && mcpAuthorHeader ? mcpAuthorHeader : null;
-      return { authorized: true, token: bearerToken, username: author, author };
-    }
-  }
-
-  if (!token) {
-    res.status(401).json({ error: "Authorization required" });
-    return { authorized: false, token: null, username: null, author: null };
-  }
-
-  const session = await resolveOwnedStaffSession(token);
-  if (!session) {
-    res.status(401).json({ error: "Your session has expired. Please log in again." });
-    return { authorized: false, token, username: null, author: null };
-  }
-
-  if (!userStore.hasCapability(session.username, capName, resolvedContentType)) {
+  const resolvedScope = resolveCapabilityScope(req, capName, scope);
+  if (!userStore.hasCapability(base.sessionUsername, capName, resolvedScope)) {
     res.status(403).json({ error: `Insufficient permissions: ${capName} required` });
-    return { authorized: false, token, username: session.username, author: null };
+    return { authorized: false, token: base.token, username: base.sessionUsername, author: null };
   }
 
-  return { authorized: true, token, username: session.username, author: session.username };
+  return {
+    authorized: true,
+    token: base.token,
+    username: base.sessionUsername,
+    author: base.sessionUsername,
+  };
 }
 
 /**
  * Like requireCapability, but any one of the listed capabilities is enough.
+ * Each cap resolves its own scope from `scope` / the request (content type vs database slug).
  */
 export async function requireAnyCapability(
   req: Request,
   res: Response,
   capNames: CapabilityName[],
-  contentType?: string,
-): Promise<{ authorized: boolean; token: string | null; username: string | null; author: string | null }> {
-  const resolvedContentType: string | undefined =
-    contentType ||
-    (req.params as Record<string, string>).contentType ||
-    (req.params as Record<string, string>).type ||
-    req.body?.contentType ||
-    req.body?.type ||
-    undefined;
-
-  const isDevelopment = process.env.NODE_ENV !== "production";
-  const enforceCapsInDev = process.env.ENFORCE_CAPS_IN_DEV === "1";
-  const token = extractToken(req);
-
-  if (isDevelopment && !enforceCapsInDev) {
-    if (token) {
-      try {
-        const session = await resolveOwnedStaffSession(token);
-        if (session) {
-          return { authorized: true, token, username: session.username, author: session.username };
-        }
-      } catch {
-        // Ignore errors in dev
-      }
-    }
-    return { authorized: true, token, username: null, author: null };
+  scope?: string,
+): Promise<CapAuthResult> {
+  const base = await resolveStaffCapAuth(req, res);
+  if (!base.authorized) return base;
+  if (!base.sessionUsername) {
+    return { authorized: true, token: base.token, username: base.username, author: base.author };
   }
 
-  const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
-  if (MCP_SERVER_SECRET) {
-    const authHeader = req.headers.authorization || "";
-    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-    if (bearerToken === MCP_SERVER_SECRET) {
-      const mcpAuthorHeader = req.headers["x-mcp-author"];
-      const author = typeof mcpAuthorHeader === "string" && mcpAuthorHeader ? mcpAuthorHeader : null;
-      return { authorized: true, token: bearerToken, username: author, author };
-    }
-  }
-
-  if (!token) {
-    res.status(401).json({ error: "Authorization required" });
-    return { authorized: false, token: null, username: null, author: null };
-  }
-
-  const session = await resolveOwnedStaffSession(token);
-  if (!session) {
-    res.status(401).json({ error: "Your session has expired. Please log in again." });
-    return { authorized: false, token, username: null, author: null };
-  }
-
-  const ok = capNames.some((c) => userStore.hasCapability(session.username, c, resolvedContentType));
+  const ok = capNames.some((c) =>
+    userStore.hasCapability(base.sessionUsername!, c, resolveCapabilityScope(req, c, scope)),
+  );
   if (!ok) {
     res.status(403).json({
       error: `Insufficient permissions: ${capNames.join(" or ")} required`,
     });
-    return { authorized: false, token, username: session.username, author: null };
+    return { authorized: false, token: base.token, username: base.sessionUsername, author: null };
   }
 
-  return { authorized: true, token, username: session.username, author: session.username };
+  return {
+    authorized: true,
+    token: base.token,
+    username: base.sessionUsername,
+    author: base.sessionUsername,
+  };
+}
+
+/**
+ * Private Databases browse access: Manage databases, or Edit database data at any scope
+ * (`*` or a non-empty slug list). Fail closed if neither.
+ */
+export async function requireDatabasesBrowseAccess(
+  req: Request,
+  res: Response,
+): Promise<CapAuthResult> {
+  const base = await resolveStaffCapAuth(req, res);
+  if (!base.authorized) return base;
+  if (!base.sessionUsername) {
+    return { authorized: true, token: base.token, username: base.username, author: base.author };
+  }
+
+  const username = base.sessionUsername;
+  const ok =
+    userStore.hasCapability(username, "databases_manage") ||
+    userStore.hasAnyDatabasesEditDataAccess(username);
+  if (!ok) {
+    res.status(403).json({
+      error: "Insufficient permissions: databases_manage or databases_edit_data required",
+    });
+    return { authorized: false, token: base.token, username, author: null };
+  }
+
+  return { authorized: true, token: base.token, username, author: username };
 }
 
 /**

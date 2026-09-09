@@ -101,6 +101,11 @@ const OverlayRuntime = lazyWithRetry(() =>
 const BootstrapModal = lazyWithRetry(() =>
   import("@/components/BootstrapModal").then((m) => ({ default: m.BootstrapModal })),
 );
+const ProductionStaffTokenModalHost = lazyWithRetry(() =>
+  import("@/components/ProductionStaffTokenModalHost").then((m) => ({
+    default: m.ProductionStaffTokenModalHost,
+  })),
+);
 
 // DebugBubbleGate: lazy-load only when debug mode is on (URL, dismiss flag,
 // DEV, or non-expired staff token via useDebugAuth). Regular visitors never
@@ -291,6 +296,11 @@ function App({ ssrQueryClient }: AppProps = {}) {
             <Router />
             <ClientOnly>
               <Toaster />
+              {import.meta.env.DEV ? (
+                <Suspense fallback={null}>
+                  <ProductionStaffTokenModalHost />
+                </Suspense>
+              ) : null}
               <IdleMounted>
                 <Suspense fallback={null}><ChatWidget /></Suspense>
                 <DebugBubbleGate />

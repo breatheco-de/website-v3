@@ -71,6 +71,16 @@ When `update_fields` (or another mutate) is forbidden, call `propose_change` ins
 
 **Worked example:** missing `content_edit_text` on a blog CTA → `propose_change` with that entry’s `updates[]`, then tell the human a different editor must `update_proposal` with `action: "apply"`.
 
+### 2b. Proposal collaboration (claim vs blocker vs approve)
+
+Proposals are a shared work item, not a chat. Prefer one open proposal per draft variant (`proposal_exists` → join it).
+
+- **Claim** only when you will edit the draft / soft updates. **add_blocker** to leave review feedback (what’s wrong, what fixed looks like, why — min 80 chars; no tool shopping lists). Do not claim only to approve.
+- Only the **active claimant** may `resolve_blocker`. Do not resolve to overturn a disagreement — escalate or leave open; reviewers `reopen_blocker`.
+- Open blockers block **apply** only (reject/withdraw still OK). Cleared blockers ≠ ship — re-preview, then four-eyes `apply`. For `promote_on_apply`, confirm ending experiments when asked (`confirm_end_experiment`).
+
+**Worked example:** Blake adds a blocker on CTA product; Alex claims, fixes the draft, resolves with a note; Casey previews again then applies.
+
 ### 3. Cluster SEO only on live (or draft-before-live)
 
 Do not write `seo.*` on A/B experiment variants, and do not write draft SEO once any live locale exists. Promote over live keeps live `seo:` — edit the live locale after promote if clustering must change.
@@ -99,3 +109,9 @@ For `SEO_KEYWORD_RESEARCH_INCOMPLETE`:
 - **No reliable source:** do not claim, or claim→`release` blocked — never guess numbers.
 
 **Worked example:** OpenRush configured + keyword set without metrics → `refresh_keyword_metrics`, then revalidate — not `update_fields` with invented 1300/33.
+
+### 7. Set `seo.refresh_tier` when clustering / topic nature is known
+
+When enabling SEO clustering or classifying a page’s topic, set `seo.refresh_tier` to `fast`, `medium`, or `evergreen` (fact staleness — not traffic decay). Read `get_entry_fields` fill_intent or `explain_site` topic `seo` to pick. Cannot clear — change only by picking another tier. Revisit the tier when the page angle changes (e.g. concept explainer becomes a yearly “best of”). Per locale; translate does not copy.
+
+**Worked example:** turning clustering on for a “best AI tools 2026” post → `update_fields` with `seo.refresh_tier: "fast"` (after reading fill_intent if unsure).

@@ -220,6 +220,8 @@ export type InspectKeywordResult = {
   entry?: OpenRushKeywordEntry;
   error?: string;
   credits_note?: string;
+  /** Auth / account / disabled — bulk callers should abort remaining fetches. */
+  fatal?: boolean;
 };
 
 export async function inspectKeywordQuery(opts: {
@@ -230,9 +232,11 @@ export async function inspectKeywordQuery(opts: {
   const keyword = opts.keyword.trim();
   if (!keyword) return { ok: false, error: "keyword is required" };
   const key = getOpenRushApiKey();
-  if (!key) return { ok: false, error: "OPENRUSH_API_KEY is not set" };
+  if (!key) return { ok: false, error: "OPENRUSH_API_KEY is not set", fatal: true };
   const settings = getOpenRushSettings(opts.contentRoot);
-  if (!settings.enabled) return { ok: false, error: "OpenRush is disabled in settings" };
+  if (!settings.enabled) {
+    return { ok: false, error: "OpenRush is disabled in settings", fatal: true };
+  }
 
   const location = settings.location || "United States";
   const language = settings.language || "English";
@@ -256,7 +260,8 @@ export async function inspectKeywordQuery(opts: {
         (typeof body?.error === "string" && body.error) ||
         (typeof body?.message === "string" && body.message) ||
         `OpenRush HTTP ${res.status}`;
-      return { ok: false, error: message };
+      const fatal = res.status === 401 || res.status === 403 || res.status === 402;
+      return { ok: false, error: message, fatal };
     }
     const data = body?.data ?? body;
     const dataRec =

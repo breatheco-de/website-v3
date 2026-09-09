@@ -153,12 +153,18 @@ import {
   createDefaultFetchItems,
   resolveEntryList,
 } from "../lib/list-entries-resolve.js";
-import { isKnownSeoFieldPath, SEO_YAML_KEY, resolveEntryUpdatedAtDetail } from "../../server/content-types.js";
+import {
+  getSeoFieldDef,
+  isKnownSeoFieldPath,
+  SEO_REFRESH_TIERS,
+  SEO_YAML_KEY,
+  resolveEntryUpdatedAtDetail,
+} from "../../server/content-types.js";
 import {
   applyEditorialUpdatedAtToData,
   operationsFromLocalePayload,
 } from "../../server/editorial-updated-at.js";
-import { getSeoIndexEntry, SEO_INDEX_FILENAME } from "../../server/seo-index.js";
+import { getSeoIndexEntry, loadSeoIndex, SEO_INDEX_FILENAME } from "../../server/seo-index.js";
 import { buildSearchEnginesPagePayload } from "../../server/search-engines-page.js";
 import {
   assertSeoWriteLayerAllowed,
@@ -1297,6 +1303,7 @@ export function registerPageTools(
     "Optional detail:true adds safe non-body scalars (never full content/readme). " +
     "Optional filters (AND, entry mode): locale (strict — slug must have that locale), slugs, search, " +
     "funnel_stage / funnel_product / is_money_page (overlay _common.yml funnel; missing file = untagged). " +
+    "refresh_tier (fast|medium|evergreen|unset) filters via seo-index inventory only — pages with a YAML tier but no keyword/cluster signal are omitted. " +
     "is_money_page + conflicting funnel_stage fails. Funnel-filtered rows include funnel + is_money_page + stage_missing. " +
     "Create/delete of catalog-sourced identities still blocked — see get_content_type_info create_via. " +
     MULTI_SITE_TOOL_BLURB + " Requires content_view.",
@@ -1323,6 +1330,12 @@ export function registerPageTools(
         .boolean()
         .optional()
         .describe("true = funnel.stage is decision (BOFU money pages); false = not decision (includes untagged)"),
+      refresh_tier: z
+        .enum(["fast", "medium", "evergreen", "unset"])
+        .optional()
+        .describe(
+          "Filter by seo-index refresh_tier (fact-staleness). unset = inventory row with missing/null tier. Not GSC traffic decay.",
+        ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({
@@ -1336,6 +1349,7 @@ export function registerPageTools(
       funnel_stage: funnelStage,
       funnel_product: funnelProduct,
       is_money_page: isMoneyPage,
+      refresh_tier: refreshTierFilter,
       site,
     }) => {
       const viewDenied = await denyUnlessContentView(mcpToken, contentType, grants);
@@ -1444,13 +1458,56 @@ export function registerPageTools(
 
       const page = clampListPage(pageRaw);
       const limit = clampListLimit(limitRaw);
+
+      const warnings: McpWarning[] = [
+        {
+          code: "listing_vs_page_overrides",
+          message:
+            "List rows match site card resolve (cache + DB overrides). Page-only field_overrides are not applied here — use get_entry_fields for effective page fields.",
+        },
+      ];
+      const next_actions: NextAction[] = [];
+
+      let effectiveSlugs = slugs;
+      if (refreshTierFilter) {
+        try {
+          const index = loadSeoIndex(contentPath);
+          const matchedSlugs = new Set<string>();
+          for (const row of Object.values(index.entries)) {
+            if (row.content_type !== contentType) continue;
+            if (locale && row.locale !== locale) continue;
+            const tier = row.refresh_tier ?? null;
+            const ok =
+              refreshTierFilter === "unset" ? tier == null : tier === refreshTierFilter;
+            if (ok) matchedSlugs.add(row.slug);
+          }
+          if (slugs?.length) {
+            effectiveSlugs = slugs.filter((s) => matchedSlugs.has(s));
+          } else {
+            effectiveSlugs = [...matchedSlugs];
+          }
+          warnings.push({
+            code: "refresh_tier_inventory_only",
+            message:
+              "refresh_tier filter uses seo-index only. Pages with a YAML tier but no keyword/cluster signal are omitted until they are in inventory.",
+          });
+        } catch {
+          warnings.push({
+            code: "seo_index_unavailable",
+            message:
+              "seo-index.json could not be loaded — refresh_tier filter returned no rows. Rebuild the SEO index and retry.",
+          });
+          effectiveSlugs = [];
+        }
+      }
+
       const resolved = await resolveEntryList({
         contentType,
         domain,
         contentPath,
         contentFolder,
         locale,
-        slugs,
+        slugs: effectiveSlugs,
         search,
         funnelFilters: useFunnel ? funnelFilters : undefined,
         page,
@@ -1462,14 +1519,6 @@ export function registerPageTools(
         return fail(resolved.error, { code: "catalog_unreachable" });
       }
 
-      const warnings: McpWarning[] = [
-        {
-          code: "listing_vs_page_overrides",
-          message:
-            "List rows match site card resolve (cache + DB overrides). Page-only field_overrides are not applied here — use get_entry_fields for effective page fields.",
-        },
-      ];
-      const next_actions: NextAction[] = [];
       if (useFunnel) {
         warnings.push(
           {
@@ -1502,6 +1551,7 @@ export function registerPageTools(
             ...(funnelStage ? { funnel_stage: funnelStage } : {}),
             ...(funnelProduct ? { funnel_product: funnelProduct } : {}),
             ...(isMoneyPage !== undefined ? { is_money_page: isMoneyPage } : {}),
+            ...(refreshTierFilter ? { refresh_tier: refreshTierFilter } : {}),
           },
           reason: "Fetch next page of entries",
         });
@@ -1726,10 +1776,10 @@ export function registerPageTools(
   mcp.tool(
     "get_entry_seo",
     "Get the SEO/meta block plus structured-data preview for a page, with the identifying envelope (contentType, slug, locale, locales, urls). " +
-    "Returns meta, seo (locale seo.main_keyword / kw_monthly_volume / kw_difficulty / pillar_path / is_pillar), " +
+    "Returns meta, seo (locale seo.main_keyword / kw_monthly_volume / kw_difficulty / pillar_path / is_pillar / refresh_tier), " +
     "keyword_metrics (resolved OpenRush cache over YAML when OpenRush is on; source / may_not_be_recent / stale / fetched_at / notes), " +
     "include_in_clustering (derived: false only when seo.pillar_path is explicit null), " +
-    "index (live seo-index.json topic-cluster inventory row — NOT search-engine indexing; omitted for variants), " +
+    "index (live seo-index.json topic-cluster inventory row including refresh_tier — NOT search-engine indexing; omitted for variants), " +
     "optional search_engines when include_search_engines:true (cached Google Search Console + Bing stub; read-only, does not refresh cache or call live APIs), " +
     "validation_issues (open cached SEO-category issues), " +
     "claimed_issues (SEO issues claimed by others), " +
@@ -2962,9 +3012,10 @@ export function registerPageTools(
     "updates length 1 = single-field edit. May mix meta.*, safe top-level body fields, and fields under ONE sections.N.* index. " +
     "Rejects two or more distinct section indexes (split into separate calls so bindings can propagate). " +
     "sections.N.* patches an existing slot only — missing index fails (reload, or edit template.{locale}.yml with layout_target type_template). Does not create overlay patches or grow sections[]. " +
-    "field_path routing: sections.* and safe top-level → locale; seo.main_keyword|seo.kw_monthly_volume|seo.kw_difficulty|seo.pillar_path|seo.is_pillar → locale seo: (never _common.yml, no meta_target); " +
+    "field_path routing: sections.* and safe top-level → locale; seo.main_keyword|seo.kw_monthly_volume|seo.kw_difficulty|seo.pillar_path|seo.is_pillar|seo.refresh_tier → locale seo: (never _common.yml, no meta_target); " +
     "SEO writes only on live {locale}.yml or draft.{locale}.yml when the entry has no live locales yet (rejects A/B variants and draft-while-live with seo_variant_forbidden / seo_draft_while_live_forbidden); " +
     "seo.include_in_clustering (MCP-only boolean, never YAML) expands to pillar_path/is_pillar — requires content-type seo_monitoring.enabled; " +
+    "seo.refresh_tier is fast|medium|evergreen (fact-staleness); cannot clear (null/reset forbidden) — omit to leave unchanged; pick help via get_entry_fields fill_intent or explain_site topic seo; " +
     "research writes: if any of main_keyword|kw_monthly_volume|kw_difficulty is in updates, omitted metrics are forced to null (pass both integers to keep them); " +
     "kw_monthly_volume ≥ 0 integer; kw_difficulty 0–100 integer; not GSC. " +
     "B+B1: when OpenRush is configured, writing kw_* is rejected (seo_research_use_openrush) — call refresh_keyword_metrics (cache only, no YAML). " +
@@ -2992,7 +3043,7 @@ export function registerPageTools(
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       updates: z.array(z.object({
         field_path: z.string().describe(
-          "Dot path: sections.0.title, meta.description, seo.main_keyword, seo.kw_monthly_volume, seo.kw_difficulty, seo.include_in_clustering, title, …",
+          "Dot path: sections.0.title, meta.description, seo.main_keyword, seo.kw_monthly_volume, seo.kw_difficulty, seo.refresh_tier, seo.include_in_clustering, title, …",
         ),
         value: z.unknown().optional().describe("New value (required unless reset:true)"),
         reset: z.boolean().optional().describe(
@@ -3160,7 +3211,7 @@ export function registerPageTools(
         const p = u.field_path;
         if (p.startsWith("sections.") || p.startsWith("meta.") || isSeoPath(p) || safeTop.has(p)) continue;
         return fail(
-          `Disallowed field_path '${p}'. Must start with 'sections.', 'meta.', 'seo.main_keyword|seo.kw_monthly_volume|seo.kw_difficulty|seo.pillar_path|seo.is_pillar|seo.include_in_clustering', or be one of: ${[...safeTop].join(", ")}.`,
+          `Disallowed field_path '${p}'. Must start with 'sections.', 'meta.', 'seo.main_keyword|seo.kw_monthly_volume|seo.kw_difficulty|seo.pillar_path|seo.is_pillar|seo.refresh_tier|seo.include_in_clustering', or be one of: ${[...safeTop].join(", ")}.`,
         );
       }
       for (const u of updates) {
@@ -3471,6 +3522,53 @@ export function registerPageTools(
           code: "seo_research_source_recorded",
           message: `seo_research_source=${researchGate.source} for YAML kw_* write (OpenRush off). Cite this source in why/highlights for staff.`,
         });
+      }
+
+      const refreshTierPickActions: NextAction[] = [
+        {
+          tool: "get_entry_fields",
+          priority: "recommended",
+          reason: "Read seo.refresh_tier fill_intent / constraints to pick fast|medium|evergreen.",
+          args_hint: {
+            slug,
+            locale,
+            contentType: resolved.contentType,
+            ...(variant ? { variant } : {}),
+            ...(site ? { site } : {}),
+          },
+        },
+        {
+          tool: "explain_site",
+          priority: "recommended",
+          reason: "Full refresh_tier decision tree (not GSC traffic decay).",
+          args_hint: { topic: "seo", ...(site ? { site } : {}) },
+        },
+      ];
+      for (const u of updates) {
+        if (u.field_path !== "seo.refresh_tier") continue;
+        if (u.reset === true || u.value === null || u.value === "") {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "pick_refresh_tier",
+              code: "seo_refresh_tier_clear_forbidden",
+              message:
+                "seo.refresh_tier cannot be cleared. Pick fast, medium, or evergreen (omit the field to leave unchanged).",
+            },
+            refreshTierPickActions,
+          );
+        }
+        if (typeof u.value !== "string" || !(SEO_REFRESH_TIERS as readonly string[]).includes(u.value)) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "pick_refresh_tier",
+              code: "seo_refresh_tier_invalid",
+              message: "seo.refresh_tier must be fast, medium, or evergreen.",
+            },
+            refreshTierPickActions,
+          );
+        }
       }
 
       if (updates.length === 0) {
@@ -4236,14 +4334,21 @@ export function registerPageTools(
           return fail(data.error || `Server error: ${res.status}`, {
             ...(data.code ? { code: data.code } : {}),
             warnings:
-              data.code === "seo_keyword_taken" || data.code === "seo_index_unavailable"
+              data.code === "seo_keyword_taken" ||
+              data.code === "seo_index_unavailable" ||
+              data.code === "seo_refresh_tier_clear_forbidden" ||
+              data.code === "seo_refresh_tier_invalid"
                 ? [
                     {
                       code: data.code,
                       message:
                         data.code === "seo_keyword_taken"
                           ? "Live seo.main_keyword must be unique across the whole site (exact after trim). Current entry may keep its own keyword. Drafts/variants not checked. No YAML write."
-                          : "seo-index.json missing/invalid — uniqueness cannot be verified. Rebuild cluster index, then retry. No YAML write.",
+                          : data.code === "seo_index_unavailable"
+                            ? "seo-index.json missing/invalid — uniqueness cannot be verified. Rebuild cluster index, then retry. No YAML write."
+                            : data.code === "seo_refresh_tier_clear_forbidden"
+                              ? "seo.refresh_tier cannot be cleared — pick fast|medium|evergreen. Omit the field to leave unchanged."
+                              : "seo.refresh_tier must be fast, medium, or evergreen.",
                     },
                   ]
                 : [],
@@ -4263,7 +4368,23 @@ export function registerPageTools(
                       },
                     },
                   ]
-                : [],
+                : data.code === "seo_refresh_tier_clear_forbidden" ||
+                    data.code === "seo_refresh_tier_invalid"
+                  ? [
+                      {
+                        tool: "get_entry_fields",
+                        priority: "recommended",
+                        reason: "Read seo.refresh_tier fill_intent to pick a tier.",
+                        args_hint: { slug, locale, contentType: ct, ...(variant ? { variant } : {}) },
+                      },
+                      {
+                        tool: "explain_site",
+                        priority: "recommended",
+                        reason: "Full refresh_tier decision tree.",
+                        args_hint: { topic: "seo" },
+                      },
+                    ]
+                  : [],
           });
         }
         const storage = data.storage || (isStatic ? "root_key" : "field_overrides");
@@ -4382,30 +4503,12 @@ export function registerPageTools(
               const name = typeof f.field === "string" ? f.field : typeof f.name === "string" ? f.name : null;
               if (!name) return f;
               if (typeof name === "string" && name.startsWith("seo.")) {
-                const researchHints =
-                  name === "seo.kw_monthly_volume" || name === "seo.kw_difficulty"
-                    ? [
-                        "Research metrics for seo.main_keyword — not GSC clicks/impressions.",
-                        "OpenRush on: use refresh_keyword_metrics (cache); YAML kw_* writes are rejected for agents.",
-                        "OpenRush off: update_fields requires seo_research_source staff_provided|external:<name>. Do not invent.",
-                        "Integer only (volume ≥ 0; difficulty 0–100). If any of main_keyword|kw_* is in a write, omitted metrics are forced to null.",
-                      ]
-                    : name === "seo.main_keyword"
-                      ? [
-                          "Live uniqueness: exact string after trim must be free site-wide (seo-index). Same entry may re-save its keyword. Case differs are allowed. Drafts/variants not checked.",
-                          "Conflict → code seo_keyword_taken (names the other path). Missing index → seo_index_unavailable (hard block, no write).",
-                        ]
-                      : [];
+                const def = getSeoFieldDef(name);
                 return {
                   ...f,
-                  system_hints: [
-                    ...researchHints,
-                    "Prefer seo.include_in_clustering (MCP-only boolean) to turn cluster monitoring on/off for this entry.",
-                    "Off expands to seo.pillar_path: null + seo.is_pillar: false. On requires non-empty seo.pillar_path or seo.is_pillar: true after merge.",
-                    "Locale YAML seo: for writes (writeSeoFields). Optional field_mapping seo_main_keyword|seo_pillar_path|seo_is_pillar = DB read baseline; YAML overlay wins. Reset removes YAML key only. Never dotted seo.* in field_mapping; never _common.yml; never writeMappedFields for seo.*.",
-                    "Live write patches seo-index.json after disk with the same author. Variants are not indexed.",
-                    "seo.is_pillar auto-fills this page's canonical path. Do not invent pillar_path. Empty pillar_path is a cluster gap; null is opt-out.",
-                    "seo.kw_monthly_volume / seo.kw_difficulty are research estimates mirrored on the index row.",
+                  ...(def?.fill_intent ? { fill_intent: def.fill_intent } : {}),
+                  system_hints: def?.system_hints ?? [
+                    "Locale YAML seo: for writes (writeSeoFields). Never _common.yml.",
                   ],
                 };
               }
@@ -5146,6 +5249,23 @@ export function registerPageTools(
               "Deleted a template variant file. Attached entries still inherit the live template shell; sibling entries were not auto-updated.",
           });
         }
+        const apiWarnings = data.warnings as Array<{ code?: string; message?: string; proposal_id?: string }> | undefined;
+        if (Array.isArray(apiWarnings)) {
+          for (const w of apiWarnings) {
+            if (w?.code && w?.message) {
+              warnings.push({
+                code: w.code,
+                message: w.message,
+              });
+            }
+          }
+        } else if (Array.isArray(data.open_proposals) && (data.open_proposals as unknown[]).length > 0) {
+          warnings.push({
+            code: "open_proposal_references_variant",
+            message:
+              "One or more open proposals still reference this variant. Apply may fail with context_stale until those proposals are withdrawn or rejected.",
+          });
+        }
         if (versioning) {
           const siblingLocales: string[] = [];
           for (const [loc, locData] of Object.entries(versioning)) {
@@ -5449,7 +5569,8 @@ export function registerPageTools(
       if (isDbBacked(config)) {
         return fail(
           `Content type '${contentType}' is database-backed (database.slug set) and cannot be created via create_entry. ` +
-          `Use get_content_type_info for create_via. Static single_template types without database.slug are allowed.`,
+          `Use get_content_type_info for create_via (remains null for DB-backed types). ` +
+          `A new private bank is create_or_update_database — that still does not create catalog identities.`,
         );
       }
 
@@ -8753,9 +8874,9 @@ export function registerPageTools(
   // list_entry_seo
   mcp.tool(
     "list_entry_seo",
-    "Return SEO-relevant fields (meta, title, schema, url, and seo-index keyword chips) for content entries. " +
+    "Return SEO-relevant fields (meta, title, schema, url, and seo-index keyword chips + refresh_tier) for content entries. " +
     "Works for YAML and DB-backed types via the main server seo-entries API. " +
-    "main_keyword / kw_monthly_volume / kw_difficulty come from the live seo-index (YAML-backed index values), not OpenRush effective metrics — use refresh_keyword_metrics or the SEO modal for OpenRush. " +
+    "main_keyword / kw_monthly_volume / kw_difficulty / refresh_tier come from the live seo-index (YAML-backed index values), not OpenRush effective metrics — use refresh_keyword_metrics or the SEO modal for OpenRush. " +
     "Sections/body content are never returned. " +
     "IMPORTANT: Omitting slugs does NOT dump the full type — returns a minimal sample (default 5; limit 1–20). " +
     "Pass slugs for full meta on those entries. Prefer get_entry_seo for one slug; get_content_type_info for type contract. Requires content_view or seo_edit. " +

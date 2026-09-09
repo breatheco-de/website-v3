@@ -665,7 +665,39 @@ export class DatabaseManager {
     return this.configs.has(name);
   }
 
-  create(name: string, config: DatabaseConfig): void {
+  /**
+   * Write an empty local items YAML/JSON if missing.
+   * With results_path → `{ [path]: [] }`; otherwise a root `[]`.
+   * Returns the relative path that was ensured, or null when not local / no filename.
+   */
+  ensureEmptyLocalItemsFile(
+    name: string,
+    config: DatabaseConfig,
+    author = "api",
+  ): string | null {
+    if (config.source.type !== "local" || !config.source.local?.filename) return null;
+    const filename = config.source.local.filename;
+    const filePath = path.join(this.dbDir, name, filename);
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    if (!fs.existsSync(filePath)) {
+      const resultsPath = config.source.local.results_path;
+      const payload: unknown = resultsPath ? { [resultsPath]: [] } : [];
+      const ext = path.extname(filename).toLowerCase();
+      const body =
+        ext === ".json"
+          ? JSON.stringify(payload, null, 2) + "\n"
+          : yaml.dump(payload, { lineWidth: 120 });
+      fs.writeFileSync(filePath, body);
+    }
+    const relPath = `db/${name}/${filename}`;
+    markFileAsModified(relPath, author, undefined, this.contentRoot);
+    return relPath;
+  }
+
+  create(name: string, config: DatabaseConfig, author = "api"): void {
     this.validateName(name);
     if (this.configs.has(name)) {
       throw new Error(`Database "${name}" already exists`);
@@ -673,12 +705,22 @@ export class DatabaseManager {
     const { assertSourceNameAvailable } = require("./query-options") as typeof import("./query-options");
     assertSourceNameAvailable(name, "database", this.contentRoot, this);
     this.writeToDisk(name, config);
+    markFileAsModified(`db/${name}/config.yml`, author, undefined, this.contentRoot);
+    this.ensureEmptyLocalItemsFile(name, config, author);
     this.configs.set(name, config);
   }
 
-  update(name: string, config: DatabaseConfig): void {
+  update(name: string, config: DatabaseConfig, author = "api"): void {
     this.validateName(name);
     this.writeToDisk(name, config);
+    markFileAsModified(`db/${name}/config.yml`, author, undefined, this.contentRoot);
+    // If staff/MCP switched to (or fixed) local source, ensure the items file exists.
+    if (config.source.type === "local" && config.source.local?.filename) {
+      const filePath = path.join(this.dbDir, name, config.source.local.filename);
+      if (!fs.existsSync(filePath)) {
+        this.ensureEmptyLocalItemsFile(name, config, author);
+      }
+    }
     this.configs.set(name, config);
     this.memoryCache.delete(name);
   }

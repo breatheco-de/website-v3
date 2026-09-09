@@ -1352,12 +1352,37 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                   <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <span className="text-xs font-mono text-foreground truncate">{props.siteInfo?.domain ?? "—"}</span>
                   {props.siteInfo?.isDevOverride && (
-                    <Badge
-                      className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[10px] px-1.5 py-0 font-semibold shrink-0"
-                      title="Dev site override active"
-                    >
-                      forced
-                    </Badge>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex shrink-0"
+                          data-testid="badge-site-forced"
+                          title="Dev site override active"
+                        >
+                          <Badge
+                            className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[10px] px-1.5 py-0 font-semibold cursor-pointer"
+                          >
+                            forced
+                          </Badge>
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        className="w-72 space-y-2 z-[10001]"
+                        align="start"
+                        data-testid="popover-site-forced"
+                      >
+                        <p className="text-sm font-medium text-foreground">Site forced for local work</p>
+                        <p className="text-xs text-muted-foreground leading-snug">
+                          You picked this site in the site switcher. Locally, the app ignores the
+                          hostname and always loads this site’s content until you clear the override.
+                        </p>
+                        <p className="text-xs text-muted-foreground leading-snug">
+                          Only your local session is affected. Live visitors and production keep
+                          resolving by domain as usual.
+                        </p>
+                      </PopoverContent>
+                    </Popover>
                   )}
                 </div>
                 <button

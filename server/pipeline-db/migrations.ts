@@ -8,7 +8,7 @@ import {
   type SystemJobFollowUpType,
 } from "../events/types";
 
-export const PIPELINE_SCHEMA_VERSION = 9;
+export const PIPELINE_SCHEMA_VERSION = 10;
 
 export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
   {
@@ -214,6 +214,45 @@ export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
         const json = JSON.stringify(systemJobAttribution(source));
         update.run(json, type);
       }
+    },
+  },
+  {
+    version: 10,
+    name: "content_proposals_variant_collab",
+    up(db) {
+      if (!tableExists(db, "content_proposals")) return;
+      if (!tableHasColumn(db, "content_proposals", "created_agent_session_id")) {
+        db.exec("ALTER TABLE content_proposals ADD COLUMN created_agent_session_id TEXT");
+      }
+      if (!tableHasColumn(db, "content_proposals", "promote_on_apply")) {
+        db.exec(
+          "ALTER TABLE content_proposals ADD COLUMN promote_on_apply INTEGER NOT NULL DEFAULT 0",
+        );
+      }
+      if (
+        tableExists(db, "content_proposal_entries") &&
+        !tableHasColumn(db, "content_proposal_entries", "variant_fingerprint")
+      ) {
+        db.exec("ALTER TABLE content_proposal_entries ADD COLUMN variant_fingerprint TEXT");
+      }
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS content_proposal_blockers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          proposal_id TEXT NOT NULL,
+          kind TEXT NOT NULL DEFAULT 'blocker',
+          body TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'open',
+          author TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          resolved_at INTEGER,
+          resolved_by TEXT,
+          resolve_note TEXT,
+          agent_session_id TEXT,
+          FOREIGN KEY (proposal_id) REFERENCES content_proposals(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_content_proposal_blockers_proposal
+          ON content_proposal_blockers(proposal_id, status);
+      `);
     },
   },
 ];
