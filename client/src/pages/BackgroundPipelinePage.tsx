@@ -2023,7 +2023,7 @@ function EventLogPanel({
             </summary>
             <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed border-l-2 border-border pl-2">
               MCP agent_session start/note/summarize are normal audit events. Writes and issues carry
-              report (min 80) — for copy edits, agents should list plain values (Title: …), not JSON
+              why + highlights on mutates/complete — simple field values are filled for staff; big edits need concrete highlights (links added, etc.), not process boilerplate
               dumps. Session id is optional — Unscoped means no session. Bulk sync is never
               session-tagged. Clearing the log clears session history too. Retention is about 7 days;
               each filter view returns up to 500 matching events.

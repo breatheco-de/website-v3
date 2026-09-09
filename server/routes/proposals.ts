@@ -4,7 +4,7 @@ import * as userStore from "../user-store";
 import { requireAnyCapability } from "./_helpers";
 import { proposalServiceForSite } from "../content-proposals";
 import type { SiteContext } from "../site-manager";
-import type { CreateProposalInput } from "../content-proposals/service";
+import { parseProposalSort, type CreateProposalInput } from "../content-proposals/service";
 
 function actorUsername(
   auth: { username: string | null; author: string | null },
@@ -46,6 +46,18 @@ export function registerProposalRoutes(app: Express): void {
     const proposalId = typeof req.query.proposal_id === "string" ? req.query.proposal_id : undefined;
     const limitRaw = req.query.limit ? Number(req.query.limit) : undefined;
     const offsetRaw = req.query.offset ? Number(req.query.offset) : undefined;
+    const sortRaw = typeof req.query.sort === "string" ? req.query.sort : undefined;
+    const sortDirRaw =
+      typeof req.query.sort_dir === "string"
+        ? req.query.sort_dir
+        : typeof req.query.sortDir === "string"
+          ? req.query.sortDir
+          : undefined;
+    const parsedSort = parseProposalSort(sortRaw, sortDirRaw);
+    if (!parsedSort.ok) {
+      res.status(400).json({ error: parsedSort.error });
+      return;
+    }
     const stats = svc.stats();
     const { proposals, total } = svc.list({
       issue_id: issueId,
@@ -55,8 +67,16 @@ export function registerProposalRoutes(app: Express): void {
       proposal_id: proposalId,
       limit: Number.isFinite(limitRaw) ? limitRaw : undefined,
       offset: Number.isFinite(offsetRaw) ? offsetRaw : undefined,
+      sort: parsedSort.sort,
+      sortDir: parsedSort.sortDir,
     });
-    res.json({ proposals, total, stats });
+    res.json({
+      proposals,
+      total,
+      stats,
+      sort: parsedSort.sort,
+      sort_dir: parsedSort.sortDir,
+    });
   });
 
   api.get(app, "/api/admin/proposals/:id", { rate: "staffWrite" }, async (req, res) => {

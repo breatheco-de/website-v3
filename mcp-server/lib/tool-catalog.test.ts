@@ -132,6 +132,7 @@ describe("allowedToolNames", () => {
     expect(names.has("list_seo_clusters")).toBe(true);
     expect(names.has("list_seo_cluster_entries")).toBe(true);
     expect(names.has("get_seo_cluster")).toBe(true);
+    expect(names.has("refresh_keyword_metrics")).toBe(true);
     expect(names.has("get_organic_traffic")).toBe(true);
     expect(names.has("run_entry_diagnostics")).toBe(true);
     expect(names.has("get_diagnostics_job")).toBe(true);

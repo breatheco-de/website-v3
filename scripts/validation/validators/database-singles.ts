@@ -12,6 +12,7 @@ import {
   resolveTemplateLocalePath,
 } from "../../../server/shared-layout-paths";
 import { isSharedLayoutType } from "../../../server/shared-layout-entry";
+import { isTemplateVersioningSlug } from "@shared/sharedLayoutPaths";
 import { getDefaultContentFolder } from "../../../server/site-config";
 import { DATABASE_SINGLES_ISSUE_CODES } from "./database-singles.issueCodes";
 
@@ -251,6 +252,7 @@ export const databaseSinglesValidator: Validator = {
 
       const allSlugs = new Set(items.map(item => String(item[lookupKey] || "")).filter(Boolean));
       for (const diskSlug of diskEntries) {
+        if (diskSlug.startsWith("_") || isTemplateVersioningSlug(diskSlug)) continue;
         if (allSlugs.has(diskSlug)) {
           warnings.push({
             type: "warning",
@@ -258,6 +260,15 @@ export const databaseSinglesValidator: Validator = {
             message: `Disk folder "${folder}/${diskSlug}" overrides database item with ${lookupKey}="${diskSlug}"`,
             file: `${contentRootRel}/${folder}/${diskSlug}/`,
             suggestion: `The disk-based YAML files take priority. Remove the disk folder to use the database item instead.`,
+          });
+        } else {
+          warnings.push({
+            type: "warning",
+            code: "ORPHAN_OVERLAY_FOLDER",
+            message: `Disk folder "${folder}/${diskSlug}" has no matching database ${lookupKey} — convert will not update it`,
+            file: `${contentRootRel}/${folder}/${diskSlug}/`,
+            suggestion:
+              "Not in the database cache. Delete via coding agent / staff content sync if unused, or restore upstream. MCP cannot delete this folder — do not claim.",
           });
         }
       }

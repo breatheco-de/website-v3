@@ -77,6 +77,29 @@ describe("getActivityReport / getActivityLayerLabel", () => {
   });
 });
 
+describe("getActivityStructuredNote / getActivityCommitLinkInputs", () => {
+  it("prefers structured why and simple_changes", async () => {
+    const { getActivityStructuredNote, getActivityCommitLinkInputs } = await import(
+      "@/components/pipeline/entryActivityCopy"
+    );
+    const note = getActivityStructuredNote({
+      why: "Join orphan to hub",
+      simple_changes: [{ field: "seo.pillar_path", after: "/hub" }],
+      highlights: ["Added 2 links"],
+      report: "Why: Join orphan to hub",
+    });
+    expect(note?.why).toBe("Join orphan to hub");
+    expect(note?.simpleChanges).toEqual([{ field: "seo.pillar_path", after: "/hub" }]);
+    expect(note?.highlights).toEqual(["Added 2 links"]);
+    expect(
+      getActivityCommitLinkInputs({
+        path: "site_x/a.yml",
+        commitSha: "deadbeef",
+      }),
+    ).toEqual({ path: "site_x/a.yml", commitSha: "deadbeef" });
+  });
+});
+
 describe("formatActivityActorLine", () => {
   it("joins actor and relative time", () => {
     const now = Date.parse("2026-09-04T12:00:00Z");

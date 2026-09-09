@@ -290,6 +290,47 @@ const EMPTY_KIND_COUNTS: Record<ProposalKind, number> = {
   notes: 0,
 };
 
+export const PROPOSAL_SORT_FIELDS = ["created_at", "updated_at"] as const;
+export type ProposalSortField = (typeof PROPOSAL_SORT_FIELDS)[number];
+export type ProposalSortDir = "asc" | "desc";
+
+export function parseProposalSort(
+  sort?: string | null,
+  sortDir?: string | null,
+):
+  | { ok: true; sort: ProposalSortField; sortDir: ProposalSortDir }
+  | { ok: false; error: string } {
+  const fieldRaw = sort == null || String(sort).trim() === "" ? "updated_at" : String(sort).trim();
+  if (fieldRaw !== "created_at" && fieldRaw !== "updated_at") {
+    return {
+      ok: false,
+      error: `Invalid sort '${fieldRaw}'. Allowed: created_at, updated_at`,
+    };
+  }
+  const dirRaw =
+    sortDir == null || String(sortDir).trim() === "" ? "desc" : String(sortDir).trim();
+  if (dirRaw !== "asc" && dirRaw !== "desc") {
+    return {
+      ok: false,
+      error: `Invalid sort_dir '${dirRaw}'. Allowed: asc, desc`,
+    };
+  }
+  return { ok: true, sort: fieldRaw, sortDir: dirRaw };
+}
+
+function compareProposalsBySort(
+  a: ProposalRecord,
+  b: ProposalRecord,
+  sort: ProposalSortField,
+  sortDir: ProposalSortDir,
+): number {
+  const factor = sortDir === "asc" ? 1 : -1;
+  const av = a[sort];
+  const bv = b[sort];
+  if (av !== bv) return (av - bv) * factor;
+  return a.id.localeCompare(b.id);
+}
+
 export function createProposalService(deps: ProposalServiceDeps) {
   const site = deps.site;
 
@@ -331,6 +372,10 @@ export function createProposalService(deps: ProposalServiceDeps) {
     proposal_id?: string;
     limit?: number;
     offset?: number;
+    /** Pre-validated whitelist field; default updated_at */
+    sort?: ProposalSortField;
+    /** Pre-validated; default desc */
+    sortDir?: ProposalSortDir;
   }): { proposals: ProposalRecord[]; total: number } {
     if (opts.proposal_id) {
       const one = get(opts.proposal_id);
@@ -339,6 +384,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
     const db = dbFor(site);
     const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
     const offset = Math.max(0, opts.offset ?? 0);
+    const sort: ProposalSortField = opts.sort ?? "updated_at";
+    const sortDir: ProposalSortDir = opts.sortDir ?? "desc";
+    const orderSql = `ORDER BY ${sort} ${sortDir.toUpperCase()}, id ASC`;
 
     let where = `WHERE site = ?`;
     const params: unknown[] = [site];
@@ -362,11 +410,12 @@ export function createProposalService(deps: ProposalServiceDeps) {
     // issue_id needs exact array membership — load then filter in memory.
     if (opts.issue_id) {
       const rows = db
-        .prepare(`SELECT * FROM content_proposals ${where} ORDER BY updated_at DESC`)
+        .prepare(`SELECT * FROM content_proposals ${where} ${orderSql}`)
         .all(...params) as ProposalRow[];
       let records = rows
         .map((r) => mapProposal(r, loadEntries(db, r.id)))
         .filter((p) => p.related_issue_ids.includes(opts.issue_id!));
+      records = [...records].sort((a, b) => compareProposalsBySort(a, b, sort, sortDir));
       const total = records.length;
       return { proposals: records.slice(offset, offset + limit), total };
     }
@@ -377,7 +426,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
     const total = Number(totalRow?.n) || 0;
     const rows = db
       .prepare(
-        `SELECT * FROM content_proposals ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+        `SELECT * FROM content_proposals ${where} ${orderSql} LIMIT ? OFFSET ?`,
       )
       .all(...params, limit, offset) as ProposalRow[];
     const proposals = rows.map((r) => mapProposal(r, loadEntries(db, r.id)));

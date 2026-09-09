@@ -5,6 +5,73 @@
 window_days: 6
 
 entries:
+  - date: "2026-09-09"
+    summary: "MCP GitHub staff login return keeps nonce (Claude/Cursor OAuth)"
+    agent_impact:
+      - "Log in with GitHub on /oauth/authorize now returns to /oauth/staff-return with nonce + staff_session_code so the host OAuth callback can complete."
+      - "MCP public return base falls back to SITE_URL when MCP_PUBLIC_URL is unset (proxied /oauth on the main site)."
+      - "Humans: reconnect the MCP connector and use Log in with GitHub again if a prior attempt landed on Repository Sync."
+    paths:
+      - server/routes/github.ts
+      - server/routes/staff-auth.ts
+      - mcp-server/index.ts
+    tools_changed: false
+  - date: "2026-09-09"
+    summary: "Keyword research claim policy (B + B1) — OpenRush refresh + provenance gate"
+    agent_impact:
+      - "New refresh_keyword_metrics (seo_edit): OpenRush inspect_keyword → cache only; does not write seo.kw_* YAML. Prefer this when OpenRush is on for SEO_KEYWORD_RESEARCH_INCOMPLETE."
+      - "update_fields: OpenRush on → kw_* YAML writes rejected (seo_research_use_openrush). OpenRush off → require seo_research_source staff_provided|external:<name>. Do not invent volume/difficulty; release if no reliable source."
+      - "Claim rule in conventions + page-diagnostics: claim only with a valid executable path. Reconnect MCP for tools/list."
+    paths:
+      - mcp-server/tools/seo-clusters.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/seo-research-gate.ts
+      - mcp-server/lib/refresh-keyword-metrics-mcp.ts
+      - mcp-server/agent-conventions.md
+      - mcp-server/explain/seo.md
+      - scripts/validation/validators/seo-cluster.issueCodes.ts
+      - shared/mcp-tool-catalog.ts
+      - shared/ask-agent-prompts/page-diagnostics.md
+    tools_changed: true
+  - date: "2026-09-09"
+    summary: "list_proposals + get_validation_issues sort/sort_dir"
+    agent_impact:
+      - "list_proposals (scoped): sort created_at|updated_at (default updated_at) + sort_dir asc|desc (default desc). Echoed on success. Unscoped sort ignored with warning; invalid sort fails."
+      - "get_validation_issues (scoped+set): open sort severity|lastFullRunAt|code|url (default severity desc); resolved sort resolvedAt|severity|code|url (default resolvedAt desc). Wrong-set/invalid fails. Sorting by lastFullRunAt includes that field on open rows. Sort is order-only (does not filter claimed/completed)."
+      - "Reconnect MCP so tools/list refreshes schemas (new sort params)."
+    paths:
+      - mcp-server/tools/proposals.ts
+      - mcp-server/tools/validation-issues.ts
+      - mcp-server/lib/list-proposals-mcp.ts
+      - mcp-server/lib/validation-issues-mcp.ts
+      - shared/validation-issue-sort.ts
+      - server/content-proposals/service.ts
+      - server/services/resolvedIssuesArchiveService.ts
+    tools_changed: true
+  - date: "2026-09-09"
+    summary: "Mutate/complete reports: why + highlights; Activity View on GitHub"
+    agent_impact:
+      - "Field mutates (update_fields, add/remove/reorder/replace section) and issue complete require why + optional highlights (required for big fields / complete). Server derives simple field values; quality gate may reject report_quality."
+      - "Do not pad with automatic/MCP boilerplate. Claim/note/summarize still use string report (min 80)."
+      - "Reconnect MCP so tools/list picks up why/highlights schemas."
+    paths:
+      - mcp-server/lib/agent-report.ts
+      - mcp-server/lib/page-tool-helpers.ts
+      - mcp-server/tools/pages.ts
+      - shared/agent-report-structured.ts
+      - server/agent-report-gate.ts
+    tools_changed: true
+  - date: "2026-09-09"
+    summary: "coding_agent_only validation issues — MCP must not claim"
+    agent_impact:
+      - "Issue codes with coding_agent_only: true (e.g. ORPHAN_OVERLAY_FOLDER) are excluded from default open_issues and refuse update_issue claim with action_required issue_coding_agent_only."
+      - "Hand off to a Cursor coding agent or staff; use issue_status all only to inspect, not to claim."
+      - "Reconnect not required for schemas; conventions version bumped — re-bootstrap_agent if skill.content is stale."
+    paths:
+      - scripts/validation/shared/types.ts
+      - mcp-server/lib/diagnostics-issue-queue.ts
+      - mcp-server/agent-conventions.md
+    tools_changed: false
   - date: "2026-09-08"
     summary: "slug_locale_mismatch soft warning on create_entry / translate_entry / live slug rename"
     agent_impact:

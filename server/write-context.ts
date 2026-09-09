@@ -4,11 +4,16 @@
  */
 
 import { AsyncLocalStorage } from "async_hooks";
+import type { AgentSimpleChange } from "@shared/agent-report-structured";
 import type { EventActor } from "./events/types";
 
 export type ContentWriteContext = {
   agentSessionId?: string;
+  /** Composed staff-facing display string (Why + bullets). */
   report?: string;
+  why?: string;
+  highlights?: string[];
+  simple_changes?: AgentSimpleChange[];
   actor?: EventActor;
 };
 

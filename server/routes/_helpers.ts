@@ -514,20 +514,95 @@ export function requireMcpWriteReport(
   return requireIssueReport(raw);
 }
 
+export type BeginMcpContentWriteOpts = {
+  /** Legacy free-text report (claim/session); preferred path is why + highlights. */
+  report?: unknown;
+  why?: unknown;
+  highlights?: unknown;
+  /** Field updates for deriving simple_changes / big-field highlight rules. */
+  fieldUpdates?: Array<{ field_path: string; value?: unknown; reset?: boolean }>;
+  /**
+   * mutate_with_updates — update_fields-style
+   * mutate_structural — add/remove/reorder section, etc.
+   * legacy_report — length-only string report (fallback if only report sent)
+   */
+  mode?: "mutate_with_updates" | "mutate_structural" | "legacy_report";
+};
+
 /**
  * Build write context for an MCP loopback mutate (session + report + actor).
- * Returns error payload when MCP report is missing/short; staff UI always ok.
+ * Prefers why + highlights with quality gate; falls back to legacy string report.
+ * Staff UI always ok (no report).
  */
-export function beginMcpContentWrite(
+export async function beginMcpContentWrite(
   req: Request,
-  reportRaw: unknown,
-):
+  reportRawOrOpts?: unknown,
+): Promise<
   | { ok: true; ctx: ContentWriteContext }
-  | { ok: false; error: string; code: "report_required" | "report_too_short" } {
+  | {
+      ok: false;
+      error: string;
+      code: "report_required" | "report_too_short" | "report_quality";
+      missing?: string[];
+    }
+> {
   if (!isMcpLoopbackRequest(req)) {
     return { ok: true, ctx: {} };
   }
-  const parsed = requireIssueReport(reportRaw);
+
+  const opts: BeginMcpContentWriteOpts =
+    reportRawOrOpts !== null &&
+    typeof reportRawOrOpts === "object" &&
+    !Array.isArray(reportRawOrOpts) &&
+    ("why" in (reportRawOrOpts as object) ||
+      "highlights" in (reportRawOrOpts as object) ||
+      "fieldUpdates" in (reportRawOrOpts as object) ||
+      "mode" in (reportRawOrOpts as object) ||
+      "report" in (reportRawOrOpts as object))
+      ? (reportRawOrOpts as BeginMcpContentWriteOpts)
+      : { report: reportRawOrOpts, mode: "legacy_report" };
+
+  const body = req.body as Record<string, unknown> | undefined;
+  const why = opts.why ?? body?.why;
+  const highlights = opts.highlights ?? body?.highlights;
+  const hasStructured = typeof why === "string" || Array.isArray(highlights);
+
+  if (hasStructured || opts.mode === "mutate_with_updates" || opts.mode === "mutate_structural") {
+    const { gateAgentReport } = await import("../agent-report-gate");
+    const mode =
+      opts.mode === "mutate_with_updates" || opts.mode === "mutate_structural"
+        ? opts.mode
+        : opts.fieldUpdates && opts.fieldUpdates.length > 0
+          ? "mutate_with_updates"
+          : "mutate_structural";
+    const gated = await gateAgentReport({
+      why,
+      highlights,
+      mode,
+      updates: opts.fieldUpdates,
+    });
+    if (!gated.ok) {
+      return {
+        ok: false,
+        error: gated.error,
+        code: gated.code,
+        missing: gated.missing,
+      };
+    }
+    return {
+      ok: true,
+      ctx: {
+        agentSessionId: resolveAgentSessionId(req),
+        report: gated.report,
+        why: gated.why,
+        highlights: gated.highlights,
+        simple_changes: gated.simple_changes,
+        actor: resolveEventActor(req),
+      },
+    };
+  }
+
+  const parsed = requireIssueReport(opts.report ?? body?.report);
   if (!parsed.ok) return parsed;
   return {
     ok: true,

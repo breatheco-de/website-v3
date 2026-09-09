@@ -514,29 +514,16 @@ export function registerGithubRoutes(app: Express): void {
       const payload = state ? consumeOAuthState(state) : null;
       const returnTo = payload?.returnTo;
 
-      const loginDest = (raw?: string): string => {
-        const destRaw = (raw || "/").trim() || "/";
-        if (/^https?:\/\//i.test(destRaw)) {
-          try {
-            const u = new URL(destRaw);
-            u.search = "";
-            return u.toString().replace(/\?$/, "") || "/";
-          } catch {
-            return "/";
-          }
-        }
-        if (destRaw.startsWith("/") && !destRaw.startsWith("//")) {
-          return destRaw.split("?")[0] || "/";
-        }
-        return "/";
-      };
+      const { appendQueryToReturnTo } = await import("./staff-auth");
 
       const failLoginRedirect = (msg: string, code?: string) => {
-        const dest = loginDest(returnTo);
-        const q = new URLSearchParams({ staff_auth: "error", message: msg });
-        if (code) q.set("code", code);
-        const join = dest.includes("?") ? "&" : "?";
-        res.redirect(`${dest}${join}${q.toString()}`);
+        res.redirect(
+          appendQueryToReturnTo(returnTo, {
+            staff_auth: "error",
+            message: msg,
+            code,
+          }),
+        );
       };
 
       if (oauthError) {
@@ -579,16 +566,17 @@ export function registerGithubRoutes(app: Express): void {
           expiresIn,
           identity,
         });
-        const dest = loginDest(returnTo);
         if (!result.ok) {
           failLoginRedirect(result.error, result.code);
           return;
         }
         const exchange = createSessionExchangeCode(result.sessionToken);
-        const q = new URLSearchParams({ staff_session_code: exchange });
-        if (result.writeWarning) q.set("github_write", "missing");
-        const join = dest.includes("?") ? "&" : "?";
-        res.redirect(`${dest}${join}${q.toString()}`);
+        res.redirect(
+          appendQueryToReturnTo(returnTo, {
+            staff_session_code: exchange,
+            github_write: result.writeWarning ? "missing" : undefined,
+          }),
+        );
         return;
       }
 

@@ -14,6 +14,7 @@ export type IssueCatalogEnrichment = {
   help?: { title: string; summary?: string; incomplete?: boolean };
   next_actions?: Array<{ tool: string; reason: string; priority?: string }>;
   staff_context?: string;
+  coding_agent_only?: boolean;
 };
 
 export function enrichIssueCatalogFields(opts: {
@@ -33,6 +34,7 @@ export function enrichIssueCatalogFields(opts: {
     if (def.summary?.trim()) help.summary = def.summary.trim();
     if (!isIssueCodeAgentGuidanceComplete(def)) help.incomplete = true;
     out.help = help;
+    if (def.coding_agent_only === true) out.coding_agent_only = true;
     if (def.next_actions?.length) {
       out.next_actions = def.next_actions.map((a) => ({
         tool: a.tool,

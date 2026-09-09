@@ -3,6 +3,7 @@ import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { isEmptyLocaleContent } from "@shared/isEmptyLocaleContent";
 import { isEntryDetached, isSharedLayoutType } from "../../../server/shared-layout-entry";
+import { getContentTypeConfig } from "../../../server/content-types";
 import { isValidAttachedOverlayPatch } from "@shared/sectionLeftovers";
 import { contentIndex } from "../../../server/content-index";
 import { createPublicUrlResolver } from "../../../server/redirects";
@@ -105,6 +106,10 @@ export const contentQualityValidator: Validator = {
 
       const detached = isEntryDetached(file.type, file.slug, contentRoot);
       const emptyContent = isEmptyLocaleContent(mergedForEmpty);
+      const sharedLayout = isSharedLayoutType(file.type, contentRoot);
+      const dbBacked = !!getContentTypeConfig(file.type, contentRoot)?.database?.slug;
+      const bodyContent =
+        typeof mergedForEmpty.content === "string" ? mergedForEmpty.content.trim() : "";
 
       if (detached && emptyContent) {
         emptySections++;
@@ -119,7 +124,7 @@ export const contentQualityValidator: Validator = {
       } else if (
         emptyContent &&
         !detached &&
-        !isSharedLayoutType(file.type, contentRoot)
+        !sharedLayout
       ) {
         emptySections++;
         errors.push({
@@ -128,6 +133,22 @@ export const contentQualityValidator: Validator = {
           message: "Content file has no sections and no body content",
           file: file.filePath,
           suggestion: "Add a sections array with at least one section, or a non-empty content field",
+        });
+      } else if (
+        !detached &&
+        sharedLayout &&
+        !dbBacked &&
+        isAttachedOverlayFile(file, contentRoot) &&
+        !bodyContent
+      ) {
+        emptySections++;
+        errors.push({
+          type: "error",
+          code: "EMPTY_ENTRY_CONTENT",
+          message: `Attached shared-layout locale "${file.locale}" has empty content (slug ${file.slug})`,
+          file: file.filePath,
+          suggestion:
+            "Set a non-empty content field. Often left empty when DB→static convert skipped a failed remote markdown fetch — check convert skipped content_fetch_failed for this slug/locale, then update_fields or re-fetch the source.",
         });
       }
 

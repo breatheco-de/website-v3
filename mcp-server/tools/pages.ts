@@ -38,10 +38,12 @@ import {
 import { getTokenUsername, getTokenClientName } from "../lib/oauth.js";
 import { buildLoopbackHeaders, missingSessionWarning } from "../lib/loopback.js";
 import {
+  AGENT_HIGHLIGHTS_DESC,
   AGENT_REPORT_ISSUE_COMPLETE_EXAMPLE,
   AGENT_REPORT_ISSUE_DESC,
   AGENT_REPORT_MUTATE_DESC,
   AGENT_REPORT_SESSION_DESC,
+  AGENT_WHY_DESC,
 } from "../lib/agent-report.js";
 import { buildEditorSystemHints } from "../../shared/editorSystemHints.js";
 import { FILL_INTENT_GOAL_PRESET_OPTIONS } from "../../shared/fillIntent.js";
@@ -65,9 +67,15 @@ import {
   wrotePayload,
   sharedStructuralEnvelope,
   mutateReportZodFields,
-  requireMutateReport,
+  requireMutateWhyHighlights,
   type LayoutTarget,
 } from "../lib/page-tool-helpers.js";
+import {
+  composeAgentReportDisplay,
+  evaluateReportHeuristics,
+  sanitizeHighlights,
+  sanitizeWhy,
+} from "../../shared/agent-report-structured.js";
 import {
   SEO_INCLUDE_IN_CLUSTERING,
   deriveIncludeInClustering,
@@ -76,6 +84,7 @@ import {
 } from "../lib/seo-cluster-toggle.js";
 import { enrichIssueCatalogFields } from "../lib/issue-code-enrichment.js";
 import { clusterResolutionConfirmRequired } from "../lib/cluster-resolution-gate.js";
+import { seoResearchWriteGate } from "../lib/seo-research-gate.js";
 import { isSeoMonitoringEnabled } from "../../server/seo-monitoring.js";
 import type { SeoBlock } from "../../server/seo-fields.js";
 import {
@@ -335,6 +344,8 @@ async function callEditSectionsApi(
     operations: Record<string, unknown>[];
     layoutTarget?: "entry" | "type_single" | "type_template";
     report?: string;
+    why?: string;
+    highlights?: string[];
     agent_session_id?: string;
   },
   mcpToken?: string,
@@ -353,11 +364,27 @@ async function callEditSectionsApi(
         ...(params.variant ? { variant: params.variant } : {}),
         ...(params.layoutTarget ? { layoutTarget: params.layoutTarget } : {}),
         ...(params.report ? { report: params.report } : {}),
+        ...(params.why ? { why: params.why } : {}),
+        ...(params.highlights?.length ? { highlights: params.highlights } : {}),
       }),
     });
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
       const errMsg = (data.error as string) || `Server error: ${res.status}`;
+      if (data.code === "report_quality" || data.code === "report_required" || data.code === "report_too_short") {
+        return {
+          error: actionRequired(
+            {
+              success: false,
+              action_required: "report_quality",
+              code: String(data.code),
+              message: errMsg,
+              missing: Array.isArray(data.missing) ? data.missing : [errMsg],
+            },
+            [],
+          ),
+        };
+      }
       if (/Section index \d+ does not exist/.test(errMsg)) {
         return {
           error: fail(errMsg, {
@@ -470,6 +497,8 @@ async function callEditCommonApi(
     slug: string;
     operations: Record<string, unknown>[];
     report?: string;
+    why?: string;
+    highlights?: string[];
     agent_session_id?: string;
   },
   mcpToken?: string,
@@ -485,11 +514,25 @@ async function callEditCommonApi(
         slug: params.slug,
         operations: params.operations,
         ...(params.report ? { report: params.report } : {}),
+        ...(params.why ? { why: params.why } : {}),
+        ...(params.highlights?.length ? { highlights: params.highlights } : {}),
       }),
     });
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
       const errMsg = (data.error as string) || `Server error: ${res.status}`;
+      if (data.code === "report_quality" || data.code === "report_required" || data.code === "report_too_short") {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "report_quality",
+            code: String(data.code),
+            message: errMsg,
+            missing: Array.isArray(data.missing) ? data.missing : [errMsg],
+          },
+          [],
+        );
+      }
       const { editApiErrorResult } = await import("../lib/live-required-fields.js");
       return editApiErrorResult(errMsg, data, {
         slug: params.slug,
@@ -1955,7 +1998,7 @@ export function registerPageTools(
     "also lists auto_completed_ids for sibling issues on that entry cleared by the same revalidation; refuses with complete_rejected_still_open + prior_attempts if still failing), " +
     "uncomplete (reopen). " +
     "MCP-only: claim requires report (why you are taking this issue + what you plan to change; min 80 chars; optional when refreshing your own claim). " +
-    "complete requires report (what you changed and how; include plain new values for copy you set — not JSON/YAML; min 80 chars). " +
+    "complete requires why + highlights (goal + biggest deltas; not JSON/YAML dumps). " +
     "release requires report when releasing an active claim (what you tried + why stopping; stored as prior_attempts for the next agent). " +
     "Read prior_attempts on validation_issues before reclaiming. " +
     "Example claim: \"SEO title empty on blog/foo/en — will set meta.page_title from H1 and re-check.\" " +
@@ -1978,12 +2021,14 @@ export function registerPageTools(
         .string()
         .optional()
         .describe(AGENT_REPORT_ISSUE_DESC),
+      why: z.string().optional().describe(AGENT_WHY_DESC + " Required for complete."),
+      highlights: z.array(z.string()).optional().describe(AGENT_HIGHLIGHTS_DESC + " Required for complete."),
       agent_session_id: z
         .string()
         .optional()
         .describe("Optional. From agent_session start — groups claim/complete/release under the same run."),
     },
-    async ({ issue_id, action, site, model, report, agent_session_id }) => {
+    async ({ issue_id, action, site, model, report, why, highlights, agent_session_id }) => {
       const canMutate =
         !mcpToken ||
         !grants ||
@@ -1996,20 +2041,28 @@ export function registerPageTools(
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
 
-      const trimmedReport = typeof report === "string" ? report.trim() : "";
+      let trimmedReport = typeof report === "string" ? report.trim() : "";
       if (action === "complete") {
-        if (trimmedReport.length < 80) {
+        const whyS = sanitizeWhy(why);
+        const hl = sanitizeHighlights(highlights);
+        const verdict = evaluateReportHeuristics({
+          why: whyS,
+          highlights: hl,
+          mode: "complete",
+        });
+        if (verdict.status === "fail" || !whyS) {
           return actionRequired(
             {
               success: false,
-              action_required: "report_required",
-              code: "report_required",
-              message:
-                "complete requires report: explain what you changed and how you fixed this issue (min 80 characters). Include plain new values for copy you set.",
+              action_required: "report_quality",
+              code: !whyS ? "report_required" : "report_quality",
+              message: (verdict.status === "fail" ? verdict.missing : ["Provide why for complete."]).join(" "),
+              missing: verdict.status === "fail" ? verdict.missing : ["Provide why for complete."],
             },
             [],
           );
         }
+        trimmedReport = composeAgentReportDisplay({ why: whyS, highlights: hl });
       } else if (action === "release") {
         if (trimmedReport.length > 0 && trimmedReport.length < 80) {
           return actionRequired(
@@ -2046,22 +2099,40 @@ export function registerPageTools(
               action,
               ...(model ? { model } : {}),
               ...(trimmedReport ? { report: trimmedReport } : {}),
+              ...(action === "complete" && why ? { why } : {}),
+              ...(action === "complete" && highlights ? { highlights } : {}),
             }),
           },
         );
         const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
         if (!res.ok) {
           const code = typeof data.code === "string" ? data.code : "update_issue_failed";
-          if (code === "report_required" || code === "report_too_short") {
+          if (code === "report_required" || code === "report_too_short" || code === "report_quality") {
             return actionRequired(
               {
                 success: false,
-                action_required: "report_required",
+                action_required: code === "report_quality" ? "report_quality" : "report_required",
                 code,
                 message: String(
                   data.error ??
                     "report required for MCP claim/complete/release (min 80 characters when releasing an active claim)",
                 ),
+                ...(Array.isArray(data.missing) ? { missing: data.missing } : {}),
+              },
+              [],
+            );
+          }
+          if (code === "issue_coding_agent_only") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "issue_coding_agent_only",
+                code: "issue_coding_agent_only",
+                message: String(
+                  data.error ??
+                    "This issue requires a coding agent or staff (filesystem). Do not claim via MCP.",
+                ),
+                issue_id,
               },
               [],
             );
@@ -2895,7 +2966,9 @@ export function registerPageTools(
     "SEO writes only on live {locale}.yml or draft.{locale}.yml when the entry has no live locales yet (rejects A/B variants and draft-while-live with seo_variant_forbidden / seo_draft_while_live_forbidden); " +
     "seo.include_in_clustering (MCP-only boolean, never YAML) expands to pillar_path/is_pillar — requires content-type seo_monitoring.enabled; " +
     "research writes: if any of main_keyword|kw_monthly_volume|kw_difficulty is in updates, omitted metrics are forced to null (pass both integers to keep them); " +
-    "kw_monthly_volume ≥ 0 integer; kw_difficulty 0–100 integer; planning estimates not GSC; " +
+    "kw_monthly_volume ≥ 0 integer; kw_difficulty 0–100 integer; not GSC. " +
+    "B+B1: when OpenRush is configured, writing kw_* is rejected (seo_research_use_openrush) — call refresh_keyword_metrics (cache only, no YAML). " +
+    "When OpenRush is off, kw_* sets require seo_research_source: staff_provided|external:<name> (guesses rejected). " +
     "live seo.main_keyword must be unique site-wide (exact after trim; self may re-save); conflict → seo_keyword_taken; missing seo-index.json → seo_index_unavailable (hard block); " +
     "on=true needs non-empty seo.pillar_path or seo.is_pillar:true after merge; on=false → pillar_path:null + is_pillar:false; " +
     "raw seo.pillar_path:null still opts out (warns). While ORPHAN_PAGE / PARTIALLY_SET_CLUSTER is open, " +
@@ -2940,36 +3013,39 @@ export function registerPageTools(
       confirm_cluster_resolution: z.boolean().optional().describe(
         "Required when becoming a pillar (seo.is_pillar:true) or opting out of clustering while ORPHAN_PAGE / PARTIALLY_SET_CLUSTER is still open. Prefer joining a hub with seo.pillar_path instead.",
       ),
+      seo_research_source: z
+        .string()
+        .optional()
+        .describe(
+          "Required when setting seo.kw_monthly_volume and/or seo.kw_difficulty while OpenRush is off: staff_provided or external:<tool_name>. " +
+            "Rejected when OpenRush is on (use refresh_keyword_metrics). Rejected: openrush, estimated, model, empty.",
+        ),
       create_redirect: z.boolean().optional().describe(
         "When renaming live slug (field_path slug): required if published_at is >= 24h ago. Adds old URL to meta.redirects.",
       ),
-      report: z
-        .string()
-        .describe(AGENT_REPORT_MUTATE_DESC),
+      why: z.string().describe(AGENT_WHY_DESC),
+      highlights: z.array(z.string()).optional().describe(AGENT_HIGHLIGHTS_DESC),
       agent_session_id: z
         .string()
         .optional()
         .describe("Optional. From agent_session start — groups this write for staff monitoring."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, updates: inputUpdates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, confirm_new_values, confirm_cluster_resolution, create_redirect, report, agent_session_id, site }) => {
+    async ({ slug, locale, updates: inputUpdates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, confirm_new_values, confirm_cluster_resolution, seo_research_source, create_redirect, why, highlights, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
-      const trimmedReport = typeof report === "string" ? report.trim() : "";
-      if (trimmedReport.length < 80) {
-        return actionRequired(
-          {
-            success: false,
-            action_required: "report_required",
-            code: trimmedReport ? "report_too_short" : "report_required",
-            message:
-              "report required (min 80 characters): explain what you are changing and why. " +
-              "For copy you set, list plain values (Title: …); do not paste JSON/YAML.",
-          },
-          [],
-        );
-      }
+      const fieldUpdatesForReport = inputUpdates.map((u) => ({
+        field_path: u.field_path,
+        value: u.value,
+        reset: u.reset,
+      }));
+      const reportCheck = requireMutateWhyHighlights(why, highlights, {
+        mode: "mutate_with_updates",
+        updates: fieldUpdatesForReport,
+      });
+      if (!reportCheck.ok) return reportCheck.result;
+      const { why: whyText, highlights: highlightList } = reportCheck;
       try {
         assertSafeSegment(slug, "slug");
         assertSafeLocale(locale);
@@ -3365,6 +3441,38 @@ export function registerPageTools(
         );
       }
 
+      const researchGate = seoResearchWriteGate({
+        contentRoot: contentPath,
+        updates: updates.map((u) => ({
+          field_path: u.field_path,
+          value: u.value as unknown,
+          reset: u.reset,
+        })),
+        seo_research_source,
+        slug,
+        locale,
+        contentType: resolved.contentType,
+        site,
+      });
+      if (!researchGate.ok) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: researchGate.code,
+            code: researchGate.code,
+            message: researchGate.message,
+            ...researchGate.details,
+          },
+          researchGate.next_actions,
+        );
+      }
+      if (researchGate.source) {
+        clusterToggleWarnings.push({
+          code: "seo_research_source_recorded",
+          message: `seo_research_source=${researchGate.source} for YAML kw_* write (OpenRush off). Cite this source in why/highlights for staff.`,
+        });
+      }
+
       if (updates.length === 0) {
         return ok(
           {
@@ -3509,7 +3617,8 @@ export function registerPageTools(
             variant,
             layoutTarget,
             operations: ops,
-            report: trimmedReport,
+            why: whyText,
+            highlights: highlightList,
             agent_session_id,
           },
           mcpToken,
@@ -3528,7 +3637,8 @@ export function registerPageTools(
             contentType: resolved.contentType,
             slug,
             operations: ops,
-            report: trimmedReport,
+            why: whyText,
+            highlights: highlightList,
             agent_session_id,
           },
           mcpToken,
@@ -3662,7 +3772,8 @@ export function registerPageTools(
             warnings.push({
               code: "seo_research_not_gsc",
               message:
-                "seo.kw_monthly_volume / seo.kw_difficulty are planning estimates for main_keyword (not live GSC clicks/impressions).",
+                "seo.kw_monthly_volume / seo.kw_difficulty are research metrics for main_keyword (not live GSC). " +
+                "When OpenRush is on, prefer refresh_keyword_metrics (cache) over YAML.",
             });
           }
         }
@@ -4274,10 +4385,10 @@ export function registerPageTools(
                 const researchHints =
                   name === "seo.kw_monthly_volume" || name === "seo.kw_difficulty"
                     ? [
-                        "Planning estimate for seo.main_keyword — not GSC clicks/impressions.",
-                        "Integer only (volume ≥ 0; difficulty 0–100). Empty/null clears the estimate.",
-                        "If any of main_keyword|kw_monthly_volume|kw_difficulty is in a write, omitted metrics are forced to null — pass both metrics to keep them.",
-                        "Not a documented template token ({{ seo.kw_* }} not supported as a product feature).",
+                        "Research metrics for seo.main_keyword — not GSC clicks/impressions.",
+                        "OpenRush on: use refresh_keyword_metrics (cache); YAML kw_* writes are rejected for agents.",
+                        "OpenRush off: update_fields requires seo_research_source staff_provided|external:<name>. Do not invent.",
+                        "Integer only (volume ≥ 0; difficulty 0–100). If any of main_keyword|kw_* is in a write, omitted metrics are forced to null.",
                       ]
                     : name === "seo.main_keyword"
                       ? [
@@ -5808,12 +5919,13 @@ export function registerPageTools(
       ...mutateReportZodFields,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, locale, section, index, variant, confirm_live_edit, layout_target, confirm_layout_target, report, agent_session_id, site }) => {
+    async ({ contentType, slug, locale, section, index, variant, confirm_live_edit, layout_target, confirm_layout_target, why, highlights, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const reportCheck = requireMutateReport(report);
+      const reportCheck = requireMutateWhyHighlights(why, highlights, { mode: "mutate_structural" });
       if (!reportCheck.ok) return reportCheck.result;
-      const { trimmedReport } = reportCheck;
+      const { why: whyText, highlights: highlightList } = reportCheck;
+      const trimmedReport = composeAgentReportDisplay({ why: whyText, highlights: highlightList });
       const { contentPath, domain } = siteResult;
       if (!MCP_SERVER_SECRET) {
         return fail("add_section is unavailable: MCP_SERVER_SECRET is not configured. Set MCP_SERVER_SECRET in your environment before using section-editing tools.");
@@ -5919,6 +6031,8 @@ export function registerPageTools(
             variant,
             layout_target,
             confirm_layout_target,
+            why: whyText,
+            highlights: highlightList,
             report: trimmedReport,
             agent_session_id,
             site,
@@ -5935,6 +6049,8 @@ export function registerPageTools(
           variant,
           layoutTarget,
           operations,
+          why: whyText,
+          highlights: highlightList,
           report: trimmedReport,
           agent_session_id,
         },
@@ -6063,12 +6179,13 @@ export function registerPageTools(
       ...mutateReportZodFields,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, locale, index, variant, confirm_live_edit, layout_target, confirm_layout_target, report, agent_session_id, site }) => {
+    async ({ contentType, slug, locale, index, variant, confirm_live_edit, layout_target, confirm_layout_target, why, highlights, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const reportCheck = requireMutateReport(report);
+      const reportCheck = requireMutateWhyHighlights(why, highlights, { mode: "mutate_structural" });
       if (!reportCheck.ok) return reportCheck.result;
-      const { trimmedReport } = reportCheck;
+      const { why: whyText, highlights: highlightList } = reportCheck;
+      const trimmedReport = composeAgentReportDisplay({ why: whyText, highlights: highlightList });
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -6160,6 +6277,8 @@ export function registerPageTools(
           variant,
           layoutTarget,
           operations: [{ action: "remove_item", path: "sections", index }],
+          why: whyText,
+          highlights: highlightList,
           report: trimmedReport,
           agent_session_id,
         },
@@ -6235,12 +6354,13 @@ export function registerPageTools(
       ...mutateReportZodFields,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, locale, order, variant, confirm_live_edit, layout_target, confirm_layout_target, report, agent_session_id, site }) => {
+    async ({ contentType, slug, locale, order, variant, confirm_live_edit, layout_target, confirm_layout_target, why, highlights, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const reportCheck = requireMutateReport(report);
+      const reportCheck = requireMutateWhyHighlights(why, highlights, { mode: "mutate_structural" });
       if (!reportCheck.ok) return reportCheck.result;
-      const { trimmedReport } = reportCheck;
+      const { why: whyText, highlights: highlightList } = reportCheck;
+      const trimmedReport = composeAgentReportDisplay({ why: whyText, highlights: highlightList });
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -6339,6 +6459,8 @@ export function registerPageTools(
           variant,
           layoutTarget,
           operations: [{ action: "replace_all_sections", sections: reorderedSections }],
+          why: whyText,
+          highlights: highlightList,
           report: trimmedReport,
           agent_session_id,
         },
@@ -6421,12 +6543,13 @@ export function registerPageTools(
       ...mutateReportZodFields,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, sections, meta, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, report, agent_session_id, site }) => {
+    async ({ slug, locale, sections, meta, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, why, highlights, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const reportCheck = requireMutateReport(report);
+      const reportCheck = requireMutateWhyHighlights(why, highlights, { mode: "mutate_structural" });
       if (!reportCheck.ok) return reportCheck.result;
-      const { trimmedReport } = reportCheck;
+      const { why: whyText, highlights: highlightList } = reportCheck;
+      const trimmedReport = composeAgentReportDisplay({ why: whyText, highlights: highlightList });
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -6525,6 +6648,8 @@ export function registerPageTools(
           variant,
           layoutTarget,
           operations,
+          why: whyText,
+          highlights: highlightList,
           report: trimmedReport,
           agent_session_id,
         },

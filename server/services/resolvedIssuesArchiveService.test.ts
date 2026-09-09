@@ -16,7 +16,11 @@ function tempRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "resolved-archive-"));
 }
 
-function sampleIssue(id: string, entryKey = "page/home/en"): StoredValidationIssue {
+function sampleIssue(
+  id: string,
+  entryKey = "page/home/en",
+  overrides?: Partial<StoredValidationIssue>,
+): StoredValidationIssue {
   return {
     id,
     code: "TEST_CODE",
@@ -27,6 +31,7 @@ function sampleIssue(id: string, entryKey = "page/home/en"): StoredValidationIss
     targets: [{ type: "entry", entryKey, url: "/en/home" }],
     lastSeenAt: new Date().toISOString(),
     lastRunAt: new Date().toISOString(),
+    ...overrides,
   };
 }
 
@@ -129,6 +134,35 @@ describe("ResolvedIssuesArchiveService", () => {
     });
     const { rows } = archive.list();
     expect(rows[0]!.issueId).toBe("newer");
+  });
+
+  it("list sorts by severity with id tie-break", async () => {
+    const root = tempRoot();
+    roots.push(root);
+    const archive = new ResolvedIssuesArchiveService(root);
+    await archive.appendResolved(sampleIssue("warn-1", "page/home/en", { severity: "warning" }), {
+      resolvedBy: "agent",
+      resolution: "verified_gone",
+    });
+    await archive.appendResolved(sampleIssue("err-1", "page/home/en", { severity: "error" }), {
+      resolvedBy: "agent",
+      resolution: "verified_gone",
+    });
+    await archive.appendResolved(sampleIssue("err-2", "page/home/en", { severity: "error" }), {
+      resolvedBy: "agent",
+      resolution: "verified_gone",
+    });
+    const { rows, sort, sort_dir } = archive.list({
+      sort: "severity",
+      sortDir: "desc",
+      limit: 10,
+    });
+    expect(sort).toBe("severity");
+    expect(sort_dir).toBe("desc");
+    expect(rows[0]!.severity).toBe("error");
+    expect(rows[1]!.severity).toBe("error");
+    expect(rows[2]!.severity).toBe("warning");
+    expect(rows[0]!.issueId.localeCompare(rows[1]!.issueId)).toBeLessThanOrEqual(0);
   });
 
   it("markReopened sets reopenedAt on most recent row for issueId", async () => {

@@ -631,7 +631,18 @@ app.use((req, res, next) => {
     /** Previous YAML bodies for redirects_changed gating (in-process seed). */
     const lastYamlContentByPath = new Map<string, string>();
     addFileModifiedListener((evt) => {
-      const { filePath, author, actor, contentChanged, content, agentSessionId, report } = evt;
+      const {
+        filePath,
+        author,
+        actor,
+        contentChanged,
+        content,
+        agentSessionId,
+        report,
+        why,
+        highlights,
+        simple_changes,
+      } = evt;
       scheduleSectionVariantsRefreshForFile(filePath);
       if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
         for (const ctx of getSiteContextMap().values()) {
@@ -669,6 +680,9 @@ app.use((req, res, next) => {
             actor: resolvedActor,
             agent_session_id: agentSessionId,
             report,
+            why,
+            highlights,
+            simple_changes,
           });
           if (contentChanged) {
             const next =

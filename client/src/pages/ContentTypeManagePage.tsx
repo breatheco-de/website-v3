@@ -6011,7 +6011,9 @@ export default function ContentTypeManagePage() {
     files_to_write: number;
     files_to_overwrite: number;
     existing_slug_folders: string[];
-    templates_to_delete: string[];
+    templates_preserved: string[];
+    orphan_slug_folders: string[];
+    skipped?: Array<{ reason: string; detail?: string }>;
     directory: string;
     database_slug: string;
     message: string;
@@ -7249,9 +7251,17 @@ export default function ContentTypeManagePage() {
       });
       const data = await res.json();
       if (res.ok) {
+        const skippedN = Array.isArray(data.skipped) ? data.skipped.length : 0;
+        const orphanN = Array.isArray(data.orphan_slug_folders)
+          ? data.orphan_slug_folders.length
+          : 0;
+        const extras =
+          skippedN || orphanN
+            ? ` Skipped ${skippedN}; ${orphanN} orphan folder(s) listed (not deleted).`
+            : "";
         toast({
           title: "Converted to static",
-          description: `Wrote ${data.written?.length ?? 0} new and ${data.overwritten?.length ?? 0} overwritten file(s). Database unlinked.`,
+          description: `Wrote ${data.written?.length ?? 0} new and ${data.overwritten?.length ?? 0} overwritten file(s). Database unlinked. Shared templates kept.${extras}`,
         });
         setConvertDialogOpen(false);
         setConvertConfirmInput("");
@@ -10073,7 +10083,8 @@ export default function ContentTypeManagePage() {
           <DialogHeader>
             <DialogTitle>Convert to static</DialogTitle>
             <DialogDescription>
-              Materialize all database entries into YAML folders and unlink the database from this content type.
+              Leave the database and write each entry as YAML folders for field values. The shared
+              template stays, so attached entries still share layout. Existing overrides are kept.
               This cannot be automatically undone.
             </DialogDescription>
           </DialogHeader>
@@ -10094,12 +10105,15 @@ export default function ContentTypeManagePage() {
                   <li>New files: {convertDryRun.files_to_write}</li>
                   <li>Overwrite files: {convertDryRun.files_to_overwrite}</li>
                   <li>Existing overlays: {convertDryRun.existing_slug_folders.length}</li>
-                  <li>Templates to delete: {convertDryRun.templates_to_delete.length}</li>
+                  <li>Templates preserved: {convertDryRun.templates_preserved?.length ?? 0}</li>
+                  <li>Orphan folders (not deleted): {convertDryRun.orphan_slug_folders?.length ?? 0}</li>
+                  <li>Already skipped in preview: {convertDryRun.skipped?.length ?? 0}</li>
                 </ul>
-                <p className="text-destructive text-xs">
-                  Existing per-entry overlay patches will be merged into full static YAML and overwritten.
-                  Shared <code className="text-[11px]">template.*.yml</code> templates will be deleted.
-                  Remote markdown bodies are inlined into the YAML.
+                <p className="text-muted-foreground text-xs">
+                  Shared <code className="text-[11px]">template.*.yml</code> shells are kept.
+                  Attached entries get data overlays (overrides win over database fields).
+                  Detached entries get a full page bake. Failed body downloads are skipped and listed.
+                  Folders on disk that are not in the database are listed, not deleted.
                 </p>
               </div>
             ) : null}

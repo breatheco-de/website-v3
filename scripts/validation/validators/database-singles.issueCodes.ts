@@ -25,6 +25,16 @@ export const DATABASE_SINGLES_ISSUE_CODES: Record<string, IssueCodeDefinition> =
   MISSING_SINGLE_TEMPLATE: {
     title: "Missing Single Template",
   },
+  ORPHAN_OVERLAY_FOLDER: {
+    title: "Orphan Overlay Folder",
+    summary:
+      "Slug folder on disk has no matching database row. Convert-to-static will not update it. " +
+      "Requires a coding agent or staff to delete (content repo) or restore upstream — MCP cannot delete folders.",
+    suggestion:
+      "If unused, delete the folder via a Cursor coding agent / content sync. If still needed, restore the row in the upstream database. Do not claim this issue via MCP.",
+    coding_agent_only: true,
+    next_actions: [],
+  },
   UNRESOLVED_SINGLE_VARS: {
     title: "Unresolved Single Vars",
   },

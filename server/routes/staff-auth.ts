@@ -51,6 +51,41 @@ export function sanitizeReturnTo(raw: unknown): string {
   return "/";
 }
 
+/**
+ * Merge query params onto a staff-login return URL without dropping existing
+ * search (e.g. MCP `/oauth/staff-return?nonce=…` must keep `nonce`).
+ */
+export function appendQueryToReturnTo(
+  returnTo: string | undefined,
+  params: Record<string, string | undefined>,
+): string {
+  const destRaw = (returnTo || "/").trim() || "/";
+  const isAbsolute = /^https?:\/\//i.test(destRaw);
+  let url: URL;
+  if (isAbsolute) {
+    try {
+      url = new URL(destRaw);
+    } catch {
+      url = new URL("http://_return.invalid/");
+    }
+  } else if (destRaw.startsWith("/") && !destRaw.startsWith("//")) {
+    url = new URL(destRaw, "http://_return.invalid");
+  } else {
+    url = new URL("http://_return.invalid/");
+  }
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") {
+      url.searchParams.set(key, value);
+    }
+  }
+
+  if (isAbsolute) {
+    return url.toString();
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 export function registerStaffAuthRoutes(app: Express): void {
   app.get("/api/staff/auth/connectors", (_req, res) => {
     res.json({

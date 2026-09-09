@@ -47,6 +47,7 @@ export const TOOL_GATES: Record<string, ToolGate> = {
   list_seo_clusters: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
   list_seo_cluster_entries: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
   get_seo_cluster: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
+  refresh_keyword_metrics: { kind: "anyCap", caps: ["seo_edit"] },
 
   update_fields: { kind: "anyCap", caps: ["content_edit_text", "seo_edit"] },
   update_entry_field: { kind: "anyCap", caps: ["content_edit_text"] },

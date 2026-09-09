@@ -62,6 +62,12 @@ export interface IssueCodeDefinition {
   summary?: string;
   suggestion?: string;
   next_actions?: IssueCodeNextAction[];
+  /**
+   * When true: MCP agents must not claim this issue (no folder-delete / coding tools).
+   * Excluded from default open_issues; claim returns issue_coding_agent_only.
+   * Guidance is complete even with empty next_actions.
+   */
+  coding_agent_only?: boolean;
 }
 
 export interface ValidatorMetadata {

@@ -15,7 +15,7 @@ import { classifyClusterEntry } from "../../../server/seo-cluster-stats";
 import { yamlHasSeoKey } from "../../../server/seo-fields";
 import { resolveKeywordMetrics } from "../../../server/openrush-keyword-cache";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
-import { SEO_CLUSTER_ISSUE_CODES } from "./seo-cluster.issueCodes";
+import { SEO_CLUSTER_ISSUE_CODES, KEYWORD_RESEARCH_SUGGESTION } from "./seo-cluster.issueCodes";
 
 function effectivePillar(
   seo: NonNullable<ValidationContext["contentFiles"][0]["seo"]>,
@@ -165,8 +165,7 @@ export const seoClusterValidator: Validator = {
             code: "SEO_KEYWORD_RESEARCH_INCOMPLETE",
             message: `${file.type} page "${file.slug}" (${file.locale}) has seo.main_keyword but incomplete keyword research (need OpenRush cache or seo.kw_monthly_volume and seo.kw_difficulty)`,
             file: file.filePath,
-            suggestion:
-              "Refresh the keyword from OpenRush (cluster card), or set integer seo.kw_monthly_volume (≥ 0) and seo.kw_difficulty (0–100) as YAML fallback, or clear the keyword",
+            suggestion: KEYWORD_RESEARCH_SUGGESTION,
           });
         }
       }

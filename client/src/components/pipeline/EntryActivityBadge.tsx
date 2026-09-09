@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { buildGithubCommitFileUrl } from "@shared/github-commit-file-url";
 import {
   ENTRY_ACTIVITY_WINDOW_DAYS,
   ENTRY_ACTIVITY_WRITE_TYPES,
@@ -15,8 +16,8 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AgentIcon } from "@/components/pipeline/AgentIcon";
 import {
   ENTRY_ACTIVITY_PAGE_SIZE,
@@ -24,8 +25,10 @@ import {
   formatActivityListCopy,
   formatActivityRelativeTime,
   formatRelatedActivityTitle,
+  getActivityCommitLinkInputs,
   getActivityLayerLabel,
   getActivityReport,
+  getActivityStructuredNote,
   selectWriteRelatedEvents,
 } from "@/components/pipeline/entryActivityCopy";
 import { buildShowAroundHref } from "@/components/pipeline/event-log-url";
@@ -34,7 +37,7 @@ import { entryKeyToPageUrl } from "@/lib/entryKeyToPageUrl";
 import { type EventAttributionEntry } from "@/lib/formatIssueActor";
 import { apiFetch } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, ExternalLink, Loader2, User } from "lucide-react";
+import { ArrowLeft, ExternalLink, Github, Loader2, User } from "lucide-react";
 
 const EVENT_LOG_PATH = "/private/background-pipeline";
 
@@ -74,6 +77,146 @@ export function buildEntryActivityEventFocusHref(eventId: number, createdAt: num
 /** Closing the modal always returns to the list (1A). */
 export function resetActivityModalSelection(): null {
   return null;
+}
+
+/** Exported for tests — pending vs link decision. */
+export function resolveActivityGithubControl(opts: {
+  repoUrl: string | null | undefined;
+  path: string | null;
+  commitSha: string | null;
+}): { kind: "link"; href: string } | { kind: "pending" } | { kind: "none" } {
+  if (!opts.path) return { kind: "none" };
+  if (opts.commitSha) {
+    const href = buildGithubCommitFileUrl({
+      repoUrl: opts.repoUrl,
+      commitSha: opts.commitSha,
+      path: opts.path,
+    });
+    if (href) return { kind: "link", href };
+    return { kind: "none" };
+  }
+  return { kind: "pending" };
+}
+
+function ActivityGithubControl({
+  repoUrl,
+  path,
+  commitSha,
+  testIdPrefix,
+}: {
+  repoUrl: string | null | undefined;
+  path: string | null;
+  commitSha: string | null;
+  testIdPrefix: string;
+}) {
+  const control = resolveActivityGithubControl({ repoUrl, path, commitSha });
+  if (control.kind === "none") return null;
+  if (control.kind === "link") {
+    return (
+      <a
+        href={control.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+        data-testid={`${testIdPrefix}-github-link`}
+      >
+        <Github className="h-3.5 w-3.5" aria-hidden />
+        View on GitHub
+      </a>
+    );
+  }
+  return (
+    <Popover modal={false}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:underline"
+          data-testid={`${testIdPrefix}-github-pending`}
+        >
+          <Github className="h-3.5 w-3.5" aria-hidden />
+          Not on GitHub yet
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="start"
+        className="z-[10001] w-72 p-3 text-xs leading-snug pointer-events-auto"
+      >
+        <p className="text-foreground font-medium mb-1">Waiting on content push</p>
+        <p className="text-muted-foreground">
+          This save is still waiting to be pushed to the content GitHub. After the push finishes,
+          close and reopen this activity (or refresh the list) to see View on GitHub.
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ActivityNoteBlock({
+  payload,
+  testIdPrefix,
+}: {
+  payload: Record<string, unknown>;
+  testIdPrefix: string;
+}) {
+  const note = getActivityStructuredNote(payload);
+  if (!note) return null;
+
+  const hasStructured =
+    Boolean(note.why) || note.simpleChanges.length > 0 || note.highlights.length > 0;
+
+  return (
+    <div
+      className="rounded-md border border-border bg-muted/40 p-3 space-y-2"
+      data-testid={`${testIdPrefix}-note`}
+    >
+      <p className="text-[11px] font-medium text-foreground">Note</p>
+      {hasStructured ? (
+        <>
+          {note.why ? (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">Why</p>
+              <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                {note.why}
+              </p>
+            </div>
+          ) : null}
+          {note.simpleChanges.length > 0 ? (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">
+                Fields
+              </p>
+              <ul className="space-y-0.5">
+                {note.simpleChanges.map((c) => (
+                  <li key={c.field} className="text-xs text-muted-foreground leading-snug">
+                    <span className="font-medium text-foreground">{c.field}</span>: {c.after}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {note.highlights.length > 0 ? (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">
+                Highlights
+              </p>
+              <ul className="list-disc pl-4 space-y-0.5">
+                {note.highlights.map((h) => (
+                  <li key={h} className="text-xs text-muted-foreground leading-snug">
+                    {h}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </>
+      ) : note.fallbackReport ? (
+        <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
+          {note.fallbackReport}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 async function fetchActivityPage(opts: {
@@ -216,6 +359,18 @@ export function EntryActivityDialog({
     return entryKeyToPageUrl(entryKey, contentTypes);
   }, [pageUrlProp, entryKey, contentTypes]);
 
+  const siteInfoQuery = useQuery({
+    queryKey: ["/api/site/info"],
+    queryFn: async () => {
+      const res = await apiFetch("/api/site/info");
+      if (!res.ok) throw new Error("Failed to load site info");
+      return res.json() as Promise<{ githubRepoUrl?: string }>;
+    },
+    enabled: open,
+    staleTime: 60_000,
+  });
+  const githubRepoUrl = siteInfoQuery.data?.githubRepoUrl;
+
   const query = useInfiniteQuery({
     queryKey: ["/api/admin/events", "entry-activity", entryKey, since, windowDays],
     enabled: open && Boolean(entryKey),
@@ -239,8 +394,8 @@ export function EntryActivityDialog({
   );
   const selected = selectedId == null ? null : events.find((e) => e.id === selectedId) ?? null;
   const selectedCopy = selected ? formatActivityListCopy(selected) : null;
-  const selectedReport = selected ? getActivityReport(selected.payload) : null;
   const selectedLayer = selected ? getActivityLayerLabel(selected.payload) : null;
+  const selectedCommit = selected ? getActivityCommitLinkInputs(selected.payload) : null;
   const selectedSessionId =
     typeof selected?.agent_session_id === "string" && selected.agent_session_id.trim()
       ? selected.agent_session_id.trim()
@@ -317,13 +472,16 @@ export function EntryActivityDialog({
               {selectedLayer ? (
                 <p className="text-xs text-muted-foreground">{selectedLayer}</p>
               ) : null}
-              {selectedReport ? (
-                <div className="rounded-md border border-border bg-muted/40 p-3">
-                  <p className="text-[11px] font-medium text-foreground mb-1">Note</p>
-                  <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                    {selectedReport}
-                  </p>
-                </div>
+              {selected ? (
+                <ActivityNoteBlock payload={selected.payload} testIdPrefix={testIdPrefix} />
+              ) : null}
+              {selectedCommit ? (
+                <ActivityGithubControl
+                  repoUrl={githubRepoUrl}
+                  path={selectedCommit.path}
+                  commitSha={selectedCommit.commitSha}
+                  testIdPrefix={testIdPrefix}
+                />
               ) : null}
               {selectedSessionId ? (
                 <WriteRelatedHistory

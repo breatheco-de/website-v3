@@ -11,6 +11,7 @@ import {
   clampProposalLimit,
   clampProposalOffset,
   isProposalsScoped,
+  parseProposalSort,
   proposalNextOffset,
 } from "../lib/list-proposals-mcp.js";
 
@@ -177,7 +178,9 @@ export function registerProposalTools(
     "List or fetch content proposals (stats-first). With no filters, returns proposal_stats only " +
       "(counts by status/kind) — not a full proposals[] dump. Pass proposal_id, query, issue_id, status, or kind " +
       "to unlock paginated proposals[] (default limit 20, max 200; use offset / next_offset). " +
-      "proposal_stats stay site-wide even when the list is filtered. Requires content_view or seo_edit.",
+      "Optional sort: created_at | updated_at (default updated_at) with sort_dir asc|desc (default desc). " +
+      "Sort applies in scoped mode only; invalid values fail. proposal_stats stay site-wide even when filtered. " +
+      "Requires content_view or seo_edit.",
     {
       proposal_id: z.string().optional(),
       query: z.string().optional(),
@@ -186,6 +189,14 @@ export function registerProposalTools(
       issue_id: z.string().optional(),
       limit: z.number().optional().describe("Page size when scoped (default 20, max 200)"),
       offset: z.number().optional().describe("Offset when scoped"),
+      sort: z
+        .string()
+        .optional()
+        .describe("Scoped only: created_at | updated_at (default updated_at). Invalid values fail."),
+      sort_dir: z
+        .string()
+        .optional()
+        .describe("Scoped only: asc | desc (default desc). Invalid values fail."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async (args) => {
@@ -198,6 +209,7 @@ export function registerProposalTools(
       const limit = clampProposalLimit(args.limit);
       const offset = clampProposalOffset(args.offset);
       const warnings: Array<{ code: string; message: string }> = [];
+      const sortArgsPresent = args.sort != null || args.sort_dir != null;
 
       if (!scoped) {
         warnings.push({
@@ -211,6 +223,21 @@ export function registerProposalTools(
             message: "limit/offset without a scope filter are ignored.",
           });
         }
+        if (sortArgsPresent) {
+          warnings.push({
+            code: "proposals_sort_ignored",
+            message: "sort/sort_dir without a scope filter are ignored (stats only).",
+          });
+        }
+      }
+
+      let sort = "updated_at";
+      let sort_dir = "desc";
+      if (scoped) {
+        const parsed = parseProposalSort(args.sort, args.sort_dir);
+        if (!parsed.ok) return fail(parsed.error, { code: "invalid_sort" });
+        sort = parsed.sort;
+        sort_dir = parsed.sortDir;
       }
 
       const qs = new URLSearchParams();
@@ -222,6 +249,8 @@ export function registerProposalTools(
         if (args.issue_id) qs.set("issue_id", args.issue_id);
         qs.set("limit", String(limit));
         qs.set("offset", String(offset));
+        qs.set("sort", sort);
+        qs.set("sort_dir", sort_dir);
       } else {
         // Stats come from the list endpoint; avoid loading a large default page.
         qs.set("limit", "1");
@@ -257,6 +286,8 @@ export function registerProposalTools(
           limit,
           offset,
           next_offset,
+          sort,
+          sort_dir,
           next_actions: [],
         }, { warnings });
       } catch (e) {

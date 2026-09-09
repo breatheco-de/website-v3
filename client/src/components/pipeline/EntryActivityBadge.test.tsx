@@ -8,6 +8,7 @@ import {
   buildEntryActivityEventLogHref,
   EntryActivityBadge,
   resetActivityModalSelection,
+  resolveActivityGithubControl,
 } from "@/components/pipeline/EntryActivityBadge";
 import { ENTRY_ACTIVITY_PAGE_SIZE } from "@/components/pipeline/entryActivityCopy";
 import { EVENT_LOG_SHOW_AROUND_HALF_MS } from "@/components/pipeline/event-log-url";
@@ -64,5 +65,29 @@ describe("EntryActivityBadge", () => {
     });
     expect(href).toContain("https://github.com/acme/content/commit/deadbeef#diff-");
     expect(href).not.toContain("main");
+  });
+
+  it("resolves View on GitHub vs pending vs none", () => {
+    expect(
+      resolveActivityGithubControl({
+        repoUrl: "https://github.com/acme/content",
+        path: "site_x/a.yml",
+        commitSha: "abc123",
+      }).kind,
+    ).toBe("link");
+    expect(
+      resolveActivityGithubControl({
+        repoUrl: "https://github.com/acme/content",
+        path: "site_x/a.yml",
+        commitSha: null,
+      }),
+    ).toEqual({ kind: "pending" });
+    expect(
+      resolveActivityGithubControl({
+        repoUrl: "https://github.com/acme/content",
+        path: null,
+        commitSha: "abc",
+      }),
+    ).toEqual({ kind: "none" });
   });
 });
