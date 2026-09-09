@@ -39,48 +39,109 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import fs from "fs";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+import { getPackageRoot, getProjectRoot } from "./shared/paths";
+import {
+  getSiteComponentSchemasPaths,
+  shouldUseSiteSchemaStub,
+  siteComponentRegistryExists,
+} from "./shared/site-schema-stub-mode";
 
 // Vite 6+ removed isSsrBuild from the defineConfig callback.
 // Detect SSR build by checking the CLI arguments instead.
 const isSsrBuild = process.argv.includes("--ssr");
+const useSiteSchemaStub = shouldUseSiteSchemaStub();
+const siteSchemaPaths = getSiteComponentSchemasPaths(getPackageRoot());
 
 /**
  * Warns at build time when site_4geeks-com/component-registry is absent.
  * The build still succeeds — only shared /client components will be bundled.
+ * Also notes when site Zod schemas are aliased to the stub bridge.
  */
 function componentRegistryGuardPlugin(): Plugin {
   return {
     name: "component-registry-guard",
     apply: "build",
     buildStart() {
-      const registryPath = path.resolve(import.meta.dirname, "site_4geeks-com", "component-registry");
-      if (!fs.existsSync(registryPath)) {
+      if (!siteComponentRegistryExists()) {
         this.warn(
           "site_4geeks-com/component-registry not found — registry TSX files will not be bundled. " +
           "Build continues with shared /client components only.",
+        );
+      }
+      if (useSiteSchemaStub) {
+        this.warn(
+          "Using shared/site-component-schemas.stub.ts (site bridge absent or WEBLIFY_SITE_SCHEMAS_STUB=1).",
         );
       }
     },
   };
 }
 
-/** Runs on `vite build` (client pass only), writes site_4geeks-com/navigation-eager-manifest.json */
+/**
+ * When packing/building without site content, resolve the compile-time site
+ * Zod bridge to the stub so Vite never follows imports into site_*.
+ */
+function siteComponentSchemasStubPlugin(): Plugin {
+  return {
+    name: "site-component-schemas-stub",
+    enforce: "pre",
+    resolveId(source, importer) {
+      if (!useSiteSchemaStub) return null;
+      if (!source.includes("site-component-schemas")) return null;
+      if (source.includes("site-component-schemas.stub")) return null;
+
+      const isBare =
+        source === "@shared/site-component-schemas" ||
+        source === "./site-component-schemas" ||
+        source === "./site-component-schemas.ts" ||
+        source.endsWith("/site-component-schemas") ||
+        source.endsWith("/site-component-schemas.ts");
+
+      if (isBare) return siteSchemaPaths.stub;
+
+      if (importer && (source.startsWith(".") || path.isAbsolute(source))) {
+        const resolved = path.resolve(
+          path.isAbsolute(source) ? source : path.join(path.dirname(importer), source),
+        );
+        const asTs = resolved.endsWith(".ts") ? resolved : `${resolved}.ts`;
+        if (path.resolve(asTs) === path.resolve(siteSchemaPaths.real)) {
+          return siteSchemaPaths.stub;
+        }
+      }
+      return null;
+    },
+  };
+}
+
+/** Runs on `vite build` (client pass only), writes navigation-eager-manifest.json under the active site */
 function navigationEagerManifestPlugin(isSsr: boolean): Plugin {
   return {
     name: "navigation-eager-manifest",
     apply: "build",
     async buildStart() {
       if (isSsr) return;
-      const { regenerateNavigationEagerManifest } = await import(
-        "./server/navigation-eager-manifest.ts"
-      );
-      await regenerateNavigationEagerManifest();
+      if (!siteComponentRegistryExists() && !fs.existsSync(path.join(getProjectRoot(), "sites.yml"))) {
+        this.warn(
+          "Skipping navigation-eager-manifest — no site content / sites.yml under PROJECT_ROOT.",
+        );
+        return;
+      }
+      try {
+        const { regenerateNavigationEagerManifest } = await import(
+          "./server/navigation-eager-manifest.ts"
+        );
+        await regenerateNavigationEagerManifest();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.warn(`navigation-eager-manifest skipped: ${message}`);
+      }
     },
   };
 }
 
 export default defineConfig(async () => ({
   plugins: [
+    siteComponentSchemasStubPlugin(),
     componentRegistryGuardPlugin(),
     navigationEagerManifestPlugin(isSsrBuild),
     react({
@@ -105,6 +166,13 @@ export default defineConfig(async () => ({
   ],
   resolve: {
     alias: {
+      // More specific than `@shared` — forces stub when site content is absent / pack mode.
+      ...(useSiteSchemaStub
+        ? {
+            "@shared/site-component-schemas": siteSchemaPaths.stub,
+            [siteSchemaPaths.real]: siteSchemaPaths.stub,
+          }
+        : {}),
       "@": path.resolve(import.meta.dirname, "client", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
@@ -187,8 +255,11 @@ export default defineConfig(async () => ({
       // Note: explicitly setting `allow` replaces Vite's auto-detected workspace root,
       // so we must include it here via searchForWorkspaceRoot().
       allow: [
-        searchForWorkspaceRoot(process.cwd()),
-        path.resolve(import.meta.dirname, "site_4geeks-com", "component-registry"),
+        searchForWorkspaceRoot(getPackageRoot()),
+        path.resolve(getPackageRoot(), "client"),
+        path.resolve(getPackageRoot(), "shared"),
+        // Site registries live under the project root (may equal package root in monorepo).
+        path.resolve(getProjectRoot()),
       ],
     },
     warmup: {

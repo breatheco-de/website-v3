@@ -341,7 +341,7 @@ async function callEditSectionsApi(
   domain?: string,
 ): Promise<{ error: McpTextResult } | { data: Record<string, unknown> }> {
   try {
-    const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/edit-sections${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/edit-sections${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
     const res = await fetch(url, {
       method: "POST",
       headers: internalHeaders(mcpToken, { agentSessionId: params.agent_session_id }),
@@ -476,7 +476,7 @@ async function callEditCommonApi(
   domain?: string
 ): Promise<McpTextResult | null> {
   try {
-    const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/edit-common${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/edit-common${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
     const res = await fetch(url, {
       method: "POST",
       headers: internalHeaders(mcpToken, { agentSessionId: params.agent_session_id }),
@@ -513,7 +513,7 @@ async function callRefreshCacheApi(
   domain?: string,
 ): Promise<{ ok: boolean; knownUrlCount?: number; error?: string }> {
   try {
-    const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/refresh-cache${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/refresh-cache${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
     const res = await fetch(url, {
       method: "POST",
       headers: internalHeaders(),
@@ -542,7 +542,7 @@ async function callRenameSlugApi(
   domain?: string,
 ): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; error: McpTextResult }> {
   try {
-    const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/rename-slug${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/rename-slug${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
     const res = await fetch(url, {
       method: "POST",
       headers: internalHeaders(mcpToken),
@@ -575,7 +575,7 @@ async function callCommitFilesApi(
 ): Promise<{ commitSha?: string; queued?: boolean; warning?: string; connectRequired?: boolean }> {
   if (files.length === 0) return {};
   try {
-    const url = `http://localhost:${MAIN_SERVER_PORT}/api/github/commit${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/github/commit${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
     const author = mcpToken ? getTokenUsername(mcpToken) : undefined;
     const res = await fetch(url, {
       method: "POST",
@@ -645,7 +645,7 @@ async function checkRemoteConflict(
   domain?: string
 ): Promise<{ conflict: true; remoteContent: string } | { conflict: false }> {
   try {
-    const url = `http://localhost:${MAIN_SERVER_PORT}/api/github/file-status?file=${encodeURIComponent(filePath)}${domain ? `&__site=${encodeURIComponent(domain)}` : ""}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/github/file-status?file=${encodeURIComponent(filePath)}${domain ? `&__site=${encodeURIComponent(domain)}` : ""}`;
     const res = await fetch(url);
     if (!res.ok) return { conflict: false };
     const data = await res.json() as {
@@ -988,7 +988,7 @@ async function fetchCacheIssueRowsForQueue(
   const qs = params.toString() ? `?${params.toString()}` : "";
   try {
     const res = await fetch(
-      `http://localhost:${MAIN_SERVER_PORT}/api/validation/cache-issues${qs}`,
+      `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues${qs}`,
       { headers: internalHeaders() },
     );
     if (!res.ok) return { rows: [], ok: false };
@@ -1153,7 +1153,7 @@ export function registerPageTools(
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/admin/agent-sessions/checkpoint${
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/agent-sessions/checkpoint${
           domain ? `?__site=${encodeURIComponent(domain)}` : ""
         }`;
         const res = await fetch(url, {
@@ -2037,7 +2037,7 @@ export function registerPageTools(
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       try {
         const res = await fetch(
-          `http://localhost:${MAIN_SERVER_PORT}/api/validation/cache-issues/update${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues/update${q}`,
           {
             method: "POST",
             headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
@@ -2183,7 +2183,7 @@ export function registerPageTools(
       const forceOverwrite = overwrite === true;
       try {
         const res = await fetch(
-          `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(content_type)}/entry-previews/enqueue${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(content_type)}/entry-previews/enqueue${q}`,
           {
             method: "POST",
             headers: { ...internalHeaders(mcpToken), "Content-Type": "application/json" },
@@ -2415,7 +2415,7 @@ export function registerPageTools(
       };
       try {
         const res = await fetch(
-          `http://localhost:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs${q}`,
           {
             method: "POST",
             headers: internalHeaders(),
@@ -2690,7 +2690,7 @@ export function registerPageTools(
       };
       try {
         const res = await fetch(
-          `http://localhost:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs/${encodeURIComponent(job_id)}${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs/${encodeURIComponent(job_id)}${q}`,
           { headers: internalHeaders() },
         );
         const data = await res.json() as Record<string, unknown>;
@@ -3198,7 +3198,7 @@ export function registerPageTools(
         }> = [];
         for (const u of resetUpdates) {
           try {
-            const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
+            const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
             const res = await fetch(url, {
               method: "POST",
               headers: internalHeaders(mcpToken),
@@ -3815,7 +3815,7 @@ export function registerPageTools(
       }
 
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/bulk-update-meta${
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/bulk-update-meta${
           domain ? `?__site=${encodeURIComponent(domain)}` : ""
         }`;
         const res = await fetch(url, {
@@ -4006,7 +4006,7 @@ export function registerPageTools(
           const layerFile = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
           const dbPath = `db/${dbSlug || "<database>"}/overrides.json`;
           const ctPath = `${ctDir}/${slug}/${layerFile}`;
-          const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
+          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
           const res = await fetch(url, {
             method: "POST",
             headers: internalHeaders(mcpToken),
@@ -4076,7 +4076,7 @@ export function registerPageTools(
 
         if (level === "database") {
           const relPath = `db/${dbSlug || "<database>"}/overrides.json`;
-          const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/db-overrides/${encodeURIComponent(slug)}${q}`;
+          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/db-overrides/${encodeURIComponent(slug)}${q}`;
           const res = await fetch(url, {
             method: "PUT",
             headers: internalHeaders(mcpToken),
@@ -4104,7 +4104,7 @@ export function registerPageTools(
 
         const layerFile = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
         const relPathFallback = `${ctDir}/${slug}/${layerFile}`;
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-overrides/${encodeURIComponent(slug)}${q}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-overrides/${encodeURIComponent(slug)}${q}`;
         const res = await fetch(url, {
           method: "PUT",
           headers: internalHeaders(mcpToken),
@@ -4250,7 +4250,7 @@ export function registerPageTools(
       if (domain) q.set("__site", domain);
       if (variant) q.set("variant", variant);
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(resolved.contentType)}/field-provenance/${encodeURIComponent(slug)}?${q}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(resolved.contentType)}/field-provenance/${encodeURIComponent(slug)}?${q}`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
         const data = await res.json();
         if (!res.ok) return fail((data as { error?: string }).error || `Server error: ${res.status}`);
@@ -4431,7 +4431,7 @@ export function registerPageTools(
 
       try {
         const versioningSlug = versioningApiSlug(contentType, slug, contentPath);
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
@@ -4547,7 +4547,7 @@ export function registerPageTools(
 
       try {
         const versioningSlug = versioningApiSlug(contentType, slug, contentPath);
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken),
@@ -4653,7 +4653,7 @@ export function registerPageTools(
       try {
         // Entry slug as-is (same as promote_variant) — do not remap attached entries to "single".
         const versioningSlug = slug;
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/publish${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/publish${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
@@ -4782,7 +4782,7 @@ export function registerPageTools(
         // Entry slug as-is: attached translate drafts live under the entry folder.
         // Use slug "single" only for type-root template variants.
         const versioningSlug = slug;
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/promote/${encodeURIComponent(variantSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/promote/${encodeURIComponent(variantSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
@@ -4964,7 +4964,7 @@ export function registerPageTools(
         if (cleanup_orphan === true) q.set("cleanup_orphan", "true");
         const qs = q.toString();
         const url =
-          `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/` +
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/` +
           `${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/${encodeURIComponent(variantSlug)}` +
           (qs ? `?${qs}` : "");
         const res = await fetch(url, {
@@ -5172,7 +5172,7 @@ export function registerPageTools(
       }
 
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}/${encodeURIComponent(locale)}/convert-to-draft${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}/${encodeURIComponent(locale)}/convert-to-draft${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, { method: "POST", headers: internalHeaders(mcpToken) });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
@@ -7590,7 +7590,7 @@ export function registerPageTools(
           locale,
         });
         if (domain) params.set("__site", domain);
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/bindings/section?${params}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/bindings/section?${params}`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
@@ -7643,7 +7643,7 @@ export function registerPageTools(
         return denyResponse("content_delete_entry", contentType);
       }
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/delete-entries${
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/delete-entries${
           domain ? `?__site=${encodeURIComponent(domain)}` : ""
         }`;
         if (confirm === true) {
@@ -7942,7 +7942,7 @@ export function registerPageTools(
         try {
           const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
           const res = await fetch(
-            `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/schema-org-coverage${q}`,
+            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/schema-org-coverage${q}`,
           );
           if (res.ok) {
             const data = (await res.json()) as { coverage?: Array<Record<string, unknown>> };
@@ -8268,7 +8268,7 @@ export function registerPageTools(
         }
         try {
           const res = await fetch(
-            `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
+            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
             {
               method: "PUT",
               headers: { ...internalHeaders(mcpToken), "Content-Type": "application/json" },
@@ -8432,7 +8432,7 @@ export function registerPageTools(
 
       try {
         const res = await fetch(
-          `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
           {
             method: "PUT",
             headers: { ...internalHeaders(mcpToken), "Content-Type": "application/json" },
@@ -8535,7 +8535,7 @@ export function registerPageTools(
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       try {
         const res = await fetch(
-          `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/schema-org-ensure${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/schema-org-ensure${q}`,
           {
             method: "POST",
             headers: { ...internalHeaders(mcpToken), "Content-Type": "application/json" },
@@ -8666,7 +8666,7 @@ export function registerPageTools(
             const params = new URLSearchParams();
             if (locale) params.set("locale", locale);
             if (domain) params.set("__site", domain);
-            const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/seo-entries?${params}`;
+            const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/seo-entries?${params}`;
             const res = await fetch(url);
             if (!res.ok) {
               results.push({ contentType: ct, error: `seo-entries returned ${res.status}` });

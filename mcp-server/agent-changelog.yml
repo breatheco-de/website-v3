@@ -6,6 +6,19 @@ window_days: 6
 
 entries:
   - date: "2026-09-08"
+    summary: "bootstrap_agent conventions de-branded; optional site injects brand.title + domain"
+    agent_impact:
+      - "skill.content is generic Website MCP conventions (no 4Geeks/Alejandro). Pass site on bootstrap_agent (or sole configured site) so links use that domain and brand.title from variables.yml."
+      - "skill.branding reports mode branded|generic. Multi-site without site stays generic and may recommend list_sites. Unknown site hard-fails like other tools."
+      - "Reconnect MCP so tools/list picks up the new optional site param on bootstrap_agent."
+    paths:
+      - mcp-server/agent-conventions.md
+      - mcp-server/lib/conventions-brand.ts
+      - mcp-server/lib/agent-changelog.ts
+      - mcp-server/lib/mcp-playbook.ts
+      - mcp-server/tools/explain.ts
+    tools_changed: true
+  - date: "2026-09-08"
     summary: "slug_locale_mismatch soft warning on create_entry / translate_entry / live slug rename"
     agent_impact:
       - "Success warnings may include code slug_locale_mismatch when a public URL slug has clear opposite-locale function words (EN vs ES). Create/rename still succeeds; slug is not auto-rewritten."

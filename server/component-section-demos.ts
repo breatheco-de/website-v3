@@ -1,3 +1,4 @@
+import { getProjectRoot } from "@shared/paths";
 /**
  * Ephemeral single-section demos for MCP → human preview links.
  * Files live under `.cache/component-section-demos/{hash}.yml` and are wiped on deploy.
@@ -44,17 +45,17 @@ export type DemoValidationError = {
   details?: string[];
 };
 
-export function demosDir(cwd = process.cwd()): string {
+export function demosDir(cwd = getProjectRoot()): string {
   return path.join(cwd, ".cache", "component-section-demos");
 }
 
-export function ensureDemosDir(cwd = process.cwd()): string {
+export function ensureDemosDir(cwd = getProjectRoot()): string {
   const dir = demosDir(cwd);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
 
-export function demoFilePath(hash: string, cwd = process.cwd()): string {
+export function demoFilePath(hash: string, cwd = getProjectRoot()): string {
   if (!DEMO_HASH_RE.test(hash)) {
     throw new Error("Invalid demo hash");
   }
@@ -311,7 +312,7 @@ export function createDemo(opts: {
   section: Record<string, unknown>;
   cwd?: string;
 }): { hash: string; previewUrl: string; relativePath: string } {
-  const cwd = opts.cwd ?? process.cwd();
+  const cwd = opts.cwd ?? getProjectRoot();
   ensureDemosDir(cwd);
   const hash = crypto.randomBytes(16).toString("hex");
   const record: DemoRecord = {
@@ -334,7 +335,7 @@ export function createDemo(opts: {
   };
 }
 
-export function readDemo(hash: string, cwd = process.cwd()): DemoRecord | null {
+export function readDemo(hash: string, cwd = getProjectRoot()): DemoRecord | null {
   if (!DEMO_HASH_RE.test(hash)) return null;
   const filePath = demoFilePath(hash, cwd);
   if (!fs.existsSync(filePath)) return null;
@@ -355,7 +356,7 @@ export function readDemo(hash: string, cwd = process.cwd()): DemoRecord | null {
 }
 
 /** Raw on-disk YAML for a demo (exact bytes written at create time). */
-export function readDemoYamlText(hash: string, cwd = process.cwd()): string | null {
+export function readDemoYamlText(hash: string, cwd = getProjectRoot()): string | null {
   if (!DEMO_HASH_RE.test(hash)) return null;
   const filePath = demoFilePath(hash, cwd);
   if (!fs.existsSync(filePath)) return null;
@@ -374,7 +375,7 @@ export function readDemoYamlText(hash: string, cwd = process.cwd()): string | nu
  */
 export function listDemoSections(
   componentType: string,
-  cwd = process.cwd(),
+  cwd = getProjectRoot(),
 ): Array<Record<string, unknown>> {
   const dir = demosDir(cwd);
   if (!fs.existsSync(dir)) return [];

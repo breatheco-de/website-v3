@@ -188,7 +188,7 @@ export function registerValidationIssuesTools(
 
       try {
         const openRes = await fetch(
-          `http://localhost:${MAIN_SERVER_PORT}/api/validation/cache-issues${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues${q}`,
           { headers },
         );
         if (openRes.ok) {
@@ -209,7 +209,7 @@ export function registerValidationIssuesTools(
 
       try {
         const resolvedRes = await fetch(
-          `http://localhost:${MAIN_SERVER_PORT}/api/validation/resolved-issues${q}${q ? "&" : "?"}limit=1`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/resolved-issues${q}${q ? "&" : "?"}limit=1`,
           { headers },
         );
         if (resolvedRes.ok) {
@@ -253,7 +253,7 @@ export function registerValidationIssuesTools(
         const sep = q ? `${q}&` : "?";
         try {
           const res = await fetch(
-            `http://localhost:${MAIN_SERVER_PORT}/api/validation/resolved-issues${sep}${qs.toString()}`,
+            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/resolved-issues${sep}${qs.toString()}`,
             { headers },
           );
           if (!res.ok) {
@@ -300,7 +300,7 @@ export function registerValidationIssuesTools(
       const sep = q ? (extra ? `${q}&${extra}` : q) : extra ? `?${extra}` : "";
       try {
         const res = await fetch(
-          `http://localhost:${MAIN_SERVER_PORT}/api/validation/cache-issues${sep}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues${sep}`,
           { headers },
         );
         if (!res.ok) {

@@ -60,9 +60,9 @@ Picker options come from `/api/query-options?source=…` (omit locale → entrie
 | Listing / list_cards | Keep slug pointers; display via **deslugify** (`shared/relation-field.ts`) |
 | Page / SSR `{{ entry.authors }}` | Hydrated object[] via `server/resolve-relations.ts` (locale + fallback) |
 
-## Blog + authors (4geeks)
+## Blog + authors (example corpus — confirm on the target site)
 
-- Content type `authors` (seeded on `site_4geeks-com` only): public hubs; protected default `4geeks-academy`.
+- Content type `authors` (seeded on `site_4geeks-com` in one example corpus): public hubs; protected default `4geeks-academy`.
 - Blog `authors` relation is required, multi, stored on `_common.yml`, indexed.
 - Article template must map explicitly:
 

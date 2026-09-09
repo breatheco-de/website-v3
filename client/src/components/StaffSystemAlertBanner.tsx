@@ -2,14 +2,11 @@ import { useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { isDebugModeActive, useDebugAuth } from "@/hooks/useDebugAuth";
 import { useSystemAlerts, type SystemAlert } from "@/hooks/useSystemAlerts";
 import { SidequestDiagnosticsPanel } from "@/components/pipeline/SidequestDiagnosticsPanel";
 import { cn } from "@/lib/utils";
 
 const SIDEQUEST_ALERT_CODES = new Set<SystemAlert["code"]>(["sidequest_engine_down", "sidequest_engine_stuck"]);
-
-const COLLAPSE_THRESHOLD = 2;
 
 function alertVariantClasses(severity: SystemAlert["severity"]): string {
   if (severity === "warning") {
@@ -48,6 +45,7 @@ const DATABASE_ALERT_CODES = new Set<SystemAlert["code"]>([
 export function SystemAlertItem({
   alert,
   compact = false,
+  defaultExpanded = false,
   onRecheckGcs,
   recheckingGcs = false,
   recheckMessage,
@@ -60,6 +58,7 @@ export function SystemAlertItem({
 }: {
   alert: SystemAlert;
   compact?: boolean;
+  defaultExpanded?: boolean;
   onRecheckGcs?: () => void;
   recheckingGcs?: boolean;
   recheckMessage?: string | null;
@@ -70,6 +69,7 @@ export function SystemAlertItem({
   recheckingSidequest?: boolean;
   sidequestRecheckMessage?: string | null;
 }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const showGcsRecheck = alert.code === "gcs_migration_required" && onRecheckGcs;
   const showDbRecheck = DATABASE_ALERT_CODES.has(alert.code) && !!onRecheckDatabase;
   const showSidequestPanel = SIDEQUEST_ALERT_CODES.has(alert.code) && !!onRecheckSidequest;
@@ -85,87 +85,117 @@ export function SystemAlertItem({
         <AlertTriangle className={cn(compact ? "h-3.5 w-3.5" : "h-4 w-4", alertIconClasses(alert.severity))} />
       </div>
       <div className="flex-1 min-w-0">
-        <p className={cn(compact ? "text-xs" : "text-sm", "font-medium", alertTitleClasses(alert.severity))}>
-          {alert.title}
-          {alert.site ? (
-            <span className="font-normal text-muted-foreground"> ({alert.site})</span>
-          ) : null}
-        </p>
-        <p className={cn(compact ? "text-[11px]" : "text-xs", "mt-0.5 break-words", alertMessageClasses(alert.severity))}>
-          {alert.message}
-        </p>
-        {recheckMessage && showGcsRecheck ? (
-          <p className={cn(compact ? "text-[11px]" : "text-xs", "mt-1", alertMessageClasses(alert.severity))}>
-            {recheckMessage}
+        <div className="flex items-center gap-2">
+          <p className={cn("flex-1 min-w-0 truncate", compact ? "text-xs" : "text-sm", "font-medium", alertTitleClasses(alert.severity))}>
+            {alert.title}
+            {alert.site ? (
+              <span className="font-normal text-muted-foreground"> ({alert.site})</span>
+            ) : null}
           </p>
-        ) : null}
-        {databaseRecheckMessage && showDbRecheck ? (
-          <p className={cn(compact ? "text-[11px]" : "text-xs", "mt-1", alertMessageClasses(alert.severity))}>
-            {databaseRecheckMessage}
-          </p>
-        ) : null}
-        {showSidequestPanel ? (
-          <div className="mt-2">
-            <SidequestDiagnosticsPanel
-              compact={compact}
-              onRecheck={onRecheckSidequest}
-              rechecking={recheckingSidequest}
-              recheckMessage={sidequestRecheckMessage}
-            />
-          </div>
-        ) : null}
-        <div className="flex flex-wrap items-center gap-2 mt-1">
-          {showGcsRecheck ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className={cn("h-7", compact ? "text-[11px]" : "text-xs")}
-              onClick={onRecheckGcs}
-              disabled={recheckingGcs}
-              data-testid="button-recheck-gcs-migration"
-            >
-              {recheckingGcs ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                  Checking…
-                </>
-              ) : (
-                "Re-check migration"
-              )}
-            </Button>
-          ) : null}
-          {showDbRecheck ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className={cn("h-7", compact ? "text-[11px]" : "text-xs")}
-              onClick={onRecheckDatabase}
-              disabled={recheckingDatabase}
-              data-testid={`button-recheck-database-${alert.id}`}
-            >
-              {recheckingDatabase ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                  Checking…
-                </>
-              ) : (
-                "Check again"
-              )}
-            </Button>
-          ) : null}
-          {alert.actionHref ? (
-            <Link href={alert.actionHref}>
-              <Button
-                variant="link"
-                size="sm"
-                className={cn("h-auto p-0", compact ? "text-[11px]" : "text-xs")}
-                data-testid={`system-alert-action-${alert.id}`}
-              >
-                {alert.actionLabel ?? "View details"}
-              </Button>
-            </Link>
-          ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "h-7 px-2 flex-shrink-0 text-muted-foreground",
+              compact ? "text-[11px]" : "text-xs",
+            )}
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            data-testid={`button-toggle-system-alert-${alert.id}`}
+          >
+            {expanded ? (
+              <>
+                <ChevronUp className="h-3.5 w-3.5 mr-1" />
+                Collapse
+              </>
+            ) : (
+              <>
+                <ChevronDown className="h-3.5 w-3.5 mr-1" />
+                Expand
+              </>
+            )}
+          </Button>
         </div>
+        {expanded ? (
+          <>
+            <p className={cn(compact ? "text-[11px]" : "text-xs", "mt-0.5 break-words", alertMessageClasses(alert.severity))}>
+              {alert.message}
+            </p>
+            {recheckMessage && showGcsRecheck ? (
+              <p className={cn(compact ? "text-[11px]" : "text-xs", "mt-1", alertMessageClasses(alert.severity))}>
+                {recheckMessage}
+              </p>
+            ) : null}
+            {databaseRecheckMessage && showDbRecheck ? (
+              <p className={cn(compact ? "text-[11px]" : "text-xs", "mt-1", alertMessageClasses(alert.severity))}>
+                {databaseRecheckMessage}
+              </p>
+            ) : null}
+            {showSidequestPanel ? (
+              <div className="mt-2">
+                <SidequestDiagnosticsPanel
+                  compact={compact}
+                  onRecheck={onRecheckSidequest}
+                  rechecking={recheckingSidequest}
+                  recheckMessage={sidequestRecheckMessage}
+                />
+              </div>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              {showGcsRecheck ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn("h-7", compact ? "text-[11px]" : "text-xs")}
+                  onClick={onRecheckGcs}
+                  disabled={recheckingGcs}
+                  data-testid="button-recheck-gcs-migration"
+                >
+                  {recheckingGcs ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      Checking…
+                    </>
+                  ) : (
+                    "Re-check migration"
+                  )}
+                </Button>
+              ) : null}
+              {showDbRecheck ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn("h-7", compact ? "text-[11px]" : "text-xs")}
+                  onClick={onRecheckDatabase}
+                  disabled={recheckingDatabase}
+                  data-testid={`button-recheck-database-${alert.id}`}
+                >
+                  {recheckingDatabase ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      Checking…
+                    </>
+                  ) : (
+                    "Check again"
+                  )}
+                </Button>
+              ) : null}
+              {alert.actionHref ? (
+                <Link href={alert.actionHref}>
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className={cn("h-auto p-0", compact ? "text-[11px]" : "text-xs")}
+                    data-testid={`system-alert-action-${alert.id}`}
+                  >
+                    {alert.actionLabel ?? "View details"}
+                  </Button>
+                </Link>
+              ) : null}
+            </div>
+          </>
+        ) : null}
       </div>
     </div>
   );
@@ -188,7 +218,7 @@ export function SystemAlertsPanel({ compact = false }: { compact?: boolean }) {
   if (!hasAlerts) return null;
 
   return (
-    <div className="space-y-2" data-testid="system-alerts-panel">
+    <div data-testid="system-alerts-panel">
       {alerts.map((alert) => (
         <div
           key={alert.id}
@@ -211,89 +241,6 @@ export function SystemAlertsPanel({ compact = false }: { compact?: boolean }) {
           />
         </div>
       ))}
-    </div>
-  );
-}
-
-export function StaffSystemAlertBanner() {
-  const { isValidated, hasToken, isLoading: authLoading } = useDebugAuth();
-  const {
-    alerts,
-    hasAlerts,
-    isLoading,
-    recheckGcsMigration,
-    recheckingGcs,
-    recheckMessage,
-    recheckDatabase,
-    recheckingDbId,
-    dbRecheckMessages,
-    recheckSidequest,
-    recheckingSidequest,
-    sidequestRecheckMessage,
-  } = useSystemAlerts();
-  const [expanded, setExpanded] = useState(false);
-
-  if (!isDebugModeActive() || authLoading || !isValidated || !hasToken) {
-    return null;
-  }
-
-  if (isLoading || !hasAlerts) {
-    return null;
-  }
-
-  const visibleAlerts = expanded ? alerts : alerts.slice(0, COLLAPSE_THRESHOLD);
-  const hiddenCount = alerts.length - COLLAPSE_THRESHOLD;
-  const showToggle = alerts.length > COLLAPSE_THRESHOLD;
-
-  return (
-    <div
-      className="border-b border-destructive/20 bg-destructive/5"
-      data-testid="staff-system-alert-banner"
-    >
-      <div className="max-w-7xl mx-auto px-4 py-3 space-y-3">
-        {visibleAlerts.map((alert) => (
-          <div
-            key={alert.id}
-            className={cn("rounded-md border px-3 py-2.5", alertVariantClasses(alert.severity))}
-          >
-            <SystemAlertItem
-              alert={alert}
-              onRecheckGcs={alert.code === "gcs_migration_required" ? recheckGcsMigration : undefined}
-              recheckingGcs={recheckingGcs}
-              recheckMessage={recheckMessage}
-              onRecheckDatabase={alert.database ? () => void recheckDatabase(alert) : undefined}
-              recheckingDatabase={recheckingDbId === alert.id}
-              databaseRecheckMessage={dbRecheckMessages[alert.id] ?? null}
-              onRecheckSidequest={
-                SIDEQUEST_ALERT_CODES.has(alert.code) ? () => void recheckSidequest() : undefined
-              }
-              recheckingSidequest={recheckingSidequest}
-              sidequestRecheckMessage={sidequestRecheckMessage}
-            />
-          </div>
-        ))}
-        {showToggle ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs text-muted-foreground"
-            onClick={() => setExpanded((v) => !v)}
-            data-testid="button-toggle-system-alerts"
-          >
-            {expanded ? (
-              <>
-                <ChevronUp className="h-3.5 w-3.5 mr-1" />
-                Show fewer
-              </>
-            ) : (
-              <>
-                <ChevronDown className="h-3.5 w-3.5 mr-1" />
-                Show {hiddenCount} more alert{hiddenCount !== 1 ? "s" : ""}
-              </>
-            )}
-          </Button>
-        ) : null}
-      </div>
     </div>
   );
 }

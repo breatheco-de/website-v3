@@ -14,6 +14,11 @@ import {
   resolveSkillVersion,
   shouldIncludeSkillContent,
 } from "./mcp-playbook.js";
+import {
+  type ConventionsBranding,
+  renderConventionsMarkdown,
+  resolveConventionsBranding,
+} from "./conventions-brand.js";
 
 export const AGENT_CHANGELOG_WINDOW_DAYS = 6;
 
@@ -41,6 +46,7 @@ export interface BootstrapSkillPayload {
   version: string;
   hint: string;
   content?: string;
+  branding: ConventionsBranding;
 }
 
 export interface BootstrapPayload {
@@ -60,7 +66,15 @@ export type BootstrapPayloadOpts = {
   now?: Date;
   changelogFilePath?: string;
   cwd?: string;
+  /** Domain from sites.yml; brands conventions when known (or sole site). */
+  site?: string;
+  /** Pre-resolved branding (skips resolveConventionsBranding). */
+  branding?: ConventionsBranding;
 };
+
+export type BuildBootstrapResult =
+  | { ok: true; payload: BootstrapPayload }
+  | { ok: false; error: string };
 
 function parseEntryDate(dateStr: string): Date | null {
   const d = new Date(dateStr.includes("T") ? dateStr : `${dateStr}T00:00:00.000Z`);
@@ -127,7 +141,19 @@ export function buildAgentChangelogPayload(
   };
 }
 
-export function buildBootstrapPayload(opts: BootstrapPayloadOpts = {}): BootstrapPayload {
+/**
+ * Build bootstrap_agent payload. On explicit unknown `site`, returns ok:false with
+ * resolveSiteContext JSON error (hard fail). Multi-site with no site → generic branding.
+ */
+export function buildBootstrapPayload(opts: BootstrapPayloadOpts = {}): BuildBootstrapResult {
+  const brandingResult = opts.branding
+    ? { ok: true as const, branding: opts.branding }
+    : resolveConventionsBranding(opts.site);
+  if (!brandingResult.ok) {
+    return { ok: false, error: brandingResult.error };
+  }
+  const branding = brandingResult.branding;
+
   const now = opts.now ?? new Date();
   const cwd = opts.cwd ?? process.cwd();
   const { entries, window_days } = loadAgentChangelogFile(
@@ -135,7 +161,12 @@ export function buildBootstrapPayload(opts: BootstrapPayloadOpts = {}): Bootstra
   );
   const filtered = filterChangelogEntries(entries, now, window_days);
   const anyToolsChanged = filtered.some((e) => e.tools_changed);
-  const conventionsMd = loadConventionsMarkdown(cwd);
+  const template = loadConventionsMarkdown(cwd);
+  const conventionsMd = renderConventionsMarkdown(template, {
+    mode: branding.mode,
+    brandTitle: branding.brand_title,
+    siteDomain: branding.site,
+  });
   const skillVersion = resolveSkillVersion(conventionsMd);
   const includeContent = shouldIncludeSkillContent({
     include_skill_content: opts.include_skill_content,
@@ -147,28 +178,40 @@ export function buildBootstrapPayload(opts: BootstrapPayloadOpts = {}): Bootstra
     path: CONVENTIONS_PATH,
     version: skillVersion,
     hint: SKILL_HINT,
+    branding,
   };
   if (includeContent) {
     skill.content = conventionsMd;
   }
 
+  const multiSiteGeneric =
+    branding.mode === "generic"
+      ? [
+          "Multi-site: pass site on bootstrap_agent (or call list_sites first) so skill.content link examples use that domain and brand.title.",
+        ]
+      : [];
+
   return {
-    generated_at: now.toISOString(),
-    window_days,
-    entries: filtered,
-    playbook_version: PLAYBOOK_VERSION,
-    playbook: PLAYBOOK_MARKDOWN,
-    skill,
-    session_guidance: [
-      "Call bootstrap_agent once near the start of an MCP content run (Claude.ai, Grok, or any connector). First call: omit params (or include_skill_content: true).",
-      "Treat skill.content (when present) as standing conversation conventions for this chat; follow them before/after writes when reporting to the human.",
-      "Next: agent_session action start — pass agent_session_id + report (min 80) on mutates; prefer one summarize at end.",
-      "On later bootstrap_agent calls in the same chat: include_skill_content: false and/or known_skill_version matching skill.version (changelog and playbook still returned).",
-      "Use entries[].agent_impact for recent deltas; explain_site / get_content_type_info for deep architecture.",
-      ...(anyToolsChanged
-        ? ["Recent entries changed tools — ask the human to refresh/reconnect the MCP connector."]
-        : []),
-    ],
-    tool_list_refresh_recommendation: TOOL_LIST_REFRESH_RECOMMENDATION,
+    ok: true,
+    payload: {
+      generated_at: now.toISOString(),
+      window_days,
+      entries: filtered,
+      playbook_version: PLAYBOOK_VERSION,
+      playbook: PLAYBOOK_MARKDOWN,
+      skill,
+      session_guidance: [
+        "Call bootstrap_agent once near the start of an MCP content run (Claude.ai, Grok, or any connector). First call: omit params (or include_skill_content: true); pass site when multi-site to brand conventions.",
+        "Treat skill.content (when present) as standing conversation conventions for this chat; follow them before/after writes when reporting to the human.",
+        "Next: agent_session action start — pass agent_session_id + report (min 80) on mutates; prefer one summarize at end.",
+        "On later bootstrap_agent calls in the same chat: include_skill_content: false and/or known_skill_version matching skill.version (changelog and playbook still returned).",
+        "Use entries[].agent_impact for recent deltas; explain_site / get_content_type_info for deep architecture.",
+        ...multiSiteGeneric,
+        ...(anyToolsChanged
+          ? ["Recent entries changed tools — ask the human to refresh/reconnect the MCP connector."]
+          : []),
+      ],
+      tool_list_refresh_recommendation: TOOL_LIST_REFRESH_RECOMMENDATION,
+    },
   };
 }

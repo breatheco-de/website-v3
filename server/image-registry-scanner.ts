@@ -4,8 +4,9 @@ import * as path from "path";
 import * as yaml from "js-yaml";
 import { escapeTemplateVars, unescapeObjectVars } from "../shared/templateVars";
 import { markFileAsModified } from "./sync-state";
+import { getPackageRoot } from "@shared/paths";
 
-const ATTACHED_ASSETS_DIR = path.join(process.cwd(), "attached_assets");
+const ATTACHED_ASSETS_DIR = path.join(getPackageRoot(), "attached_assets");
 
 interface SiteRoot {
   contentDir: string;

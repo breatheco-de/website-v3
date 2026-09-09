@@ -5,6 +5,7 @@ import { storage } from "../storage";
 import { geoGet, geoSet } from "../geo-cache";
 import { getQueueStats, enqueueOptimization, getPendingOptimizations, getFailedEntries, retryFailedImages, resetOptimizeSession, getOptimizeSession, enqueueExternalImage } from "../image-registry";
 import { getAllQueueState } from "../image-queue-state";
+import { getPackageRoot } from "@shared/paths";
 
 
 import * as fs from "fs";
@@ -266,7 +267,7 @@ function persistTrackingSettings(
 export function registerSettingsRoutes(app: Express): void {
   app.get("/api/version", (_req, res) => {
     try {
-      const versionPath = path.join(process.cwd(), "version.json");
+      const versionPath = path.join(getPackageRoot(), "version.json");
       if (!fs.existsSync(versionPath)) {
         res.json({ version: "1.0.0" });
         return;

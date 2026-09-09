@@ -9,6 +9,7 @@ import { getAllJobStates, type DbJobState } from "../db-job-state";
 import { countDatabaseCacheErrors } from "../../scripts/validation/shared/databaseHealthChecks";
 import { getValidationCacheService } from "../services/validationCacheService";
 import { getDatabaseUsage } from "../database-usage";
+import { getPackageRoot, getProjectRoot } from "@shared/paths";
 
 
 import * as fs from "fs";
@@ -375,7 +376,7 @@ export function registerDatabasesRoutes(app: Express): void {
   });
   app.get("/api/migrations", (_req, res) => {
     try {
-      const migrationsDir = path.join(process.cwd(), "scripts", "migrations");
+      const migrationsDir = path.join(getPackageRoot(), "scripts", "migrations");
       if (!fs.existsSync(migrationsDir)) {
         res.json([]);
         return;
@@ -409,7 +410,7 @@ export function registerDatabasesRoutes(app: Express): void {
       res.status(400).json({ error: "Invalid migration filename." });
       return;
     }
-    const migrationsDir = path.join(process.cwd(), "scripts", "migrations");
+    const migrationsDir = path.join(getPackageRoot(), "scripts", "migrations");
     const fullPath = path.join(migrationsDir, filename);
     if (!fs.existsSync(fullPath)) {
       res.status(404).json({ error: "Migration script not found." });
@@ -418,7 +419,7 @@ export function registerDatabasesRoutes(app: Express): void {
     execFile(
       "npx",
       ["tsx", fullPath],
-      { cwd: process.cwd(), timeout: 120000 },
+      { cwd: getProjectRoot(), timeout: 120000 },
       (err, stdout, stderr) => {
         const output = [stdout, stderr].filter(Boolean).join("\n").trim();
         if (err && err.killed) {

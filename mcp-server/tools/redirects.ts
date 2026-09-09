@@ -91,7 +91,7 @@ async function fetchInspect(
     url,
     ...(locale ? { locale } : {}),
   });
-  const res = await fetch(`http://localhost:${MAIN_SERVER_PORT}/api/debug/redirects/test${qs}`, {
+  const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects/test${qs}`, {
     headers: internalHeaders(mcpToken),
   });
   const data = (await res.json()) as InspectPayload;
@@ -107,7 +107,7 @@ async function fetchLocaleUrls(
   mcpToken?: string,
 ): Promise<{ ok: true; contentType: string; slug: string } | { ok: false }> {
   const qs = siteQueryJoin(domain, { url: destUrl });
-  const res = await fetch(`http://localhost:${MAIN_SERVER_PORT}/api/debug/redirects/locale-urls${qs}`, {
+  const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects/locale-urls${qs}`, {
     headers: internalHeaders(mcpToken),
   });
   if (!res.ok) return { ok: false };
@@ -359,7 +359,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
           // Never allLanguages / _common.yml in v1.
 
           const res = await fetch(
-            `http://localhost:${MAIN_SERVER_PORT}/api/debug/redirects${siteQuery(domain)}`,
+            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects${siteQuery(domain)}`,
             {
               method: "POST",
               headers: internalHeaders(mcpToken),
@@ -434,7 +434,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
           }
 
           const res = await fetch(
-            `http://localhost:${MAIN_SERVER_PORT}/api/debug/redirects${siteQuery(domain)}`,
+            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects${siteQuery(domain)}`,
             {
               method: "DELETE",
               headers: internalHeaders(mcpToken),
@@ -476,7 +476,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
         }
         const beforeFrom = args.before_from!.trim();
         const res = await fetch(
-          `http://localhost:${MAIN_SERVER_PORT}/api/debug/redirects/move${siteQuery(domain)}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects/move${siteQuery(domain)}`,
           {
             method: "PATCH",
             headers: internalHeaders(mcpToken),
