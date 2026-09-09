@@ -52,9 +52,31 @@ vi.mock("./settings", () => ({
   normalizeLocale: (l: string) => l,
   getEntryPreviewSettings: () => ({ max_concurrency: 1, min_interval_ms: 0, max_retries: 1 }),
 }));
+vi.mock("./query-entries", () => ({
+  queryEntries: vi.fn(async (q: { from: { contentType: string }; locale?: string }) => {
+    const locale = q.locale;
+    if (!locale) {
+      return {
+        items: [
+          { slug: "foo", lang: "en" },
+          { slug: "foo", lang: "es" },
+          { slug: "bar", lang: "en" },
+          { slug: "bar", lang: "es" },
+        ],
+      };
+    }
+    return {
+      items: [
+        { slug: "foo", lang: locale },
+        { slug: "bar", lang: locale },
+      ],
+    };
+  }),
+}));
 
 import {
   enqueueEntryPreviewCapture,
+  enqueueEntryPreviewsForType,
   maybeEnqueueAfterEntrySave,
   entryPreviewJobKey,
 } from "./entry-preview-capture-queue";
@@ -167,5 +189,64 @@ describe("enqueueEntryPreviewCapture idempotency", () => {
     expect(second.enqueued).toBe(false);
     expect(second.reason).toBe("already_queued");
     expect(entryPreviewJobKey("site_test", "blog", "post", "en", 1200)).toBe(first.key);
+  });
+});
+
+describe("enqueueEntryPreviewsForType pairs", () => {
+  beforeEach(() => {
+    mocks.getPreviewConfig.mockReturnValue({
+      component: "og_image_preview",
+      props: { title: "title" },
+      theme: "dark",
+      widths: [1200],
+    });
+    mocks.isPreviewCaptureReady.mockReturnValue(true);
+    mocks.cloudflareBrowserConfigError.mockReturnValue(null);
+    mocks.isHandPickedOgImage.mockReturnValue(false);
+    mocks.getMeta.mockResolvedValue(null);
+    mocks.needsCapture.mockReturnValue(true);
+    mocks.markDirty.mockResolvedValue({});
+    mocks.enqueueEntryPreviewCapture.mockClear();
+  });
+
+  it("enqueues only exact pairs (no slug×locale cross product)", async () => {
+    const enqueuedKeys: string[] = [];
+    // Use real enqueue via module — spy markDirty calls by locale+slug through getMeta
+    const seen: string[] = [];
+    mocks.getMeta.mockImplementation(async (_ct: string, slug: string, locale: string) => {
+      seen.push(`${slug}:${locale}`);
+      return null;
+    });
+
+    const result = await enqueueEntryPreviewsForType(siteStub(), {
+      contentType: "blog",
+      locales: ["en", "es"],
+      pairs: [
+        { slug: "foo", locale: "en" },
+        { slug: "bar", locale: "es" },
+      ],
+      mode: "all",
+      overwrite: false,
+    });
+
+    expect(seen.sort()).toEqual(["bar:es", "foo:en"]);
+    expect(result.enqueued.length).toBe(2);
+    expect(result.enqueued.some((k) => k.includes("foo") && k.includes("en"))).toBe(true);
+    expect(result.enqueued.some((k) => k.includes("bar") && k.includes("es"))).toBe(true);
+  });
+
+  it("skips editorial images when overwrite is false", async () => {
+    mocks.isHandPickedOgImage.mockReturnValue(true);
+    const result = await enqueueEntryPreviewsForType(siteStub(), {
+      contentType: "blog",
+      locales: ["en"],
+      pairs: [{ slug: "foo", locale: "en" }],
+      mode: "all",
+      overwrite: false,
+    });
+    expect(result.enqueued).toEqual([]);
+    expect(result.skipped).toEqual([
+      { slug: "foo", locale: "en", reason: "editorial_image" },
+    ]);
   });
 });

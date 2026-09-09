@@ -84,6 +84,7 @@ function mergeSeoBlocks(base: SeoBlock, overlay: SeoBlock): SeoBlock {
     "kw_difficulty",
     "pillar_path",
     "is_pillar",
+    "refresh_tier",
   ] as const) {
     if (!Object.prototype.hasOwnProperty.call(overlay, key)) continue;
     const val = overlay[key];
@@ -98,6 +99,15 @@ function mergeSeoBlocks(base: SeoBlock, overlay: SeoBlock): SeoBlock {
     }
     if (key === "kw_monthly_volume" || key === "kw_difficulty") {
       out[key] = typeof val === "number" && Number.isInteger(val) ? val : val === null ? null : out[key];
+      continue;
+    }
+    if (key === "refresh_tier") {
+      out.refresh_tier =
+        val === null
+          ? null
+          : typeof val === "string" && ["fast", "medium", "evergreen"].includes(val)
+            ? (val as SeoBlock["refresh_tier"])
+            : out.refresh_tier;
       continue;
     }
     out.main_keyword = val === null ? null : typeof val === "string" ? val : null;

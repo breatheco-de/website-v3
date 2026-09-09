@@ -101,6 +101,28 @@ describe("event-log-url", () => {
         entries: ["page/home/en", "blog/a/en"],
       }),
     ).toBe(8);
+    expect(
+      eventLogActiveFilterCount({
+        ...EVENT_LOG_VIEW_DEFAULTS,
+        startingAt: 1000,
+        endingAt: 2000,
+      }),
+    ).toBe(1);
+    expect(
+      eventLogHasActiveFilters({
+        ...EVENT_LOG_VIEW_DEFAULTS,
+        startingAt: 1000,
+        endingAt: 2000,
+      }),
+    ).toBe(true);
+    expect(
+      eventLogActiveFilterCount({
+        ...EVENT_LOG_VIEW_DEFAULTS,
+        kinds: ["writes"],
+        startingAt: 1000,
+        endingAt: 2000,
+      }),
+    ).toBe(2);
   });
 
   it("parses starting_at/ending_at and rejects inverted or partial windows", () => {
@@ -119,7 +141,7 @@ describe("event-log-url", () => {
     );
   });
 
-  it("serialize with time window drops filter keys", () => {
+  it("serialize with time window keeps filter keys", () => {
     const qs = serializeEventLogSearch(
       {
         ...EVENT_LOG_VIEW_DEFAULTS,
@@ -134,9 +156,9 @@ describe("event-log-url", () => {
     expect(qs).toContain("starting_at=1000");
     expect(qs).toContain("ending_at=2000");
     expect(qs).toContain("tab=log");
-    expect(qs).not.toContain("kind=");
-    expect(qs).not.toContain("entry=");
-    expect(qs).not.toContain("session=");
+    expect(qs).toContain("kind=writes");
+    expect(qs).toContain("entry=blog%2Fa%2Fen");
+    expect(qs).toContain("session=sess");
   });
 
   it("serialize without window clears window keys", () => {

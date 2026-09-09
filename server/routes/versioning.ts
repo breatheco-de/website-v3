@@ -125,6 +125,7 @@ import {
   resolveLayout,
   listAvailableMenus,
   getDirectory,
+  resolveStaticEntryUpdatedAt,
 } from "../content-types";
 import {
   isEntryDetached,
@@ -350,10 +351,20 @@ export function registerVersioningRoutes(app: Express): void {
 
     // Editorial title from ContentIndex (YAML `title`), not deslugified folder slug
     let title: string | null = null;
+    let updatedAt: string | null = null;
     if (entrySlug) {
       const indexed = getCI(res).findBySlug(entrySlug, { contentType });
       const indexedTitle = indexed[0]?.title?.trim();
       if (indexedTitle) title = indexedTitle;
+      const localesForUpdatedAt =
+        indexed[0]?.locales?.filter((l) => !l.startsWith("_") && !l.includes(".")) ??
+        availableLocales;
+      updatedAt = resolveStaticEntryUpdatedAt(
+        contentType,
+        entrySlug,
+        localesForUpdatedAt.length > 0 ? localesForUpdatedAt : availableLocales,
+        root,
+      );
     }
 
     if (!versioning) {
@@ -369,6 +380,7 @@ export function registerVersioningRoutes(app: Express): void {
         liveByLocale,
         isDraft: !hasLiveDefault && !shared,
         title,
+        updatedAt,
       });
       return;
     }
@@ -385,6 +397,7 @@ export function registerVersioningRoutes(app: Express): void {
       liveByLocale,
       isDraft: !hasLiveDefault && !shared,
       title,
+      updatedAt,
     });
   });
 

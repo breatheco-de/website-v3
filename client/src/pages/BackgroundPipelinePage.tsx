@@ -10,10 +10,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
-import {
-  type EventActorId,
-  type EventKindId,
-} from "@shared/event-log-filters";
+import { AGENT_FILTER_OTHER } from "@shared/event-log-filters";
 import {
   EVENT_LOG_VIEW_DEFAULTS,
   buildShowAroundHref,
@@ -54,7 +51,6 @@ import {
   IconRoute,
   IconSparkles,
   IconTrash,
-  IconX,
 } from "@tabler/icons-react";
 import {
   AlertDialog,
@@ -85,15 +81,9 @@ import {
   type VisibleTimeRange,
 } from "@/components/pipeline/EventTimeline";
 import { AgentIcon } from "@/components/pipeline/AgentIcon";
+import { SESSION_UNSCOPED } from "@/components/pipeline/AgentSessionPickerModal";
+import { EventLogFiltersDialog } from "@/components/pipeline/EventLogFiltersDialog";
 import {
-  AgentSessionPickerModal,
-  SESSION_UNSCOPED,
-} from "@/components/pipeline/AgentSessionPickerModal";
-import { SitemapSearch } from "@/components/menus/SitemapSearch";
-import { sitemapEntrySeoId, type SitemapSearchEntry } from "@/lib/sitemapSearch";
-import {
-  AGENT_FILTER_OTHER,
-  AGENT_IDS,
   formatAgentLabel,
   resolveAgentId,
 } from "@/components/pipeline/agentIcons";
@@ -180,34 +170,6 @@ type AgentSessionDetail = {
   headline: string | null;
   attribution: ContentEvent["attribution"];
 };
-
-type EventActorChip = {
-  id: EventActorId;
-  label: string;
-  icon: typeof IconActivity;
-};
-
-const EVENT_ACTOR_CHIPS: EventActorChip[] = [
-  { id: "people", label: "People", icon: IconNotes },
-  { id: "agents", label: "Agents", icon: IconSparkles },
-  { id: "system", label: "System", icon: IconActivity },
-];
-
-type EventKindChip = {
-  id: EventKindId;
-  label: string;
-  icon: typeof IconActivity;
-};
-
-/** UI chips only — type lists live in @shared/event-log-filters EVENT_KIND_TYPES. */
-const EVENT_KIND_CHIPS: EventKindChip[] = [
-  { id: "writes", label: "Writes", icon: IconPencil },
-  { id: "deletes", label: "Deletes", icon: IconTrash },
-  { id: "claims", label: "Claims", icon: IconClipboardText },
-  { id: "completes", label: "Completes", icon: IconCircleCheck },
-  { id: "session", label: "Session", icon: IconSparkles },
-  { id: "background", label: "Background", icon: IconActivity },
-];
 
 type EventsResponse = {
   events: ContentEvent[];
@@ -1098,44 +1060,50 @@ function EventLogPanel({
   const search = useSearch();
   const [pathname, setLocation] = useLocation();
   const filterView = useMemo(() => parseEventLogSearch(search), [search]);
-  const {
-    session: sessionFilter,
-    kinds: kindList,
-    actors: actorList,
-    agent: agentFilter,
-    type: typeFilter,
-    entries: entryList,
-  } = filterView;
+  const { session: sessionFilter } = filterView;
   const hasTimeWindow = eventLogHasTimeWindow(filterView);
-  const kindChips = useMemo(() => new Set(kindList), [kindList]);
-  const actorChips = useMemo(() => new Set(actorList), [actorList]);
   /** Stable key so filter changes always remount the fetch effect (arrays are referential). */
   const filterSearchKey = search;
 
+  /** Hash focus is outside wouter search — keep React state so Clear focus re-renders. */
+  const [focusEventId, setFocusEventId] = useState<number | null>(() =>
+    typeof window !== "undefined" ? parseEventFocusHash(window.location.hash) : null,
+  );
+
+  useEffect(() => {
+    setFocusEventId(parseEventFocusHash(window.location.hash));
+  }, [filterSearchKey]);
+
+  useEffect(() => {
+    const onHashChange = () => setFocusEventId(parseEventFocusHash(window.location.hash));
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
   const writeFilterView = useCallback(
-    (next: EventLogViewState) => {
+    (next: EventLogViewState, opts?: { clearFocus?: boolean }) => {
       const qs = serializeEventLogSearch(next, search);
       const pathOnly = pathname.split("?")[0];
-      setLocation(qs ? `${pathOnly}?${qs}` : pathOnly, { replace: true });
+      const hasWindow = eventLogHasTimeWindow(next);
+      const clearFocus = Boolean(opts?.clearFocus) || !hasWindow;
+      const preservedFocus = !clearFocus
+        ? parseEventFocusHash(window.location.hash) ?? focusEventId
+        : null;
+      const base = qs ? `${pathOnly}?${qs}` : pathOnly;
+      const hash =
+        preservedFocus != null ? `#${eventFocusDomId(preservedFocus)}` : "";
+      setLocation(`${base}${hash}`, { replace: true });
+      // Wouter may drop the hash; sync history + local focus state explicitly.
+      const syncUrl = `${base}${hash}`;
+      if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== syncUrl) {
+        window.history.replaceState(null, "", syncUrl);
+      }
+      setFocusEventId(preservedFocus);
     },
-    [pathname, search, setLocation],
+    [pathname, search, setLocation, focusEventId],
   );
 
-  const patchFilterView = useCallback(
-    (patch: Partial<EventLogViewState>) => {
-      // Leaving time-window mode when staff change filters.
-      writeFilterView({
-        ...filterView,
-        ...patch,
-        startingAt: null,
-        endingAt: null,
-      });
-    },
-    [filterView, writeFilterView],
-  );
-
-  const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
-  const [entryPickerOpen, setEntryPickerOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [events, setEvents] = useState<ContentEvent[]>([]);
   const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
   const [sessionDetail, setSessionDetail] = useState<AgentSessionDetail | null>(null);
@@ -1264,20 +1232,19 @@ function EventLogPanel({
       // Always parse from the live querystring so the API request matches the URL.
       const view = parseEventLogSearch(filterSearchKey);
       const params = new URLSearchParams({ site, limit: String(EVENT_LOG_FETCH_LIMIT) });
+      if (view.type) params.set("type", view.type);
+      if (view.kinds.length > 0) params.set("kind", view.kinds.join(","));
+      if (view.actors.length > 0) params.set("actor", view.actors.join(","));
+      if (view.agent) {
+        params.set("agent", view.agent === AGENT_FILTER_OTHER ? "other" : view.agent);
+      }
+      if (view.entries.length > 0) params.set("entry", view.entries.join(","));
+      const sessionApi = eventLogSessionToApi(view.session);
+      if (sessionApi.unscoped) params.set("unscoped", "1");
+      else if (sessionApi.agentSessionId) params.set("agentSessionId", sessionApi.agentSessionId);
       if (eventLogHasTimeWindow(view)) {
         params.set("since", String(view.startingAt));
         params.set("until", String(view.endingAt));
-      } else {
-        if (view.type) params.set("type", view.type);
-        if (view.kinds.length > 0) params.set("kind", view.kinds.join(","));
-        if (view.actors.length > 0) params.set("actor", view.actors.join(","));
-        if (view.agent) {
-          params.set("agent", view.agent === AGENT_FILTER_OTHER ? "other" : view.agent);
-        }
-        if (view.entries.length > 0) params.set("entry", view.entries.join(","));
-        const sessionApi = eventLogSessionToApi(view.session);
-        if (sessionApi.unscoped) params.set("unscoped", "1");
-        else if (sessionApi.agentSessionId) params.set("agentSessionId", sessionApi.agentSessionId);
       }
       const res = await apiFetch(`/api/admin/events?${params}`);
       if (!res.ok) return;
@@ -1380,6 +1347,9 @@ function EventLogPanel({
 
   const pullProductionEvents = useCallback(async () => {
     if (!import.meta.env.DEV) return;
+    // Close confirm first so the production-token Dialog (lower default z-index
+    // than AlertDialog) is not trapped underneath a disabled Cancel button.
+    setPullProductionOpen(false);
     setPullingProduction(true);
     try {
       const res = await apiRequestWithAuth("POST", "/api/admin/events/pull-production", { site });
@@ -1389,7 +1359,6 @@ function EventLogPanel({
         reason?: string;
         error?: string;
       };
-      setPullProductionOpen(false);
       await loadEvents();
       setRangeCommand(jumpToLatestRange());
       toast({
@@ -1544,8 +1513,9 @@ function EventLogPanel({
       if (focusMissingToastKeyRef.current !== toastKey) {
         focusMissingToastKeyRef.current = toastKey;
         toast({
-          title: `Event #${focusId} isn’t in this time range.`,
-          description: "It may have been purged, or this hour has more events than the open log can show.",
+          title: `Event #${focusId} isn’t in these results.`,
+          description:
+            "It may not match the current filters, may have been purged, or this window has more events than the open log can show.",
         });
       }
       return;
@@ -1579,58 +1549,20 @@ function EventLogPanel({
   );
 
   const activeFilterCount = eventLogActiveFilterCount(filterView);
-  const hasActiveFilters = eventLogHasActiveFilters(filterView);
+  const hasNonWindowFilters = eventLogHasActiveFilters({
+    ...filterView,
+    startingAt: null,
+    endingAt: null,
+  });
   const pathOnly = pathname.split("?")[0];
-  const showAroundLinks = hasActiveFilters && !hasTimeWindow;
+  const showAroundLinks = hasNonWindowFilters && !hasTimeWindow;
   /** Hash focus only applies in time-window mode (edge 2A). */
-  const focusedEventId = useMemo(() => {
-    if (!hasTimeWindow) return null;
-    return parseEventFocusHash(typeof window !== "undefined" ? window.location.hash : "");
-  }, [hasTimeWindow, filterSearchKey]);
+  const focusedEventId = hasTimeWindow ? focusEventId : null;
   focusedEventIdRef.current = focusedEventId;
 
-  const toggleKindChip = useCallback(
-    (id: EventKindId) => {
-      const next = new Set(kindChips);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      patchFilterView({ kinds: [...next] as EventKindId[] });
-    },
-    [kindChips, patchFilterView],
-  );
-
-  const toggleActorChip = useCallback(
-    (id: EventActorId) => {
-      const next = new Set(actorChips);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      patchFilterView({ actors: [...next] as EventActorId[] });
-    },
-    [actorChips, patchFilterView],
-  );
-
-  const addEntryFilter = useCallback(
-    (entry: SitemapSearchEntry) => {
-      const key = sitemapEntrySeoId(entry);
-      if (!key) {
-        toast({
-          title: "Missing entry metadata",
-          description: "Pick a page with content type, slug, and locale — not URL alone.",
-          variant: "destructive",
-        });
-        return;
-      }
-      if (entryList.includes(key)) return;
-      patchFilterView({ entries: [...entryList, key] });
-    },
-    [entryList, patchFilterView, toast],
-  );
-
-  const removeEntryFilter = useCallback(
-    (key: string) => {
-      patchFilterView({ entries: entryList.filter((e) => e !== key) });
-    },
-    [entryList, patchFilterView],
+  const eventTypeOptions = useMemo(
+    () => Object.entries(EVENT_META).map(([value, meta]) => ({ value, label: meta.label })),
+    [],
   );
 
   /** Outline buttons tuned for the dark help bar; labels hide on small screens. */
@@ -1639,223 +1571,22 @@ function EventLogPanel({
 
   const filtersToolbar = (
     <>
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className={cn("relative", darkBarBtn)}
-            aria-label="Filters"
-            data-testid="button-event-filters"
-          >
-            <IconFilter className="h-4 w-4 sm:mr-2" />
-            <span className="hidden sm:inline">Filters</span>
-            {activeFilterCount > 0 ? (
-              <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                {activeFilterCount}
-              </span>
-            ) : null}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          side="bottom"
-          align="end"
-          className="grid max-h-[min(70vh,30rem)] w-80 gap-x-4 gap-y-3 overflow-y-auto p-3 sm:w-[34rem] sm:grid-cols-2"
-        >
-          <div className="space-y-1">
-            <p className="text-xs font-medium">Agent session</p>
-            <p className="text-[11px] text-muted-foreground leading-snug">
-              Pick a session to scope the log. Search by agent or session id.
-            </p>
-            <button
-              type="button"
-              id="event-session-filter"
-              onClick={() => setSessionPickerOpen(true)}
-              className="flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-2 text-left text-xs hover:bg-muted/40"
-              data-testid="button-event-session-filter"
-            >
-              <span className="min-w-0 truncate">
-                {(() => {
-                  if (!sessionFilter) return "All sessions";
-                  if (sessionFilter === SESSION_UNSCOPED) return "Unscoped (no session)";
-                  const s = sessions.find((x) => x.agent_session_id === sessionFilter);
-                  const short = sessionFilter.slice(0, 8);
-                  if (!s) return `${short}…`;
-                  return `${short}… · ${s.write_count} write${s.write_count === 1 ? "" : "s"} · ${formatRelative(s.ended_at)}`;
-                })()}
-              </span>
-              <IconChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            </button>
-          </div>
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium">Kind</p>
-            <div className="flex flex-wrap gap-1.5">
-              {EVENT_KIND_CHIPS.map((chip) => {
-                const active = kindChips.has(chip.id);
-                const ChipIcon = chip.icon;
-                return (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    onClick={() => toggleKindChip(chip.id)}
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors",
-                      active
-                        ? "border-primary bg-primary/15 text-foreground"
-                        : "border-border bg-background text-muted-foreground hover:text-foreground",
-                    )}
-                    data-testid={`chip-event-kind-${chip.id}`}
-                  >
-                    <ChipIcon className="h-3 w-3" />
-                    {chip.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium">Actor</p>
-            <p className="text-[11px] text-muted-foreground leading-snug">
-              Who ran this row—people in the admin UI, agents over MCP, or automated system jobs.
-              Parent saves show on the “Caused by…” line.
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {EVENT_ACTOR_CHIPS.map((chip) => {
-                const active = actorChips.has(chip.id);
-                const ChipIcon = chip.icon;
-                return (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    onClick={() => toggleActorChip(chip.id)}
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors",
-                      active
-                        ? "border-primary bg-primary/15 text-foreground"
-                        : "border-border bg-background text-muted-foreground hover:text-foreground",
-                    )}
-                    data-testid={`chip-event-actor-${chip.id}`}
-                  >
-                    <ChipIcon className="h-3 w-3" />
-                    {chip.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium">Entries</p>
-            <p className="text-[11px] text-muted-foreground leading-snug">
-              Limit the log to these pages. Add from the sitemap.
-            </p>
-            {entryList.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {entryList.map((key) => (
-                  <span
-                    key={key}
-                    className="inline-flex max-w-full items-center gap-1 rounded-md border border-primary/40 bg-primary/15 px-2 py-1 text-[11px] text-foreground"
-                    data-testid={`chip-event-entry-${key}`}
-                  >
-                    <span className="min-w-0 truncate font-mono" title={key}>
-                      {key}
-                    </span>
-                    <button
-                      type="button"
-                      className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground"
-                      aria-label={`Remove ${key}`}
-                      onClick={() => removeEntryFilter(key)}
-                    >
-                      <IconX className="h-3 w-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            <Popover open={entryPickerOpen} onOpenChange={setEntryPickerOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 w-full text-xs"
-                  data-testid="button-event-entry-add"
-                >
-                  Add page
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-72 p-0 bg-popover" sideOffset={4}>
-                <SitemapSearch
-                  embedded
-                  value=""
-                  onChange={() => {}}
-                  hideCustomUrl
-                  excludeIds={entryList}
-                  onSelectEntry={(entry) => {
-                    addEntryFilter(entry);
-                  }}
-                  onClose={() => setEntryPickerOpen(false)}
-                  testId="event-log-entry-picker"
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium" htmlFor="event-type-filter">
-              Exact event type
-            </label>
-            <select
-              id="event-type-filter"
-              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-              value={typeFilter}
-              onChange={(e) => patchFilterView({ type: e.target.value })}
-            >
-              <option value="">All types</option>
-              {Object.entries(EVENT_META).map(([type, meta]) => (
-                <option key={type} value={type}>
-                  {meta.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium" htmlFor="event-agent-filter">
-              Agent
-            </label>
-            <select
-              id="event-agent-filter"
-              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-              value={agentFilter}
-              onChange={(e) =>
-                patchFilterView({
-                  agent: e.target.value as EventLogViewState["agent"],
-                })
-              }
-              data-testid="select-event-agent-filter"
-            >
-              <option value="">All agents</option>
-              {AGENT_IDS.map((id) => (
-                <option key={id} value={id}>
-                  {formatAgentLabel(id)}
-                </option>
-              ))}
-              <option value={AGENT_FILTER_OTHER}>
-                {formatAgentLabel(AGENT_FILTER_OTHER)}
-              </option>
-            </select>
-          </div>
-          {activeFilterCount > 0 ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-full text-xs sm:col-span-2"
-              onClick={() => writeFilterView({ ...EVENT_LOG_VIEW_DEFAULTS })}
-            >
-              <IconX className="h-3.5 w-3.5 mr-1" />
-              Clear filters
-            </Button>
-          ) : null}
-        </PopoverContent>
-      </Popover>
+      <Button
+        variant="outline"
+        size="sm"
+        className={cn("relative", darkBarBtn)}
+        aria-label="Filters"
+        data-testid="button-event-filters"
+        onClick={() => setFiltersOpen(true)}
+      >
+        <IconFilter className="h-4 w-4 sm:mr-2" />
+        <span className="hidden sm:inline">Filters</span>
+        {activeFilterCount > 0 ? (
+          <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+            {activeFilterCount}
+          </span>
+        ) : null}
+      </Button>
       <Button
         variant="outline"
         size="sm"
@@ -1924,13 +1655,16 @@ function EventLogPanel({
 
   return (
     <section className="space-y-4">
-      <AgentSessionPickerModal
-        open={sessionPickerOpen}
-        onOpenChange={setSessionPickerOpen}
+      <EventLogFiltersDialog
+        open={filtersOpen}
+        onOpenChange={setFiltersOpen}
+        filters={filterView}
+        focusedEventId={focusedEventId}
         sessions={sessions}
-        value={sessionFilter}
-        onSelect={(value) => patchFilterView({ session: value })}
+        typeOptions={eventTypeOptions}
         formatRelative={formatRelative}
+        onApply={(next, opts) => writeFilterView(next, opts)}
+        onClear={() => writeFilterView({ ...EVENT_LOG_VIEW_DEFAULTS }, { clearFocus: true })}
       />
       {events.length > 0 ? (
         <EventTimeline
@@ -1984,23 +1718,19 @@ function EventLogPanel({
           <AlertDialogHeader>
             <AlertDialogTitle>Download production history?</AlertDialogTitle>
             <AlertDialogDescription>
-              This replaces your local event log with up to 5,000 rows from production (using your
-              staff login). Imported rows are marked published so Sidequest is not woken locally.
-              Nothing is uploaded back to production.
+              This replaces your local event log with up to 5,000 rows from the live site. You may be
+              asked for a production staff token (not your localhost login). Imported rows are marked
+              published so Sidequest is not woken locally. Nothing is uploaded back to production.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={pullingProduction}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <Button
               disabled={pullingProduction}
               onClick={() => void pullProductionEvents()}
               data-testid="button-confirm-pull-production-events"
             >
-              {pullingProduction ? (
-                <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <IconCloudDownload className="h-4 w-4 mr-2" />
-              )}
+              <IconCloudDownload className="h-4 w-4 mr-2" />
               Download from production
             </Button>
           </AlertDialogFooter>
@@ -2097,11 +1827,13 @@ function EventLogPanel({
           </div>
         ) : events.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            {hasTimeWindow
-              ? "No events in this time range."
-              : hasActiveFilters
-                ? "No events match these filters."
-                : "No background events in the last 7 days retention window."}
+            {hasTimeWindow && hasNonWindowFilters
+              ? "No events match these filters in this time range."
+              : hasTimeWindow
+                ? "No events in this time range."
+                : hasNonWindowFilters
+                  ? "No events match these filters."
+                  : "No background events in the last 7 days retention window."}
           </p>
         ) : (
           <div
@@ -2113,11 +1845,13 @@ function EventLogPanel({
               Showing {events.length}
               {events.length >= EVENT_LOG_FETCH_LIMIT ? "+" : ""} event
               {events.length === 1 ? "" : "s"}
-              {hasTimeWindow
-                ? " in this time range"
-                : hasActiveFilters
-                  ? " matching filters"
-                  : ""}
+              {hasTimeWindow && hasNonWindowFilters
+                ? " matching filters in this time range"
+                : hasTimeWindow
+                  ? " in this time range"
+                  : hasNonWindowFilters
+                    ? " matching filters"
+                    : ""}
               {loading ? " · refreshing…" : ""}
             </p>
             <div className="relative">

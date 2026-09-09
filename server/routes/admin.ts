@@ -897,8 +897,22 @@ export function registerAdminRoutes(app: Express): void {
 
     try {
       const { pullProductionEvents } = await import("../events/pull-production");
-      const result = await pullProductionEvents(site, auth.token, productionOrigin);
+      // Never forward the local GitHub session — production token comes from
+      // in-memory paste or PRODUCTION_STAFF_TOKEN via fetchProductionAdmin.
+      const result = await pullProductionEvents(site, productionOrigin);
       if (!result.success) {
+        if (result.code === "production_staff_token_required") {
+          res.status(401).json({
+            error: result.reason ?? result.error ?? "Production staff token required",
+            code: result.code,
+            productionOrigin: result.productionOrigin,
+            envVar: result.envVar,
+            success: false,
+            pulled: false,
+            imported: 0,
+          });
+          return;
+        }
         res.status(400).json({
           error: result.reason ?? "Failed to pull production event history",
           ...result,
@@ -914,6 +928,37 @@ export function registerAdminRoutes(app: Express): void {
       log.error({ err, site }, "Failed to pull production event history");
       res.status(500).json({ error: "Failed to pull production event history" });
     }
+  });
+
+  /** Dev-only: store a production staff token in process memory for HTTP pulls. */
+  api.post(app, "/api/dev/production-staff-token", { rate: "staffWrite" }, async (req, res) => {
+    if (process.env.NODE_ENV === "production") {
+      res.status(403).json({
+        error: "dev_only",
+        message: "Setting a production staff token is only available in development.",
+      });
+      return;
+    }
+
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+    if (!token) {
+      res.status(400).json({ error: "token is required" });
+      return;
+    }
+
+    const { setProductionStaffToken, PRODUCTION_STAFF_TOKEN_ENV } = await import(
+      "../dev-production-fetch"
+    );
+    setProductionStaffToken(token);
+    res.json({
+      success: true,
+      envVar: PRODUCTION_STAFF_TOKEN_ENV,
+      education:
+        "Token is kept in this local server process until restart. Set PRODUCTION_STAFF_TOKEN in .env to avoid pasting after every restart. Does not write .env automatically.",
+    });
   });
 
   app.get("/api/admin/pipeline/status", async (req, res) => {

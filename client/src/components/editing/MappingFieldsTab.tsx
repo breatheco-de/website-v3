@@ -25,6 +25,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
 import { SitemapSearch } from "@/components/menus/SitemapSearch";
 import { useToast } from "@/hooks/use-toast";
@@ -321,6 +323,34 @@ function isPillarPathOptedOut(row: FieldProvenance | undefined): boolean {
   return row?.layer_has_key === true && row.effective === null;
 }
 
+const REFRESH_TIER_OPTIONS = [
+  {
+    value: "fast",
+    label: "Fast",
+    description:
+      "Pricing, tools, best-of / year lists, model or salary comps — facts go stale quickly.",
+  },
+  {
+    value: "medium",
+    label: "Medium",
+    description: "Program pages, landings, and cluster hubs — refresh on a normal cadence.",
+  },
+  {
+    value: "evergreen",
+    label: "Evergreen",
+    description:
+      "Concept explainers — only refresh when the underlying fact actually changes.",
+  },
+] as const;
+
+type RefreshTierValue = (typeof REFRESH_TIER_OPTIONS)[number]["value"];
+
+function refreshTierFromProvenance(row: FieldProvenance | undefined): RefreshTierValue | "" {
+  const v = row?.effective;
+  if (v === "fast" || v === "medium" || v === "evergreen") return v;
+  return "";
+}
+
 function SeoFieldsEditor({
   rows,
   disabled,
@@ -360,6 +390,7 @@ function SeoFieldsEditor({
   const difficultyRow = rows.find((r) => r.field === "seo.kw_difficulty");
   const pillarRow = rows.find((r) => r.field === "seo.pillar_path");
   const hubRow = rows.find((r) => r.field === "seo.is_pillar");
+  const refreshTierRow = rows.find((r) => r.field === "seo.refresh_tier");
 
   const [saving, setSaving] = useState(false);
   const [resettingField, setResettingField] = useState<string | null>(null);
@@ -380,6 +411,9 @@ function SeoFieldsEditor({
     typeof pillarRow?.effective === "string" ? pillarRow.effective : "",
   );
   const [isPillar, setIsPillar] = useState(hubRow?.effective === true || hubRow?.effective === "true");
+  const [refreshTier, setRefreshTier] = useState<RefreshTierValue | "">(() =>
+    refreshTierFromProvenance(refreshTierRow),
+  );
 
   useEffect(() => {
     if (seoFieldsEditing) return;
@@ -389,6 +423,7 @@ function SeoFieldsEditor({
     setKwDifficulty(metricFromProvenance(difficultyRow));
     setPillarPath(typeof pillarRow?.effective === "string" ? pillarRow.effective : "");
     setIsPillar(hubRow?.effective === true || hubRow?.effective === "true");
+    setRefreshTier(refreshTierFromProvenance(refreshTierRow));
     setMetricsManualEditing(false);
   }, [
     seoFieldsEditing,
@@ -398,6 +433,7 @@ function SeoFieldsEditor({
     pillarRow?.effective,
     pillarRow?.layer_has_key,
     hubRow?.effective,
+    refreshTierRow?.effective,
   ]);
 
   useEffect(() => {
@@ -577,6 +613,16 @@ function SeoFieldsEditor({
       });
       return;
     }
+    if (checked && !refreshTier) {
+      setClusterSeoOn(true);
+      setSeoFieldsEditing(true);
+      toast({
+        title: "Pick a refresh tier",
+        description:
+          "When SEO clustering is on, choose how fast this page’s facts go stale (fast, medium, or evergreen), then save.",
+      });
+      return;
+    }
     const previous = clusterSeoOn;
     setClusterSeoOn(checked);
     if (!checked) {
@@ -595,6 +641,7 @@ function SeoFieldsEditor({
           ...researchFieldsPayload(),
           "seo.pillar_path": typeof pillarPath === "string" ? pillarPath : "",
           "seo.is_pillar": isPillar,
+          "seo.refresh_tier": refreshTier,
         });
       }
       await queryClient.invalidateQueries({ queryKey: ["/api/seo/keyword-owners"] });
@@ -727,6 +774,16 @@ function SeoFieldsEditor({
                 <dd className="text-sm text-foreground" data-testid="text-seo-main-keyword-preview">
                   {mainKeyword.trim() || (
                     <span className="italic text-muted-foreground font-normal">Not set</span>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Refresh tier</dt>
+                <dd className="text-sm text-foreground" data-testid="text-seo-refresh-tier-preview">
+                  {refreshTier ? (
+                    REFRESH_TIER_OPTIONS.find((o) => o.value === refreshTier)?.label ?? refreshTier
+                  ) : (
+                    <span className="italic text-muted-foreground font-normal">Not set — required</span>
                   )}
                 </dd>
               </div>
@@ -949,6 +1006,90 @@ function SeoFieldsEditor({
                 </p>
               ) : null
             ) : null}
+          </div>
+          <div className="space-y-1.5" data-testid="seo-refresh-tier-field">
+            <Label id="seo-refresh-tier-label" className="text-xs text-foreground">
+              Refresh tier
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              How fast this page’s facts go stale — used to prioritize real content refreshes (not a
+              date bump, not traffic drop).
+            </p>
+            <ToggleButtonBar
+              value={refreshTier || ""}
+              onValueChange={(v) => {
+                if (v === "fast" || v === "medium" || v === "evergreen") {
+                  setRefreshTier(v);
+                }
+              }}
+              listClassName="w-full"
+              listTestId="toggle-seo-refresh-tier"
+              aria-labelledby="seo-refresh-tier-label"
+            >
+              {REFRESH_TIER_OPTIONS.map((o) => (
+                <ToggleButtonBarTrigger
+                  key={o.value}
+                  value={o.value}
+                  disabled={disabled || saving}
+                  className="flex-1 gap-1.5"
+                  data-testid={`toggle-seo-refresh-tier-${o.value}`}
+                >
+                  {o.label}
+                  <Popover modal={false}>
+                    <PopoverTrigger asChild>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className={cn(
+                          "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm",
+                          "opacity-70 hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        )}
+                        aria-label={`About ${o.label} refresh tier`}
+                        data-testid={`info-seo-refresh-tier-${o.value}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                        }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.stopPropagation();
+                          }
+                        }}
+                      >
+                        <Info className="h-3 w-3" />
+                      </span>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      className="w-72 space-y-1.5 text-sm text-muted-foreground z-[10003]"
+                      side="top"
+                      align="center"
+                      onOpenAutoFocus={(e) => e.preventDefault()}
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
+                      <p className="font-medium text-foreground">{o.label}</p>
+                      <p className="leading-relaxed">{o.description}</p>
+                    </PopoverContent>
+                  </Popover>
+                </ToggleButtonBarTrigger>
+              ))}
+            </ToggleButtonBar>
+            {!refreshTier ? (
+              <p className="text-xs text-muted-foreground" data-testid="hint-seo-refresh-tier-required">
+                Choose fast, medium, or evergreen…
+              </p>
+            ) : null}
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer text-foreground/80">Read more (advanced)</summary>
+              <p className="mt-1.5">
+                Stored on this locale’s <code className="font-mono">seo.refresh_tier</code> and mirrored
+                into the SEO inventory when the page is clustered. Cannot clear — pick another tier.
+                Opting out of clustering hides this control and leaves any existing value as-is. Does
+                not block publish for pages outside SEO inventory.
+              </p>
+            </details>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {openrushConfigured && !showMetricsInputs ? (
@@ -1324,12 +1465,21 @@ function SeoFieldsEditor({
                   });
                   return;
                 }
+                if (clusterSeoOn && !refreshTier) {
+                  toast({
+                    title: "Refresh tier required",
+                    description: "Choose fast, medium, or evergreen before saving.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
                 setSaving(true);
                 try {
                   await onSave({
                     ...researchFieldsPayload(),
                     "seo.pillar_path": pillarPath,
                     "seo.is_pillar": isPillar,
+                    ...(refreshTier ? { "seo.refresh_tier": refreshTier } : {}),
                   });
                   await queryClient.invalidateQueries({ queryKey: ["/api/seo/keyword-owners"] });
                   setSeoFieldsEditing(false);

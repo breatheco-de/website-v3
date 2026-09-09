@@ -3,9 +3,15 @@
  * All imported rows are marked published so the outbox dispatcher is not woken.
  */
 
-import { getSiteContextMap } from "../site-manager";
 import type { ContentEvent } from "./types";
 import { replaceEventsFromSnapshot } from "./event-store";
+import {
+  fetchProductionAdmin,
+  resolveProductionOrigin,
+  type ProductionStaffTokenRequiredPayload,
+} from "../dev-production-fetch";
+
+export { resolveProductionOrigin } from "../dev-production-fetch";
 
 const PAGE_LIMIT = 500;
 const MAX_EVENTS = 5_000;
@@ -16,24 +22,7 @@ export type PullProductionEventsResult = {
   productionOrigin: string;
   imported: number;
   reason?: string;
-};
-
-/** Resolve https origin for the production host serving this content folder. */
-export function resolveProductionOrigin(site: string): string | null {
-  const fromEnv = process.env.PRODUCTION_SITE_URL?.trim();
-  if (fromEnv) return fromEnv.replace(/\/$/, "");
-
-  for (const ctx of getSiteContextMap().values()) {
-    if (
-      ctx.contentRootName === site ||
-      ctx.config.contentFolder === site ||
-      ctx.contentRoot.endsWith(`/${site}`)
-    ) {
-      return `https://${ctx.config.domain}`;
-    }
-  }
-  return null;
-}
+} & Partial<ProductionStaffTokenRequiredPayload>;
 
 function parseEventsPayload(body: unknown): ContentEvent[] {
   if (!body || typeof body !== "object") return [];
@@ -52,16 +41,11 @@ function parseEventsPayload(body: unknown): ContentEvent[] {
 async function fetchProductionEvents(
   productionOrigin: string,
   site: string,
-  token: string | null,
-): Promise<{ events: ContentEvent[]; reason?: string }> {
-  if (!token) {
-    return {
-      events: [],
-      reason:
-        "Staff login required — log in with your Breathecode token so production can authorize the download.",
-    };
-  }
-
+): Promise<{
+  events: ContentEvent[];
+  reason?: string;
+  tokenRequired?: ProductionStaffTokenRequiredPayload;
+}> {
   const collected: ContentEvent[] = [];
   let before: number | undefined;
 
@@ -71,30 +55,24 @@ async function fetchProductionEvents(
     url.searchParams.set("limit", String(PAGE_LIMIT));
     if (before != null) url.searchParams.set("before", String(before));
 
-    let res: Response;
-    try {
-      res = await fetch(url.toString(), {
-        headers: { Authorization: `Token ${token}` },
-      });
-    } catch (err) {
+    const result = await fetchProductionAdmin(url, { method: "GET" }, productionOrigin);
+
+    if (!result.ok) {
+      if (result.kind === "token_required") {
+        return { events: collected, tokenRequired: result.payload, reason: result.payload.error };
+      }
+      if (result.kind === "network") {
+        return { events: collected, reason: result.error };
+      }
       return {
         events: collected,
-        reason:
-          err instanceof Error
-            ? `Could not reach production (${err.message})`
-            : "Could not reach production.",
+        reason: `Production returned HTTP ${result.status}${
+          result.body ? `: ${result.body.slice(0, 200)}` : ""
+        }`,
       };
     }
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      return {
-        events: collected,
-        reason: `Production returned HTTP ${res.status}${text ? `: ${text.slice(0, 200)}` : ""}`,
-      };
-    }
-
-    const page = parseEventsPayload(await res.json());
+    const page = parseEventsPayload(await result.response.json());
     if (page.length === 0) break;
 
     collected.push(...page);
@@ -110,7 +88,6 @@ async function fetchProductionEvents(
 
 export async function pullProductionEvents(
   site: string,
-  token: string | null,
   productionOriginOverride?: string,
 ): Promise<PullProductionEventsResult> {
   const productionOrigin =
@@ -127,7 +104,19 @@ export async function pullProductionEvents(
     };
   }
 
-  const { events, reason } = await fetchProductionEvents(productionOrigin, site, token);
+  const { events, reason, tokenRequired } = await fetchProductionEvents(productionOrigin, site);
+
+  if (tokenRequired) {
+    return {
+      success: false,
+      pulled: false,
+      productionOrigin,
+      imported: 0,
+      reason: tokenRequired.error,
+      ...tokenRequired,
+    };
+  }
+
   if (events.length === 0) {
     return {
       success: false,

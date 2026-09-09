@@ -8,9 +8,30 @@ YAML merge / content types → topic `content_system`. Page funnel stage / money
 
 `seo.intent` was removed. Page funnel stage lives on `_common.yml` as `funnel.stage` (awareness / consideration / decision / post-enrollment). **Money pages** = `funnel.stage: decision`. Inventory: `list_entries` with `is_money_page` / `funnel_stage` / `funnel_product` — call **`explain_site` topic `funnel`**.
 
+## Refresh tier (`seo.refresh_tier`)
+
+Fact-staleness class for **substantive** content refreshes — **not** GSC traffic `decay` opportunities and **not** diagnostics cache `freshness`.
+
+| Value | When to use |
+|---|---|
+| `fast` | Pricing, tool versions, “best X in 2026”, model/bench/salary comps |
+| `medium` | Program / landing / cluster hubs |
+| `evergreen` | Concept explainers (closures, OAuth, …) — only when the underlying fact moves |
+
+**Rules**
+
+- Per locale (no auto-copy on translate). Set when enabling SEO clustering / when topic nature is known; revisit when the page angle changes.
+- Staff UI shows the control only when **Include in SEO clustering** is on; then a tier is required (no unset).
+- Cannot clear (`null` / reset forbidden) — change only by picking another tier. Omit the field to leave unchanged.
+- Mirrored on `seo-index.json` when the entry has an SEO signal; tier alone does not create an inventory row.
+- Does not bump `updated_at`. Not a publish gate for pages outside inventory.
+- **Pick help:** `get_entry_fields` → `seo.refresh_tier` `fill_intent`; this topic for the full tree.
+- **List:** `list_entries` `refresh_tier: fast|medium|evergreen|unset` filters **seo-index only** (`unset` = inventory row missing a tier).
+
 ## Tools
 
 - `get_entry_seo`, `list_entry_seo`, `update_fields` (meta.* / seo.*)
+- `list_entries` with optional `refresh_tier` filter (inventory)
 - `refresh_keyword_metrics` — OpenRush inspect_keyword → keyword cache only (no YAML `kw_*`)
 - `list_seo_clusters`, `list_seo_cluster_entries`, `get_seo_cluster`
 - `get_organic_traffic` — GSC clicks/impressions (day cache / site BigQuery); not inspection, not planning volume

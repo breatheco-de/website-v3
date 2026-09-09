@@ -1961,6 +1961,101 @@ export function registerSeoRoutes(app: Express): void {
   });
 
   /**
+   * Bulk OpenRush keyword refresh for selected manage SEO rows (slug+locale).
+   * Upserts shared keyword cache only; does not write YAML seo.kw_*.
+   * preview:true = dry-run (no OpenRush calls) for credit / skip estimates.
+   */
+  api.post(app, "/api/seo/keyword/refresh-bulk", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const contentType = typeof req.body?.contentType === "string" ? req.body.contentType.trim() : "";
+      const preview = req.body?.preview === true;
+      const rawItems = Array.isArray(req.body?.items) ? req.body.items : null;
+      if (!contentType) {
+        return res.status(400).json({ error: "contentType is required" });
+      }
+      if (!isValidType(contentType)) {
+        return res.status(400).json({
+          error: `Invalid content type. Must be one of: ${getAllFolders().join(", ")}`,
+        });
+      }
+      if (!rawItems) {
+        return res.status(400).json({ error: "items array is required" });
+      }
+
+      const {
+        KEYWORD_REFRESH_BULK_MAX,
+        runKeywordRefreshBulk,
+        resolveMainKeywordForEntry,
+      } = await import("../seo-keyword-refresh-bulk");
+
+      if (rawItems.length > KEYWORD_REFRESH_BULK_MAX) {
+        return res.status(400).json({
+          error: `Too many items (${rawItems.length}). Maximum is ${KEYWORD_REFRESH_BULK_MAX}.`,
+          code: "items_too_many",
+        });
+      }
+
+      const items = rawItems
+        .map((raw: unknown) => {
+          if (!raw || typeof raw !== "object") return null;
+          const rec = raw as { slug?: unknown; locale?: unknown };
+          const slug = typeof rec.slug === "string" ? rec.slug.trim() : "";
+          const locale = normalizeLocale(
+            (typeof rec.locale === "string" && rec.locale) || getDefaultLocale(),
+          );
+          if (!slug) return null;
+          return { slug, locale };
+        })
+        .filter((x): x is { slug: string; locale: string } => !!x);
+
+      if (items.length === 0) {
+        return res.status(400).json({ error: "items must include at least one slug+locale" });
+      }
+
+      const auth = await requireCapability(req, res, "seo_edit", contentType);
+      if (!auth.authorized) return;
+
+      const { isOpenRushConfigured } = await import("../openrush-client");
+      const contentRoot = getContentRoot(res);
+      const contentFolder = getContentRootName(res);
+      if (!isOpenRushConfigured(contentRoot)) {
+        return res.status(400).json({
+          error: "OpenRush must be activated to refresh keyword metrics",
+          code: "openrush_inactive",
+        });
+      }
+
+      const { loadSeoIndex, seoEntryId } = await import("../seo-index");
+      const ci = getCI(res);
+
+      const result = await runKeywordRefreshBulk({
+        contentType,
+        items,
+        contentRoot,
+        contentFolder,
+        preview,
+        resolveKeyword: (item) =>
+          resolveMainKeywordForEntry({
+            contentType,
+            slug: item.slug,
+            locale: item.locale,
+            contentRoot,
+            loadMergedContent: (ct, slug, locale) => ci.loadMergedContent(ct, slug, locale),
+            loadSeoIndex,
+            seoEntryId,
+          }),
+      });
+
+      res.json(result);
+    } catch (err) {
+      log.error({ err }, "keyword refresh-bulk failed");
+      res.status(500).json({
+        error: err instanceof Error ? err.message : "Keyword refresh bulk failed",
+      });
+    }
+  });
+
+  /**
    * Remaining OpenRush account credits (GET /v1/me/credits). Staff-only; no content type.
    */
   api.get(app, "/api/seo/openrush/credits", { rate: "staffWrite" }, async (req, res) => {

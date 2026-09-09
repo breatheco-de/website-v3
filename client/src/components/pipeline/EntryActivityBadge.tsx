@@ -37,7 +37,7 @@ import { entryKeyToPageUrl } from "@/lib/entryKeyToPageUrl";
 import { type EventAttributionEntry } from "@/lib/formatIssueActor";
 import { apiFetch } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, ExternalLink, Github, Loader2, User } from "lucide-react";
+import { ArrowLeft, ExternalLink, Github, Loader2, ScrollText, User } from "lucide-react";
 
 const EVENT_LOG_PATH = "/private/background-pipeline";
 
@@ -113,29 +113,37 @@ function ActivityGithubControl({
   if (control.kind === "none") return null;
   if (control.kind === "link") {
     return (
-      <a
-        href={control.href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
-        data-testid={`${testIdPrefix}-github-link`}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 w-fit px-2 text-primary"
+        asChild
       >
-        <Github className="h-3.5 w-3.5" aria-hidden />
-        View on GitHub
-      </a>
+        <a
+          href={control.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid={`${testIdPrefix}-github-link`}
+        >
+          <Github className="h-3.5 w-3.5" aria-hidden />
+          View on GitHub
+        </a>
+      </Button>
     );
   }
   return (
     <Popover modal={false}>
       <PopoverTrigger asChild>
-        <button
+        <Button
           type="button"
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:underline"
+          variant="ghost"
+          size="sm"
+          className="h-8 w-fit px-2 text-muted-foreground"
           data-testid={`${testIdPrefix}-github-pending`}
         >
           <Github className="h-3.5 w-3.5" aria-hidden />
           Not on GitHub yet
-        </button>
+        </Button>
       </PopoverTrigger>
       <PopoverContent
         side="top"
@@ -475,14 +483,6 @@ export function EntryActivityDialog({
               {selected ? (
                 <ActivityNoteBlock payload={selected.payload} testIdPrefix={testIdPrefix} />
               ) : null}
-              {selectedCommit ? (
-                <ActivityGithubControl
-                  repoUrl={githubRepoUrl}
-                  path={selectedCommit.path}
-                  commitSha={selectedCommit.commitSha}
-                  testIdPrefix={testIdPrefix}
-                />
-              ) : null}
               {selectedSessionId ? (
                 <WriteRelatedHistory
                   entryKey={entryKey}
@@ -491,14 +491,31 @@ export function EntryActivityDialog({
                   testIdPrefix={testIdPrefix}
                 />
               ) : null}
-              <Link
-                href={detailEventLogHref}
-                className="inline-flex text-xs text-primary hover:underline"
-                data-testid={`${testIdPrefix}-open-log`}
-                onClick={closeForEventLog}
-              >
-                Open event in log
-              </Link>
+              <div className="flex flex-wrap items-center gap-1 -ml-2">
+                {selectedCommit ? (
+                  <ActivityGithubControl
+                    repoUrl={githubRepoUrl}
+                    path={selectedCommit.path}
+                    commitSha={selectedCommit.commitSha}
+                    testIdPrefix={testIdPrefix}
+                  />
+                ) : null}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-fit px-2 text-primary"
+                  asChild
+                >
+                  <Link
+                    href={detailEventLogHref}
+                    data-testid={`${testIdPrefix}-open-log`}
+                    onClick={closeForEventLog}
+                  >
+                    <ScrollText className="h-3.5 w-3.5" aria-hidden />
+                    Open event in log
+                  </Link>
+                </Button>
+              </div>
             </div>
           </>
         ) : (
@@ -578,14 +595,23 @@ export function EntryActivityDialog({
                 ) : null}
               </div>
             )}
-            <Link
-              href={listEventLogHref}
-              className="inline-flex text-xs text-primary hover:underline"
-              data-testid={`${testIdPrefix}-open-log`}
-              onClick={closeForEventLog}
-            >
-              Open in event log
-            </Link>
+            <div className="flex flex-wrap items-center gap-1 -ml-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-fit px-2 text-primary"
+                asChild
+              >
+                <Link
+                  href={listEventLogHref}
+                  data-testid={`${testIdPrefix}-open-log`}
+                  onClick={closeForEventLog}
+                >
+                  <ScrollText className="h-3.5 w-3.5" aria-hidden />
+                  Open in event log
+                </Link>
+              </Button>
+            </div>
           </>
         )}
       </DialogContent>

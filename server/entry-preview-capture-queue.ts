@@ -422,8 +422,13 @@ export type EnqueueManyResult = {
   omittedLocales: string[];
 };
 
+export const ENTRY_PREVIEW_PAIRS_MAX = 50;
+
+export type EntryPreviewEnqueuePair = { slug: string; locale: string };
+
 /**
- * Resolve targets and enqueue. `locales` is required (non-empty).
+ * Resolve targets and enqueue. `locales` is required (non-empty) unless `pairs` is provided.
+ * When `pairs` is set, only those exact slug+locale rows are considered (no slug×locale cross product).
  * Variants are never included — callers pass live locale codes only.
  */
 export async function enqueueEntryPreviewsForType(
@@ -432,6 +437,8 @@ export async function enqueueEntryPreviewsForType(
     contentType: string;
     locales: string[];
     slugs?: string[];
+    /** Exact page+language pairs (max ENTRY_PREVIEW_PAIRS_MAX). Takes precedence over slug×locale fan-out. */
+    pairs?: EntryPreviewEnqueuePair[];
     mode: CaptureMode;
     /** Force overwrite hand-picked meta.og_image on successful capture. */
     overwrite?: boolean;
@@ -444,7 +451,32 @@ export async function enqueueEntryPreviewsForType(
     throw err;
   }
 
-  const locales = [...new Set(opts.locales.map((l) => normalizeLocale(l)).filter(Boolean))];
+  const pairList = Array.isArray(opts.pairs)
+    ? opts.pairs
+        .map((p) => ({
+          slug: typeof p?.slug === "string" ? p.slug.trim() : "",
+          locale: normalizeLocale(typeof p?.locale === "string" ? p.locale : ""),
+        }))
+        .filter((p) => p.slug && p.locale)
+    : [];
+  if (pairList.length > ENTRY_PREVIEW_PAIRS_MAX) {
+    const err = new Error(`Too many pairs (${pairList.length}). Maximum is ${ENTRY_PREVIEW_PAIRS_MAX}.`);
+    (err as Error & { code?: string }).code = "pairs_too_many";
+    throw err;
+  }
+  const pairKeySet =
+    pairList.length > 0
+      ? new Set(pairList.map((p) => `${p.slug}:${p.locale}`))
+      : null;
+
+  const locales = [
+    ...new Set(
+      (pairKeySet
+        ? pairList.map((p) => p.locale)
+        : opts.locales.map((l) => normalizeLocale(l))
+      ).filter(Boolean),
+    ),
+  ];
   if (locales.length === 0) {
     const err = new Error("locales is required and must be a non-empty array");
     (err as Error & { code?: string }).code = "locales_required";
@@ -461,7 +493,7 @@ export async function enqueueEntryPreviewsForType(
   const manager = site.entryPreviewManager;
   const width = preview!.widths?.[0] || DEFAULT_PREVIEW_WIDTH;
   const theme: "dark" | "light" = preview!.theme === "light" ? "light" : "dark";
-  const slugFilter = opts.slugs?.length ? new Set(opts.slugs) : null;
+  const slugFilter = !pairKeySet && opts.slugs?.length ? new Set(opts.slugs) : null;
   const overwrite = !!opts.overwrite;
 
   const { queryEntries } = await import("./query-entries");
@@ -503,6 +535,7 @@ export async function enqueueEntryPreviewsForType(
     for (const item of items) {
       const slug = String(item.slug ?? "");
       if (!slug) continue;
+      if (pairKeySet && !pairKeySet.has(`${slug}:${locale}`)) continue;
       if (slugFilter && !slugFilter.has(slug)) continue;
 
       const meta = await manager.getMeta(opts.contentType, slug, locale, width);

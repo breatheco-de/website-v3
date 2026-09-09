@@ -11,6 +11,10 @@ import {
   resolveFieldValue as resolveMappedFieldValue,
 } from "./transform";
 import { child } from "./logger";
+import {
+  KNOWN_SEO_FIELDS,
+  SEO_YAML_KEY,
+} from "./seo-field-defs";
 const log = child({ module: "content-types" });
 
 
@@ -469,28 +473,28 @@ export const RESERVED_PUBLISHED_AT_FIELD = "published_at";
 
 /**
  * Platform SEO strategy fields — nested under locale YAML `seo:` for templates/edits
- * (`{{ seo.main_keyword }}`, writeSeoFields). DB-backed types may also map baselines via
+ * (`{{ seo.main_keyword }}`, writeSeoFields). Catalog + fill_intent/system_hints live in
+ * {@link ./seo-field-defs}. DB-backed types may also map baselines via
  * {@link SEO_FIELD_MAPPING_KEYS} in field_mapping; locale YAML overlay wins per key.
  */
-export const KNOWN_SEO_FIELDS = [
-  "main_keyword",
-  "kw_monthly_volume",
-  "kw_difficulty",
-  "pillar_path",
-  "is_pillar",
-] as const;
-
-/** Keyword research metrics under `seo:` (planning estimates, not GSC). */
-export const SEO_RESEARCH_METRIC_FIELDS = ["kw_monthly_volume", "kw_difficulty"] as const;
-export type SeoResearchMetricField = (typeof SEO_RESEARCH_METRIC_FIELDS)[number];
-
-/** Keys that trigger the honest research clear rule when any is present in a write. */
-export const SEO_RESEARCH_WRITE_FIELDS = [
-  "main_keyword",
-  ...SEO_RESEARCH_METRIC_FIELDS,
-] as const;
-export type KnownSeoField = (typeof KNOWN_SEO_FIELDS)[number];
-export const SEO_YAML_KEY = "seo";
+export {
+  SEO_FIELD_DEFS,
+  SEO_REFRESH_TIERS,
+  KNOWN_SEO_FIELDS,
+  SEO_RESEARCH_METRIC_FIELDS,
+  SEO_RESEARCH_WRITE_FIELDS,
+  SEO_YAML_KEY,
+  getSeoFieldDef,
+  isSeoRefreshTier,
+  isKnownSeoFieldPath,
+  seoFieldFromPath,
+} from "./seo-field-defs";
+export type {
+  KnownSeoField,
+  SeoFieldDef,
+  SeoRefreshTier,
+  SeoResearchMetricField,
+} from "./seo-field-defs";
 export const LEGACY_SEO_PILLAR_KEY = "pillar";
 export const LEGACY_MAIN_SEO_KEYWORD_KEY = "main_seo_keyword";
 
@@ -525,16 +529,6 @@ export function assertNoDottedSeoFieldMappingKeys(fieldMapping: Record<string, u
   throw new Error(
     `Invalid field_mapping key(s): ${bad.join(", ")}. Use ${SEO_DB_MAPPING_KEY_LIST.join(", ")} to map DB columns into the seo: baseline — never dotted seo.* keys.`,
   );
-}
-
-export function isKnownSeoFieldPath(fieldPath: string): boolean {
-  return (KNOWN_SEO_FIELDS as readonly string[]).some((k) => fieldPath === `${SEO_YAML_KEY}.${k}`);
-}
-
-export function seoFieldFromPath(fieldPath: string): KnownSeoField | null {
-  if (!fieldPath.startsWith(`${SEO_YAML_KEY}.`)) return null;
-  const key = fieldPath.slice(SEO_YAML_KEY.length + 1);
-  return (KNOWN_SEO_FIELDS as readonly string[]).includes(key) ? (key as KnownSeoField) : null;
 }
 
 const FORBIDDEN_SCHEMA_KEYS = new Set<string>([IMAGE_ALIAS_FIELD, SLUG_ALIAS_FIELD, "purchasable"]);

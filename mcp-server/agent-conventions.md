@@ -99,3 +99,9 @@ For `SEO_KEYWORD_RESEARCH_INCOMPLETE`:
 - **No reliable source:** do not claim, or claim→`release` blocked — never guess numbers.
 
 **Worked example:** OpenRush configured + keyword set without metrics → `refresh_keyword_metrics`, then revalidate — not `update_fields` with invented 1300/33.
+
+### 7. Set `seo.refresh_tier` when clustering / topic nature is known
+
+When enabling SEO clustering or classifying a page’s topic, set `seo.refresh_tier` to `fast`, `medium`, or `evergreen` (fact staleness — not traffic decay). Read `get_entry_fields` fill_intent or `explain_site` topic `seo` to pick. Cannot clear — change only by picking another tier. Revisit the tier when the page angle changes (e.g. concept explainer becomes a yearly “best of”). Per locale; translate does not copy.
+
+**Worked example:** turning clustering on for a “best AI tools 2026” post → `update_fields` with `seo.refresh_tier: "fast"` (after reading fill_intent if unsure).

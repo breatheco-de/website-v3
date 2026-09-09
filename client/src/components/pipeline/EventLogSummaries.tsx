@@ -945,11 +945,9 @@ function ValidationIssueDetails({
 
 function RawPayloadSection({ event }: { event: PipelineContentEvent }) {
   return (
-    <details className="text-xs">
-      <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-        Raw payload
-      </summary>
-      <div className="mt-2 overflow-hidden rounded-md max-h-32">
+    <div className="space-y-1 text-xs">
+      <p className="font-medium text-foreground">Raw payload</p>
+      <div className="overflow-hidden rounded-md max-h-32">
         <JsonViewer
           value={JSON.stringify(
             {
@@ -966,7 +964,7 @@ function RawPayloadSection({ event }: { event: PipelineContentEvent }) {
           className="[&_.cm-editor]:!max-w-full [&_.cm-scroller]:!overflow-auto [&_.cm-editor]:!max-h-32 [&_.cm-editor]:!text-xs"
         />
       </div>
-    </details>
+    </div>
   );
 }
 

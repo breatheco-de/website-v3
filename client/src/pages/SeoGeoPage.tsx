@@ -293,21 +293,23 @@ function OrganicMetricBadgeLabel({
       <>
         {prefix ?? ""}
         <span className={toneClass(clicksTone(stats.clicks))}>{fmtTrafficClicks(stats.clicks)}</span>
-        {" clicks in 28d"}
+        <span className="sm:hidden"> clks</span>
+        <span className="hidden sm:inline"> clicks in 28d</span>
       </>
     );
   }
   if (kind === "position") {
     return (
       <>
-        avg pos{" "}
+        <span className="sm:hidden">pos </span>
+        <span className="hidden sm:inline">avg pos </span>
         <span className={toneClass(positionTone(stats.position))}>{fmtTrafficPosition(stats)}</span>
       </>
     );
   }
   return (
     <>
-      CTR{" "}
+      <span className="hidden sm:inline">CTR </span>
       <span className={toneClass(ctrTone(ctrRatioFromStats(stats)))}>{fmtTrafficCtr(stats)}</span>
     </>
   );
@@ -387,7 +389,10 @@ function ClusterOrganicMetricBadge({
             )}
           >
             {incomplete && kind === "clicks" ? (
-              <AlertTriangle className="h-3 w-3 shrink-0 text-status-away" aria-hidden />
+              <AlertTriangle
+                className="hidden sm:block h-3 w-3 shrink-0 text-status-away"
+                aria-hidden
+              />
             ) : null}
             <OrganicMetricBadgeLabel kind={kind} stats={stats} prefix={prefix} />
           </Badge>
@@ -458,9 +463,13 @@ function ClusterOrganicNoDataBadge({
             )}
           >
             {incomplete ? (
-              <AlertTriangle className="h-3 w-3 shrink-0 text-status-away" aria-hidden />
+              <AlertTriangle
+                className="hidden sm:block h-3 w-3 shrink-0 text-status-away"
+                aria-hidden
+              />
             ) : null}
-            No data from GSC
+            <span className="sm:hidden">No GSC</span>
+            <span className="hidden sm:inline">No data from GSC</span>
           </Badge>
         </button>
       </PopoverTrigger>
@@ -582,18 +591,24 @@ function ClusterHubAveragesBadge({
             )}
           >
             {incomplete ? (
-              <AlertTriangle className="h-3 w-3 shrink-0 text-status-away" aria-hidden />
+              <AlertTriangle
+                className="hidden sm:block h-3 w-3 shrink-0 text-status-away"
+                aria-hidden
+              />
             ) : null}
             <span aria-hidden>⌀</span>
-            Hub Averages ·{" "}
+            <span className="hidden sm:inline">Hub Averages · </span>
             <span className={toneClass(clicksTone(stats.clicks))}>
               {fmtTrafficClicks(stats.clicks)}
-            </span>{" "}
-            clicks · pos{" "}
+            </span>
+            <span className="hidden sm:inline"> clicks</span>
+            {" · "}
+            <span className="hidden sm:inline">pos </span>
             <span className={toneClass(positionTone(stats.position))}>
               {fmtTrafficPosition(stats)}
-            </span>{" "}
-            · CTR{" "}
+            </span>
+            {" · "}
+            <span className="hidden sm:inline">CTR </span>
             <span className={toneClass(ctrTone(ctrRatioFromStats(stats)))}>
               {fmtTrafficCtr(stats)}
             </span>
@@ -4993,7 +5008,7 @@ export function SeoTab({
                     hubMetricChips = metricsBusy && !trafficOverlay ? (
                       <Skeleton className="h-5 w-28 ml-auto" />
                     ) : (
-                      <span className="inline-flex items-center gap-1.5 shrink-0 flex-wrap justify-end ml-auto">
+                      <span className="inline-flex items-center gap-1 flex-wrap justify-start w-full sm:w-auto sm:justify-end sm:ml-auto sm:shrink-0">
                         <ClusterOrganicTrafficBadges
                           stats={trafficOverlay?.hubTraffic}
                           role="hub"
@@ -5045,13 +5060,13 @@ export function SeoTab({
                           }}
                           gscConfigured={gsc?.configured}
                           stopRowToggle
-                          triggerClassName="inline-flex items-center gap-1.5 shrink-0 flex-wrap justify-end ml-auto"
+                          triggerClassName="inline-flex items-center gap-1 flex-wrap justify-start w-full sm:w-auto sm:justify-end sm:ml-auto sm:shrink-0"
                         >
                           {potentialChips}
                         </ClusterEntryPopover>
                       ) : (
                         <span
-                          className="inline-flex items-center gap-1.5 shrink-0 flex-wrap justify-end ml-auto"
+                          className="inline-flex items-center gap-1 flex-wrap justify-start w-full sm:w-auto sm:justify-end sm:ml-auto sm:shrink-0"
                           onClick={stopClusterRowToggle}
                           onPointerDown={stopClusterRowToggle}
                         >
@@ -5063,7 +5078,7 @@ export function SeoTab({
                     hubMetricChips = metricsBusy && !integrityOverlay ? (
                       <Skeleton className="h-5 w-28 ml-auto" />
                     ) : (
-                      <span className="ml-auto shrink-0">
+                      <span className="w-full sm:w-auto sm:ml-auto sm:shrink-0">
                         <PageHealthIndicators
                           errorCount={integrityOverlay?.hub.errorCount ?? 0}
                           warningCount={integrityOverlay?.hub.warningCount ?? 0}
@@ -5079,7 +5094,7 @@ export function SeoTab({
                       <Skeleton className="h-5 w-20 ml-auto" />
                     ) : hubId ? (
                       <span
-                        className="ml-auto shrink-0 inline-flex items-center gap-1.5"
+                        className="w-full sm:w-auto sm:ml-auto sm:shrink-0 inline-flex items-center gap-1.5"
                         onClick={stopClusterRowToggle}
                         onPointerDown={stopClusterRowToggle}
                       >
@@ -5106,16 +5121,24 @@ export function SeoTab({
                       />
                       <div className="min-w-0 flex-1 [&_h3]:w-full">
                         <AccordionTrigger className="w-full text-xs py-2 hover:no-underline">
-                          <div className="flex min-w-0 flex-1 items-center gap-2 text-left pr-2">
+                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-left pr-2">
                             <LocaleFlag
                               locale={hubLocale}
                               className="h-3 w-4 shrink-0 rounded-sm"
                             />
-                            <span className="text-xs font-medium text-foreground truncate">
+                            <span className="min-w-[7rem] flex-1 basis-[min(100%,10rem)] text-xs font-medium text-foreground truncate">
                               {clusterListLabel(cluster.keyword, cluster.pillarUrl)}
                             </span>
-                            <Badge variant="secondary" className={clusterCountBadgeClass(cluster.clusterCount)}>
-                              {cluster.clusterCount} page{cluster.clusterCount !== 1 ? "s" : ""}
+                            <Badge
+                              variant="secondary"
+                              className={clusterCountBadgeClass(cluster.clusterCount)}
+                              title={`${cluster.clusterCount} page${cluster.clusterCount !== 1 ? "s" : ""}`}
+                            >
+                              {cluster.clusterCount}
+                              <span className="hidden sm:inline">
+                                {" "}
+                                page{cluster.clusterCount !== 1 ? "s" : ""}
+                              </span>
                             </Badge>
                             {hubMetricChips}
                           </div>

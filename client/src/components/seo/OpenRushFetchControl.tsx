@@ -98,7 +98,7 @@ export type OpenRushFetchControlProps = {
   title?: string;
 };
 
-function OpenRushCreditsLine({
+export function OpenRushCreditsLine({
   cost,
   balance,
   loading,

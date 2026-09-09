@@ -69,6 +69,8 @@ import {
   BulkDeleteStaticDialog,
   BulkDeleteDbInfoDialog,
 } from "@/components/content-type/BulkDeleteDialogs";
+import { BulkSeoOgRegenerateDialog } from "@/components/content-type/BulkSeoOgRegenerateDialog";
+import { BulkSeoKeywordRefreshDialog } from "@/components/content-type/BulkSeoKeywordRefreshDialog";
 import { CreateContentModal } from "@/components/DebugBubble/components/CreateContentModal";
 import type { SitemapUrl } from "@/components/DebugBubble/types";
 import { ManagedSeoModal, type ManagedSeoModalTarget } from "@/components/editing/ManagedSeoModal";
@@ -5947,7 +5949,13 @@ export default function ContentTypeManagePage() {
   const [strategyDialogOpen, setStrategyDialogOpen] = useState(false);
   const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
   const [selectedSlugs, setSelectedSlugs] = useState<Set<string>>(() => new Set());
+  /** SEO perspective: exact `slug:locale` keys (not slug-only). */
+  const [selectedSeoKeys, setSelectedSeoKeys] = useState<Set<string>>(() => new Set());
   const [bulkFunnelOpen, setBulkFunnelOpen] = useState(false);
+  const [bulkSeoKeywordOpen, setBulkSeoKeywordOpen] = useState(false);
+  const [bulkSeoOgOpen, setBulkSeoOgOpen] = useState(false);
+  const [bulkSeoKeywordApplying, setBulkSeoKeywordApplying] = useState(false);
+  const [bulkSeoOgApplying, setBulkSeoOgApplying] = useState(false);
   const [bulkDeleteStaticOpen, setBulkDeleteStaticOpen] = useState(false);
   const [bulkDeleteDbInfoOpen, setBulkDeleteDbInfoOpen] = useState(false);
   const SELECTION_CAP = 50;
@@ -5966,6 +5974,7 @@ export default function ContentTypeManagePage() {
 
   useEffect(() => {
     setSelectedSlugs(new Set());
+    setSelectedSeoKeys(new Set());
   }, [contentType, viewMode, listPerspective]);
 
   const [semanticResults, setSemanticResults] = useState<Record<string, unknown>[] | null>(null);
@@ -6289,6 +6298,20 @@ export default function ContentTypeManagePage() {
     staleTime: 30_000,
   });
 
+  const { data: openrushSettings } = useQuery<{
+    configured: boolean;
+    api_key_configured: boolean;
+    settings: { enabled: boolean };
+  }>({
+    queryKey: ["/api/settings/openrush"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/settings/openrush");
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+  const openrushConfigured = openrushSettings?.configured === true;
+
   const { data: entryPreviewQueueData } = useQuery<{
     configError: string | null;
     queue: { pending: number; active: number; completedSession: number; failedSession: number };
@@ -6330,6 +6353,7 @@ export default function ContentTypeManagePage() {
       mode: "missing" | "all" | "failed";
       locales: string[];
       slugs?: string[];
+      pairs?: { slug: string; locale: string }[];
       overwrite?: boolean;
     }) => {
       try {
@@ -6672,8 +6696,83 @@ export default function ContentTypeManagePage() {
     if (changed) writeListView({ ...listView, tagFilters: next, page: 1 });
   }, [allItemsData?.facets, dbItemsMeta?.facets, contentType, tagFilters, listView, writeListView]);
 
-  const selectionActive = selectedSlugs.size > 0;
+  const selectionActive =
+    selectedSlugs.size > 0 || (listPerspective === "seo" && selectedSeoKeys.size > 0);
   const selectedSlugList = useMemo(() => [...selectedSlugs], [selectedSlugs]);
+  const selectedSeoPairList = useMemo(() => {
+    return [...selectedSeoKeys]
+      .map((key) => {
+        const idx = key.lastIndexOf(":");
+        if (idx <= 0) return null;
+        return { slug: key.slice(0, idx), locale: key.slice(idx + 1) };
+      })
+      .filter((p): p is { slug: string; locale: string } => !!p?.slug && !!p.locale);
+  }, [selectedSeoKeys]);
+
+  const selectedSeoCustomImageCount = useMemo(() => {
+    const index = entryPreviewsData?.index;
+    if (!index) return 0;
+    let n = 0;
+    for (const pair of selectedSeoPairList) {
+      const row = index[`${pair.slug}:${pair.locale}`];
+      if (row?.fromSource) n += 1;
+    }
+    return n;
+  }, [entryPreviewsData?.index, selectedSeoPairList]);
+
+  const seoKeyFor = useCallback((slug: string, locale: string) => `${slug}:${locale}`, []);
+
+  const toggleSeoKeySelected = useCallback(
+    (slug: string, locale: string, checked: boolean) => {
+      const key = `${slug}:${locale}`;
+      setSelectedSeoKeys((prev) => {
+        const next = new Set(prev);
+        if (checked) {
+          if (next.size >= SELECTION_CAP && !next.has(key)) {
+            toast({
+              title: "Selection limit",
+              description: `You can select up to ${SELECTION_CAP} at a time.`,
+            });
+            return prev;
+          }
+          next.add(key);
+        } else {
+          next.delete(key);
+        }
+        return next;
+      });
+    },
+    [toast],
+  );
+
+  const selectPageSeoKeys = useCallback(
+    (pageKeys: string[], select: boolean) => {
+      setSelectedSeoKeys((prev) => {
+        const next = new Set(prev);
+        if (!select) {
+          for (const k of pageKeys) next.delete(k);
+          return next;
+        }
+        let hitCap = false;
+        for (const k of pageKeys) {
+          if (next.has(k)) continue;
+          if (next.size >= SELECTION_CAP) {
+            hitCap = true;
+            break;
+          }
+          next.add(k);
+        }
+        if (hitCap) {
+          toast({
+            title: "Selection limit",
+            description: `You can select up to ${SELECTION_CAP} at a time.`,
+          });
+        }
+        return next;
+      });
+    },
+    [toast],
+  );
 
   const toggleSlugSelected = useCallback(
     (slug: string, checked: boolean) => {
@@ -8010,7 +8109,7 @@ export default function ContentTypeManagePage() {
               data-testid="bulk-actions-bar"
             >
               <span className="text-sm text-muted-foreground tabular-nums" data-testid="text-bulk-selected-count">
-                {selectedSlugs.size} selected
+                {listPerspective === "seo" ? selectedSeoKeys.size : selectedSlugs.size} selected
                 {listPerspective === "default" ? (
                   <span className="ml-1 text-xs">
                     (
@@ -8025,17 +8124,52 @@ export default function ContentTypeManagePage() {
                     {filteredFunnelEntries.filter((e) => selectedSlugs.has(e.slug)).length} on this page
                     )
                   </span>
+                ) : listPerspective === "seo" ? (
+                  <span className="ml-1 text-xs">
+                    (
+                    {filteredSeoEntries.filter((e) =>
+                      selectedSeoKeys.has(seoKeyFor(e.slug || "", e.locale || "en")),
+                    ).length}{" "}
+                    on this page)
+                  </span>
                 ) : null}
               </span>
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setSelectedSlugs(new Set())}
+                onClick={() => {
+                  setSelectedSlugs(new Set());
+                  setSelectedSeoKeys(new Set());
+                }}
                 data-testid="button-bulk-clear-selection"
               >
                 Clear
               </Button>
               <div className="flex-1 min-w-[1rem]" />
+              {listPerspective === "seo" ? (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkSeoKeywordOpen(true)}
+                    data-testid="button-bulk-seo-keyword-refresh"
+                  >
+                    Refresh keyword metrics
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      !typeConfig?.preview?.component ||
+                      entryPreviewsData?.captureReady === false
+                    }
+                    onClick={() => setBulkSeoOgOpen(true)}
+                    data-testid="button-bulk-seo-og-regenerate"
+                  >
+                    Regenerate OG
+                  </Button>
+                </>
+              ) : null}
               {listPerspective === "funnel" ? (
                 <Button
                   variant="outline"
@@ -8448,6 +8582,28 @@ export default function ContentTypeManagePage() {
                   <table className="w-full text-sm" data-testid="table-seo-entries">
                     <thead>
                       <tr className="border-b bg-muted/50">
+                        <th className="w-10 px-4 py-3">
+                          {(() => {
+                            const pageKeys = filteredSeoEntries.map((e) =>
+                              seoKeyFor(e.slug || "unknown", e.locale || "en"),
+                            );
+                            const selectedOnPage = pageKeys.filter((k) => selectedSeoKeys.has(k));
+                            const allSelected =
+                              pageKeys.length > 0 && selectedOnPage.length === pageKeys.length;
+                            const someSelected =
+                              selectedOnPage.length > 0 && selectedOnPage.length < pageKeys.length;
+                            return (
+                              <Checkbox
+                                checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                                onCheckedChange={(checked) => {
+                                  selectPageSeoKeys(pageKeys, checked === true);
+                                }}
+                                aria-label="Select all on page"
+                                data-testid="checkbox-seo-select-all"
+                              />
+                            );
+                          })()}
+                        </th>
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground w-[140px]">Image</th>
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground">Meta</th>
                         <th className="text-right px-4 py-3 font-medium text-muted-foreground w-[160px]">Link</th>
@@ -8457,6 +8613,7 @@ export default function ContentTypeManagePage() {
                       {filteredSeoEntries.map((entry) => {
                         const slug = entry.slug || "unknown";
                         const locale = entry.locale || "en";
+                        const seoSelKey = seoKeyFor(slug, locale);
                         const meta = entry.meta || {};
                         const issues = getMetaIssues(meta);
                         const pageTitle = typeof meta.page_title === "string" ? meta.page_title : "";
@@ -8495,6 +8652,16 @@ export default function ContentTypeManagePage() {
                             className="border-b last:border-0 hover:bg-muted/30 transition-colors align-top"
                             data-testid={`row-seo-${rowKey}`}
                           >
+                            <td className="px-4 py-3">
+                              <Checkbox
+                                checked={selectedSeoKeys.has(seoSelKey)}
+                                onCheckedChange={(checked) =>
+                                  toggleSeoKeySelected(slug, locale, checked === true)
+                                }
+                                aria-label={`Select ${slug} (${locale})`}
+                                data-testid={`checkbox-seo-${rowKey}`}
+                              />
+                            </td>
                             <td className="px-4 py-3">
                               <div className="space-y-1.5">
                                 <div className="relative w-[120px] h-[63px] flex-shrink-0 rounded-md overflow-hidden bg-muted">
@@ -10360,6 +10527,96 @@ export default function ContentTypeManagePage() {
           queryClient.invalidateQueries({
             queryKey: ["/api/content-types", contentType, "funnel-entries"],
           });
+        }}
+      />
+      <BulkSeoKeywordRefreshDialog
+        open={bulkSeoKeywordOpen}
+        onOpenChange={setBulkSeoKeywordOpen}
+        contentType={contentType}
+        pairs={selectedSeoPairList}
+        openrushConfigured={openrushConfigured}
+        applying={bulkSeoKeywordApplying}
+        onConfirm={async () => {
+          setBulkSeoKeywordApplying(true);
+          try {
+            const res = await apiRequest("POST", "/api/seo/keyword/refresh-bulk", {
+              contentType,
+              items: selectedSeoPairList,
+              preview: false,
+            });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              throw new Error(
+                (body as { error?: string }).error ||
+                  (body as { code?: string }).code ||
+                  "Keyword refresh failed",
+              );
+            }
+            const data = body as {
+              keywords_fetched?: number;
+              skipped_no_keyword?: number;
+              skipped_already_fresh?: number;
+              failed?: number;
+              aborted?: number;
+              credits_spent?: number;
+            };
+            toast({
+              title: "Keyword metrics updated",
+              description: [
+                `Fetched ${data.keywords_fetched ?? 0}`,
+                `skipped no keyword ${data.skipped_no_keyword ?? 0}`,
+                `skipped fresh ${data.skipped_already_fresh ?? 0}`,
+                `failed ${data.failed ?? 0}`,
+                data.aborted ? `aborted ${data.aborted}` : null,
+                data.credits_spent != null ? `(${data.credits_spent} credits)` : null,
+              ]
+                .filter(Boolean)
+                .join(" · "),
+            });
+            setBulkSeoKeywordOpen(false);
+          } catch (err) {
+            toast({
+              title: "Could not refresh keywords",
+              description: err instanceof Error ? err.message : String(err),
+              variant: "destructive",
+            });
+          } finally {
+            setBulkSeoKeywordApplying(false);
+            setSelectedSeoKeys(new Set());
+            void queryClient.invalidateQueries({
+              queryKey: ["/api/content-types", contentType, "seo-entries"],
+            });
+            void queryClient.invalidateQueries({ queryKey: ["/api/seo/keyword-owners"] });
+            void queryClient.invalidateQueries({ queryKey: ["/api/seo/openrush/credits"] });
+          }
+        }}
+      />
+      <BulkSeoOgRegenerateDialog
+        open={bulkSeoOgOpen}
+        onOpenChange={setBulkSeoOgOpen}
+        pairs={selectedSeoPairList}
+        customImageCount={selectedSeoCustomImageCount}
+        captureReady={
+          !!typeConfig?.preview?.component && entryPreviewsData?.captureReady !== false
+        }
+        applying={bulkSeoOgApplying}
+        onConfirm={async ({ replaceCustom }) => {
+          setBulkSeoOgApplying(true);
+          try {
+            const locales = [...new Set(selectedSeoPairList.map((p) => p.locale))];
+            await enqueueServerPreviews({
+              mode: "all",
+              locales,
+              pairs: selectedSeoPairList,
+              overwrite: replaceCustom,
+            });
+            setBulkSeoOgOpen(false);
+          } catch {
+            /* toast already shown */
+          } finally {
+            setBulkSeoOgApplying(false);
+            setSelectedSeoKeys(new Set());
+          }
         }}
       />
       <BulkDeleteStaticDialog

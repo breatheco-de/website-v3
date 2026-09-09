@@ -48,6 +48,8 @@ export interface VersioningResponse {
   isDraft?: boolean;
   /** Editorial YAML `title` from ContentIndex (not the folder slug) */
   title?: string | null;
+  /** Editorial updated_at (ISO) — max across locales; same clock as Manage */
+  updatedAt?: string | null;
 }
 
 export interface ContentInfo {

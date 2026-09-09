@@ -102,15 +102,6 @@ function setOmitEmpty(params: URLSearchParams, key: string, value: string) {
   else params.set(key, value);
 }
 
-function clearFilterKeys(params: URLSearchParams) {
-  params.delete(EVENT_LOG_SEARCH_KEYS.session);
-  params.delete(EVENT_LOG_SEARCH_KEYS.kind);
-  params.delete(EVENT_LOG_SEARCH_KEYS.actor);
-  params.delete(EVENT_LOG_SEARCH_KEYS.agent);
-  params.delete(EVENT_LOG_SEARCH_KEYS.type);
-  params.delete(EVENT_LOG_SEARCH_KEYS.entry);
-}
-
 function clearWindowKeys(params: URLSearchParams) {
   params.delete(EVENT_LOG_SEARCH_KEYS.startingAt);
   params.delete(EVENT_LOG_SEARCH_KEYS.endingAt);
@@ -124,14 +115,12 @@ export function serializeEventLogSearch(view: EventLogViewState, existingSearch 
 
   const window = normalizeTimeWindow(view.startingAt, view.endingAt);
   if (window.startingAt != null && window.endingAt != null) {
-    // Time window wins: drop filter keys so shareable URLs stay clean.
-    clearFilterKeys(params);
     params.set(EVENT_LOG_SEARCH_KEYS.startingAt, String(window.startingAt));
     params.set(EVENT_LOG_SEARCH_KEYS.endingAt, String(window.endingAt));
-    return params.toString();
+  } else {
+    clearWindowKeys(params);
   }
 
-  clearWindowKeys(params);
   setOmitEmpty(params, EVENT_LOG_SEARCH_KEYS.session, view.session.trim());
   if (view.kinds.length === 0) params.delete(EVENT_LOG_SEARCH_KEYS.kind);
   else params.set(EVENT_LOG_SEARCH_KEYS.kind, view.kinds.join(","));
@@ -157,7 +146,8 @@ export function eventLogHasActiveFilters(view: EventLogViewState): boolean {
     view.actors.length > 0 ||
     Boolean(view.agent) ||
     Boolean(view.type) ||
-    view.entries.length > 0
+    view.entries.length > 0 ||
+    eventLogHasTimeWindow(view)
   );
 }
 
@@ -168,7 +158,8 @@ export function eventLogActiveFilterCount(view: EventLogViewState): number {
     (view.type ? 1 : 0) +
     view.kinds.length +
     view.actors.length +
-    view.entries.length
+    view.entries.length +
+    (eventLogHasTimeWindow(view) ? 1 : 0)
   );
 }
 
