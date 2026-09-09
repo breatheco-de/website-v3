@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
-import { AlertTriangle, ArrowDown, ArrowLeftRight, ArrowUp, Check, ChevronLeft, ChevronRight, Clock3, Code, Copy, Eye, History, Link, Loader2, Monitor, MoreVertical, Pencil, Smartphone, Space, Trash2, Unlink, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeftRight, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Code, Copy, Eye, FileDiff, History, Info, Link as LinkIcon, Loader2, Monitor, MoreVertical, Pencil, Smartphone, Space, Trash2, Unlink, X } from "lucide-react";
 import { IconPin, IconEdit, IconArrowBackUp, IconPencil, IconChevronDown } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import type { Section, SectionLayout, ShowOn, ResponsiveSpacing } from "@shared/schema";
+import { parseAutoSyncCommitAuthor, parseCommitAuthorTag } from "@shared/git-commit-attribution";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
@@ -14,6 +16,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DbTemplateWarningDialog } from "@/components/editing/DbTemplateWarningDialog";
+import { AgentIcon } from "@/components/pipeline/AgentIcon";
+import { formatAgentLabel, resolveAgentId } from "@/components/pipeline/agentIcons";
+import { buildEntryActivityEventFocusHref } from "@/components/pipeline/EntryActivityBadge";
+import { formatAttributionEntry, type EventAttributionEntry } from "@/lib/formatIssueActor";
+import {
+  SectionHistoryDiffModal,
+  type SectionHistoryDiffTarget,
+} from "@/components/editing/SectionHistoryDiffModal";
 import {
   WorkLabelModal,
   normalizeWorkLabel,
@@ -22,13 +32,22 @@ import {
 import { getDebugToken, resolveAuthorName, resolveStaffId, getDebugStaffId } from "@/hooks/useDebugAuth";
 import { useContentTypes, useContentTypesRaw, getFolderFromType } from "@/hooks/useContentTypes";
 import { useToast } from "@/hooks/use-toast";
+import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
+import { prepareSectionForVariableHighlights } from "@/lib/variable-manager";
 import { emitContentUpdated, emitEditStarted } from "@/lib/contentEvents";
+import { editContent } from "@/lib/contentApi";
+import { mergeSavedSectionForLivePreview } from "@/components/editing/restoreVariableFieldsForEditor";
+import { VariableHighlightProvider } from "@/components/editing/VariableHighlight";
 import { renderSection } from "@/components/SectionRenderer";
 import { SectionContextProvider } from "@/contexts/SectionContext";
 import yaml from "js-yaml";
 import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
-import { canonicalSectionId } from "@shared/sectionIdentity";
+import { canonicalSectionId, sectionMatchesId } from "@shared/sectionIdentity";
 import * as CountryFlags from "country-flag-icons/react/3x2";
+
+function isHistoryCausePopoverTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && !!target.closest("[data-history-cause-popover]");
+}
 
 /** Matches server HIDDEN_LOCATION_SENTINEL — section hidden from public until label is cleared. */
 const HIDDEN_LOCATION_SENTINEL = "__none__";
@@ -296,7 +315,7 @@ function XSpacingGroup({
               onClick={onToggleLink}
               data-testid={`${testIdPrefix}-link-toggle`}
             >
-              {linked ? <Link className="h-3.5 w-3.5" /> : <Unlink className="h-3.5 w-3.5 text-muted-foreground" />}
+              {linked ? <LinkIcon className="h-3.5 w-3.5" /> : <Unlink className="h-3.5 w-3.5 text-muted-foreground" />}
             </Button>
           </TooltipTrigger>
           <TooltipContent side="top">
@@ -358,9 +377,27 @@ interface EditableSectionProps {
   onDuplicate?: (index: number) => void;
 }
 
-function parseAutoSyncAuthor(subject: string): string | null {
-  const m = subject.match(/^\[Auto-sync\] (.+?) updated /);
-  return m ? m[1] : null;
+function resolveHistoryAuthorDisplay(entry: {
+  author: string;
+  subject: string;
+  event?: {
+    attribution?: EventAttributionEntry[];
+  };
+}): { label: string; agentId: ReturnType<typeof resolveAgentId> } {
+  const attribution = entry.event?.attribution;
+  if (attribution && attribution.length > 0) {
+    const agentId = resolveAgentId(attribution);
+    const author = attribution[0]?.author?.trim();
+    if (author) return { label: author, agentId };
+    if (agentId) return { label: formatAgentLabel(agentId), agentId };
+    return { label: formatAttributionEntry(attribution[0]!), agentId: null };
+  }
+  const tag = parseCommitAuthorTag(entry.subject);
+  const agentId = tag
+    ? resolveAgentId([{ actor: { type: "mcp", model: tag } }])
+    : null;
+  const staff = parseAutoSyncCommitAuthor(entry.subject) ?? entry.author;
+  return { label: staff, agentId };
 }
 
 /** Returns a singular human-readable noun for a content type, e.g. "course" from "Courses". */
@@ -381,7 +418,22 @@ export function EditableSection({ children, section, index, sectionType, content
   const { toast } = useToast();
   const contentTypesMap = useContentTypes();
   const { data: rawContentTypes } = useContentTypesRaw();
+  const { data: varDefinitions } = useVariableDefinitions();
+  const varContext = useVariableContext();
+  const historyVarContext = {
+    ...varContext,
+    locale: locale || varContext.locale,
+  };
+  const { data: siteInfo } = useQuery<{ contentFolder: string }>({
+    queryKey: ["/api/site/info"],
+  });
   const singularLabel = getSingularLabel(contentType, rawContentTypes);
+
+  const buildPageYamlPath = useCallback(() => {
+    if (!contentType || !slug || !locale || !siteInfo?.contentFolder) return null;
+    const contentDir = contentTypesMap ? getFolderFromType(contentTypesMap, contentType) : contentType;
+    return `${siteInfo.contentFolder}/${contentDir}/${slug}/${locale}.yml`;
+  }, [contentType, slug, locale, siteInfo?.contentFolder, contentTypesMap]);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [currentSection, setCurrentSection] = useState<Section>(section);
   const [wasLocallyUpdated, setWasLocallyUpdated] = useState(false);
@@ -453,13 +505,76 @@ export function EditableSection({ children, section, index, sectionType, content
   
   // Section history (time-travel) state
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyEntries, setHistoryEntries] = useState<{ sha: string; date: string; author: string; subject: string }[]>([]);
+  const [historyEntries, setHistoryEntries] = useState<{
+    sha: string;
+    date: string;
+    author: string;
+    subject: string;
+    parentSha?: string | null;
+    additions?: number;
+    deletions?: number;
+    event?: {
+      id: number;
+      cause?: string;
+      created_at: number;
+      attribution: EventAttributionEntry[];
+    };
+  }[]>([]);
+  const [historyRepoUrl, setHistoryRepoUrl] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [historyPreviewSha, setHistoryPreviewSha] = useState<string | null>(null);
+  /** Which history row has the cause Popover open (nested inside Time Machine). */
+  const [historyCauseOpenSha, setHistoryCauseOpenSha] = useState<string | null>(null);
+  const [historyRestoring, setHistoryRestoring] = useState(false);
+  /** Collapse commit list; header (+ preview) stay. */
+  const [historyListCollapsed, setHistoryListCollapsed] = useState(false);
+  /** Raw YAML section (for Restore). May lack resolved listing `items`. */
+  const [historyPreviewRawSection, setHistoryPreviewRawSection] = useState<Section | null>(null);
+  /** Display section — raw, or after dynamic_entries resolve against current DB. */
   const [historyPreviewSection, setHistoryPreviewSection] = useState<Section | null>(null);
   const [historyPreviewDate, setHistoryPreviewDate] = useState<string | null>(null);
   const [historyPreviewAuthor, setHistoryPreviewAuthor] = useState<string | null>(null);
   const [historyPreviewLoading, setHistoryPreviewLoading] = useState(false);
+  const [historyDiffTarget, setHistoryDiffTarget] = useState<SectionHistoryDiffTarget | null>(null);
+
+  const loadSectionHistory = useCallback(async (opts?: { cursor?: string | null; append?: boolean }) => {
+    const filePath = buildPageYamlPath();
+    if (!filePath) {
+      if (!opts?.append) {
+        setHistoryEntries([]);
+        setHistoryHasMore(false);
+        setHistoryCursor(null);
+      }
+      return;
+    }
+    const sectionId = canonicalSectionId(currentSection as Record<string, unknown>);
+    const params = new URLSearchParams({
+      file: filePath,
+      sectionIndex: String(index),
+      limit: "10",
+    });
+    if (sectionId) params.set("sectionId", sectionId);
+    if (opts?.cursor) params.set("cursor", opts.cursor);
+
+    const data = await fetch(`/api/git/section-history?${params.toString()}`).then((r) => r.json());
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    if (typeof data.repoUrl === "string" && data.repoUrl.trim()) {
+      setHistoryRepoUrl(data.repoUrl.replace(/\.git$/, "").replace(/\/$/, ""));
+    }
+    if (opts?.append) {
+      setHistoryEntries((prev) => {
+        const seen = new Set(prev.map((e) => e.sha));
+        return [...prev, ...entries.filter((e: { sha: string }) => e.sha && !seen.has(e.sha))];
+      });
+    } else {
+      setHistoryEntries(entries);
+    }
+    setHistoryHasMore(!!data.hasMore);
+    setHistoryCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
+  }, [buildPageYamlPath, currentSection, index]);
 
   const { data: bindingData, refetch: refetchBindingData } = useQuery<{ group: { id: string; members: unknown[] } | null }>({
     queryKey: ["/api/bindings/section", contentType, slug, index, locale],
@@ -950,6 +1065,80 @@ export function EditableSection({ children, section, index, sectionType, content
     setWasLocallyUpdated(true);
   };
 
+  /** Same path as SectionEditorPanel save: edit-sections → validate → write → auto-commit / on-save validators. */
+  const handleHistoryRestore = async () => {
+    if (!historyPreviewRawSection || !contentType || !slug || !locale) return;
+    setHistoryRestoring(true);
+    try {
+      if (pageHistory && allSections) {
+        pageHistory.pushSnapshot(allSections, `Antes de restaurar sección ${index + 1}`);
+      }
+      const urlParams = new URLSearchParams(window.location.search);
+      const forceVariant = urlParams.get("force_variant");
+      const urlVariant = urlParams.get("variant");
+      const effectiveVariant = forceVariant ?? urlVariant ?? variant;
+      const writeSharedTemplateVariant = !!(isSharedTemplate && effectiveVariant);
+      const result = await editContent({
+        contentType,
+        slug,
+        locale,
+        variant: effectiveVariant || undefined,
+        version: writeSharedTemplateVariant ? undefined : version,
+        ...(writeSharedTemplateVariant ? { layoutTarget: "type_template" } : {}),
+        operations: [
+          {
+            action: "update_section",
+            index,
+            section: historyPreviewRawSection as Record<string, unknown>,
+          },
+        ],
+      });
+      if (!result.success) {
+        toast({
+          title: "Restore failed",
+          description: result.error || "Could not restore this section.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const confirmed = result.updatedSections?.[index] as Section | undefined;
+      handleUpdate(
+        mergeSavedSectionForLivePreview(
+          currentSection as Record<string, unknown>,
+          (confirmed ?? historyPreviewRawSection) as Record<string, unknown>,
+        ) as Section,
+      );
+      emitContentUpdated({ contentType, slug, locale });
+      setHistoryOpen(false);
+      setHistoryPreviewSha(null);
+      setHistoryPreviewSection(null);
+      setHistoryPreviewRawSection(null);
+      setHistoryPreviewDate(null);
+      setHistoryPreviewAuthor(null);
+      setHistoryCauseOpenSha(null);
+      if (result.warning) {
+        toast({
+          title: "Section restored with warning",
+          description: result.warning,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Section restored",
+          description: "Historical version saved (same path as a normal section save).",
+        });
+      }
+    } catch (err) {
+      toast({
+        title: "Restore failed",
+        description: err instanceof Error ? err.message : "Network error",
+        variant: "destructive",
+      });
+    } finally {
+      setHistoryRestoring(false);
+    }
+  };
+
   const sectionWorkLabel = normalizeWorkLabel(
     ((currentSection as Section & { _label?: Record<string, unknown> })._label ??
       {}) as {
@@ -1095,7 +1284,7 @@ export function EditableSection({ children, section, index, sectionType, content
         >
           {isBound ? (
             <>
-              <Link className="h-4 w-4" />
+              <LinkIcon className="h-4 w-4" />
               <span className="text-xs font-medium">{boundSiblingCount}</span>
             </>
           ) : (
@@ -1312,7 +1501,7 @@ export function EditableSection({ children, section, index, sectionType, content
                 }`}
                 data-testid={`button-binding-indicator-mobile-${index}`}
               >
-                {isBound ? <Link className="h-4 w-4" /> : <Unlink className="h-4 w-4" />}
+                {isBound ? <LinkIcon className="h-4 w-4" /> : <Unlink className="h-4 w-4" />}
                 {isBound ? `Bindings (${boundSiblingCount})` : "Bindings"}
               </button>
               )}
@@ -1352,12 +1541,12 @@ export function EditableSection({ children, section, index, sectionType, content
                     setHistoryOpen(true);
                     if (historyEntries.length === 0) {
                       setHistoryLoading(true);
-                      const contentDir = contentTypesMap ? getFolderFromType(contentTypesMap, contentType) : contentType;
-                      const filePath = `4geeks-com/${contentDir}/${slug}/${locale}.yml`;
-                      fetch(`/api/git/file-history?file=${encodeURIComponent(filePath)}&limit=20`)
-                        .then(r => r.json())
-                        .then(data => { setHistoryEntries(data.entries || []); })
-                        .catch(() => { setHistoryEntries([]); })
+                      loadSectionHistory()
+                        .catch(() => {
+                          setHistoryEntries([]);
+                          setHistoryHasMore(false);
+                          setHistoryCursor(null);
+                        })
                         .finally(() => setHistoryLoading(false));
                     }
                   }}
@@ -1373,22 +1562,28 @@ export function EditableSection({ children, section, index, sectionType, content
         </Popover>
         {contentType && slug && locale && (
           <Popover open={historyOpen} onOpenChange={(open) => {
+            // Keep Time Machine open while the section diff Dialog has focus.
+            // Nested cause popover is handled via onInteractOutside / onFocusOutside below.
+            if (!open && historyDiffTarget) return;
             setHistoryOpen(open);
             if (open && historyEntries.length === 0) {
               setHistoryLoading(true);
-              const contentDir = contentTypesMap ? getFolderFromType(contentTypesMap, contentType) : contentType;
-              const filePath = `4geeks-com/${contentDir}/${slug}/${locale}.yml`;
-              fetch(`/api/git/file-history?file=${encodeURIComponent(filePath)}&limit=20`)
-                .then(r => r.json())
-                .then(data => { setHistoryEntries(data.entries || []); })
-                .catch(() => { setHistoryEntries([]); })
+              loadSectionHistory()
+                .catch(() => {
+                  setHistoryEntries([]);
+                  setHistoryHasMore(false);
+                  setHistoryCursor(null);
+                })
                 .finally(() => setHistoryLoading(false));
             }
             if (!open) {
               setHistoryPreviewSha(null);
               setHistoryPreviewSection(null);
+              setHistoryPreviewRawSection(null);
               setHistoryPreviewDate(null);
               setHistoryPreviewAuthor(null);
+              setHistoryCauseOpenSha(null);
+              setHistoryListCollapsed(false);
             }
           }}>
             <PopoverTrigger asChild>
@@ -1400,23 +1595,50 @@ export function EditableSection({ children, section, index, sectionType, content
                 <Clock3 className="h-4 w-4" />
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-[min(500px,calc(100vw-1rem))] p-2" onClick={(e) => e.stopPropagation()}>
+            <PopoverContent
+              className="w-[min(500px,calc(100vw-1rem))] p-2"
+              onClick={(e) => e.stopPropagation()}
+              onInteractOutside={(e) => {
+                if (isHistoryCausePopoverTarget(e.target) || historyDiffTarget) e.preventDefault();
+              }}
+              onFocusOutside={(e) => {
+                if (isHistoryCausePopoverTarget(e.target) || historyDiffTarget) e.preventDefault();
+              }}
+              onPointerDownOutside={(e) => {
+                if (isHistoryCausePopoverTarget(e.target) || historyDiffTarget) e.preventDefault();
+              }}
+            >
               {historyLoading ? (
                 <div className="flex items-center justify-center py-3 px-4">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
                   <span className="text-xs text-muted-foreground">Loading history...</span>
                 </div>
-              ) : historyEntries.length === 0 ? (
-                <p className="text-xs text-muted-foreground px-2 py-2">No git history found for this file.</p>
               ) : (
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between px-2 pb-1 border-b">
-                    <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                      <History className="h-3.5 w-3.5" />
-                      File history — select a version to preview
+                  <div className="flex items-center justify-between px-2 pb-1 border-b gap-2">
+                    <span className="text-xs font-medium text-muted-foreground flex items-center gap-1 min-w-0">
+                      <button
+                        type="button"
+                        className="inline-flex shrink-0 rounded-sm p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setHistoryListCollapsed((c) => !c);
+                        }}
+                        aria-expanded={!historyListCollapsed}
+                        aria-label={historyListCollapsed ? "Expand history list" : "Collapse history list"}
+                        data-testid={`button-history-collapse-${index}`}
+                        title={historyListCollapsed ? "Expand list" : "Collapse list"}
+                      >
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 transition-transform ${historyListCollapsed ? "-rotate-90" : ""}`}
+                        />
+                      </button>
+                      <History className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">Versions where this section changed</span>
                     </span>
                     {historyPreviewSha && (
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 shrink-0">
                         <Button
                           size="sm"
                           variant="outline"
@@ -1424,6 +1646,7 @@ export function EditableSection({ children, section, index, sectionType, content
                           onClick={() => {
                             setHistoryPreviewSha(null);
                             setHistoryPreviewSection(null);
+                            setHistoryPreviewRawSection(null);
                             setHistoryPreviewDate(null);
                             setHistoryPreviewAuthor(null);
                           }}
@@ -1436,76 +1659,300 @@ export function EditableSection({ children, section, index, sectionType, content
                           size="sm"
                           className="h-6 px-2 text-xs"
                           onClick={() => {
-                            if (historyPreviewSection) {
-                              handleUpdate(historyPreviewSection);
-                              setHistoryOpen(false);
-                              setHistoryPreviewSha(null);
-                              setHistoryPreviewSection(null);
-                            }
+                            void handleHistoryRestore();
                           }}
-                          disabled={!historyPreviewSection}
+                          disabled={!historyPreviewRawSection || historyRestoring}
                           data-testid={`button-history-restore-${index}`}
                         >
-                          <Check className="h-3 w-3 mr-1" />
+                          {historyRestoring ? (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          ) : (
+                            <Check className="h-3 w-3 mr-1" />
+                          )}
                           Restore
                         </Button>
                       </div>
                     )}
                   </div>
-                  <div className="max-h-[260px] overflow-y-auto space-y-0.5">
-                    {historyEntries.map((entry) => {
+                  {!historyListCollapsed && (
+                    <>
+                  {historyEntries.length === 0 ? (
+                    <p className="text-xs text-muted-foreground px-2 py-2">
+                      No recent changes for this section
+                    </p>
+                  ) : (
+                    <div className="max-h-[260px] overflow-y-auto space-y-0.5">
+                      {historyEntries.map((entry) => {
                       const isSelected = entry.sha === historyPreviewSha;
                       const isLoading = historyPreviewLoading && isSelected;
                       const d = new Date(entry.date);
                       const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
                       const timeStr = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
-                      const displayAuthor = parseAutoSyncAuthor(entry.subject) ?? entry.author;
-                      return (
-                        <button
-                          key={entry.sha}
-                          className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-start gap-2 hover-elevate ${isSelected ? 'bg-primary/10 ring-1 ring-primary/30' : ''}`}
-                          onClick={async () => {
-                            if (isSelected) return;
-                            setHistoryPreviewSha(entry.sha);
-                            setHistoryPreviewDate(entry.date);
-                            setHistoryPreviewAuthor(displayAuthor);
+                      const { label: displayAuthor, agentId } = resolveHistoryAuthorDisplay(entry);
+                      const commitHref = historyRepoUrl
+                        ? `${historyRepoUrl}/commit/${entry.sha}`
+                        : null;
+                      const eventAttach = entry.event;
+                      const eventCause =
+                        typeof eventAttach?.cause === "string" && eventAttach.cause.trim()
+                          ? eventAttach.cause.trim()
+                          : null;
+                      const showEventInfo = !!eventAttach?.id;
+                      const eventLogHref =
+                        eventAttach?.id != null && typeof eventAttach.created_at === "number"
+                          ? buildEntryActivityEventFocusHref(eventAttach.id, eventAttach.created_at)
+                          : null;
+                      const selectHistoryEntry = async () => {
+                        if (isSelected) return;
+                        setHistoryCauseOpenSha(null);
+                        setHistoryPreviewSha(entry.sha);
+                        setHistoryPreviewDate(entry.date);
+                        setHistoryPreviewAuthor(displayAuthor);
+                        setHistoryPreviewSection(null);
+                        setHistoryPreviewRawSection(null);
+                        setHistoryPreviewLoading(true);
+                        try {
+                          const filePath = buildPageYamlPath();
+                          if (!filePath) throw new Error("missing path");
+                          const res = await fetch(`/api/git/file-at?file=${encodeURIComponent(filePath)}&sha=${entry.sha}`);
+                          if (!res.ok) throw new Error("not found");
+                          const text = await res.text();
+                          const { escaped, map } = escapeTemplateVars(text);
+                          const rawParsed = yaml.load(escaped);
+                          const parsed = (rawParsed
+                            ? unescapeObjectVars(rawParsed, map)
+                            : rawParsed) as Record<string, unknown> | null;
+                          const sections = (parsed?.sections as unknown[]) || [];
+                          const sid = canonicalSectionId(currentSection as Record<string, unknown>);
+                          let historicalSection: Section | undefined;
+                          if (sid) {
+                            historicalSection = sections.find(
+                              (s) => s && typeof s === "object" && sectionMatchesId(s as Record<string, unknown>, sid),
+                            ) as Section | undefined;
+                          } else if (index >= 0 && index < sections.length) {
+                            // Legacy sections without section_id: index only.
+                            historicalSection = sections[index] as Section | undefined;
+                          }
+                          if (!historicalSection) {
+                            setHistoryPreviewRawSection(null);
                             setHistoryPreviewSection(null);
-                            setHistoryPreviewLoading(true);
-                            try {
-                              const contentDir = contentTypesMap ? getFolderFromType(contentTypesMap, contentType) : contentType;
-                              const filePath = `4geeks-com/${contentDir}/${slug}/${locale}.yml`;
-                              const res = await fetch(`/api/git/file-at?file=${encodeURIComponent(filePath)}&sha=${entry.sha}`);
-                              if (!res.ok) throw new Error("not found");
-                              const text = await res.text();
-                              const parsed = yaml.load(text) as Record<string, unknown>;
-                              const sections = (parsed?.sections as unknown[]) || [];
-                              const historicalSection = sections[index] as Section | undefined;
-                              if (historicalSection) {
-                                setHistoryPreviewSection(historicalSection);
-                              } else {
-                                setHistoryPreviewSection(null);
+                            return;
+                          }
+                          setHistoryPreviewRawSection(historicalSection);
+
+                          const de = (historicalSection as { dynamic_entries?: { database?: string; content_type?: string } })
+                            .dynamic_entries;
+                          const needsDb = !!(de && (de.database || de.content_type));
+                          let sectionForPreview: Section = historicalSection;
+                          if (needsDb) {
+                            const headers: Record<string, string> = {
+                              "Content-Type": "application/json",
+                            };
+                            const token = getDebugToken();
+                            if (token) headers.Authorization = `Token ${token}`;
+                            const previewRes = await fetch("/api/listings/section-preview", {
+                              method: "POST",
+                              headers,
+                              body: JSON.stringify({
+                                section: historicalSection,
+                                locale: locale || "en",
+                                singleEntry,
+                              }),
+                            });
+                            if (previewRes.ok) {
+                              const previewData = (await previewRes.json()) as { section?: Section };
+                              if (previewData.section && typeof previewData.section === "object") {
+                                sectionForPreview = previewData.section;
                               }
-                            } catch {
-                              setHistoryPreviewSection(null);
-                            } finally {
-                              setHistoryPreviewLoading(false);
                             }
-                          }}
-                          data-testid={`button-history-entry-${entry.sha.slice(0, 7)}-${index}`}
+                          }
+
+                          setHistoryPreviewSection(
+                            prepareSectionForVariableHighlights(
+                              sectionForPreview,
+                              varDefinitions,
+                              historyVarContext,
+                              {
+                                singleEntry,
+                                variableFieldsSource: historicalSection as Record<string, unknown>,
+                              },
+                            ) as Section,
+                          );
+                        } catch {
+                          setHistoryPreviewSection(null);
+                          setHistoryPreviewRawSection(null);
+                        } finally {
+                          setHistoryPreviewLoading(false);
+                        }
+                      };
+                      return (
+                        <div
+                          key={entry.sha}
+                          className={`w-full rounded text-xs flex items-stretch gap-0 ${isSelected ? 'bg-primary/10 ring-1 ring-primary/30' : ''}`}
                         >
-                          {isLoading ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0 mt-0.5" />
-                          ) : (
-                            <code className="text-[10px] text-muted-foreground shrink-0 mt-0.5">{entry.sha.slice(0, 7)}</code>
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate font-medium text-foreground">{entry.subject}</div>
-                            <div className="text-muted-foreground">{dateStr} {timeStr} · {displayAuthor}</div>
+                          <div className="min-w-0 flex-1 flex items-start gap-2 px-2 py-1.5">
+                            {isLoading ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0 mt-0.5" />
+                            ) : commitHref ? (
+                              <a
+                                href={commitHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] font-mono text-primary hover:underline shrink-0 mt-0.5"
+                                onClick={(e) => e.stopPropagation()}
+                                data-testid={`link-history-commit-${entry.sha.slice(0, 7)}-${index}`}
+                                title="Open commit on GitHub"
+                              >
+                                {entry.sha.slice(0, 7)}
+                              </a>
+                            ) : (
+                              <code className="text-[10px] text-muted-foreground shrink-0 mt-0.5">{entry.sha.slice(0, 7)}</code>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <button
+                                type="button"
+                                className="w-full text-left hover-elevate rounded-sm px-1 py-0.4 -mx-0.5"
+                                onClick={selectHistoryEntry}
+                                data-testid={`button-history-entry-${entry.sha.slice(0, 7)}-${index}`}
+                              >
+                                <div className="truncate font-medium text-foreground leading-snug">
+                                  {entry.subject}
+                                </div>
+                              </button>
+                              <div className="text-muted-foreground flex items-center gap-1 min-w-0 px-1 pb-0.5">
+                                <span className="shrink-0">{dateStr} {timeStr} ·</span>
+                                {agentId ? (
+                                  <AgentIcon agentId={agentId} size="sm" className="shrink-0" />
+                                ) : null}
+                                <span className="truncate">{displayAuthor}</span>
+                                {showEventInfo ? (
+                                  <Popover
+                                    open={historyCauseOpenSha === entry.sha}
+                                    onOpenChange={(open) => {
+                                      setHistoryCauseOpenSha(open ? entry.sha : null);
+                                    }}
+                                  >
+                                    <PopoverTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="inline-flex shrink-0 rounded-sm p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                                        onClick={(e) => e.stopPropagation()}
+                                        aria-label="Cause of this change"
+                                        data-testid={`button-history-cause-${entry.sha.slice(0, 7)}-${index}`}
+                                      >
+                                        <Info className="h-3.5 w-3.5" />
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent
+                                      side="bottom"
+                                      align="start"
+                                      className="w-64 p-3 space-y-2 z-[10001] pointer-events-auto"
+                                      data-history-cause-popover=""
+                                      onClick={(e) => e.stopPropagation()}
+                                      onOpenAutoFocus={(e) => e.preventDefault()}
+                                      onCloseAutoFocus={(e) => e.preventDefault()}
+                                    >
+                                      <div className="space-y-1">
+                                        <p className="text-[11px] font-medium text-foreground">
+                                          Cause of this change
+                                        </p>
+                                        <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                                          {eventCause ?? "No cause was recorded for this save."}
+                                        </p>
+                                      </div>
+                                      {eventLogHref ? (
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-7 w-full text-xs"
+                                          asChild
+                                        >
+                                          <Link
+                                            href={eventLogHref}
+                                            data-testid={`link-history-event-log-${entry.sha.slice(0, 7)}-${index}`}
+                                          >
+                                            View event log
+                                          </Link>
+                                        </Button>
+                                      ) : null}
+                                    </PopoverContent>
+                                  </Popover>
+                                ) : null}
+                              </div>
+                            </div>
                           </div>
-                        </button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className="shrink-0 self-stretch w-14 px-1 border-l border-border/60 flex flex-col items-center justify-center gap-0.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-r"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const filePath = buildPageYamlPath();
+                                  if (!filePath) return;
+                                  setHistoryDiffTarget({
+                                    filePath,
+                                    headSha: entry.sha,
+                                    parentSha: entry.parentSha ?? null,
+                                    sectionId: canonicalSectionId(currentSection as Record<string, unknown>),
+                                    sectionIndex: index,
+                                    subject: entry.subject,
+                                  });
+                                }}
+                                data-testid={`button-history-diff-${entry.sha.slice(0, 7)}-${index}`}
+                                aria-label="View section diff"
+                              >
+                                <FileDiff className="h-3.5 w-3.5" />
+                                {(typeof entry.additions === "number" || typeof entry.deletions === "number") && (
+                                  <span className="flex items-center gap-0.5 font-mono text-[11px] leading-none tabular-nums">
+                                    <span className="text-emerald-600 dark:text-emerald-400">
+                                      +{entry.additions ?? 0}
+                                    </span>
+                                    <span className="text-destructive">
+                                      −{entry.deletions ?? 0}
+                                    </span>
+                                  </span>
+                                )}
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="left"><p>View section diff</p></TooltipContent>
+                          </Tooltip>
+                        </div>
                       );
                     })}
-                  </div>
+                    </div>
+                  )}
+                  {historyHasMore && (
+                    <div className="px-2 pt-1 border-t">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="w-full h-7 text-xs"
+                        disabled={historyLoadingMore}
+                        onClick={() => {
+                          if (!historyCursor || historyLoadingMore) return;
+                          setHistoryLoadingMore(true);
+                          loadSectionHistory({ cursor: historyCursor, append: true })
+                            .catch(() => {})
+                            .finally(() => setHistoryLoadingMore(false));
+                        }}
+                        data-testid={`button-history-load-more-${index}`}
+                      >
+                        {historyLoadingMore ? (
+                          <>
+                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            Loading…
+                          </>
+                        ) : (
+                          "Load more"
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                    </>
+                  )}
                 </div>
               )}
             </PopoverContent>
@@ -1929,7 +2376,25 @@ export function EditableSection({ children, section, index, sectionType, content
             </div>
             <div className="pt-8 relative">
               {historyPreviewSection ? (
-                renderSection(historyPreviewSection, index)
+                <SectionContextProvider
+                  value={{
+                    isPriority: true,
+                    sectionIndex: index,
+                    contentType: contentType || "",
+                    slug: slug || "",
+                    locale: locale || "en",
+                    imageSizes: {},
+                  }}
+                >
+                  <VariableHighlightProvider
+                    sectionIndex={index}
+                    contentType={contentType}
+                    hasSingleVars={!!singleEntry}
+                    singleEntry={singleEntry}
+                  >
+                    {renderSection(historyPreviewSection, index)}
+                  </VariableHighlightProvider>
+                </SectionContextProvider>
               ) : historyPreviewLoading ? (
                 <>
                   {renderedContent}
@@ -2000,6 +2465,13 @@ export function EditableSection({ children, section, index, sectionType, content
         </Suspense>
       )}
       
+      <SectionHistoryDiffModal
+        target={historyDiffTarget}
+        onOpenChange={(open) => {
+          if (!open) setHistoryDiffTarget(null);
+        }}
+      />
+
       {/* YAML Source Modal */}
       <Dialog open={showYamlModal} onOpenChange={setShowYamlModal}>
         <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
