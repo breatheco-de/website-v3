@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext, createElement, type ReactNode } from "react";
 import { setAuthToken } from "@/lib/sessionHeaders";
-import { VIEW_ONLY_CAPABILITIES, SCOPED_CAPABILITIES, type CapabilityName } from "@shared/capabilities";
+import { VIEW_ONLY_CAPABILITIES, getCapabilityScopeKind, type CapabilityName } from "@shared/capabilities";
 
 const DEBUG_SESSION_KEY = "debug_validated";
 const DEBUG_SESSION_EXPIRY_KEY = "debug_validated_expiry";
@@ -17,6 +17,7 @@ const DEBUG_STAFF_ID_KEY = "debug_staff_id";
 export interface CapabilityGrant {
   name: string;
   contentTypes?: string[] | "*";
+  databases?: string[] | "*";
 }
 
 const DEFAULT_CAPABILITIES: CapabilityGrant[] = [];
@@ -216,7 +217,7 @@ interface DebugAuthValue {
   isDebugMode: boolean;
   capabilities: CapabilityGrant[];
   roles: string[];
-  hasCapability: (capability: string, contentType?: string) => boolean;
+  hasCapability: (capability: string, scope?: string) => boolean;
   /** True if user can run metrics jobs / change tracking (not metrics_view-only). */
   canMutateMetrics: boolean;
   canEdit: boolean;
@@ -260,16 +261,22 @@ function clearStaffIdentity() {
 function grantHasCapability(
   capabilities: CapabilityGrant[],
   capabilityName: string,
-  contentType?: string
+  scope?: string
 ): boolean {
   const grant = capabilities.find((g) => g.name === capabilityName);
   if (!grant) return false;
-  const isScoped = (SCOPED_CAPABILITIES as readonly string[]).includes(capabilityName);
-  if (isScoped) {
-    // Match server grantAllowsCap: missing contentType only allows "*" grants.
-    if (!contentType) return grant.contentTypes === "*";
+  const kind = getCapabilityScopeKind(capabilityName);
+  if (kind === "content_types") {
+    // Match server grantAllowsCap: missing scope only allows "*" grants.
+    if (!scope) return grant.contentTypes === "*";
     if (grant.contentTypes === "*") return true;
-    if (Array.isArray(grant.contentTypes)) return grant.contentTypes.includes(contentType);
+    if (Array.isArray(grant.contentTypes)) return grant.contentTypes.includes(scope);
+    return false;
+  }
+  if (kind === "databases") {
+    if (!scope) return grant.databases === "*";
+    if (grant.databases === "*") return true;
+    if (Array.isArray(grant.databases)) return grant.databases.includes(scope);
     return false;
   }
   return true;
@@ -667,8 +674,8 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     setIsDebugMode(false);
   };
 
-  const hasCapability = (capability: string, contentType?: string): boolean => {
-    return grantHasCapability(capabilities, capability, contentType);
+  const hasCapability = (capability: string, scope?: string): boolean => {
+    return grantHasCapability(capabilities, capability, scope);
   };
 
   const canEdit = grantHasCapability(capabilities, "content_edit_text") ||

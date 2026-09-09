@@ -302,6 +302,28 @@ export function serializeAgentFilter(agent: AgentFilterId): string {
   return agent === AGENT_FILTER_OTHER ? "other" : agent;
 }
 
+/**
+ * URL / API sentinel for rows whose primary attribution has missing/empty `author`.
+ * Orthogonal to Actor / Agent filters.
+ */
+export const AUTHOR_FILTER_NONE = "none";
+
+/**
+ * Parse author filter from query.
+ * Empty → null. `none` → AUTHOR_FILTER_NONE. Otherwise trimmed exact string (any value).
+ */
+export function parseAuthorFilter(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null;
+  const v = raw.trim();
+  if (v === AUTHOR_FILTER_NONE) return AUTHOR_FILTER_NONE;
+  return v;
+}
+
+/** Serialize author filter for URL (identity; sentinel already `none`). */
+export function serializeAuthorFilter(author: string): string {
+  return author;
+}
+
 /** Human label for agent filter dropdowns. */
 export function formatAgentLabel(agentId: AgentFilterId): string {
   if (agentId === AGENT_FILTER_OTHER) return "Staff & system";

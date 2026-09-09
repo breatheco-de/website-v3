@@ -1,10 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs";
 import path from "path";
 import { clearSiteSqliteCacheForTests } from "../db";
 import { ensurePipelineDb, resetPipelineDbCache } from "../pipeline-db/runner";
 import { fingerprintEdits, fingerprintNotes } from "./fingerprint";
-import { createProposalService, type ProposalEntryInput } from "./service";
+import {
+  createProposalService,
+  listOpenProposalsForVariant,
+  PROPOSAL_CLAIM_TTL_MS,
+  type ProposalEntryInput,
+} from "./service";
 
 const SITE = `site_proposal-test-${Date.now()}`;
 
@@ -339,5 +344,320 @@ describe("content proposals", () => {
     expect(asc.proposals[1]!.created_at).toBeLessThanOrEqual(asc.proposals[2]!.created_at);
     const desc = svc.list({ kind: "edits", sort: "updated_at", sortDir: "desc", limit: 10 });
     expect(desc.proposals[0]!.updated_at).toBeGreaterThanOrEqual(desc.proposals[1]!.updated_at);
+  });
+
+  it("enforces one open proposal per variant", async () => {
+    const svc = makeService({
+      liveValues: { "call_to_action.title": "Old" },
+    });
+    const fps = new Map<string, string>([["agent-fix", "fp1"]]);
+    const svcFp = createProposalService({
+      site: SITE,
+      issueExists: () => true,
+      captureBaseline: (entry) => {
+        const values: Record<string, unknown> = {};
+        for (const u of entry.updates ?? []) values[u.field_path] = "Old";
+        return { values };
+      },
+      applyUpdates: async () => ({ ok: true }),
+      readVariantFingerprint: ({ variant }) => {
+        const fp = fps.get(variant);
+        if (!fp) return { fingerprint: "", error: "missing" };
+        return { fingerprint: fp };
+      },
+    });
+    const summary =
+      "Prepare a clearer CTA on the agent-fix draft for this Spanish blog post review. ".repeat(2);
+    const first = await svcFp.create(
+      {
+        title: "Draft CTA",
+        summary,
+        entries: [
+          sampleEntry({
+            variant: "agent-fix",
+            updates: [{ field_path: "call_to_action.title", value: "New" }],
+          }),
+        ],
+      },
+      { username: "alice" },
+    );
+    expect(first.ok).toBe(true);
+    const second = await svcFp.create(
+      {
+        title: "Draft CTA 2",
+        summary: summary + "x",
+        confirm_distinct: true,
+        entries: [
+          sampleEntry({
+            variant: "agent-fix",
+            updates: [{ field_path: "call_to_action.title", value: "Other" }],
+          }),
+        ],
+      },
+      { username: "bob" },
+    );
+    expect(second.ok).toBe(false);
+    if (!second.ok) {
+      expect(second.code).toBe("proposal_exists");
+      expect(second.existing_proposal?.id).toBe(first.ok ? first.proposal.id : "");
+    }
+  });
+
+  it("allows draft_backed empty ops and blocks apply while blockers open; reject ignores blockers", async () => {
+    const svc = createProposalService({
+      site: SITE,
+      issueExists: () => true,
+      captureBaseline: () => ({ values: {} }),
+      applyUpdates: async () => ({ ok: true }),
+      readVariantFingerprint: () => ({ fingerprint: "abc123" }),
+      promoteEntry: async () => ({ ok: true }),
+    });
+    const summary =
+      "Ship the prepared agent-fix draft for the Spanish blog after review and four-eyes approve. ".repeat(2);
+    const created = await svc.create(
+      {
+        title: "Go live",
+        summary,
+        promote_on_apply: true,
+        agent_session_id: "sess-1",
+        entries: [{ contentType: "blog", slug: "hello", locale: "es", variant: "agent-fix", updates: [] }],
+      },
+      { username: "alice" },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.proposal.review_mode).toBe("draft_backed");
+    expect(created.proposal.entries[0]?.ops).toEqual([]);
+
+    const short = await svc.update(created.proposal.id, "add_blocker", {
+      username: "blake",
+      body: "too short",
+    });
+    expect(short.ok).toBe(false);
+
+    const body =
+      "On draft agent-fix (es), hero CTA still goes to Coding Bootcamp. Must use AI Flex because leads go to the wrong funnel.";
+    const blocked = await svc.update(created.proposal.id, "add_blocker", {
+      username: "blake",
+      body,
+    });
+    expect(blocked.ok).toBe(true);
+    if (!blocked.ok) return;
+    expect(blocked.proposal.open_blocker_count).toBe(1);
+
+    const applyBlocked = await svc.update(created.proposal.id, "apply", { username: "casey" });
+    expect(applyBlocked.ok).toBe(false);
+    if (!applyBlocked.ok) expect(applyBlocked.code).toBe("proposal_blocked");
+
+    const rejected = await svc.update(created.proposal.id, "reject", { username: "casey" });
+    expect(rejected.ok).toBe(true);
+  });
+
+  it("claimant-only resolve; expired claim hints claim first; soft apply into variant", async () => {
+    const live: Record<string, unknown> = { "call_to_action.title": "Old" };
+    const fps = new Map([["agent-fix", "fp-stable"]]);
+    const svc = createProposalService({
+      site: SITE,
+      issueExists: () => true,
+      captureBaseline: (entry) => {
+        const values: Record<string, unknown> = {};
+        for (const u of entry.updates ?? []) values[u.field_path] = live[u.field_path];
+        return { values };
+      },
+      applyUpdates: async (entry) => {
+        for (const u of entry.ops) live[u.field_path] = u.value;
+        return { ok: true };
+      },
+      readVariantFingerprint: ({ variant }) => ({ fingerprint: fps.get(variant) ?? "" }),
+    });
+    const summary =
+      "Patch the CTA title on the agent-fix draft for this Spanish blog before go-live. ".repeat(2);
+    const created = await svc.create(
+      {
+        title: "Soft draft",
+        summary,
+        agent_session_id: "sess-a",
+        entries: [
+          sampleEntry({
+            variant: "agent-fix",
+            updates: [{ field_path: "call_to_action.title", value: "New" }],
+          }),
+        ],
+      },
+      { username: "alice" },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.proposal.review_mode).toBe("soft_variant");
+
+    const body =
+      "On draft agent-fix, CTA title is too vague. Must say Enroll now for AI Flex because conversion copy must match the product.";
+    await svc.update(created.proposal.id, "add_blocker", { username: "blake", body });
+
+    const resolveNoClaim = await svc.update(created.proposal.id, "resolve_blocker", {
+      username: "alice",
+      blocker_id: created.proposal.blockers[0]?.id ?? 1,
+      resolve_note: "Updated CTA title to Enroll now for AI Flex on the draft.",
+    });
+    // blocker id from refreshed proposal
+    const afterBlock = svc.get(created.proposal.id)!;
+    const bid = afterBlock.blockers[0]!.id;
+    const stillNo = await svc.update(created.proposal.id, "resolve_blocker", {
+      username: "alice",
+      blocker_id: bid,
+      resolve_note: "Updated CTA title to Enroll now for AI Flex on the draft.",
+    });
+    expect(stillNo.ok).toBe(false);
+    if (!stillNo.ok) expect(stillNo.code).toBe("not_claimant");
+
+    await svc.update(created.proposal.id, "claim", { username: "alice" });
+    const resolved = await svc.update(created.proposal.id, "resolve_blocker", {
+      username: "alice",
+      blocker_id: bid,
+      resolve_note: "Updated CTA title to Enroll now for AI Flex on the draft.",
+    });
+    expect(resolved.ok).toBe(true);
+    if (resolved.ok) {
+      expect(resolved.warnings?.some((w) => w.code === "blockers_cleared_repreview")).toBe(true);
+    }
+
+    const applied = await svc.update(created.proposal.id, "apply", { username: "bob" });
+    expect(applied.ok).toBe(true);
+    if (applied.ok) {
+      expect(applied.proposal.status).toBe("finished");
+      expect(live["call_to_action.title"]).toBe("New");
+    }
+    void resolveNoClaim;
+  });
+
+  it("expired claim cannot resolve until reclaim; withdraw ignores open blockers", async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    try {
+      const svc = createProposalService({
+        site: SITE,
+        issueExists: () => true,
+        captureBaseline: () => ({ values: {} }),
+        applyUpdates: async () => ({ ok: true }),
+        readVariantFingerprint: () => ({ fingerprint: "fp" }),
+      });
+      const summary =
+        "Soft suggestion on agent-fix draft for Spanish blog CTA copy review after feedback. ".repeat(2);
+      const created = await svc.create(
+        {
+          title: "Expire claim",
+          summary,
+          entries: [
+            sampleEntry({
+              variant: "agent-fix",
+              updates: [{ field_path: "call_to_action.title", value: "New" }],
+            }),
+          ],
+        },
+        { username: "alice" },
+      );
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      const body =
+        "On draft agent-fix, CTA title is too vague. Must say Enroll now for AI Flex because conversion copy must match the product.";
+      await svc.update(created.proposal.id, "add_blocker", { username: "blake", body });
+      await svc.update(created.proposal.id, "claim", { username: "alice" });
+      const bid = svc.get(created.proposal.id)!.blockers[0]!.id;
+
+      vi.setSystemTime(now + PROPOSAL_CLAIM_TTL_MS + 1000);
+      const expired = await svc.update(created.proposal.id, "resolve_blocker", {
+        username: "alice",
+        blocker_id: bid,
+        resolve_note: "Updated CTA title to Enroll now for AI Flex on the draft.",
+      });
+      expect(expired.ok).toBe(false);
+      if (!expired.ok) {
+        expect(expired.code).toBe("not_claimant");
+        expect(expired.claim_expired).toBe(true);
+      }
+
+      const withdrawn = await svc.update(created.proposal.id, "withdraw", { username: "alice" });
+      expect(withdrawn.ok).toBe(true);
+      if (withdrawn.ok) expect(withdrawn.proposal.status).toBe("withdrawn");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("listOpenProposalsForVariant returns open proposals referencing a draft", async () => {
+    const svc = createProposalService({
+      site: SITE,
+      issueExists: () => true,
+      captureBaseline: () => ({ values: {} }),
+      applyUpdates: async () => ({ ok: true }),
+      readVariantFingerprint: () => ({ fingerprint: "fp" }),
+    });
+    const summary =
+      "List helper finds open proposals that still reference agent-fix for delete warnings. ".repeat(2);
+    const created = await svc.create(
+      {
+        title: "Open on variant",
+        summary,
+        entries: [
+          sampleEntry({
+            variant: "agent-fix",
+            updates: [{ field_path: "call_to_action.title", value: "New" }],
+          }),
+        ],
+      },
+      { username: "alice" },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const listed = listOpenProposalsForVariant(SITE, "blog", "hello", "es", "agent-fix");
+    expect(listed.some((p) => p.id === created.proposal.id)).toBe(true);
+    expect(listOpenProposalsForVariant(SITE, "blog", "hello", "es", "other").length).toBe(0);
+  });
+
+  it("promote apply requires confirm_end_experiment when siblings have traffic", async () => {
+    const svc = createProposalService({
+      site: SITE,
+      issueExists: () => true,
+      captureBaseline: () => ({ values: {} }),
+      applyUpdates: async () => ({ ok: true }),
+      readVariantFingerprint: () => ({ fingerprint: "fp" }),
+      promoteEntry: async (_e, _a, opts) => {
+        if (!opts.confirm_end_experiment) {
+          return {
+            ok: false,
+            code: "confirm_end_experiment",
+            error: "need confirm",
+            traffic_siblings: [{ slug: "hero-b", locale: "es", allocation: 30 }],
+          };
+        }
+        return { ok: true };
+      },
+    });
+    const summary =
+      "Promote agent-fix over live and end the hero-b experiment after four-eyes review. ".repeat(2);
+    const created = await svc.create(
+      {
+        title: "Promote",
+        summary,
+        promote_on_apply: true,
+        entries: [{ contentType: "blog", slug: "hello", locale: "es", variant: "agent-fix" }],
+      },
+      { username: "alice" },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const need = await svc.update(created.proposal.id, "apply", { username: "bob" });
+    expect(need.ok).toBe(false);
+    if (!need.ok) {
+      expect(need.code).toBe("confirm_end_experiment");
+      expect(need.traffic_siblings?.[0]?.slug).toBe("hero-b");
+    }
+    const done = await svc.update(created.proposal.id, "apply", {
+      username: "bob",
+      confirm_end_experiment: true,
+    });
+    expect(done.ok).toBe(true);
+    if (done.ok) expect(done.proposal.status).toBe("finished");
   });
 });

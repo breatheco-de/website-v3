@@ -1,5 +1,8 @@
 /**
- * MCP tools for private database item read + local YAML CRUD (FAQ bank and others).
+ * MCP tools for private database definition + item read/CRUD (FAQ bank and others).
+ *
+ * Caps: databases_manage = create/patch config + reindex (not row writes).
+ *       databases_edit_data = row read (any bank) + write (scoped slug).
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -7,6 +10,7 @@ import { z } from "zod";
 import { checkCap, denyResponse } from "../lib/auth.js";
 import { ok, fail, actionRequired, type McpWarning, type NextAction } from "../lib/respond.js";
 import { loadContentTypes, resolveSiteContext } from "../lib/content.js";
+import { planDatabaseConfigPatch } from "../lib/database-config-patch.js";
 import { getTokenUsername } from "../lib/oauth.js";
 import {
   FAQ_DB_NAME,
@@ -58,18 +62,39 @@ function siteQueryJoin(domain: string | null, extra: string): string {
   return extra ? `?${extra}` : "";
 }
 
-async function requireItemCap(mcpToken?: string) {
+/** Reads: databases_edit_data (any scope) OR databases_manage. */
+async function requireReadCap(mcpToken?: string) {
   if (!mcpToken) return null;
   const allowed =
-    (await checkCap(mcpToken, "databases_manage")) ||
-    (await checkCap(mcpToken, "content_edit_text"));
+    (await checkCap(mcpToken, "databases_edit_data")) ||
+    (await checkCap(mcpToken, "databases_manage"));
   if (!allowed) {
-    return denyResponse("databases_manage|content_edit_text");
+    return denyResponse("databases_edit_data|databases_manage");
   }
   return null;
 }
 
-async function requireReindexCap(mcpToken?: string) {
+/** Writes: databases_edit_data for this database slug (not databases_manage). */
+async function requireWriteCap(mcpToken: string | undefined, database: string) {
+  if (!mcpToken) return null;
+  if (!(await checkCap(mcpToken, "databases_edit_data", undefined, database))) {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({
+            error: "forbidden",
+            message: `Insufficient permissions: capability 'databases_edit_data' required for database '${database}'.`,
+          }),
+        },
+      ],
+      isError: true as const,
+    };
+  }
+  return null;
+}
+
+async function requireManageCap(mcpToken?: string) {
   if (!mcpToken) return null;
   if (!(await checkCap(mcpToken, "databases_manage"))) {
     return denyResponse("databases_manage");
@@ -91,12 +116,19 @@ async function fetchDbConfig(
   dbName: string,
   domain: string | null,
   mcpToken?: string,
-): Promise<{ ok: true; data: DbConfigResponse } | { ok: false; message: string }> {
+): Promise<
+  | { ok: true; data: DbConfigResponse }
+  | { ok: false; message: string; status?: number }
+> {
   const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}${siteQuery(domain)}`;
   const res = await fetch(url, { headers: internalHeaders(mcpToken) });
   const data = (await res.json()) as DbConfigResponse & { error?: string };
   if (!res.ok) {
-    return { ok: false, message: data.error || `Server error: ${res.status}` };
+    return {
+      ok: false,
+      message: data.error || `Server error: ${res.status}`,
+      status: res.status,
+    };
   }
   return { ok: true, data };
 }
@@ -330,7 +362,9 @@ const itemSchema = z.record(z.string(), z.unknown());
 export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
   mcp.tool(
     "list_databases",
-    "List private databases for a site. Includes source_type and whether item CRUD is allowed (local only). Call explain_site topic local_databases first if unsure.",
+    "List private databases for a site. Includes source_type and whether item CRUD is allowed (local only). " +
+      "Creating or patching bank settings uses create_or_update_database (databases_manage). " +
+      "Row CRUD uses item tools (databases_edit_data). Call explain_site topic local_databases first if unsure.",
     {
       site: z
         .string()
@@ -342,7 +376,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         .describe("If true, only return source.type=local databases (MCP CRUD targets)."),
     },
     async ({ site, local_only }) => {
-      const denied = await requireItemCap(mcpToken);
+      const denied = await requireReadCap(mcpToken);
       if (denied) return denied;
 
       const siteResult = resolveSiteContext(site);
@@ -391,7 +425,12 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
             warnings: [
               {
                 code: "local_crud_only",
-                message: "Item add/update/delete only works when local=true.",
+                message: "Item add/update/delete only works when local=true (needs databases_edit_data for that slug).",
+              },
+              {
+                code: "definition_vs_rows",
+                message:
+                  "Bank settings: create_or_update_database (databases_manage). Rows: add/update/delete_database_item (databases_edit_data).",
               },
             ],
             next_actions: [],
@@ -421,7 +460,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       site: z.string().optional(),
     },
     async ({ database, page, limit, locale, filter, refresh, site }) => {
-      const denied = await requireItemCap(mcpToken);
+      const denied = await requireReadCap(mcpToken);
       if (denied) return denied;
 
       const siteResult = resolveSiteContext(site);
@@ -492,7 +531,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       site: z.string().optional(),
     },
     async ({ database, index, refresh, site }) => {
-      const denied = await requireItemCap(mcpToken);
+      const denied = await requireReadCap(mcpToken);
       if (denied) return denied;
 
       const siteResult = resolveSiteContext(site);
@@ -553,7 +592,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       site: z.string().optional(),
     },
     async ({ database, item, reindex, site }) => {
-      const denied = await requireItemCap(mcpToken);
+      const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
       const siteResult = resolveSiteContext(site);
@@ -679,7 +718,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       site: z.string().optional(),
     },
     async ({ database, items, reindex, site }) => {
-      const denied = await requireItemCap(mcpToken);
+      const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
       const siteResult = resolveSiteContext(site);
@@ -837,7 +876,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       site: z.string().optional(),
     },
     async ({ database, index, item, expect_question, reindex, site }) => {
-      const denied = await requireItemCap(mcpToken);
+      const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
       const siteResult = resolveSiteContext(site);
@@ -990,7 +1029,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       site: z.string().optional(),
     },
     async ({ database, updates, reindex, site }) => {
-      const denied = await requireItemCap(mcpToken);
+      const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
       const siteResult = resolveSiteContext(site);
@@ -1157,7 +1196,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       site: z.string().optional(),
     },
     async ({ database, index, confirm, expect_question, reindex, site }) => {
-      const denied = await requireItemCap(mcpToken);
+      const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
       const siteResult = resolveSiteContext(site);
@@ -1318,14 +1357,221 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
   );
 
   mcp.tool(
+    "create_or_update_database",
+    "Create a private database (config.yml + empty local items YAML when source.type=local) or deep-patch an existing config. " +
+      "Requires databases_manage. Create runs immediately. Update: omit confirm → preview (action_required: confirm_database_config_patch); confirm:true → PUT. " +
+      "Does not delete banks, push content sync, or wire content types. Row CRUD stays on add/update/delete_database_item (databases_edit_data).",
+    {
+      database: z
+        .string()
+        .describe("Database slug (folder under db/). Lowercase letters, digits, underscore, hyphen."),
+      config: z
+        .record(z.string(), z.unknown())
+        .describe(
+          "Partial DatabaseConfig. Create needs at least name + source. Update is deep-merged into the existing config.",
+        ),
+      confirm: z
+        .boolean()
+        .optional()
+        .describe("Update only: false/omit → preview; true → execute. Ignored on create."),
+      site: z.string().optional(),
+    },
+    async ({ database, config, confirm, site }) => {
+      const denied = await requireManageCap(mcpToken);
+      if (denied) return denied;
+
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return fail(siteResult.error);
+      const domain = siteResult.domain;
+
+      if (!/^[a-z0-9_-]+$/.test(database)) {
+        return fail(
+          `Invalid database slug "${database}". Use lowercase letters, digits, underscore, or hyphen only.`,
+        );
+      }
+      if (!config || typeof config !== "object" || Array.isArray(config) || Object.keys(config).length === 0) {
+        return fail("config must be a non-empty object (partial DatabaseConfig).");
+      }
+
+      const defWarnings: McpWarning[] = [
+        {
+          code: "content_sync_not_pushed",
+          message:
+            "Writes dirty db/{slug}/ paths for content GitHub sync; this tool does not push or commit.",
+        },
+        {
+          code: "no_content_type_wire_up",
+          message:
+            "Does not link content-types.yml or create catalog identities. Wire a CT separately (staff UI / update_content_type) if needed — create_entry still cannot invent DB-backed rows.",
+        },
+        {
+          code: "no_delete_database",
+          message: "There is no MCP delete_database tool. Removing a bank is staff-only.",
+        },
+      ];
+
+      try {
+        const existing = await fetchDbConfig(database, domain, mcpToken);
+        const isCreate = !existing.ok && existing.status === 404;
+        if (!existing.ok && existing.status !== 404) {
+          return fail(existing.message);
+        }
+
+        if (isCreate) {
+          const name = typeof config.name === "string" ? config.name : undefined;
+          const source = config.source;
+          if (!name || !source || typeof source !== "object") {
+            return fail("Create requires config.name and config.source.", {
+              code: "invalid_create_config",
+            });
+          }
+
+          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases${siteQuery(domain)}`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: internalHeaders(mcpToken),
+            body: JSON.stringify({ slug: database, config }),
+          });
+          const data = (await res.json()) as Record<string, unknown>;
+          if (!res.ok) {
+            return fail((data.error as string) || `Server error: ${res.status}`, data);
+          }
+
+          const src = source as { type?: string; local?: { filename?: string; results_path?: string } };
+          const local = src.type === "local";
+          const filename = src.local?.filename;
+          const paths = [`db/${database}/config.yml`];
+          if (local && filename) paths.push(`db/${database}/${filename}`);
+
+          const next_actions: NextAction[] = local
+            ? [
+                {
+                  tool: "add_database_item",
+                  reason: "Seed rows into the empty local items YAML",
+                  args_hint: { database, site },
+                  priority: "recommended",
+                },
+              ]
+            : [];
+
+          return ok(
+            {
+              message: `Created database "${database}"`,
+              database,
+              created: true,
+              config: data.config ?? config,
+              paths,
+            },
+            {
+              warnings: defWarnings,
+              side_effects: [
+                {
+                  kind: "database_create",
+                  summary: local
+                    ? `Wrote config.yml and empty local items file under db/${database}/`
+                    : `Wrote config.yml under db/${database}/ (non-local source; no items file)`,
+                  paths,
+                },
+              ],
+              next_actions,
+            },
+          );
+        }
+
+        if (!existing.ok) {
+          return fail(existing.message);
+        }
+
+        const before = existing.data.config as Record<string, unknown>;
+        const plan = planDatabaseConfigPatch(before, config as Record<string, unknown>, confirm);
+        if (!plan.ok) {
+          return fail(plan.message, { code: plan.code });
+        }
+
+        if (plan.mode === "preview") {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "confirm_database_config_patch",
+              code: "confirm_database_config_patch",
+              message: `Preview config patch for "${database}". Re-call with confirm:true to apply.`,
+              database,
+              before: plan.beforeSummary,
+              after: plan.afterSummary,
+              patch_keys: plan.patch_keys,
+              warnings: defWarnings,
+            },
+            [
+              {
+                tool: "create_or_update_database",
+                reason: "Re-call with the same patch and confirm:true to apply",
+                args_hint: { database, config, confirm: true, site },
+                priority: "required",
+              },
+            ],
+          );
+        }
+
+        const { merged, needsReindex } = plan;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/config${siteQuery(domain)}`;
+        const res = await fetch(url, {
+          method: "PUT",
+          headers: internalHeaders(mcpToken),
+          body: JSON.stringify(merged),
+        });
+        const data = (await res.json()) as Record<string, unknown>;
+        if (!res.ok) {
+          return fail((data.error as string) || `Server error: ${res.status}`, data);
+        }
+
+        const paths = [`db/${database}/config.yml`];
+        const next_actions: NextAction[] = needsReindex
+          ? [
+              {
+                tool: "reindex_database",
+                reason: "vector_search was enabled or changed; reindex so semantic search matches the new config",
+                args_hint: { database, site },
+                priority: "recommended",
+              },
+            ]
+          : [];
+
+        return ok(
+          {
+            message: `Updated database config for "${database}"`,
+            database,
+            created: false,
+            config: merged,
+            paths,
+          },
+          {
+            warnings: defWarnings,
+            side_effects: [
+              {
+                kind: "database_config_patch",
+                summary: `Patched db/${database}/config.yml (deep merge; sync-state pending)`,
+                paths,
+              },
+            ],
+            next_actions,
+          },
+        );
+      } catch (e) {
+        return fail(`create_or_update_database failed: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  mcp.tool(
     "reindex_database",
-    "Trigger vector reindex for a database with vector_search.enabled. Requires databases_manage. Call after item CRUD so semantic search includes new/changed rows.",
+    "Trigger vector reindex for a database with vector_search.enabled. Requires databases_manage. " +
+      "Call after item CRUD, or after create_or_update_database patches that enable/change vector_search, so semantic search includes new/changed rows.",
     {
       database: z.string(),
       site: z.string().optional(),
     },
     async ({ database, site }) => {
-      const denied = await requireReindexCap(mcpToken);
+      const denied = await requireManageCap(mcpToken);
       if (denied) return denied;
 
       const siteResult = resolveSiteContext(site);

@@ -501,7 +501,15 @@ export function VersioningView({
         navigate("/private");
         return;
       }
-      toast({ title: `Variant "${deleteTarget.slug}" deleted` });
+      const openProposalWarn = Array.isArray(data.warnings)
+        ? (data.warnings as Array<{ code?: string; message?: string }>).find(
+            (w) => w.code === "open_proposal_references_variant",
+          )
+        : undefined;
+      toast({
+        title: `Variant "${deleteTarget.slug}" deleted`,
+        description: openProposalWarn?.message,
+      });
       emitVariantDeleted({ contentType: contentInfo.type, slug: contentInfo.slug, locale: deleteTarget.locale, variantSlug: deleteTarget.slug });
       setDeleteTarget(null);
       if (onVersioningDataUpdate) {

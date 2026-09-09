@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   ensureContentViewOnEditorRoles,
   ensureDeleteVariantOnCreateVariantRoles,
+  ensureDatabasesEditDataOnAllContentEditors,
+  grantAllowsAnyDatabasesEditDataAccess,
+  grantAllowsCap,
   grantsCanMutateMetrics,
   migrateSeoEditSplit,
   type RoleDefinition,
@@ -173,5 +176,133 @@ describe("grantsCanMutateMetrics", () => {
       ]),
     ).toBe(false);
     expect(grantsCanMutateMetrics([{ name: "seo_edit", contentTypes: "*" }])).toBe(true);
+  });
+});
+
+describe("ensureDatabasesEditDataOnAllContentEditors", () => {
+  it("adds databases_edit_data:* when content_edit_text is *", () => {
+    const roles: Record<string, RoleDefinition> = {
+      all_editors: {
+        label: "All editors",
+        capabilities: [
+          { name: "content_view", contentTypes: "*" },
+          { name: "content_edit_text", contentTypes: "*" },
+        ],
+      },
+    };
+    expect(ensureDatabasesEditDataOnAllContentEditors(roles)).toBe(true);
+    expect(roles.all_editors.capabilities).toContainEqual({
+      name: "databases_edit_data",
+      databases: "*",
+    });
+    expect(ensureDatabasesEditDataOnAllContentEditors(roles)).toBe(false);
+  });
+
+  it("does not grant when content_edit_text is type-scoped", () => {
+    const roles: Record<string, RoleDefinition> = {
+      blog_editor: {
+        label: "Blog editor",
+        capabilities: [
+          { name: "content_view", contentTypes: ["blog"] },
+          { name: "content_edit_text", contentTypes: ["blog"] },
+        ],
+      },
+    };
+    expect(ensureDatabasesEditDataOnAllContentEditors(roles)).toBe(false);
+    expect(roles.blog_editor.capabilities.some((g) => g.name === "databases_edit_data")).toBe(
+      false,
+    );
+  });
+
+  it("does not grant when content_edit_text omits contentTypes (not *)", () => {
+    const roles: Record<string, RoleDefinition> = {
+      legacy_editor: {
+        label: "Legacy",
+        capabilities: [{ name: "content_edit_text" }],
+      },
+    };
+    expect(ensureDatabasesEditDataOnAllContentEditors(roles)).toBe(false);
+    expect(roles.legacy_editor.capabilities.some((g) => g.name === "databases_edit_data")).toBe(
+      false,
+    );
+  });
+
+  it("skips built-in platform_steward (no databases_edit_data)", () => {
+    const roles: Record<string, RoleDefinition> = {
+      platform_steward: {
+        label: "Platform Steward",
+        capabilities: [
+          { name: "databases_manage" },
+          { name: "content_edit_text", contentTypes: "*" },
+        ],
+      },
+    };
+    expect(ensureDatabasesEditDataOnAllContentEditors(roles)).toBe(false);
+    expect(
+      roles.platform_steward.capabilities.some((g) => g.name === "databases_edit_data"),
+    ).toBe(false);
+  });
+});
+
+describe("grantAllowsCap database scope", () => {
+  it("fail-closed without scope unless databases is *", () => {
+    expect(
+      grantAllowsCap({ name: "databases_edit_data", databases: ["testimonials"] }, "databases_edit_data"),
+    ).toBe(false);
+    expect(
+      grantAllowsCap({ name: "databases_edit_data", databases: "*" }, "databases_edit_data"),
+    ).toBe(true);
+  });
+
+  it("allows listed slug and *", () => {
+    const listed = grantAllowsCap(
+      { name: "databases_edit_data", databases: ["testimonials", "faq"] },
+      "databases_edit_data",
+      "faq",
+    );
+    expect(listed).toBe(true);
+    expect(
+      grantAllowsCap(
+        { name: "databases_edit_data", databases: ["testimonials"] },
+        "databases_edit_data",
+        "faq",
+      ),
+    ).toBe(false);
+    expect(
+      grantAllowsCap({ name: "databases_edit_data", databases: "*" }, "databases_edit_data", "faq"),
+    ).toBe(true);
+  });
+
+  it("does not treat contentTypes as database scope", () => {
+    expect(
+      grantAllowsCap(
+        { name: "databases_edit_data", contentTypes: "*" },
+        "databases_edit_data",
+        "testimonials",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("grantAllowsAnyDatabasesEditDataAccess (browse / requireDatabasesBrowseAccess)", () => {
+  it("allows * or non-empty slug list", () => {
+    expect(
+      grantAllowsAnyDatabasesEditDataAccess({ name: "databases_edit_data", databases: "*" }),
+    ).toBe(true);
+    expect(
+      grantAllowsAnyDatabasesEditDataAccess({
+        name: "databases_edit_data",
+        databases: ["faq"],
+      }),
+    ).toBe(true);
+  });
+
+  it("fail-closed for missing grant, empty list, or wrong cap name", () => {
+    expect(grantAllowsAnyDatabasesEditDataAccess(undefined)).toBe(false);
+    expect(
+      grantAllowsAnyDatabasesEditDataAccess({ name: "databases_edit_data", databases: [] }),
+    ).toBe(false);
+    expect(grantAllowsAnyDatabasesEditDataAccess({ name: "databases_edit_data" })).toBe(false);
+    expect(grantAllowsAnyDatabasesEditDataAccess({ name: "databases_manage" })).toBe(false);
   });
 });

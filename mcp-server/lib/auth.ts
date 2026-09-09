@@ -26,7 +26,7 @@ export function getActiveRoleId(): string | undefined {
 
 /**
  * Check whether the user associated with the given MCP bearer token holds the
- * required capability, optionally scoped to a content type.
+ * required capability, optionally scoped to a content type or database slug.
  *
  * When the session has an active role (connector `/mcp/role/:id`), the check is
  * evaluated against that role's grants only.
@@ -38,6 +38,7 @@ export async function checkCap(
   mcpToken: string,
   cap: string,
   contentType?: string,
+  database?: string,
 ): Promise<boolean> {
   const username = getTokenUsername(mcpToken);
   if (!username) return false;
@@ -45,6 +46,7 @@ export async function checkCap(
   try {
     const params = new URLSearchParams({ cap, username });
     if (contentType) params.set("contentType", contentType);
+    if (database) params.set("database", database);
     const roleId = getActiveRoleId();
     if (roleId) params.set("role", roleId);
     const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/auth/check-capability?${params}`;

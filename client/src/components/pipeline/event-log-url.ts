@@ -1,10 +1,13 @@
 import {
   AGENT_FILTER_OTHER,
+  AUTHOR_FILTER_NONE,
   parseActorIds,
   parseAgentFilter,
+  parseAuthorFilter,
   parseEntryFilterKeys,
   parseKindIds,
   serializeAgentFilter,
+  serializeAuthorFilter,
   type AgentFilterId,
   type EventActorId,
   type EventKindId,
@@ -16,6 +19,7 @@ export const EVENT_LOG_SEARCH_KEYS = {
   kind: "kind",
   actor: "actor",
   agent: "agent",
+  author: "author",
   type: "type",
   entry: "entry",
   startingAt: "starting_at",
@@ -35,6 +39,11 @@ export interface EventLogViewState {
   actors: EventActorId[];
   /** Empty = all agents. */
   agent: "" | AgentFilterId;
+  /**
+   * Empty = all authors; `AUTHOR_FILTER_NONE` = missing/empty primary author;
+   * otherwise exact primary `attribution.author`.
+   */
+  author: "" | typeof AUTHOR_FILTER_NONE | string;
   /** Exact event type; empty = all. Wins over kinds on the API. */
   type: string;
   /** Entry keys `contentType/slug/locale`; empty = all entries. */
@@ -50,6 +59,7 @@ export const EVENT_LOG_VIEW_DEFAULTS: EventLogViewState = {
   kinds: [],
   actors: [],
   agent: "",
+  author: "",
   type: "",
   entries: [],
   startingAt: null,
@@ -81,6 +91,7 @@ export function parseEventLogSearch(search: string): EventLogViewState {
   // Legacy sentinel from before URL used `unscoped`.
   const session = sessionRaw === "__unscoped__" ? EVENT_LOG_SESSION_UNSCOPED : sessionRaw;
   const agent = parseAgentFilter(params.get(EVENT_LOG_SEARCH_KEYS.agent));
+  const author = parseAuthorFilter(params.get(EVENT_LOG_SEARCH_KEYS.author));
   const window = normalizeTimeWindow(
     parseEpochMs(params.get(EVENT_LOG_SEARCH_KEYS.startingAt)),
     parseEpochMs(params.get(EVENT_LOG_SEARCH_KEYS.endingAt)),
@@ -90,6 +101,7 @@ export function parseEventLogSearch(search: string): EventLogViewState {
     kinds: parseKindIds(params.get(EVENT_LOG_SEARCH_KEYS.kind)),
     actors: parseActorIds(params.get(EVENT_LOG_SEARCH_KEYS.actor)),
     agent: agent ?? "",
+    author: author ?? "",
     type: (params.get(EVENT_LOG_SEARCH_KEYS.type) ?? "").trim(),
     entries: parseEntryFilterKeys(params.get(EVENT_LOG_SEARCH_KEYS.entry)),
     startingAt: window.startingAt,
@@ -128,6 +140,8 @@ export function serializeEventLogSearch(view: EventLogViewState, existingSearch 
   else params.set(EVENT_LOG_SEARCH_KEYS.actor, view.actors.join(","));
   if (!view.agent) params.delete(EVENT_LOG_SEARCH_KEYS.agent);
   else params.set(EVENT_LOG_SEARCH_KEYS.agent, serializeAgentFilter(view.agent));
+  if (!view.author) params.delete(EVENT_LOG_SEARCH_KEYS.author);
+  else params.set(EVENT_LOG_SEARCH_KEYS.author, serializeAuthorFilter(view.author));
   setOmitEmpty(params, EVENT_LOG_SEARCH_KEYS.type, view.type.trim());
   if (view.entries.length === 0) params.delete(EVENT_LOG_SEARCH_KEYS.entry);
   else params.set(EVENT_LOG_SEARCH_KEYS.entry, view.entries.join(","));
@@ -145,6 +159,7 @@ export function eventLogHasActiveFilters(view: EventLogViewState): boolean {
     view.kinds.length > 0 ||
     view.actors.length > 0 ||
     Boolean(view.agent) ||
+    Boolean(view.author) ||
     Boolean(view.type) ||
     view.entries.length > 0 ||
     eventLogHasTimeWindow(view)
@@ -155,6 +170,7 @@ export function eventLogActiveFilterCount(view: EventLogViewState): number {
   return (
     (view.session ? 1 : 0) +
     (view.agent ? 1 : 0) +
+    (view.author ? 1 : 0) +
     (view.type ? 1 : 0) +
     view.kinds.length +
     view.actors.length +
@@ -210,4 +226,4 @@ export function buildShowAroundHref(
   return `${pathOnly}?${qs}#${eventFocusDomId(eventId)}`;
 }
 
-export { AGENT_FILTER_OTHER, parseEntryFilterKeys };
+export { AGENT_FILTER_OTHER, AUTHOR_FILTER_NONE, parseEntryFilterKeys };

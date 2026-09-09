@@ -24,6 +24,7 @@ import {
   SESSION_UNSCOPED,
   type AgentSessionPickerSummary,
 } from "@/components/pipeline/AgentSessionPickerModal";
+import { EventLogAuthorCombobox } from "@/components/pipeline/EventLogAuthorCombobox";
 import {
   AGENT_FILTER_OTHER,
   AGENT_IDS,
@@ -91,6 +92,8 @@ export type EventLogFiltersDialogProps = {
   filters: EventLogViewState;
   /** Hash-focused event id when a time window is active; null otherwise. */
   focusedEventId: number | null;
+  /** Content site root for author-list API (same as events list). */
+  site: string;
   sessions: AgentSessionPickerSummary[];
   typeOptions: Array<{ value: string; label: string }>;
   formatRelative: (ts: number) => string;
@@ -105,6 +108,7 @@ export function EventLogFiltersDialog({
   onOpenChange,
   filters,
   focusedEventId,
+  site,
   sessions,
   typeOptions,
   formatRelative,
@@ -116,6 +120,7 @@ export function EventLogFiltersDialog({
   const [clearFocusDraft, setClearFocusDraft] = useState(false);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
   const [entryPickerOpen, setEntryPickerOpen] = useState(false);
+  const [authorPickerOpen, setAuthorPickerOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -210,7 +215,7 @@ export function EventLogFiltersDialog({
     patchDraft({ entries: draft.entries.filter((e) => e !== key) });
   }
 
-  const nestedOpen = sessionPickerOpen || entryPickerOpen;
+  const nestedOpen = sessionPickerOpen || entryPickerOpen || authorPickerOpen;
   const canClear =
     draftFilterCount > 0 ||
     eventLogActiveFilterCount(filters) > 0 ||
@@ -227,6 +232,7 @@ export function EventLogFiltersDialog({
           if (!next) {
             setSessionPickerOpen(false);
             setEntryPickerOpen(false);
+            setAuthorPickerOpen(false);
           }
         }}
       >
@@ -238,7 +244,8 @@ export function EventLogFiltersDialog({
             const target = e.target as HTMLElement;
             if (
               target.closest("[data-radix-popper-content-wrapper]") ||
-              target.closest('[data-testid="dialog-agent-session-picker"]')
+              target.closest('[data-testid="dialog-agent-session-picker"]') ||
+              target.closest('[data-testid="popover-event-author-filter"]')
             ) {
               e.preventDefault();
             }
@@ -247,7 +254,8 @@ export function EventLogFiltersDialog({
             const target = e.target as HTMLElement;
             if (
               target.closest("[data-radix-popper-content-wrapper]") ||
-              target.closest('[data-testid="dialog-agent-session-picker"]')
+              target.closest('[data-testid="dialog-agent-session-picker"]') ||
+              target.closest('[data-testid="popover-event-author-filter"]')
             ) {
               e.preventDefault();
             }
@@ -256,7 +264,8 @@ export function EventLogFiltersDialog({
             const target = e.target as HTMLElement;
             if (
               target.closest("[data-radix-popper-content-wrapper]") ||
-              target.closest('[data-testid="dialog-agent-session-picker"]')
+              target.closest('[data-testid="dialog-agent-session-picker"]') ||
+              target.closest('[data-testid="popover-event-author-filter"]')
             ) {
               e.preventDefault();
             }
@@ -270,12 +279,12 @@ export function EventLogFiltersDialog({
           </DialogHeader>
 
           <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
-            <div className="space-y-1 sm:col-span-2">
+            <div className="space-y-1">
               <p className="text-xs font-medium">Time range</p>
               <p className="text-[11px] text-muted-foreground leading-snug">
                 Only rows in this start–end window. Clear either field to remove the window.
               </p>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="flex flex-wrap items-end gap-2">
                 <div className="space-y-1">
                   <label className="text-[11px] text-muted-foreground" htmlFor="event-filter-starting-at">
                     Start
@@ -283,7 +292,7 @@ export function EventLogFiltersDialog({
                   <input
                     id="event-filter-starting-at"
                     type="datetime-local"
-                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs"
                     value={msToDatetimeLocal(draft.startingAt)}
                     onChange={(e) => setTimeRangeField("startingAt", e.target.value)}
                     data-testid="input-event-filter-starting-at"
@@ -296,7 +305,7 @@ export function EventLogFiltersDialog({
                   <input
                     id="event-filter-ending-at"
                     type="datetime-local"
-                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs"
                     value={msToDatetimeLocal(draft.endingAt)}
                     onChange={(e) => setTimeRangeField("endingAt", e.target.value)}
                     data-testid="input-event-filter-ending-at"
@@ -523,6 +532,21 @@ export function EventLogFiltersDialog({
                 ))}
                 <option value={AGENT_FILTER_OTHER}>{formatAgentLabel(AGENT_FILTER_OTHER)}</option>
               </select>
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-xs font-medium">Author</p>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Who is named on the row (person or MCP label), not the AI product. Use Agent for
+                Claude / ChatGPT.
+              </p>
+              <EventLogAuthorCombobox
+                site={site}
+                value={draft.author}
+                onChange={(author) => patchDraft({ author })}
+                enabled={open}
+                onOpenChange={setAuthorPickerOpen}
+              />
             </div>
           </div>
 

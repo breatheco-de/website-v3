@@ -28,11 +28,35 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { reloadDatabaseList } from "@/lib/reloadDatabaseList";
+import { useDebugAuth } from "@/hooks/useDebugAuth";
+import type { CapabilityGrant } from "@/hooks/useDebugAuth";
 import { useToast } from "@/hooks/use-toast";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
 import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
 import JsonViewer from "@/components/editing/JsonViewer";
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
+
+/** True when the role may browse banks (manage OR edit-data with * / non-empty list). */
+function hasDatabasesBrowseAccess(
+  hasCapability: (cap: string, scope?: string) => boolean,
+  capabilities: CapabilityGrant[],
+): boolean {
+  if (hasCapability("databases_manage")) return true;
+  const grant = capabilities.find((g) => g.name === "databases_edit_data");
+  if (!grant) return false;
+  if (grant.databases === "*") return true;
+  return Array.isArray(grant.databases) && grant.databases.length > 0;
+}
+
+function databasesEditDataScopeLabel(capabilities: CapabilityGrant[]): string | null {
+  const grant = capabilities.find((g) => g.name === "databases_edit_data");
+  if (!grant) return null;
+  if (grant.databases === "*") return "all private databases";
+  if (Array.isArray(grant.databases) && grant.databases.length > 0) {
+    return grant.databases.join(", ");
+  }
+  return null;
+}
 
 interface DatabaseSummary {
   name: string;
@@ -1202,6 +1226,10 @@ function KeyValueEditor({
 }
 
 function DatabaseList() {
+  const { hasCapability, capabilities } = useDebugAuth();
+  const canManageDatabases = hasCapability("databases_manage");
+  const canBrowseDatabases = hasDatabasesBrowseAccess(hasCapability, capabilities);
+  const editScopeLabel = databasesEditDataScopeLabel(capabilities);
   const [createOpen, setCreateOpen] = useState(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -1223,8 +1251,22 @@ function DatabaseList() {
     queryKey: ["/api/databases"],
   });
 
+  useEffect(() => {
+    if (createOpen && !canManageDatabases) {
+      setCreateOpen(false);
+    }
+  }, [createOpen, canManageDatabases]);
+
   const handleRefresh = async () => {
     if (refreshing) return;
+    if (!canManageDatabases) {
+      toast({
+        title: "Permission required",
+        description: "Reloading databases from disk needs Manage databases.",
+        variant: "destructive",
+      });
+      return;
+    }
     setRefreshing(true);
     try {
       const { count } = await reloadDatabaseList();
@@ -1251,22 +1293,41 @@ function DatabaseList() {
           <h1 className="text-2xl font-bold" data-testid="text-page-title">Databases</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleRefresh}
-            disabled={refreshing}
-            data-testid="button-refresh-databases-page"
-          >
-            <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-          <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-new-database">
-            <Plus className="h-4 w-4 mr-1" />
-            New Database
-          </Button>
+          {canManageDatabases && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              data-testid="button-refresh-databases-page"
+            >
+              <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          )}
+          {canManageDatabases && (
+            <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-new-database">
+              <Plus className="h-4 w-4 mr-1" />
+              New Database
+            </Button>
+          )}
         </div>
       </div>
+
+      {canBrowseDatabases && (!canManageDatabases || editScopeLabel) && (
+        <div
+          className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+          data-testid="banner-databases-access"
+        >
+          You can browse private databases here.
+          {!canManageDatabases && " Creating or changing settings needs Manage databases."}
+          {editScopeLabel
+            ? ` You can edit rows in: ${editScopeLabel}.`
+            : !hasCapability("databases_edit_data")
+              ? " Row edits need Edit database data for the bank you want to change."
+              : null}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
@@ -1276,9 +1337,15 @@ function DatabaseList() {
         <div className="text-center py-20">
           <Database className="h-12 w-12 mx-auto text-muted-foreground/40 mb-4" />
           <p className="text-muted-foreground">No databases configured yet.</p>
-          <p className="text-xs text-muted-foreground mt-2">
-            Click "New Database" to create your first one.
-          </p>
+          {canManageDatabases ? (
+            <p className="text-xs text-muted-foreground mt-2">
+              Click "New Database" to create your first one.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground mt-2">
+              Ask someone with Manage databases to create one.
+            </p>
+          )}
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1317,11 +1384,13 @@ function DatabaseList() {
         </div>
       )}
 
-      <CreateDatabaseDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onCreated={(slug) => navigate(`/private/databases/${slug}`)}
-      />
+      {canManageDatabases && (
+        <CreateDatabaseDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onCreated={(slug) => navigate(`/private/databases/${slug}`)}
+        />
+      )}
     </>
   );
 }
@@ -3821,13 +3890,17 @@ function SemanticIndexKpiCard({ dbName, jobStatus, onForceRefresh, onReindex }: 
             {index?.finishedAt ? new Date(index.finishedAt).toLocaleString() : "Done"}
           </p>
         ) : neverRun ? (
-          <button
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-left"
-            onClick={onForceRefresh}
-            data-testid="button-semantic-index-refresh-hint"
-          >
-            Force Refresh to build index
-          </button>
+          onForceRefresh ? (
+            <button
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-left"
+              onClick={onForceRefresh}
+              data-testid="button-semantic-index-refresh-hint"
+            >
+              Force Refresh to build index
+            </button>
+          ) : (
+            <p className="text-xs text-muted-foreground">Index not built yet</p>
+          )
         ) : null}
       </CardContent>
     </Card>
@@ -3836,6 +3909,10 @@ function SemanticIndexKpiCard({ dbName, jobStatus, onForceRefresh, onReindex }: 
 
 function DatabaseDetailView({ dbName }: { dbName: string }) {
   const { toast } = useToast();
+  const { hasCapability, capabilities } = useDebugAuth();
+  const canManageDatabases = hasCapability("databases_manage");
+  const canEditRows = hasCapability("databases_edit_data", dbName);
+  const editScopeLabel = databasesEditDataScopeLabel(capabilities);
   const PAGE_SIZE = 100;
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -3868,6 +3945,21 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
   } | null>(null);
   const [savingItems, setSavingItems] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canManageDatabases && (activePanel === "settings" || activePanel === "mappings")) {
+      setActivePanel(null);
+    }
+  }, [canManageDatabases, activePanel]);
+
+  useEffect(() => {
+    if (!canEditRows && editMode) {
+      setEditMode(false);
+      setIsAddingItem(false);
+      setEditingItem(null);
+      setEditingItemIndex(null);
+    }
+  }, [canEditRows, editMode]);
 
   const checkHealthMutation = useMutation({
     mutationFn: async () => {
@@ -4123,6 +4215,14 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
   }, [dataView, search]);
 
   const runForceRefresh = async () => {
+    if (!canManageDatabases) {
+      toast({
+        title: "Permission required",
+        description: "Force refresh needs Manage databases.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsRefreshing(true);
     setRefreshError(null);
     setJobStatusDismissed(false);
@@ -4157,6 +4257,14 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
   const handleRetryFetch = () => runForceRefresh();
 
   const handleReindex = async () => {
+    if (!canManageDatabases) {
+      toast({
+        title: "Permission required",
+        description: "Re-indexing needs Manage databases.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsReindexing(true);
     setJobStatusDismissed(false);
     try {
@@ -4178,6 +4286,14 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
   };
 
   const handleSaveItems = async (newItems: Record<string, unknown>[]): Promise<void> => {
+    if (!canEditRows) {
+      toast({
+        title: "Permission required",
+        description: `Editing rows needs Edit database data for “${dbName}”.`,
+        variant: "destructive",
+      });
+      throw new Error("Insufficient permissions: databases_edit_data");
+    }
     setSavingItems(true);
     try {
       const res = await fetch(`/api/databases/${dbName}/items`, {
@@ -4204,6 +4320,14 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
   };
 
   const saveInlineField = async (field: "name" | "description", value: string) => {
+    if (!canManageDatabases) {
+      toast({
+        title: "Permission required",
+        description: "Changing database settings needs Manage databases.",
+        variant: "destructive",
+      });
+      return;
+    }
     setInlineSaving(true);
     try {
       const updatedConfig = { ...config, [field]: value || undefined };
@@ -4255,6 +4379,17 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
 
   return (
     <div className="space-y-4">
+      {(!canManageDatabases || !canEditRows) && (
+        <div
+          className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+          data-testid="banner-database-detail-access"
+        >
+          You can browse this database.
+          {!canEditRows && " Row edits need Edit database data for this bank."}
+          {!canManageDatabases && " Settings need Manage databases."}
+          {editScopeLabel ? ` You can edit rows in: ${editScopeLabel}.` : null}
+        </div>
+      )}
       <div className="flex items-center gap-2 flex-wrap">
         <Link href="/private/databases">
           <Button variant="ghost" size="sm" data-testid="button-back-databases">
@@ -4299,15 +4434,17 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                 <code className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded flex-shrink-0" data-testid="text-database-slug">
                   {dbName}
                 </code>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="invisible group-hover/name:visible"
-                  onClick={() => { setEditNameValue(config?.name || dbName); setEditingName(true); }}
-                  data-testid="button-edit-name"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
+                {canManageDatabases && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="invisible group-hover/name:visible"
+                    onClick={() => { setEditNameValue(config?.name || dbName); setEditingName(true); }}
+                    data-testid="button-edit-name"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -4343,17 +4480,19 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
             ) : config?.description ? (
               <>
                 <p className="text-xs text-muted-foreground truncate" data-testid="text-database-description">{config.description}</p>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="invisible group-hover/desc:visible"
-                  onClick={() => { setEditDescValue(config.description || ""); setEditingDesc(true); }}
-                  data-testid="button-edit-description"
-                >
-                  <Pencil className="h-3 w-3" />
-                </Button>
+                {canManageDatabases && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="invisible group-hover/desc:visible"
+                    onClick={() => { setEditDescValue(config.description || ""); setEditingDesc(true); }}
+                    data-testid="button-edit-description"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </Button>
+                )}
               </>
-            ) : (
+            ) : canManageDatabases ? (
               <button
                 className="text-xs text-muted-foreground/60 hover:text-muted-foreground invisible group-hover/desc:visible cursor-pointer"
                 onClick={() => { setEditDescValue(""); setEditingDesc(true); }}
@@ -4361,7 +4500,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
               >
                 + Add description
               </button>
-            )}
+            ) : null}
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -4379,32 +4518,36 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
             )}
             Check Health
           </Button>
-          <Button
-            variant={activePanel === "settings" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setActivePanel(activePanel === "settings" ? null : "settings")}
-            data-testid="button-toggle-settings"
-          >
-            {activePanel === "settings" ? (
-              <X className="h-3.5 w-3.5 mr-1" />
-            ) : (
-              <Settings className="h-3.5 w-3.5 mr-1" />
-            )}
-            Settings
-          </Button>
-          <Button
-            variant={activePanel === "mappings" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setActivePanel(activePanel === "mappings" ? null : "mappings")}
-            data-testid="button-toggle-mappings"
-          >
-            {activePanel === "mappings" ? (
-              <X className="h-3.5 w-3.5 mr-1" />
-            ) : (
-              <ArrowLeftRight className="h-3.5 w-3.5 mr-1" />
-            )}
-            Mappings
-          </Button>
+          {canManageDatabases && (
+            <Button
+              variant={activePanel === "settings" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setActivePanel(activePanel === "settings" ? null : "settings")}
+              data-testid="button-toggle-settings"
+            >
+              {activePanel === "settings" ? (
+                <X className="h-3.5 w-3.5 mr-1" />
+              ) : (
+                <Settings className="h-3.5 w-3.5 mr-1" />
+              )}
+              Settings
+            </Button>
+          )}
+          {canManageDatabases && (
+            <Button
+              variant={activePanel === "mappings" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setActivePanel(activePanel === "mappings" ? null : "mappings")}
+              data-testid="button-toggle-mappings"
+            >
+              {activePanel === "mappings" ? (
+                <X className="h-3.5 w-3.5 mr-1" />
+              ) : (
+                <ArrowLeftRight className="h-3.5 w-3.5 mr-1" />
+              )}
+              Mappings
+            </Button>
+          )}
           <Button
             variant={activePanel === "usage" ? "default" : "outline"}
             size="sm"
@@ -4614,7 +4757,12 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
               <CachedImagesKpiCard dbName={dbName} />
             )}
             {hasSemanticSearch && (
-              <SemanticIndexKpiCard dbName={dbName} jobStatus={jobStatus} onForceRefresh={() => setConfirmForceRefreshOpen(true)} onReindex={handleReindex} />
+              <SemanticIndexKpiCard
+                dbName={dbName}
+                jobStatus={jobStatus}
+                onForceRefresh={canManageDatabases ? () => setConfirmForceRefreshOpen(true) : undefined}
+                onReindex={canManageDatabases ? handleReindex : undefined}
+              />
             )}
           </div>
             );
@@ -4753,6 +4901,8 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                     size="sm"
                     onClick={() => setActivePanel("mappings")}
                     data-testid="button-open-settings-mapping"
+                    disabled={!canManageDatabases}
+                    title={!canManageDatabases ? "Edit mappings needs Manage databases" : undefined}
                   >
                     <ArrowLeftRight className="h-3.5 w-3.5 mr-1" />
                     Edit Mappings
@@ -5108,17 +5258,19 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                       )}
                     </div>
                   )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setConfirmForceRefreshOpen(true)}
-                    disabled={isRefreshing}
-                    data-testid="button-refresh-items"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isRefreshing ? "animate-spin" : ""}`} />
-                    Force Refresh
-                  </Button>
-                  {config?.source.type === "local" && (
+                  {canManageDatabases && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setConfirmForceRefreshOpen(true)}
+                      disabled={isRefreshing}
+                      data-testid="button-refresh-items"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isRefreshing ? "animate-spin" : ""}`} />
+                      Force Refresh
+                    </Button>
+                  )}
+                  {config?.source.type === "local" && canEditRows && (
                     <Button
                       variant={editMode ? "default" : "outline"}
                       size="sm"

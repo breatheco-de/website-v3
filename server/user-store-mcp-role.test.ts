@@ -19,15 +19,35 @@ describe("built-in MCP role descriptions", () => {
 });
 
 describe("platform_steward architecture caps", () => {
-  it("includes content_types_manage and databases_manage", () => {
+  it("platform_steward includes content_types_manage and databases_manage without row mutators", () => {
     const role = getBuiltInRoleCodeDefinition("platform_steward");
     expect(role).toBeTruthy();
     const names = new Set(role!.capabilities.map((g) => g.name));
     expect(names.has("content_types_manage")).toBe(true);
     expect(names.has("databases_manage")).toBe(true);
+    expect(names.has("databases_edit_data")).toBe(false);
     const tools = new Set(allowedToolNames(role!.capabilities));
     expect(tools.has("update_content_type")).toBe(true);
     expect(tools.has("reindex_database")).toBe(true);
+    expect(tools.has("create_or_update_database")).toBe(true);
+    expect(tools.has("list_databases")).toBe(true);
+    expect(tools.has("list_database_items")).toBe(true);
+    expect(tools.has("get_database_item")).toBe(true);
+    // databases_manage does not authorize row mutators
+    expect(tools.has("add_database_item")).toBe(false);
+    expect(tools.has("update_database_item")).toBe(false);
+    expect(tools.has("delete_database_item")).toBe(false);
+  });
+
+  it("databases_edit_data role catalog includes item mutators not create_or_update", () => {
+    const tools = new Set(
+      allowedToolNames([{ name: "databases_edit_data", databases: ["faq"] }]),
+    );
+    expect(tools.has("add_database_item")).toBe(true);
+    expect(tools.has("update_database_items")).toBe(true);
+    expect(tools.has("delete_database_item")).toBe(true);
+    expect(tools.has("create_or_update_database")).toBe(false);
+    expect(tools.has("reindex_database")).toBe(false);
   });
 });
 

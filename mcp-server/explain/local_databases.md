@@ -2,24 +2,38 @@
 
 Private databases may be **local** (`source.type: local` → YAML under `db/{name}/`), **api**, or **remote**.
 
-- **Reads** (`list_database_items`, `get_database_item`): all source types (CMS cache).
-- **Writes** (add/update/delete): **local only**.
+- **Reads** (`list_database_items`, `get_database_item`): all source types (CMS cache). Anyone with `databases_edit_data` (any scope) or `databases_manage` may list/get **any** bank.
+- **Writes** (add/update/delete items): **local only**, and require `databases_edit_data` **for that slug** (`databases_manage` alone does **not** authorize row writes).
+- **Definition** (`create_or_update_database`): create/patch bank settings — `databases_manage` only. No MCP delete.
 
 ## Tools
 
 | Tool | Cap | Notes |
 |---|---|---|
-| `list_databases` | `databases_manage` **or** `content_edit_text` | Prefer `local_only: true` for CRUD targets |
+| `list_databases` | `databases_edit_data` **or** `databases_manage` | Prefer `local_only: true` for CRUD targets. Settings vs rows: see description. |
 | `list_database_items` | same | All sources; **summary** rows + global `index`; optional `refresh` |
 | `get_database_item` | same | All sources; **full** row by global index; optional `refresh` |
-| `add_database_item` | same | Local only; FAQ defaults + dedupe |
+| `add_database_item` | `databases_edit_data` (write scoped to slug) | Local only; FAQ defaults + dedupe |
 | `add_database_items` | same | Local only; bulk add (max 40), best-effort |
 | `update_database_item` | same | Local only; prefer `expect_question` |
 | `update_database_items` | same | Local only; bulk update (max 40) |
 | `delete_database_item` | same | Local only; requires `confirm: true` |
-| `reindex_database` | **`databases_manage` only** | After writes when `vector_search.enabled` |
+| `create_or_update_database` | **`databases_manage` only** | Create = config + empty local items YAML; update = deep patch + `confirm:true` |
+| `reindex_database` | **`databases_manage` only** | After item writes **or** definition patches that enable/change `vector_search` |
 
 Call `explain_site` topic `local_databases` before bulk FAQ database edits or when reading api/remote banks.
+
+## Definition vs rows
+
+| Concern | Tool | Cap |
+|---|---|---|
+| Create bank / patch `config.yml` | `create_or_update_database` | `databases_manage` |
+| Seed or edit YAML rows | `add_*` / `update_*` / `delete_database_item` | `databases_edit_data` for that slug |
+| Vector index | `reindex_database` | `databases_manage` |
+
+**Create** writes `db/{slug}/config.yml` and, when `source.type=local`, an empty items file (`[]` or `{ results_path: [] }`). **Update** deep-merges `config` into the existing file; omit `confirm` → `action_required: confirm_database_config_patch`; `confirm:true` executes.
+
+**Does not (definition tool):** push content GitHub; auto-wire content types / `create_entry` identities; delete the bank.
 
 ## Reads (all sources)
 
@@ -51,7 +65,7 @@ MCP cannot edit upstream api/remote rows. When a content type has `database.slug
 1. `get_entry_fields` — provenance (original / db_override / ct_override)
 2. `update_entry_field` — `level: database` (listings + pages) or `level: content_type` (page only)
 
-Mutate tools on non-local DBs **fail** with `next_actions` pointing at those tools when a linked CT + row `slug` are available. If no linked CT, overrides are not available for that bank.
+Mutate tools on non-local DBs **fail** with `next_actions` pointing at those tools when a linked CT + row `slug` are available. If no linked CT, overrides are not available for that bank. Overrides ≠ bank definition — do not use `create_or_update_database` for field overrides.
 
 ## Bulk add / update (max 40, local only)
 
@@ -98,11 +112,11 @@ Warns if `related_features.length > 2`.
 
 ## Side effects and non-effects
 
-**Does (writes):** write YAML; `clearCache`; `markFileAsModified` (content sync dirty).
+**Does (item writes):** write YAML; `clearCache`; `markFileAsModified` (content sync dirty).
 
-**Does not:** push content GitHub; edit page sections / `hardcoded_entries` / `dynamic_entries`; auto-reindex (unless `reindex: true` and caller has `databases_manage`); edit upstream api/remote source rows.
+**Does not:** push content GitHub; edit page sections / `hardcoded_entries` / `dynamic_entries`; auto-reindex (unless `reindex: true` and caller has `databases_manage`); edit upstream api/remote source rows; authorize row writes via `databases_manage` alone.
 
-When vector search is enabled, mutate responses `next_actions` → `reindex_database` until reindexed.
+When vector search is enabled, mutate responses `next_actions` → `reindex_database` until reindexed. Definition patches that flip/change `vector_search` also recommend `reindex_database`.
 
 ## Delete safety
 
@@ -111,9 +125,9 @@ Without `confirm: true` → `action_required: confirm_delete` plus usage summary
 ## Related
 
 - Staff UI: Private Databases + FAQ section editor (+ field overrides on DB-backed content types).
-- HTTP: `/api/databases/:name/items` (writes local only); `POST .../refresh` force cache rebuild.
+- HTTP: `/api/databases/:name/items` (writes local only); `POST .../refresh` force cache rebuild; `POST /api/databases` + `PUT .../config` for definitions.
 - Semantic search: `explain_site` topic `semantic_search`.
 
 ## When to call this topic
 
-Before adding/updating/deleting local DB rows (especially FAQ), listing api/remote banks, or when an agent needs the global-index / summary-vs-full / refresh / override mental model.
+Before creating/patching a bank definition, adding/updating/deleting local DB rows (especially FAQ), listing api/remote banks, or when an agent needs the global-index / summary-vs-full / refresh / override / cap-split mental model.

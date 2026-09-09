@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  IconAlertCircle,
   IconExternalLink,
   IconFileText,
   IconHash,
@@ -504,10 +505,41 @@ function EventValidationIssueSummary({
   const validator = strField(payload, "validator");
   const priorCompletedBy = strField(payload, "priorCompletedBy");
 
-  let outcome: ReactNode = null;
   if (type === "validation_issue_completed") {
-    outcome = <p className="text-xs text-emerald-400/90">Resolved</p>;
-  } else if (type === "validation_issue_reopened" && priorCompletedBy) {
+    const severityLabel = severity ?? "error";
+    const severityClass =
+      severityLabel === "warning"
+        ? "text-amber-500"
+        : severityLabel === "info"
+          ? "text-muted-foreground"
+          : "text-destructive";
+    return (
+      <div className="mt-0.5 space-y-1">
+        <div
+          className={`flex flex-wrap items-center gap-1.5 text-[10px] ${severityClass}`}
+          data-testid="validation-issue-fixed"
+        >
+          <IconAlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>
+            {severityLabel}
+            {code ? (
+              <>
+                {" "}
+                <span className="font-mono">{code}</span>
+              </>
+            ) : null}{" "}
+            was fixed
+          </span>
+          {validator ? (
+            <span className="text-muted-foreground">{validator}</span>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  let outcome: ReactNode = null;
+  if (type === "validation_issue_reopened" && priorCompletedBy) {
     outcome = (
       <p className="text-xs text-amber-400/90">
         Reopened — was completed by {priorCompletedBy}

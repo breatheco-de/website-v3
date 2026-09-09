@@ -6,13 +6,16 @@ import {
   isEntryActivityRelatedType,
   parseActorIds,
   parseAgentFilter,
+  parseAuthorFilter,
   parseEntryFilterKeys,
   parseKindIds,
   primaryActorBucket,
   AGENT_FILTER_OTHER,
+  AUTHOR_FILTER_NONE,
   ENTRY_ACTIVITY_RELATED_TYPES,
   resolveAgentId,
   serializeAgentFilter,
+  serializeAuthorFilter,
 } from "@shared/event-log-filters";
 
 describe("resolveAgentId", () => {
@@ -73,6 +76,16 @@ describe("parse helpers", () => {
     expect(parseAgentFilter("claude")).toBe("claude");
     expect(parseAgentFilter("not-an-agent")).toBeNull();
     expect(serializeAgentFilter(AGENT_FILTER_OTHER)).toBe("other");
+  });
+
+  it("parses author filter none sentinel and exact strings", () => {
+    expect(parseAuthorFilter("")).toBeNull();
+    expect(parseAuthorFilter("  ")).toBeNull();
+    expect(parseAuthorFilter("none")).toBe(AUTHOR_FILTER_NONE);
+    expect(parseAuthorFilter("jane.doe")).toBe("jane.doe");
+    expect(parseAuthorFilter("  agent@x.com  ")).toBe("agent@x.com");
+    expect(serializeAuthorFilter(AUTHOR_FILTER_NONE)).toBe("none");
+    expect(serializeAuthorFilter("jane.doe")).toBe("jane.doe");
   });
 
   it("expands kinds to types", () => {

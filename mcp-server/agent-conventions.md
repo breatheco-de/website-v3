@@ -71,6 +71,16 @@ When `update_fields` (or another mutate) is forbidden, call `propose_change` ins
 
 **Worked example:** missing `content_edit_text` on a blog CTA → `propose_change` with that entry’s `updates[]`, then tell the human a different editor must `update_proposal` with `action: "apply"`.
 
+### 2b. Proposal collaboration (claim vs blocker vs approve)
+
+Proposals are a shared work item, not a chat. Prefer one open proposal per draft variant (`proposal_exists` → join it).
+
+- **Claim** only when you will edit the draft / soft updates. **add_blocker** to leave review feedback (what’s wrong, what fixed looks like, why — min 80 chars; no tool shopping lists). Do not claim only to approve.
+- Only the **active claimant** may `resolve_blocker`. Do not resolve to overturn a disagreement — escalate or leave open; reviewers `reopen_blocker`.
+- Open blockers block **apply** only (reject/withdraw still OK). Cleared blockers ≠ ship — re-preview, then four-eyes `apply`. For `promote_on_apply`, confirm ending experiments when asked (`confirm_end_experiment`).
+
+**Worked example:** Blake adds a blocker on CTA product; Alex claims, fixes the draft, resolves with a note; Casey previews again then applies.
+
 ### 3. Cluster SEO only on live (or draft-before-live)
 
 Do not write `seo.*` on A/B experiment variants, and do not write draft SEO once any live locale exists. Promote over live keeps live `seo:` — edit the live locale after promote if clustering must change.

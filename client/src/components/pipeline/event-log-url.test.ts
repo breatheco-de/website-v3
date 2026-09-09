@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_FILTER_OTHER } from "@shared/event-log-filters";
+import { AGENT_FILTER_OTHER, AUTHOR_FILTER_NONE } from "@shared/event-log-filters";
 import {
   EVENT_LOG_SESSION_UNSCOPED,
   EVENT_LOG_SHOW_AROUND_HALF_MS,
@@ -23,6 +23,7 @@ describe("event-log-url", () => {
       kinds: ["writes", "completes"] as const,
       actors: ["agents"] as const,
       agent: "claude" as const,
+      author: "jane.doe",
       type: "",
       entries: ["blog/demo-post/en", "page/home/en"] as string[],
     };
@@ -36,6 +37,7 @@ describe("event-log-url", () => {
     expect(qs).toContain("kind=writes%2Ccompletes");
     expect(qs).toContain("actor=agents");
     expect(qs).toContain("agent=claude");
+    expect(qs).toContain("author=jane.doe");
     expect(qs).toContain("entry=blog%2Fdemo-post%2Fen%2Cpage%2Fhome%2Fen");
     expect(qs).not.toContain("type=");
     expect(qs).not.toContain("starting_at");
@@ -45,6 +47,7 @@ describe("event-log-url", () => {
     expect(parsed.kinds).toEqual(["writes", "completes"]);
     expect(parsed.actors).toEqual(["agents"]);
     expect(parsed.agent).toBe("claude");
+    expect(parsed.author).toBe("jane.doe");
     expect(parsed.type).toBe("");
     expect(parsed.entries).toEqual(["blog/demo-post/en", "page/home/en"]);
     expect(parsed.startingAt).toBeNull();
@@ -63,6 +66,15 @@ describe("event-log-url", () => {
     expect(parsed.session).toBe(EVENT_LOG_SESSION_UNSCOPED);
     expect(parsed.agent).toBe(AGENT_FILTER_OTHER);
     expect(eventLogSessionToApi(parsed.session)).toEqual({ unscoped: true });
+  });
+
+  it("round-trips author=none sentinel", () => {
+    const qs = serializeEventLogSearch({
+      ...EVENT_LOG_VIEW_DEFAULTS,
+      author: AUTHOR_FILTER_NONE,
+    });
+    expect(qs).toBe("author=none");
+    expect(parseEventLogSearch(qs).author).toBe(AUTHOR_FILTER_NONE);
   });
 
   it("preserves unknown query keys", () => {
@@ -97,10 +109,11 @@ describe("event-log-url", () => {
         kinds: ["writes", "deletes"],
         actors: ["people"],
         agent: "claude",
+        author: "jane",
         type: "job_failed",
         entries: ["page/home/en", "blog/a/en"],
       }),
-    ).toBe(8);
+    ).toBe(9);
     expect(
       eventLogActiveFilterCount({
         ...EVENT_LOG_VIEW_DEFAULTS,
@@ -123,6 +136,12 @@ describe("event-log-url", () => {
         endingAt: 2000,
       }),
     ).toBe(2);
+    expect(
+      eventLogHasActiveFilters({
+        ...EVENT_LOG_VIEW_DEFAULTS,
+        author: AUTHOR_FILTER_NONE,
+      }),
+    ).toBe(true);
   });
 
   it("parses starting_at/ending_at and rejects inverted or partial windows", () => {

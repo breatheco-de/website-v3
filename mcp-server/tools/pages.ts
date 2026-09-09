@@ -5249,6 +5249,23 @@ export function registerPageTools(
               "Deleted a template variant file. Attached entries still inherit the live template shell; sibling entries were not auto-updated.",
           });
         }
+        const apiWarnings = data.warnings as Array<{ code?: string; message?: string; proposal_id?: string }> | undefined;
+        if (Array.isArray(apiWarnings)) {
+          for (const w of apiWarnings) {
+            if (w?.code && w?.message) {
+              warnings.push({
+                code: w.code,
+                message: w.message,
+              });
+            }
+          }
+        } else if (Array.isArray(data.open_proposals) && (data.open_proposals as unknown[]).length > 0) {
+          warnings.push({
+            code: "open_proposal_references_variant",
+            message:
+              "One or more open proposals still reference this variant. Apply may fail with context_stale until those proposals are withdrawn or rejected.",
+          });
+        }
         if (versioning) {
           const siblingLocales: string[] = [];
           for (const [loc, locData] of Object.entries(versioning)) {
@@ -5552,7 +5569,8 @@ export function registerPageTools(
       if (isDbBacked(config)) {
         return fail(
           `Content type '${contentType}' is database-backed (database.slug set) and cannot be created via create_entry. ` +
-          `Use get_content_type_info for create_via. Static single_template types without database.slug are allowed.`,
+          `Use get_content_type_info for create_via (remains null for DB-backed types). ` +
+          `A new private bank is create_or_update_database — that still does not create catalog identities.`,
         );
       }
 

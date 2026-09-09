@@ -17,6 +17,7 @@ import {
   getOldestUnpublishedAgeMs,
   markEventsPublished,
   listEvents,
+  listEventAuthors,
   clearAllEvents,
   listAgentSessions,
   getAgentSessionDetail,
@@ -26,6 +27,7 @@ import {
   findLatestWriteEventsByCommitShas,
 } from "./event-store";
 import { singleAttribution } from "./types";
+import { AUTHOR_FILTER_NONE } from "@shared/event-log-filters";
 
 const TEST_SITE = "site_test-events";
 
@@ -365,6 +367,82 @@ describe("event-store", () => {
     const other = listEvents({ site, agent: "__other__", limit: 10 });
     expect(other).toHaveLength(1);
     expect(other[0]!.attribution[0]?.actor?.type).toBe("ui");
+  });
+
+  it("filters by primary author and unauthored sentinel", () => {
+    const site = `${TEST_SITE}-author-${Date.now()}`;
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      attribution: singleAttribution("jane.doe", { type: "ui" }),
+    });
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      attribution: singleAttribution("jane.doe", {
+        type: "mcp",
+        client: "Cursor",
+        model: "claude-4-sonnet",
+      }),
+    });
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      attribution: singleAttribution("other-user", { type: "ui" }),
+    });
+    emitEvent({
+      site,
+      type: "index_snapshot_ready",
+      attribution: singleAttribution(undefined, { type: "system", source: "index-refresh" }),
+      payload: { generation: 1 },
+    });
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      attribution: singleAttribution("", { type: "ui" }),
+    });
+
+    const jane = listEvents({ site, author: "jane.doe", limit: 10 });
+    expect(jane).toHaveLength(2);
+    expect(jane.every((e) => e.attribution[0]?.author === "jane.doe")).toBe(true);
+
+    // Author is orthogonal to agent product — same author across ui + mcp
+    expect(jane.map((e) => e.attribution[0]?.actor?.type).sort()).toEqual(["mcp", "ui"]);
+
+    const unauthored = listEvents({ site, author: AUTHOR_FILTER_NONE, limit: 10 });
+    expect(unauthored).toHaveLength(2);
+    expect(
+      unauthored.every((e) => !e.attribution[0]?.author || e.attribution[0]?.author === ""),
+    ).toBe(true);
+
+    expect(listEvents({ site, author: "nobody", limit: 10 })).toHaveLength(0);
+  });
+
+  it("lists distinct primary authors for the picker", () => {
+    const site = `${TEST_SITE}-authors-list-${Date.now()}`;
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      attribution: singleAttribution("zeta", { type: "ui" }),
+    });
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      attribution: singleAttribution("alpha", { type: "ui" }),
+    });
+    emitEvent({
+      site,
+      type: "entry_locale_saved",
+      attribution: singleAttribution("alpha", { type: "mcp", client: "Cursor", model: "claude" }),
+    });
+    emitEvent({
+      site,
+      type: "index_snapshot_ready",
+      attribution: singleAttribution(undefined, { type: "system", source: "index-refresh" }),
+      payload: { generation: 1 },
+    });
+
+    expect(listEventAuthors(site)).toEqual(["alpha", "zeta"]);
   });
 
   it("combines session filter with kinds", () => {

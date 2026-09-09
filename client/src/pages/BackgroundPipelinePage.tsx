@@ -91,6 +91,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -938,8 +946,8 @@ const EventRow = memo(function EventRow({
       data-focused={isFocused ? "true" : undefined}
     >
       {agentReport ? (
-        <Popover>
-          <PopoverTrigger asChild>
+        <Dialog>
+          <DialogTrigger asChild>
             <button
               type="button"
               className={cn(
@@ -951,29 +959,34 @@ const EventRow = memo(function EventRow({
             >
               {avatarInner}
             </button>
-          </PopoverTrigger>
-          <PopoverContent
-            side="right"
-            align="start"
-            sideOffset={10}
-            className="w-80 border-0 bg-transparent p-0 shadow-none"
+          </DialogTrigger>
+          <DialogContent
+            className="max-w-md gap-3 bg-background text-foreground sm:max-w-md"
+            data-testid={`event-agent-report-dialog-${event.id}`}
           >
-            <div className="relative rounded-2xl rounded-tl-md border border-border bg-card px-3.5 py-3 shadow-md">
-              <div className="absolute -left-1.5 top-3 h-3 w-3 rotate-45 border-l border-b border-border bg-card" />
-              <div className="relative flex items-center gap-2 mb-1.5">
+            <DialogHeader className="space-y-1.5 pr-6 text-left">
+              <div className="flex items-center gap-2">
                 {agentId ? <AgentIcon agentId={agentId} size="sm" /> : null}
-                <p className="text-[11px] font-semibold text-muted-foreground">
+                <DialogTitle className="text-base">
                   {event.type.startsWith("agent_session_")
                     ? "Agent note"
                     : `${agentLabel} report`}
-                </p>
+                </DialogTitle>
               </div>
-              <p className="relative text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+              <DialogDescription className="sr-only">
+                Report text from {agentLabel} for this event.
+              </DialogDescription>
+            </DialogHeader>
+            <div
+              className="rounded-md border border-border bg-muted/40 p-3"
+              data-testid={`event-agent-report-body-${event.id}`}
+            >
+              <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
                 {agentReport}
               </p>
             </div>
-          </PopoverContent>
-        </Popover>
+          </DialogContent>
+        </Dialog>
       ) : (
         <span className={avatarClass}>{avatarInner}</span>
       )}
@@ -1238,6 +1251,7 @@ function EventLogPanel({
       if (view.agent) {
         params.set("agent", view.agent === AGENT_FILTER_OTHER ? "other" : view.agent);
       }
+      if (view.author) params.set("author", view.author);
       if (view.entries.length > 0) params.set("entry", view.entries.join(","));
       const sessionApi = eventLogSessionToApi(view.session);
       if (sessionApi.unscoped) params.set("unscoped", "1");
@@ -1660,6 +1674,7 @@ function EventLogPanel({
         onOpenChange={setFiltersOpen}
         filters={filterView}
         focusedEventId={focusedEventId}
+        site={site}
         sessions={sessions}
         typeOptions={eventTypeOptions}
         formatRelative={formatRelative}

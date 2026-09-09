@@ -57,9 +57,10 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `get_diagnostics_job` | Poll multi-slug / unscoped async jobs; `open_issues_offset` / `open_issues_limit` page the open work queue; `issue_status` filters open/claimed/completed/all |
 | `get_section_bindings` | Binding-group membership |
 | `list_components` / `get_component_schema` / `get_component_variant` / `create_component_section_demo` | Component registry + disposable section demos |
-| `list_databases` / `list_database_items` / `get_database_item` | Private DB discovery + read (all sources; list=summary, get=full; optional `refresh`) |
-| `add_database_item` / `add_database_items` / `update_database_item` / `update_database_items` / `delete_database_item` | Local YAML item CRUD (FAQ database etc.; bulk max 40, best-effort) |
-| `reindex_database` | Vector reindex after item writes (`databases_manage`) |
+| `list_databases` / `list_database_items` / `get_database_item` | Private DB discovery + read (all sources; list=summary, get=full; optional `refresh`). Caps: `databases_edit_data` or `databases_manage` |
+| `add_database_item` / `add_database_items` / `update_database_item` / `update_database_items` / `delete_database_item` | Local YAML item CRUD (FAQ etc.; bulk max 40). Cap: `databases_edit_data` for that slug |
+| `create_or_update_database` | Create bank (empty local items) or deep-patch config (`confirm:true`). Cap: `databases_manage` |
+| `reindex_database` | Vector reindex after item writes or vector_search definition patches (`databases_manage`) |
 | `get_product_funnel` / `update_product_funnel` | Product conversion funnels |
 | `test_redirect` | Inspect one URL: first-match winner + conflicts (`read_redirects`) |
 | `update_redirect` | Add / delete / move one CMS redirect (`edit_redirects`; call `test_redirect` first) |

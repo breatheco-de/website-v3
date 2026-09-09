@@ -1000,196 +1000,40 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
-    if (!/^[a-z0-9-]+$/.test(variantSlug)) {
-      res.status(400).json({ error: "variantSlug must be lowercase letters, numbers, and hyphens only" });
-      return;
-    }
-    if (isReservedTemplateVariantSlug(variantSlug)) {
-      res.status(400).json({
-        error: 'Variant slug "template" and "single" are reserved for the shared-layout shell',
-      });
-      return;
-    }
-
-    if (!/^[a-z]{2}(-[A-Z]{2})?$/.test(locale)) {
-      res.status(400).json({ error: "locale must be a valid language code (e.g. en, es, pt-BR)" });
-      return;
-    }
-
     const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
-    const contentDir = path.resolve(versioningManager.getVersioningContentDir(contentType, resolved.slug));
     const root = getContentRoot(res);
     const folder = getFolder(contentType as ContentType);
-
-    if (!fs.existsSync(contentDir)) {
-      res.status(404).json({ error: "Content folder not found" });
-      return;
-    }
-
-    const variantFilePath = path.resolve(versioningManager.getVariantFilePath(contentType, resolved.slug, variantSlug, locale));
-    const defaultFilePath = path.resolve(
-      contentDir,
-      resolved.templateMode ? liveLocaleFileName(locale, true) : `${locale}.yml`,
-    );
-
-    if (!variantFilePath.startsWith(contentDir + path.sep) || !defaultFilePath.startsWith(contentDir + path.sep)) {
-      res.status(400).json({ error: "Invalid file path" });
-      return;
-    }
-
-    if (!fs.existsSync(variantFilePath)) {
-      res.status(404).json({
-        error: resolved.templateMode
-          ? `Variant file ${variantTemplateBasename(variantSlug, locale)} not found`
-          : `Variant file ${variantSlug}.${locale}.yml not found`,
+    const { promoteVariantWithOptionalTeardown } = await import("../versioning/promote-with-teardown");
+    const result = await promoteVariantWithOptionalTeardown({
+      contentType,
+      slug: resolved.slug,
+      locale,
+      variantSlug,
+      author: auth.author || "api",
+      contentRoot: root,
+      contentRootName: getContentRootName(res),
+      folder,
+      templateMode: resolved.templateMode,
+      versioningManager,
+      ci: getCI(res),
+      cache: getValidationCache(res),
+      confirmEndExperiment: req.body?.confirm_end_experiment === true,
+      // Versions UI: leave sibling experiments alone unless explicitly ending them
+      endExperimentMode: req.body?.confirm_end_experiment === true,
+    });
+    if (!result.ok) {
+      res.status(result.status ?? 400).json({
+        error: result.error,
+        code: result.code,
+        ...(result.traffic_siblings ? { traffic_siblings: result.traffic_siblings } : {}),
       });
       return;
     }
-
-    const wasUnpublished =
-      !resolved.templateMode && !hasAnyLiveLocale(contentDir, resolved.templateMode);
-
-    try {
-      const variantContent = fs.readFileSync(variantFilePath, "utf-8");
-      const identityErr = validateYamlIdentity(variantContent, {
-        contentType,
-        contentSlug: resolved.slug,
-      });
-      if (identityErr) {
-        res.status(400).json({
-          error:
-            `Cannot promote: ${identityErr}. ` +
-            `Set conversion_name / CTA tracking / funnel.products on _common.yml (Funnel tab) before promoting.`,
-        });
-        return;
-      }
-      const parsedVariant =
-        (getCI(res).safeYamlLoad(variantContent) as Record<string, unknown>) || {};
-      const commonForGate =
-        getCI(res).loadCommonData(contentType, resolved.slug) || {};
-      const { assertLiveEntrySeoAndRequiredFields } = await import(
-        "../live-entry-seo-gate"
-      );
-      const seoGateErr = assertLiveEntrySeoAndRequiredFields({
-        contentType,
-        slug: resolved.slug,
-        locale,
-        pageData: deepMerge(commonForGate, parsedVariant) as Record<
-          string,
-          unknown
-        >,
-        contentRoot: root,
-        mode: "publish",
-        intent: "publish",
-        isDraftWrite: false,
-      });
-      if (seoGateErr) {
-        res.status(400).json({ error: `Cannot promote: ${seoGateErr}` });
-        return;
-      }
-      if (!resolved.templateMode) {
-        const mergedForUrl = deepMerge(commonForGate, parsedVariant) as Record<string, unknown>;
-        const urlCheck = assertLocaleUrlAvailable({
-          contentType,
-          entryIdentity: resolved.slug,
-          locale,
-          mergedPageData: mergedForUrl,
-          ci: getCI(res),
-        });
-        if (!urlCheck.ok) {
-          res.status(urlCheck.statusCode).json({
-            error: `Cannot promote: ${urlCheck.error}`,
-            code: urlCheck.code,
-            url: urlCheck.url,
-          });
-          return;
-        }
-      }
-
-      const liveExisted = fs.existsSync(defaultFilePath);
-      const liveContent = liveExisted ? fs.readFileSync(defaultFilePath, "utf-8") : null;
-      const { yamlForPromotePreservingLiveSeo } = await import("../seo-write-layer");
-      const promoted = yamlForPromotePreservingLiveSeo(variantContent, liveContent);
-      fs.writeFileSync(defaultFilePath, promoted.content, "utf-8");
-
-      const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
-      const localeData = existing[locale];
-      if (localeData) {
-        const updatedVariants = (localeData.variants || []).filter((v) => v.slug !== variantSlug);
-        versioningManager.updateVersioning(contentType, resolved.slug, {
-          ...existing,
-          [locale]: { variants: updatedVariants },
-        });
-      }
-
-      fs.unlinkSync(variantFilePath);
-
-      if (wasUnpublished) {
-        ensurePublishedAtOnce(contentType, resolved.slug, {
-          author: auth.author || "api",
-          contentRoot: root,
-        });
-      }
-
-      getCI(res).invalidateCommonFields(contentType);
-      clearSsrSchemaCache();
-      invalidateContentCaches(contentType, getCI(res));
-
-      const cache = getValidationCache(res);
-      cache.clearEntryKey(buildEntryKey(contentType, resolved.slug, locale, variantSlug));
-
-      if (resolved.templateMode) {
-        markFileAsModified(`${folder}/${liveTemplateBasename(locale)}`, auth.author || "api", undefined, root);
-        markFileAsModified(`${folder}/${variantTemplateBasename(variantSlug, locale)}`, auth.author || "api", undefined, root);
-      } else {
-        markFileAsModified(`${folder}/${resolved.slug}/${locale}.yml`, auth.author || "api", undefined, root);
-        markFileAsModified(`${folder}/${resolved.slug}/${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
-        // If this was the first live locale, refresh index + sitemap
-        getCI(res).refresh();
-        refreshSitemapEntriesForContentKey(contentType, resolved.slug, [locale]);
-      }
-
-      scheduleOnSaveValidation({
-        contentRoot: root,
-        contentRootName: getContentRootName(res),
-        ci: getCI(res),
-        cache,
-        contentType,
-        slug: resolved.slug,
-        locale,
-        filePath: defaultFilePath,
-      });
-      await cache.flush();
-
-      emitEntryLocalePromoted({
-        site: getContentRootName(res),
-        contentType,
-        slug: resolved.slug,
-        locale,
-        author: auth.author || "api",
-      });
-
-      try {
-        const { syncSeoIndexEntryFromLiveDisk } = await import("../seo-index");
-        syncSeoIndexEntryFromLiveDisk({
-          contentType,
-          slug: resolved.slug,
-          locale,
-          contentRoot: root,
-          author: auth.author || "api",
-          ci: getCI(res),
-        });
-      } catch {
-        /* non-fatal */
-      }
-
-      res.json({
-        success: true,
-        ignoredVariantSeo: promoted.ignoredVariantSeo,
-      });
-    } catch (error) {
-      res.status(500).json({ error: String(error) });
-    }
+    res.json({
+      success: true,
+      ignoredVariantSeo: result.ignoredVariantSeo,
+      deletedSiblings: result.deletedSiblings,
+    });
   });
 
   // Convert live locale to draft (inverse of per-locale promote). Blocked on shared templates.
@@ -1453,6 +1297,30 @@ export function registerVersioningRoutes(app: Express): void {
       const availableLocales = resolved.templateMode
         ? getLocaleEntries().map((l: { code: string }) => l.code)
         : getCI(res).getAvailableLocalesOrVariants(contentType as ContentType, resolved.slug);
+
+      let openProposals: Array<{ id: string; title: string; status: string }> = [];
+      try {
+        const { listOpenProposalsForVariant } = await import("../content-proposals");
+        openProposals = listOpenProposalsForVariant(
+          getContentRootName(res),
+          contentType,
+          resolved.slug,
+          locale,
+          variantSlug,
+        );
+      } catch {
+        /* non-fatal */
+      }
+      const warnings =
+        openProposals.length > 0
+          ? openProposals.map((p) => ({
+              code: "open_proposal_references_variant",
+              message: `Open proposal "${p.title}" (${p.id}) still references this variant. Apply may fail with context_stale until the proposal is withdrawn or rejected.`,
+              proposal_id: p.id,
+              title: p.title,
+            }))
+          : [];
+
       res.json({
         success: true,
         hasVersioningFile: !versioningEmptied && Object.keys(updated).length > 0,
@@ -1460,6 +1328,8 @@ export function registerVersioningRoutes(app: Express): void {
         availableLocales,
         orphanCleaned,
         versioningFilePath: versioningRelPath,
+        ...(warnings.length ? { warnings } : {}),
+        ...(openProposals.length ? { open_proposals: openProposals } : {}),
       });
     } catch (error) {
       res.status(500).json({ error: String(error) });
