@@ -29,6 +29,7 @@ import { isEntryDetached } from "./shared-layout-entry";
 import { isHiddenViaSentinel } from "./shared-layout-sync";
 import { child } from "./logger";
 import { combinedArticleContentFromSections } from "@shared/reading-time";
+import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
 
 const log = child({ module: "query-entries" });
 
@@ -279,9 +280,12 @@ function loadStaticYamlFile(filePath: string): Record<string, unknown> | null {
   if (!fs.existsSync(filePath)) return null;
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
-    const data = yaml.load(raw);
+    // Same as ContentIndex / editors: escape {{ }} before js-yaml so unquoted
+    // liquid defaults (e.g. `| 84 }}%`) do not break the parser.
+    const { escaped, map } = escapeTemplateVars(raw);
+    const data = yaml.load(escaped);
     if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-    return data as Record<string, unknown>;
+    return unescapeObjectVars(data, map) as Record<string, unknown>;
   } catch (err) {
     log.warn({ err, filePath }, "[QueryEntries] Failed to parse static listing YAML");
     return null;

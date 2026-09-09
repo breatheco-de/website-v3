@@ -263,7 +263,7 @@ export async function validateStaffSessionToken(
   token: string,
 ): Promise<StaffSessionValidationResult> {
   const mainAppPort = process.env.PORT || "5000";
-  const mainAppUrl = `http://localhost:${mainAppPort}/api/staff/session/validate`;
+  const mainAppUrl = `http://127.0.0.1:${mainAppPort}/api/staff/session/validate`;
 
   try {
     const res = await fetch(mainAppUrl, {

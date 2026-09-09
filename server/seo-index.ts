@@ -176,6 +176,8 @@ export type SeoIndexCluster = {
 export type SeoIndex = {
   version: 1;
   generated_at: string;
+  /** ISO time of the last full YAML rebuild (not bumped by per-entry patches). */
+  last_full_rebuild_at?: string;
   rebuilt?: boolean;
   entries: Record<string, SeoIndexEntry>;
   by_path: Record<string, string>;
@@ -691,6 +693,7 @@ export function rebuildSeoIndex(opts?: {
   }
 
   recomputeGraph(index, { prioritySnapshot: priorPriorities, contentRoot: opts?.contentRoot });
+  index.last_full_rebuild_at = new Date().toISOString();
   saveSeoIndex(index, {
     contentRoot: opts?.contentRoot,
     author: opts?.author,

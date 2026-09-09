@@ -36,7 +36,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 |---|---|
 | `list_sites` | Configured domains + content folders (`sites.yml`) |
 | `explain_site` | Architecture playbooks + live per-site catalogs (conversion_events, CRM tags, locales). Pass `site`. |
-| `bootstrap_agent` | Call once near the start of an MCP content run (Claude.ai / Grok / connectors). Returns technical playbook + conversation conventions (`skill.content` on first call) + 6-day changelog. Later calls: `include_skill_content: false` / `known_skill_version`. Does not refresh host tool list. |
+| `bootstrap_agent` | Call once near the start of an MCP content run (Claude.ai / Grok / connectors). Returns technical playbook + conversation conventions (`skill.content` on first call; pass `site` when multi-site to brand links) + 6-day changelog. Later calls: `include_skill_content: false` / `known_skill_version`. Does not refresh host tool list. |
 | `list_entries` | Unified inventory: no `contentType` → type stats; with type → paginated entries (all sources) |
 | `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, strategy, observed URL-param values, create_via, body_model, template_vars_note |
 | `get_entry_content` | Merged entry content without meta/SEO |
@@ -196,7 +196,7 @@ Rejects two or more distinct section indexes (`action_required: split_section_up
     "confirm_live_edit": true,
     "updates": [
       { "field_path": "sections.0.data.title", "value": "Hello" },
-      { "field_path": "meta.page_title", "value": "Hello | 4Geeks" }
+      { "field_path": "meta.page_title", "value": "Hello | Example Brand" }
     ]
   }
 }
@@ -429,7 +429,7 @@ A typical editing session looks like this:
    Call update_fields to change a section heading + SEO together:
      { slug: "home", locale: "en", updates: [
        { field_path: "sections.2.title", value: "FAQ" },
-       { field_path: "meta.page_title", value: "Home | 4Geeks Academy" }
+       { field_path: "meta.page_title", value: "Home | Example Brand" }
      ]}
    Call update_meta_fields to set the same meta on many slugs:
      { slugs: ["home","about"], locale: "en", updates: [{ field_path: "meta.robots", value: "index, follow" }] }
@@ -499,14 +499,14 @@ curl -X POST http://localhost:3001/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "X-Api-Key: $TOKEN" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","id":5,"params":{"name":"update_fields","arguments":{"slug":"home","locale":"en","updates":[{"field_path":"meta.page_title","value":"Home | 4Geeks Academy"}]}}}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":5,"params":{"name":"update_fields","arguments":{"slug":"home","locale":"en","updates":[{"field_path":"meta.page_title","value":"Home | Example Brand"}]}}}'
 
 # Update multiple meta fields at once
 curl -X POST http://localhost:3001/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "X-Api-Key: $TOKEN" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","id":6,"params":{"name":"update_meta_fields","arguments":{"slugs":["home"],"locale":"en","updates":[{"field_path":"meta.page_title","value":"Home | 4Geeks Academy"},{"field_path":"meta.description","value":"Join our AI bootcamp."},{"field_path":"meta.robots","value":"index, follow"}]}}}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":6,"params":{"name":"update_meta_fields","arguments":{"slugs":["home"],"locale":"en","updates":[{"field_path":"meta.page_title","value":"Home | Example Brand"},{"field_path":"meta.description","value":"Join our AI bootcamp."},{"field_path":"meta.robots","value":"index, follow"}]}}}'
 
 ```
 

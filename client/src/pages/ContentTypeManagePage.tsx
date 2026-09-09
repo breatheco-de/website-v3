@@ -140,6 +140,9 @@ interface SeoEntry {
   meta: Record<string, unknown>;
   schema?: Record<string, unknown> | null;
   parse_error?: string;
+  main_keyword?: string | null;
+  kw_monthly_volume?: number | null;
+  kw_difficulty?: number | null;
 }
 
 interface SeoEntriesResponse {
@@ -8464,6 +8467,14 @@ export default function ContentTypeManagePage() {
                         const priority = meta.priority != null && meta.priority !== "" ? String(meta.priority) : "";
                         const changeFreq = typeof meta.change_frequency === "string" ? meta.change_frequency : "";
                         const redirects = Array.isArray(meta.redirects) ? meta.redirects : [];
+                        const mainKeyword =
+                          typeof entry.main_keyword === "string" && entry.main_keyword.trim()
+                            ? entry.main_keyword.trim()
+                            : "";
+                        const kwVolume =
+                          typeof entry.kw_monthly_volume === "number" ? entry.kw_monthly_volume : null;
+                        const kwDifficulty =
+                          typeof entry.kw_difficulty === "number" ? entry.kw_difficulty : null;
                         const rowKey = `${slug}-${locale}`;
                         const previewKey = `${slug}:${locale}`;
                         const previewRow = entryPreviewsData?.index?.[previewKey];
@@ -8629,6 +8640,24 @@ export default function ContentTypeManagePage() {
                                       <span className="text-foreground">{redirects.length}</span>
                                     </span>
                                   )}
+                                  <span>
+                                    <span className="mr-1">keyword</span>
+                                    <span className={mainKeyword ? "text-foreground" : ""}>
+                                      {mainKeyword || "—"}
+                                    </span>
+                                  </span>
+                                  <span>
+                                    <span className="mr-1">volume</span>
+                                    <span className={kwVolume != null ? "text-foreground" : ""}>
+                                      {kwVolume != null ? kwVolume.toLocaleString() : "—"}
+                                    </span>
+                                  </span>
+                                  <span>
+                                    <span className="mr-1">difficulty</span>
+                                    <span className={kwDifficulty != null ? "text-foreground" : ""}>
+                                      {kwDifficulty != null ? kwDifficulty : "—"}
+                                    </span>
+                                  </span>
                                 </div>
                               </div>
                             </td>

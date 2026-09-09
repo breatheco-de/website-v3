@@ -303,7 +303,7 @@ export function createDefaultFetchItems(port: string, headers: Record<string, st
       params.set("pageSize", "1");
     }
     const qs = params.toString();
-    const url = `http://localhost:${port}/api/content-types/${encodeURIComponent(contentType)}/items${qs ? `?${qs}` : ""}`;
+    const url = `http://127.0.0.1:${port}/api/content-types/${encodeURIComponent(contentType)}/items${qs ? `?${qs}` : ""}`;
     try {
       const res = await fetch(url, { headers });
       const text = await res.text();

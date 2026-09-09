@@ -51,7 +51,7 @@ export async function fetchContentTypeConfigSlice(
 > {
   const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
   const res = await fetch(
-    `http://localhost:${mainServerPort}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
+    `http://127.0.0.1:${mainServerPort}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
     { headers: internalHeaders(mcpToken) },
   );
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -83,7 +83,7 @@ export async function fetchDatabaseNameList(
 ): Promise<string[]> {
   const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
   try {
-    const res = await fetch(`http://localhost:${mainServerPort}/api/databases${q}`, {
+    const res = await fetch(`http://127.0.0.1:${mainServerPort}/api/databases${q}`, {
       headers: internalHeaders(mcpToken),
     });
     const data = (await res.json()) as Array<{ name?: string }> | { error?: string };
@@ -295,7 +295,7 @@ export async function runContentTypeFieldPatch(input: FieldPatchToolInput) {
   };
 
   const res = await fetch(
-    `http://localhost:${input.mainServerPort}/api/content-types/${encodeURIComponent(input.contentType)}/config${q}`,
+    `http://127.0.0.1:${input.mainServerPort}/api/content-types/${encodeURIComponent(input.contentType)}/config${q}`,
     {
       method: "PUT",
       headers: {

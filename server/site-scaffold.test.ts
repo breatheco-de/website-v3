@@ -2,6 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { resetPathCaches } from "@shared/paths";
 import { ensureSiteScaffold } from "./site-scaffold";
 
 const ORIGINAL_CWD = process.cwd();
@@ -10,10 +11,12 @@ let tempDir: string;
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "site-scaffold-"));
   process.chdir(tempDir);
+  resetPathCaches();
 });
 
 afterEach(() => {
   process.chdir(ORIGINAL_CWD);
+  resetPathCaches();
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 

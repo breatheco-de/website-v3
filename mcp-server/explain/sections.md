@@ -146,7 +146,7 @@ Lead forms (`lead_form` / embedded `form:` on hero, cta_banner, etc.) may includ
 - **Root `conversion_name`:** optional. Routes may set it per match; if neither root nor a matching route provides one, tracking is skipped (runtime console warning). Validators only reject *invalid* names when a name is set (root or route), not missing root.
 - **Non-effects:** does not change field visibility or consents; does not add arbitrary payload keys beyond those overrides.
 - **Side effects:** changes conversion tracking, webhook event resolution, and success redirect/message for that submit only.
-- **Resolver:** `shared/resolveLeadFormRoute.ts`. Example: `site_4geeks-com/component-registry/lead_form/v1.0/examples/stacked_with_routes.yml`.
+- **Resolver:** `shared/resolveLeadFormRoute.ts`. Example corpus path: `site_4geeks-com/component-registry/lead_form/v1.0/examples/stacked_with_routes.yml` (confirm on the target site).
 - **Next actions for agents:** add `routes` with `conditions`, ensure `value` matches submitted field values (`source.value_path`, typically program `bc_slug`). See topic `lead-forms`.
 
 ### Lead form Fields card (Conversion tab)
@@ -157,4 +157,4 @@ Staff UI lists keys already under form `fields` in YAML and edits `visible`, `re
 
 **Non-effects:** does not add arbitrary field names to the runtime form; does not edit consents or routes; does not provide a UI editor for `options[]`. `options[]` does not filter the catalog. Which programs appear is `fields.*.source` + `query` — see `explain_site` topic `lead-forms`. `mergeLeadFormOptions` only overlays YAML labels.
 
-**Agents:** field widgets live in `LeadFormFieldControl.tsx`. Catalog vs relation playbook: topic `lead-forms`. Example: `site_4geeks-com/component-registry/lead_form/v1.0/examples/stacked_with_routes.yml`. Schema: `leadFormFieldConfigSchema` in `site_4geeks-com/component-registry/_common/schema.ts`.
+**Agents:** field widgets live in `LeadFormFieldControl.tsx`. Catalog vs relation playbook: topic `lead-forms`. Example corpus paths (confirm on the target site): `site_4geeks-com/component-registry/lead_form/v1.0/examples/stacked_with_routes.yml`. Schema: `leadFormFieldConfigSchema` in that site's `component-registry/_common/schema.ts`.

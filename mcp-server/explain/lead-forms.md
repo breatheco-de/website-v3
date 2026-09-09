@@ -55,7 +55,7 @@ ecommerce_product_field: program   # default; set explicitly on authored forms
 - `slugs` is ignored when `source` is set.
 - EN and ES are separate files — no locale fan-out.
 
-## Typical paths (4geeks corpus — confirm with the user)
+## Typical paths (example corpus — confirm on the target site)
 
 | Source kind | Typical `value_path` | Typical `label_path` | Submitted value |
 |---|---|---|---|

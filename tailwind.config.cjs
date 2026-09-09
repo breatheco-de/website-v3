@@ -1,21 +1,29 @@
-import type { Config } from "tailwindcss";
+const path = require("path");
 
-export default {
+/** @type {import('tailwindcss').Config} */
+module.exports = {
   darkMode: ["class"],
-  content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}"],
+  // Paths are relative to THIS file (PACKAGE_ROOT), not process.cwd().
+  // Weblify runs with cwd = PROJECT_ROOT, which has no ./client folder.
+  content: {
+    relative: true,
+    files: [
+      "./client/index.html",
+      "./client/src/**/*.{js,jsx,ts,tsx}",
+    ],
+  },
   theme: {
     extend: {
       borderRadius: {
-        lg: ".5625rem", /* 9px */
-        md: ".375rem", /* 6px */
-        sm: ".1875rem", /* 3px */
-        card: "0.75rem", /* 12px - brand standard */
+        lg: ".5625rem" /* 9px */,
+        md: ".375rem" /* 6px */,
+        sm: ".1875rem" /* 3px */,
+        card: "0.75rem" /* 12px - brand standard */,
       },
       boxShadow: {
-        'card': '0 2px 8px -2px hsl(0 0% 0% / 0.08)',
+        card: "0 2px 8px -2px hsl(0 0% 0% / 0.08)",
       },
       colors: {
-        // Flat / base colors (regular buttons)
         background: "hsl(var(--background) / <alpha-value>)",
         foreground: "hsl(var(--foreground) / <alpha-value>)",
         border: "hsl(var(--border) / <alpha-value>)",
@@ -57,11 +65,11 @@ export default {
         },
         ring: "hsl(var(--ring) / <alpha-value>)",
         chart: {
-          "1": "hsl(var(--chart-1) / <alpha-value>)",
-          "2": "hsl(var(--chart-2) / <alpha-value>)",
-          "3": "hsl(var(--chart-3) / <alpha-value>)",
-          "4": "hsl(var(--chart-4) / <alpha-value>)",
-          "5": "hsl(var(--chart-5) / <alpha-value>)",
+          1: "hsl(var(--chart-1) / <alpha-value>)",
+          2: "hsl(var(--chart-2) / <alpha-value>)",
+          3: "hsl(var(--chart-3) / <alpha-value>)",
+          4: "hsl(var(--chart-4) / <alpha-value>)",
+          5: "hsl(var(--chart-5) / <alpha-value>)",
         },
         sidebar: {
           ring: "hsl(var(--sidebar-ring) / <alpha-value>)",
@@ -77,7 +85,7 @@ export default {
         "sidebar-accent": {
           DEFAULT: "hsl(var(--sidebar-accent) / <alpha-value>)",
           foreground: "hsl(var(--sidebar-accent-foreground) / <alpha-value>)",
-          border: "var(--sidebar-accent-border)"
+          border: "var(--sidebar-accent-border)",
         },
         status: {
           online: "rgb(34 197 94)",
@@ -93,19 +101,19 @@ export default {
         mono: ["var(--font-mono)"],
       },
       fontSize: {
-        'h1': ['50px', { lineHeight: '1.1', fontWeight: '700', letterSpacing: '-0.02em' }],
-        'h2': ['30px', { lineHeight: '1.2', fontWeight: '700', letterSpacing: '-0.01em' }],
-        'body': ['16px', { lineHeight: '1.5', fontWeight: '400' }],
+        h1: ["50px", { lineHeight: "1.1", fontWeight: "700", letterSpacing: "-0.02em" }],
+        h2: ["30px", { lineHeight: "1.2", fontWeight: "700", letterSpacing: "-0.01em" }],
+        body: ["16px", { lineHeight: "1.5", fontWeight: "400" }],
       },
       spacing: {
-        'section': '64px',
-        'card-padding': '24px',
+        section: "64px",
+        "card-padding": "24px",
       },
       transitionDuration: {
-        'brand': '150ms',
+        brand: "150ms",
       },
       transitionTimingFunction: {
-        'brand': 'ease-out',
+        brand: "ease-out",
       },
       keyframes: {
         "accordion-down": {
@@ -116,7 +124,7 @@ export default {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
-        "blink": {
+        blink: {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0" },
         },
@@ -124,13 +132,10 @@ export default {
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "blink": "blink 1s steps(1) infinite",
+        blink: "blink 1s steps(1) infinite",
       },
     },
   },
-  safelist: [
-    "group/editimg",
-    "group-hover/editimg:visible",
-  ],
+  safelist: ["group/editimg", "group-hover/editimg:visible"],
   plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
-} satisfies Config;
+};

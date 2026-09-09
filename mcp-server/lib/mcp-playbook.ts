@@ -30,7 +30,7 @@ For remote chat agents (Claude.ai, Grok, custom connectors). Conversation style 
 
 ## Session order
 
-1. Call \`bootstrap_agent\` once near the start of the run (empty args on first call).
+1. Call \`bootstrap_agent\` once near the start of the run (empty args on first call; pass \`site\` when multi-site so conventions brand correctly).
 2. Call \`agent_session\` with \`action: "start"\` — keep \`agent_session_id\`.
 3. On every content mutate, pass \`agent_session_id\`, \`why\` (plain English goal), and \`highlights\` when touching big fields (sections, link lists, long text). Server fills simple field values (meta.title, seo.*) for staff. Issue \`complete\` also needs \`why\` + \`highlights\`. Claim/note/summarize still use string \`report\` (min 80).
 4. Prefer one \`agent_session\` \`summarize\` at the end.

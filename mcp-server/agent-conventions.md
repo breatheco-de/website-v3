@@ -1,22 +1,22 @@
 ---
-name: 4geeks-mcp-conventions
+name: website-mcp-conventions
 description: >-
-  Alejandro's conventions for how an agent should talk to him while using the
-  4Geeks.com Website MCP server to make changes to 4geeks.com (and sibling
-  sites). This is a living list that grows as he corrects or refines how he
-  wants these conversations to go. Always check these conventions before and
-  after any 4Geeks.com Website MCP write (add_section, update_fields,
+  Standing conventions for how an agent should talk to the human while using the
+  Website MCP server to make changes to {{BRAND_TITLE}} (domain {{SITE_DOMAIN}}).
+  This is a living list that grows as the human corrects or refines how they
+  want these conversations to go. Always check these conventions before and
+  after any Website MCP write (add_section, update_fields,
   replace_entry_sections, create_entry, publish_draft, promote_variant, delete_variant,
   translate_entry, etc.) — both for how to report the result and for any
   other standing preference recorded here.
 ---
 
-# 4Geeks.com Website MCP — conversation conventions
+# Website MCP — conversation conventions
 
-This document is a running log of how Alejandro wants agents to communicate
-while doing CMS work through the 4Geeks.com Website MCP server. It starts
+This document is a running log of how the human wants agents to communicate
+while doing CMS work through the Website MCP server for {{BRAND_TITLE}}. It starts
 small and is meant to be edited in place as new conventions come up —
-when Alejandro corrects something or asks for a new habit, add it below
+when the human corrects something or asks for a new habit, add it below
 as its own numbered convention rather than starting a new document.
 
 For MCP **protocol** (sessions, reports, envelopes, multi-site), follow the
@@ -39,12 +39,12 @@ conventions only.
 
 ### 1. Always link to a page you modified, and flag drafts
 
-Whenever you tell Alejandro you changed a page through the Website MCP,
-give him the URL as a clickable markdown link — never just the slug or
+Whenever you tell the human you changed a page through the Website MCP,
+give them the URL as a clickable markdown link — never just the slug or
 the raw content path (e.g. not `scholarship/miami-tech-works`).
 
 - Build the link from the page's public locale prefix + slug, e.g.
-  `https://4geeks.com/en/scholarship/miami-tech-works`.
+  `https://{{SITE_DOMAIN}}/en/scholarship/miami-tech-works`.
 - **If the write was to a draft or non-live variant** (you passed a
   `variant` param, e.g. `variant: "draft"`, or the entry has no live
   locale yet), append `?force_variant=draft` (or the matching variant
@@ -59,7 +59,7 @@ the raw content path (e.g. not `scholarship/miami-tech-works`).
 `miami-tech-works` scholarship draft (no live locale yet, written to
 `variant: "draft"`), report it as:
 
-> Ya se guardó: [Miami Tech Works — How to apply](https://4geeks.com/en/scholarship/miami-tech-works?force_variant=draft#how-to-apply)
+> Saved: [Miami Tech Works — How to apply](https://{{SITE_DOMAIN}}/en/scholarship/miami-tech-works?force_variant=draft#how-to-apply)
 
 If the page were already live and you edited the live locale directly
 (no `variant` param, `confirm_live_edit: true`), the link would omit
@@ -99,5 +99,3 @@ For `SEO_KEYWORD_RESEARCH_INCOMPLETE`:
 - **No reliable source:** do not claim, or claim→`release` blocked — never guess numbers.
 
 **Worked example:** OpenRush configured + keyword set without metrics → `refresh_keyword_metrics`, then revalidate — not `update_fields` with invented 1300/33.
-
-

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { Globe, LogOut, Monitor, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -35,7 +35,10 @@ export function StaffLogoutConfirmDialog({
     >
       <DialogContent className="sm:max-w-md" data-testid="dialog-staff-logout-confirm">
         <DialogHeader>
-          <DialogTitle>Log out of staff tools?</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <LogOut className="h-4 w-4 text-muted-foreground" />
+            Log out of staff tools?
+          </DialogTitle>
           <DialogDescription asChild>
             <div className="space-y-3 text-sm text-muted-foreground">
               <p>
@@ -57,15 +60,6 @@ export function StaffLogoutConfirmDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={logoutBusy}
-            onClick={() => onOpenChange(false)}
-            data-testid="button-staff-logout-cancel"
-          >
-            Cancel
-          </Button>
           {logoutEverywhere ? (
             <Button
               type="button"
@@ -81,7 +75,11 @@ export function StaffLogoutConfirmDialog({
               }}
               data-testid="button-staff-logout-everywhere"
             >
-              {logoutBusy ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}
+              {logoutBusy ? (
+                <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Globe className="h-4 w-4 mr-2" />
+              )}
               Sign out everywhere
             </Button>
           ) : null}
@@ -95,6 +93,7 @@ export function StaffLogoutConfirmDialog({
             }}
             data-testid="button-staff-logout-this-browser"
           >
+            <Monitor className="h-4 w-4 mr-2" />
             Log out this browser
           </Button>
         </DialogFooter>

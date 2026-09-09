@@ -170,7 +170,7 @@ export function registerComponentTools(
       if (contentType) params.set("contentType", contentType);
       params.set("__site", domain);
 
-      const url = `http://localhost:${MAIN_SERVER_PORT}/api/private/component-insights/component/${encodeURIComponent(componentType)}?${params}`;
+      const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/private/component-insights/component/${encodeURIComponent(componentType)}?${params}`;
       try {
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
         const json = await res.json();
@@ -217,7 +217,7 @@ export function registerComponentTools(
       const pathErr = assertResolvedComponent(componentType, contentFolder);
       if (pathErr) return fail(pathErr);
 
-      const url = `http://localhost:${MAIN_SERVER_PORT}/api/component-section-demos?__site=${encodeURIComponent(domain)}`;
+      const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/component-section-demos?__site=${encodeURIComponent(domain)}`;
       try {
         const res = await fetch(url, {
           method: "POST",

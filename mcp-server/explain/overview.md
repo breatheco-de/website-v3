@@ -1,6 +1,6 @@
 # Site Architecture Overview
 
-This is a content-driven marketing platform built with React (Vite/TypeScript) on the frontend and Express on the backend. All public-facing pages are authored in YAML files stored in that site's content folder from `sites.yml` (`content_folder`, e.g. `site_4geeks-com/`) and rendered dynamically by a `SectionRenderer` component. Pass `site` (domain) on `explain_site` so live catalogs below resolve from the right folder.
+This is a content-driven marketing platform built with React (Vite/TypeScript) on the frontend and Express on the backend. All public-facing pages are authored in YAML files stored in that site's content folder from `sites.yml` (`content_folder`, e.g. `site_example-com/`) and rendered dynamically by a `SectionRenderer` component. Pass `site` (domain) on `explain_site` so live catalogs below resolve from the right folder.
 
 ## Core concepts
 

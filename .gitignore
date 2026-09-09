@@ -2,6 +2,7 @@ node_modules
 dist
 .DS_Store
 artifacts
+tmp/
 
 # Site content folders — each site has its own repo (GITHUB_REPO_URL).
 # The site_*/ glob covers every site folder; the platform code repo does not contain content.
@@ -25,6 +26,8 @@ attached_assets/Capture_*
 server/public
 vite.config.ts.*
 *.tar.gz
+# Pack-time backup of site-component-schemas.ts (prepack/postpack)
+shared/.site-schemas-pack-backup.ts
 
 # Runtime state files (dot-prefixed in content folders: bucket in production, local-only in dev)
 marketing-content/.*-state.json

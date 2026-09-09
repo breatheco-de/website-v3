@@ -1,17 +1,10 @@
-import fs from "fs";
 import path from "path";
 import { Job } from "sidequest";
-import {
-  invalidateSeoIndexCache,
-  rebuildSeoIndex,
-  patchSeoIndexAfterLiveWrite,
-  loadSeoIndex,
-} from "../../seo-index";
-import { contentIndex } from "../../content-index";
+import { invalidateSeoIndexCache, rebuildSeoIndex, loadSeoIndex } from "../../seo-index";
+import { ContentIndex } from "../../content-index";
+import { MediaGallery } from "../../media-gallery";
+import { DatabaseManager } from "../../database";
 import { emitEvent } from "../../events/event-store";
-import { resolveEffectiveSeo } from "../../seo-effective-seo";
-import { localeYamlRelPath } from "../../seo-effective-seo";
-import { validateSeoSave } from "../../seo-fields";
 import { child } from "../../logger";
 import { markJobFinished, markJobStarted } from "../heartbeat";
 
@@ -21,78 +14,40 @@ export type SeoIndexRefreshPayload = {
   site: string;
   contentRoot: string;
   generation: number;
-  mode: "patch" | "rebuild";
+  /** Always treated as full rebuild; kept for event payload compatibility. */
+  mode?: "patch" | "rebuild";
   triggeredByEventId?: number;
   entryKeys?: string[];
 };
 
-function parseEntryKey(key: string): { contentType: string; slug: string; locale: string } | null {
-  const parts = key.split("/");
-  if (parts.length < 3) return null;
-  return { contentType: parts[0]!, slug: parts[1]!, locale: parts[2]! };
-}
-
+/**
+ * Full rebuild of seo-index.json from live YAML.
+ * Uses a fresh ContentIndex for this contentRoot (never the web/worker singleton),
+ * matching IndexRefreshJob — otherwise path resolution drifts after content pulls.
+ */
 export class SeoIndexRefreshJob extends Job {
   async run(payload: SeoIndexRefreshPayload): Promise<{ ok: boolean }> {
     markJobStarted("seo_index_refresh");
     try {
-      const { site, contentRoot, mode } = payload;
-      const ci = contentIndex;
+      const { site, contentRoot } = payload;
+      const contentRootName = path.relative(process.cwd(), contentRoot);
+      const mg = new MediaGallery(contentRootName);
+      const database = new DatabaseManager(contentRoot, mg);
+      const ci = new ContentIndex(contentRootName, database);
+      ci.scanFast();
+      ci.scanSlow();
 
-      if (mode === "rebuild") {
-        rebuildSeoIndex({ contentRoot });
-      } else {
-        const keys = payload.entryKeys ?? [];
-        if (keys.length === 0) {
-          rebuildSeoIndex({ contentRoot });
-        } else {
-          for (const key of keys) {
-            const parsed = parseEntryKey(key);
-            if (!parsed) continue;
-            const relFile = localeYamlRelPath(
-              parsed.contentType,
-              parsed.slug,
-              parsed.locale,
-              contentRoot,
-            );
-            const abs = path.isAbsolute(relFile)
-              ? relFile
-              : path.join(process.cwd(), relFile);
-            if (!fs.existsSync(abs)) continue;
-            const effective = resolveEffectiveSeo({
-              contentType: parsed.contentType,
-              slug: parsed.slug,
-              locale: parsed.locale,
-              contentRoot,
-            });
-            const validated = validateSeoSave({
-              next: effective,
-              locale: parsed.locale,
-              contentType: parsed.contentType,
-              slug: parsed.slug,
-              ci,
-            });
-            if (!validated.ok) continue;
-            patchSeoIndexAfterLiveWrite({
-              contentRoot,
-              contentType: parsed.contentType,
-              slug: parsed.slug,
-              locale: parsed.locale,
-              file: relFile.replace(/\\/g, "/"),
-              seo: validated.coerced,
-              pillarLive: validated.pillarLive,
-              extraWarnings: validated.warnings,
-              ci,
-            });
-          }
-        }
-      }
+      rebuildSeoIndex({
+        contentRoot,
+        ci,
+        reason: "seo_index_refresh",
+      });
 
       invalidateSeoIndexCache();
       try {
         const index = loadSeoIndex(contentRoot);
         log.info(
-          { site, mode, entries: Object.keys(index.entries).length },
+          { site, mode: "rebuild", entries: Object.keys(index.entries).length },
           "[SeoIndexRefreshJob] completed",
         );
       } catch {
@@ -105,7 +60,7 @@ export class SeoIndexRefreshJob extends Job {
         triggeredByEventId: payload.triggeredByEventId,
         payload: {
           generation: payload.generation,
-          mode,
+          mode: "rebuild",
           entryKeys: payload.entryKeys ?? [],
         },
       });

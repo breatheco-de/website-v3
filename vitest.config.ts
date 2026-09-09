@@ -9,6 +9,7 @@ export default defineConfig({
       "scripts/**/*.test.ts",
       "mcp-server/**/*.test.ts",
       "shared/**/*.test.ts",
+      "cli/**/*.test.ts",
       "client/src/**/*.test.tsx",
       "client/src/**/*.test.ts",
     ],

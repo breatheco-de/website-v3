@@ -6,6 +6,17 @@ window_days: 6
 
 entries:
   - date: "2026-09-09"
+    summary: "list_entry_seo includes seo-index keyword / volume / difficulty"
+    agent_impact:
+      - "seo-entries / list_entry_seo now return main_keyword, kw_monthly_volume, kw_difficulty from the live seo-index (not OpenRush effective metrics)."
+      - "Staff manage SEO list chips match those index values; OpenRush refresh remains refresh_keyword_metrics / SEO modal."
+      - "Search q on seo-entries also matches main_keyword. Reconnect MCP if tool descriptions look stale."
+    paths:
+      - server/routes/content.ts
+      - client/src/pages/ContentTypeManagePage.tsx
+      - mcp-server/tools/pages.ts
+    tools_changed: true
+  - date: "2026-09-09"
     summary: "MCP GitHub staff login return keeps nonce (Claude/Cursor OAuth)"
     agent_impact:
       - "Log in with GitHub on /oauth/authorize now returns to /oauth/staff-return with nonce + staff_session_code so the host OAuth callback can complete."
@@ -72,6 +83,19 @@ entries:
       - mcp-server/lib/diagnostics-issue-queue.ts
       - mcp-server/agent-conventions.md
     tools_changed: false
+  - date: "2026-09-08"
+    summary: "bootstrap_agent conventions de-branded; optional site injects brand.title + domain"
+    agent_impact:
+      - "skill.content is generic Website MCP conventions (no 4Geeks/Alejandro). Pass site on bootstrap_agent (or sole configured site) so links use that domain and brand.title from variables.yml."
+      - "skill.branding reports mode branded|generic. Multi-site without site stays generic and may recommend list_sites. Unknown site hard-fails like other tools."
+      - "Reconnect MCP so tools/list picks up the new optional site param on bootstrap_agent."
+    paths:
+      - mcp-server/agent-conventions.md
+      - mcp-server/lib/conventions-brand.ts
+      - mcp-server/lib/agent-changelog.ts
+      - mcp-server/lib/mcp-playbook.ts
+      - mcp-server/tools/explain.ts
+    tools_changed: true
   - date: "2026-09-08"
     summary: "slug_locale_mismatch soft warning on create_entry / translate_entry / live slug rename"
     agent_impact:

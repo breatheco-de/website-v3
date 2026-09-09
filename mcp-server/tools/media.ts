@@ -520,7 +520,7 @@ async function uploadBytesToGallery(opts: {
     form.append("tags", JSON.stringify(opts.tags));
   }
 
-  const uploadUrl = `http://localhost:${MAIN_SERVER_PORT}/api/image-registry/upload${opts.q}`;
+  const uploadUrl = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/image-registry/upload${opts.q}`;
   let uploadRes: Response;
   try {
     uploadRes = await opts.fetchFn(uploadUrl, {
@@ -940,7 +940,7 @@ export async function handleGetOrSetMediaToGallery(
   }
 
   const prompt = args.prompt!.trim();
-  const genUrl = `http://localhost:${MAIN_SERVER_PORT}/api/media/generate-images${q}`;
+  const genUrl = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/media/generate-images${q}`;
   let genRes: Response;
   try {
     genRes = await fetchFn(genUrl, {

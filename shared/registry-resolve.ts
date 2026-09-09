@@ -6,6 +6,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { getPackageRoot, getProjectRoot } from "./paths";
 
 export type RegistryOrigin = "shared" | "site";
 
@@ -28,13 +29,13 @@ export interface SiteRegistryRef {
   inheritComponentsFrom?: string;
 }
 
-export function getSharedRegistryPath(cwd = process.cwd()): string {
+export function getSharedRegistryPath(cwd = getPackageRoot()): string {
   return path.join(cwd, "shared", "component-registry");
 }
 
 export function getSiteRegistryPath(
   contentFolder: string,
-  cwd = process.cwd(),
+  cwd = getProjectRoot(),
 ): string {
   const folder = path.isAbsolute(contentFolder)
     ? contentFolder
@@ -49,7 +50,7 @@ export function getSiteRegistryPath(
 export function getEffectiveSiteRegistryFolder(
   siteContentFolder: string,
   inheritComponentsFrom?: string | null,
-  cwd = process.cwd(),
+  cwd = getProjectRoot(),
 ): string {
   const inherit = inheritComponentsFrom?.trim();
   if (!inherit) return siteContentFolder;
@@ -96,7 +97,7 @@ export function listTypesInRegistry(registryRoot: string): string[] {
 
 export function findRegistryCollisions(
   siteContentFolder: string,
-  cwd = process.cwd(),
+  cwd = getProjectRoot(),
   inheritComponentsFrom?: string | null,
 ): RegistryCollision[] {
   const effective = getEffectiveSiteRegistryFolder(
@@ -126,7 +127,7 @@ export function findRegistryCollisions(
  */
 export function assertNoRegistryCollisions(
   siteContentFolder: string,
-  cwd = process.cwd(),
+  cwd = getProjectRoot(),
   inheritComponentsFrom?: string | null,
 ): void {
   // Throws if inherit is set and child has component-registry/
@@ -153,7 +154,7 @@ export function assertNoRegistryCollisions(
 
 export function assertNoRegistryCollisionsForAllSites(
   sites: Array<string | SiteRegistryRef>,
-  cwd = process.cwd(),
+  cwd = getProjectRoot(),
 ): void {
   for (const site of sites) {
     if (typeof site === "string") {
@@ -175,7 +176,7 @@ export function assertNoRegistryCollisionsForAllSites(
 export function resolveComponentPath(
   componentType: string,
   siteContentFolder: string,
-  cwd = process.cwd(),
+  cwd = getProjectRoot(),
   inheritComponentsFrom?: string | null,
 ): ResolvedComponentPath | null {
   const effective = getEffectiveSiteRegistryFolder(
@@ -224,7 +225,7 @@ export interface MergedComponentType {
 /** All types for one site: shared ∪ effective site registry (disjoint by collision rules). */
 export function listMergedComponentTypes(
   siteContentFolder: string,
-  cwd = process.cwd(),
+  cwd = getProjectRoot(),
   inheritComponentsFrom?: string | null,
 ): MergedComponentType[] {
   assertNoRegistryCollisions(siteContentFolder, cwd, inheritComponentsFrom);

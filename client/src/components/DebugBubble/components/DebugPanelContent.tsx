@@ -33,6 +33,7 @@ import {
   startGitHubConnect,
   useGitHubUserConnection,
 } from "@/hooks/useGitHubUserConnection";
+import { ActivateGitHubLoginModal } from "./ActivateGitHubLoginModal";
 import { ComponentsView } from "./ComponentsView";
 import { VersioningView } from "./VersioningView";
 import { MenusView } from "./MenusView";
@@ -317,6 +318,177 @@ function GitHubConnectCriticalBanner() {
   );
 }
 
+type StaffConnectorsResponse = {
+  githubLoginAvailable?: boolean;
+  siteUrl?: string | null;
+  callbackUrl?: string | null;
+  siteUrlLookSuspicious?: boolean;
+  connectionTokenStaffAllowed?: boolean;
+};
+
+const TOKEN_CMD = "npx weblify token";
+
+function StaffSignInPanel(props: {
+  tokenInput: string;
+  setTokenInput: (v: string) => void;
+  setPendingAutoEditMode: (v: boolean) => void;
+  validateManualToken: (token: string) => void;
+  startGitHubLogin?: () => Promise<void>;
+  isLoading: boolean;
+  authError?: string | null;
+}) {
+  const [activateOpen, setActivateOpen] = useState(false);
+  const { data: connectors } = useQuery<StaffConnectorsResponse>({
+    queryKey: ["/api/staff/auth/connectors"],
+    queryFn: async () => {
+      const res = await fetch("/api/staff/auth/connectors");
+      if (!res.ok) return {};
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const githubAvailable = connectors?.githubLoginAvailable === true;
+  const connectionTokenAllowed = connectors?.connectionTokenStaffAllowed !== false;
+  const siteUrl = connectors?.siteUrl ?? null;
+  const callbackUrl = connectors?.callbackUrl ?? null;
+  const suspicious = connectors?.siteUrlLookSuspicious === true;
+
+  const tokenHint = connectionTokenAllowed
+    ? "Paste a Weblify connection token or a staff session token from another signed-in browser (not a GitHub or Breathecode token)."
+    : "Paste a staff session token from another signed-in browser (not a GitHub, Breathecode, or Weblify connection token).";
+
+  const tokenPlaceholder = connectionTokenAllowed
+    ? "Connection token or staff session..."
+    : "Staff session token...";
+
+  return (
+    <div className="p-4 pl-[8px] pr-[8px] dark:bg-background">
+      <div className="flex items-start gap-3">
+        <div className="p-2 rounded-full bg-amber-100 dark:bg-amber-900 flex-shrink-0">
+          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-sm mb-1">Staff sign-in required</h3>
+          {githubAvailable ? (
+            <p className="text-xs text-muted-foreground mb-3">
+              Staff sign-in uses GitHub. Only people pre-registered by an admin (or the first admin on an empty install) can get in. Your GitHub account must have a verified email.
+            </p>
+          ) : (
+            <div className="mb-3 space-y-1.5">
+              <p className="text-xs text-amber-800 dark:text-amber-200">
+                GitHub sign-in is not active on this site. Use a connection token from Weblify until you activate GitHub.
+              </p>
+              <button
+                type="button"
+                className="text-xs text-foreground underline-offset-2 hover:underline"
+                onClick={() => setActivateOpen(true)}
+                data-testid="button-how-to-activate-github"
+              >
+                How to activate
+              </button>
+            </div>
+          )}
+          {githubAvailable && suspicious ? (
+            <p
+              className="text-xs text-amber-800 dark:text-amber-200 mb-3"
+              data-testid="text-site-url-suspicious"
+            >
+              Your public site URL looks like a temporary tunnel. The GitHub App callback may not match after the tunnel rotates.
+            </p>
+          ) : null}
+          {props.authError && (
+            <p className="text-xs text-destructive mb-3" data-testid="text-staff-auth-error">
+              {props.authError}
+            </p>
+          )}
+          {githubAvailable ? (
+            <div className="flex flex-col gap-2 mb-3">
+              <Button
+                size="sm"
+                onClick={() => void props.startGitHubLogin?.()}
+                disabled={props.isLoading}
+                data-testid="button-github-login"
+              >
+                {props.isLoading ? (
+                  <RefreshCw className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <Github className="h-4 w-4 mr-1" />
+                )}
+                Log in with GitHub
+              </Button>
+            </div>
+          ) : null}
+          <p className="text-xs text-muted-foreground mb-2">{tokenHint}</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder={tokenPlaceholder}
+              value={props.tokenInput}
+              onChange={(e) => props.setTokenInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && props.tokenInput.trim()) {
+                  props.setPendingAutoEditMode(true);
+                  props.validateManualToken(props.tokenInput.trim());
+                }
+              }}
+              className="flex-1 px-3 py-1.5 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+              data-testid="input-token"
+            />
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                props.setPendingAutoEditMode(true);
+                props.validateManualToken(props.tokenInput.trim());
+              }}
+              disabled={!props.tokenInput.trim() || props.isLoading}
+              data-testid="button-validate-token"
+            >
+              {props.isLoading ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                "Paste"
+              )}
+            </Button>
+          </div>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="mt-2 text-xs text-muted-foreground underline-offset-2 hover:underline"
+                data-testid="button-how-to-generate-token"
+              >
+                How to generate this token
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className="w-80 dark:bg-popover text-sm space-y-2"
+            >
+              <p className="text-foreground">
+                Stop Weblify if it is running, then in your project folder run:
+              </p>
+              <code className="block rounded bg-muted px-2 py-1.5 text-xs font-mono break-all">
+                {TOKEN_CMD}
+              </code>
+              <p className="text-xs text-muted-foreground">
+                The terminal prints a new <span className="font-mono">wfy_…</span> token. Paste it here to sign in as staff, or use the same token for MCP (Cursor / Claude). Minting a new token invalidates the previous one.
+              </p>
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+      <ActivateGitHubLoginModal
+        open={activateOpen}
+        onOpenChange={setActivateOpen}
+        siteUrl={siteUrl}
+        callbackUrl={callbackUrl}
+      />
+    </div>
+  );
+}
+
 export function DebugPanelContent(props: DebugPanelContentProps) {
   const { i18n } = useTranslation();
   const enterVisualEdit = useEnterVisualEditMode();
@@ -448,74 +620,15 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
 
   if (props.noTokenDetected) {
     return (
-      <div className="p-4 pl-[8px] pr-[8px]">
-        <div className="flex items-start gap-3">
-          <div className="p-2 rounded-full bg-amber-100 dark:bg-amber-900 flex-shrink-0">
-            <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-semibold text-sm mb-1">Staff sign-in required</h3>
-            <p className="text-xs text-muted-foreground mb-3">
-              Staff sign-in uses GitHub. Only people pre-registered by an admin (or the first admin on an empty install) can get in. Your GitHub account must have a verified email.
-            </p>
-            {props.authError && (
-              <p className="text-xs text-destructive mb-3" data-testid="text-staff-auth-error">
-                {props.authError}
-              </p>
-            )}
-            <div className="flex flex-col gap-2 mb-3">
-              <Button
-                size="sm"
-                onClick={() => void props.startGitHubLogin?.()}
-                disabled={props.isLoading}
-                data-testid="button-github-login"
-              >
-                {props.isLoading ? (
-                  <RefreshCw className="h-4 w-4 animate-spin mr-1" />
-                ) : (
-                  <Github className="h-4 w-4 mr-1" />
-                )}
-                Log in with GitHub
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground mb-2">
-              Or paste a staff session token from another signed-in browser (not a GitHub or Breathecode token).
-            </p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Staff session token..."
-                value={props.tokenInput}
-                onChange={(e) => props.setTokenInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && props.tokenInput.trim()) {
-                    props.setPendingAutoEditMode(true);
-                    props.validateManualToken(props.tokenInput.trim());
-                  }
-                }}
-                className="flex-1 px-3 py-1.5 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                data-testid="input-token"
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => {
-                  props.setPendingAutoEditMode(true);
-                  props.validateManualToken(props.tokenInput.trim());
-                }}
-                disabled={!props.tokenInput.trim() || props.isLoading}
-                data-testid="button-validate-token"
-              >
-                {props.isLoading ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : (
-                  "Paste"
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <StaffSignInPanel
+        tokenInput={props.tokenInput}
+        setTokenInput={props.setTokenInput}
+        setPendingAutoEditMode={props.setPendingAutoEditMode}
+        validateManualToken={props.validateManualToken}
+        startGitHubLogin={props.startGitHubLogin}
+        isLoading={props.isLoading}
+        authError={props.authError}
+      />
     );
   }
 

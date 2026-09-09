@@ -3203,6 +3203,27 @@ export function registerContentRoutes(app: Express): void {
       }
       const urlPattern = config.url_pattern as Record<string, string> | undefined;
 
+      const { loadSeoIndex, seoEntryId } = await import("../seo-index");
+      const seoIndex = loadSeoIndex(getContentRoot(res));
+      const keywordFieldsFromIndex = (
+        slug: string | null | undefined,
+        locale: string | null | undefined,
+      ): {
+        main_keyword: string | null;
+        kw_monthly_volume: number | null;
+        kw_difficulty: number | null;
+      } => {
+        if (!slug || !locale) {
+          return { main_keyword: null, kw_monthly_volume: null, kw_difficulty: null };
+        }
+        const row = seoIndex.entries[seoEntryId(type, slug, locale)];
+        return {
+          main_keyword: row?.main_keyword ?? null,
+          kw_monthly_volume: row?.kw_monthly_volume ?? null,
+          kw_difficulty: row?.kw_difficulty ?? null,
+        };
+      };
+
       const finishSeoEntries = (
         base: Record<string, unknown>,
         entries: Array<Record<string, unknown>>,
@@ -3219,8 +3240,12 @@ export function registerContentRoutes(app: Express): void {
             const pageTitle = String(
               (e.meta as Record<string, unknown> | undefined)?.page_title || "",
             ).toLowerCase();
+            const mainKeyword = String(e.main_keyword || "").toLowerCase();
             return (
-              title.includes(q) || slug.includes(q) || pageTitle.includes(q)
+              title.includes(q) ||
+              slug.includes(q) ||
+              pageTitle.includes(q) ||
+              mainKeyword.includes(q)
             );
           });
         }
@@ -3312,14 +3337,16 @@ export function registerContentRoutes(app: Express): void {
               });
             }
           }
+          const slugVal = typeof item.slug === "string" ? item.slug : null;
           entries.push({
-            slug: item.slug ?? null,
+            slug: slugVal,
             contentType: type,
             locale,
             url,
             title: item.title ?? null,
             meta: resolvedMeta,
             schema: template?.schema ?? null,
+            ...keywordFieldsFromIndex(slugVal, locale),
           });
         }
 
@@ -3391,13 +3418,34 @@ export function registerContentRoutes(app: Express): void {
                 title: typeof merged.title === "string" ? merged.title : null,
                 meta: resolvedMeta,
                 schema: (merged.schema as Record<string, unknown>) ?? null,
+                ...keywordFieldsFromIndex(slug, locale),
               });
             } catch (fileErr) {
-              entries.push({ slug, contentType: type, locale, url: null, title: null, meta: {}, schema: null, parse_error: String(fileErr) });
+              entries.push({
+                slug,
+                contentType: type,
+                locale,
+                url: null,
+                title: null,
+                meta: {},
+                schema: null,
+                parse_error: String(fileErr),
+                ...keywordFieldsFromIndex(slug, locale),
+              });
             }
           }
         } catch (slugErr) {
-          entries.push({ slug, contentType: type, locale: null, url: null, title: null, meta: {}, schema: null, parse_error: String(slugErr) });
+          entries.push({
+            slug,
+            contentType: type,
+            locale: null,
+            url: null,
+            title: null,
+            meta: {},
+            schema: null,
+            parse_error: String(slugErr),
+            ...keywordFieldsFromIndex(slug, null),
+          });
         }
       }
 

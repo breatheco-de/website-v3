@@ -43,7 +43,7 @@ export function registerUserTools(
       try {
         const params = new URLSearchParams();
         if (username) params.set("username", username);
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/auth/user-info?${params}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/auth/user-info?${params}`;
         const res = await fetch(url, {
           headers: internalHeaders(username ?? ""),
         });

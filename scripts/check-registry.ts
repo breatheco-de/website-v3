@@ -3,8 +3,16 @@
  * Verify that shared/schema.ts can import named exports from local
  * site component-registry schema.ts files (gitignored, content-synced).
  *
+ * When site content is absent (or WEBLIFY_SITE_SCHEMAS_STUB=1), skips the live
+ * import check — pack/CI builds use the stub bridge via Vite/esbuild alias.
+ *
  * Usage: npm run check:registry
  */
+
+import {
+  shouldUseSiteSchemaStub,
+  siteComponentRegistryExists,
+} from "../shared/site-schema-stub-mode.ts";
 
 const RECOVERY = `
 Recovery:
@@ -15,7 +23,8 @@ Recovery:
      or temporarily remove the premature re-export from shared/schema.ts
 
 Note: site_*/component-registry is content-synced (gitignored), not part of the app git repo.
-shared/schema.ts re-exports Zod from those files — a content lag breaks boot/build.
+shared/site-component-schemas.ts is the single coupling point that re-exports Zod from those files
+(shared/schema.ts imports the bridge only) — a content lag breaks boot/build.
 `.trim();
 
 export interface RegistryCheckResult {
@@ -85,6 +94,17 @@ const isMain =
 
 if (isMain) {
   const quiet = process.argv.includes("--quiet");
+  if (shouldUseSiteSchemaStub()) {
+    if (!quiet) {
+      const reason = siteComponentRegistryExists()
+        ? "WEBLIFY_SITE_SCHEMAS_STUB is set"
+        : "site_4geeks-com/component-registry not found";
+      console.log(
+        `✓ site schema stub mode (${reason}) — skipping live registry import check`,
+      );
+    }
+    process.exit(0);
+  }
   checkRegistryImports()
     .then((result) => {
       if (result.ok) {

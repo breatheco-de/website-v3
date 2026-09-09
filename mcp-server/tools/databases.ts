@@ -92,7 +92,7 @@ async function fetchDbConfig(
   domain: string | null,
   mcpToken?: string,
 ): Promise<{ ok: true; data: DbConfigResponse } | { ok: false; message: string }> {
-  const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}${siteQuery(domain)}`;
+  const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}${siteQuery(domain)}`;
   const res = await fetch(url, { headers: internalHeaders(mcpToken) });
   const data = (await res.json()) as DbConfigResponse & { error?: string };
   if (!res.ok) {
@@ -132,7 +132,7 @@ async function forceRefreshDatabase(
   domain: string | null,
   mcpToken?: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/refresh${siteQuery(domain)}`;
+  const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/refresh${siteQuery(domain)}`;
   const res = await fetch(url, { method: "POST", headers: internalHeaders(mcpToken) });
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -147,7 +147,7 @@ async function fetchAllItems(
   mcpToken?: string,
 ): Promise<{ ok: true; items: Record<string, unknown>[] } | { ok: false; message: string }> {
   // High limit so we can stamp global indices correctly before filtering.
-  const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/items${siteQueryJoin(domain, "limit=1000&page=1")}`;
+  const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/items${siteQueryJoin(domain, "limit=1000&page=1")}`;
   const res = await fetch(url, { headers: internalHeaders(mcpToken) });
   const data = (await res.json()) as {
     items?: Record<string, unknown>[];
@@ -163,7 +163,7 @@ async function fetchAllItems(
     // Paginate remaining pages if needed
     const pages = Math.ceil(total / 1000);
     for (let page = 2; page <= pages; page++) {
-      const pageUrl = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/items${siteQueryJoin(domain, `limit=1000&page=${page}`)}`;
+      const pageUrl = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/items${siteQueryJoin(domain, `limit=1000&page=${page}`)}`;
       const pageRes = await fetch(pageUrl, { headers: internalHeaders(mcpToken) });
       const pageData = (await pageRes.json()) as { items?: Record<string, unknown>[]; error?: string };
       if (!pageRes.ok) {
@@ -310,7 +310,7 @@ async function maybeReindex(
       },
     };
   }
-  const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/reindex${siteQuery(domain)}`;
+  const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/reindex${siteQuery(domain)}`;
   const res = await fetch(url, { method: "POST", headers: internalHeaders(mcpToken) });
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -350,7 +350,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       const domain = siteResult.domain;
 
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases${siteQuery(domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases${siteQuery(domain)}`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
         const data = (await res.json()) as Array<Record<string, unknown>> | { error?: string };
         if (!res.ok || !Array.isArray(data)) {
@@ -610,7 +610,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           });
         }
 
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items${siteQuery(domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items${siteQuery(domain)}`;
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken),
@@ -735,7 +735,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const indices: number[] = [];
 
         if (toWrite.length > 0) {
-          const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items${siteQuery(domain)}`;
+          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items${siteQuery(domain)}`;
           const res = await fetch(url, {
             method: "POST",
             headers: internalHeaders(mcpToken),
@@ -919,7 +919,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           }
         }
 
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${index}${siteQuery(domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${index}${siteQuery(domain)}`;
         const res = await fetch(url, {
           method: "PATCH",
           headers: internalHeaders(mcpToken),
@@ -1046,7 +1046,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
 
         for (let i = 0; i < toPatch.length; i++) {
           const row = toPatch[i];
-          const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${row.index}${siteQuery(domain)}`;
+          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${row.index}${siteQuery(domain)}`;
           const res = await fetch(url, {
             method: "PATCH",
             headers: internalHeaders(mcpToken),
@@ -1214,7 +1214,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         let usageSummary: ReturnType<typeof summarizeUsage> | null = null;
         let usageUnknown = false;
         try {
-          const usageUrl = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/usage${siteQuery(domain)}`;
+          const usageUrl = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/usage${siteQuery(domain)}`;
           const usageRes = await fetch(usageUrl, { headers: internalHeaders(mcpToken) });
           if (usageRes.ok) {
             const usageData = (await usageRes.json()) as {
@@ -1269,7 +1269,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         }
         const vectorEnabled = cfg.data.config.vector_search?.enabled === true;
 
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${index}${siteQuery(domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${index}${siteQuery(domain)}`;
         const res = await fetch(url, {
           method: "DELETE",
           headers: internalHeaders(mcpToken),
@@ -1339,7 +1339,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           return fail(`Semantic search is not enabled for database "${database}"`);
         }
 
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/reindex${siteQuery(domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/reindex${siteQuery(domain)}`;
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken),

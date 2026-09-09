@@ -25,6 +25,7 @@ import express, { type Express, type Request, type Response } from "express";
 import fs from "fs";
 import path from "path";
 import { createServer as createViteServer, createLogger, type ViteDevServer } from "vite";
+import { isWeblifyDebug } from "../shared/debug";
 import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { resolveInitialData, resolvePreloadHints, injectSsrMetaTags, type PreloadHint, type InitialDataPayload } from "./initial-data-middleware";
@@ -115,6 +116,16 @@ function injectPreloadTags(html: string, preloadTags: string): string {
 
 const viteLogger = createLogger();
 
+function quietViteLogger(): typeof viteLogger {
+  const noop = () => {};
+  return {
+    ...viteLogger,
+    info: noop,
+    warn: noop,
+    // keep error / hasErrorLogged / clear* from viteLogger
+  };
+}
+
 function siteContentIndex(res: Response): { isKnownUrl(url: string): boolean } | undefined {
   return (res.locals as { site?: { contentIndex?: { isKnownUrl(url: string): boolean } } }).site
     ?.contentIndex;
@@ -134,13 +145,10 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
     ws: { perMessageDeflate: false },
   };
 
-  // The project root is always one level above this server/ file.
-  // We derive it from import.meta.dirname here (in the *server* file) rather than
-  // relying on the aliases baked into vite.config.ts, because in the deployed
-  // environment vite.config may be compiled to dist/vite.config.js whose
-  // import.meta.dirname is dist/ — causing every @ alias to resolve to
-  // dist/client/src instead of <root>/client/src.
-  const projectRoot = path.resolve(import.meta.dirname, "..");
+  // The engine root is always one level above this server/ file when running from source,
+  // or WEBLIFY_PACKAGE_ROOT when running as an installed package.
+  const { getPackageRoot } = await import("@shared/paths");
+  const projectRoot = getPackageRoot();
 
   // vite.config.ts exports an async factory via defineConfig.
   // We must call it to get the resolved config object before spreading.
@@ -148,6 +156,8 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
   const resolvedViteConfig = typeof viteConfig === "function"
     ? await (viteConfig as Function)({ mode: "development", command: "serve" })
     : viteConfig;
+
+  const baseLogger = isWeblifyDebug() ? viteLogger : quietViteLogger();
 
   const vite = await createViteServer({
     ...resolvedViteConfig,
@@ -164,9 +174,9 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
       },
     },
     customLogger: {
-      ...viteLogger,
+      ...baseLogger,
       error: (msg, options) => {
-        viteLogger.error(msg, options);
+        baseLogger.error(msg, options);
         // Only crash on genuine build/plugin errors, not on SSR pre-transform misses
         if (options?.error && !msg.includes("Pre-transform error")) {
           process.exit(1);

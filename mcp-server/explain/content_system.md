@@ -1,6 +1,6 @@
 # Content System
 
-All marketing content lives under the site folder from `sites.yml` (`content_folder`, e.g. `site_4geeks-com/`). Pages are YAML files grouped by content type directory. Live tables below are loaded from that folder.
+All marketing content lives under the site folder from `sites.yml` (`content_folder`, e.g. `site_example-com/`). Pages are YAML files grouped by content type directory. Live tables below are loaded from that folder.
 
 ## Directory layout
 
@@ -213,7 +213,7 @@ Staff: delete confirm modal and Runtime 404 **CMS links** column show derived re
 
 ## Agent sessions and reports
 
-- Call `bootstrap_agent` once near the start of an MCP content run (Claude.ai, Grok, or any connector). First call: omit params → playbook + conversation conventions (`skill.content` from `mcp-server/agent-conventions.md`) + 6-day changelog. Later calls: `include_skill_content: false` and/or `known_skill_version` matching `skill.version` (changelog + playbook still returned).
+- Call `bootstrap_agent` once near the start of an MCP content run (Claude.ai, Grok, or any connector). First call: omit params → playbook + conversation conventions (`skill.content` from `mcp-server/agent-conventions.md`, branded when `site` is passed or only one site is configured) + 6-day changelog. Later calls: `include_skill_content: false` and/or `known_skill_version` matching `skill.version` (changelog + playbook still returned).
 - Then `agent_session` (`start`) → pass `agent_session_id` on every content mutate (header `x-mcp-agent-session` via loopback).
 - Every high-impact content mutate requires `report` (min 80 characters): what changed and why for this write.
 - **Staff-readable values:** when you set copy or structured text (titles, subtitles, CTA, success messages, blurbs), list the **plain new values** inline (`Title: …; Subtitle: …`). Do not paste JSON/YAML dumps or only name tools/field paths.

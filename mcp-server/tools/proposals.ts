@@ -103,7 +103,7 @@ export function registerProposalTools(
       const siteResult = resolveSiteContext(args.site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/admin/proposals${siteQuery(siteResult.domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals${siteQuery(siteResult.domain)}`;
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken),
@@ -258,7 +258,7 @@ export function registerProposalTools(
       }
       const extra = qs.toString();
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/admin/proposals${siteQuery(siteResult.domain, extra)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals${siteQuery(siteResult.domain, extra)}`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
         const data = (await res.json()) as {
           proposals?: unknown[];
@@ -313,7 +313,7 @@ export function registerProposalTools(
       const siteResult = resolveSiteContext(args.site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/admin/proposals/${encodeURIComponent(args.proposal_id)}/${encodeURIComponent(args.action)}${siteQuery(siteResult.domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals/${encodeURIComponent(args.proposal_id)}/${encodeURIComponent(args.action)}${siteQuery(siteResult.domain)}`;
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken),

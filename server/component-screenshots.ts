@@ -1,3 +1,4 @@
+import { getProjectRoot } from "@shared/paths";
 import * as path from "path";
 import { createScreenshotCacheStore, safeScreenshotKey } from "./screenshot-cache";
 import { getDefaultContentFolder, getInheritComponentsFrom } from "./site-config";
@@ -39,12 +40,12 @@ function cacheBase(componentType: string, example?: string | null): string {
 
 function siteCacheDir(contentFolder: string): string {
   // Per-site local cache (GCS can wrap this later). Site-keyed so brands do not collide.
-  return path.join(process.cwd(), ".cache", contentFolder, "component-screenshots");
+  return path.join(getProjectRoot(), ".cache", contentFolder, "component-screenshots");
 }
 
 function sharedScreenshotsDir(componentType: string): string {
   return path.join(
-    process.cwd(),
+    getProjectRoot(),
     "shared",
     "component-registry",
     componentType,
@@ -57,7 +58,7 @@ function storeFor(componentType: string, contentFolder?: string) {
   const resolved = resolveComponentPath(
     componentType,
     folder,
-    process.cwd(),
+    getProjectRoot(),
     getInheritComponentsFrom(folder),
   );
 

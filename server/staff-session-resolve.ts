@@ -3,6 +3,13 @@ import {
   getStaffSession,
   type StaffSessionRecord,
 } from "./staff-session";
+import { isConnectionTokenStaffAllowed } from "./staff-github-login";
+import {
+  connectionTokenMatches,
+  ensureWeblifyLocalOwner,
+} from "./weblify-connection-token";
+
+const CONNECTION_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface ResolvedStaffSession {
   token: string;
@@ -16,16 +23,30 @@ export async function resolveOwnedStaffSession(
   token: string | null | undefined,
 ): Promise<ResolvedStaffSession | null> {
   if (!token) return null;
+
   const session = await getStaffSession(token);
-  if (!session) return null;
-  if (!userStore.getUser(session.username)) return null;
-  if (!userStore.hasAnyRole(session.username)) return null;
+  if (session) {
+    if (!userStore.getUser(session.username)) return null;
+    if (!userStore.hasAnyRole(session.username)) return null;
+    return {
+      token: session.token,
+      username: session.username,
+      staffId: userStore.getOrCreateStaffUserId(session.username),
+      roles: userStore.getUserRoles(session.username),
+      expiresAt: session.expiresAt,
+    };
+  }
+
+  if (!connectionTokenMatches(token)) return null;
+  if (!isConnectionTokenStaffAllowed()) return null;
+
+  const owner = ensureWeblifyLocalOwner();
   return {
-    token: session.token,
-    username: session.username,
-    staffId: userStore.getOrCreateStaffUserId(session.username),
-    roles: userStore.getUserRoles(session.username),
-    expiresAt: session.expiresAt,
+    token: token.trim(),
+    username: owner.username,
+    staffId: owner.staffId,
+    roles: owner.roles,
+    expiresAt: Date.now() + CONNECTION_TOKEN_TTL_MS,
   };
 }
 
