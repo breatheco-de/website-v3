@@ -6,6 +6,17 @@ window_days: 6
 
 entries:
   - date: "2026-09-09"
+    summary: "list_entry_seo includes seo-index keyword / volume / difficulty"
+    agent_impact:
+      - "seo-entries / list_entry_seo now return main_keyword, kw_monthly_volume, kw_difficulty from the live seo-index (not OpenRush effective metrics)."
+      - "Staff manage SEO list chips match those index values; OpenRush refresh remains refresh_keyword_metrics / SEO modal."
+      - "Search q on seo-entries also matches main_keyword. Reconnect MCP if tool descriptions look stale."
+    paths:
+      - server/routes/content.ts
+      - client/src/pages/ContentTypeManagePage.tsx
+      - mcp-server/tools/pages.ts
+    tools_changed: true
+  - date: "2026-09-09"
     summary: "MCP GitHub staff login return keeps nonce (Claude/Cursor OAuth)"
     agent_impact:
       - "Log in with GitHub on /oauth/authorize now returns to /oauth/staff-return with nonce + staff_session_code so the host OAuth callback can complete."

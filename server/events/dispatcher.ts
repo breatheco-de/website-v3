@@ -67,23 +67,22 @@ async function enqueueSyncStateFlush(site: string, contentRoot: string): Promise
 async function enqueueSeoIndexRefresh(
   event: ContentEvent,
   contentRoot: string,
-  mode: "patch" | "rebuild",
-  entryKeys?: string[],
+  opts?: { delayMs?: number },
 ): Promise<void> {
+  // Always full rebuild — live SEO writes already patch seo-index in-request.
   await enqueueJob(
     "seo_index_refresh",
     {
       site: event.site,
       contentRoot,
       generation: event.id,
-      mode,
+      mode: "rebuild",
       triggeredByEventId: event.id,
-      ...(entryKeys?.length ? { entryKeys } : {}),
     },
     {
       uniqueKey: `seo-index:${event.site}`,
       uniqueWithArgs: false,
-      delayMs: mode === "rebuild" ? 5000 : 0,
+      delayMs: opts?.delayMs ?? 0,
     },
   );
 }
@@ -137,10 +136,7 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
     }
     case "entry_seo_changed": {
       if (event.payload.seoIndexSynced === true) break;
-      const memberKeys = (event.payload.memberEntryKeys as string[] | undefined) ?? [];
-      const hubKey = entryKeyFromEvent(event);
-      const keys = hubKey ? [hubKey, ...memberKeys] : memberKeys;
-      await enqueueSeoIndexRefresh(event, ctx.contentRoot, "patch", keys.length ? keys : undefined);
+      await enqueueSeoIndexRefresh(event, ctx.contentRoot);
       break;
     }
     case "site_redirects_changed": {
@@ -160,7 +156,7 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
           queueLinkIndexRemove(keys, ctx.contentRoot);
         }
       }
-      await enqueueSeoIndexRefresh(event, ctx.contentRoot, "rebuild");
+      await enqueueSeoIndexRefresh(event, ctx.contentRoot, { delayMs: 5000 });
       break;
     }
     case "entry_deleted": {

@@ -889,6 +889,7 @@ export function registerSeoRoutes(app: Express): void {
         faqCoverage,
         schemaCoverage,
         indexRebuilt: !!seoIndex.rebuilt,
+        lastFullRebuildAt: seoIndex.last_full_rebuild_at ?? null,
         totals: {
           totalPages,
           withPillar,
@@ -1750,6 +1751,7 @@ export function registerSeoRoutes(app: Express): void {
       invalidateSeoIndexCache();
       const index = rebuildSeoIndex({
         contentRoot: getContentRoot(res),
+        ci: getCI(res),
         reason: "manual_reindex",
         mark: false,
       });
@@ -1760,6 +1762,7 @@ export function registerSeoRoutes(app: Express): void {
         orphans: index.orphans.length,
         warnings: index.warnings.length,
         generated_at: index.generated_at,
+        last_full_rebuild_at: index.last_full_rebuild_at ?? null,
         durationMs: Date.now() - started,
       });
     } catch (err) {

@@ -2887,6 +2887,8 @@ interface SeoOverview {
   featureCoverage: Record<string, number>;
   faqCoverage: { slug: string; contentType: string; locale: string; faqCount: number }[];
   schemaCoverage: Record<string, number>;
+  /** ISO time of last full seo-index rebuild (null if never recorded). */
+  lastFullRebuildAt?: string | null;
   /** Present when traffic metrics are merged from /api/seo/cluster-metrics */
   organicTraffic?: {
     window: { start: string; end: string } | null;
@@ -3214,9 +3216,10 @@ function SeoOverviewCollapsibleCard({
   );
 }
 
-function ClusterReindexButton() {
+function ClusterReindexButton({ lastFullRebuildAt }: { lastFullRebuildAt?: string | null }) {
   return (
     <SeoIndexReindexControl
+      lastFullRebuildAt={lastFullRebuildAt}
       onSuccess={() => {
         invalidateClusterQueries();
       }}
@@ -4802,7 +4805,7 @@ export function SeoTab({
               ? "No clusters yet"
               : undefined
         }
-        actions={<ClusterReindexButton />}
+        actions={<ClusterReindexButton lastFullRebuildAt={data.lastFullRebuildAt} />}
       >
           {data.clusterHealth ? (
             <ClusterHealthPanel

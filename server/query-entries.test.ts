@@ -226,6 +226,31 @@ describe("queryEntries static content type", () => {
     expect(hydratedBeta).not.toHaveProperty("content");
   });
 
+  it("parses locale YAML with unquoted liquid defaults that contain %", async () => {
+    fs.writeFileSync(
+      path.join(contentRoot, "blog", "post-alpha", "en.yml"),
+      `title: Alpha With Vars
+description: Alpha description
+sections:
+  - type: certificate
+    stats:
+      - value: {{ global.global_job_placement_rate | 84 }}%
+`,
+      "utf-8",
+    );
+    invalidateStaticListingCache("blog", contentRoot);
+
+    const { items, total } = await queryEntries(
+      { from: { contentType: "blog" }, locale: "en" },
+      { contentIndex: ci, contentRoot },
+    );
+
+    expect(total).toBe(2);
+    const alpha = items.find((i) => i.slug === "post-alpha");
+    expect(alpha?.title).toBe("Alpha With Vars");
+    expect(alpha).not.toHaveProperty("sections");
+  });
+
   it("caches static projections until invalidated", async () => {
     const first = await queryEntries(
       { from: { contentType: "blog" }, locale: "en" },

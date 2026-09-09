@@ -412,6 +412,36 @@ meta:
 });
 
 describe("seo-index lifecycle helpers", () => {
+  it("rebuildSeoIndex sets last_full_rebuild_at; patch leaves it unchanged", async () => {
+    const { rebuildSeoIndex, patchSeoIndexAfterLiveWrite, invalidateSeoIndexCache } = await import(
+      "./seo-index"
+    );
+    const rebuilt = rebuildSeoIndex({
+      contentRoot,
+      reason: "test",
+      ci: stubCi("/en/blog/post-a"),
+      mark: false,
+    });
+    expect(rebuilt.last_full_rebuild_at).toBeTruthy();
+    const stamped = rebuilt.last_full_rebuild_at!;
+
+    await new Promise((r) => setTimeout(r, 5));
+    patchSeoIndexAfterLiveWrite({
+      contentRoot,
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      file: "blog/post-a/en.yml",
+      seo: { main_keyword: "patched-kw", pillar_path: "/en/blog/hub" },
+      pillarLive: true,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    invalidateSeoIndexCache();
+    const afterPatch = loadSeoIndex(contentRoot);
+    expect(afterPatch.last_full_rebuild_at).toBe(stamped);
+    expect(afterPatch.entries["blog/post-a/en"]?.main_keyword).toBe("patched-kw");
+  });
+
   it("syncSeoIndexEntryFromLiveDisk patches the index from live YAML", async () => {
     const { syncSeoIndexEntryFromLiveDisk } = await import("./seo-index");
     fs.writeFileSync(

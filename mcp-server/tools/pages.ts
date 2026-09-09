@@ -8753,8 +8753,9 @@ export function registerPageTools(
   // list_entry_seo
   mcp.tool(
     "list_entry_seo",
-    "Return SEO-relevant fields (meta, title, schema, url) for content entries. " +
+    "Return SEO-relevant fields (meta, title, schema, url, and seo-index keyword chips) for content entries. " +
     "Works for YAML and DB-backed types via the main server seo-entries API. " +
+    "main_keyword / kw_monthly_volume / kw_difficulty come from the live seo-index (YAML-backed index values), not OpenRush effective metrics — use refresh_keyword_metrics or the SEO modal for OpenRush. " +
     "Sections/body content are never returned. " +
     "IMPORTANT: Omitting slugs does NOT dump the full type — returns a minimal sample (default 5; limit 1–20). " +
     "Pass slugs for full meta on those entries. Prefer get_entry_seo for one slug; get_content_type_info for type contract. Requires content_view or seo_edit. " +
