@@ -1050,9 +1050,36 @@ export function registerSectionsRoutes(app: Express): void {
       // Use server-resolved author from identity; fall back to client-provided value
       const authorName = auth.author || (requestAuthor && typeof requestAuthor === "string" ? requestAuthor : undefined);
 
-      const writeGate = beginMcpContentWrite(req, req.body?.report);
+      const fieldUpdatesFromOps = Array.isArray(operations)
+        ? operations
+            .filter(
+              (op: { action?: string; path?: string }) =>
+                op?.action === "update_field" && typeof op.path === "string",
+            )
+            .map((op: { path: string; value?: unknown; reset?: boolean }) => ({
+              field_path: op.path,
+              value: op.value,
+              reset: op.reset,
+            }))
+        : undefined;
+      const writeGate = await beginMcpContentWrite(req, {
+        report: req.body?.report,
+        why: req.body?.why,
+        highlights: req.body?.highlights,
+        fieldUpdates: fieldUpdatesFromOps,
+        mode:
+          fieldUpdatesFromOps && fieldUpdatesFromOps.length > 0
+            ? "mutate_with_updates"
+            : req.body?.why != null || req.body?.highlights != null
+              ? "mutate_structural"
+              : "legacy_report",
+      });
       if (!writeGate.ok) {
-        res.status(400).json({ error: writeGate.error, code: writeGate.code });
+        res.status(400).json({
+          error: writeGate.error,
+          code: writeGate.code,
+          ...(writeGate.missing ? { missing: writeGate.missing } : {}),
+        });
         return;
       }
 
@@ -1483,9 +1510,29 @@ export function registerSectionsRoutes(app: Express): void {
       const auth = await requireCapability(req, res, "content_edit_text", req.body.contentType || undefined);
       if (!auth.authorized) return;
 
-      const writeGate = beginMcpContentWrite(req, req.body?.report);
+      const commonFieldUpdates = Array.isArray(req.body?.operations)
+        ? (req.body.operations as Array<{ action?: string; path?: string; value?: unknown; reset?: boolean }>)
+            .filter((op) => op?.action === "update_field" && typeof op.path === "string")
+            .map((op) => ({ field_path: op.path!, value: op.value, reset: op.reset }))
+        : undefined;
+      const writeGate = await beginMcpContentWrite(req, {
+        report: req.body?.report,
+        why: req.body?.why,
+        highlights: req.body?.highlights,
+        fieldUpdates: commonFieldUpdates,
+        mode:
+          commonFieldUpdates && commonFieldUpdates.length > 0
+            ? "mutate_with_updates"
+            : req.body?.why != null || req.body?.highlights != null
+              ? "mutate_structural"
+              : "legacy_report",
+      });
       if (!writeGate.ok) {
-        res.status(400).json({ error: writeGate.error, code: writeGate.code });
+        res.status(400).json({
+          error: writeGate.error,
+          code: writeGate.code,
+          ...(writeGate.missing ? { missing: writeGate.missing } : {}),
+        });
         return;
       }
       enterContentWriteContext(writeGate.ctx);
@@ -1706,9 +1753,21 @@ export function registerSectionsRoutes(app: Express): void {
     try {
       const auth = await requireCapability(req, res, "content_create_entry", req.body.type || undefined);
       if (!auth.authorized) return;
-      const writeGate = beginMcpContentWrite(req, req.body?.report);
+      const writeGate = await beginMcpContentWrite(req, {
+        report: req.body?.report,
+        why: req.body?.why,
+        highlights: req.body?.highlights,
+        mode:
+          req.body?.why != null || req.body?.highlights != null
+            ? "mutate_structural"
+            : "legacy_report",
+      });
       if (!writeGate.ok) {
-        res.status(400).json({ error: writeGate.error, code: writeGate.code });
+        res.status(400).json({
+          error: writeGate.error,
+          code: writeGate.code,
+          ...(writeGate.missing ? { missing: writeGate.missing } : {}),
+        });
         return;
       }
       const { type, slugEn, slugEs, title, sourceUrl, sourceSlug, sourceType, changeContentType, author: rawAuthor, skipLocales: rawSkipLocales, uniqueFieldValues: rawUniqueFieldValues, localeTitles: rawLocaleTitles } = req.body;
@@ -1816,10 +1875,22 @@ export function registerSectionsRoutes(app: Express): void {
         : [];
       const confirm = req.body?.confirm === true;
       const writeGate = confirm
-        ? beginMcpContentWrite(req, req.body?.report)
+        ? await beginMcpContentWrite(req, {
+            report: req.body?.report,
+            why: req.body?.why,
+            highlights: req.body?.highlights,
+            mode:
+              req.body?.why != null || req.body?.highlights != null
+                ? "mutate_structural"
+                : "legacy_report",
+          })
         : { ok: true as const, ctx: {} };
       if (!writeGate.ok) {
-        res.status(400).json({ error: writeGate.error, code: writeGate.code });
+        res.status(400).json({
+          error: writeGate.error,
+          code: writeGate.code,
+          ...(writeGate.missing ? { missing: writeGate.missing } : {}),
+        });
         return;
       }
       if (confirm) enterContentWriteContext(writeGate.ctx);

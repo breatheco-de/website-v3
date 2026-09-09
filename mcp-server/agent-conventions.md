@@ -81,4 +81,21 @@ Do not write `seo.*` on A/B experiment variants, and do not write draft SEO once
 
 Treat `run_entry_diagnostics` / `get_diagnostics_job` `open_issues[]` as **actionable open work** (default), not a full validation dump. Soft-completed and other-author claims are excluded unless you pass `issue_status: "completed" | "claimed" | "all"`. Prefer one-slug sync (`freshness: "hard"`) before claim/edit; do not treat bulk/unscoped `open_issues[]` as live proof. Skip ids in `claimed_issues` / `completed_issues` (or `status !== "open"` and not `claimed_by_me`).
 
+**Coding-agent-only issues:** Catalog codes with `coding_agent_only: true` are excluded from default `open_issues` and refuse `update_issue` claim (`action_required: issue_coding_agent_only`). They need a Cursor coding agent or staff (filesystem / content repo). Do not claim them. Visible under `issue_status: "all"` and staff Diagnostics.
+
 **Worked example:** after edits, call `run_entry_diagnostics` with `slugs: [slug]`, `freshness: "hard"`, then claim from `open_issues[]` — not from a stale unscoped page.
+
+### 5. Mutate reports: why + highlights (not process padding)
+
+On field mutates and issue `complete`, pass `why` (goal/ticket in plain English) and `highlights` for big deltas (links added, section changes). Do not pad with “automatic MCP/bot” boilerplate. Server fills simple field values for staff; full diffs live on GitHub after push.
+
+### 6. Claim only with a valid fix path — no invented keyword metrics
+
+Claim an issue only when you already have a **valid fix path you can execute** with MCP (or a cited offline source). Do not invent facts (search volume, difficulty, rankings).
+
+For `SEO_KEYWORD_RESEARCH_INCOMPLETE`:
+- **OpenRush on:** call `refresh_keyword_metrics` (cache only). Do **not** write `seo.kw_monthly_volume` / `seo.kw_difficulty` YAML.
+- **OpenRush off:** write both `kw_*` only with `seo_research_source: staff_provided` or `external:<tool_name>` from a real source.
+- **No reliable source:** do not claim, or claim→`release` blocked — never guess numbers.
+
+**Worked example:** OpenRush configured + keyword set without metrics → `refresh_keyword_metrics`, then revalidate — not `update_fields` with invented 1300/33.

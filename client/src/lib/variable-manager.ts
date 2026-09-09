@@ -443,3 +443,90 @@ export function extractTemplateTokens(text: string): Array<{ original: string; v
   }
   return tokens;
 }
+
+function setAtDotPath(obj: Record<string, unknown>, dotPath: string, value: unknown): void {
+  const parts = dotPath.split(".");
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const k = parts[i]!;
+    const next = cur[k];
+    cur[k] = Array.isArray(next)
+      ? [...next]
+      : typeof next === "object" && next !== null
+        ? { ...(next as Record<string, unknown>) }
+        : {};
+    cur = cur[k] as Record<string, unknown>;
+  }
+  cur[parts[parts.length - 1]!] = value;
+}
+
+function getAtDotPath(obj: Record<string, unknown>, dotPath: string): unknown {
+  const parts = dotPath.split(".");
+  let cur: unknown = obj;
+  for (const part of parts) {
+    if (cur === null || cur === undefined || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[part];
+  }
+  return cur;
+}
+
+/**
+ * Rewrite `_variableFields` string paths to `{{ name | value }}` so edit-mode
+ * VariableHighlight can wrap them. Shared by SectionRenderer and Time Machine.
+ */
+export function patchVariableFieldHighlights(
+  section: Record<string, unknown>,
+  variableFields: Record<string, string>,
+  singleEntry: Record<string, unknown>,
+  context: VariableContext,
+): Record<string, unknown> {
+  const patched: Record<string, unknown> = { ...section };
+  for (const [dotPath, templateExpr] of Object.entries(variableFields)) {
+    // Only patch string fields; keep structured values (arrays/objects) intact in edit mode.
+    const currentValue = getAtDotPath(patched, dotPath);
+    if (typeof currentValue !== "string") continue;
+    const { text } = resolveTemplateString(templateExpr, {}, context, {
+      preserveTemplate: true,
+      singleEntry,
+    });
+    setAtDotPath(patched, dotPath, text);
+  }
+  return patched;
+}
+
+/**
+ * Prepare a section for edit-mode / Time Machine preview: keep `{{ name | value }}`
+ * shapes so VariableHighlight can paint yellow boxes.
+ */
+export function prepareSectionForVariableHighlights(
+  section: unknown,
+  definitions: Record<string, VariableDefinition> | undefined,
+  context: VariableContext,
+  opts?: {
+    singleEntry?: Record<string, unknown>;
+    meta?: Record<string, unknown>;
+    param?: Record<string, unknown>;
+    /** Prefer this object's `_variableFields` (e.g. raw YAML before listing resolve). */
+    variableFieldsSource?: Record<string, unknown> | null;
+  },
+): unknown {
+  const { data } = resolveDeep(section, definitions || {}, context, {
+    preserveTemplate: true,
+    singleEntry: opts?.singleEntry,
+    meta: opts?.meta,
+    param: opts?.param,
+  });
+  const singleEntry = opts?.singleEntry;
+  if (!singleEntry) return data;
+
+  const source = opts?.variableFieldsSource ?? (section as Record<string, unknown> | null);
+  const variableFields = source?._variableFields as Record<string, string> | undefined;
+  if (!variableFields || Object.keys(variableFields).length === 0) return data;
+
+  return patchVariableFieldHighlights(
+    data as Record<string, unknown>,
+    variableFields,
+    singleEntry,
+    context,
+  );
+}

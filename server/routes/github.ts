@@ -514,29 +514,16 @@ export function registerGithubRoutes(app: Express): void {
       const payload = state ? consumeOAuthState(state) : null;
       const returnTo = payload?.returnTo;
 
-      const loginDest = (raw?: string): string => {
-        const destRaw = (raw || "/").trim() || "/";
-        if (/^https?:\/\//i.test(destRaw)) {
-          try {
-            const u = new URL(destRaw);
-            u.search = "";
-            return u.toString().replace(/\?$/, "") || "/";
-          } catch {
-            return "/";
-          }
-        }
-        if (destRaw.startsWith("/") && !destRaw.startsWith("//")) {
-          return destRaw.split("?")[0] || "/";
-        }
-        return "/";
-      };
+      const { appendQueryToReturnTo } = await import("./staff-auth");
 
       const failLoginRedirect = (msg: string, code?: string) => {
-        const dest = loginDest(returnTo);
-        const q = new URLSearchParams({ staff_auth: "error", message: msg });
-        if (code) q.set("code", code);
-        const join = dest.includes("?") ? "&" : "?";
-        res.redirect(`${dest}${join}${q.toString()}`);
+        res.redirect(
+          appendQueryToReturnTo(returnTo, {
+            staff_auth: "error",
+            message: msg,
+            code,
+          }),
+        );
       };
 
       if (oauthError) {
@@ -579,16 +566,17 @@ export function registerGithubRoutes(app: Express): void {
           expiresIn,
           identity,
         });
-        const dest = loginDest(returnTo);
         if (!result.ok) {
           failLoginRedirect(result.error, result.code);
           return;
         }
         const exchange = createSessionExchangeCode(result.sessionToken);
-        const q = new URLSearchParams({ staff_session_code: exchange });
-        if (result.writeWarning) q.set("github_write", "missing");
-        const join = dest.includes("?") ? "&" : "?";
-        res.redirect(`${dest}${join}${q.toString()}`);
+        res.redirect(
+          appendQueryToReturnTo(returnTo, {
+            staff_session_code: exchange,
+            github_write: result.writeWarning ? "missing" : undefined,
+          }),
+        );
         return;
       }
 
@@ -987,77 +975,154 @@ export function registerGithubRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/git/file-history", (req, res) => {
+  app.get("/api/git/file-history", async (req, res) => {
     try {
-      const exec = _execSync;
       const filePath = req.query.file as string;
       const limit = Math.min(parseInt(String(req.query.limit || "20"), 10) || 20, 50);
       if (!filePath || typeof filePath !== "string") {
         res.status(400).json({ error: "file query param required" });
         return;
       }
-      if (/[;&|`$<>]/.test(filePath)) {
+      if (/[;&|`$<>]/.test(filePath) || filePath.includes("..") || path.isAbsolute(filePath)) {
         res.status(400).json({ error: "Invalid file path" });
         return;
       }
-      let raw: string;
-      try {
-        raw = exec(
-          `git log --follow --pretty=format:"%H|%aI|%an|%s" -n ${limit} -- "${filePath}"`,
-          { encoding: "utf-8", cwd: process.cwd() }
-        ) as string;
-      } catch {
-        res.json({ entries: [] });
+      const site = res.locals.site as { contentRootName?: string; config?: { githubRepoUrl?: string } } | undefined;
+      const { listFileCommits } = await import("../github");
+      const result = await listFileCommits(filePath, {
+        repoUrl: site?.config?.githubRepoUrl,
+        limit,
+      });
+      if (!result.success && result.error === "GitHub not configured") {
+        res.status(503).json({ error: result.error, entries: [] });
         return;
       }
-      const entries = raw
-        .split("\n")
-        .filter(l => l.trim())
-        .map(line => {
-          const idx1 = line.indexOf("|");
-          const idx2 = line.indexOf("|", idx1 + 1);
-          const idx3 = line.indexOf("|", idx2 + 1);
-          return {
-            sha: line.slice(0, idx1),
-            date: line.slice(idx1 + 1, idx2),
-            author: line.slice(idx2 + 1, idx3),
-            subject: line.slice(idx3 + 1),
-          };
-        });
-      res.json({ entries });
+      if (!result.success && result.entries.length === 0 && result.error) {
+        res.status(502).json({ error: result.error, entries: [] });
+        return;
+      }
+      res.json({ entries: result.entries, repoUrl: result.repoUrl ?? null });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
   });
 
-  app.get("/api/git/file-at", (req, res) => {
+  app.get("/api/git/section-history", async (req, res) => {
     try {
-      const exec = _execSync;
+      const filePath = req.query.file as string;
+      const sectionIdRaw = req.query.sectionId;
+      const sectionId =
+        typeof sectionIdRaw === "string" && sectionIdRaw.trim() ? sectionIdRaw.trim() : null;
+      const sectionIndex = parseInt(String(req.query.sectionIndex ?? ""), 10);
+      const limit = Math.min(parseInt(String(req.query.limit || "10"), 10) || 10, 20);
+      const cursor = typeof req.query.cursor === "string" ? req.query.cursor : null;
+
+      if (!filePath || typeof filePath !== "string") {
+        res.status(400).json({ error: "file query param required" });
+        return;
+      }
+      if (/[;&|`$<>]/.test(filePath) || filePath.includes("..") || path.isAbsolute(filePath)) {
+        res.status(400).json({ error: "Invalid file path" });
+        return;
+      }
+      if (!Number.isFinite(sectionIndex) || sectionIndex < 0) {
+        res.status(400).json({ error: "sectionIndex query param required (non-negative integer)" });
+        return;
+      }
+
+      const site = res.locals.site as { contentRootName?: string; config?: { githubRepoUrl?: string } } | undefined;
+      const { listSectionHistory } = await import("../github-graphql");
+      const result = await listSectionHistory({
+        filePath,
+        sectionId,
+        sectionIndex,
+        repoUrl: site?.config?.githubRepoUrl,
+        limit,
+        cursor,
+      });
+
+      if (!result.success && result.error === "GitHub not configured") {
+        res.status(503).json({
+          error: result.error,
+          entries: [],
+          hasMore: false,
+          nextCursor: null,
+          skipped: 0,
+        });
+        return;
+      }
+      if (!result.success && result.entries.length === 0 && result.error) {
+        res.status(502).json({
+          error: result.error,
+          entries: [],
+          hasMore: false,
+          nextCursor: null,
+          skipped: result.skipped,
+        });
+        return;
+      }
+
+      let entries = result.entries;
+      const contentRoot = site?.contentRootName;
+      if (contentRoot && entries.length > 0) {
+        try {
+          const { findLatestWriteEventsByCommitShas } = await import("../events/event-store");
+          const bySha = findLatestWriteEventsByCommitShas({
+            site: contentRoot,
+            path: filePath,
+            commitShas: entries.map((e) => e.sha),
+          });
+          entries = entries.map((e) => {
+            const attached = bySha.get(e.sha.trim().toLowerCase());
+            return attached ? { ...e, event: attached } : e;
+          });
+        } catch (err) {
+          log.warn({ err }, "[Git] Failed to attach events to section-history");
+        }
+      }
+
+      res.json({
+        entries,
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
+        skipped: result.skipped,
+        repoUrl: result.repoUrl ?? null,
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.get("/api/git/file-at", async (req, res) => {
+    try {
       const filePath = req.query.file as string;
       const sha = req.query.sha as string;
       if (!filePath || !sha) {
         res.status(400).json({ error: "file and sha query params required" });
         return;
       }
-      if (!/^[a-f0-9]{7,40}$/.test(sha)) {
+      if (!/^[a-f0-9]{7,40}$/i.test(sha)) {
         res.status(400).json({ error: "Invalid SHA format" });
         return;
       }
-      if (/[;&|`$<>]/.test(filePath)) {
+      if (/[;&|`$<>]/.test(filePath) || filePath.includes("..") || path.isAbsolute(filePath)) {
         res.status(400).json({ error: "Invalid file path" });
         return;
       }
-      let content: string;
-      try {
-        content = exec(`git show "${sha}:${filePath}"`, {
-          encoding: "utf-8",
-          cwd: process.cwd(),
-        }) as string;
-      } catch {
-        res.status(404).json({ error: "File not found at that revision" });
+      const site = res.locals.site as { contentRootName?: string; config?: { githubRepoUrl?: string } } | undefined;
+      const { getRemoteFileContent } = await import("../github");
+      const result = await getRemoteFileContent(filePath, {
+        repoUrl: site?.config?.githubRepoUrl,
+        ref: sha,
+      });
+      if (!result.success) {
+        const status = result.error === "File not found on remote" ? 404
+          : result.error === "GitHub not configured" ? 503
+          : 502;
+        res.status(status).json({ error: result.error || "File not found at that revision" });
         return;
       }
-      res.type("text/plain").send(content);
+      res.type("text/plain").send(result.content ?? "");
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

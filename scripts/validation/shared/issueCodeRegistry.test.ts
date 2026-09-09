@@ -3,6 +3,7 @@ import {
   assertUniqueIssueCodes,
   getIssueCodeDefinition,
   isIssueCodeAgentGuidanceComplete,
+  isIssueCodeCodingAgentOnly,
   resolveIssueSuggestion,
 } from "./issueCodeRegistry";
 import { listValidators } from "../validators";
@@ -19,6 +20,14 @@ describe("issueCodeRegistry", () => {
     expect(partial?.summary).toMatch(/main_keyword/);
   });
 
+  it("looks up SEO_KEYWORD_RESEARCH_INCOMPLETE with next_actions", () => {
+    const def = getIssueCodeDefinition("seo-cluster", "SEO_KEYWORD_RESEARCH_INCOMPLETE");
+    expect(def?.title).toBe("Incomplete keyword research");
+    expect(def?.suggestion).toMatch(/refresh_keyword_metrics/);
+    expect(def?.next_actions?.some((a) => a.tool === "refresh_keyword_metrics")).toBe(true);
+    expect(isIssueCodeAgentGuidanceComplete(def)).toBe(true);
+  });
+
   it("supports title-only definitions without summary", () => {
     const def = getIssueCodeDefinition("seo-cluster", "DUPLICATE_PILLAR");
     expect(def?.title).toBe("Duplicate hub path");
@@ -26,7 +35,7 @@ describe("issueCodeRegistry", () => {
     expect(def?.next_actions).toBeUndefined();
   });
 
-  it("isIssueCodeAgentGuidanceComplete requires non-empty next_actions", () => {
+  it("isIssueCodeAgentGuidanceComplete requires non-empty next_actions unless coding_agent_only", () => {
     expect(isIssueCodeAgentGuidanceComplete(undefined)).toBe(false);
     expect(
       isIssueCodeAgentGuidanceComplete({
@@ -40,11 +49,25 @@ describe("issueCodeRegistry", () => {
       }),
     ).toBe(false);
     expect(
+      isIssueCodeAgentGuidanceComplete({
+        title: "Coding only",
+        coding_agent_only: true,
+        next_actions: [],
+      }),
+    ).toBe(true);
+    expect(
       isIssueCodeAgentGuidanceComplete(getIssueCodeDefinition("seo-cluster", "ORPHAN_PAGE")),
     ).toBe(true);
     expect(
       isIssueCodeAgentGuidanceComplete(getIssueCodeDefinition("seo-cluster", "DUPLICATE_PILLAR")),
     ).toBe(false);
+  });
+
+  it("ORPHAN_OVERLAY_FOLDER is coding_agent_only", () => {
+    const def = getIssueCodeDefinition("database-singles", "ORPHAN_OVERLAY_FOLDER");
+    expect(def?.coding_agent_only).toBe(true);
+    expect(isIssueCodeCodingAgentOnly("database-singles", "ORPHAN_OVERLAY_FOLDER")).toBe(true);
+    expect(isIssueCodeAgentGuidanceComplete(def)).toBe(true);
   });
 
   it("looks up FIELD_JSON_INVALID under editor-field-types", () => {

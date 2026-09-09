@@ -11,7 +11,7 @@ import type { FunnelBlock } from "@shared/funnel";
 import { useMenuVisualContext } from "@/contexts/MenuVisualContext";
 import { VariableHighlightProvider } from "@/components/editing/VariableHighlight";
 import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
-import { resolveDeep, resolveTemplateString, type VariableContext } from "@/lib/variable-manager";
+import { resolveDeep, patchVariableFieldHighlights } from "@/lib/variable-manager";
 import { findReplaceableTextRange } from "@/lib/cm-variable-highlight";
 import { SectionContextProvider } from "@/contexts/SectionContext";
 import {
@@ -594,46 +594,6 @@ export function renderSection(section: Section, index: number, pageContext?: Sec
   return <LazySection key={index} section={sectionProps as Section} index={index} />;
 }
 
-
-function setAtDotPath(obj: Record<string, unknown>, dotPath: string, value: unknown): void {
-  const parts = dotPath.split(".");
-  let cur = obj;
-  for (let i = 0; i < parts.length - 1; i++) {
-    const k = parts[i];
-    const next = cur[k];
-    cur[k] = Array.isArray(next) ? [...next] : (typeof next === "object" && next !== null ? { ...(next as Record<string, unknown>) } : {});
-    cur = cur[k] as Record<string, unknown>;
-  }
-  cur[parts[parts.length - 1]] = value;
-}
-
-function getAtDotPath(obj: Record<string, unknown>, dotPath: string): unknown {
-  const parts = dotPath.split(".");
-  let cur: unknown = obj;
-  for (const part of parts) {
-    if (cur === null || cur === undefined || typeof cur !== "object") return undefined;
-    cur = (cur as Record<string, unknown>)[part];
-  }
-  return cur;
-}
-
-function patchVariableFieldHighlights(
-  section: Record<string, unknown>,
-  variableFields: Record<string, string>,
-  singleEntry: Record<string, unknown>,
-  context: VariableContext,
-): Record<string, unknown> {
-  const patched: Record<string, unknown> = { ...section };
-  for (const [dotPath, templateExpr] of Object.entries(variableFields)) {
-    // Only patch string fields; keep structured values (arrays/objects) intact in edit mode.
-    const currentValue = getAtDotPath(patched, dotPath);
-    if (typeof currentValue !== "string") continue;
-    const { text } = resolveTemplateString(templateExpr, {}, context, { preserveTemplate: true, singleEntry });
-    setAtDotPath(patched, dotPath, text);
-  }
-  return patched;
-}
-
 /** Returns a singular human-readable noun for a content type, e.g. "course" from "Courses". */
 function toSingularLabel(ct: string | undefined, rawTypes: { name: string; label: string }[] | undefined): string {
   if (!ct) return "entry";
@@ -698,7 +658,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
         return obj;
       };
 
-      const updatedSection = replaceInObj(section);
+      const updatedSection = replaceInObj(section) as Record<string, unknown>;
 
       if (!foundMatch) {
         toast({
@@ -711,7 +671,11 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
       }
 
       const result = await sendEditOperation(contentType, slug, locale, [
-        { action: "update_section", index: sectionIndex, section: updatedSection }
+        {
+          action: "update_section",
+          index: sectionIndex,
+          section: updatedSection as Record<string, unknown>,
+        },
       ]);
 
       if (result.success) {

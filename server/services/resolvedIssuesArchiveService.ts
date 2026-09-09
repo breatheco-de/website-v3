@@ -19,6 +19,12 @@ import {
 import { gcs } from "../gcs";
 import { child } from "../logger";
 import type { ValidationCacheService } from "./validationCacheService";
+import {
+  parseIssuesSort,
+  sortIssueRows,
+  type IssuesSortDir,
+  type IssuesSortField,
+} from "@shared/validation-issue-sort";
 
 const log = child({ module: "resolvedIssuesArchive" });
 
@@ -76,6 +82,9 @@ export type ResolvedIssuesListFilters = {
   includeReopened?: boolean;
   limit?: number;
   offset?: number;
+  /** Whitelist: resolvedAt | severity | code | url */
+  sort?: string;
+  sortDir?: "asc" | "desc";
 };
 
 export type ResolvedIssuesSummary = {
@@ -398,14 +407,24 @@ export class ResolvedIssuesArchiveService {
     rows: ResolvedIssueArchiveRow[];
     total: number;
     summary: ResolvedIssuesSummary;
+    sort: IssuesSortField;
+    sort_dir: IssuesSortDir;
   } {
     const filtered = this.filterRows(filters);
     const total = filtered.length;
     const offset = Math.max(0, filters?.offset ?? 0);
     const limit = Math.min(200, Math.max(1, filters?.limit ?? 50));
-    const rows = filtered.slice(offset, offset + limit);
+    const parsed = parseIssuesSort("resolved", filters?.sort, filters?.sortDir);
+    // Callers should validate; fall back to default if somehow invalid.
+    const sort = parsed.ok ? parsed.sort : ("resolvedAt" as IssuesSortField);
+    const sort_dir = parsed.ok ? parsed.sort_dir : ("desc" as IssuesSortDir);
+    const sorted = sortIssueRows(
+      filtered as unknown as Array<Record<string, unknown>>,
+      { set: "resolved", sort, sort_dir },
+    ) as ResolvedIssueArchiveRow[];
+    const rows = sorted.slice(offset, offset + limit);
     const summary = this.summary(filters);
-    return { rows, total, summary };
+    return { rows, total, summary, sort, sort_dir };
   }
 
   async loadFromBucket(): Promise<void> {

@@ -201,6 +201,48 @@ describe("validation cache claims", () => {
     expect(refresh.ok).toBe(true);
   });
 
+  it("refuses claim for coding_agent_only issue codes", async () => {
+    const root = tempRoot();
+    roots.push(root);
+    const cache = new ValidationCacheService(root);
+    const file: ContentFile = {
+      slug: "orphan-old",
+      title: "Orphan",
+      type: "howto",
+      locale: "en",
+      filePath: path.join(root, "howto/orphan-old/en.yml"),
+      url: "/en/howto/orphan-old",
+    };
+    fs.mkdirSync(path.dirname(file.filePath), { recursive: true });
+    fs.writeFileSync(file.filePath, "title: Orphan\n");
+    cache.applyValidatorResults(
+      [
+        {
+          name: "database-singles",
+          category: "integrity",
+          errors: [],
+          warnings: [
+            {
+              type: "warning",
+              code: "ORPHAN_OVERLAY_FOLDER",
+              message: "orphan folder",
+              file: file.filePath,
+            },
+          ],
+        },
+      ],
+      { contentFiles: [file], entryKeys: ["howto/orphan-old/en"] },
+    );
+    const listed = listCacheIssuesFromStore(cache);
+    const orphan = listed.issues.find((i) => i.code === "ORPHAN_OVERLAY_FOLDER");
+    expect(orphan?.id).toBeTruthy();
+    const refused = await cache.claimIssue(orphan!.id, "mcp-agent");
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.code).toBe("issue_coding_agent_only");
+    }
+  });
+
   it("complete clears claim; rewrite clears complete but keeps claim", async () => {
     const root = tempRoot();
     roots.push(root);

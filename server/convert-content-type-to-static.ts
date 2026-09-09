@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
+import { isTemplateVersioningSlug } from "@shared/sharedLayoutPaths";
 import { contentIndex } from "./content-index";
 import {
   getContentTypeConfig,
@@ -20,6 +21,8 @@ import { fetchMarkdownContent } from "./markdown";
 import { resolveSingleVars } from "./single-resolver";
 import { clearSitemapCache, refreshSitemapEntriesForContentKey } from "./sitemap";
 import { markFileAsModified } from "./sync-state";
+import { isEntryDetached } from "./shared-layout-entry";
+import { deepMerge } from "./utils/deepMerge";
 import { child } from "./logger";
 
 const log = child({ module: "convert-to-static" });
@@ -37,6 +40,17 @@ const STRIP_KEYS = new Set([
 
 /** Keys that always live on locale files (never only in _common). */
 const LOCALE_FILE_KEYS = new Set(["meta", "sections", "settings", "title", "description", "content"]);
+
+/** Non-data keys stripped from attached overlays (layout stays in shared template). */
+const ATTACHED_STRIP_KEYS = new Set(["sections", "layout", "detached"]);
+
+export type ConvertSkipped = {
+  reason: string;
+  detail?: string;
+  slug?: string;
+  locale?: string;
+  source_url?: string;
+};
 
 function safeYamlDump(obj: unknown): string {
   const { escaped, map } = escapeObjectVars(obj);
@@ -68,21 +82,53 @@ function contentRootNameFromPath(contentRoot: string): string {
   return path.basename(contentRoot);
 }
 
-async function resolveItemContent(item: Record<string, unknown>): Promise<string> {
-  let content = typeof item.content === "string" ? item.content : "";
-  if (!content && typeof item.content_url === "string" && item.content_url) {
-    content = await fetchMarkdownContent(item.content_url);
+function loadYamlObject(filePath: string): Record<string, unknown> | null {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const parsed = contentIndex.safeYamlLoad(fs.readFileSync(filePath, "utf-8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* ignore */
   }
-  if (!content && typeof item.readme_url === "string" && item.readme_url) {
-    content = await fetchMarkdownContent(item.readme_url);
+  return null;
+}
+
+/**
+ * Resolve body markdown. Returns ok:false when a remote URL was expected but fetch yielded empty.
+ */
+async function resolveItemContent(item: Record<string, unknown>): Promise<{
+  ok: boolean;
+  content: string;
+  source_url?: string;
+}> {
+  if (typeof item.content === "string" && item.content.trim()) {
+    return { ok: true, content: item.content };
   }
-  return content;
+  const contentUrl =
+    typeof item.content_url === "string" && item.content_url.trim()
+      ? item.content_url.trim()
+      : null;
+  const readmeUrl =
+    typeof item.readme_url === "string" && item.readme_url.trim()
+      ? item.readme_url.trim()
+      : null;
+  const source_url = contentUrl || readmeUrl || undefined;
+
+  let content = "";
+  if (contentUrl) content = await fetchMarkdownContent(contentUrl);
+  if (!content && readmeUrl) content = await fetchMarkdownContent(readmeUrl);
+
+  if (source_url && !content.trim()) {
+    return { ok: false, content: "", source_url };
+  }
+  return { ok: true, content, source_url };
 }
 
 function normalizeLocale(raw: unknown, fallback = "en"): string {
   const s = String(raw || fallback).trim().toLowerCase();
   if (!s) return fallback;
-  // "en-US" → "en"
   const m = s.match(/^([a-z]{2})/);
   return m ? m[1] : fallback;
 }
@@ -128,6 +174,49 @@ function listSharedTemplateFiles(typeDir: string): string[] {
     .map((f) => path.join(typeDir, f));
 }
 
+function listOrphanSlugFolders(typeDir: string, dbSlugs: Set<string>): string[] {
+  if (!fs.existsSync(typeDir)) return [];
+  return fs
+    .readdirSync(typeDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .filter((name) => {
+      if (name.startsWith("_")) return false;
+      if (isTemplateVersioningSlug(name)) return false;
+      return !dbSlugs.has(name);
+    })
+    .sort();
+}
+
+function stripAttachedOverlayKeys(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (ATTACHED_STRIP_KEYS.has(key)) continue;
+    if (STRIP_KEYS.has(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+/** Overlay wins on conflicts (deepMerge(base, overlay) → overlay keys win). */
+function mergeOverrideWins(
+  base: Record<string, unknown>,
+  overlay: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (!overlay || Object.keys(overlay).length === 0) return { ...base };
+  return deepMerge(base, stripAttachedOverlayKeys(overlay));
+}
+
+function loadEntryOverlayLayer(
+  entryDir: string,
+  locale: string,
+): { common: Record<string, unknown> | null; locale: Record<string, unknown> | null } {
+  return {
+    common: loadYamlObject(path.join(entryDir, "_common.yml")),
+    locale: loadYamlObject(path.join(entryDir, `${locale}.yml`)),
+  };
+}
+
 function splitCommonAndLocales(
   localePages: Map<string, Record<string, unknown>>,
 ): { common: Record<string, unknown>; locales: Map<string, Record<string, unknown>> } {
@@ -152,7 +241,6 @@ function splitCommonAndLocales(
     }
   }
 
-  // Prefer keeping slug in _common even for single-locale entries
   if (first.slug !== undefined && common.slug === undefined) {
     common.slug = first.slug;
   }
@@ -181,8 +269,9 @@ export interface ConvertToStaticPreview {
   files_to_write: number;
   files_to_overwrite: number;
   existing_slug_folders: string[];
-  templates_to_delete: string[];
-  skipped: Array<{ reason: string; detail?: string }>;
+  templates_preserved: string[];
+  orphan_slug_folders: string[];
+  skipped: ConvertSkipped[];
   message: string;
 }
 
@@ -194,8 +283,9 @@ export interface ConvertToStaticResult {
   unlinked_database: string;
   written: string[];
   overwritten: string[];
-  deleted_templates: string[];
-  skipped: Array<{ reason: string; detail?: string }>;
+  templates_preserved: string[];
+  orphan_slug_folders: string[];
+  skipped: ConvertSkipped[];
   entry_count: number;
   locale_count: number;
 }
@@ -266,13 +356,11 @@ export async function convertContentTypeToStatic(
   const localeKey = getLocaleKey(contentType, contentRoot) || "lang";
   const fieldMapping = getFieldMapping(contentType, contentRoot);
   const templateFiles = listSharedTemplateFiles(typeDir);
+  const templatesPreserved = templateFiles.map((f) => path.relative(contentRoot, f));
   const hreflangsConfigured = !!getHreflangsSource(contentType, contentRoot);
 
-  // Cluster: folder slug → locale → item
-  // With _hreflangs: one folder per translation cluster (canonical en slug), per-locale URL slugs on items.
-  // Without: group by identical item.slug (legacy).
   const bySlug = new Map<string, Map<string, Record<string, unknown>>>();
-  const skipped: Array<{ reason: string; detail?: string }> = [];
+  const skipped: ConvertSkipped[] = [];
   const assignedSlugs = new Set<string>();
 
   const addToCluster = (
@@ -286,6 +374,8 @@ export async function convertContentTypeToStatic(
       skipped.push({
         reason: "duplicate_locale",
         detail: `${folderSlug}/${locale} (item ${String(item.slug ?? "")})`,
+        slug: folderSlug,
+        locale,
       });
       return false;
     }
@@ -301,7 +391,6 @@ export async function convertContentTypeToStatic(
       const map = resolveHreflangsFromRecord(item, contentType, contentRoot) || {};
       const canonical = getCanonicalHreflangSlug(map) || itemSlug;
 
-      // Pull every locale in the map into this cluster
       for (const [loc, locSlug] of Object.entries(map)) {
         if (!locSlug || assignedSlugs.has(locSlug)) continue;
         const target =
@@ -318,7 +407,6 @@ export async function convertContentTypeToStatic(
         }
       }
 
-      // Ensure self is clustered even if map was empty/partial
       if (!assignedSlugs.has(itemSlug)) {
         const locale = normalizeLocale(
           item[localeKey] ?? item.lang ?? item.language ?? item.locale,
@@ -329,7 +417,6 @@ export async function convertContentTypeToStatic(
       }
     }
 
-    // Solo leftovers (no map / not referenced)
     for (const item of items) {
       const itemSlug = String(item.slug ?? "").trim();
       if (!itemSlug || assignedSlugs.has(itemSlug)) continue;
@@ -356,6 +443,8 @@ export async function convertContentTypeToStatic(
     throw new ConvertToStaticError(`No valid entries with slugs found for "${contentType}"`, 400);
   }
 
+  const orphanSlugFolders = listOrphanSlugFolders(typeDir, new Set(bySlug.keys()));
+
   let filesToWrite = 0;
   let filesToOverwrite = 0;
   const existingSlugFolders: string[] = [];
@@ -367,7 +456,6 @@ export async function convertContentTypeToStatic(
     const folderExists = fs.existsSync(entryDir) && fs.statSync(entryDir).isDirectory();
     if (folderExists) existingSlugFolders.push(slug);
 
-    // _common.yml + one file per locale
     const plannedFiles = ["_common.yml", ...Array.from(localeMap.keys()).map((l) => `${l}.yml`)];
     for (const file of plannedFiles) {
       const full = path.join(entryDir, file);
@@ -387,13 +475,16 @@ export async function convertContentTypeToStatic(
       files_to_write: filesToWrite,
       files_to_overwrite: filesToOverwrite,
       existing_slug_folders: existingSlugFolders,
-      templates_to_delete: templateFiles.map((f) => path.relative(contentRoot, f)),
+      templates_preserved: templatesPreserved,
+      orphan_slug_folders: orphanSlugFolders,
       skipped,
       message:
         `Will convert ${bySlug.size} slug(s) / ${localeCount} locale file(s) from database "${dbName}" ` +
-        `into ${directory}/, unlink the database, set single_template: true, preserve _common.template.yml / _common.single.yml, ` +
-        `and delete ${templateFiles.length} template.*.yml / single.*.yml shell file(s). ` +
-        `Existing per-entry overlay patches will be merged into full static YAML and overwritten.`,
+        `into ${directory}/ as data overlays (_common.yml + locale YAML), unlink the database, keep single_template: true, ` +
+        `and preserve ${templatesPreserved.length} shared template shell(s). ` +
+        `Existing per-entry field overrides win over database values. Detached entries get a full page bake. ` +
+        `${orphanSlugFolders.length} orphan folder(s) on disk are listed and will not be deleted. ` +
+        `Failed body downloads are skipped (not written empty).`,
     };
   }
 
@@ -404,32 +495,84 @@ export async function convertContentTypeToStatic(
   try {
     for (const [folderSlug, localeMap] of bySlug) {
       const localePages = new Map<string, Record<string, unknown>>();
+      const entryDir = path.join(typeDir, folderSlug);
+      const detached = isEntryDetached(contentType, folderSlug, contentRoot);
 
       for (const [locale, item] of localeMap) {
-        const content = await resolveItemContent(item);
-        const singleItem = { ...item, content };
-        const identity = identityFieldsFromItem(singleItem, fieldMapping);
-        const urlSlug = String(item.slug ?? folderSlug).trim() || folderSlug;
-
-        const merged = mergeSingleTemplate(contentType, locale, folderSlug, undefined, contentRoot);
-        if (!merged) {
+        const resolved = await resolveItemContent(item);
+        if (!resolved.ok) {
           skipped.push({
-            reason: "missing_template",
-            detail: `template.${locale}.yml for ${contentType}`,
+            reason: "content_fetch_failed",
+            detail: `Remote markdown empty or unreachable for ${folderSlug}/${locale}`,
+            slug: folderSlug,
+            locale,
+            source_url: resolved.source_url,
           });
           continue;
         }
 
-        const baked = stripRuntimeKeys(resolveSingleVars(merged, singleItem)) as Record<string, unknown>;
-        // URL slug is the item's own slug (may differ from folder when _hreflangs clustered)
-        const page: Record<string, unknown> = {
+        const singleItem = { ...item, content: resolved.content };
+        const identity = identityFieldsFromItem(singleItem, fieldMapping);
+        const urlSlug = String(item.slug ?? folderSlug).trim() || folderSlug;
+
+        if (detached) {
+          const merged = mergeSingleTemplate(
+            contentType,
+            locale,
+            folderSlug,
+            undefined,
+            contentRoot,
+          );
+          if (!merged) {
+            skipped.push({
+              reason: "missing_template",
+              detail: `template.${locale}.yml for ${contentType}`,
+              slug: folderSlug,
+              locale,
+            });
+            continue;
+          }
+          const baked = stripRuntimeKeys(
+            resolveSingleVars(merged, singleItem),
+          ) as Record<string, unknown>;
+          const page: Record<string, unknown> = {
+            ...identity,
+            ...baked,
+            slug: urlSlug,
+            detached: true,
+          };
+          if (typeof page.title !== "string" || !page.title) {
+            page.title = typeof singleItem.title === "string" ? singleItem.title : urlSlug;
+          }
+          localePages.set(locale, page);
+          continue;
+        }
+
+        // Attached: data overlay only — DB identity + content, then existing overlay wins
+        let page: Record<string, unknown> = {
           ...identity,
-          ...baked,
+          content: resolved.content,
           slug: urlSlug,
         };
         if (typeof page.title !== "string" || !page.title) {
-          page.title = typeof singleItem.title === "string" ? singleItem.title : urlSlug;
+          page.title =
+            typeof singleItem.title === "string" ? singleItem.title : urlSlug;
         }
+        if (
+          typeof singleItem.description === "string" &&
+          page.description === undefined
+        ) {
+          page.description = singleItem.description;
+        }
+
+        const overlay = loadEntryOverlayLayer(entryDir, locale);
+        page = mergeOverrideWins(page, overlay.common);
+        page = mergeOverrideWins(page, overlay.locale);
+        // Ensure URL slug from cluster item still wins for non-canonical locales
+        page.slug = urlSlug;
+        delete page.sections;
+        delete page.layout;
+
         localePages.set(locale, page);
       }
 
@@ -437,7 +580,6 @@ export async function convertContentTypeToStatic(
 
       const { common, locales } = splitCommonAndLocales(localePages);
 
-      // Ensure non-canonical locale URL slugs stay on {locale}.yml (getLocaleUrls reads locale files)
       for (const [locale, localeObj] of locales) {
         const page = localePages.get(locale);
         const urlSlug = page && typeof page.slug === "string" ? page.slug : null;
@@ -449,28 +591,14 @@ export async function convertContentTypeToStatic(
       if (common.slug === undefined) {
         common.slug = folderSlug;
       }
+      if (detached) {
+        common.detached = true;
+      }
 
-      const entryDir = path.join(typeDir, folderSlug);
       const existedBefore = fs.existsSync(entryDir) && fs.statSync(entryDir).isDirectory();
       if (!existedBefore) {
         fs.mkdirSync(entryDir, { recursive: true });
         createdDirs.push(entryDir);
-      }
-
-      // Remove leftover patch / locale files that are not part of this conversion
-      // (e.g. old overlay-only files) — only after we have baked content for all locales.
-      const keepFiles = new Set([
-        "_common.yml",
-        ...Array.from(locales.keys()).map((l) => `${l}.yml`),
-      ]);
-      if (existedBefore) {
-        for (const file of fs.readdirSync(entryDir)) {
-          if (!file.endsWith(".yml") && !file.endsWith(".yaml")) continue;
-          if (keepFiles.has(file)) continue;
-          // Keep versioning.yml and other non-locale control files
-          if (file === "versioning.yml" || file.startsWith("_") && file !== "_common.yml") continue;
-          // Old locale-only patch files for locales not in DB: leave them (safer). Only overwrite what we bake.
-        }
       }
 
       const commonPath = path.join(entryDir, "_common.yml");
@@ -492,7 +620,6 @@ export async function convertContentTypeToStatic(
       refreshSitemapEntriesForContentKey(contentType, folderSlug, Array.from(locales.keys()));
     }
 
-    // Unlink database, enable single-template inheritance, rewrite field_mapping to identity keys
     const newMapping = buildIdentityFieldMapping(config.field_mapping);
     updateContentTypeConfig(
       contentType,
@@ -503,15 +630,6 @@ export async function convertContentTypeToStatic(
       },
       contentRoot,
     );
-
-    const deletedTemplates: string[] = [];
-    for (const full of templateFiles) {
-      if (!fs.existsSync(full)) continue;
-      const rel = `${rootName}/${path.relative(contentRoot, full)}`;
-      fs.unlinkSync(full);
-      markFileAsModified(rel, author, undefined, contentRoot);
-      deletedTemplates.push(rel);
-    }
 
     if (opts.refreshIndex) {
       opts.refreshIndex();
@@ -527,7 +645,8 @@ export async function convertContentTypeToStatic(
 
     log.info(
       `[ConvertToStatic] Converted "${contentType}" from db "${dbName}": ` +
-        `${written.length} new, ${overwritten.length} overwritten, ${deletedTemplates.length} templates deleted`,
+        `${written.length} new, ${overwritten.length} overwritten, ` +
+        `${templatesPreserved.length} templates preserved, ${orphanSlugFolders.length} orphans listed`,
     );
 
     return {
@@ -538,13 +657,13 @@ export async function convertContentTypeToStatic(
       unlinked_database: dbName,
       written,
       overwritten,
-      deleted_templates: deletedTemplates,
+      templates_preserved: templatesPreserved,
+      orphan_slug_folders: orphanSlugFolders,
       skipped,
       entry_count: bySlug.size,
       locale_count: localeCount,
     };
   } catch (err) {
-    // Roll back newly created slug directories only (do not unlink database if we failed before that)
     for (const dir of createdDirs) {
       try {
         if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });

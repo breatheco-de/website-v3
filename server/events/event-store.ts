@@ -375,6 +375,79 @@ export function attachCommitShaForCommittedFiles(
   return attachCommitShaToEvents({ site, commitSha, paths });
 }
 
+/** Slim event attach for Time Machine (newest write per commitSha + path). */
+export type CommitEventAttach = {
+  id: number;
+  cause?: string;
+  created_at: number;
+  attribution: EventAttribution[];
+};
+
+/**
+ * For each commit SHA, return the newest stamped write event for this path (if any).
+ * Used by section-history enrichment — no merge of fields across events.
+ */
+export function findLatestWriteEventsByCommitShas(opts: {
+  site: string;
+  path: string;
+  commitShas: string[];
+}): Map<string, CommitEventAttach> {
+  const out = new Map<string, CommitEventAttach>();
+  const path = normalizeEventPath(opts.path);
+  const shas = [
+    ...new Set(
+      opts.commitShas
+        .map((s) => (typeof s === "string" ? s.trim().toLowerCase() : ""))
+        .filter((s) => /^[a-f0-9]{7,40}$/.test(s)),
+    ),
+  ];
+  if (!opts.site || !path || shas.length === 0) return out;
+
+  ensureSchema(opts.site);
+  const db = getSiteSqlite(opts.site);
+  const typePlaceholders = COMMIT_SHA_STAMP_EVENT_TYPES.map(() => "?").join(", ");
+  const shaPlaceholders = shas.map(() => "?").join(", ");
+
+  const rows = db
+    .prepare(
+      `SELECT id, cause, created_at, attribution_json, payload_json FROM events
+       WHERE site = ?
+         AND type IN (${typePlaceholders})
+         AND json_extract(payload_json, '$.path') = ?
+         AND lower(json_extract(payload_json, '$.commitSha')) IN (${shaPlaceholders})
+       ORDER BY id DESC`,
+    )
+    .all(opts.site, ...COMMIT_SHA_STAMP_EVENT_TYPES, path, ...shas) as Array<{
+    id: number;
+    cause: string | null;
+    created_at: number;
+    attribution_json: string;
+    payload_json: string;
+  }>;
+
+  for (const row of rows) {
+    let commitSha = "";
+    try {
+      const payload = JSON.parse(row.payload_json) as { commitSha?: unknown };
+      if (typeof payload.commitSha === "string") commitSha = payload.commitSha.trim().toLowerCase();
+    } catch {
+      continue;
+    }
+    if (!commitSha || out.has(commitSha)) continue;
+    const cause = typeof row.cause === "string" && row.cause.trim() ? row.cause.trim() : undefined;
+    out.set(commitSha, {
+      id: row.id,
+      cause,
+      created_at: row.created_at,
+      attribution: parseAttribution(row.attribution_json),
+    });
+  }
+
+  // Also key by the original casing from callers (full sha from GitHub is lowercase hex usually).
+  // Map already uses lowercased keys; callers should lower when get().
+  return out;
+}
+
 export function getUnpublishedEvents(site: string, limit = 100): ContentEvent[] {
   ensureSchema(site);
   const db = getSiteSqlite(site);

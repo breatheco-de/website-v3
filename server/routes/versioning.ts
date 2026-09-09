@@ -739,9 +739,21 @@ export function registerVersioningRoutes(app: Express): void {
     const auth = await requireCapability(req, res, "content_promote_variant", contentType);
     if (!auth.authorized) return;
 
-    const writeGate = beginMcpContentWrite(req, req.body?.report);
+    const writeGate = await beginMcpContentWrite(req, {
+      report: req.body?.report,
+      why: req.body?.why,
+      highlights: req.body?.highlights,
+      mode:
+        req.body?.why != null || req.body?.highlights != null
+          ? "mutate_structural"
+          : "legacy_report",
+    });
     if (!writeGate.ok) {
-      res.status(400).json({ error: writeGate.error, code: writeGate.code });
+      res.status(400).json({
+        error: writeGate.error,
+        code: writeGate.code,
+        ...(writeGate.missing ? { missing: writeGate.missing } : {}),
+      });
       return;
     }
     enterContentWriteContext(writeGate.ctx);
@@ -950,9 +962,21 @@ export function registerVersioningRoutes(app: Express): void {
     const auth = await requireCapability(req, res, "content_promote_variant", contentType);
     if (!auth.authorized) return;
 
-    const writeGate = beginMcpContentWrite(req, req.body?.report);
+    const writeGate = await beginMcpContentWrite(req, {
+      report: req.body?.report,
+      why: req.body?.why,
+      highlights: req.body?.highlights,
+      mode:
+        req.body?.why != null || req.body?.highlights != null
+          ? "mutate_structural"
+          : "legacy_report",
+    });
     if (!writeGate.ok) {
-      res.status(400).json({ error: writeGate.error, code: writeGate.code });
+      res.status(400).json({
+        error: writeGate.error,
+        code: writeGate.code,
+        ...(writeGate.missing ? { missing: writeGate.missing } : {}),
+      });
       return;
     }
     enterContentWriteContext(writeGate.ctx);

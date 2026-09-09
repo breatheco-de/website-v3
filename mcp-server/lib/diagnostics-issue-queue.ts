@@ -7,6 +7,7 @@
  */
 
 import { parseEntryKey } from "../../scripts/validation/shared/entryKey.js";
+import { isIssueCodeCodingAgentOnly } from "../../scripts/validation/shared/issueCodeRegistry.js";
 import { enrichIssueCatalogFields } from "./issue-code-enrichment.js";
 
 export const ISSUES_LIMIT_DEFAULT = 50;
@@ -56,6 +57,8 @@ export type DiagnosticsQueueIssue = {
   help?: { title: string; summary?: string; incomplete?: boolean };
   next_actions?: Array<{ tool: string; reason: string; priority?: string }>;
   staff_context?: string;
+  /** Catalog: MCP must not claim — coding agent / staff only. */
+  coding_agent_only?: boolean;
 };
 
 export type DiagnosticsIssueQueueOptions = {
@@ -352,6 +355,7 @@ function toOutputIssue(
   }
   if (enriched.help) issue.help = enriched.help;
   if (enriched.next_actions?.length) issue.next_actions = enriched.next_actions;
+  if (enriched.coding_agent_only) issue.coding_agent_only = true;
   if (enriched.staff_context) {
     issue.staff_context =
       truncateIssueText(enriched.staff_context, 500) ?? enriched.staff_context;
@@ -454,13 +458,23 @@ export function buildDiagnosticsIssueQueue(
     else openRows.push(row);
   }
 
-  const open_count = openRows.length;
+  // Default open work queue: hide coding-agent-only issues (MCP cannot fix).
+  // issue_status "all" still surfaces them in open_issues.
+  const openForQueue =
+    issue_status === "all"
+      ? openRows
+      : openRows.filter(
+          (row) => !isIssueCodeCodingAgentOnly(row.validator, row.code),
+        );
+
+  const open_count = openForQueue.length;
   const claimed_by_others_count = claimedRows.length;
   const completed_count = completedRows.length;
 
-  let primaryRows: DiagnosticsQueueInputRow[] = openRows;
+  let primaryRows: DiagnosticsQueueInputRow[] = openForQueue;
   if (issue_status === "claimed") primaryRows = claimedRows;
   else if (issue_status === "completed") primaryRows = completedRows;
+  else if (issue_status === "all") primaryRows = openRows;
 
   const { page, total } = rankAndPaginate(
     primaryRows,

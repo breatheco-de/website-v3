@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { diffLines } from "diff";
-import { FileDiff, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { FileDiff } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,9 +8,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { TextDiffView } from "@/components/ui/text-diff-view";
 import { getDebugToken } from "@/hooks/useDebugAuth";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
-import { cn } from "@/lib/utils";
 
 interface FileStatusResponse {
   exists: boolean;
@@ -24,11 +23,6 @@ interface FileStatusResponse {
   error?: string;
 }
 
-interface DiffRow {
-  kind: "added" | "removed" | "context";
-  text: string;
-}
-
 const STATUS_LABELS: Record<FileStatusResponse["status"], string> = {
   synced: "In sync",
   "local-only": "Local only",
@@ -36,19 +30,6 @@ const STATUS_LABELS: Record<FileStatusResponse["status"], string> = {
   modified: "Modified",
   conflict: "Conflict",
 };
-
-function buildDiffRows(remote: string, local: string): DiffRow[] {
-  const rows: DiffRow[] = [];
-  for (const part of diffLines(remote, local)) {
-    const kind: DiffRow["kind"] = part.added ? "added" : part.removed ? "removed" : "context";
-    // Strip the single trailing newline so we don't render a phantom empty line per part
-    const lines = part.value.replace(/\n$/, "").split("\n");
-    for (const text of lines) {
-      rows.push({ kind, text });
-    }
-  }
-  return rows;
-}
 
 interface FileDiffModalProps {
   filePath: string | null;
@@ -96,13 +77,6 @@ export function FileDiffModal({ filePath, onOpenChange }: FileDiffModalProps) {
     return () => ac.abort();
   }, [filePath]);
 
-  const rows = useMemo(() => {
-    if (!fileStatus) return [];
-    return buildDiffRows(fileStatus.remoteContent ?? "", fileStatus.localContent ?? "");
-  }, [fileStatus]);
-
-  const hasChanges = rows.some((r) => r.kind !== "context");
-
   return (
     <Dialog open={filePath !== null} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[85vh] flex flex-col">
@@ -132,44 +106,13 @@ export function FileDiffModal({ filePath, onOpenChange }: FileDiffModalProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 min-h-0 overflow-y-auto rounded-md border bg-muted/30">
-          {loading && (
-            <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-              <RefreshCw className="h-4 w-4 animate-spin" />
-              Loading diff...
-            </div>
-          )}
-          {!loading && error && (
-            <div className="py-12 text-center text-sm text-destructive" data-testid="text-diff-error">
-              {error}
-            </div>
-          )}
-          {!loading && !error && fileStatus && !hasChanges && (
-            <div className="py-12 text-center text-sm text-muted-foreground" data-testid="text-diff-no-changes">
-              No differences between local and remote.
-            </div>
-          )}
-          {!loading && !error && fileStatus && hasChanges && (
-            <pre className="font-mono text-xs leading-5 whitespace-pre-wrap break-all" data-testid="diff-content">
-              {rows.map((row, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    "px-3",
-                    row.kind === "added" && "bg-emerald-500/15",
-                    row.kind === "removed" && "bg-destructive/15 text-destructive",
-                    row.kind === "context" && "text-muted-foreground",
-                  )}
-                >
-                  <span className="select-none inline-block w-4 flex-shrink-0">
-                    {row.kind === "added" ? "+" : row.kind === "removed" ? "-" : " "}
-                  </span>
-                  {row.text}
-                </div>
-              ))}
-            </pre>
-          )}
-        </div>
+        <TextDiffView
+          before={fileStatus?.remoteContent ?? ""}
+          after={fileStatus?.localContent ?? ""}
+          loading={loading}
+          error={error}
+          emptyMessage="No differences between local and remote."
+        />
       </DialogContent>
     </Dialog>
   );

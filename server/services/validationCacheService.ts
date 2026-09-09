@@ -35,6 +35,7 @@ import {
 } from "../../scripts/validation/shared/runClass";
 import { entryKeyFromContentFile } from "../../scripts/validation/shared/entryKey";
 import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
+import { isIssueCodeCodingAgentOnly } from "../../scripts/validation/shared/issueCodeRegistry";
 import { siteSyncGcsKey, SYNC_FILENAMES, validationCacheReadKeys } from "@shared/gcsKeys";
 import { gcs } from "../gcs";
 import { getSiteContextMap } from "../site-manager";
@@ -612,8 +613,18 @@ export class ValidationCacheService {
     | { ok: true; claim: ValidationIssueClaim }
     | { ok: false; error: string; code?: string; claimedBy?: string }
   > {
-    if (!this.issues[issueId]) {
+    const issue = this.issues[issueId];
+    if (!issue) {
       return { ok: false, error: `Unknown issue id: ${issueId}` };
+    }
+    if (isIssueCodeCodingAgentOnly(issue.validator, issue.code)) {
+      return {
+        ok: false,
+        error:
+          `Issue ${issue.code} requires a coding agent or staff (filesystem/content repo). ` +
+          `MCP agents must not claim it — leave for Diagnostics / Cursor coding agent.`,
+        code: "issue_coding_agent_only",
+      };
     }
     const existing = this.getActiveClaim(issueId);
     if (existing && existing.claimedBy !== claimedBy) {
@@ -728,7 +739,12 @@ export class ValidationCacheService {
             ok: false,
             error: r.error,
             code: r.code,
-            status: r.code === "issue_already_claimed" ? 409 : 404,
+            status:
+              r.code === "issue_already_claimed"
+                ? 409
+                : r.code === "issue_coding_agent_only"
+                  ? 400
+                  : 404,
             claimedBy: r.claimedBy,
           };
         }

@@ -48,6 +48,7 @@ import {
   hasSchemaOrgContributors,
   isSchemaOrgSection,
 } from "@shared/schema-org-sections";
+import { parseIssuesSort } from "@shared/validation-issue-sort";
 import { mediaGallery, MediaGallery } from "../media-gallery";
 import { getMergedImageRegistry } from "../image-registry-resolver";
 import type { SiteContext } from "../site-manager";
@@ -954,6 +955,18 @@ export function registerValidationRoutes(app: Express): void {
       includeReopenedRaw === "false" || includeReopenedRaw === "0" ? false : true;
     const limitRaw = req.query.limit ? Number(req.query.limit) : 50;
     const offsetRaw = req.query.offset ? Number(req.query.offset) : 0;
+    const sortRaw = typeof req.query.sort === "string" ? req.query.sort : undefined;
+    const sortDirRaw =
+      typeof req.query.sort_dir === "string"
+        ? req.query.sort_dir
+        : typeof req.query.sortDir === "string"
+          ? req.query.sortDir
+          : undefined;
+    const parsedSort = parseIssuesSort("resolved", sortRaw, sortDirRaw);
+    if (!parsedSort.ok) {
+      res.status(400).json({ error: parsedSort.error });
+      return;
+    }
     const filters = {
       entryKey: typeof req.query.entryKey === "string" ? req.query.entryKey : undefined,
       url: typeof req.query.url === "string" ? req.query.url : undefined,
@@ -965,6 +978,8 @@ export function registerValidationRoutes(app: Express): void {
       includeReopened,
       limit: Number.isFinite(limitRaw) ? limitRaw : 50,
       offset: Number.isFinite(offsetRaw) ? offsetRaw : 0,
+      sort: parsedSort.sort,
+      sortDir: parsedSort.sort_dir,
     };
     const result = archive.list(filters);
     res.json(result);
@@ -1007,11 +1022,20 @@ export function registerValidationRoutes(app: Express): void {
       }
     } else if (isMcpLoopbackRequest(req) && (action === "claim" || action === "complete")) {
       if (action === "complete") {
-        const parsed = requireIssueReport(req.body?.report);
-        if (!parsed.ok) {
-          return res.status(400).json({ error: parsed.error, code: parsed.code });
+        const { gateAgentReport } = await import("../agent-report-gate");
+        const gated = await gateAgentReport({
+          why: req.body?.why,
+          highlights: req.body?.highlights,
+          mode: "complete",
+        });
+        if (!gated.ok) {
+          return res.status(400).json({
+            error: gated.error,
+            code: gated.code,
+            missing: gated.missing,
+          });
         }
-        report = parsed.report;
+        report = gated.report;
       } else {
         const existing = cache.getActiveClaim(issueId);
         const isRefresh = existing?.claimedBy === author;

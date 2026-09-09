@@ -282,9 +282,60 @@ export function formatActivityListCopy(event: ActivityCopyInput): ActivityListCo
 /** Optional agent note for detail view only. */
 export function getActivityReport(payload: Record<string, unknown> | null | undefined): string | null {
   const report = payload?.report;
-  if (typeof report !== "string") return null;
-  const trimmed = report.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  if (typeof report === "string") {
+    const trimmed = report.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return null;
+}
+
+export type ActivityStructuredNote = {
+  why: string | null;
+  simpleChanges: Array<{ field: string; after: string }>;
+  highlights: string[];
+  /** Legacy / composed fallback when structured fields absent. */
+  fallbackReport: string | null;
+};
+
+/** Prefer structured why / simple_changes / highlights; fall back to report string. */
+export function getActivityStructuredNote(
+  payload: Record<string, unknown> | null | undefined,
+): ActivityStructuredNote | null {
+  const why = typeof payload?.why === "string" && payload.why.trim() ? payload.why.trim() : null;
+  const highlights = Array.isArray(payload?.highlights)
+    ? payload.highlights.filter((h): h is string => typeof h === "string" && h.trim().length > 0)
+    : [];
+  const simpleChanges: Array<{ field: string; after: string }> = [];
+  if (Array.isArray(payload?.simple_changes)) {
+    for (const item of payload.simple_changes) {
+      if (!item || typeof item !== "object") continue;
+      const field = typeof (item as { field?: unknown }).field === "string"
+        ? (item as { field: string }).field.trim()
+        : "";
+      const after = typeof (item as { after?: unknown }).after === "string"
+        ? (item as { after: string }).after.trim()
+        : "";
+      if (field && after) simpleChanges.push({ field, after });
+    }
+  }
+  const fallbackReport = getActivityReport(payload);
+  if (!why && simpleChanges.length === 0 && highlights.length === 0 && !fallbackReport) {
+    return null;
+  }
+  return { why, simpleChanges, highlights, fallbackReport };
+}
+
+/** Resolve GitHub commit link inputs from an activity event payload. */
+export function getActivityCommitLinkInputs(
+  payload: Record<string, unknown> | null | undefined,
+): { path: string | null; commitSha: string | null } {
+  const path =
+    typeof payload?.path === "string" && payload.path.trim() ? payload.path.trim() : null;
+  const commitSha =
+    typeof payload?.commitSha === "string" && payload.commitSha.trim()
+      ? payload.commitSha.trim()
+      : null;
+  return { path, commitSha };
 }
 
 /** Plain-English layer label for detail, or null. */

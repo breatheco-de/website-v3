@@ -136,10 +136,17 @@ function resolveMcpRoleId(roleId: string): string {
   return resolved;
 }
 
+/**
+ * Public origin used in GitHub staff-login return_to (browser must reach it).
+ * Prefer MCP_PUBLIC_URL; otherwise SITE_URL / Replit domain — OAuth is proxied
+ * through the main app (`/oauth/*`), so localhost MCP_PORT is wrong in prod.
+ */
 function getMcpPublicBase(): string {
+  const replitDomain = process.env.REPLIT_DEV_DOMAIN;
   return (
     process.env.MCP_PUBLIC_URL ||
-    `http://127.0.0.1:${PORT}`
+    process.env.SITE_URL ||
+    (replitDomain ? `https://${replitDomain}` : `http://127.0.0.1:${PORT}`)
   ).replace(/\/$/, "");
 }
 

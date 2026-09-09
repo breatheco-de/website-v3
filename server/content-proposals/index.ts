@@ -2,8 +2,12 @@ export { fingerprintEdits, fingerprintNotes, hashFingerprint } from "./fingerpri
 export {
   proposalServiceForSite,
   createProposalService,
+  parseProposalSort,
   PROPOSAL_CLAIM_TTL_MS,
+  PROPOSAL_SORT_FIELDS,
   type ProposalRecord,
   type ProposalStats,
   type CreateProposalInput,
+  type ProposalSortField,
+  type ProposalSortDir,
 } from "./service";

@@ -4,6 +4,17 @@
 
 export const RESOLVED_WINDOW_DAYS = 60;
 
+export {
+  OPEN_ISSUE_SORT_FIELDS,
+  RESOLVED_ISSUE_SORT_FIELDS,
+  parseIssuesSort,
+  sortIssueRows,
+  type OpenIssueSortField,
+  type ResolvedIssueSortField,
+  type IssuesSortDir,
+  type IssuesSortField,
+} from "@shared/validation-issue-sort";
+
 export type ValidationIssuesArgs = {
   slug?: string;
   locale?: string;
@@ -16,6 +27,8 @@ export type ValidationIssuesArgs = {
   set?: "open" | "resolved";
   limit?: number;
   offset?: number;
+  sort?: string;
+  sort_dir?: string;
 };
 
 export function isValidationIssuesScoped(args: ValidationIssuesArgs): boolean {

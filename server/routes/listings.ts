@@ -8,6 +8,7 @@ import {
   searchListingItems,
   type ListingPermanentFilter,
 } from "../listing-search";
+import { resolveDynamicEntries } from "../dynamic-entries";
 import { child } from "../logger";
 import { requireStaffSession } from "./_helpers";
 import { resolveTestimonialsSectionPreview } from "../testimonials-section-preview";
@@ -30,6 +31,13 @@ function getContentRootName(res: Response): string {
 
 function getDB(res: Response): DatabaseManager {
   return (res.locals.site as { database?: DatabaseManager } | undefined)?.database ?? databaseManager;
+}
+
+function sectionNeedsDynamicResolve(section: Record<string, unknown>): boolean {
+  const de = section.dynamic_entries as
+    | { database?: string; content_type?: string }
+    | undefined;
+  return !!(de && (de.database || de.content_type));
 }
 
 export function registerListingsRoutes(app: Express): void {
@@ -91,6 +99,59 @@ export function registerListingsRoutes(app: Express): void {
           res.status(400).json({ error: msg });
           return;
         }
+        res.status(500).json({ error: msg });
+      }
+    },
+  );
+
+  /**
+   * Resolve a single section's dynamic_entries against the current database
+   * (same pipeline as live page load). Used by Time Machine preview.
+   */
+  api.post(
+    app,
+    "/api/listings/section-preview",
+    { rate: "publicRead" },
+    async (req, res) => {
+      try {
+        const staff = await requireStaffSession(req, res);
+        if (!staff.authorized) return;
+
+        const section = req.body?.section;
+        if (!section || typeof section !== "object" || Array.isArray(section)) {
+          res.status(400).json({ error: "section object required" });
+          return;
+        }
+
+        const locale =
+          typeof req.body?.locale === "string" && req.body.locale.trim()
+            ? String(req.body.locale).trim()
+            : "en";
+        const singleEntry =
+          req.body?.singleEntry &&
+          typeof req.body.singleEntry === "object" &&
+          !Array.isArray(req.body.singleEntry)
+            ? (req.body.singleEntry as Record<string, unknown>)
+            : undefined;
+
+        const contentRoot = getContentRootName(res);
+        const sec = section as Record<string, unknown>;
+
+        if (!sectionNeedsDynamicResolve(sec)) {
+          res.json({ section: sec, resolved: false });
+          return;
+        }
+
+        const [resolved] = await resolveDynamicEntries([sec], locale, {
+          db: getDB(res),
+          contentRoot,
+          singleEntry,
+        });
+
+        res.json({ section: resolved ?? sec, resolved: true });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.error({ err }, "section preview resolve error");
         res.status(500).json({ error: msg });
       }
     },

@@ -4,8 +4,8 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { resolveSiteContext } from "../lib/content.js";
-import { denyUnlessContentViewOrSeo } from "../lib/auth.js";
+import { resolveSiteContext, resolveContentType } from "../lib/content.js";
+import { checkCap, denyResponse, denyUnlessContentViewOrSeo } from "../lib/auth.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
 import { SITE_PARAM_DESC, MULTI_SITE_TOOL_BLURB, siteFailResult } from "../lib/entry-helpers.js";
 import {
@@ -14,6 +14,11 @@ import {
   buildListSeoClusters,
   isClusterFilterBucket,
 } from "../lib/seo-cluster-inventory.js";
+import { assertSafeLocale, assertSafeSegment } from "../lib/sanitize.js";
+import { ok, fail, actionRequired } from "../lib/respond.js";
+import { requireMutateWhyHighlights } from "../lib/page-tool-helpers.js";
+import { AGENT_WHY_DESC } from "../lib/agent-report.js";
+import { runRefreshKeywordMetrics } from "../lib/refresh-keyword-metrics-mcp.js";
 
 const CLUSTER_BUCKETS = [
   "unclustered",
@@ -244,6 +249,114 @@ export function registerSeoClusterTools(
       } catch (err) {
         return { content: [{ type: "text", text: String(err) }], isError: true };
       }
+    },
+  );
+
+  mcp.tool(
+    "refresh_keyword_metrics",
+    "Force OpenRush inspect_keyword for an entry's main keyword (or keyword override). " +
+      "Upserts the shared OpenRush keyword cache only — does NOT write seo.kw_monthly_volume / seo.kw_difficulty YAML. " +
+      "When OpenRush is on, this is the valid fix for SEO_KEYWORD_RESEARCH_INCOMPLETE (B1); do not invent YAML metrics. " +
+      "When OpenRush is inactive → openrush_inactive (use update_fields + seo_research_source only with staff_provided|external:<name>, else release). " +
+      "Spends OpenRush credits. Requires seo_edit. " +
+      MULTI_SITE_TOOL_BLURB,
+    {
+      contentType: z.string().describe("Content type (e.g. locations, blog)"),
+      slug: z.string().describe("Page slug"),
+      locale: z.string().default("en").describe("Locale code"),
+      keyword: z
+        .string()
+        .optional()
+        .describe("Optional keyword override; default = seo.main_keyword from locale YAML / seo-index"),
+      why: z.string().describe(AGENT_WHY_DESC),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("Optional. From agent_session start — groups this call for staff monitoring."),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ contentType, slug, locale, keyword, why, agent_session_id, site }) => {
+      void agent_session_id;
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) {
+        return siteFailResult(siteResult.error, "refresh_keyword_metrics", {
+          contentType,
+          slug,
+          locale,
+        });
+      }
+      const reportCheck = requireMutateWhyHighlights(why, undefined, { mode: "mutate_structural" });
+      if (!reportCheck.ok) return reportCheck.result;
+      try {
+        assertSafeSegment(slug, "slug");
+        assertSafeLocale(locale);
+        assertSafeSegment(contentType, "contentType");
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+      const resolved = resolveContentType(slug, contentType, siteResult.contentPath, {
+        allowSharedLayout: true,
+      });
+      if (!resolved) {
+        return fail(
+          `Page not found for slug '${slug}' (contentType: ${contentType})`,
+          { code: "not_found" },
+        );
+      }
+      if (mcpToken && !(await checkCap(mcpToken, "seo_edit", resolved.contentType))) {
+        return denyResponse("seo_edit", resolved.contentType);
+      }
+
+      const result = await runRefreshKeywordMetrics({
+        contentPath: siteResult.contentPath,
+        contentFolder: siteResult.contentFolder,
+        contentType: resolved.contentType,
+        slug,
+        locale,
+        keywordOverride: keyword,
+        site,
+      });
+
+      if (!result.ok) {
+        if (result.code === "openrush_inactive") {
+          return actionRequired(
+            {
+              success: false,
+              action_required: result.code,
+              code: result.code,
+              message: result.message,
+              warnings: result.warnings ?? [],
+            },
+            result.next_actions ?? [],
+          );
+        }
+        return fail(result.message, {
+          code: result.code,
+          ...(result.details ?? {}),
+          warnings: result.warnings ?? [],
+          next_actions: result.next_actions ?? [],
+        });
+      }
+
+      return ok(
+        {
+          message: `OpenRush keyword cache refreshed for "${result.keyword}".`,
+          keyword: result.keyword,
+          kw_monthly_volume: result.kw_monthly_volume,
+          kw_difficulty: result.kw_difficulty,
+          fetched_at: result.fetched_at,
+          notes: result.notes,
+          source: result.source,
+          credits: result.credits,
+          credits_note: result.credits_note,
+          why: reportCheck.why,
+        },
+        {
+          warnings: result.warnings,
+          side_effects: result.side_effects,
+          next_actions: result.next_actions,
+        },
+      );
     },
   );
 }

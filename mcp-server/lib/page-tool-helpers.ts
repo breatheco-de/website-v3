@@ -4,7 +4,17 @@
  */
 
 import { z } from "zod";
-import { AGENT_REPORT_MUTATE_DESC } from "./agent-report.js";
+import {
+  AGENT_HIGHLIGHTS_DESC,
+  AGENT_WHY_DESC,
+} from "./agent-report.js";
+import {
+  AGENT_WHY_MIN_LENGTH,
+  evaluateReportHeuristics,
+  sanitizeHighlights,
+  sanitizeWhy,
+  type FieldUpdateLike,
+} from "@shared/agent-report-structured";
 import {
   loadVersioning,
   isSharedLayoutConfig,
@@ -40,13 +50,82 @@ export const LAYOUT_TARGET_DESC =
 
 /** Zod fields for MCP content mutates that hit edit-sections / edit-common APIs. */
 export const mutateReportZodFields = {
-  report: z.string().describe(AGENT_REPORT_MUTATE_DESC),
+  why: z.string().describe(AGENT_WHY_DESC),
+  highlights: z.array(z.string()).optional().describe(AGENT_HIGHLIGHTS_DESC),
   agent_session_id: z
     .string()
     .optional()
     .describe("Optional. From agent_session start — groups this write for staff monitoring."),
 };
 
+export function requireMutateWhyHighlights(
+  whyRaw: unknown,
+  highlightsRaw: unknown,
+  opts?: {
+    mode?: "mutate_with_updates" | "mutate_structural";
+    updates?: FieldUpdateLike[];
+  },
+):
+  | { ok: true; why: string; highlights: string[] }
+  | { ok: false; result: McpTextResult } {
+  const why = sanitizeWhy(whyRaw);
+  const highlights = sanitizeHighlights(highlightsRaw);
+  const mode = opts?.mode ?? (opts?.updates?.length ? "mutate_with_updates" : "mutate_structural");
+  const verdict = evaluateReportHeuristics({
+    why,
+    highlights,
+    mode,
+    updates: opts?.updates,
+  });
+  if (!why) {
+    return {
+      ok: false,
+      result: actionRequired(
+        {
+          success: false,
+          action_required: "report_required",
+          code: "report_required",
+          message: "why required: explain the ticket/goal in plain English.",
+          missing: ["Provide why: the ticket/goal in plain English."],
+        },
+        [],
+      ),
+    };
+  }
+  if (why.length < AGENT_WHY_MIN_LENGTH) {
+    return {
+      ok: false,
+      result: actionRequired(
+        {
+          success: false,
+          action_required: "report_required",
+          code: "report_too_short",
+          message: `why must be at least ${AGENT_WHY_MIN_LENGTH} characters.`,
+          missing: [`why must be at least ${AGENT_WHY_MIN_LENGTH} characters.`],
+        },
+        [],
+      ),
+    };
+  }
+  if (verdict.status === "fail") {
+    return {
+      ok: false,
+      result: actionRequired(
+        {
+          success: false,
+          action_required: "report_quality",
+          code: "report_quality",
+          message: verdict.missing.join(" "),
+          missing: verdict.missing,
+        },
+        [],
+      ),
+    };
+  }
+  return { ok: true, why, highlights };
+}
+
+/** @deprecated Use requireMutateWhyHighlights for field mutates. */
 export function requireMutateReport(
   report: unknown,
 ): { ok: true; trimmedReport: string } | { ok: false; result: McpTextResult } {
@@ -61,7 +140,8 @@ export function requireMutateReport(
           code: trimmedReport ? "report_too_short" : "report_required",
           message:
             "report required (min 80 characters): explain what you are changing and why. " +
-            "For copy you set, list plain values (Title: …); do not paste JSON/YAML.",
+            "For copy you set, list plain values (Title: …); do not paste JSON/YAML. " +
+            "Prefer why + highlights on newer mutate tools.",
         },
         [],
       ),

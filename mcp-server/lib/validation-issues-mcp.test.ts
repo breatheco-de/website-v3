@@ -5,7 +5,9 @@ import {
   issuesNextOffset,
   openStatsFromCacheTotals,
   paginateRows,
+  parseIssuesSort,
   resolvedStatsFromArchiveSummary,
+  sortIssueRows,
 } from "./validation-issues-mcp";
 
 describe("validation-issues-mcp", () => {
@@ -29,5 +31,44 @@ describe("validation-issues-mcp", () => {
     expect(paginateRows([1, 2, 3, 4], 1, 2)).toEqual([2, 3]);
     expect(issuesNextOffset(0, 20, 25, 20)).toBe(20);
     expect(issuesNextOffset(20, 20, 25, 5)).toBe(null);
+  });
+
+  it("parseIssuesSort is set-aware and fails on mismatch", () => {
+    expect(parseIssuesSort("open", undefined, undefined)).toEqual({
+      ok: true,
+      sort: "severity",
+      sort_dir: "desc",
+    });
+    expect(parseIssuesSort("resolved", undefined, undefined)).toEqual({
+      ok: true,
+      sort: "resolvedAt",
+      sort_dir: "desc",
+    });
+    expect(parseIssuesSort("open", "resolvedAt", "desc").ok).toBe(false);
+    expect(parseIssuesSort("resolved", "lastFullRunAt", "desc").ok).toBe(false);
+  });
+
+  it("sortIssueRows severity desc, null dates last, id tie-break", () => {
+    const rows = [
+      { id: "b", severity: "warning", lastFullRunAt: "2026-01-02T00:00:00.000Z" },
+      { id: "a", severity: "error", lastFullRunAt: null },
+      { id: "c", severity: "error", lastFullRunAt: "2026-01-01T00:00:00.000Z" },
+    ];
+    const sorted = sortIssueRows(rows, {
+      set: "open",
+      sort: "severity",
+      sort_dir: "desc",
+    });
+    expect(sorted.map((r) => r.id)).toEqual(["c", "a", "b"]);
+
+    const byDate = sortIssueRows(
+      [
+        { id: "x", lastFullRunAt: null },
+        { id: "y", lastFullRunAt: "2026-06-01T00:00:00.000Z" },
+        { id: "z", lastFullRunAt: "2026-05-01T00:00:00.000Z" },
+      ],
+      { set: "open", sort: "lastFullRunAt", sort_dir: "desc" },
+    );
+    expect(byDate.map((r) => r.id)).toEqual(["y", "z", "x"]);
   });
 });

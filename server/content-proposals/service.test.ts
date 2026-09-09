@@ -317,4 +317,27 @@ describe("content proposals", () => {
     const page2 = svc.list({ kind: "edits", limit: 2, offset: 2 });
     expect(page2.proposals).toHaveLength(1);
   });
+
+  it("list sorts by created_at asc with id tie-break", async () => {
+    const svc = makeService();
+    const summary =
+      "Replace the live CTA title with a clearer next step for this Spanish blog post. ".repeat(2);
+    for (let i = 0; i < 3; i++) {
+      const created = await svc.create(
+        {
+          title: `Order ${i}`,
+          summary,
+          entries: [sampleEntry({ slug: `order-${i}` })],
+        },
+        { username: "alice" },
+      );
+      expect(created.ok).toBe(true);
+    }
+    const asc = svc.list({ kind: "edits", sort: "created_at", sortDir: "asc", limit: 10 });
+    expect(asc.proposals).toHaveLength(3);
+    expect(asc.proposals[0]!.created_at).toBeLessThanOrEqual(asc.proposals[1]!.created_at);
+    expect(asc.proposals[1]!.created_at).toBeLessThanOrEqual(asc.proposals[2]!.created_at);
+    const desc = svc.list({ kind: "edits", sort: "updated_at", sortDir: "desc", limit: 10 });
+    expect(desc.proposals[0]!.updated_at).toBeGreaterThanOrEqual(desc.proposals[1]!.updated_at);
+  });
 });

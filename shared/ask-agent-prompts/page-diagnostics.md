@@ -57,8 +57,9 @@ Do:
 1. Authenticate to MCP if needed. Call agent_session start; pass agent_session_id on every mutate; end with agent_session summarize (report min 80).
 2. Treat the Known issues list as authoritative. Inspect with get_entry_content / get_entry_fields; fix with update_fields (and related write tools). Every content mutate needs report (min 80: what/why). When you set copy, list plain new values in the report (e.g. Title: …; Subtitle: …) — not JSON/YAML-only. Honor next_actions / warnings / side_effects.
 3. Before editing an issue: update_issue claim with that issue id + report (why + plan, min 80). Read prior_attempts first if present. After fix: update_issue complete + report (what changed + plain copy values, min 80). If stuck: update_issue release + report (what you tried, min 80). Soft-complete only — does not push YAML or run diagnostics. Claims expire after 30 minutes; re-claim to refresh TTL may omit report.
-4. If you lack edit caps, use propose_change then release the issue.
+4. Claim only with a valid executable fix path. Do not invent keyword volume/difficulty. SEO_KEYWORD_RESEARCH_INCOMPLETE: OpenRush on → refresh_keyword_metrics (cache); OpenRush off → update_fields kw_* only with seo_research_source staff_provided|external:<name>; else release blocked.
+5. If you lack edit caps, use propose_change then release the issue.
 
-Tools: agent_session, get_entry_content, get_entry_fields, update_fields, update_issue, propose_change, list_proposals.
+Tools: agent_session, get_entry_content, get_entry_fields, update_fields, refresh_keyword_metrics, update_issue, propose_change, list_proposals.
 
 Don’t: call run_entry_diagnostics with confirm:true; start or poll a new diagnostics job; edit other contentType/slug/locale unless a tool next_action says so; locale fan-out unless next_action says so.
