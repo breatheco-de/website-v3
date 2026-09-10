@@ -78,6 +78,8 @@ import {
 } from "@/components/agents/ProposalListCard";
 import { ProposalFieldDiff } from "@/components/agents/ProposalFieldDiff";
 import { EntryActivityBadge } from "@/components/pipeline/EntryActivityBadge";
+import { RelatedEntryPopover } from "@/components/agents/RelatedEntryPopover";
+import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 import { AskActivityGateCopy } from "@/components/DebugBubble/SolveWithAiAgentDropdown";
 import { ValidationIssueDetailModal } from "@/components/diagnostics/ValidationIssueDetailModal";
 import { buildEntryKey } from "@/lib/entryKeyToPageUrl";
@@ -180,6 +182,94 @@ function reviewModeBadge(p: Proposal): { label: string; variant: "default" | "se
     return { label: "Soft on draft", variant: "secondary" };
   }
   return { label: "Soft suggestion", variant: "outline" };
+}
+
+function reviewModeExplain(p: Proposal): { title: string; body: string; advanced: string[] } {
+  if (p.review_mode === "draft_backed" || p.promote_on_apply) {
+    return {
+      title: "Approving publishes a prepared draft",
+      body: "This proposal already has a draft ready. Preview that version before you decide. Approving makes that draft the live page for this locale — rejecting leaves live unchanged.",
+      advanced: [
+        "Stored as review_mode draft_backed (or promote_on_apply).",
+        "Open needs-changes items still block Approve until cleared.",
+      ],
+    };
+  }
+  if (p.review_mode === "soft_variant" || p.entries?.some((e) => e.variant)) {
+    return {
+      title: "Suggested edits go into a draft",
+      body: "Approving writes the proposed field changes into the linked draft only — the live page does not change. Preview the draft before you decide.",
+      advanced: [
+        "Stored as review_mode soft_variant when an entry lists a variant.",
+        "Go-live still requires publishing that draft separately.",
+      ],
+    };
+  }
+  return {
+    title: "Suggested edits — not live until you Approve",
+    body: "Approving writes the remaining suggested field changes onto the live page for each open entry. Until then, visitors still see the current live content. There is usually no separate draft to preview unless an entry lists a variant.",
+    advanced: [
+      "Default soft path: no draft_backed promote and no variant target.",
+      "Apply is still four-eyes — the proposer cannot approve their own edits.",
+    ],
+  };
+}
+
+function ReviewModeBadge({
+  proposal,
+  label,
+  variant,
+}: {
+  proposal: Proposal;
+  label: string;
+  variant: "default" | "secondary" | "outline";
+}) {
+  const [advanced, setAdvanced] = useState(false);
+  const explain = reviewModeExplain(proposal);
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex shrink-0"
+          data-testid="badge-proposal-review-mode"
+          aria-label={`${label} — what this means`}
+        >
+          <Badge variant={variant} className="cursor-pointer font-normal hover-elevate">
+            {label}
+          </Badge>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-80 space-y-3 text-sm"
+        align="start"
+        data-testid="popover-proposal-review-mode"
+      >
+        <p className="font-medium text-foreground">{explain.title}</p>
+        <p className="text-muted-foreground leading-5">{explain.body}</p>
+        {explain.advanced.length > 0 ? (
+          <>
+            <button
+              type="button"
+              className="text-xs text-primary hover:underline"
+              data-testid="button-proposal-review-mode-advanced"
+              onClick={() => setAdvanced((v) => !v)}
+            >
+              {advanced ? "Hide advanced" : "Read more (advanced)"}
+            </button>
+            {advanced ? (
+              <div className="space-y-1 border-t pt-2 text-xs text-muted-foreground leading-5">
+                {explain.advanced.map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function previewHref(entry: EntryRow): string | null {
@@ -350,6 +440,55 @@ function HandoffKindBadge() {
             <p>
               Close is not four-eyes (unlike Approve/Reject on Edits). Prefer an Edits proposal when
               there is a concrete fix to review.
+            </p>
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function EditsKindBadge() {
+  const [advanced, setAdvanced] = useState(false);
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex shrink-0"
+          data-testid="badge-proposal-kind-edits"
+          aria-label="Edits — what this means"
+        >
+          <Badge variant="outline" className="cursor-pointer font-normal hover-elevate">
+            Edits
+          </Badge>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 space-y-3 text-sm" align="start" data-testid="popover-edits-kind">
+        <p className="font-medium text-foreground">Proposed content changes to review</p>
+        <p className="text-muted-foreground leading-5">
+          Someone suggested field updates on the linked pages. Nothing on the live site changes until
+          a different person Approves. Reject leaves live unchanged. Use a Handoff when there is no
+          concrete fix to apply — only a reminder for the next person.
+        </p>
+        <button
+          type="button"
+          className="text-xs text-primary hover:underline"
+          data-testid="button-edits-kind-advanced"
+          onClick={() => setAdvanced((v) => !v)}
+        >
+          {advanced ? "Hide advanced" : "Read more (advanced)"}
+        </button>
+        {advanced ? (
+          <div className="space-y-1 border-t pt-2 text-xs text-muted-foreground leading-5">
+            <p>
+              Stored as proposal kind <code className="text-foreground">edits</code> — Approve
+              applies field updates and/or promotes a prepared draft; Reject does not write YAML.
+            </p>
+            <p>
+              Approve and Reject are four-eyes: the proposer cannot finish their own proposal. The
+              review-mode badge next to this one explains draft vs soft vs go-live.
             </p>
           </div>
         ) : null}
@@ -976,17 +1115,9 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     label={ui.label}
                     className={ui.className}
                   />
-                  {p.kind === "notes" ? (
-                    <HandoffKindBadge />
-                  ) : (
-                    <Badge variant="outline" className="font-normal">
-                      Edits
-                    </Badge>
-                  )}
+                  {p.kind === "notes" ? <HandoffKindBadge /> : <EditsKindBadge />}
                   {p.kind === "edits" ? (
-                    <Badge variant={mode.variant} className="font-normal">
-                      {mode.label}
-                    </Badge>
+                    <ReviewModeBadge proposal={p} label={mode.label} variant={mode.variant} />
                   ) : null}
                   {p.kind === "notes" && !isTerminal ? (
                     <NoAutoRetryBadge
@@ -1032,20 +1163,29 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                           key={e.id}
                           className="inline-flex max-w-full flex-wrap items-center gap-1"
                         >
-                          <Badge
-                            variant="outline"
-                            className="gap-1 font-mono font-normal max-w-full truncate"
-                            data-testid={`badge-related-entry-${e.id}`}
+                          <RelatedEntryPopover
+                            contentType={e.contentType}
+                            slug={e.slug}
+                            locale={e.locale}
+                            variant={e.variant}
+                            previewHref={previewHref(e)}
+                            testId={`popover-related-entry-${e.id}`}
                           >
-                            <IconLink className="h-3 w-3 shrink-0" aria-hidden />
-                            <span className="truncate">
-                              {e.contentType}/{e.slug}
-                              <span className="text-muted-foreground"> · {e.locale}</span>
-                              {e.variant ? (
-                                <span className="text-muted-foreground"> · draft {e.variant}</span>
-                              ) : null}
-                            </span>
-                          </Badge>
+                            <Badge
+                              variant="outline"
+                              className="gap-1 font-mono font-normal max-w-full truncate"
+                              data-testid={`badge-related-entry-${e.id}`}
+                            >
+                              <IconLink className="h-3 w-3 shrink-0" aria-hidden />
+                              <span className="truncate">
+                                {e.contentType}/{e.slug}
+                                <span className="text-muted-foreground"> · {e.locale}</span>
+                                {e.variant ? (
+                                  <span className="text-muted-foreground"> · draft {e.variant}</span>
+                                ) : null}
+                              </span>
+                            </Badge>
+                          </RelatedEntryPopover>
                           <EntryActivityBadge
                             entryKey={liveKey}
                             writeCount={liveAct?.writeCount ?? 0}
@@ -1306,13 +1446,23 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                   <Card key={e.id}>
                     <div className="flex flex-wrap items-start justify-between gap-3 border-b border-card-border px-4 py-3">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">
-                          {e.contentType}/{e.slug}
+                        <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                          <span
+                            className="inline-flex shrink-0"
+                            title={e.locale}
+                            aria-label={e.locale}
+                          >
+                            <LocaleFlag locale={e.locale} className="w-3.5 h-2.5 rounded-sm" />
+                          </span>
+                          <span className="truncate">
+                            {e.contentType}/{e.slug}
+                          </span>
                         </p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {e.locale}
-                          {e.variant ? ` · draft ${e.variant}` : ""}
-                        </p>
+                        {e.variant ? (
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            draft {e.variant}
+                          </p>
+                        ) : null}
                         <div className="mt-1.5 flex flex-wrap items-center gap-1">
                           <EntryActivityBadge
                             entryKey={buildEntryKey({

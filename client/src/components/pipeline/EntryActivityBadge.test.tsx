@@ -27,13 +27,14 @@ function renderBadge(writeCount: number) {
 describe("EntryActivityBadge", () => {
   it("renders zero and positive write counts on the dialog trigger", () => {
     const zero = renderBadge(0);
-    expect(zero).toContain("0 writes");
+    expect(zero).toContain("0 writes in the last 14 days");
     expect(zero).toContain('data-testid="act-badge"');
-    expect(zero).toContain("in the last 14 days");
+    expect(zero).toContain("text-green-700");
 
     const one = renderBadge(1);
     expect(one).toContain("1 write");
     expect(one).not.toContain("1 writes");
+    expect(one).not.toContain("text-green-700");
   });
 
   it("builds event-log href for entry + people/agents writes", () => {

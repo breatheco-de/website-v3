@@ -37,7 +37,7 @@ import { entryKeyToPageUrl } from "@/lib/entryKeyToPageUrl";
 import { type EventAttributionEntry } from "@/lib/formatIssueActor";
 import { apiFetch } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, ExternalLink, Github, Loader2, ScrollText, User } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink, Github, Loader2, ScrollText, User } from "lucide-react";
 
 const EVENT_LOG_PATH = "/private/background-pipeline";
 
@@ -636,6 +636,10 @@ export function EntryActivityBadge({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const quiet = writeCount === 0;
+  const label = quiet
+    ? `0 writes in the last ${windowDays} days`
+    : `${writeCount} write${writeCount === 1 ? "" : "s"}`;
 
   return (
     <>
@@ -644,6 +648,11 @@ export function EntryActivityBadge({
         className={cn("shrink-0", className)}
         data-testid={`${testIdPrefix}-badge`}
         aria-label={`${writeCount} write${writeCount === 1 ? "" : "s"} in the last ${windowDays} days`}
+        title={
+          quiet
+            ? `No recent edits — safe signal for review (last ${windowDays} days)`
+            : undefined
+        }
         onClick={(e) => {
           e.stopPropagation();
           setOpen(true);
@@ -652,11 +661,14 @@ export function EntryActivityBadge({
         <Badge
           variant="secondary"
           className={cn(
-            "h-5 px-1.5 text-[10px] font-normal tabular-nums cursor-pointer underline-offset-2 hover:underline",
-            "bg-muted text-muted-foreground border border-border shadow-none",
+            "h-5 gap-1 px-1.5 text-[10px] font-normal tabular-nums cursor-pointer underline-offset-2 hover:underline shadow-none",
+            quiet
+              ? "bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/30"
+              : "bg-muted text-muted-foreground border border-border",
           )}
         >
-          {writeCount} write{writeCount === 1 ? "" : "s"}
+          {quiet ? <Check className="h-3 w-3 shrink-0" aria-hidden /> : null}
+          {label}
         </Badge>
       </button>
       <EntryActivityDialog

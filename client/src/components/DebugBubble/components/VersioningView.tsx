@@ -48,9 +48,22 @@ interface VersioningViewProps {
   onOpenPageErrors?: (tab: PageErrorsTab) => void;
 }
 
-function formatRelativeUpdatedAt(iso: string): { relative: string; absolute: string } | null {
+function formatAbsoluteDate(iso: string): string | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatRelativeUpdatedAt(iso: string): { relative: string; absolute: string } | null {
+  const absolute = formatAbsoluteDate(iso);
+  if (!absolute) return null;
+  const date = new Date(iso);
   const diffMs = Math.max(0, Date.now() - date.getTime());
   const mins = Math.floor(diffMs / 60000);
   let relative: string;
@@ -69,16 +82,7 @@ function formatRelativeUpdatedAt(iso: string): { relative: string; absolute: str
       }
     }
   }
-  return {
-    relative,
-    absolute: date.toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }),
-  };
+  return { relative, absolute };
 }
 
 function DefaultLiveRowActions({
@@ -254,6 +258,9 @@ export function VersioningView({
     "Page details";
   const updatedAtLabel = versioningData?.updatedAt
     ? formatRelativeUpdatedAt(versioningData.updatedAt)
+    : null;
+  const publishedAtAbsolute = versioningData?.publishedAt
+    ? formatAbsoluteDate(versioningData.publishedAt)
     : null;
   const isDraftEntry = !!versioningData?.isDraft || versioningData?.hasLiveDefault === false;
   const liveLocales = (() => {
@@ -831,13 +838,48 @@ export function VersioningView({
                     <span className="text-muted-foreground/50 shrink-0" aria-hidden>
                       ·
                     </span>
-                    <span
-                      className="truncate tabular-nums shrink min-w-0"
-                      title={updatedAtLabel.absolute}
-                      data-testid="text-versioning-updated-at"
-                    >
-                      {updatedAtLabel.relative}
-                    </span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="truncate tabular-nums shrink min-w-0 underline-offset-2 hover:underline hover:text-foreground"
+                          data-testid="text-versioning-updated-at"
+                          aria-label={`Last updated ${updatedAtLabel.relative}. Click for dates.`}
+                        >
+                          {updatedAtLabel.relative}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="start"
+                        className="w-64 text-xs space-y-2 z-[10001]"
+                        data-testid="popover-versioning-dates"
+                      >
+                        <p className="text-muted-foreground leading-snug">
+                          Relative time since this page’s content last changed (title, copy, images, or SEO).
+                          Published is the first time it went live.
+                        </p>
+                        <dl className="space-y-1.5">
+                          <div className="flex flex-col gap-0.5">
+                            <dt className="text-muted-foreground">Updated</dt>
+                            <dd
+                              className="text-foreground tabular-nums"
+                              data-testid="text-versioning-updated-at-absolute"
+                            >
+                              {updatedAtLabel.absolute}
+                            </dd>
+                          </div>
+                          <div className="flex flex-col gap-0.5">
+                            <dt className="text-muted-foreground">Published</dt>
+                            <dd
+                              className="text-foreground tabular-nums"
+                              data-testid="text-versioning-published-at-absolute"
+                            >
+                              {publishedAtAbsolute ?? "Not published yet"}
+                            </dd>
+                          </div>
+                        </dl>
+                      </PopoverContent>
+                    </Popover>
                   </>
                 )}
                 {isTemplateVersioning && (

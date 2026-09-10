@@ -161,7 +161,8 @@ import {
   variantTrafficBlock,
   variantTrafficErrorMessage,
 } from "../versioning/delete-variant.js";
-import { ensurePublishedAtOnce } from "../published-at";
+import { ensurePublishedAtOnce, readPublishedAt } from "../published-at";
+import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveSingleVars } from "../single-resolver";
 import { getValidationCacheService } from "../services/validationCacheService";
@@ -352,6 +353,7 @@ export function registerVersioningRoutes(app: Express): void {
     // Editorial title from ContentIndex (YAML `title`), not deslugified folder slug
     let title: string | null = null;
     let updatedAt: string | null = null;
+    let publishedAt: string | null = null;
     if (entrySlug) {
       const indexed = getCI(res).findBySlug(entrySlug, { contentType });
       const indexedTitle = indexed[0]?.title?.trim();
@@ -365,6 +367,7 @@ export function registerVersioningRoutes(app: Express): void {
         localesForUpdatedAt.length > 0 ? localesForUpdatedAt : availableLocales,
         root,
       );
+      publishedAt = normalizeFlexibleDate(readPublishedAt(contentType, entrySlug, root));
     }
 
     if (!versioning) {
@@ -381,6 +384,7 @@ export function registerVersioningRoutes(app: Express): void {
         isDraft: !hasLiveDefault && !shared,
         title,
         updatedAt,
+        publishedAt,
       });
       return;
     }
@@ -398,6 +402,7 @@ export function registerVersioningRoutes(app: Express): void {
       isDraft: !hasLiveDefault && !shared,
       title,
       updatedAt,
+      publishedAt,
     });
   });
 

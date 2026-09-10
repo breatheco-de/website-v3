@@ -50,6 +50,8 @@ export interface VersioningResponse {
   title?: string | null;
   /** Editorial updated_at (ISO) — max across locales; same clock as Manage */
   updatedAt?: string | null;
+  /** Editorial published_at (ISO) — first go-live on _common.yml */
+  publishedAt?: string | null;
 }
 
 export interface ContentInfo {
