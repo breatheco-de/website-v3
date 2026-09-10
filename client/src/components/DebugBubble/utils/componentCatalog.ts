@@ -30,6 +30,7 @@ export const componentsList: ComponentItem[] = [
   { type: "graduates_stats", label: "Graduates Stats", icon: Users, description: "Image collage with statistics - standard and fullBleed variants" },
   { type: "programs_showcase", label: "Programs Showcase", icon: LayoutGrid, description: "All programs side-by-side - grid, stacked list, or spotlight variants" },
   { type: "list_press_mentions", label: "Press Mentions List", icon: Building2, description: "Grid of press mention cards with logos, excerpts and links" },
+  { type: "list_workshops_carousel", label: "Workshops Carousel", icon: LayoutList, description: "Horizontal drag carousel of upcoming workshop event cards" },
   { type: "list_single_press_mention", label: "Featured Press Mention", icon: Building2, description: "Single highlighted press mention — image left, content right" },
   { type: "credibility_strip", label: "Credibility Strip", icon: ShieldCheck, description: "Compact band of rotating-logo pills signalling partnerships, programs, and rankings" },
   { type: "contact_bubble", label: "Contact Bubble", icon: CircleUserRound, description: "Floating bottom-right bubble linking to a URL with icon or image and hover text" },

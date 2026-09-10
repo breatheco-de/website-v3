@@ -11,6 +11,7 @@ import {
 import type { DynamicTableConfig } from "./TableBuilderWizard";
 import { useSession } from "@/contexts/SessionContext";
 import type { DynamicTableSection } from "@shared/schema";
+import { decodeUtf8Base64 } from "@shared/functionEncoding";
 
 interface DynamicTableProps {
   data: DynamicTableSection;
@@ -41,7 +42,7 @@ function formatValue(val: unknown): string {
 
 function executeColumnFunction(fnBase64: string, row: Record<string, unknown>): unknown {
   try {
-    const fnString = atob(fnBase64);
+    const fnString = decodeUtf8Base64(fnBase64);
     const fn = new Function("row", `return (${fnString})(row);`);
     return fn(row);
   } catch {
@@ -59,7 +60,7 @@ interface FilterContext {
 
 function executeGlobalFilter(fnBase64: string, rows: Record<string, unknown>[], ctx?: FilterContext): Record<string, unknown>[] {
   try {
-    const fnString = atob(fnBase64);
+    const fnString = decodeUtf8Base64(fnBase64);
     try {
       const fn = new Function("rows", "ctx", `return (${fnString})(rows, ctx);`);
       const result = fn(rows, ctx || {});

@@ -33,6 +33,10 @@ import { ItemEditModal } from "@/components/databases/ItemEditModal";
 import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
 import JsonViewer from "@/components/editing/JsonViewer";
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
+import {
+  decodeFunctionMapping,
+  encodeFunctionMapping,
+} from "@shared/functionEncoding";
 
 interface DatabaseSummary {
   name: string;
@@ -2334,7 +2338,7 @@ function FieldMappingEditor({
             const isFunction = sourcePath != null && sourcePath.startsWith("function:");
             const isCustom = !isFunction && sourcePath != null && !rawFields.includes(sourcePath);
             const selectValue = isFunction ? "__function__" : isCustom ? "__custom__" : (sourcePath || "__none__");
-            const decodedFn = isFunction ? (() => { try { return atob(sourcePath.slice("function:".length)); } catch { return sourcePath; } })() : "";
+            const decodedFn = isFunction ? (() => { try { return decodeFunctionMapping(sourcePath); } catch { return sourcePath; } })() : "";
             return (
               <div key={normalizedKey} className="space-y-1">
                 <div className="flex items-center gap-2">
@@ -2348,7 +2352,7 @@ function FieldMappingEditor({
                       <Textarea
                         value={decodedFn}
                         onChange={(e) => {
-                          const encoded = "function:" + btoa(e.target.value);
+                          const encoded = encodeFunctionMapping(e.target.value);
                           setFieldMappingEntries((prev) => ({ ...prev, [normalizedKey]: encoded }));
                         }}
                         placeholder="(value, item) => value"
@@ -2379,7 +2383,7 @@ function FieldMappingEditor({
                       value={selectValue}
                       onValueChange={(v) => {
                         if (v === "__function__") {
-                          setFieldMappingEntries((prev) => ({ ...prev, [normalizedKey]: "function:" + btoa("(value, item) => value") }));
+                          setFieldMappingEntries((prev) => ({ ...prev, [normalizedKey]: encodeFunctionMapping("(value, item) => value") }));
                         } else if (v === "__custom__") {
                           setFieldMappingEntries((prev) => ({ ...prev, [normalizedKey]: "" }));
                         } else {
@@ -4638,7 +4642,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                           className="inline-flex items-center gap-1 bg-black dark:bg-zinc-900 px-1.5 py-0.5 rounded cursor-pointer hover:opacity-80 transition-opacity shrink-0"
                           onClick={() => {
                             let decoded: string;
-                            try { decoded = atob(p.slice("function:".length)); } catch { decoded = p; }
+                            try { decoded = decodeFunctionMapping(p); } catch { decoded = p; }
                             setFnPreviewField({ key, fn: decoded });
                             setFnTestResult(null);
                             setFnTestItemIndex(0);
@@ -5474,7 +5478,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                               throw new Error((err as { error?: string }).error || "AI request failed");
                             }
                             const { fnBody: newFn } = await res.json() as { fnBody: string };
-                            const newEncoded = "function:" + btoa(newFn);
+                            const newEncoded = encodeFunctionMapping(newFn);
                             const currentConfig = detail?.config;
                             if (!currentConfig) throw new Error("Config not loaded");
                             const updatedConfig = {

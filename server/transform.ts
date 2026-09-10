@@ -1,10 +1,14 @@
 import vm from "vm";
 import { child } from "./logger";
+import {
+  FUNCTION_PREFIX,
+  decodeUtf8Base64,
+} from "@shared/functionEncoding";
 const log = child({ module: "transform" });
 
 
 
-export const FUNCTION_PREFIX = "function:";
+export { FUNCTION_PREFIX };
 export const OPTIONAL_PREFIX = "?";
 
 const transformTimeoutLastWarn = new Map<string, number>();
@@ -35,7 +39,7 @@ export function isTransformer(value: string): boolean {
 
 export function extractFunctionBody(prefixedValue: string): string {
   const encoded = prefixedValue.slice(FUNCTION_PREFIX.length);
-  return Buffer.from(encoded, "base64").toString("utf-8");
+  return decodeUtf8Base64(encoded);
 }
 
 interface CompiledTransformer {

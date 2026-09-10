@@ -1,0 +1,21 @@
+- type: awards_marquee
+  speed: 60
+  gradient: true
+  gradientWidth: 100
+  title: Technologies we teach
+  title_above_carousel: true
+  dynamic_entries:
+    database: technologies
+    limit: 20
+    sort: sort_priority
+    # Learn MktTechnologies: icon_url && !lang
+    permanent_filters:
+      - item_property_slug: has_icon
+        value: true
+      - item_property_slug: lang
+        value: null
+    item_template:
+      id: "{{ entry.slug }}"
+      alt: "{{ entry.title }}"
+      logo: "{{ entry.icon_url }}"
+      logoHeight: "48px"
