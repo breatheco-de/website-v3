@@ -9,6 +9,12 @@ when_to_use: |
   Use when you have many award logos (5+) that would clutter a static grid. The continuous
   scroll creates visual movement and fits a large number of badges in a small vertical footprint.
   Best placed below the hero section or credibility strip as a secondary trust layer.
+behaviors:
+  listing:
+    source: dynamic_entries
+    notes: >-
+      Optional. Without dynamic_entries, authored items[] render as today. With database/content_type,
+      resolve fills items (item_template + hardcoded_entries).
 image_sizes:
   default.items[].logo: "(min-width: 768px) 220px, 80px"
 props:
@@ -35,7 +41,7 @@ props:
     required: false
   items:
     type: array
-    required: true
+    required: false
     items:
       id:
         type: string
@@ -58,3 +64,59 @@ props:
       year:
         type: string
         required: false
+    description: >-
+      Logo row. Author statically, or leave for resolveDynamicEntries when using dynamic_entries.
+  dynamic_entries:
+    type: object
+    required: false
+    properties:
+      database:
+        type: string
+        required: false
+      content_type:
+        type: string
+        required: false
+      limit:
+        type: number
+        required: false
+      sort:
+        type: string
+        required: false
+      item_template:
+        type: object
+        required: false
+      hardcoded_entries:
+        type: array
+        required: false
+        items:
+          type:
+            type: string
+            required: true
+      permanent_filters:
+        type: array
+        required: false
+        items:
+          item_property_slug:
+            type: string
+            required: true
+          value:
+            type: string
+            required: true
+    description: Optional listing source (database / content type)
+  _dynamic_meta:
+    type: object
+    required: false
+    properties:
+      content_type:
+        type: string
+        required: false
+      total:
+        type: number
+        required: false
+      locale:
+        type: string
+        required: false
+variants:
+  default:
+    description: Continuously scrolling horizontal logo band
+    best_for: Award / technology / partner logos under hero or credibility strip

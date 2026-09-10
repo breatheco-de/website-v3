@@ -888,6 +888,10 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
     open: boolean;
     index: number;
     isDeleting: boolean;
+    /** Preferred identity for template delete (same target as edit). */
+    sectionId?: string;
+    /** Fallback when section has no id — merged-view position. */
+    mergedIndex?: number;
   }>({ open: false, index: -1, isDeleting: false });
 
   // Dialog for scope choice when deleting on a specific DB entry page (isSharedTemplate && singleEntry)
@@ -900,6 +904,9 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
     /** Fallback when section has no id — merged-view position of the section. */
     mergedIndex?: number;
   }>({ open: false, index: -1, isPerEntry: false, isDeleting: false });
+
+  const resetDbTemplateDeleteDialog = () =>
+    setDbTemplateDeleteDialog({ open: false, index: -1, isDeleting: false });
 
   // Restore dialog for ghost (removed) sections
   const [restoreDialog, setRestoreDialog] = useState<{
@@ -932,13 +939,21 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
       }
     } catch {}
 
-    if (isSharedTemplate && singleEntry && allowEntryStructuralOverrides) {
-      // On a specific DB entry page — check if section is per-entry-only
+    if (isSharedTemplate && singleEntry) {
+      // On a specific shared-layout entry — check if section is per-entry-only
       const rawSection = sections[index] as Record<string, unknown>;
       const isPerEntry = !!(rawSection?._perEntrySource);
       const sectionId = canonicalSectionId(rawSection);
 
       if (isPerEntry) {
+        if (!allowEntryStructuralOverrides) {
+          toast({
+            title: "Cannot delete section",
+            description: "Per-entry sections are not enabled while this entry is attached.",
+            variant: "destructive",
+          });
+          return;
+        }
         // Per-entry sections: delete directly — no scope dialog needed
         deletePerEntryDirect(index);
         return;
@@ -950,12 +965,22 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
         return;
       }
 
-      setDbEntryDeleteDialog({ open: true, index, isPerEntry: false, isDeleting: false, sectionId, mergedIndex: index });
+      if (allowEntryStructuralOverrides) {
+        // Detached / overrides allowed: choose hide-this-entry vs delete-from-template
+        setDbEntryDeleteDialog({ open: true, index, isPerEntry: false, isDeleting: false, sectionId, mergedIndex: index });
+        return;
+      }
+
+      // Attached shared-layout: same write target as edit (shared template.es/en.yml).
+      // Confirm blast radius, then delete by section_id — never remove_item on the entry file.
+      setDbTemplateDeleteDialog({ open: true, index, isDeleting: false, sectionId, mergedIndex: index });
       return;
     }
 
     if (isSharedTemplate) {
-      setDbTemplateDeleteDialog({ open: true, index, isDeleting: false });
+      const rawSection = sections[index] as Record<string, unknown>;
+      const sectionId = canonicalSectionId(rawSection);
+      setDbTemplateDeleteDialog({ open: true, index, isDeleting: false, sectionId, mergedIndex: index });
       return;
     }
 
@@ -1020,12 +1045,16 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
 
   const handleDbTemplateDeleteConfirm = async () => {
     if (!contentType || !slug || !locale) return;
-    const { index } = dbTemplateDeleteDialog;
+    const { index, sectionId: dialogSectionId, mergedIndex: dialogMergedIndex } = dbTemplateDeleteDialog;
     setDbTemplateDeleteDialog(prev => ({ ...prev, isDeleting: true }));
 
-    // Best-effort: look up and delete the entire binding group for this shared-template
-    // section. Because this section is shared across all entries, removing just one member
-    // would leave orphaned references — so we delete the whole group.
+    const sectionId =
+      dialogSectionId ||
+      canonicalSectionId(sections[index] as Record<string, unknown>) ||
+      undefined;
+    const mergedIndex = dialogMergedIndex ?? index;
+
+    // Best-effort: delete any binding group for this shared-template section.
     try {
       const bindRes = await fetch(
         `/api/bindings/section?contentType=${encodeURIComponent(contentType)}&slug=${encodeURIComponent(slug)}&sectionIndex=${index}&locale=${encodeURIComponent(locale)}`
@@ -1040,26 +1069,41 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
       }
     } catch {}
 
-    const result = await sendEditOperation(contentType, slug, locale, [
-      { action: "remove_item", path: "sections", index }
-    ]);
-
-    if (result.success) {
-      // Always run a server-side cleanup after a template section deletion so any
-      // per-entry members that also referenced this sectionId are pruned.
-      try {
-        const token = getDebugToken();
-        await fetch("/api/bindings/cleanup", {
-          method: "POST",
-          headers: token ? { "x-debug-token": token } : {},
-        });
-      } catch {}
-      toast({ title: "Section deleted", description: "Removed from shared template." });
-      emitContentUpdated({ contentType, slug, locale });
-    } else {
-      toast({ title: "Failed to delete section", description: result.error, variant: "destructive" });
+    // Same destination as edit / "Delete from shared template": write template.{locale}.yml
+    // by section_id (avoids Invalid index when the UI shows the merged entry view).
+    if (!sectionId && mergedIndex === undefined) {
+      toast({ title: "Cannot delete: section has no id or position", variant: "destructive" });
+      resetDbTemplateDeleteDialog();
+      return;
     }
-    setDbTemplateDeleteDialog({ open: false, index: -1, isDeleting: false });
+
+    try {
+      const token = getDebugToken();
+      const resp = await fetch("/api/per-entry-section-delete-from-template", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+        body: JSON.stringify({ contentType, slug, locale, sectionId, mergedIndex }),
+      });
+      const data = await resp.json();
+      if (data.success) {
+        try {
+          await fetch("/api/bindings/cleanup", {
+            method: "POST",
+            headers: token ? { "x-debug-token": token } : {},
+          });
+        } catch {}
+        toast({ title: "Section deleted", description: "Removed from shared template." });
+        emitContentUpdated({ contentType, slug, locale });
+      } else {
+        toast({ title: "Failed to delete section", description: data.error, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error deleting section", variant: "destructive" });
+    }
+    resetDbTemplateDeleteDialog();
   };
 
   const handleDeleteThisOnly = async () => {
@@ -1655,7 +1699,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
         <Suspense>
           <DbTemplateWarningDialog
             open={dbTemplateDeleteDialog.open}
-            onClose={() => setDbTemplateDeleteDialog({ open: false, index: -1, isDeleting: false })}
+            onClose={resetDbTemplateDeleteDialog}
             onConfirm={handleDbTemplateDeleteConfirm}
             operation="delete"
             contentType={contentType || "page"}

@@ -1,0 +1,30 @@
+- type: list_workshops_carousel
+  title: Starting soon
+  show_title_arrow: true
+  cta_label: See more
+  host_prefix: "By "
+  live_now_label: Live now
+  background: hsl(210 100% 50% / 0.05)
+  paddingY:
+    mobile: md
+    desktop: lg
+  maxWidth:
+    mobile: 2xl
+    desktop: 2xl
+  dynamic_entries:
+    database: workshops
+    limit: 10
+    sort: starting_at
+    item_template:
+      title: "{{ entry.title }}"
+      description: "{{ entry.description }}"
+      duration_label: "{{ entry.duration_label }}"
+      starts_in_label: "{{ entry.starts_in_label }}"
+      starting_at: "{{ entry.starting_at }}"
+      ending_at: "{{ entry.ending_at }}"
+      host_name: "{{ entry.host_name }}"
+      host_avatar_url: "{{ entry.host_avatar_url }}"
+      lang: "{{ entry.lang }}"
+      slug: "{{ entry.slug }}"
+      cta_url: "{{ entry.cta_url }}"
+      technology_image_ids: "{{ entry.technology_image_ids }}"

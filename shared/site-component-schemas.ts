@@ -262,6 +262,14 @@ export {
   type ListSinglePressMentionSection,
 } from "../site_4geeks-com/component-registry/list_single_press_mention/v1.0/schema";
 
+// list_workshops_carousel
+export {
+  listWorkshopsCarouselSectionSchema,
+  workshopCarouselItemSchema,
+  type ListWorkshopsCarouselSection,
+  type WorkshopCarouselItem,
+} from "../site_4geeks-com/component-registry/list_workshops_carousel/v1.0/schema";
+
 // mentorship
 export {
   mentorshipSectionSchema,

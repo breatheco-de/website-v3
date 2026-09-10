@@ -1,4 +1,5 @@
 import { getLLMService } from "./LLMService";
+import { decodeUtf8Base64, encodeUtf8Base64 } from "@shared/functionEncoding";
 
 export interface TableColumnConfig {
   key: string;
@@ -65,7 +66,7 @@ function encodeColumnsToBase64(config: TableConfig): TableConfig {
     ...config,
     columns: config.columns.map(col => ({
       ...col,
-      function: col.function ? Buffer.from(col.function).toString("base64") : undefined,
+      function: col.function ? encodeUtf8Base64(col.function) : undefined,
     })),
   };
 }
@@ -75,7 +76,7 @@ function decodeColumnsFromBase64(config: TableConfig): TableConfig {
     ...config,
     columns: config.columns.map(col => ({
       ...col,
-      function: col.function ? Buffer.from(col.function, "base64").toString("utf-8") : undefined,
+      function: col.function ? decodeUtf8Base64(col.function) : undefined,
     })),
   };
 }
@@ -297,7 +298,7 @@ export async function generateGlobalFilter(input: GenerateFilterInput): Promise<
     : "\nIMPORTANT: Respond in English for the description.";
 
   const currentFilterNote = input.currentFilter
-    ? `\nCurrent filter function: ${Buffer.from(input.currentFilter, "base64").toString("utf-8")}\nModify or replace this filter based on the user's request.`
+    ? `\nCurrent filter function: ${decodeUtf8Base64(input.currentFilter)}\nModify or replace this filter based on the user's request.`
     : "";
 
   const sessionNote = input.sessionContext

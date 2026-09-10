@@ -1,0 +1,179 @@
+name: List Workshops Carousel
+version: "1.0"
+component: ListWorkshopsCarousel
+file: client/src/components/list_workshops_carousel/variants/ListWorkshopsCarouselDefault.tsx
+description: >-
+  Horizontal drag-to-scroll carousel of upcoming workshop cards (duration, starts-in, title, description, host,
+  language, CTA) — Learn-style “Starting soon” listing.
+when_to_use: |
+  Use on the public workshops landing (or similar) to show workshops that start soon.
+  Prefer this over list_cards when the UX should be a horizontal drag carousel, not a grid.
+  Author via dynamic_entries (database / content_type + item_template). Optional
+  hardcoded_entries pin rows. Do not author top-level items[] — that array is filled at resolve.
+behaviors:
+  listing:
+    source: dynamic_entries
+    notes: >-
+      Required for real data. resolveDynamicEntries fills items from database/content_type,
+      merges hardcoded_entries, and applies item_template. Empty until the workshops DB exists.
+props:
+  variant:
+    type: string
+    required: false
+    options:
+      - default
+    description: Only default is supported
+  title:
+    type: string
+    required: false
+    description: Section heading (rich text / HTML), e.g. Starting soon
+    example: Starting soon
+  show_title_arrow:
+    type: boolean
+    required: false
+    description: Show decorative long arrow next to the title (default true when omitted)
+  cta_label:
+    type: string
+    required: false
+    description: Fallback CTA label when an item omits cta_label
+    example: See more
+  host_prefix:
+    type: string
+    required: false
+    description: Text before host_name
+    example: "By "
+  live_now_label:
+    type: string
+    required: false
+    description: Badge text when a workshop is currently live
+    example: Live now
+  background:
+    type: string
+    required: false
+    description: Section background (theme color or CSS)
+  items:
+    type: array
+    required: false
+    items:
+      title:
+        type: string
+        required: true
+        description: Workshop title
+      description:
+        type: string
+        required: false
+        description: Short excerpt (clamped to 3 lines)
+      duration_label:
+        type: string
+        required: false
+        description: Pre-formatted duration, e.g. "2h"
+      starts_in_label:
+        type: string
+        required: false
+        description: Pre-formatted relative start, e.g. "Starts in 2 days"
+      starting_at:
+        type: string
+        required: false
+        description: ISO datetime — with ending_at, used to detect live state
+      ending_at:
+        type: string
+        required: false
+        description: ISO datetime end of the session
+      is_live:
+        type: boolean
+        required: false
+        description: Explicit live override (wins over datetime check)
+      host_name:
+        type: string
+        required: false
+      host_avatar_url:
+        type: string
+        required: false
+        description: Host avatar — Media Gallery id or direct URL (UniversalImage)
+      lang:
+        type: string
+        required: false
+        description: >-
+          Language code (en | us | es). Renders EN/ES + LocaleFlag side by side (not a text badge).
+      language_label:
+        type: string
+        required: false
+        description: Optional label override; defaults to EN/ES from lang
+      cta_label:
+        type: string
+        required: false
+      cta_url:
+        type: string
+        required: false
+        description: Link to the workshop detail / register page
+      slug:
+        type: string
+        required: false
+        description: >-
+          Workshop slug — used to build https://learn.4geeks.com/.../workshops/:slug
+          when cta_url is empty
+      technology_image_ids:
+        type: array
+        required: false
+        items:
+          type:
+            type: string
+            required: true
+        description: Tech logo image ids shown top-left
+    description: >-
+      Runtime only — filled by resolveDynamicEntries. Do not author in page YAML;
+      use dynamic_entries.item_template / hardcoded_entries instead.
+  dynamic_entries:
+    type: object
+    required: false
+    properties:
+      database:
+        type: string
+        required: false
+      content_type:
+        type: string
+        required: false
+      limit:
+        type: number
+        required: false
+      sort:
+        type: string
+        required: false
+      item_template:
+        type: object
+        required: false
+      hardcoded_entries:
+        type: array
+        required: false
+        items:
+          type:
+            type: string
+            required: true
+      permanent_filters:
+        type: array
+        required: false
+        items:
+          item_property_slug:
+            type: string
+            required: true
+          value:
+            type: string
+            required: true
+    description: Optional listing source (database / content type)
+  _dynamic_meta:
+    type: object
+    required: false
+    properties:
+      content_type:
+        type: string
+        required: false
+      total:
+        type: number
+        required: false
+      locale:
+        type: string
+        required: false
+variants:
+  default:
+    description: Horizontal drag carousel of workshop event cards
+    best_for: Public workshops landing “Starting soon” row

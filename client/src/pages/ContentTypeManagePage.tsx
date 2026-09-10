@@ -100,6 +100,10 @@ import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
 import { getMetaIssues } from "@/lib/metaIssues";
 import { isUsableOgImageUrl } from "@shared/ogImageUrl";
 import { isLocaleIndexField, stripLocaleIndexFields } from "@shared/locale";
+import {
+  decodeFunctionMapping,
+  encodeFunctionMapping,
+} from "@shared/functionEncoding";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 
@@ -1616,7 +1620,7 @@ function DataSourceDialog({
             const raw = typeof v === "object" ? v.source : v;
             if (raw && raw.startsWith("function:")) {
               try {
-                fm[k] = atob(raw.slice("function:".length));
+                fm[k] = decodeFunctionMapping(raw);
                 modes[k] = true;
               } catch {
                 fm[k] = raw;
@@ -1633,7 +1637,7 @@ function DataSourceDialog({
         const smVal = sm ? (typeof sm === "object" ? sm.source : sm) : "";
         if (smVal && smVal.startsWith("function:")) {
           try {
-            setSlugField(atob(smVal.slice("function:".length)));
+            setSlugField(decodeFunctionMapping(smVal));
             setSlugIsTransformer(true);
           } catch {
             setSlugField(smVal);
@@ -1647,7 +1651,7 @@ function DataSourceDialog({
         const lmVal = lm ? (typeof lm === "object" ? lm.source : lm) : "";
         if (lmVal && lmVal.startsWith("function:")) {
           try {
-            setLocaleField(atob(lmVal.slice("function:".length)));
+            setLocaleField(decodeFunctionMapping(lmVal));
             setLocaleIsTransformer(true);
           } catch {
             setLocaleField(lmVal);
@@ -1661,7 +1665,7 @@ function DataSourceDialog({
         const hmVal = hm ? (typeof hm === "object" ? hm.source : hm) : "";
         if (hmVal && hmVal.startsWith("function:")) {
           try {
-            setHreflangsField(atob(hmVal.slice("function:".length)));
+            setHreflangsField(decodeFunctionMapping(hmVal));
             setHreflangsIsTransformer(true);
           } catch {
             setHreflangsField(hmVal);
@@ -1786,14 +1790,14 @@ function DataSourceDialog({
     try {
       const fullMapping: Record<string, string> = {};
       if (slugField) {
-        fullMapping._slug = slugIsTransformer ? "function:" + btoa(slugField) : slugField;
+        fullMapping._slug = slugIsTransformer ? encodeFunctionMapping(slugField) : slugField;
       }
       if (localeField) {
-        fullMapping._locale = localeIsTransformer ? "function:" + btoa(localeField) : localeField;
+        fullMapping._locale = localeIsTransformer ? encodeFunctionMapping(localeField) : localeField;
       }
       if (hreflangsField) {
         fullMapping._hreflangs = hreflangsIsTransformer
-          ? "function:" + btoa(hreflangsField)
+          ? encodeFunctionMapping(hreflangsField)
           : hreflangsField;
       }
       const localeSource = localeIsTransformer ? null : localeField;
@@ -1806,7 +1810,7 @@ function DataSourceDialog({
           // it's already captured by _locale and would create a redundant duplicate
           if (!transformerModes[k] && localeSource && v === localeSource) continue;
           if (!transformerModes[k] && hreflangsSource && v === hreflangsSource) continue;
-          fullMapping[k] = transformerModes[k] ? "function:" + btoa(v) : v;
+          fullMapping[k] = transformerModes[k] ? encodeFunctionMapping(v) : v;
         }
       }
 
@@ -3672,7 +3676,7 @@ function FieldMappingDialog({
       for (const [k, v] of Object.entries(config.field_mapping)) {
         if (typeof v === "string") {
           if (v.startsWith("function:")) {
-            fm[k] = atob(v.slice(9));
+            fm[k] = decodeFunctionMapping(v);
             tmodes[k] = true;
           } else if (v.startsWith("?")) {
             fm[k] = v.slice(1);
@@ -3941,7 +3945,7 @@ function FieldMappingDialog({
           : v;
         if (sourceValue || KNOWN_SPECIAL_FIELDS.includes(k as typeof KNOWN_SPECIAL_FIELDS[number])) {
           const encoded = transformerModes[k]
-            ? "function:" + btoa(sourceValue || "")
+            ? encodeFunctionMapping(sourceValue || "")
             : (optionalFields[k] && sourceValue ? "?" + sourceValue : sourceValue || "");
           if (!k.startsWith("_") && !SEO_DB_MAPPING_KEYS.has(k) && k in fieldDefaults) {
             fullMapping[k] = { source: encoded, default: fieldDefaults[k] };

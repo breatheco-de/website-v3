@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest } from "@/lib/queryClient";
 import { useSession } from "@/contexts/SessionContext";
+import { decodeUtf8Base64 } from "@shared/functionEncoding";
 
 interface TableColumnConfig {
   key: string;
@@ -51,7 +52,7 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
 
 function executeBase64Function(fnBase64: string, row: Record<string, unknown>): unknown {
   try {
-    const fnString = atob(fnBase64);
+    const fnString = decodeUtf8Base64(fnBase64);
     const fn = new Function("row", `return (${fnString})(row);`);
     return fn(row);
   } catch {
@@ -69,7 +70,7 @@ interface FilterContext {
 
 function executeGlobalFilterClient(fnBase64: string, rows: Record<string, unknown>[], ctx?: FilterContext): Record<string, unknown>[] {
   try {
-    const fnString = atob(fnBase64);
+    const fnString = decodeUtf8Base64(fnBase64);
     try {
       const fn = new Function("rows", "ctx", `return (${fnString})(rows, ctx);`);
       const result = fn(rows, ctx || {});
@@ -100,7 +101,7 @@ function formatPreviewDisplay(value: unknown): string {
 
 function decodeBase64(encoded: string): string {
   try {
-    return atob(encoded);
+    return decodeUtf8Base64(encoded);
   } catch {
     return encoded;
   }

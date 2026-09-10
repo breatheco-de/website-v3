@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest } from "@/lib/queryClient";
+import { decodeUtf8Base64 } from "@shared/functionEncoding";
 
 interface TableColumnConfig {
   key: string;
@@ -117,7 +118,7 @@ function formatConfigSummary(config: TableConfig): string {
 
 function executeBase64Function(fnBase64: string, row: Record<string, unknown>): unknown {
   try {
-    const fnString = atob(fnBase64);
+    const fnString = decodeUtf8Base64(fnBase64);
     const fn = new Function("row", `return (${fnString})(row);`);
     return fn(row);
   } catch {
@@ -150,7 +151,7 @@ function formatPreviewDisplay(value: unknown): string {
 
 function decodeBase64(encoded: string): string {
   try {
-    return atob(encoded);
+    return decodeUtf8Base64(encoded);
   } catch {
     return encoded;
   }

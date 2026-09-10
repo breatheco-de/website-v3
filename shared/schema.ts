@@ -910,6 +910,18 @@ export { awardsMarqueeSectionSchema, type AwardsMarqueeSection, type AwardsMarqu
 import { listPressMentionsSectionSchema, type ListPressMentionsSection, type PressMentionItem, pressMentionsSectionSchema, type PressMentionsSection } from "./site-component-schemas";
 export { listPressMentionsSectionSchema, type ListPressMentionsSection, type PressMentionItem };
 export { pressMentionsSectionSchema, type PressMentionsSection };
+import {
+  listWorkshopsCarouselSectionSchema,
+  workshopCarouselItemSchema,
+  type ListWorkshopsCarouselSection,
+  type WorkshopCarouselItem,
+} from "./site-component-schemas";
+export {
+  listWorkshopsCarouselSectionSchema,
+  workshopCarouselItemSchema,
+  type ListWorkshopsCarouselSection,
+  type WorkshopCarouselItem,
+};
 export { listSinglePressMentionSectionSchema, type ListSinglePressMentionSection } from "./site-component-schemas";
 import { valueProofPanelSectionSchema } from "./site-component-schemas";
 import { stickyCtaSectionSchema } from "./site-component-schemas";
@@ -1287,6 +1299,7 @@ const baseSectionSchema = z.union([
   awardBadgesSectionSchema,
   awardsMarqueeSectionSchema,
   listPressMentionsSectionSchema,
+  listWorkshopsCarouselSectionSchema,
   humanAndAIDuoSectionSchema,
   communitySupportSectionSchema,
   twoColumnAccordionCardSectionSchema,

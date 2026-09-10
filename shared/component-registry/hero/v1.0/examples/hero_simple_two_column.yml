@@ -3,9 +3,12 @@ yaml: |
   - type: hero
     version: "1.0"
     variant: simpleTwoColumn
-    title: Building the Future of Tech, Together
+    title: '<span style="font-size: 3.75rem;">Building the Future of Tech, <em>Together</em></span>'
     subtitle: 4Geeks Academy partners with universities, nonprofits, workforce initiatives, and global organizations to expand access to tech education, place diverse talent, and bridge the digital skills gap, creating stronger career pathways and a workforce ready for the AI era.
     image: https://storage.googleapis.com/4geeks-academy-website/media/Copia de Fav_DSC_1146.JPG
+    media_at_right: true
+    # Percent widths left/right (takes precedence over 12-col `proportions`)
+    proportions_percentage: [55, 45]
     cta_buttons:
       - text: Join our partnership network
         url: "#apply-modal"

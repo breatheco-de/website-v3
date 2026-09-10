@@ -23,6 +23,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import { decodeFunctionMapping } from "@shared/functionEncoding";
 import { buildContentUrlFromPattern, listExtraUrlPatternParams } from "@/lib/locale";
 import { useContentTypes, useContentTypesRaw } from "@/hooks/useContentTypes";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
@@ -354,7 +355,7 @@ function FunctionCodePopover({ rawCode }: { rawCode: string }) {
   const [open, setOpen] = useState(false);
   const js = (() => {
     try {
-      return atob(rawCode.slice("function:".length));
+      return decodeFunctionMapping(rawCode);
     } catch {
       return rawCode;
     }

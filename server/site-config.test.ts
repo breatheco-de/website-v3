@@ -2,6 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { resetPathCaches } from "@shared/paths";
 import {
   formatSitesYmlRequiredError,
   getDefaultContentFolder,
@@ -17,11 +18,13 @@ let tempDir: string;
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "site-config-test-"));
   process.chdir(tempDir);
+  resetPathCaches();
   resetSiteConfigs();
 });
 
 afterEach(() => {
   process.chdir(ORIGINAL_CWD);
+  resetPathCaches();
   resetSiteConfigs();
   fs.rmSync(tempDir, { recursive: true, force: true });
 });

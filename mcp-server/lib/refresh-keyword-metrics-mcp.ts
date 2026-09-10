@@ -40,7 +40,7 @@ function readMainKeywordFromYaml(opts: {
   });
   if (!resolved) return "";
   const page = loadPage(resolved.contentType, opts.slug, opts.locale, opts.contentPath);
-  if (!page.ok || !page.data) return "";
+  if (!page?.data) return "";
   const seo = (page.data as { seo?: Record<string, unknown> }).seo;
   if (!seo || typeof seo !== "object") return "";
   const kw = seo.main_keyword;

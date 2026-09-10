@@ -2,6 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetPathCaches } from "@shared/paths";
 import {
   diffSitesYmlStructure,
   getSitesYmlLocalPath,
@@ -21,12 +22,14 @@ let tempDir: string;
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "sites-yml-store-test-"));
   process.chdir(tempDir);
+  resetPathCaches();
   resetSiteConfigs();
 });
 
 afterEach(() => {
   process.chdir(ORIGINAL_CWD);
   process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+  resetPathCaches();
   resetSiteConfigs();
   vi.restoreAllMocks();
   fs.rmSync(tempDir, { recursive: true, force: true });

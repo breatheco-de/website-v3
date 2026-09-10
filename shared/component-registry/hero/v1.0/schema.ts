@@ -241,6 +241,24 @@ export const heroSimpleTwoColumnSchema = z.object({
   video: videoConfigSchema.optional(),
   cta_buttons: z.array(ctaButtonSchema).optional(),
   background: z.string().optional(),
+  /** When true, text left / media right. Default false = media left (legacy). */
+  media_at_right: z.boolean().optional(),
+  /**
+   * Optional 12-col spans [left, right]. When omitted, keeps legacy
+   * media md:4/lg:5 + text md:7/lg:7 spans.
+   * Ignored when `proportions_percentage` is set.
+   */
+  proportions: z.tuple([z.number(), z.number()]).optional(),
+  /**
+   * Optional left/right widths as percentages (e.g. [55, 45]).
+   * Takes precedence over `proportions`. Values are normalized to sum 100.
+   */
+  proportions_percentage: z.tuple([z.number(), z.number()]).optional(),
+  /**
+   * Vertical alignment of the text column within the row (desktop).
+   * start = top, center = middle (default), end = bottom.
+   */
+  alignment: z.enum(["start", "center", "end"]).optional(),
 }).passthrough();
 
 export const heroSimpleStackedSchema = z.object({
