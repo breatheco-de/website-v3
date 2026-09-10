@@ -26,7 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, apiFetch } from "@/lib/queryClient";
 import { reloadDatabaseList } from "@/lib/reloadDatabaseList";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import type { CapabilityGrant } from "@/hooks/useDebugAuth";
@@ -316,7 +316,7 @@ function DatasetPickerDialog({
       const formData = new FormData();
       formData.append("file", file);
       formData.append("slug", slug || "datasets");
-      const res = await fetch("/api/databases/upload-dataset", {
+      const res = await apiFetch("/api/databases/upload-dataset", {
         method: "POST",
         body: formData,
       });
@@ -562,7 +562,7 @@ function CreateDatabaseDialog({
     setLocalFileStatus("checking");
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/databases/check-file?slug=${encodeURIComponent(slug)}&filename=${encodeURIComponent(localFilename.trim())}`);
+        const res = await apiFetch(`/api/databases/check-file?slug=${encodeURIComponent(slug)}&filename=${encodeURIComponent(localFilename.trim())}`);
         const data = await res.json();
         setLocalFileStatus(data.exists ? "found" : "not-found");
       } catch {
@@ -652,7 +652,7 @@ function CreateDatabaseDialog({
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch(`/api/databases/_test/test`, {
+      const res = await apiFetch(`/api/databases/_test/test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source: buildSourceConfig(), slug }),
@@ -697,7 +697,7 @@ function CreateDatabaseDialog({
         field_mapping: Object.keys(fieldMapping).length > 0 ? fieldMapping : undefined,
       };
 
-      const res = await fetch("/api/databases", {
+      const res = await apiFetch("/api/databases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slug, config }),
@@ -1454,7 +1454,7 @@ function DatabaseConfigEditor({
     setLocalFileStatus("checking");
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/databases/check-file?slug=${encodeURIComponent(dbName)}&filename=${encodeURIComponent(localFilename.trim())}`);
+        const res = await apiFetch(`/api/databases/check-file?slug=${encodeURIComponent(dbName)}&filename=${encodeURIComponent(localFilename.trim())}`);
         const data = await res.json();
         setLocalFileStatus(data.exists ? "found" : "not-found");
       } catch {
@@ -1525,7 +1525,7 @@ function DatabaseConfigEditor({
     }
     setSampleLoading(true);
     try {
-      const res = await fetch(`/api/databases/${dbName}/raw-sample?limit=3`);
+      const res = await apiFetch(`/api/databases/${dbName}/raw-sample?limit=3`);
       const data = await res.json();
       setSampleData(data);
     } catch {
@@ -1538,7 +1538,7 @@ function DatabaseConfigEditor({
   const handleRefreshSample = async () => {
     setSampleLoading(true);
     try {
-      const res = await fetch(`/api/databases/${dbName}/raw-sample?limit=3`);
+      const res = await apiFetch(`/api/databases/${dbName}/raw-sample?limit=3`);
       const data = await res.json();
       setSampleData(data);
     } catch {
@@ -1638,7 +1638,7 @@ function DatabaseConfigEditor({
     setTestResult(null);
     setSampleData(null);
     try {
-      const res = await fetch(`/api/databases/${dbName}/test`, {
+      const res = await apiFetch(`/api/databases/${dbName}/test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source: buildSourceConfig() }),
@@ -1667,7 +1667,7 @@ function DatabaseConfigEditor({
         ...(filterByLocale ? {} : { filter_by_locale: false }),
       };
 
-      const res = await fetch(`/api/databases/${dbName}/config`, {
+      const res = await apiFetch(`/api/databases/${dbName}/config`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedConfig),
@@ -1696,7 +1696,7 @@ function DatabaseConfigEditor({
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      const res = await fetch(`/api/databases/${dbName}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/databases/${dbName}`, { method: "DELETE" });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || "Failed to delete");
@@ -2240,7 +2240,7 @@ function FieldMappingEditor({
   }>({
     queryKey: [`/api/databases/${dbName}/items`, "hint-preview"],
     queryFn: () =>
-      fetch(`/api/databases/${dbName}/items?page=1&limit=100`).then((r) => r.json()),
+      apiFetch(`/api/databases/${dbName}/items?page=1&limit=100`).then((r) => r.json()),
     enabled: hintDialogField !== null,
     staleTime: 60_000,
   });
@@ -2254,7 +2254,7 @@ function FieldMappingEditor({
     if (sampleData) return;
     setSampleLoading(true);
     try {
-      const res = await fetch(`/api/databases/${dbName}/raw-sample?limit=3`);
+      const res = await apiFetch(`/api/databases/${dbName}/raw-sample?limit=3`);
       const data = await res.json();
       setSampleData(data);
     } catch {
@@ -2267,7 +2267,7 @@ function FieldMappingEditor({
   const handleRefreshSample = async () => {
     setSampleLoading(true);
     try {
-      const res = await fetch(`/api/databases/${dbName}/raw-sample?limit=3`);
+      const res = await apiFetch(`/api/databases/${dbName}/raw-sample?limit=3`);
       const data = await res.json();
       setSampleData(data);
     } catch {
@@ -2297,7 +2297,7 @@ function FieldMappingEditor({
     setAiAnalyzing(true);
     setAiNotes(null);
     try {
-      const res = await fetch(`/api/databases/${dbName}/analyze-fields`, {
+      const res = await apiFetch(`/api/databases/${dbName}/analyze-fields`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -2340,7 +2340,7 @@ function FieldMappingEditor({
         search_fields: keywordSearchFields.length > 0 ? keywordSearchFields : undefined,
       };
 
-      const res = await fetch(`/api/databases/${dbName}/config`, {
+      const res = await apiFetch(`/api/databases/${dbName}/config`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedConfig),
@@ -2933,14 +2933,14 @@ function _DeprecatedItemEditModal({
       let res: Response;
       if (isNew) {
         const payload = buildItem(true);
-        res = await fetch(`/api/databases/${dbName}/items`, {
+        res = await apiFetch(`/api/databases/${dbName}/items`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ item: payload }),
         });
       } else {
         const payload = buildItem(false);
-        res = await fetch(`/api/databases/${dbName}/items/${itemIndex}`, {
+        res = await apiFetch(`/api/databases/${dbName}/items/${itemIndex}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -3276,7 +3276,7 @@ function CachedImagesKpiCard({ dbName }: { dbName: string }) {
   const { data, isLoading, refetch, isFetching } = useQuery<{ cached: number; failed: number }>({
     queryKey: ["/api/image-registry/stats", dbName],
     queryFn: () =>
-      fetch(`/api/image-registry/stats?tag=${encodeURIComponent(dbName)}`).then((r) => r.json()),
+      apiFetch(`/api/image-registry/stats?tag=${encodeURIComponent(dbName)}`).then((r) => r.json()),
   });
 
   const { data: failedData, isLoading: failedLoading, refetch: refetchFailed } = useQuery<{
@@ -3284,7 +3284,7 @@ function CachedImagesKpiCard({ dbName }: { dbName: string }) {
   }>({
     queryKey: ["/api/image-registry/failed", dbName],
     queryFn: () =>
-      fetch(`/api/image-registry/failed?tag=${encodeURIComponent(dbName)}`).then((r) => r.json()),
+      apiFetch(`/api/image-registry/failed?tag=${encodeURIComponent(dbName)}`).then((r) => r.json()),
     enabled: failedOpen,
   });
 
@@ -3587,7 +3587,7 @@ function DatabaseUsagePanel({ dbName }: { dbName: string }) {
   const { data, isLoading, error } = useQuery<DatabaseUsageReport>({
     queryKey: ["/api/databases", dbName, "usage"],
     queryFn: async () => {
-      const res = await fetch(`/api/databases/${dbName}/usage`);
+      const res = await apiFetch(`/api/databases/${dbName}/usage`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error || "Failed to load usage");
@@ -3820,7 +3820,7 @@ function SemanticIndexKpiCard({ dbName, jobStatus, onForceRefresh, onReindex }: 
   const checkGcsCache = async () => {
     setGcsLoading(true);
     try {
-      const res = await fetch(`/api/databases/${dbName}/search-cache-stats?includeGcs=1`);
+      const res = await apiFetch(`/api/databases/${dbName}/search-cache-stats?includeGcs=1`);
       const data = await res.json();
       setGcsEntries(typeof data.gcsEntries === "number" ? data.gcsEntries : 0);
     } catch {
@@ -4025,7 +4025,10 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
       for (const [field, values] of Object.entries(tagFilters)) {
         for (const v of values) parts.push(`filter[${field}]=${encodeURIComponent(v)}`);
       }
-      return fetch(`/api/databases/${dbName}/items?${parts.join("&")}`).then((r) => r.json());
+      return apiFetch(`/api/databases/${dbName}/items?${parts.join("&")}`).then(async (r) => {
+        if (!r.ok) throw new Error(`items ${r.status}`);
+        return r.json();
+      });
     },
     enabled: !!dbName,
   });
@@ -4037,7 +4040,10 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
   } = useQuery<DatabaseItems>({
     queryKey: [`/api/databases/${dbName}/raw-items`, page, PAGE_SIZE],
     queryFn: () =>
-      fetch(`/api/databases/${dbName}/raw-items?page=${page}&limit=${PAGE_SIZE}`).then((r) => r.json()),
+      apiFetch(`/api/databases/${dbName}/raw-items?page=${page}&limit=${PAGE_SIZE}`).then(async (r) => {
+        if (!r.ok) throw new Error(`raw-items ${r.status}`);
+        return r.json();
+      }),
     enabled: !!dbName,
   });
 
@@ -4058,7 +4064,14 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     index: { status: string; fetched?: number; total?: number | null; startedAt?: string; finishedAt?: string; error?: string };
   }>({
     queryKey: [`/api/databases/${dbName}/job-status`],
-    queryFn: () => fetch(`/api/databases/${dbName}/job-status`).then((r) => r.json()),
+    queryFn: () => apiFetch(`/api/databases/${dbName}/job-status`).then(async (r) => {
+      if (!r.ok) throw new Error(`job-status ${r.status}`);
+      const data = await r.json();
+      if (!data || typeof data !== "object" || (!("fetch" in data) && !("index" in data))) {
+        throw new Error("job-status: unexpected response");
+      }
+      return data;
+    }),
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) return 2000;
@@ -4125,7 +4138,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
   }>({
     queryKey: [`/api/databases/${dbName}/search`, debouncedSearch],
     queryFn: () =>
-      fetch(`/api/databases/${dbName}/search?q=${encodeURIComponent(debouncedSearch)}&limit=100`)
+      apiFetch(`/api/databases/${dbName}/search?q=${encodeURIComponent(debouncedSearch)}&limit=100`)
         .then((r) => r.json()),
     enabled: debouncedSearch.trim().length > 0 && !!itemsData,
     staleTime: 10_000,
@@ -4233,7 +4246,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     const label = config?.name || dbName;
     const fallback = `There was an error fetching "${label}".`;
     try {
-      const res = await fetch(`/api/databases/${dbName}/refresh`, { method: "POST" });
+      const res = await apiFetch(`/api/databases/${dbName}/refresh`, { method: "POST" });
       if (!res.ok) {
         throw new Error(await parseDatabaseApiError(res, fallback));
       }
@@ -4272,7 +4285,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     setIsReindexing(true);
     setJobStatusDismissed(false);
     try {
-      const res = await fetch(`/api/databases/${dbName}/reindex`, { method: "POST" });
+      const res = await apiFetch(`/api/databases/${dbName}/reindex`, { method: "POST" });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || "Re-index failed");
@@ -4300,7 +4313,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     }
     setSavingItems(true);
     try {
-      const res = await fetch(`/api/databases/${dbName}/items`, {
+      const res = await apiFetch(`/api/databases/${dbName}/items`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items: newItems }),
@@ -4335,7 +4348,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     setInlineSaving(true);
     try {
       const updatedConfig = { ...config, [field]: value || undefined };
-      const res = await fetch(`/api/databases/${dbName}/config`, {
+      const res = await apiFetch(`/api/databases/${dbName}/config`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedConfig),
@@ -4714,14 +4727,14 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                   <div className="flex items-center gap-1.5" data-testid="text-fetched-at">
                     <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
                     <span className="text-sm font-medium">
-                      Fetching{jobStatus?.fetch.fetched !== undefined ? `\u2026 ${jobStatus.fetch.fetched} items` : "\u2026"}
-                      {jobStatus?.fetch.page ? ` (page ${jobStatus.fetch.page})` : ""}
+                      Fetching{jobStatus?.fetch?.fetched !== undefined ? `\u2026 ${jobStatus.fetch.fetched} items` : "\u2026"}
+                      {jobStatus?.fetch?.page ? ` (page ${jobStatus.fetch.page})` : ""}
                     </span>
                   </div>
-                ) : jobStatus?.fetch.status === "error" ? (
+                ) : jobStatus?.fetch?.status === "error" ? (
                   <div className="space-y-1">
-                    <p className="text-xs text-destructive truncate" title={jobStatus.fetch.error} data-testid="text-fetched-at">
-                      Error: {jobStatus.fetch.error ?? "unknown"}
+                    <p className="text-xs text-destructive truncate" title={jobStatus.fetch?.error} data-testid="text-fetched-at">
+                      Error: {jobStatus.fetch?.error ?? "unknown"}
                     </p>
                     <Button
                       size="sm"
@@ -5210,20 +5223,20 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                             <>
                               <Loader2 className="h-2.5 w-2.5 animate-spin shrink-0" />
                               <span>
-                                Fetching{jobStatus?.fetch.fetched !== undefined ? ` ${jobStatus.fetch.fetched} items` : "\u2026"}
-                                {jobStatus?.fetch.page ? ` (page ${jobStatus.fetch.page})` : ""}
+                                Fetching{jobStatus?.fetch?.fetched !== undefined ? ` ${jobStatus.fetch.fetched} items` : "\u2026"}
+                                {jobStatus?.fetch?.page ? ` (page ${jobStatus.fetch.page})` : ""}
                               </span>
                             </>
                           ) : indexRunning ? (
                             <>
                               <Loader2 className="h-2.5 w-2.5 animate-spin shrink-0" />
                               <span>
-                                Indexing{jobStatus?.index.fetched !== undefined && jobStatus?.index.total ? ` ${jobStatus.index.fetched} / ${jobStatus.index.total}` : "\u2026"}
+                                Indexing{jobStatus?.index?.fetched !== undefined && jobStatus?.index?.total ? ` ${jobStatus.index.fetched} / ${jobStatus.index.total}` : "\u2026"}
                               </span>
                             </>
-                          ) : jobStatus?.fetch.status === "error" ? (
+                          ) : jobStatus?.fetch?.status === "error" ? (
                             <>
-                              <span className="text-destructive shrink-0">Fetch error: {jobStatus.fetch.error ?? "unknown"}</span>
+                              <span className="text-destructive shrink-0">Fetch error: {jobStatus.fetch?.error ?? "unknown"}</span>
                               <button
                                 className="text-muted-foreground underline underline-offset-2 hover:text-foreground cursor-pointer shrink-0"
                                 onClick={handleRetryFetch}
@@ -5233,9 +5246,9 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                                 Retry
                               </button>
                             </>
-                          ) : jobStatus?.index.status === "error" ? (
+                          ) : jobStatus?.index?.status === "error" ? (
                             <>
-                              <span className="text-destructive shrink-0">Index error: {jobStatus.index.error ?? "unknown"}</span>
+                              <span className="text-destructive shrink-0">Index error: {jobStatus.index?.error ?? "unknown"}</span>
                               <button
                                 className="text-muted-foreground underline underline-offset-2 hover:text-foreground cursor-pointer shrink-0"
                                 onClick={handleReindex}
@@ -5614,7 +5627,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                           setFnFixing(true);
                           try {
                             const rawItem = rawItems[fnTestItemIndex] ?? {};
-                            const res = await fetch(`/api/databases/${dbName}/ai/fix-transform`, {
+                            const res = await apiFetch(`/api/databases/${dbName}/ai/fix-transform`, {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({
@@ -5640,7 +5653,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                                 [fnPreviewField.key]: newEncoded,
                               },
                             };
-                            const saveRes = await fetch(`/api/databases/${dbName}/config`, {
+                            const saveRes = await apiFetch(`/api/databases/${dbName}/config`, {
                               method: "PUT",
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify(updatedConfig),
@@ -5832,7 +5845,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                   setDeleteConfirmIndex(null);
                   setSavingItems(true);
                   try {
-                    const res = await fetch(`/api/databases/${dbName}/items/${idx}`, {
+                    const res = await apiFetch(`/api/databases/${dbName}/items/${idx}`, {
                       method: "DELETE",
                     });
                     if (!res.ok) {
@@ -5872,13 +5885,13 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
           onSave={async (builtItem) => {
             let res: Response;
             if (isAddingItem) {
-              res = await fetch(`/api/databases/${dbName}/items`, {
+              res = await apiFetch(`/api/databases/${dbName}/items`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ item: builtItem }),
               });
             } else {
-              res = await fetch(`/api/databases/${dbName}/items/${editingItemIndex}`, {
+              res = await apiFetch(`/api/databases/${dbName}/items/${editingItemIndex}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(builtItem),
