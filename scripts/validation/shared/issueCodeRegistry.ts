@@ -127,9 +127,18 @@ export function hasIssueCodeInRegistry(validator: string, code: string): boolean
   return Boolean(ISSUE_CODE_CATALOGS[validator]?.[code]);
 }
 
-/** Agent guidance is complete when next_actions is present and non-empty. */
+/** Agent guidance is complete when next_actions is non-empty, or coding_agent_only. */
 export function isIssueCodeAgentGuidanceComplete(
   def: IssueCodeDefinition | undefined | null,
 ): boolean {
-  return Boolean(def?.next_actions && def.next_actions.length > 0);
+  if (!def) return false;
+  if (def.coding_agent_only === true) return true;
+  return Boolean(def.next_actions && def.next_actions.length > 0);
+}
+
+export function isIssueCodeCodingAgentOnly(
+  validator: string | undefined | null,
+  code: string | undefined | null,
+): boolean {
+  return getIssueCodeDefinition(validator, code)?.coding_agent_only === true;
 }

@@ -54,18 +54,27 @@ describe("replaceEventsFromSnapshot", () => {
 
 describe("pullProductionEvents", () => {
   const originalFetch = global.fetch;
+  const originalEnv = process.env.PRODUCTION_STAFF_TOKEN;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     try {
       fs.rmSync(path.dirname(dbPath()), { recursive: true, force: true });
     } catch {
       /* ok */
     }
+    delete process.env.PRODUCTION_STAFF_TOKEN;
+    const { resetProductionStaffTokenForTests } = await import("../dev-production-fetch");
+    resetProductionStaffTokenForTests();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
     global.fetch = originalFetch;
+    if (originalEnv === undefined) delete process.env.PRODUCTION_STAFF_TOKEN;
+    else process.env.PRODUCTION_STAFF_TOKEN = originalEnv;
+    const { resetProductionStaffTokenForTests } = await import("../dev-production-fetch");
+    resetProductionStaffTokenForTests();
+    clearAllEvents(TEST_SITE);
     try {
       fs.rmSync(path.dirname(dbPath()), { recursive: true, force: true });
     } catch {
@@ -73,14 +82,37 @@ describe("pullProductionEvents", () => {
     }
   });
 
-  it("requires a staff token", async () => {
+  it("requires a production staff token (never local session)", async () => {
     const { pullProductionEvents } = await import("./pull-production");
-    const result = await pullProductionEvents(TEST_SITE, null, "https://prod.example");
+    const result = await pullProductionEvents(TEST_SITE, "https://prod.example");
     expect(result.success).toBe(false);
-    expect(result.reason).toMatch(/login/i);
+    expect(result.code).toBe("production_staff_token_required");
+    expect(result.envVar).toBe("PRODUCTION_STAFF_TOKEN");
+    expect(result.productionOrigin).toBe("https://prod.example");
   });
 
-  it("imports paginated production events", async () => {
+  it("maps production 401 to production_staff_token_required and clears memory", async () => {
+    const { setProductionStaffToken, getProductionStaffToken } = await import(
+      "../dev-production-fetch"
+    );
+    setProductionStaffToken("stale-token");
+
+    global.fetch = vi.fn(async () => {
+      return new Response(JSON.stringify({ error: "expired" }), { status: 401 });
+    }) as typeof fetch;
+
+    const { pullProductionEvents } = await import("./pull-production");
+    const result = await pullProductionEvents(TEST_SITE, "https://prod.example");
+    expect(result.success).toBe(false);
+    expect(result.code).toBe("production_staff_token_required");
+    expect(getProductionStaffToken()).toBeNull();
+  });
+
+  it("imports paginated production events using env token", async () => {
+    process.env.PRODUCTION_STAFF_TOKEN = "token-abc";
+    const { resetProductionStaffTokenForTests } = await import("../dev-production-fetch");
+    resetProductionStaffTokenForTests();
+
     const page1 = {
       events: Array.from({ length: 500 }, (_, i) => sampleEvent(1000 - i, 1000 - i)),
     };
@@ -94,7 +126,7 @@ describe("pullProductionEvents", () => {
     }) as typeof fetch;
 
     const { pullProductionEvents } = await import("./pull-production");
-    const result = await pullProductionEvents(TEST_SITE, "token-abc", "https://prod.example");
+    const result = await pullProductionEvents(TEST_SITE, "https://prod.example");
 
     expect(result.success).toBe(true);
     expect(result.imported).toBe(501);

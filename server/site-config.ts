@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
 import { child } from "./logger";
+import { getProjectRoot } from "../shared/paths";
 
 const log = child({ module: "site-config" });
 
@@ -200,7 +201,7 @@ function validateFallbackContentFolders(configs: SiteConfig[]): void {
 /** One-hop inherit: known folder, not self, parent does not inherit, parent exists on disk. */
 function validateInheritComponentsFrom(configs: SiteConfig[]): void {
   const byFolder = new Map(configs.map((c) => [normalizeFolderKey(c.contentFolder), c]));
-  const cwd = process.cwd();
+  const cwd = getProjectRoot();
 
   for (const c of configs) {
     const inherit = c.inheritComponentsFrom?.trim();
@@ -249,7 +250,7 @@ export function getInheritComponentsFrom(contentFolder: string): string | undefi
 export function requireSiteConfigs(): SiteConfig[] {
   if (_cached) return _cached;
 
-  const sitesYml = path.join(process.cwd(), "sites.yml");
+  const sitesYml = path.join(getProjectRoot(), "sites.yml");
   const configs = parseSitesYmlFile(sitesYml);
   log.info(`[SiteConfig] Loaded ${configs.length} site(s) from sites.yml`);
   _cached = configs;
@@ -271,7 +272,7 @@ export function getSiteConfigs(): SiteConfig[] {
 export function getBucketName(): string | null {
   if (_bucketName !== undefined) return _bucketName;
 
-  const sitesYml = path.join(process.cwd(), "sites.yml");
+  const sitesYml = path.join(getProjectRoot(), "sites.yml");
   if (fs.existsSync(sitesYml)) {
     try {
       const raw = fs.readFileSync(sitesYml, "utf-8");
@@ -307,7 +308,7 @@ export function getDefaultContentFolder(): string {
 /** Absolute path to the default site's content folder (from sites.yml). */
 export function getDefaultContentRoot(): string {
   const folder = getDefaultContentFolder();
-  return path.isAbsolute(folder) ? folder : path.join(process.cwd(), folder);
+  return path.isAbsolute(folder) ? folder : path.join(getProjectRoot(), folder);
 }
 
 export function resetSiteConfigs(): void {
@@ -322,7 +323,7 @@ export function resetSiteConfigs(): void {
  * failed reload never leaves the process without a usable site config.
  */
 export function reloadSiteConfigs(): SiteConfig[] {
-  const sitesYml = path.join(process.cwd(), "sites.yml");
+  const sitesYml = path.join(getProjectRoot(), "sites.yml");
   const configs = parseSitesYmlFile(sitesYml);
   log.info(`[SiteConfig] Reloaded ${configs.length} site(s) from sites.yml`);
   _cached = configs;

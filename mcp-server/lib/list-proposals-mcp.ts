@@ -2,6 +2,12 @@
  * Stats-first helpers for list_proposals MCP tool.
  */
 
+import {
+  parseProposalSort,
+  type ProposalSortDir,
+  type ProposalSortField,
+} from "../../server/content-proposals/service.js";
+
 export type ListProposalsArgs = {
   proposal_id?: string;
   query?: string;
@@ -10,6 +16,8 @@ export type ListProposalsArgs = {
   issue_id?: string;
   limit?: number;
   offset?: number;
+  sort?: string;
+  sort_dir?: string;
 };
 
 export function isProposalsScoped(args: ListProposalsArgs): boolean {
@@ -41,3 +49,9 @@ export function proposalNextOffset(
   const next = offset + pageLen;
   return next < total ? next : null;
 }
+
+export {
+  parseProposalSort,
+  type ProposalSortField,
+  type ProposalSortDir,
+};

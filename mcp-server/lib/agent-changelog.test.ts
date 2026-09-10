@@ -101,11 +101,15 @@ describe("buildBootstrapPayload", () => {
       `window_days: 6\nentries:\n  - date: "2099-01-01"\n    summary: "future"\n    tools_changed: true\n`,
       "utf-8",
     );
-    const payload = buildBootstrapPayload({
+    const result = buildBootstrapPayload({
       now: new Date("2099-01-02T00:00:00.000Z"),
       changelogFilePath: tmp,
       cwd: process.cwd(),
+      branding: { mode: "generic" },
     });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const { payload } = result;
     expect(payload.playbook_version).toBe(PLAYBOOK_VERSION);
     expect(payload.playbook).toMatch(/bootstrap_agent/);
     expect(payload.entries).toHaveLength(1);
@@ -113,15 +117,20 @@ describe("buildBootstrapPayload", () => {
     expect(payload.skill.version).toMatch(new RegExp(`^${CONVENTIONS_VERSION}\\+`));
     expect(payload.skill.content).toMatch(/force_variant/);
     expect(payload.skill.version).toBe(resolveSkillVersion(payload.skill.content!));
+    expect(payload.skill.branding.mode).toBe("generic");
     expect(payload.session_guidance.some((s) => /known_skill_version/i.test(s))).toBe(true);
     fs.unlinkSync(tmp);
   });
 
   it("omits skill.content when include_skill_content is false", () => {
-    const payload = buildBootstrapPayload({
+    const result = buildBootstrapPayload({
       include_skill_content: false,
       cwd: process.cwd(),
+      branding: { mode: "generic" },
     });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const { payload } = result;
     expect(payload.skill.content).toBeUndefined();
     expect(payload.skill.version).toBeTruthy();
     expect(payload.entries).toBeDefined();
@@ -129,12 +138,17 @@ describe("buildBootstrapPayload", () => {
   });
 
   it("omits skill.content when known_skill_version matches", () => {
-    const first = buildBootstrapPayload({ cwd: process.cwd() });
+    const first = buildBootstrapPayload({ cwd: process.cwd(), branding: { mode: "generic" } });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
     const second = buildBootstrapPayload({
-      known_skill_version: first.skill.version,
+      known_skill_version: first.payload.skill.version,
       cwd: process.cwd(),
+      branding: { mode: "generic" },
     });
-    expect(second.skill.content).toBeUndefined();
-    expect(second.skill.version).toBe(first.skill.version);
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.payload.skill.content).toBeUndefined();
+    expect(second.payload.skill.version).toBe(first.payload.skill.version);
   });
 });

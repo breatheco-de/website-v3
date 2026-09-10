@@ -29,6 +29,7 @@ import {
 interface CapabilityGrant {
   name: string;
   contentTypes?: string[] | "*";
+  databases?: string[] | "*";
 }
 
 interface RoleDefinition {

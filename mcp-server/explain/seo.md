@@ -8,9 +8,31 @@ YAML merge / content types → topic `content_system`. Page funnel stage / money
 
 `seo.intent` was removed. Page funnel stage lives on `_common.yml` as `funnel.stage` (awareness / consideration / decision / post-enrollment). **Money pages** = `funnel.stage: decision`. Inventory: `list_entries` with `is_money_page` / `funnel_stage` / `funnel_product` — call **`explain_site` topic `funnel`**.
 
+## Refresh tier (`seo.refresh_tier`)
+
+Fact-staleness class for **substantive** content refreshes — **not** GSC traffic `decay` opportunities and **not** diagnostics cache `freshness`.
+
+| Value | When to use |
+|---|---|
+| `fast` | Pricing, tool versions, “best X in 2026”, model/bench/salary comps |
+| `medium` | Program / landing / cluster hubs |
+| `evergreen` | Concept explainers (closures, OAuth, …) — only when the underlying fact moves |
+
+**Rules**
+
+- Per locale (no auto-copy on translate). Set when enabling SEO clustering / when topic nature is known; revisit when the page angle changes.
+- Staff UI shows the control only when **Include in SEO clustering** is on; then a tier is required (no unset).
+- Cannot clear (`null` / reset forbidden) — change only by picking another tier. Omit the field to leave unchanged.
+- Mirrored on `seo-index.json` when the entry has an SEO signal; tier alone does not create an inventory row.
+- Does not bump `updated_at`. Not a publish gate for pages outside inventory.
+- **Pick help:** `get_entry_fields` → `seo.refresh_tier` `fill_intent`; this topic for the full tree.
+- **List:** `list_entries` `refresh_tier: fast|medium|evergreen|unset` filters **seo-index only** (`unset` = inventory row missing a tier).
+
 ## Tools
 
 - `get_entry_seo`, `list_entry_seo`, `update_fields` (meta.* / seo.*)
+- `list_entries` with optional `refresh_tier` filter (inventory)
+- `refresh_keyword_metrics` — OpenRush inspect_keyword → keyword cache only (no YAML `kw_*`)
 - `list_seo_clusters`, `list_seo_cluster_entries`, `get_seo_cluster`
 - `get_organic_traffic` — GSC clicks/impressions (day cache / site BigQuery); not inspection, not planning volume
 - `run_entry_diagnostics` with `categories: ["seo"]`
@@ -38,6 +60,7 @@ YAML merge / content types → topic `content_system`. Page funnel stage / money
   - Conflict: `false` + non-null `seo.pillar_path` in the same `update_fields` → reject.
 - **Raw opt-out:** `seo.pillar_path: null` still works; MCP warns `seo_cluster_monitoring_disabled`. Empty/missing path = cluster gap, not opt-out.
 - **Cluster gap codes (`ORPHAN_PAGE` / `PARTIALLY_SET_CLUSTER`):** Platform catalog adds `help`, dense `suggestion`, and `next_actions` on diagnostics / `validation_issues`. Optional site markdown `{contentRoot}/validation-issue-context/seo-cluster/{CODE}.md` appears as advisory `staff_context` when non-empty. While those issues are open, `update_fields` requires `confirm_cluster_resolution: true` to set `seo.is_pillar: true` or opt out; joining a hub with non-null `seo.pillar_path` does not need confirm.
+- **Keyword research (`SEO_KEYWORD_RESEARCH_INCOMPLETE`):** Prefer OpenRush. MCP `refresh_keyword_metrics` upserts the keyword cache and does **not** write YAML. When OpenRush is configured, `update_fields` of `seo.kw_monthly_volume` / `seo.kw_difficulty` is rejected (`seo_research_use_openrush`). When OpenRush is off, those YAML writes require `seo_research_source: staff_provided|external:<name>` (`seo_research_source_required` otherwise). Do not invent metrics; release blocked if no reliable source. Staff UI may still set YAML by hand.
 - **Reads (membership):** `get_entry_seo.include_in_clustering`; `get_entry_fields` injects the virtual row (`writable` only when type monitored).
 - **Inventory (MCP sync):** `list_seo_clusters`, `list_seo_cluster_entries` (buckets: unclustered / partiallySet / brokenRefs / emptyHubs / clustered), `get_seo_cluster`. Rows include `sibling_locales` — loop locales yourself (no write fan-out). Trust inventory/`seo-index` immediately after `update_fields`; diagnostics cache may lag.
 - **Bidirectional in-body links:** validator `seo-cluster-links` (SEO category). Hub must `<a href>` (or url field / markdown link) to members; members must link back to the hub. HTML `<a href>` in blog `content` is detected during diagnostics. Non-anchor UI does not count. Codes: `HUB_MISSING_MEMBER_LINKS`, `MEMBER_MISSING_HUB_LINK`. **Diagnostics warnings only** — `run_entry_diagnostics` (SEO category); **does not block** `publish_draft` / `promote_variant`. Live micro-saves do not run this check either.

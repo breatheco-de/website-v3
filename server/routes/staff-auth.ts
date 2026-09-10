@@ -12,6 +12,8 @@ import {
   resolveOwnedStaffSession,
   staffSessionJson,
 } from "../staff-session-resolve";
+import { getStaffGitHubLoginStatus } from "../staff-github-login";
+import { getAllUsers } from "../user-store";
 
 const log = child({ module: "routes/staff-auth" });
 
@@ -51,16 +53,61 @@ export function sanitizeReturnTo(raw: unknown): string {
   return "/";
 }
 
+/**
+ * Merge query params onto a staff-login return URL without dropping existing
+ * search (e.g. MCP `/oauth/staff-return?nonce=…` must keep `nonce`).
+ */
+export function appendQueryToReturnTo(
+  returnTo: string | undefined,
+  params: Record<string, string | undefined>,
+): string {
+  const destRaw = (returnTo || "/").trim() || "/";
+  const isAbsolute = /^https?:\/\//i.test(destRaw);
+  let url: URL;
+  if (isAbsolute) {
+    try {
+      url = new URL(destRaw);
+    } catch {
+      url = new URL("http://_return.invalid/");
+    }
+  } else if (destRaw.startsWith("/") && !destRaw.startsWith("//")) {
+    url = new URL(destRaw, "http://_return.invalid");
+  } else {
+    url = new URL("http://_return.invalid/");
+  }
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") {
+      url.searchParams.set(key, value);
+    }
+  }
+
+  if (isAbsolute) {
+    return url.toString();
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 export function registerStaffAuthRoutes(app: Express): void {
   app.get("/api/staff/auth/connectors", (_req, res) => {
+    const github = getStaffGitHubLoginStatus();
     res.json({
       connectors: getAuthConnectors(),
+      /** False on empty installs — MCP OAuth should offer token only (no GitHub yet). */
+      hasStaffUsers: getAllUsers().length > 0,
+      githubLoginAvailable: github.available,
+      siteUrl: github.siteUrl,
+      callbackUrl: github.callbackUrl,
+      siteUrlLookSuspicious: github.siteUrlLookSuspicious,
+      connectionTokenStaffAllowed: github.connectionTokenStaffAllowed,
       education: {
         summary:
           "Staff sign-in uses an allowed login provider (GitHub today). Only pre-registered people (or the first admin on an empty install) get access. You need a verified email on that provider.",
         advanced: [
           "GitHub Connect on the sync chip is for content commits, not for signing in.",
-          "Paste a staff session token from another signed-in browser — not a GitHub or Breathecode token.",
+          github.connectionTokenStaffAllowed
+            ? "Paste a Weblify connection token (wfy_…) from the CLI, or a staff session token from another signed-in browser — not a GitHub or Breathecode token."
+            : "Paste a staff session token from another signed-in browser — not a GitHub, Breathecode, or Weblify connection token (connection tokens are disabled while GitHub login is active unless WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF is set).",
         ],
       },
     });
@@ -143,11 +190,17 @@ export function registerStaffAuthRoutes(app: Express): void {
     }
     const resolved = await resolveOwnedStaffSession(token);
     if (!resolved) {
+      const github = getStaffGitHubLoginStatus();
+      const error = github.connectionTokenStaffAllowed
+        ? "That is not a valid staff session or Weblify connection token. Use the token from your Weblify terminal, or log in with GitHub when it is available."
+        : github.available
+          ? "That is not a valid staff session. Log in with GitHub first, then paste the session token. Weblify connection tokens are off while GitHub login is active (set WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF to allow them)."
+          : "That is not a valid staff session. Log in with GitHub first, then paste the session token.";
       res.json({
         valid: false,
         capabilities: [],
         code: "session_invalid",
-        error: "That is not a valid staff session. Log in with GitHub first, then paste the session token.",
+        error,
       });
       return;
     }

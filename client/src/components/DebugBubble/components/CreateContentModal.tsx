@@ -37,6 +37,12 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import {
+  assessSlugLocaleMatch,
+  slugLocaleAckKey,
+  slugLocaleMismatchHint,
+  type SlugLocaleMatchMismatch,
+} from "@shared/slug-locale-heuristic";
 
 export interface CreateContentModalProps {
   open: boolean;
@@ -436,6 +442,9 @@ export function CreateContentModal({
   const [showWhyOneLanguage, setShowWhyOneLanguage] = useState(false);
   const [showWhenTranslation, setShowWhenTranslation] = useState(false);
   const [showSharedLayoutCreateAdvanced, setShowSharedLayoutCreateAdvanced] = useState(false);
+  /** Ack keys `locale:slug` for sketchy slugs staff confirmed. */
+  const [slugLocaleAcks, setSlugLocaleAcks] = useState<Set<string>>(() => new Set());
+  const [showSlugLocaleConfirm, setShowSlugLocaleConfirm] = useState(false);
 
   const contentTypesMap = useContentTypes();
   const { data: rawContentTypes } = useContentTypesRaw();
@@ -731,6 +740,8 @@ export function CreateContentModal({
       setShowWhyOneLanguage(false);
       setShowWhenTranslation(false);
       setShowSharedLayoutCreateAdvanced(false);
+      setSlugLocaleAcks(new Set());
+      setShowSlugLocaleConfirm(false);
     }
   };
 
@@ -752,7 +763,85 @@ export function CreateContentModal({
     activeParamLocales.every((loc) => !!urlParamValues[loc]?.[p]?.trim()),
   );
 
-  const handleConfirm = async () => {
+  type SketchySlugItem = {
+    locale: string;
+    slug: string;
+    label: string;
+    result: SlugLocaleMatchMismatch;
+  };
+
+  const sketchySlugs = useMemo((): SketchySlugItem[] => {
+    const items: SketchySlugItem[] = [];
+    const loc0Needed = !excludedLocales.has(loc0) && isLocaleVisible(loc0);
+    const loc1Needed = !excludedLocales.has(loc1) && isLocaleVisible(loc1);
+    if (loc0Needed && createContentSlugEn) {
+      const r = assessSlugLocaleMatch(createContentSlugEn, loc0);
+      if (!r.ok) {
+        items.push({
+          locale: loc0,
+          slug: createContentSlugEn,
+          label: supportedLocales[0]?.label ?? loc0,
+          result: r,
+        });
+      }
+    }
+    if (loc1Needed && createContentSlugEs) {
+      const r = assessSlugLocaleMatch(createContentSlugEs, loc1);
+      if (!r.ok) {
+        items.push({
+          locale: loc1,
+          slug: createContentSlugEs,
+          label: supportedLocales[1]?.label ?? loc1,
+          result: r,
+        });
+      }
+    }
+    return items;
+  }, [
+    excludedLocales,
+    loc0,
+    loc1,
+    createContentSlugEn,
+    createContentSlugEs,
+    supportedLocales,
+    forceSingleLocaleCreate,
+    effectiveSingleLocale,
+  ]);
+
+  const unackedSketchySlugs = sketchySlugs.filter(
+    (item) => !slugLocaleAcks.has(slugLocaleAckKey(item.locale, item.slug)),
+  );
+
+  const slugEnLocaleHint = useMemo(() => {
+    if (!createContentSlugEn) return null;
+    const r = assessSlugLocaleMatch(createContentSlugEn, loc0);
+    return r.ok ? null : slugLocaleMismatchHint(r);
+  }, [createContentSlugEn, loc0]);
+
+  const slugEsLocaleHint = useMemo(() => {
+    if (!createContentSlugEs) return null;
+    const r = assessSlugLocaleMatch(createContentSlugEs, loc1);
+    return r.ok ? null : slugLocaleMismatchHint(r);
+  }, [createContentSlugEs, loc1]);
+
+  useEffect(() => {
+    // Drop acks that no longer match current slugs
+    setSlugLocaleAcks((prev) => {
+      if (prev.size === 0) return prev;
+      const valid = new Set<string>();
+      if (createContentSlugEn) valid.add(slugLocaleAckKey(loc0, createContentSlugEn));
+      if (createContentSlugEs) valid.add(slugLocaleAckKey(loc1, createContentSlugEs));
+      let changed = false;
+      const next = new Set<string>();
+      for (const key of prev) {
+        if (valid.has(key)) next.add(key);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [createContentSlugEn, createContentSlugEs, loc0, loc1]);
+
+  const executeCreate = async () => {
     if (!slugsReady) return;
     if (!uniqueFieldsFilled) return;
     if (!urlParamsFilled) return;
@@ -869,6 +958,30 @@ export function CreateContentModal({
     } finally {
       setIsCreatingContent(false);
     }
+  };
+
+  const handleConfirm = async () => {
+    if (!slugsReady) return;
+    if (!uniqueFieldsFilled) return;
+    if (!urlParamsFilled) return;
+    if (unackedSketchySlugs.length > 0) {
+      setShowSlugLocaleConfirm(true);
+      return;
+    }
+    setShowSlugLocaleConfirm(false);
+    await executeCreate();
+  };
+
+  const handleAckSlugLocaleAndCreate = async () => {
+    setSlugLocaleAcks((prev) => {
+      const next = new Set(prev);
+      for (const item of unackedSketchySlugs) {
+        next.add(slugLocaleAckKey(item.locale, item.slug));
+      }
+      return next;
+    });
+    setShowSlugLocaleConfirm(false);
+    await executeCreate();
   };
 
   const confirmButtonLabel = isCreatingContent ? (
@@ -1351,6 +1464,11 @@ export function CreateContentModal({
                             {createContentSlugEnStatus === "taken" && (
                               <p className="text-xs text-red-600 pl-1">{slugEnConflictReason || `${supportedLocales[0]?.label ?? loc0} slug is taken`}</p>
                             )}
+                            {slugEnLocaleHint && createContentSlugEnStatus !== "taken" && (
+                              <p className="text-xs text-amber-700 dark:text-amber-400 pl-1" data-testid="text-slug-locale-hint-en">
+                                {slugEnLocaleHint} Confirm when you create, or change the slug.
+                              </p>
+                            )}
                           </>
                         )}
 
@@ -1420,6 +1538,11 @@ export function CreateContentModal({
                             </div>
                             {createContentSlugEsStatus === "taken" && (
                               <p className="text-xs text-red-600 pl-1">{slugEsConflictReason || `${supportedLocales[1]?.label ?? loc1} slug is taken`}</p>
+                            )}
+                            {slugEsLocaleHint && createContentSlugEsStatus !== "taken" && (
+                              <p className="text-xs text-amber-700 dark:text-amber-400 pl-1" data-testid="text-slug-locale-hint-es">
+                                {slugEsLocaleHint} Confirm when you create, or change the slug.
+                              </p>
                             )}
                           </>
                         )}
@@ -1642,6 +1765,48 @@ export function CreateContentModal({
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {showSlugLocaleConfirm && unackedSketchySlugs.length > 0 && (
+          <div
+            className="space-y-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-foreground"
+            data-testid="panel-slug-locale-confirm"
+          >
+            <p className="text-sm font-medium">Slug may not match the language</p>
+            <p className="text-xs text-muted-foreground">
+              Confirm to keep {unackedSketchySlugs.length === 1 ? "this slug" : "these slugs"}, or cancel and edit.
+            </p>
+            <ul className="space-y-1.5 text-xs">
+              {unackedSketchySlugs.map((item) => (
+                <li key={`${item.locale}:${item.slug}`} className="font-mono">
+                  <span className="text-muted-foreground">{item.label}:</span>{" "}
+                  <code className="bg-muted px-1.5 py-0.5 rounded">{item.slug}</code>
+                  <span className="block text-muted-foreground font-sans mt-0.5">
+                    {slugLocaleMismatchHint(item.result)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                size="sm"
+                onClick={handleAckSlugLocaleAndCreate}
+                disabled={isCreatingContent}
+                data-testid="button-confirm-slug-locale"
+              >
+                {isCreatingContent ? "Creating…" : "Confirm and create"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setShowSlugLocaleConfirm(false)}
+                disabled={isCreatingContent}
+                data-testid="button-cancel-slug-locale"
+              >
+                Cancel
+              </Button>
+            </div>
           </div>
         )}
 

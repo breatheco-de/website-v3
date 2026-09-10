@@ -9,6 +9,7 @@ import { getAllJobStates, type DbJobState } from "../db-job-state";
 import { countDatabaseCacheErrors } from "../../scripts/validation/shared/databaseHealthChecks";
 import { getValidationCacheService } from "../services/validationCacheService";
 import { getDatabaseUsage } from "../database-usage";
+import { getPackageRoot, getProjectRoot } from "@shared/paths";
 
 
 import * as fs from "fs";
@@ -190,6 +191,7 @@ import {
   BREATHECODE_HOST,
   extractToken,
   requireCapability,
+  requireDatabasesBrowseAccess,
   safeYamlLoad,
   safeYamlDump,
   resolveVariantAssignment,
@@ -375,7 +377,7 @@ export function registerDatabasesRoutes(app: Express): void {
   });
   app.get("/api/migrations", (_req, res) => {
     try {
-      const migrationsDir = path.join(process.cwd(), "scripts", "migrations");
+      const migrationsDir = path.join(getPackageRoot(), "scripts", "migrations");
       if (!fs.existsSync(migrationsDir)) {
         res.json([]);
         return;
@@ -409,7 +411,7 @@ export function registerDatabasesRoutes(app: Express): void {
       res.status(400).json({ error: "Invalid migration filename." });
       return;
     }
-    const migrationsDir = path.join(process.cwd(), "scripts", "migrations");
+    const migrationsDir = path.join(getPackageRoot(), "scripts", "migrations");
     const fullPath = path.join(migrationsDir, filename);
     if (!fs.existsSync(fullPath)) {
       res.status(404).json({ error: "Migration script not found." });
@@ -418,7 +420,7 @@ export function registerDatabasesRoutes(app: Express): void {
     execFile(
       "npx",
       ["tsx", fullPath],
-      { cwd: process.cwd(), timeout: 120000 },
+      { cwd: getProjectRoot(), timeout: 120000 },
       (err, stdout, stderr) => {
         const output = [stdout, stderr].filter(Boolean).join("\n").trim();
         if (err && err.killed) {
@@ -432,7 +434,9 @@ export function registerDatabasesRoutes(app: Express): void {
     );
   });
   // ── Database routes ──────────────────────────────────────────
-  app.get("/api/databases", (_req, res) => {
+  app.get("/api/databases", async (req, res) => {
+    const auth = await requireDatabasesBrowseAccess(req, res);
+    if (!auth.authorized) return;
     try {
       const dbm = getDB(res);
       const databases = dbm.list();
@@ -461,7 +465,9 @@ export function registerDatabasesRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/databases/reload", (_req, res) => {
+  app.post("/api/databases/reload", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_manage");
+    if (!auth.authorized) return;
     try {
       const dbm = getDB(res);
       dbm.reload();
@@ -471,7 +477,9 @@ export function registerDatabasesRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/databases", (req, res) => {
+  app.post("/api/databases", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_manage");
+    if (!auth.authorized) return;
     try {
       const { slug, config } = req.body;
       if (!slug || !config || !config.name || !config.source) {
@@ -480,7 +488,7 @@ export function registerDatabasesRoutes(app: Express): void {
           .json({ error: "slug, config.name, and config.source are required" });
         return;
       }
-      getDB(res).create(slug, config);
+      getDB(res).create(slug, config, auth.author ?? "api");
       res.json({ success: true, name: slug, config });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -492,7 +500,9 @@ export function registerDatabasesRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/databases/:name", (req, res) => {
+  app.get("/api/databases/:name", async (req, res) => {
+    const auth = await requireDatabasesBrowseAccess(req, res);
+    if (!auth.authorized) return;
     try {
       const dbm = getDB(res);
       const config = dbm.get(req.params.name);
@@ -518,7 +528,9 @@ export function registerDatabasesRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/databases/:name/usage", (req, res) => {
+  app.get("/api/databases/:name/usage", async (req, res) => {
+    const auth = await requireDatabasesBrowseAccess(req, res);
+    if (!auth.authorized) return;
     try {
       const dbm = getDB(res);
       const name = req.params.name;
@@ -537,7 +549,9 @@ export function registerDatabasesRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/databases/:name/raw-fields", (req, res) => {
+  app.get("/api/databases/:name/raw-fields", async (req, res) => {
+    const auth = await requireDatabasesBrowseAccess(req, res);
+    if (!auth.authorized) return;
     try {
       const fields = getDB(res).getRawFields(req.params.name);
       res.json({ fields });
@@ -551,7 +565,9 @@ export function registerDatabasesRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/databases/:name/raw-sample", (req, res) => {
+  app.get("/api/databases/:name/raw-sample", async (req, res) => {
+    const auth = await requireDatabasesBrowseAccess(req, res);
+    if (!auth.authorized) return;
     try {
       const rawItems = getDB(res).getRawItems(req.params.name);
       if (!rawItems || rawItems.length === 0) {
@@ -570,7 +586,9 @@ export function registerDatabasesRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/databases/:name/raw-items", (req, res) => {
+  app.get("/api/databases/:name/raw-items", async (req, res) => {
+    const auth = await requireDatabasesBrowseAccess(req, res);
+    if (!auth.authorized) return;
     try {
       const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
       const limit = Math.max(1, Math.min(1000, parseInt(String(req.query.limit || "100"), 10)));
@@ -591,6 +609,8 @@ export function registerDatabasesRoutes(app: Express): void {
   });
 
   app.post("/api/databases/:name/analyze-fields", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_manage");
+    if (!auth.authorized) return;
     try {
       const dbName = req.params.name;
       const rawItems = getDB(res).getRawItems(dbName);
@@ -683,6 +703,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   });
 
   app.get("/api/databases/:name/search", async (req, res) => {
+    const auth = await requireDatabasesBrowseAccess(req, res);
+    if (!auth.authorized) return;
     try {
       const dbName = req.params.name;
       const q = (req.query.q as string || "").trim();
@@ -724,6 +746,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   });
 
   app.get("/api/databases/:name/items", async (req, res) => {
+    const auth = await requireDatabasesBrowseAccess(req, res);
+    if (!auth.authorized) return;
     try {
       const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
       const limit = Math.max(1, Math.min(1000, parseInt(String(req.query.limit || "100"), 10)));
@@ -761,6 +785,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   });
 
   app.put("/api/databases/:name/items", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_edit_data", req.params.name);
+    if (!auth.authorized) return;
     try {
       const dbName = req.params.name;
       const dbm = getDB(res);
@@ -853,6 +879,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   }
 
   app.post("/api/databases/:name/items", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_edit_data", req.params.name);
+    if (!auth.authorized) return;
     try {
       const dbName = req.params.name;
       const { item, items: bulkItems } = req.body as {
@@ -898,6 +926,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   });
 
   app.patch("/api/databases/:name/items/:index", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_edit_data", req.params.name);
+    if (!auth.authorized) return;
     try {
       const dbName = req.params.name;
       const idx = parseInt(req.params.index, 10);
@@ -940,6 +970,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   });
 
   app.delete("/api/databases/:name/items/:index", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_edit_data", req.params.name);
+    if (!auth.authorized) return;
     try {
       const dbName = req.params.name;
       const idx = parseInt(req.params.index, 10);
@@ -966,6 +998,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   });
 
   app.post("/api/databases/:name/refresh", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_manage");
+    if (!auth.authorized) return;
     const name = req.params.name;
     const dbm = getDB(res);
     try {
@@ -988,6 +1022,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   });
 
   app.post("/api/databases/:name/reindex", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_manage");
+    if (!auth.authorized) return;
     try {
       const name = req.params.name;
       const dbm = getDB(res);
@@ -1009,6 +1045,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   });
 
   app.get("/api/databases/:name/job-status", async (req, res) => {
+    const auth = await requireDatabasesBrowseAccess(req, res);
+    if (!auth.authorized) return;
     try {
       const allStates = getAllJobStates(getContentRoot(res));
       const defaultState: DbJobState = {
@@ -1034,6 +1072,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
 
   /** On-demand GCS search-cache count — do not poll from the KPI card. */
   app.get("/api/databases/:name/search-cache-stats", async (req, res) => {
+    const auth = await requireDatabasesBrowseAccess(req, res);
+    if (!auth.authorized) return;
     try {
       const {
         getDatabaseSearchCacheStats,
@@ -1060,6 +1100,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   });
 
   app.post("/api/databases/:name/ai/fix-transform", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_manage");
+    if (!auth.authorized) return;
     try {
       const { getLLMService } = await import("../ai/LLMService");
       const llm = getLLMService();
@@ -1100,7 +1142,9 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
     }
   });
 
-  app.put("/api/databases/:name/config", (req, res) => {
+  app.put("/api/databases/:name/config", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_manage");
+    if (!auth.authorized) return;
     try {
       const config = req.body;
       if (!config || !config.name || !config.source) {
@@ -1121,7 +1165,7 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
           return;
         }
       }
-      getDB(res).update(req.params.name, config);
+      getDB(res).update(req.params.name, config, auth.author ?? "api");
       res.json({ success: true });
     } catch (err: unknown) {
       res
@@ -1130,7 +1174,9 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
     }
   });
 
-  app.delete("/api/databases/:name", (req, res) => {
+  app.delete("/api/databases/:name", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_manage");
+    if (!auth.authorized) return;
     try {
       getDB(res).delete(req.params.name);
       res.json({ success: true });
@@ -1142,6 +1188,8 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
   });
 
   app.post("/api/databases/:name/test", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_manage");
+    if (!auth.authorized) return;
     try {
       const source = req.body?.source;
       if (!source) {
@@ -1162,7 +1210,9 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
 
   const DATASET_EXTENSIONS_SET = new Set([".json", ".csv", ".yaml", ".yml"]);
 
-  app.get("/api/databases/check-file", (req, res) => {
+  app.get("/api/databases/check-file", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_manage");
+    if (!auth.authorized) return;
     const slug = (req.query.slug as string) || "";
     const filename = (req.query.filename as string) || "";
     if (!slug || !filename) {
@@ -1174,6 +1224,8 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
   });
 
   app.get("/api/databases/datasets", async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_manage");
+    if (!auth.authorized) return;
     try {
       const results: {
         id: string;
@@ -1230,6 +1282,8 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
     "/api/databases/upload-dataset",
     datasetUpload.single("file"),
     async (req, res) => {
+      const auth = await requireCapability(req, res, "databases_manage");
+      if (!auth.authorized) return;
       try {
         const file = (req as any).file;
         if (!file) {

@@ -3203,6 +3203,34 @@ export function registerContentRoutes(app: Express): void {
       }
       const urlPattern = config.url_pattern as Record<string, string> | undefined;
 
+      const { loadSeoIndex, seoEntryId } = await import("../seo-index");
+      const seoIndex = loadSeoIndex(getContentRoot(res));
+      const keywordFieldsFromIndex = (
+        slug: string | null | undefined,
+        locale: string | null | undefined,
+      ): {
+        main_keyword: string | null;
+        kw_monthly_volume: number | null;
+        kw_difficulty: number | null;
+        refresh_tier: string | null;
+      } => {
+        if (!slug || !locale) {
+          return {
+            main_keyword: null,
+            kw_monthly_volume: null,
+            kw_difficulty: null,
+            refresh_tier: null,
+          };
+        }
+        const row = seoIndex.entries[seoEntryId(type, slug, locale)];
+        return {
+          main_keyword: row?.main_keyword ?? null,
+          kw_monthly_volume: row?.kw_monthly_volume ?? null,
+          kw_difficulty: row?.kw_difficulty ?? null,
+          refresh_tier: row?.refresh_tier ?? null,
+        };
+      };
+
       const finishSeoEntries = (
         base: Record<string, unknown>,
         entries: Array<Record<string, unknown>>,
@@ -3219,8 +3247,12 @@ export function registerContentRoutes(app: Express): void {
             const pageTitle = String(
               (e.meta as Record<string, unknown> | undefined)?.page_title || "",
             ).toLowerCase();
+            const mainKeyword = String(e.main_keyword || "").toLowerCase();
             return (
-              title.includes(q) || slug.includes(q) || pageTitle.includes(q)
+              title.includes(q) ||
+              slug.includes(q) ||
+              pageTitle.includes(q) ||
+              mainKeyword.includes(q)
             );
           });
         }
@@ -3312,14 +3344,16 @@ export function registerContentRoutes(app: Express): void {
               });
             }
           }
+          const slugVal = typeof item.slug === "string" ? item.slug : null;
           entries.push({
-            slug: item.slug ?? null,
+            slug: slugVal,
             contentType: type,
             locale,
             url,
             title: item.title ?? null,
             meta: resolvedMeta,
             schema: template?.schema ?? null,
+            ...keywordFieldsFromIndex(slugVal, locale),
           });
         }
 
@@ -3391,13 +3425,34 @@ export function registerContentRoutes(app: Express): void {
                 title: typeof merged.title === "string" ? merged.title : null,
                 meta: resolvedMeta,
                 schema: (merged.schema as Record<string, unknown>) ?? null,
+                ...keywordFieldsFromIndex(slug, locale),
               });
             } catch (fileErr) {
-              entries.push({ slug, contentType: type, locale, url: null, title: null, meta: {}, schema: null, parse_error: String(fileErr) });
+              entries.push({
+                slug,
+                contentType: type,
+                locale,
+                url: null,
+                title: null,
+                meta: {},
+                schema: null,
+                parse_error: String(fileErr),
+                ...keywordFieldsFromIndex(slug, locale),
+              });
             }
           }
         } catch (slugErr) {
-          entries.push({ slug, contentType: type, locale: null, url: null, title: null, meta: {}, schema: null, parse_error: String(slugErr) });
+          entries.push({
+            slug,
+            contentType: type,
+            locale: null,
+            url: null,
+            title: null,
+            meta: {},
+            schema: null,
+            parse_error: String(slugErr),
+            ...keywordFieldsFromIndex(slug, null),
+          });
         }
       }
 
@@ -4566,15 +4621,32 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
 
+      const pairsRaw = req.body?.pairs;
+      const pairs = Array.isArray(pairsRaw)
+        ? pairsRaw
+            .map((p: unknown) => {
+              if (!p || typeof p !== "object") return null;
+              const rec = p as { slug?: unknown; locale?: unknown };
+              const slug = typeof rec.slug === "string" ? rec.slug.trim() : "";
+              const locale = typeof rec.locale === "string" ? rec.locale.trim() : "";
+              if (!slug || !locale) return null;
+              return { slug, locale };
+            })
+            .filter((p): p is { slug: string; locale: string } => !!p)
+        : undefined;
+
       const localesRaw = req.body?.locales;
-      if (!Array.isArray(localesRaw) || localesRaw.length === 0) {
+      let locales = Array.isArray(localesRaw) ? localesRaw.map((l: unknown) => String(l)) : [];
+      if (locales.length === 0 && pairs?.length) {
+        locales = [...new Set(pairs.map((p) => p.locale))];
+      }
+      if (locales.length === 0) {
         res.status(400).json({
-          error: "locales is required and must be a non-empty array",
+          error: "locales is required and must be a non-empty array (or provide pairs)",
           code: "locales_required",
         });
         return;
       }
-      const locales = localesRaw.map((l: unknown) => String(l));
       const modeRaw = req.body?.mode;
       const mode =
         modeRaw === "all" || modeRaw === "failed" || modeRaw === "missing" ? modeRaw : "missing";
@@ -4585,13 +4657,23 @@ export function registerContentRoutes(app: Express): void {
 
       const {
         enqueueEntryPreviewsForType,
+        ENTRY_PREVIEW_PAIRS_MAX,
       } = await import("../entry-preview-capture-queue");
+
+      if (pairs && pairs.length > ENTRY_PREVIEW_PAIRS_MAX) {
+        res.status(400).json({
+          error: `Too many pairs (${pairs.length}). Maximum is ${ENTRY_PREVIEW_PAIRS_MAX}.`,
+          code: "pairs_too_many",
+        });
+        return;
+      }
 
       try {
         const result = await enqueueEntryPreviewsForType(site, {
           contentType: type,
           locales,
           slugs,
+          pairs,
           mode,
           overwrite,
         });
@@ -4600,6 +4682,7 @@ export function registerContentRoutes(app: Express): void {
           mode,
           overwrite,
           locales,
+          pairs: pairs ?? null,
           ...result,
           queue: (
             await import("../entry-preview-capture-queue")

@@ -1,5 +1,6 @@
 import pino from "pino";
 import { Writable } from "stream";
+import { isWeblifyDebug } from "../shared/debug";
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -50,7 +51,14 @@ class DbLogStream extends Writable {
 
 const dbStream = new DbLogStream();
 
-const logLevel = process.env.LOG_LEVEL || (isDev ? "debug" : "info");
+function resolveLogLevel(): string {
+  if (process.env.LOG_LEVEL?.trim()) return process.env.LOG_LEVEL.trim();
+  if (isWeblifyDebug()) return isDev ? "debug" : "info";
+  // Quiet by default (dev and prod) unless debug or explicit LOG_LEVEL
+  return "warn";
+}
+
+const logLevel = resolveLogLevel();
 
 let rootLogger: pino.Logger;
 

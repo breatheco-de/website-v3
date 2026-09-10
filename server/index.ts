@@ -10,6 +10,8 @@ import compression from "compression";
 import cookieParser from "cookie-parser";
 import path from "path";
 import fs from "fs";
+import { getPackageRoot } from "@shared/paths";
+import { isWeblifyDebug } from "../shared/debug";
 import { setAutoCommitCallback, addFileModifiedListener } from "./sync-state";
 import { queueFileChange } from "./auto-commit";
 import { contentIndex } from "./content-index";
@@ -116,7 +118,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-app.use('/attached_assets', express.static(path.join(process.cwd(), 'attached_assets')));
+app.use('/attached_assets', express.static(path.join(getPackageRoot(), 'attached_assets')));
 
 // Dynamic per-site image serving — serves each site's images at /<contentRootName>/images/
 // Handlers are cached after first build to avoid recreating on every request.
@@ -590,17 +592,22 @@ app.use((req, res, next) => {
     });
     registerAllJobs();
     const siteNames = [...getSiteContextMap().values()].map((c) => c.contentRootName);
-    try {
-      const { configureImpressionFlush } = require("./media-impressions") as typeof import("./media-impressions");
-      configureImpressionFlush((contentRootName) => {
-        for (const ctx of getSiteContextMap().values()) {
-          if (ctx.contentRootName === contentRootName) return ctx.mediaGallery;
+    void import("./media-impressions")
+      .then(({ configureImpressionFlush }) => {
+        configureImpressionFlush((contentRootName) => {
+          for (const ctx of getSiteContextMap().values()) {
+            if (ctx.contentRootName === contentRootName) return ctx.mediaGallery;
+          }
+          return null;
+        });
+      })
+      .catch((err) => {
+        if (isWeblifyDebug()) {
+          logger.warn({ err }, "[impressions] failed to configure flush");
+        } else {
+          console.warn("Media impression tracking unavailable.");
         }
-        return null;
       });
-    } catch (err) {
-      logger.warn({ err }, "[impressions] failed to configure flush");
-    }
     try {
       ensurePipelineDbForSites(siteNames);
     } catch (err) {
@@ -616,7 +623,11 @@ app.use((req, res, next) => {
     // Configure Sidequest for enqueue only — engine runs in a dedicated worker
     // (`npm run sidequest` / website-sidequest.service). Never Sidequest.start() here.
     void configureJobQueue().catch((err) => {
-      logger.error({ err, worker: "JobQueue" }, "failed to configure job queue for enqueue");
+      if (isWeblifyDebug()) {
+        logger.error({ err, worker: "JobQueue" }, "failed to configure job queue for enqueue");
+      } else {
+        console.warn("Background jobs unavailable.");
+      }
     });
     startEventDispatcher();
     // Restart bridge: in-memory capture queue is empty — re-queue dirty/missing OG jobs.
@@ -631,7 +642,18 @@ app.use((req, res, next) => {
     /** Previous YAML bodies for redirects_changed gating (in-process seed). */
     const lastYamlContentByPath = new Map<string, string>();
     addFileModifiedListener((evt) => {
-      const { filePath, author, actor, contentChanged, content, agentSessionId, report } = evt;
+      const {
+        filePath,
+        author,
+        actor,
+        contentChanged,
+        content,
+        agentSessionId,
+        report,
+        why,
+        highlights,
+        simple_changes,
+      } = evt;
       scheduleSectionVariantsRefreshForFile(filePath);
       if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
         for (const ctx of getSiteContextMap().values()) {
@@ -669,6 +691,9 @@ app.use((req, res, next) => {
             actor: resolvedActor,
             agent_session_id: agentSessionId,
             report,
+            why,
+            highlights,
+            simple_changes,
           });
           if (contentChanged) {
             const next =

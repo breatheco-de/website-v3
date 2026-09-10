@@ -43,13 +43,14 @@ import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager, DatabaseManager } from "../database";
 import { collectSystemAlerts, recheckDatabaseHealth } from "../system-alerts";
-import { listEvents, clearAllEvents, listAgentSessions, getAgentSessionDetail, emitEvent, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents } from "../events/event-store";
+import { listEvents, listEventAuthors, clearAllEvents, listAgentSessions, getAgentSessionDetail, emitEvent, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents } from "../events/event-store";
 import { singleAttribution, EVENT_TYPES, type EventType } from "../events/types";
 import { seedDemoPipelineEvents } from "../events/seed-demo";
 import {
   expandKindIdsToTypes,
   parseActorIds,
   parseAgentFilter,
+  parseAuthorFilter,
   parseEntryFilterKeys,
   parseKindIds,
 } from "@shared/event-log-filters";
@@ -658,6 +659,9 @@ export function registerAdminRoutes(app: Express): void {
     const agent = parseAgentFilter(
       typeof req.query.agent === "string" ? req.query.agent : undefined,
     );
+    const author = parseAuthorFilter(
+      typeof req.query.author === "string" ? req.query.author : undefined,
+    );
     const sinceRaw = req.query.since != null ? Number(req.query.since) : NaN;
     const since = Number.isFinite(sinceRaw) ? sinceRaw : undefined;
     const untilRaw = req.query.until != null ? Number(req.query.until) : NaN;
@@ -681,6 +685,7 @@ export function registerAdminRoutes(app: Express): void {
       types: types && types.length > 0 ? types : undefined,
       actors: actors.length > 0 ? actors : undefined,
       agent: agent ?? undefined,
+      author: author ?? undefined,
       entries: entries.length > 0 ? entries : undefined,
       since,
       until,
@@ -697,6 +702,19 @@ export function registerAdminRoutes(app: Express): void {
       education:
         "This log is the diary of site changes and agent runs. Filters live in the page link. Selecting a session shows a short summary built from those events.",
     });
+  });
+
+  api.get(app, "/api/admin/events/authors", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    const site = (req.query.site as string) || res.locals.site?.contentRootName;
+    if (!site) {
+      res.status(400).json({ error: "Missing site" });
+      return;
+    }
+    const authors = listEventAuthors(site);
+    res.json({ authors });
   });
 
   app.get("/api/admin/agent-sessions", async (req, res) => {
@@ -897,8 +915,22 @@ export function registerAdminRoutes(app: Express): void {
 
     try {
       const { pullProductionEvents } = await import("../events/pull-production");
-      const result = await pullProductionEvents(site, auth.token, productionOrigin);
+      // Never forward the local GitHub session — production token comes from
+      // in-memory paste or PRODUCTION_STAFF_TOKEN via fetchProductionAdmin.
+      const result = await pullProductionEvents(site, productionOrigin);
       if (!result.success) {
+        if (result.code === "production_staff_token_required") {
+          res.status(401).json({
+            error: result.reason ?? result.error ?? "Production staff token required",
+            code: result.code,
+            productionOrigin: result.productionOrigin,
+            envVar: result.envVar,
+            success: false,
+            pulled: false,
+            imported: 0,
+          });
+          return;
+        }
         res.status(400).json({
           error: result.reason ?? "Failed to pull production event history",
           ...result,
@@ -914,6 +946,37 @@ export function registerAdminRoutes(app: Express): void {
       log.error({ err, site }, "Failed to pull production event history");
       res.status(500).json({ error: "Failed to pull production event history" });
     }
+  });
+
+  /** Dev-only: store a production staff token in process memory for HTTP pulls. */
+  api.post(app, "/api/dev/production-staff-token", { rate: "staffWrite" }, async (req, res) => {
+    if (process.env.NODE_ENV === "production") {
+      res.status(403).json({
+        error: "dev_only",
+        message: "Setting a production staff token is only available in development.",
+      });
+      return;
+    }
+
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+    if (!token) {
+      res.status(400).json({ error: "token is required" });
+      return;
+    }
+
+    const { setProductionStaffToken, PRODUCTION_STAFF_TOKEN_ENV } = await import(
+      "../dev-production-fetch"
+    );
+    setProductionStaffToken(token);
+    res.json({
+      success: true,
+      envVar: PRODUCTION_STAFF_TOKEN_ENV,
+      education:
+        "Token is kept in this local server process until restart. Set PRODUCTION_STAFF_TOKEN in .env to avoid pasting after every restart. Does not write .env automatically.",
+    });
   });
 
   app.get("/api/admin/pipeline/status", async (req, res) => {
@@ -3475,6 +3538,7 @@ export function registerAdminRoutes(app: Express): void {
       return { ok: false, error: "capabilities must be an array" };
     }
     const knownContentTypes = getCI(res).getContentTypes();
+    const knownDatabases = getDB(res).list().map((d) => d.name);
     const valid: import("../user-store").CapabilityGrant[] = [];
     for (const cap of capabilities) {
       if (!cap || typeof cap.name !== "string") {
@@ -3483,8 +3547,46 @@ export function registerAdminRoutes(app: Express): void {
       if (!userStore.ALL_CAPABILITIES.includes(cap.name as import("../user-store").CapabilityName)) {
         return { ok: false, error: `Unknown capability: ${cap.name}` };
       }
-      // Validate contentTypes if provided (must be "*", undefined, or an array of known content type IDs)
+
+      const scopeKind = userStore.getCapabilityScopeKind(cap.name);
       const ct = cap.contentTypes;
+      const dbs = cap.databases;
+
+      if (scopeKind === "databases") {
+        if (ct !== undefined) {
+          return {
+            ok: false,
+            error: `contentTypes is not allowed on database-scoped capability '${cap.name}' (use databases)`,
+          };
+        }
+        if (dbs !== undefined && dbs !== "*") {
+          if (!Array.isArray(dbs)) {
+            return { ok: false, error: `databases for '${cap.name}' must be "*" or an array of database slugs` };
+          }
+          if (knownDatabases.length > 0) {
+            const unknownDbs = dbs.filter(
+              (t: unknown) => typeof t === "string" && !knownDatabases.includes(t),
+            );
+            if (unknownDbs.length > 0) {
+              return { ok: false, error: `Unknown database(s) in '${cap.name}': ${unknownDbs.join(", ")}` };
+            }
+          }
+        }
+        valid.push({
+          name: cap.name as import("../user-store").CapabilityName,
+          databases: dbs ?? undefined,
+        });
+        continue;
+      }
+
+      if (dbs !== undefined) {
+        return {
+          ok: false,
+          error: `databases is not allowed on capability '${cap.name}' (scopeKind: ${scopeKind})`,
+        };
+      }
+
+      // Validate contentTypes if provided (must be "*", undefined, or an array of known content type IDs)
       if (ct !== undefined && ct !== "*") {
         if (!Array.isArray(ct)) {
           return { ok: false, error: `contentTypes for '${cap.name}' must be "*" or an array of content type IDs` };

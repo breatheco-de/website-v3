@@ -274,4 +274,31 @@ describe("diagnostics-issue-queue", () => {
       }),
     ).toBeNull();
   });
+
+  it("excludes coding_agent_only codes from default open_issues but keeps them for all", () => {
+    const rows = [
+      row({
+        id: "orphan",
+        code: "ORPHAN_OVERLAY_FOLDER",
+        validator: "database-singles",
+        severity: "warning",
+        url: "/howto/orphan",
+      }),
+      row({
+        id: "normal",
+        code: "MISSING_PAGE_TITLE",
+        validator: "meta",
+        severity: "error",
+        url: "/en/home",
+      }),
+    ];
+    const openQ = buildDiagnosticsIssueQueue(rows);
+    expect(openQ.open_issues.map((i) => i.id)).toEqual(["normal"]);
+    expect(openQ.open_issues_total_matching).toBe(1);
+
+    const allQ = buildDiagnosticsIssueQueue(rows, { issue_status: "all" });
+    expect(allQ.open_issues.map((i) => i.id).sort()).toEqual(["normal", "orphan"]);
+    const orphanRow = allQ.open_issues.find((i) => i.id === "orphan");
+    expect(orphanRow?.coding_agent_only).toBe(true);
+  });
 });

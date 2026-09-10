@@ -1,20 +1,22 @@
-# Contributing to Caxton
+# Contributing to Weblify
 
-Thanks for your interest in Caxton — the agentic CMS. Contributions that improve the CMS, components, docs, or deploy story are welcome.
+Thanks for your interest in Weblify — the agentic CMS. Contributions that improve the CMS, components, docs, or deploy story are welcome.
 
 ## Development setup
 
 **Requirements:** Node 20+, npm 10+.
 
 ```bash
-git clone https://github.com/YOUR_ORG/caxton
-cd caxton
+git clone https://github.com/YOUR_ORG/website-v3
+cd website-v3
 npm install
 cp sites.yml.example sites.yml
 npm run dev
 ```
 
 Open http://localhost:5000. See [INSTALL.md](INSTALL.md) for environment variables and content folder bootstrap.
+
+Contributor shortcut for the published CLI surface: `npm run weblify` (same as `npx tsx cli/src/index.ts`). Production cutover notes: [docs/migrate-to-npx-weblify.md](docs/migrate-to-npx-weblify.md).
 
 ## Before you open a PR
 

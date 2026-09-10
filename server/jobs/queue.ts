@@ -14,6 +14,7 @@ import crypto from "crypto";
 import { DuplicatedJobError } from "@sidequest/core";
 import { Sidequest, Job } from "sidequest";
 import { child } from "../logger";
+import { getPackageRoot } from "@shared/paths";
 
 const log = child({ module: "job-queue" });
 
@@ -252,10 +253,10 @@ export type ConfigureJobQueueOpts = {
   jobsFilePath?: string;
 };
 
-/** Prod: dist/sidequest.jobs.js. Dev (tsx): sidequest.jobs.ts at repo root. */
+/** Prod: dist/sidequest.jobs.js. Dev (tsx): sidequest.jobs.ts — always under PACKAGE_ROOT. */
 function sidequestJobsFilePath(): string {
-  return path.resolve(
-    process.cwd(),
+  return path.join(
+    getPackageRoot(),
     process.env.NODE_ENV === "production" ? "dist/sidequest.jobs.js" : "sidequest.jobs.ts",
   );
 }

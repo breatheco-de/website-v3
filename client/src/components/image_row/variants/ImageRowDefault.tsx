@@ -5,10 +5,7 @@ import { hasHtmlTags, getTextLength, sliceHtml } from "@/lib/htmlTypewriter";
 import { useTypewriter } from "@/hooks/useTypewriter";
 import { UniversalImage } from "@/components/UniversalImage";
 import { useSectionContext } from "@/contexts/SectionContext";
-import type {
-  ImageRowSection,
-  ImageRowSlide,
-} from "../../../../../site_4geeks-com/component-registry/image_row/v1.0/schema";
+import type { ImageRowSection, ImageRowSlide } from "@shared/schema";
 
 interface ImageRowProps {
   data: ImageRowSection;

@@ -61,6 +61,7 @@ export {
   type ListClusterBucketEntriesResult,
 } from "./seo-cluster-stats";
 import {
+  assertRefreshTierWriteAllowed,
   canonicalizePillarPath,
   entryCanonicalPath,
   mergeSeoUpdates,
@@ -74,7 +75,9 @@ import {
   yamlHasSeoKey,
   type SeoBlock,
   type SeoIndexWarning,
+  type SeoRefreshTier,
 } from "./seo-fields";
+import { isSeoRefreshTier } from "./seo-field-defs";
 import { assertSeoWriteLayerAllowed } from "./seo-write-layer";
 import {
   isClusterPriority,
@@ -164,6 +167,8 @@ export type SeoIndexEntry = {
   pillar_live: boolean | null;
   /** Explicit seo.pillar_path: null opt-out on locale YAML. */
   pillar_opted_out?: boolean;
+  /** Fact-staleness tier; null/omitted when unset on an indexed entry. */
+  refresh_tier?: SeoRefreshTier | null;
 };
 
 export type SeoIndexCluster = {
@@ -176,6 +181,8 @@ export type SeoIndexCluster = {
 export type SeoIndex = {
   version: 1;
   generated_at: string;
+  /** ISO time of the last full YAML rebuild (not bumped by per-entry patches). */
+  last_full_rebuild_at?: string;
   rebuilt?: boolean;
   entries: Record<string, SeoIndexEntry>;
   by_path: Record<string, string>;
@@ -518,6 +525,7 @@ function rowFromSeo(opts: {
           ? opts.seo.pillar_path
           : null,
     pillar_live: opts.pillarLive,
+    refresh_tier: isSeoRefreshTier(opts.seo.refresh_tier) ? opts.seo.refresh_tier : null,
   };
 }
 
@@ -691,6 +699,7 @@ export function rebuildSeoIndex(opts?: {
   }
 
   recomputeGraph(index, { prioritySnapshot: priorPriorities, contentRoot: opts?.contentRoot });
+  index.last_full_rebuild_at = new Date().toISOString();
   saveSeoIndex(index, {
     contentRoot: opts?.contentRoot,
     author: opts?.author,
@@ -886,6 +895,10 @@ export function writeSeoFields(opts: {
 
   const original = fs.readFileSync(filePath, "utf-8");
   const current = readSeoBlockFromYamlText(original);
+  const clearGate = assertRefreshTierWriteAllowed(opts.updates);
+  if (clearGate) {
+    return { success: false, error: clearGate.error, code: clearGate.code, statusCode: 400 };
+  }
   const merged = mergeSeoUpdates(current, opts.updates);
   const validated = validateSeoSave({
     next: merged,
@@ -1059,6 +1072,15 @@ export function resetSeoOverlayField(opts: {
       error: `Unknown seo field: ${opts.fieldPath}`,
       statusCode: 400,
       code: "seo_unknown_field",
+    };
+  }
+  if (field === "refresh_tier") {
+    return {
+      success: false,
+      error:
+        "seo.refresh_tier cannot be cleared. Pick fast, medium, or evergreen via update_fields / SEO Fields.",
+      statusCode: 400,
+      code: "seo_refresh_tier_clear_forbidden",
     };
   }
 

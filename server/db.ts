@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { child, registerLogSink } from "./logger";
 import { errorLogFingerprint } from "./utils/error-log-fingerprint";
+import { getProjectRoot } from "@shared/paths";
 const log = child({ module: "db" });
 
 /** Max frequency for storing the same warning fingerprint in SQLite. */
@@ -33,7 +34,7 @@ function shouldInsertWarn(module: string, message: string, ts: number): boolean 
 
 
 
-const dataDir = path.resolve("data");
+const dataDir = path.join(getProjectRoot(), "data");
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }

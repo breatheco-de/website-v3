@@ -107,13 +107,45 @@ describe("allowedToolNames", () => {
     expect(names.has("run_entry_diagnostics")).toBe(true);
     expect(names.has("get_validation_issues")).toBe(true);
     expect(names.has("reindex_database")).toBe(true);
+    expect(names.has("create_or_update_database")).toBe(true);
+    expect(names.has("list_databases")).toBe(true);
+    expect(names.has("list_database_items")).toBe(true);
+    expect(names.has("get_database_item")).toBe(true);
+    // manage alone does not authorize row mutators
+    expect(names.has("add_database_item")).toBe(false);
+    expect(names.has("update_database_item")).toBe(false);
+    expect(names.has("delete_database_item")).toBe(false);
     expect(names.has("test_redirect")).toBe(true);
     expect(names.has("update_redirect")).toBe(true);
     expect(names.has("ensure_content_type_schema_org")).toBe(true);
     expect(names.has("update_content_type")).toBe(true);
-    expect(names.has("reindex_database")).toBe(true);
     expect(names.has("propose_change")).toBe(true);
     expect(names.has("update_proposal")).toBe(true);
+  });
+
+  it("databases_edit_data reveals item tools but not create_or_update_database", () => {
+    const names = new Set(
+      allowedToolNames([{ name: "databases_edit_data", databases: ["faq"] }]),
+    );
+    expect(names.has("list_databases")).toBe(true);
+    expect(names.has("list_database_items")).toBe(true);
+    expect(names.has("get_database_item")).toBe(true);
+    expect(names.has("add_database_item")).toBe(true);
+    expect(names.has("add_database_items")).toBe(true);
+    expect(names.has("update_database_item")).toBe(true);
+    expect(names.has("update_database_items")).toBe(true);
+    expect(names.has("delete_database_item")).toBe(true);
+    expect(names.has("create_or_update_database")).toBe(false);
+    expect(names.has("reindex_database")).toBe(false);
+  });
+
+  it("content_edit_text alone does not reveal database tools", () => {
+    const names = new Set(
+      allowedToolNames([{ name: "content_edit_text", contentTypes: "*" }]),
+    );
+    expect(names.has("list_databases")).toBe(false);
+    expect(names.has("add_database_item")).toBe(false);
+    expect(names.has("create_or_update_database")).toBe(false);
   });
 
   it("content_types_manage reveals update_content_type", () => {
@@ -132,6 +164,7 @@ describe("allowedToolNames", () => {
     expect(names.has("list_seo_clusters")).toBe(true);
     expect(names.has("list_seo_cluster_entries")).toBe(true);
     expect(names.has("get_seo_cluster")).toBe(true);
+    expect(names.has("refresh_keyword_metrics")).toBe(true);
     expect(names.has("get_organic_traffic")).toBe(true);
     expect(names.has("run_entry_diagnostics")).toBe(true);
     expect(names.has("get_diagnostics_job")).toBe(true);

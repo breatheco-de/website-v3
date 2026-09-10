@@ -1,27 +1,45 @@
 /**
- * Shared MCP `report` param guidance — staff read these on Background Pipeline /
- * issue history. Prefer plain values over JSON/YAML dumps or tool-name summaries.
+ * Shared MCP `report` / structured why+highlights guidance — staff read these on
+ * Background Pipeline / issue history.
  */
 
+import {
+  AGENT_WHY_MIN_LENGTH,
+  hasBigFieldUpdates,
+  type FieldUpdateLike,
+} from "@shared/agent-report-structured";
+
+export const AGENT_WHY_DESC =
+  `Required (min ${AGENT_WHY_MIN_LENGTH} chars). Plain English ticket/goal for staff ` +
+  "(e.g. Join orphan to Coding Bootcamp hub for REFRESH #419). " +
+  "Do not pad with process boilerplate (automatic bot / via MCP / tool names).";
+
+export const AGENT_HIGHLIGHTS_DESC =
+  "Short bullets of the biggest deltas on large edits (sections, link lists, long body). " +
+  "Required when touching sections/arrays/long text, or on structural tools / issue complete. " +
+  "Example: [\"Added internal links: /a, /b\", \"Replaced hero CTA label\"]. " +
+  "Server fills simple field values (meta.title, seo.*) automatically — do not dump YAML.";
+
+/** @deprecated Prefer why + highlights on field mutates / complete. */
 export const AGENT_REPORT_MUTATE_DESC =
-  "Required (min 80 chars). Staff-readable: what you changed and why (paths/fields ok). " +
-  "When you set copy or structured text (titles, subtitles, CTA, success messages, body blurbs), " +
-  "list the plain new values inline (e.g. Title: …; Subtitle: …; Conversion: student_application). " +
-  "Do not paste JSON/YAML or only say which tool/field names you touched. " +
-  'Example: "Filled empty Spanish CTA on blog/foo/es (required-fields). Title: Aprende a programar. ' +
-  "Subtitle: Cupos abiertos. Conversion: student_application. Success: Gracias, te contactaremos.\"";
+  "Deprecated for field mutates — use why + highlights. " +
+  "Still used for some tools: staff-readable what/why (min 80). " +
+  "When you set copy, list plain new values (Title: …).";
 
 export const AGENT_REPORT_ISSUE_DESC =
-  "Required for first claim, complete, and release of an active claim (min 80 chars). " +
-  "claim: why + plan. complete: what changed and how — include plain new values for any copy you set " +
-  "(not JSON/YAML dumps). release: what you tried and why stopping. " +
+  "Required for first claim and release of an active claim (min 80 chars). " +
+  "claim: why + plan. release: what you tried and why stopping. " +
+  "For complete: use why + highlights instead of report. " +
   "Optional when re-claiming to refresh TTL or releasing with no active claim.";
 
 export const AGENT_REPORT_SESSION_DESC =
   "Required for note/summarize (min 80 chars). Mid-run progress or end-of-run summary for staff. " +
   "For copy you set, restate plain values (Title: …; Subtitle: …); avoid JSON/YAML dumps.";
 
-/** Short blurb for tool-level update_issue docs / examples. */
 export const AGENT_REPORT_ISSUE_COMPLETE_EXAMPLE =
-  'Example complete: "Set call_to_action on blog/foo/es. Title: Aprende a programar. ' +
-  "Subtitle: Cupos abiertos. Conversion: student_application. Success: Gracias — required-fields cleared.\"";
+  'Example complete: why: "Cleared required-fields on blog/foo/es by setting CTA." ' +
+  'highlights: ["Title: Aprende a programar", "Conversion: student_application"]';
+
+export function highlightsRequiredForUpdates(updates: FieldUpdateLike[]): boolean {
+  return hasBigFieldUpdates(updates);
+}

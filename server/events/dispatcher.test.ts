@@ -129,6 +129,10 @@ describe("event dispatcher", () => {
   it("entry_seo_changed enqueues seo_index_refresh unless synced", async () => {
     await dispatchEventForTest(baseEvent("entry_seo_changed"));
     expect(jobNames()).toContain("seo_index_refresh");
+    const seoCall = mocks.enqueueJob.mock.calls.find((c) => c[0] === "seo_index_refresh");
+    expect(seoCall?.[1]).toEqual(
+      expect.objectContaining({ mode: "rebuild", site: "site_test" }),
+    );
 
     mocks.enqueueJob.mockClear();
     await dispatchEventForTest(
@@ -146,6 +150,9 @@ describe("event dispatcher", () => {
     );
     expect(jobNames()).toContain("index_refresh");
     expect(jobNames()).toContain("seo_index_refresh");
+    const seoCall = mocks.enqueueJob.mock.calls.find((c) => c[0] === "seo_index_refresh");
+    expect(seoCall?.[1]).toEqual(expect.objectContaining({ mode: "rebuild" }));
+    expect(seoCall?.[2]).toEqual(expect.objectContaining({ delayMs: 5000 }));
     expect(jobNames()).not.toContain("sync_state_flush");
     expect(mocks.queueLinkIndexRemove).toHaveBeenCalled();
   });

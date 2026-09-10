@@ -5,6 +5,147 @@
 window_days: 6
 
 entries:
+  - date: "2026-09-09"
+    summary: "Database caps split: create_or_update_database + scoped databases_edit_data for rows"
+    agent_impact:
+      - "New create_or_update_database (databases_manage only): create writes empty local items YAML; update is deep patch with confirm:true preview. Does not push sync, wire CTs, or delete banks."
+      - "Item read tools need databases_edit_data OR databases_manage; item writes need databases_edit_data for that slug. content_edit_text no longer opens DB tools. platform_steward manage-only sees definition/reindex/reads, not row mutators."
+      - "Reconnect MCP; re-bootstrap_agent. explain_site topic local_databases documents definition vs rows."
+    paths:
+      - mcp-server/tools/databases.ts
+      - mcp-server/tools/pages.ts
+      - shared/mcp-tool-catalog.ts
+      - mcp-server/explain/local_databases.md
+      - mcp-server/explain/semantic_search.md
+      - server/database.ts
+    tools_changed: true
+  - date: "2026-09-09"
+    summary: "Proposal–variant collaboration (blockers, promote_on_apply, one proposal per draft)"
+    agent_impact:
+      - "propose_change supports variant + promote_on_apply + agent_session_id; empty updates OK for go-live drafts. One open proposal per variant (proposal_exists → join)."
+      - "update_proposal adds attach_variant, add_blocker, resolve_blocker, reopen_blocker. Open blockers block apply only. Claimant-only resolve; re-preview before apply."
+      - "delete_variant warns when an open proposal references the variant. Reconnect MCP; re-bootstrap_agent for conventions v10."
+    paths:
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/proposals.md
+      - mcp-server/agent-conventions.md
+      - server/content-proposals/service.ts
+    tools_changed: true
+  - date: "2026-09-09"
+    summary: "seo.refresh_tier + SEO field catalog (fill_intent / system_hints)"
+    agent_impact:
+      - "New locale seo.refresh_tier: fast|medium|evergreen (fact-staleness). Cannot clear — pick another tier. Omit to leave unchanged."
+      - "get_entry_fields attaches catalog fill_intent + system_hints for each seo.*; list_entries supports refresh_tier filter (seo-index only); get_entry_seo / list_entry_seo expose index.refresh_tier."
+      - "Pick help: get_entry_fields or explain_site topic seo. Reconnect MCP; re-bootstrap_agent for conventions v9."
+    paths:
+      - server/seo-field-defs.ts
+      - server/seo-fields.ts
+      - server/seo-index.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/seo.md
+      - mcp-server/agent-conventions.md
+    tools_changed: true
+  - date: "2026-09-09"
+    summary: "list_entry_seo includes seo-index keyword / volume / difficulty"
+    agent_impact:
+      - "seo-entries / list_entry_seo now return main_keyword, kw_monthly_volume, kw_difficulty from the live seo-index (not OpenRush effective metrics)."
+      - "Staff manage SEO list chips match those index values; OpenRush refresh remains refresh_keyword_metrics / SEO modal."
+      - "Search q on seo-entries also matches main_keyword. Reconnect MCP if tool descriptions look stale."
+    paths:
+      - server/routes/content.ts
+      - client/src/pages/ContentTypeManagePage.tsx
+      - mcp-server/tools/pages.ts
+    tools_changed: true
+  - date: "2026-09-09"
+    summary: "MCP GitHub staff login return keeps nonce (Claude/Cursor OAuth)"
+    agent_impact:
+      - "Log in with GitHub on /oauth/authorize now returns to /oauth/staff-return with nonce + staff_session_code so the host OAuth callback can complete."
+      - "MCP public return base falls back to SITE_URL when MCP_PUBLIC_URL is unset (proxied /oauth on the main site)."
+      - "Humans: reconnect the MCP connector and use Log in with GitHub again if a prior attempt landed on Repository Sync."
+    paths:
+      - server/routes/github.ts
+      - server/routes/staff-auth.ts
+      - mcp-server/index.ts
+    tools_changed: false
+  - date: "2026-09-09"
+    summary: "Keyword research claim policy (B + B1) — OpenRush refresh + provenance gate"
+    agent_impact:
+      - "New refresh_keyword_metrics (seo_edit): OpenRush inspect_keyword → cache only; does not write seo.kw_* YAML. Prefer this when OpenRush is on for SEO_KEYWORD_RESEARCH_INCOMPLETE."
+      - "update_fields: OpenRush on → kw_* YAML writes rejected (seo_research_use_openrush). OpenRush off → require seo_research_source staff_provided|external:<name>. Do not invent volume/difficulty; release if no reliable source."
+      - "Claim rule in conventions + page-diagnostics: claim only with a valid executable path. Reconnect MCP for tools/list."
+    paths:
+      - mcp-server/tools/seo-clusters.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/seo-research-gate.ts
+      - mcp-server/lib/refresh-keyword-metrics-mcp.ts
+      - mcp-server/agent-conventions.md
+      - mcp-server/explain/seo.md
+      - scripts/validation/validators/seo-cluster.issueCodes.ts
+      - shared/mcp-tool-catalog.ts
+      - shared/ask-agent-prompts/page-diagnostics.md
+    tools_changed: true
+  - date: "2026-09-09"
+    summary: "list_proposals + get_validation_issues sort/sort_dir"
+    agent_impact:
+      - "list_proposals (scoped): sort created_at|updated_at (default updated_at) + sort_dir asc|desc (default desc). Echoed on success. Unscoped sort ignored with warning; invalid sort fails."
+      - "get_validation_issues (scoped+set): open sort severity|lastFullRunAt|code|url (default severity desc); resolved sort resolvedAt|severity|code|url (default resolvedAt desc). Wrong-set/invalid fails. Sorting by lastFullRunAt includes that field on open rows. Sort is order-only (does not filter claimed/completed)."
+      - "Reconnect MCP so tools/list refreshes schemas (new sort params)."
+    paths:
+      - mcp-server/tools/proposals.ts
+      - mcp-server/tools/validation-issues.ts
+      - mcp-server/lib/list-proposals-mcp.ts
+      - mcp-server/lib/validation-issues-mcp.ts
+      - shared/validation-issue-sort.ts
+      - server/content-proposals/service.ts
+      - server/services/resolvedIssuesArchiveService.ts
+    tools_changed: true
+  - date: "2026-09-09"
+    summary: "Mutate/complete reports: why + highlights; Activity View on GitHub"
+    agent_impact:
+      - "Field mutates (update_fields, add/remove/reorder/replace section) and issue complete require why + optional highlights (required for big fields / complete). Server derives simple field values; quality gate may reject report_quality."
+      - "Do not pad with automatic/MCP boilerplate. Claim/note/summarize still use string report (min 80)."
+      - "Reconnect MCP so tools/list picks up why/highlights schemas."
+    paths:
+      - mcp-server/lib/agent-report.ts
+      - mcp-server/lib/page-tool-helpers.ts
+      - mcp-server/tools/pages.ts
+      - shared/agent-report-structured.ts
+      - server/agent-report-gate.ts
+    tools_changed: true
+  - date: "2026-09-09"
+    summary: "coding_agent_only validation issues — MCP must not claim"
+    agent_impact:
+      - "Issue codes with coding_agent_only: true (e.g. ORPHAN_OVERLAY_FOLDER) are excluded from default open_issues and refuse update_issue claim with action_required issue_coding_agent_only."
+      - "Hand off to a Cursor coding agent or staff; use issue_status all only to inspect, not to claim."
+      - "Reconnect not required for schemas; conventions version bumped — re-bootstrap_agent if skill.content is stale."
+    paths:
+      - scripts/validation/shared/types.ts
+      - mcp-server/lib/diagnostics-issue-queue.ts
+      - mcp-server/agent-conventions.md
+    tools_changed: false
+  - date: "2026-09-08"
+    summary: "bootstrap_agent conventions de-branded; optional site injects brand.title + domain"
+    agent_impact:
+      - "skill.content is generic Website MCP conventions (no 4Geeks/Alejandro). Pass site on bootstrap_agent (or sole configured site) so links use that domain and brand.title from variables.yml."
+      - "skill.branding reports mode branded|generic. Multi-site without site stays generic and may recommend list_sites. Unknown site hard-fails like other tools."
+      - "Reconnect MCP so tools/list picks up the new optional site param on bootstrap_agent."
+    paths:
+      - mcp-server/agent-conventions.md
+      - mcp-server/lib/conventions-brand.ts
+      - mcp-server/lib/agent-changelog.ts
+      - mcp-server/lib/mcp-playbook.ts
+      - mcp-server/tools/explain.ts
+    tools_changed: true
+  - date: "2026-09-08"
+    summary: "slug_locale_mismatch soft warning on create_entry / translate_entry / live slug rename"
+    agent_impact:
+      - "Success warnings may include code slug_locale_mismatch when a public URL slug has clear opposite-locale function words (EN vs ES). Create/rename still succeeds; slug is not auto-rewritten."
+      - "Optional next_actions may suggest update_fields with field_path slug. No acknowledge flag; not a hard fail."
+      - "Reconnect not required (tool schemas unchanged)."
+    paths:
+      - shared/slug-locale-heuristic.ts
+      - mcp-server/tools/pages.ts
+    tools_changed: false
   - date: "2026-09-08"
     summary: "Staff MCP auth is owned CMS sessions (GitHub login or paste) — not Breathecode tokens"
     agent_impact:

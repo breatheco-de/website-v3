@@ -19,6 +19,7 @@ function row(partial: Partial<SeoIndexEntry> & { slug: string }): SeoIndexEntry 
     is_pillar: false,
     pillar_path: null,
     pillar_live: null,
+    refresh_tier: null,
     ...partial,
   };
 }

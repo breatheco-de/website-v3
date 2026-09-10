@@ -8,19 +8,20 @@ import * as path from "path";
 import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { resolveComponentBehaviors } from "../../../shared/component-behaviors";
+import { getPackageRoot, getProjectRoot } from "../../../shared/paths";
 import { getDefaultContentRoot } from "../../../server/site-config";
 import { COMPONENT_BEHAVIORS_ISSUE_CODES } from "./component-behaviors.issueCodes";
 
 function findRegistryRoots(): string[] {
   const roots: string[] = [];
-  const shared = path.join(process.cwd(), "shared/component-registry");
+  const shared = path.join(getPackageRoot(), "shared/component-registry");
   if (fs.existsSync(shared)) roots.push(shared);
   try {
     const contentRoot = getDefaultContentRoot();
     const siteReg = path.join(contentRoot, "component-registry");
     if (fs.existsSync(siteReg)) roots.push(siteReg);
   } catch {
-    const fallback = path.join(process.cwd(), "site_4geeks-com/component-registry");
+    const fallback = path.join(getProjectRoot(), "site_4geeks-com/component-registry");
     if (fs.existsSync(fallback)) roots.push(fallback);
   }
   return roots;

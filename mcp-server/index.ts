@@ -1,6 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import fs from "fs";
+import path from "path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -134,18 +136,39 @@ function resolveMcpRoleId(roleId: string): string {
   return resolved;
 }
 
+/**
+ * Public origin used in GitHub staff-login return_to (browser must reach it).
+ * Prefer MCP_PUBLIC_URL; otherwise SITE_URL / Replit domain — OAuth is proxied
+ * through the main app (`/oauth/*`), so localhost MCP_PORT is wrong in prod.
+ */
 function getMcpPublicBase(): string {
+  const replitDomain = process.env.REPLIT_DEV_DOMAIN;
   return (
     process.env.MCP_PUBLIC_URL ||
-    `http://127.0.0.1:${PORT}`
+    process.env.SITE_URL ||
+    (replitDomain ? `https://${replitDomain}` : `http://127.0.0.1:${PORT}`)
   ).replace(/\/$/, "");
 }
 
 function getCmsBase(): string {
   return (
     process.env.SITE_URL ||
-    `http://localhost:${process.env.PORT || "5000"}`
+    `http://127.0.0.1:${process.env.PORT || "5000"}`
   ).replace(/\/$/, "");
+}
+
+/** Empty installs have no staff roster yet — GitHub sign-in is not useful until setup finishes. */
+async function hasStaffUsersConfigured(): Promise<boolean> {
+  const mainAppPort = process.env.PORT || "5000";
+  try {
+    const res = await fetch(`http://127.0.0.1:${mainAppPort}/api/staff/auth/connectors`);
+    if (!res.ok) return true;
+    const data = (await res.json()) as { hasStaffUsers?: boolean };
+    return data.hasStaffUsers !== false;
+  } catch {
+    // Prefer showing both methods if CMS is unreachable (production-safe default).
+    return true;
+  }
 }
 
 function renderAuthorizePage(opts: {
@@ -159,13 +182,19 @@ function renderAuthorizePage(opts: {
   allowedTools?: string[];
   /** When set, only that auth method step is shown. */
   authStep?: "choose" | "token" | "login";
+  /** No staff users yet — token-only bootstrap (hide GitHub / choose). */
+  tokenOnly?: boolean;
 }): string {
   const mcpBase = getMcpPublicBase();
   const cmsBase = getCmsBase();
   const githubStartUrl = `${cmsBase}/api/staff/oauth/github/start?return_to=${encodeURIComponent(
     `${mcpBase}/oauth/staff-return?nonce=${opts.nonce}`,
   )}`;
-  const step = opts.authStep || "choose";
+  const tokenOnly = Boolean(opts.tokenOnly);
+  let step = opts.authStep || "choose";
+  if (tokenOnly && step !== "token") {
+    step = "token";
+  }
 
   const errorHtml = opts.error
     ? `<div class="error">${escapeHtml(opts.error)}</div>`
@@ -203,17 +232,25 @@ function renderAuthorizePage(opts: {
     </form>
   </div>`;
 
+  const backLink = tokenOnly
+    ? ""
+    : `<a class="back" href="/oauth/authorize/step?nonce=${encodeURIComponent(opts.nonce)}&amp;method=choose">← Choose a different method</a>`;
+
   const tokenHtml = `
   <div class="card">
-    <h2>Paste your staff session token</h2>
-    <p class="muted">Use a session from a signed-in CMS browser — not a GitHub or Breathecode token.</p>
+    <h2>${tokenOnly ? "Paste your connection token" : "Paste your staff session token"}</h2>
+    <p class="muted">${
+      tokenOnly
+        ? "No staff users are set up yet. Paste the connection token from your Weblify terminal to authorize this connector."
+        : "Use the connection token from Weblify, or a session from a signed-in CMS browser — not a GitHub or Breathecode token."
+    }</p>
     <form method="POST" action="/oauth/authorize">
       <input type="hidden" name="nonce" value="${escapeHtml(opts.nonce)}">
-      <label for="token">Staff session token</label>
-      <input type="text" id="token" name="token" placeholder="Paste your staff session token" autocomplete="off" required>
+      <label for="token">${tokenOnly ? "Connection token" : "Staff / connection token"}</label>
+      <input type="text" id="token" name="token" placeholder="Paste your token" autocomplete="off" required>
       <button type="submit">Verify &amp; Authorize</button>
     </form>
-    <a class="back" href="/oauth/authorize/step?nonce=${encodeURIComponent(opts.nonce)}&amp;method=choose">← Choose a different method</a>
+    ${backLink}
   </div>`;
 
   const loginHtml = `
@@ -221,11 +258,15 @@ function renderAuthorizePage(opts: {
     <h2>Log in with GitHub</h2>
     <p class="muted">You need a verified email on GitHub. Only pre-registered staff can sign in.</p>
     <a class="login-link" href="${escapeHtml(githubStartUrl)}">Continue to GitHub</a>
-    <a class="back" href="/oauth/authorize/step?nonce=${encodeURIComponent(opts.nonce)}&amp;method=choose">← Choose a different method</a>
+    ${backLink}
   </div>`;
 
   const bodyCard =
     step === "token" ? tokenHtml : step === "login" ? loginHtml : chooseHtml;
+
+  const subtitle = tokenOnly
+    ? "Authorize with the connection token from Weblify to finish connecting."
+    : "Verify your staff identity (GitHub or staff session) to grant MCP server access.";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -266,7 +307,7 @@ function renderAuthorizePage(opts: {
 </head>
 <body>
   <h1>Authorize MCP Access</h1>
-  <p class="subtitle">Verify your staff identity (GitHub or staff session) to grant MCP server access.</p>
+  <p class="subtitle">${escapeHtml(subtitle)}</p>
   ${errorHtml}
   ${roleHtml}
   ${bodyCard}
@@ -368,10 +409,33 @@ async function authMiddleware(
     return true;
   };
 
+  // Path 0: Weblify localhost connection token (CLI agentic local / regenerate)
+  let connectionToken = process.env.WEBLIFY_CONNECTION_TOKEN?.trim() || "";
+  if (!connectionToken) {
+    try {
+      const root = process.env.WEBLIFY_PROJECT_ROOT || process.cwd();
+      const p = path.join(root, ".local", "connection-token");
+      if (fs.existsSync(p)) connectionToken = fs.readFileSync(p, "utf-8").trim();
+    } catch {
+      /* ignore */
+    }
+  }
+  if (connectionToken && (bearerToken === connectionToken || apiKeyHeader === connectionToken)) {
+    next();
+    return;
+  }
+
   // Path 1: valid OAuth access token (issued by this server's /oauth/token endpoint)
   if (bearerToken && validateToken(bearerToken)) {
     const username = getTokenUsername(bearerToken);
-    if (username && !(await ensureMcpRead(username))) return;
+    // Weblify empty-install bootstrap identity (connection-token OAuth) is not a CMS user.
+    if (
+      username &&
+      username !== "weblify-local" &&
+      !(await ensureMcpRead(username))
+    ) {
+      return;
+    }
     next();
     return;
   }
@@ -548,6 +612,7 @@ app.get("/oauth/authorize", async (req, res) => {
   }
 
   const nonce = createPendingAuth(client_id, redirect_uri, state, roleId);
+  const tokenOnly = !(await hasStaffUsersConfigured());
 
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(
@@ -555,7 +620,8 @@ app.get("/oauth/authorize", async (req, res) => {
       nonce,
       clientId: client_id,
       redirectUri: redirect_uri,
-      authStep: "choose",
+      authStep: tokenOnly ? "token" : "choose",
+      tokenOnly,
       roleId: roleMeta?.roleId,
       roleLabel: roleMeta?.label,
       roleDescription: roleMeta?.description,
@@ -584,8 +650,10 @@ app.get("/oauth/authorize/step", async (req, res) => {
     roleMeta = await fetchRoleInfo(pending.roleId);
   }
 
-  const authStep =
+  const tokenOnly = !(await hasStaffUsersConfigured());
+  let authStep: "choose" | "token" | "login" =
     method === "token" || method === "login" || method === "choose" ? method : "choose";
+  if (tokenOnly) authStep = "token";
 
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(
@@ -594,6 +662,7 @@ app.get("/oauth/authorize/step", async (req, res) => {
       clientId: pending.clientId,
       redirectUri: pending.redirectUri,
       authStep,
+      tokenOnly,
       roleId: roleMeta?.roleId ?? pending.roleId,
       roleLabel: roleMeta?.label,
       roleDescription: roleMeta?.description,
@@ -617,6 +686,7 @@ app.post("/oauth/authorize", async (req, res) => {
   }
 
   const roleMeta = pending.roleId ? await fetchRoleInfo(pending.roleId) : null;
+  const tokenOnly = !(await hasStaffUsersConfigured());
 
   async function reRender(error: string, authStep: "choose" | "token" | "login" = "token") {
     const freshNonce = createPendingAuth(
@@ -625,6 +695,7 @@ app.post("/oauth/authorize", async (req, res) => {
       pending!.state,
       pending!.roleId,
     );
+    const step = tokenOnly ? "token" : authStep;
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(
       renderAuthorizePage({
@@ -632,7 +703,8 @@ app.post("/oauth/authorize", async (req, res) => {
         clientId: pending!.clientId,
         redirectUri: pending!.redirectUri,
         error,
-        authStep,
+        authStep: step,
+        tokenOnly,
         roleId: roleMeta?.roleId ?? pending!.roleId,
         roleLabel: roleMeta?.label,
         roleDescription: roleMeta?.description,
@@ -642,11 +714,53 @@ app.post("/oauth/authorize", async (req, res) => {
   }
 
   if (!token || !token.trim()) {
-    await reRender("Please paste your staff session token.", "token");
+    await reRender(
+      tokenOnly ? "Please paste your connection token." : "Please paste your staff session token.",
+      "token",
+    );
     return;
   }
 
-  const validation = await validateStaffSessionToken(token.trim());
+  const pasted = token.trim();
+
+  // Weblify agentic connection token (printed by CLI for Claude.ai wizard)
+  let connectionToken = process.env.WEBLIFY_CONNECTION_TOKEN?.trim() || "";
+  if (!connectionToken) {
+    try {
+      const root = process.env.WEBLIFY_PROJECT_ROOT || process.cwd();
+      const p = path.join(root, ".local", "connection-token");
+      if (fs.existsSync(p)) connectionToken = fs.readFileSync(p, "utf-8").trim();
+    } catch {
+      /* ignore */
+    }
+  }
+  if (connectionToken && pasted === connectionToken) {
+    if (pending.roleId) {
+      await reRender(
+        "Role connectors need a CMS staff identity. Use GitHub sign-in or a staff session token.",
+        "choose",
+      );
+      return;
+    }
+    updateClientStaffUser(pending.clientId, "Weblify", "Admin", "weblify-local");
+    let redirectUrl: URL;
+    try {
+      redirectUrl = new URL(pending.redirectUri);
+    } catch {
+      res.status(400).json({
+        error: "invalid_request",
+        error_description: "redirect_uri is not a valid URL",
+      });
+      return;
+    }
+    const code = generateCode(pending.clientId, pending.redirectUri);
+    redirectUrl.searchParams.set("code", code);
+    if (pending.state) redirectUrl.searchParams.set("state", pending.state);
+    res.redirect(redirectUrl.toString());
+    return;
+  }
+
+  const validation = await validateStaffSessionToken(pasted);
   if (!validation.valid) {
     await reRender(
       validation.error || "Token validation failed. Please check your token and try again.",
@@ -710,6 +824,7 @@ app.get("/oauth/staff-return", async (req, res) => {
   }
 
   const roleMeta = pending.roleId ? await fetchRoleInfo(pending.roleId) : null;
+  const tokenOnly = !(await hasStaffUsersConfigured());
 
   async function reRender(error: string) {
     const freshNonce = createPendingAuth(
@@ -725,7 +840,8 @@ app.get("/oauth/staff-return", async (req, res) => {
         clientId: pending!.clientId,
         redirectUri: pending!.redirectUri,
         error,
-        authStep: "choose",
+        authStep: tokenOnly ? "token" : "choose",
+        tokenOnly,
         roleId: roleMeta?.roleId ?? pending!.roleId,
         roleLabel: roleMeta?.label,
         roleDescription: roleMeta?.description,
@@ -911,6 +1027,36 @@ app.post("/oauth/token", (req, res) => {
 
 // ─── MCP endpoint ─────────────────────────────────────────────────────────────
 
+/** Machine line for Weblify CLI — first successful authenticated `initialize`. */
+const WEBLIFY_MCP_CONNECTED_MARKER = "WEBLIFY_MCP_CONNECTED";
+let connectedAnnounced = false;
+
+function isInitializeRpcBody(body: unknown): boolean {
+  if (body == null || typeof body !== "object") return false;
+  if (Array.isArray(body)) {
+    return body.some(
+      (item) =>
+        item != null &&
+        typeof item === "object" &&
+        (item as { method?: string }).method === "initialize",
+    );
+  }
+  return (body as { method?: string }).method === "initialize";
+}
+
+/** Emit once when an authenticated initialize completes with 2xx (CLI watches stdout). */
+function maybeAnnounceMcpConnected(res: express.Response, body: unknown): void {
+  if (connectedAnnounced || !isInitializeRpcBody(body)) return;
+  res.on("finish", () => {
+    if (connectedAnnounced) return;
+    const code = res.statusCode || 0;
+    if (code >= 200 && code < 300) {
+      connectedAnnounced = true;
+      process.stdout.write(`${WEBLIFY_MCP_CONNECTED_MARKER}\n`);
+    }
+  });
+}
+
 async function handleMcpRequest(
   req: express.Request,
   res: express.Response,
@@ -955,6 +1101,7 @@ async function handleMcpRequest(
         roleGrants: ctx.data.capabilities,
       });
       try {
+        maybeAnnounceMcpConnected(res, req.body);
         await mcp.connect(transport);
         await transport.handleRequest(req, res, req.body);
         res.on("finish", () => mcp.close());
@@ -972,6 +1119,7 @@ async function handleMcpRequest(
     filterCatalog: process.env.NODE_ENV === "production",
   });
   try {
+    maybeAnnounceMcpConnected(res, req.body);
     await mcp.connect(transport);
     await transport.handleRequest(req, res, req.body);
     res.on("finish", () => mcp.close());

@@ -1,6 +1,6 @@
-# Caxton on Replit
+# Weblify on Replit
 
-Caxton runs on Replit with no special fork. Replit-specific Vite plugins load only when `REPL_ID` is set ([`vite.config.ts`](vite.config.ts)); local and VPS deploys never see them.
+Weblify runs on Replit with no special fork. Replit-specific Vite plugins load only when `REPL_ID` is set ([`vite.config.ts`](vite.config.ts)); local and VPS deploys never see them.
 
 ## Quick start
 

@@ -133,6 +133,58 @@ describe("writeSeoFields", () => {
     expect(row?.main_keyword).toBe("learn javascript");
   });
 
+  it("mirrors refresh_tier on the live index row and rejects clear", () => {
+    const ok = writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: {
+        main_keyword: "learn javascript",
+        refresh_tier: "fast",
+      },
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    expect(ok.success).toBe(true);
+    const text = fs.readFileSync(path.join(contentRoot, "blog", "post-a", "en.yml"), "utf-8");
+    expect(text).toMatch(/refresh_tier: fast/);
+    expect(loadSeoIndex(contentRoot).entries["blog/post-a/en"]?.refresh_tier).toBe("fast");
+
+    const cleared = writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: { refresh_tier: null },
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    expect(cleared.success).toBe(false);
+    if (!cleared.success) expect(cleared.code).toBe("seo_refresh_tier_clear_forbidden");
+
+    const invalid = writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: { refresh_tier: "weekly" },
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    expect(invalid.success).toBe(false);
+    if (!invalid.success) expect(invalid.code).toBe("seo_refresh_tier_invalid");
+
+    const reset = resetSeoOverlayField({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      fieldPath: "seo.refresh_tier",
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    expect(reset.success).toBe(false);
+    if (!reset.success) expect(reset.code).toBe("seo_refresh_tier_clear_forbidden");
+    expect(loadSeoIndex(contentRoot).entries["blog/post-a/en"]?.refresh_tier).toBe("fast");
+  });
+
   it("rejects SEO writes on draft while live exists", () => {
     fs.writeFileSync(
       path.join(contentRoot, "blog", "post-a", "draft.en.yml"),
@@ -412,6 +464,36 @@ meta:
 });
 
 describe("seo-index lifecycle helpers", () => {
+  it("rebuildSeoIndex sets last_full_rebuild_at; patch leaves it unchanged", async () => {
+    const { rebuildSeoIndex, patchSeoIndexAfterLiveWrite, invalidateSeoIndexCache } = await import(
+      "./seo-index"
+    );
+    const rebuilt = rebuildSeoIndex({
+      contentRoot,
+      reason: "test",
+      ci: stubCi("/en/blog/post-a"),
+      mark: false,
+    });
+    expect(rebuilt.last_full_rebuild_at).toBeTruthy();
+    const stamped = rebuilt.last_full_rebuild_at!;
+
+    await new Promise((r) => setTimeout(r, 5));
+    patchSeoIndexAfterLiveWrite({
+      contentRoot,
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      file: "blog/post-a/en.yml",
+      seo: { main_keyword: "patched-kw", pillar_path: "/en/blog/hub" },
+      pillarLive: true,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    invalidateSeoIndexCache();
+    const afterPatch = loadSeoIndex(contentRoot);
+    expect(afterPatch.last_full_rebuild_at).toBe(stamped);
+    expect(afterPatch.entries["blog/post-a/en"]?.main_keyword).toBe("patched-kw");
+  });
+
   it("syncSeoIndexEntryFromLiveDisk patches the index from live YAML", async () => {
     const { syncSeoIndexEntryFromLiveDisk } = await import("./seo-index");
     fs.writeFileSync(

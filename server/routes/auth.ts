@@ -227,7 +227,7 @@ function resolveAuthUrl(pathOrUrl: string, host: string): string {
 
 export function registerAuthRoutes(app: Express): void {
   app.get("/api/auth/check-capability", async (req, res) => {
-    const { cap, contentType, username, role } = req.query as Record<string, string>;
+    const { cap, contentType, database, username, role } = req.query as Record<string, string>;
 
     if (!cap) {
       res.status(400).json({ error: "cap query parameter is required" });
@@ -284,6 +284,20 @@ export function registerAuthRoutes(app: Express): void {
       }
     }
 
+    const scopeKind = userStore.getCapabilityScopeKind(cap);
+    const scope =
+      scopeKind === "databases"
+        ? database || undefined
+        : scopeKind === "content_types"
+          ? contentType || undefined
+          : undefined;
+    const scopeMsg =
+      scopeKind === "databases" && database
+        ? ` for database '${database}'`
+        : contentType
+          ? ` for content type '${contentType}'`
+          : "";
+
     if (role) {
       const roleDef = userStore.getRole(role);
       if (!roleDef) {
@@ -301,10 +315,9 @@ export function registerAuthRoutes(app: Express): void {
         resolvedUsername!,
         role,
         cap as CapabilityName,
-        contentType || undefined,
+        scope,
       );
       if (!allowed) {
-        const scopeMsg = contentType ? ` for content type '${contentType}'` : "";
         res.status(403).json({
           error: `Forbidden: capability '${cap}' required${scopeMsg} within role '${role}'`,
           allowed: false,
@@ -315,9 +328,8 @@ export function registerAuthRoutes(app: Express): void {
       return;
     }
 
-    const allowed = userStore.hasCapability(resolvedUsername!, cap as CapabilityName, contentType || undefined);
+    const allowed = userStore.hasCapability(resolvedUsername!, cap as CapabilityName, scope);
     if (!allowed) {
-      const scopeMsg = contentType ? ` for content type '${contentType}'` : "";
       res.status(403).json({ error: `Forbidden: capability '${cap}' required${scopeMsg}`, allowed: false });
       return;
     }

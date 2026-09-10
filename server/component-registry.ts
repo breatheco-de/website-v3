@@ -16,6 +16,7 @@ import {
   type RegistryOrigin,
 } from "../shared/registry-resolve";
 import { resolveComponentBehaviors } from "@shared/component-behaviors";
+import { getPackageRoot, getProjectRoot } from "@shared/paths";
 import { child } from "./logger";
 const log = child({ module: "component-registry" });
 
@@ -47,7 +48,7 @@ function componentTypeDir(componentType: string, contentFolder?: string): string
     const resolved = resolveComponentPath(
       componentType,
       folder,
-      process.cwd(),
+      getProjectRoot(),
       inheritFor(folder),
     );
     return resolved?.componentDir ?? null;
@@ -59,7 +60,7 @@ function componentTypeDir(componentType: string, contentFolder?: string): string
 
 /** @deprecated Prefer resolveComponentPath; kept for callers that need a single site root. */
 function siteRegistryPath(contentFolder?: string): string {
-  return path.join(process.cwd(), activeContentFolder(contentFolder), "component-registry");
+  return path.join(getProjectRoot(), activeContentFolder(contentFolder), "component-registry");
 }
 
 /**
@@ -68,7 +69,7 @@ function siteRegistryPath(contentFolder?: string): string {
  */
 export function assertComponentRegistryHealth(contentFolder?: string): void {
   const folder = activeContentFolder(contentFolder);
-  assertNoRegistryCollisions(folder, process.cwd(), inheritFor(folder));
+  assertNoRegistryCollisions(folder, getProjectRoot(), inheritFor(folder));
 }
 
 /**
@@ -173,7 +174,7 @@ function compareVersions(a: string, b: string): number {
 export function listComponents(contentFolder?: string): string[] {
   try {
     const folder = activeContentFolder(contentFolder);
-    return listMergedComponentTypes(folder, process.cwd(), inheritFor(folder)).map(
+    return listMergedComponentTypes(folder, getProjectRoot(), inheritFor(folder)).map(
       (t) => t.type,
     );
   } catch (error) {
@@ -187,7 +188,7 @@ export function listComponentOrigins(
 ): Record<string, RegistryOrigin> {
   const map: Record<string, RegistryOrigin> = {};
   const folder = activeContentFolder(contentFolder);
-  for (const t of listMergedComponentTypes(folder, process.cwd(), inheritFor(folder))) {
+  for (const t of listMergedComponentTypes(folder, getProjectRoot(), inheritFor(folder))) {
     map[t.type] = t.origin;
   }
   return map;
@@ -537,7 +538,7 @@ export function getPrimaryExampleMeta(
 
 export function getRegistryOverview(contentFolder?: string): RegistryOverview {
   const folder = activeContentFolder(contentFolder);
-  const merged = listMergedComponentTypes(folder, process.cwd(), inheritFor(folder));
+  const merged = listMergedComponentTypes(folder, getProjectRoot(), inheritFor(folder));
 
   return {
     components: merged.map(({ type, origin }) => {
@@ -798,7 +799,7 @@ function resolveVariantTsxPath(componentType: string, variantName: string): stri
   const typePascal = toPascalCase(componentType);
   const variantPascal = toPascalCase(variantName);
   const fileName = `${typePascal}${variantPascal}.tsx`;
-  return path.join(process.cwd(), "client", "src", "components", componentType, "variants", fileName);
+  return path.join(getPackageRoot(), "client", "src", "components", componentType, "variants", fileName);
 }
 
 export function getVariantByExample(
@@ -1007,13 +1008,13 @@ export function deleteVariant(
     const { deleted, deletedPaths } = deleteVariantExamples(componentType, variantName);
 
     // If no variant TSX files remain, clean up the orphaned directories
-    const variantsDir = path.join(process.cwd(), "client", "src", "components", componentType, "variants");
+    const variantsDir = path.join(getPackageRoot(), "client", "src", "components", componentType, "variants");
     if (fs.existsSync(variantsDir)) {
       const remaining = fs.readdirSync(variantsDir).filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"));
       if (remaining.length === 0) {
         fs.rmSync(variantsDir, { recursive: true, force: true });
         // Also remove the parent component folder if it's now empty
-        const componentDir = path.join(process.cwd(), "client", "src", "components", componentType);
+        const componentDir = path.join(getPackageRoot(), "client", "src", "components", componentType);
         if (fs.existsSync(componentDir) && fs.readdirSync(componentDir).length === 0) {
           fs.rmSync(componentDir, { recursive: true, force: true });
         }

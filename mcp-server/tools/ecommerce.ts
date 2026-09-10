@@ -48,7 +48,7 @@ export function registerEcommerceTools(
       const domain = siteResult.domain;
 
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/ecommerce/funnel/${encodeURIComponent(slug)}${
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/ecommerce/funnel/${encodeURIComponent(slug)}${
           domain ? `?__site=${encodeURIComponent(domain)}` : ""
         }`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
@@ -121,7 +121,7 @@ export function registerEcommerceTools(
         params.set("mode", mode || "page_performance");
         if (days) params.set("days", String(days));
         if (domain) params.set("__site", domain);
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/ecommerce/funnel/${encodeURIComponent(slug)}/analytics?${params}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/ecommerce/funnel/${encodeURIComponent(slug)}/analytics?${params}`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {

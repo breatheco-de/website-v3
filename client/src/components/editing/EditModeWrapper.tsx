@@ -1,10 +1,9 @@
-import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useDebugAuth, getDebugToken } from "@/hooks/useDebugAuth";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import { EditModeProvider } from "@/contexts/EditModeContext";
 import { SyncProvider } from "@/contexts/SyncContext";
 import { SyncConflictBanner } from "@/components/SyncConflictBanner";
-import { StaffSystemAlertBanner } from "@/components/StaffSystemAlertBanner";
 import { PageHistoryProvider, usePageHistoryOptional } from "@/contexts/PageHistoryContext";
 import { subscribeToEditStarted, emitVariantCreated, emitVariantPromoted } from "@/lib/contentEvents";
 import { FirstEditPromptModal, type ExistingVariant } from "@/components/editing/FirstEditPromptModal";
@@ -633,13 +632,6 @@ export function EditModeWrapper({
 }: EditModeWrapperProps) {
   const { canEdit, isDebugMode, isLoading } = useDebugAuth();
   
-  const withStaffAlerts = (node: ReactNode) => (
-    <>
-      <StaffSystemAlertBanner />
-      {node}
-    </>
-  );
-  
   // Non-debug users: render children directly (no overhead)
   if (!isDebugMode) {
     return <>{children}</>;
@@ -649,7 +641,7 @@ export function EditModeWrapper({
   // Once loaded, if user has no edit capabilities, they still see the toggle but can't edit
   if (isLoading) {
     // Provide context while loading so DebugBubble can show the toggle
-    return withStaffAlerts(
+    return (
       <EditModeProvider>
         <PageHistoryProvider enabled={true}>
           <FirstEditGate>
@@ -669,12 +661,12 @@ export function EditModeWrapper({
   
   // No edit capability: render children directly
   if (!canEdit) {
-    return withStaffAlerts(<>{children}</>);
+    return <>{children}</>;
   }
   
   // Has edit capability: provide EditModeProvider for toggle UI
   // SyncWrapper only activates when user actually enters edit mode
-  return withStaffAlerts(
+  return (
     <EditModeProvider>
       <PageHistoryProvider enabled={true}>
         <SyncWrapper>

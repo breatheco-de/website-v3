@@ -2,11 +2,12 @@ import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
 import { child } from "./logger";
+import { getProjectRoot } from "@shared/paths";
 const log = child({ module: "db-cache" });
 
 
 
-export const CACHE_DIR = path.join(process.cwd(), ".cache");
+export const CACHE_DIR = path.join(getProjectRoot(), ".cache");
 
 export interface CacheEntry {
   fetched_at: string;

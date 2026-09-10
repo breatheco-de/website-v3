@@ -3,6 +3,7 @@ import { VIEW_ONLY_CAPABILITIES, type CapabilityName } from "./capabilities.js";
 export interface CatalogGrant {
   name: string;
   contentTypes?: string[] | "*";
+  databases?: string[] | "*";
 }
 
 export const IDENTITY_TOOLS = [
@@ -47,6 +48,7 @@ export const TOOL_GATES: Record<string, ToolGate> = {
   list_seo_clusters: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
   list_seo_cluster_entries: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
   get_seo_cluster: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
+  refresh_keyword_metrics: { kind: "anyCap", caps: ["seo_edit"] },
 
   update_fields: { kind: "anyCap", caps: ["content_edit_text", "seo_edit"] },
   update_entry_field: { kind: "anyCap", caps: ["content_edit_text"] },
@@ -77,14 +79,15 @@ export const TOOL_GATES: Record<string, ToolGate> = {
   promote_variant: { kind: "anyCap", caps: ["content_promote_variant"] },
   convert_to_draft: { kind: "anyCap", caps: ["content_promote_variant"] },
 
-  list_databases: { kind: "anyCap", caps: ["databases_manage", "content_edit_text"] },
-  list_database_items: { kind: "anyCap", caps: ["databases_manage", "content_edit_text"] },
-  get_database_item: { kind: "anyCap", caps: ["databases_manage", "content_edit_text"] },
-  add_database_item: { kind: "anyCap", caps: ["databases_manage", "content_edit_text"] },
-  add_database_items: { kind: "anyCap", caps: ["databases_manage", "content_edit_text"] },
-  update_database_item: { kind: "anyCap", caps: ["databases_manage", "content_edit_text"] },
-  update_database_items: { kind: "anyCap", caps: ["databases_manage", "content_edit_text"] },
-  delete_database_item: { kind: "anyCap", caps: ["databases_manage", "content_edit_text"] },
+  list_databases: { kind: "anyCap", caps: ["databases_edit_data", "databases_manage"] },
+  list_database_items: { kind: "anyCap", caps: ["databases_edit_data", "databases_manage"] },
+  get_database_item: { kind: "anyCap", caps: ["databases_edit_data", "databases_manage"] },
+  add_database_item: { kind: "anyCap", caps: ["databases_edit_data"] },
+  add_database_items: { kind: "anyCap", caps: ["databases_edit_data"] },
+  update_database_item: { kind: "anyCap", caps: ["databases_edit_data"] },
+  update_database_items: { kind: "anyCap", caps: ["databases_edit_data"] },
+  delete_database_item: { kind: "anyCap", caps: ["databases_edit_data"] },
+  create_or_update_database: { kind: "anyCap", caps: ["databases_manage"] },
   reindex_database: { kind: "anyCap", caps: ["databases_manage"] },
 
   run_entry_diagnostics: { kind: "anyCap", caps: ["content_view", "seo_edit"] },

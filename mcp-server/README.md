@@ -36,7 +36,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 |---|---|
 | `list_sites` | Configured domains + content folders (`sites.yml`) |
 | `explain_site` | Architecture playbooks + live per-site catalogs (conversion_events, CRM tags, locales). Pass `site`. |
-| `bootstrap_agent` | Call once near the start of an MCP content run (Claude.ai / Grok / connectors). Returns technical playbook + conversation conventions (`skill.content` on first call) + 6-day changelog. Later calls: `include_skill_content: false` / `known_skill_version`. Does not refresh host tool list. |
+| `bootstrap_agent` | Call once near the start of an MCP content run (Claude.ai / Grok / connectors). Returns technical playbook + conversation conventions (`skill.content` on first call; pass `site` when multi-site to brand links) + 6-day changelog. Later calls: `include_skill_content: false` / `known_skill_version`. Does not refresh host tool list. |
 | `list_entries` | Unified inventory: no `contentType` → type stats; with type → paginated entries (all sources) |
 | `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, strategy, observed URL-param values, create_via, body_model, template_vars_note |
 | `get_entry_content` | Merged entry content without meta/SEO |
@@ -47,7 +47,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `create_entry` | Create YAML entry (draft-first or live shared-layout); not for DB-backed types |
 | `update_fields` | Single-entry field writes (meta + body + one section); `updates[]` length ≥ 1 |
 | `propose_change` | Store an entry-change proposal or issue handoff notes (does not write YAML). Caps: `content_view` or `seo_edit` |
-| `list_proposals` | List / get / search proposals; `issue_id` filters to linked only. Same caps as `propose_change` |
+| `list_proposals` | List / get / search proposals; `issue_id` filters to linked only. Optional `sort`/`sort_dir` when scoped. Same caps as `propose_change` |
 | `update_proposal` | Lifecycle `action`: claim, release, withdraw, apply, acknowledge, reject. Caps: `content_edit_text` or `seo_edit`; four-eyes on apply/ack/reject |
 | `update_meta_fields` | Multi-entry meta-only bulk (same `updates[]` across `slugs[]`, max 50) |
 | `add_section` / `remove_section` / `reorder_sections` / `replace_entry_sections` | Section topology |
@@ -57,9 +57,10 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `get_diagnostics_job` | Poll multi-slug / unscoped async jobs; `open_issues_offset` / `open_issues_limit` page the open work queue; `issue_status` filters open/claimed/completed/all |
 | `get_section_bindings` | Binding-group membership |
 | `list_components` / `get_component_schema` / `get_component_variant` / `create_component_section_demo` | Component registry + disposable section demos |
-| `list_databases` / `list_database_items` / `get_database_item` | Private DB discovery + read (all sources; list=summary, get=full; optional `refresh`) |
-| `add_database_item` / `add_database_items` / `update_database_item` / `update_database_items` / `delete_database_item` | Local YAML item CRUD (FAQ database etc.; bulk max 40, best-effort) |
-| `reindex_database` | Vector reindex after item writes (`databases_manage`) |
+| `list_databases` / `list_database_items` / `get_database_item` | Private DB discovery + read (all sources; list=summary, get=full; optional `refresh`). Caps: `databases_edit_data` or `databases_manage` |
+| `add_database_item` / `add_database_items` / `update_database_item` / `update_database_items` / `delete_database_item` | Local YAML item CRUD (FAQ etc.; bulk max 40). Cap: `databases_edit_data` for that slug |
+| `create_or_update_database` | Create bank (empty local items) or deep-patch config (`confirm:true`). Cap: `databases_manage` |
+| `reindex_database` | Vector reindex after item writes or vector_search definition patches (`databases_manage`) |
 | `get_product_funnel` / `update_product_funnel` | Product conversion funnels |
 | `test_redirect` | Inspect one URL: first-match winner + conflicts (`read_redirects`) |
 | `update_redirect` | Add / delete / move one CMS redirect (`edit_redirects`; call `test_redirect` first) |
@@ -196,7 +197,7 @@ Rejects two or more distinct section indexes (`action_required: split_section_up
     "confirm_live_edit": true,
     "updates": [
       { "field_path": "sections.0.data.title", "value": "Hello" },
-      { "field_path": "meta.page_title", "value": "Hello | 4Geeks" }
+      { "field_path": "meta.page_title", "value": "Hello | Example Brand" }
     ]
   }
 }
@@ -429,7 +430,7 @@ A typical editing session looks like this:
    Call update_fields to change a section heading + SEO together:
      { slug: "home", locale: "en", updates: [
        { field_path: "sections.2.title", value: "FAQ" },
-       { field_path: "meta.page_title", value: "Home | 4Geeks Academy" }
+       { field_path: "meta.page_title", value: "Home | Example Brand" }
      ]}
    Call update_meta_fields to set the same meta on many slugs:
      { slugs: ["home","about"], locale: "en", updates: [{ field_path: "meta.robots", value: "index, follow" }] }
@@ -499,14 +500,14 @@ curl -X POST http://localhost:3001/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "X-Api-Key: $TOKEN" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","id":5,"params":{"name":"update_fields","arguments":{"slug":"home","locale":"en","updates":[{"field_path":"meta.page_title","value":"Home | 4Geeks Academy"}]}}}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":5,"params":{"name":"update_fields","arguments":{"slug":"home","locale":"en","updates":[{"field_path":"meta.page_title","value":"Home | Example Brand"}]}}}'
 
 # Update multiple meta fields at once
 curl -X POST http://localhost:3001/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "X-Api-Key: $TOKEN" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","id":6,"params":{"name":"update_meta_fields","arguments":{"slugs":["home"],"locale":"en","updates":[{"field_path":"meta.page_title","value":"Home | 4Geeks Academy"},{"field_path":"meta.description","value":"Join our AI bootcamp."},{"field_path":"meta.robots","value":"index, follow"}]}}}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":6,"params":{"name":"update_meta_fields","arguments":{"slugs":["home"],"locale":"en","updates":[{"field_path":"meta.page_title","value":"Home | Example Brand"},{"field_path":"meta.description","value":"Join our AI bootcamp."},{"field_path":"meta.robots","value":"index, follow"}]}}}'
 
 ```
 

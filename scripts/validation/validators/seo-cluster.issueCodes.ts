@@ -39,9 +39,46 @@ const CLUSTER_GAP_NEXT_ACTIONS: IssueCodeDefinition["next_actions"] = [
 const CLUSTER_GAP_SUGGESTION =
   "Prefer joining an existing hub (seo.pillar_path). List hubs first. Become a hub (seo.is_pillar: true) or opt out (seo.pillar_path: null) only when that is the real intent — not just to clear this warning.";
 
+const KEYWORD_RESEARCH_SUGGESTION =
+  "Prefer OpenRush refresh (MCP refresh_keyword_metrics or staff cluster card) — fills cache, does not invent YAML. " +
+  "When OpenRush is unavailable: write both seo.kw_monthly_volume and seo.kw_difficulty only with seo_research_source staff_provided|external:<name>. " +
+  "If you have no reliable source, do not claim / release blocked — do not invent metrics.";
+
+export { KEYWORD_RESEARCH_SUGGESTION };
+
+const KEYWORD_RESEARCH_NEXT_ACTIONS: IssueCodeDefinition["next_actions"] = [
+  {
+    tool: "get_entry_seo",
+    reason: "Inspect main_keyword and keyword_metrics (OpenRush cache vs YAML).",
+    priority: "recommended",
+  },
+  {
+    tool: "refresh_keyword_metrics",
+    reason:
+      "When OpenRush is on: refresh cache for the existing main_keyword (no YAML kw_* write).",
+    priority: "recommended",
+  },
+  {
+    tool: "update_fields",
+    reason:
+      "Only when OpenRush is off: set both kw_* with seo_research_source staff_provided|external:<name>. Rejected when OpenRush is on.",
+    priority: "optional",
+  },
+  {
+    tool: "run_entry_diagnostics",
+    reason: "Re-run SEO diagnostics after refresh/write so the warning can clear.",
+    priority: "optional",
+  },
+];
+
 export const SEO_CLUSTER_ISSUE_CODES: Record<string, IssueCodeDefinition> = {
   SEO_KEYWORD_RESEARCH_INCOMPLETE: {
     title: "Incomplete keyword research",
+    summary:
+      "This page has seo.main_keyword but is missing both research metrics (OpenRush cache or YAML volume + difficulty). " +
+      "Agents: claim only with a valid path — OpenRush refresh when configured, or cited offline provenance when not. Do not invent numbers.",
+    suggestion: KEYWORD_RESEARCH_SUGGESTION,
+    next_actions: KEYWORD_RESEARCH_NEXT_ACTIONS,
   },
   SEO_BLOCK_ON_COMMON_YML: {
     title: "SEO block on _common.yml",

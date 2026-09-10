@@ -20,8 +20,18 @@ import { processImageBuffer } from "./image-optimizer";
 import type { Preset } from "./image-optimizer";
 import { getImageQueueState, type ImageQueueState } from "./image-queue-state";
 import { getDefaultContentFolder } from "./site-config";
+import { getPackageRoot, getProjectRoot } from "@shared/paths";
 import { child } from "./logger";
 const log = child({ module: "media-gallery" });
+
+/** Resolve URL-style media paths to the correct package or project disk root. */
+function resolveUrlStyleDiskPath(urlPath: string): string {
+  const normalized = urlPath.replace(/^\//, "");
+  const root = normalized.startsWith("attached_assets/")
+    ? getPackageRoot()
+    : getProjectRoot();
+  return path.join(root, normalized);
+}
 
 const OPTIMIZABLE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".avif"]);
 const SCREENSHOT_PATTERNS = [/^Screenshot_/i, /^Captura_/i, /^Capture_/i, /^Screen[\s_]?Shot/i];
@@ -465,16 +475,17 @@ export class MediaGallery {
             while ((match = IMAGE_ID_PATTERN.exec(content)) !== null) {
               const candidate = match[1];
               imageIds.add(candidate);
-              const relPath = path.relative(process.cwd(), fullPath);
+              const relPath = path.relative(getPackageRoot(), fullPath);
               addRef(candidate, relPath);
             }
           } catch {}
         }
       }
     };
-    scanSourceDir(path.join(process.cwd(), "client", "src"));
-    scanSourceDir(path.join(process.cwd(), "server"));
-    scanSourceDir(path.join(process.cwd(), "shared"));
+    const packageRoot = getPackageRoot();
+    scanSourceDir(path.join(packageRoot, "client", "src"));
+    scanSourceDir(path.join(packageRoot, "server"));
+    scanSourceDir(path.join(packageRoot, "shared"));
 
     this.imageRefCache = { imageIds, srcValues, byRef, imageIdLocations };
     return this.imageRefCache;
@@ -854,7 +865,7 @@ export class MediaGallery {
 
   private scanAllLocalImages(): Map<string, string> {
     const attachedAssets = this.scanLocalImageDirectory(
-      path.join(process.cwd(), "attached_assets"), "/attached_assets/", true
+      path.join(getPackageRoot(), "attached_assets"), "/attached_assets/", true
     );
     const marketingImages = this.scanLocalImageDirectory(this.imagesDir, this.imagesUrlPrefix, false);
     const combined = new Map<string, string>();
@@ -934,8 +945,7 @@ export class MediaGallery {
   }
 
   private resolveLocalPath(src: string): string | null {
-    const normalizedSrc = src.startsWith("/") ? src : `/${src}`;
-    const diskPath = path.join(process.cwd(), normalizedSrc);
+    const diskPath = resolveUrlStyleDiskPath(src.startsWith("/") ? src : `/${src}`);
     if (fs.existsSync(diskPath)) return diskPath;
     return null;
   }
@@ -1257,7 +1267,7 @@ export class MediaGallery {
         this.deriveAiMetaSrc(primarySrc) ||
         `${primarySrc.replace(/\.[^.]+$/, "")}.json`;
       const normalized = metaSrc.startsWith("/") ? metaSrc : `/${metaSrc}`;
-      const diskPath = path.join(process.cwd(), normalized);
+      const diskPath = resolveUrlStyleDiskPath(normalized);
       const dir = path.dirname(diskPath);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(diskPath, body);
@@ -1293,7 +1303,7 @@ export class MediaGallery {
     const provider = this.getDefaultStorageProvider();
     if (provider.name === "local") {
       const normalized = metaSrc.startsWith("/") ? metaSrc : `/${metaSrc}`;
-      const diskPath = path.join(process.cwd(), normalized);
+      const diskPath = resolveUrlStyleDiskPath(normalized);
       if (!fs.existsSync(diskPath)) return null;
       try {
         return JSON.parse(fs.readFileSync(diskPath, "utf8"));
@@ -1431,7 +1441,7 @@ export class MediaGallery {
   private async readSourceData(from: import("./media/types").StorageProvider, key: string): Promise<Buffer | null> {
     if (from.name === "local") {
       const normalizedKey = key.startsWith("/") ? key : `/${key}`;
-      const diskPath = path.join(process.cwd(), normalizedKey);
+      const diskPath = resolveUrlStyleDiskPath(normalizedKey);
       if (!fs.existsSync(diskPath)) return null;
       return fs.readFileSync(diskPath);
     }
@@ -1956,7 +1966,7 @@ export class MediaGallery {
     const registry = this.getRegistry();
     if (!registry) return [];
 
-    const ATTACHED_ASSETS_DIR = path.join(process.cwd(), "attached_assets");
+    const ATTACHED_ASSETS_DIR = path.join(getPackageRoot(), "attached_assets");
     const redundant: Array<{ id: string; cloudUrl: string; localPath: string }> = [];
 
     for (const [id, entry] of Object.entries(registry.images)) {
@@ -1985,7 +1995,6 @@ export class MediaGallery {
     const registry = this.getRegistry();
     if (!registry) throw new Error("Failed to load registry");
 
-    const ATTACHED_ASSETS_DIR = path.join(process.cwd(), "attached_assets");
     const all = this.findRedundantImages();
     const targets = ids && ids.length > 0 ? all.filter(r => ids.includes(r.id)) : all;
 
@@ -1995,14 +2004,14 @@ export class MediaGallery {
     for (const item of targets) {
       try {
         if (action === "delete-local") {
-          const localDiskPath = path.join(process.cwd(), item.localPath);
+          const localDiskPath = resolveUrlStyleDiskPath(item.localPath);
           if (fs.existsSync(localDiskPath)) {
             fs.unlinkSync(localDiskPath);
           }
           resolved++;
         } else {
           await this.deleteBySrc(item.cloudUrl);
-          const localDiskPath = path.join(process.cwd(), item.localPath);
+          const localDiskPath = resolveUrlStyleDiskPath(item.localPath);
           const fileExists = fs.existsSync(localDiskPath);
           if (fileExists) {
             const entry = registry.images[item.id];

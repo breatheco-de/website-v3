@@ -34,6 +34,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ContentTypeScopeBar } from "@/components/capabilities/ContentTypeScopeBar";
+import { DatabaseScopeBar } from "@/components/capabilities/DatabaseScopeBar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,7 +48,11 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useDebugAuth, getDebugUserName } from "@/hooks/useDebugAuth";
-import { CAPABILITY_REGISTRY, CONTENT_MUTATE_CAPABILITIES } from "@shared/capabilities";
+import {
+  CAPABILITY_REGISTRY,
+  CONTENT_MUTATE_CAPABILITIES,
+  getCapabilityScopeKind,
+} from "@shared/capabilities";
 import { cn } from "@/lib/utils";
 import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { AuthTab } from "@/components/settings/AuthTab";
@@ -109,6 +114,7 @@ function AgentRoleMarker({ roleId }: { roleId: string }) {
 interface CapabilityGrant {
   name: string;
   contentTypes?: string[] | "*";
+  databases?: string[] | "*";
 }
 
 interface RoleDefinition {
@@ -148,7 +154,18 @@ interface PendingUserRecord {
   createdAt: string;
 }
 
-interface CapabilityFormState { enabled: boolean; contentTypes: string; }
+interface CapabilityFormState {
+  enabled: boolean;
+  /** Empty string = all content types (`*`). Used when scopeKind is content_types. */
+  contentTypes: string;
+  /** Empty string = all databases (`*`). Used when scopeKind is databases. */
+  databases: string;
+}
+
+function emptyCapabilityFormState(): CapabilityFormState {
+  return { enabled: false, contentTypes: "", databases: "" };
+}
+
 interface RoleFormState {
   id: string;
   label: string;
@@ -199,26 +216,37 @@ function withAutoContentView(
   const isEditRedirects = AUTO_VIEW_GLOBAL.has(changedName);
   if (!isScopedMutate && !isEditRedirects) return updated;
 
-  const view = updated.content_view ?? { enabled: false, contentTypes: "" };
+  const view = updated.content_view ?? emptyCapabilityFormState();
   const incomingScope = isEditRedirects ? "" : nextState.contentTypes;
   updated.content_view = {
     enabled: true,
     contentTypes: view.enabled
       ? mergeContentTypeScopes(view.contentTypes, incomingScope)
       : incomingScope,
+    databases: view.databases,
   };
   return updated;
+}
+
+function scopeFieldFromForm(raw: string): string[] | "*" {
+  return raw.trim()
+    ? (raw.split(",").map((s) => s.trim()).filter(Boolean) as string[])
+    : ("*" as "*");
 }
 
 function capGrantsFromFormState(map: Record<string, CapabilityFormState>): CapabilityGrant[] {
   return Object.entries(map)
     .filter(([, v]) => v.enabled)
-    .map(([name, v]) => ({
-      name,
-      contentTypes: v.contentTypes.trim()
-        ? (v.contentTypes.split(",").map((s) => s.trim()).filter(Boolean) as string[])
-        : ("*" as "*"),
-    }));
+    .map(([name, v]) => {
+      const scopeKind = getCapabilityScopeKind(name);
+      if (scopeKind === "databases") {
+        return { name, databases: scopeFieldFromForm(v.databases) };
+      }
+      if (scopeKind === "content_types") {
+        return { name, contentTypes: scopeFieldFromForm(v.contentTypes) };
+      }
+      return { name };
+    });
 }
 
 function capMapFromGrants(grants: CapabilityGrant[]): Record<string, CapabilityFormState> {
@@ -227,6 +255,7 @@ function capMapFromGrants(grants: CapabilityGrant[]): Record<string, CapabilityF
     map[cap.name] = {
       enabled: true,
       contentTypes: Array.isArray(cap.contentTypes) ? cap.contentTypes.join(", ") : "",
+      databases: Array.isArray(cap.databases) ? cap.databases.join(", ") : "",
     };
   }
   return map;
@@ -239,16 +268,20 @@ function CapabilityFields({
   caps: Record<string, CapabilityFormState>;
   onChange: (updated: Record<string, CapabilityFormState>) => void;
 }) {
-  let previousScopedEnabled: string | null = null;
+  let previousContentTypeScopedEnabled: string | null = null;
 
   return (
     <div className="space-y-2 pt-1">
       {CAPABILITY_REGISTRY.map((cap) => {
-        const state = caps[cap.name] ?? { enabled: false, contentTypes: "" };
+        const state = caps[cap.name] ?? emptyCapabilityFormState();
+        const scopeKind = cap.scopeKind ?? getCapabilityScopeKind(cap.name);
+        const isContentTypeScoped = scopeKind === "content_types";
+        const isDatabaseScoped = scopeKind === "databases";
+        const isScopeable = isContentTypeScoped || isDatabaseScoped;
         const syncFromName =
-          cap.scoped && state.enabled ? previousScopedEnabled : null;
-        if (cap.scoped && state.enabled) {
-          previousScopedEnabled = cap.name;
+          isContentTypeScoped && state.enabled ? previousContentTypeScopedEnabled : null;
+        if (isContentTypeScoped && state.enabled) {
+          previousContentTypeScopedEnabled = cap.name;
         }
 
         return (
@@ -258,7 +291,9 @@ function CapabilityFields({
                 id={`cap-${cap.name}`}
                 checked={state.enabled}
                 onCheckedChange={(checked) =>
-                  onChange(withAutoContentView(caps, cap.name, { ...state, enabled: !!checked }))
+                  onChange(
+                    withAutoContentView(caps, cap.name, { ...state, enabled: !!checked }),
+                  )
                 }
                 data-testid={`checkbox-cap-${cap.name}`}
               />
@@ -270,24 +305,71 @@ function CapabilityFields({
                   {cap.description}
                 </p>
               </div>
-              {cap.scoped && (
+              {isScopeable && (
                 <span className="text-xs text-muted-foreground shrink-0">scopeable</span>
               )}
             </div>
-            {cap.scoped && state.enabled && (
+            {isContentTypeScoped && state.enabled && (
               <div className="ml-6">
                 <ContentTypeScopeBar
                   value={state.contentTypes}
                   onChange={(v) =>
-                    onChange(withAutoContentView(caps, cap.name, { ...state, contentTypes: v }))
+                    onChange(
+                      withAutoContentView(caps, cap.name, { ...state, contentTypes: v }),
+                    )
                   }
                   sameAsValue={
                     syncFromName != null
-                      ? (caps[syncFromName] ?? { enabled: false, contentTypes: "" }).contentTypes
+                      ? (caps[syncFromName] ?? emptyCapabilityFormState()).contentTypes
                       : null
                   }
                   testId={`scope-ct-${cap.name}`}
                 />
+              </div>
+            )}
+            {isDatabaseScoped && state.enabled && (
+              <div className="ml-6 space-y-1.5">
+                <p className="text-xs text-muted-foreground">
+                  Choose which private databases this role may change rows in. All covers every
+                  current and future bank. Does not allow creating databases or rewriting their
+                  settings.
+                </p>
+                <DatabaseScopeBar
+                  value={state.databases}
+                  onChange={(v) =>
+                    onChange(
+                      withAutoContentView(caps, cap.name, { ...state, databases: v }),
+                    )
+                  }
+                  testId={`scope-db-${cap.name}`}
+                />
+                <details className="group">
+                  <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground list-none flex items-center gap-1">
+                    <IconChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                    Read more (advanced)
+                  </summary>
+                  <div className="mt-1.5 text-xs text-muted-foreground space-y-1.5 pl-4 border-l border-border">
+                    <p>
+                      Saved as grant field{" "}
+                      <code className="font-mono text-[11px]">databases</code> (
+                      <code className="font-mono text-[11px]">*</code> or an array of slugs).
+                    </p>
+                    <p>
+                      Distinct from{" "}
+                      <code className="font-mono text-[11px]">databases_manage</code>, which
+                      covers bank settings, create/patch config, and reindex — not row edits.
+                    </p>
+                    <p>
+                      MCP row tools use this grant (
+                      <code className="font-mono text-[11px]">list_database_items</code>,{" "}
+                      <code className="font-mono text-[11px]">get_database_item</code>,{" "}
+                      <code className="font-mono text-[11px]">add_database_item</code>,{" "}
+                      <code className="font-mono text-[11px]">update_database_item</code>,{" "}
+                      <code className="font-mono text-[11px]">delete_database_item</code>). Reads
+                      may cover any bank; writes require the bank in scope.
+                    </p>
+                  </div>
+                </details>
               </div>
             )}
           </div>
@@ -1144,7 +1226,8 @@ function RolesTab() {
                     {roleId === "platform_steward" && (
                       <>
                         <p className="text-xs text-muted-foreground mb-2">
-                          Site health: diagnostics, runtime issues, redirects, SEO settings, content type schema, and local databases.
+                          Site health: diagnostics, runtime issues, redirects, SEO settings, content type schema, and
+                          private database definitions (not row edits — those need Edit database data).
                         </p>
                         <details className="mb-2 group">
                           <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground list-none flex items-center gap-1">
@@ -1154,10 +1237,11 @@ function RolesTab() {
                           <div className="mt-2 text-xs text-muted-foreground space-y-1.5 pl-4 border-l border-border">
                             <p>
                               Private surfaces include Diagnostics, Runtime issues, Redirects, SEO settings tabs, Component
-                              insights, Content Type manage, and Databases. MCP connector:{" "}
+                              insights, Content Type manage, and Databases settings. MCP connector:{" "}
                               <code className="font-mono">/mcp/role/platform_steward</code> (
                               <code className="font-mono">update_content_type</code>,{" "}
-                              <code className="font-mono">reindex_database</code>).
+                              <code className="font-mono">create_or_update_database</code>,{" "}
+                              <code className="font-mono">reindex_database</code> — not item CRUD tools).
                             </p>
                           </div>
                         </details>
@@ -1238,14 +1322,27 @@ function RolesTab() {
                       </details>
                     )}
                     <div className="flex flex-wrap gap-1">
-                      {role.capabilities.map((cap) => (
-                        <Badge key={cap.name} variant="outline" className="text-xs font-mono">
-                          {cap.name}
-                          {Array.isArray(cap.contentTypes) && cap.contentTypes.length > 0 && (
-                            <span className="text-muted-foreground ml-1">({cap.contentTypes.join(",")})</span>
-                          )}
-                        </Badge>
-                      ))}
+                      {role.capabilities.map((cap) => {
+                        const scopeKind = getCapabilityScopeKind(cap.name);
+                        const scopeList =
+                          scopeKind === "databases"
+                            ? Array.isArray(cap.databases)
+                              ? cap.databases
+                              : null
+                            : Array.isArray(cap.contentTypes)
+                              ? cap.contentTypes
+                              : null;
+                        return (
+                          <Badge key={cap.name} variant="outline" className="text-xs font-mono">
+                            {cap.name}
+                            {scopeList && scopeList.length > 0 && (
+                              <span className="text-muted-foreground ml-1">
+                                ({scopeList.join(",")})
+                              </span>
+                            )}
+                          </Badge>
+                        );
+                      })}
                       {role.capabilities.length === 0 && (
                         <span className="text-xs text-muted-foreground">No capabilities assigned</span>
                       )}

@@ -6,6 +6,7 @@ import { emitEvent, type EmitResult } from "./event-store";
 import type { EventActor, EventType } from "./types";
 import { singleAttribution } from "./types";
 import { getSiteContextMap } from "../site-manager";
+import type { AgentSimpleChange } from "@shared/agent-report-structured";
 import {
   diffEntryCommonParts,
   diffEntryLocaleParts,
@@ -26,6 +27,9 @@ export type EmitFileChangeOpts = {
   cause?: string;
   agent_session_id?: string;
   report?: string;
+  why?: string;
+  highlights?: string[];
+  simple_changes?: AgentSimpleChange[];
   /** @deprecated unused — legacy types removed */
   dualWriteLegacy?: boolean;
 };
@@ -45,10 +49,21 @@ function resolveSiteFromPath(filePath: string): string | null {
   return null;
 }
 
-function basePayload(path: string, report?: string): Record<string, unknown> {
+function basePayload(
+  path: string,
+  opts?: {
+    report?: string;
+    why?: string;
+    highlights?: string[];
+    simple_changes?: AgentSimpleChange[];
+  },
+): Record<string, unknown> {
   return {
     path,
-    ...(report ? { report } : {}),
+    ...(opts?.report ? { report: opts.report } : {}),
+    ...(opts?.why ? { why: opts.why } : {}),
+    ...(opts?.highlights?.length ? { highlights: opts.highlights } : {}),
+    ...(opts?.simple_changes?.length ? { simple_changes: opts.simple_changes } : {}),
   };
 }
 
@@ -95,7 +110,7 @@ export function emitEntryEventsFromFileChange(opts: EmitFileChangeOpts): Emitted
           layer: parsed.layer,
         },
         {
-          ...basePayload(norm, opts.report),
+          ...basePayload(norm, opts),
           parts,
           layer: parsed.layer,
         },
@@ -114,7 +129,7 @@ export function emitEntryEventsFromFileChange(opts: EmitFileChangeOpts): Emitted
           layer: "common",
         },
         {
-          ...basePayload(norm, opts.report),
+          ...basePayload(norm, opts),
           parts,
           layer: "common",
         },
@@ -123,7 +138,7 @@ export function emitEntryEventsFromFileChange(opts: EmitFileChangeOpts): Emitted
     }
     case "site_redirects": {
       if (!siteRedirectsChanged(prev, next)) break;
-      push("site_redirects_changed", { path: norm }, basePayload(norm, opts.report));
+      push("site_redirects_changed", { path: norm }, basePayload(norm, opts));
       break;
     }
     case "registry": {
@@ -131,7 +146,7 @@ export function emitEntryEventsFromFileChange(opts: EmitFileChangeOpts): Emitted
         "registry_file_saved",
         { path: norm },
         {
-          ...basePayload(norm, opts.report),
+          ...basePayload(norm, opts),
           parts: [parsed.registryPart] as RegistryPart[],
         },
       );

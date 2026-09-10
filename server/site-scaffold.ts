@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { getProjectRoot } from "@shared/paths";
 
 export interface SiteScaffoldOptions {
   /** Folder under project root, e.g. site_4geeks-florida */
@@ -29,7 +30,7 @@ function mkdirIfMissing(dirPath: string): void {
  */
 export function ensureSiteScaffold(options: SiteScaffoldOptions): void {
   const { contentFolder, displayName, includeSampleContent = true } = options;
-  const folderPath = path.join(process.cwd(), contentFolder);
+  const folderPath = path.join(getProjectRoot(), contentFolder);
 
   mkdirIfMissing(folderPath);
   mkdirIfMissing(path.join(folderPath, "images"));

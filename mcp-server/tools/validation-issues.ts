@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { checkCap, denyResponse } from "../lib/auth.js";
 import { hasCapAnyScope, type CatalogGrant } from "../lib/tool-catalog.js";
-import { ok } from "../lib/respond.js";
+import { ok, fail } from "../lib/respond.js";
 import { resolveSiteContext, resolveContentType, loadPage, safeLoad, getDirectory } from "../lib/content.js";
 import { getTokenUsername } from "../lib/oauth.js";
 import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
@@ -15,7 +15,9 @@ import {
   issuesNextOffset,
   openStatsFromCacheTotals,
   paginateRows,
+  parseIssuesSort,
   resolvedStatsFromArchiveSummary,
+  sortIssueRows,
   type ValidationIssuesArgs,
 } from "../lib/validation-issues-mcp.js";
 
@@ -85,8 +87,11 @@ function resolveSlugUrl(
   return { url: pattern.replace(":slug", localeSlug) };
 }
 
-function mapOpenIssue(row: Record<string, unknown>) {
-  return {
+function mapOpenIssue(
+  row: Record<string, unknown>,
+  opts?: { includeLastFullRunAt?: boolean },
+) {
+  const base: Record<string, unknown> = {
     id: row.id,
     url: row.url,
     code: row.code,
@@ -97,6 +102,10 @@ function mapOpenIssue(row: Record<string, unknown>) {
     suggestion: row.suggestion,
     file: row.file,
   };
+  if (opts?.includeLastFullRunAt && row.lastFullRunAt != null) {
+    base.lastFullRunAt = row.lastFullRunAt;
+  }
+  return base;
 }
 
 export function registerValidationIssuesTools(
@@ -111,6 +120,9 @@ export function registerValidationIssuesTools(
       "(last ~60 days archive KPI). " +
       "To load issue rows, pass a scope filter (slug, url, code, validator, category, or search) AND set: " +
       "'open' | 'resolved' (required — no default). Paginate with limit (default 20, max 200) and offset. " +
+      "Optional sort/sort_dir (scoped + set only): open allows severity|lastFullRunAt|code|url " +
+      "(default severity desc); resolved allows resolvedAt|severity|code|url (default resolvedAt desc). " +
+      "Wrong-set or invalid sort fails. Sort is order-only (does not filter claimed/completed). " +
       "Content agents fixing pages should use run_entry_diagnostics instead. Requires metrics_view.",
     {
       slug: z.string().optional().describe("Entry folder slug — resolves to URL for filtering"),
@@ -124,6 +136,13 @@ export function registerValidationIssuesTools(
       set: z.enum(["open", "resolved"]).optional().describe("Required with any scope filter to return issues[]"),
       limit: z.number().optional(),
       offset: z.number().optional(),
+      sort: z
+        .string()
+        .optional()
+        .describe(
+          "Scoped+set only. open: severity|lastFullRunAt|code|url. resolved: resolvedAt|severity|code|url. Invalid/wrong-set fails.",
+        ),
+      sort_dir: z.string().optional().describe("asc | desc (defaults: severity/dates desc, code/url asc)"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async (rawArgs) => {
@@ -145,18 +164,27 @@ export function registerValidationIssuesTools(
         set: rawArgs.set,
         limit: rawArgs.limit,
         offset: rawArgs.offset,
+        sort: rawArgs.sort,
+        sort_dir: rawArgs.sort_dir,
       };
 
       const warnings: Array<{ code: string; message: string }> = [];
       const scoped = isValidationIssuesScoped(args);
       const limit = clampIssuesLimit(args.limit);
       const offset = clampIssuesOffset(args.offset);
+      const sortArgsPresent = args.sort != null || args.sort_dir != null;
 
-      if (!scoped && (args.limit != null || args.offset != null || args.set)) {
+      if (!scoped && (args.limit != null || args.offset != null || args.set || sortArgsPresent)) {
         warnings.push({
           code: "issues_need_filter",
           message:
-            "limit/offset/set without a scope filter (slug, url, code, validator, category, search) are ignored. Stats only.",
+            "limit/offset/set/sort without a scope filter (slug, url, code, validator, category, search) are ignored. Stats only.",
+        });
+      }
+      if (!scoped && sortArgsPresent) {
+        warnings.push({
+          code: "issues_sort_ignored",
+          message: "sort/sort_dir without a scope filter are ignored (stats only).",
         });
       }
 
@@ -188,7 +216,7 @@ export function registerValidationIssuesTools(
 
       try {
         const openRes = await fetch(
-          `http://localhost:${MAIN_SERVER_PORT}/api/validation/cache-issues${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues${q}`,
           { headers },
         );
         if (openRes.ok) {
@@ -209,7 +237,7 @@ export function registerValidationIssuesTools(
 
       try {
         const resolvedRes = await fetch(
-          `http://localhost:${MAIN_SERVER_PORT}/api/validation/resolved-issues${q}${q ? "&" : "?"}limit=1`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/resolved-issues${q}${q ? "&" : "?"}limit=1`,
           { headers },
         );
         if (resolvedRes.ok) {
@@ -238,13 +266,25 @@ export function registerValidationIssuesTools(
           message:
             "Scope filters require set: 'open' or 'resolved' to return issues[]. Stats returned without rows.",
         });
+        if (sortArgsPresent) {
+          warnings.push({
+            code: "issues_sort_ignored",
+            message: "sort/sort_dir ignored until set is provided with scoped filters.",
+          });
+        }
         return ok({ open_stats, resolved_stats }, { warnings });
       }
+
+      const parsedSort = parseIssuesSort(args.set, args.sort, args.sort_dir);
+      if (!parsedSort.ok) return fail(parsedSort.error, { code: "invalid_sort" });
+      const { sort, sort_dir } = parsedSort;
 
       if (args.set === "resolved") {
         const qs = new URLSearchParams();
         qs.set("limit", String(limit));
         qs.set("offset", String(offset));
+        qs.set("sort", sort);
+        qs.set("sort_dir", sort_dir);
         if (filterUrl) qs.set("url", filterUrl);
         if (args.code?.trim()) qs.set("code", args.code.trim());
         if (args.validator?.trim()) qs.set("validator", args.validator.trim());
@@ -253,10 +293,14 @@ export function registerValidationIssuesTools(
         const sep = q ? `${q}&` : "?";
         try {
           const res = await fetch(
-            `http://localhost:${MAIN_SERVER_PORT}/api/validation/resolved-issues${sep}${qs.toString()}`,
+            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/resolved-issues${sep}${qs.toString()}`,
             { headers },
           );
           if (!res.ok) {
+            const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+            if (res.status === 400 && errBody.error) {
+              return fail(errBody.error, { code: "invalid_sort" });
+            }
             warnings.push({
               code: "resolved_rows_unavailable",
               message: `Could not load resolved rows (${res.status}).`,
@@ -279,6 +323,8 @@ export function registerValidationIssuesTools(
               limit,
               offset,
               next_offset: issuesNextOffset(offset, limit, total, issues.length),
+              sort,
+              sort_dir,
             },
             { warnings },
           );
@@ -289,6 +335,11 @@ export function registerValidationIssuesTools(
       }
 
       // set === "open"
+      warnings.push({
+        code: "issues_sort_order_only",
+        message:
+          "sort orders matching open rows only — it does not filter or demote claimed/completed issues.",
+      });
       const qs = new URLSearchParams();
       if (filterUrl) qs.set("url", filterUrl);
       else if (args.slug?.trim() && !filterUrl) qs.set("path", args.slug.trim());
@@ -300,7 +351,7 @@ export function registerValidationIssuesTools(
       const sep = q ? (extra ? `${q}&${extra}` : q) : extra ? `?${extra}` : "";
       try {
         const res = await fetch(
-          `http://localhost:${MAIN_SERVER_PORT}/api/validation/cache-issues${sep}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues${sep}`,
           { headers },
         );
         if (!res.ok) {
@@ -314,9 +365,18 @@ export function registerValidationIssuesTools(
           issues?: Record<string, unknown>[];
           totals?: { filtered?: number; errors?: number; warnings?: number };
         };
-        const all = (data.issues ?? []).map(mapOpenIssue);
-        const total = all.length;
-        const page = paginateRows(all, offset, limit);
+        const forSort = (data.issues ?? []).map((row) => ({
+          ...mapOpenIssue(row, { includeLastFullRunAt: true }),
+          lastFullRunAt: row.lastFullRunAt,
+        }));
+        const sorted = sortIssueRows(forSort, { set: "open", sort, sort_dir });
+        const projected = sorted.map((row) => {
+          if (sort === "lastFullRunAt") return row;
+          const { lastFullRunAt: _drop, ...rest } = row;
+          return rest;
+        });
+        const total = projected.length;
+        const page = paginateRows(projected, offset, limit);
         return ok(
           {
             open_stats,
@@ -327,6 +387,8 @@ export function registerValidationIssuesTools(
             limit,
             offset,
             next_offset: issuesNextOffset(offset, limit, total, page.length),
+            sort,
+            sort_dir,
           },
           { warnings },
         );

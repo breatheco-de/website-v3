@@ -425,6 +425,9 @@ export type FileModifiedEvent = {
   agentSessionId?: string;
   /** MCP write report (ephemeral — stored on content_file_written payload). */
   report?: string;
+  why?: string;
+  highlights?: string[];
+  simple_changes?: import("@shared/agent-report-structured").AgentSimpleChange[];
 };
 
 const fileModifiedListeners: Set<(evt: FileModifiedEvent) => void> = new Set();
@@ -445,6 +448,9 @@ function notifyFileModifiedListeners(
     content?: string;
     agentSessionId?: string;
     report?: string;
+    why?: string;
+    highlights?: string[];
+    simple_changes?: import("@shared/agent-report-structured").AgentSimpleChange[];
   },
 ): void {
   const evt: FileModifiedEvent = {
@@ -455,6 +461,9 @@ function notifyFileModifiedListeners(
     content: extras?.content,
     agentSessionId: extras?.agentSessionId,
     report: extras?.report,
+    why: extras?.why,
+    highlights: extras?.highlights,
+    simple_changes: extras?.simple_changes,
   };
   fileModifiedListeners.forEach((cb) => cb(evt));
 }
@@ -526,6 +535,9 @@ export function markFileAsModified(
   const effectiveActor = actor ?? writeCtx?.actor;
   const effectiveSessionId = opts?.agentSessionId ?? writeCtx?.agentSessionId;
   const effectiveReport = opts?.report ?? writeCtx?.report;
+  const effectiveWhy = writeCtx?.why;
+  const effectiveHighlights = writeCtx?.highlights;
+  const effectiveSimpleChanges = writeCtx?.simple_changes;
   const effectiveAgentLabel =
     opts?.agentLabel?.trim() ||
     (effectiveActor ? formatAgentAuthorLabel(effectiveActor) : undefined);
@@ -567,6 +579,9 @@ export function markFileAsModified(
       content,
       agentSessionId: effectiveSessionId,
       report: effectiveReport,
+      why: effectiveWhy,
+      highlights: effectiveHighlights,
+      simple_changes: effectiveSimpleChanges,
     });
   } else if (state.files[relativePath]) {
     // File deleted / missing — do not invent a content-change timestamp from a touch.
@@ -583,6 +598,9 @@ export function markFileAsModified(
     notifyFileModifiedListeners(relativePath, author || state.files[relativePath].author, effectiveActor, {
       agentSessionId: effectiveSessionId,
       report: effectiveReport,
+      why: effectiveWhy,
+      highlights: effectiveHighlights,
+      simple_changes: effectiveSimpleChanges,
     });
   } else if (allowedExceptions instanceof Set && allowedExceptions.has(relativePath)) {
     if (autoCommitCallback) {
@@ -591,6 +609,9 @@ export function markFileAsModified(
     notifyFileModifiedListeners(relativePath, author, effectiveActor, {
       agentSessionId: effectiveSessionId,
       report: effectiveReport,
+      why: effectiveWhy,
+      highlights: effectiveHighlights,
+      simple_changes: effectiveSimpleChanges,
     });
   }
 }

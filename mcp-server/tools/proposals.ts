@@ -11,13 +11,17 @@ import {
   clampProposalLimit,
   clampProposalOffset,
   isProposalsScoped,
+  parseProposalSort,
   proposalNextOffset,
 } from "../lib/list-proposals-mcp.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
 
-function internalHeaders(mcpToken?: string): Record<string, string> {
+function internalHeaders(
+  mcpToken?: string,
+  opts?: { agentSessionId?: string },
+): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (INTERNAL_SECRET) {
     headers.Authorization = `Bearer ${INTERNAL_SECRET}`;
@@ -27,6 +31,7 @@ function internalHeaders(mcpToken?: string): Record<string, string> {
     const username = getTokenUsername(mcpToken);
     if (username) headers["x-mcp-author"] = username;
   }
+  if (opts?.agentSessionId) headers["x-agent-session-id"] = opts.agentSessionId;
   return headers;
 }
 
@@ -55,6 +60,9 @@ async function requireUpdateCap(mcpToken: string | undefined, grants: CatalogGra
   return null;
 }
 
+const BLOCKER_BODY_HINT =
+  "Plain text min 80 chars: (1) what's wrong, (2) what fixed looks like, (3) why it matters. Do not list MCP tools.";
+
 export function registerProposalTools(
   mcp: McpServer,
   mcpToken?: string,
@@ -62,10 +70,11 @@ export function registerProposalTools(
 ): void {
   mcp.tool(
     "propose_change",
-    "Create a content proposal (does not write live YAML). kind is edits when entries[] is set, otherwise notes (handoff). " +
-      "Optional related_issue_ids must exist in validation-cache. Duplicate open fingerprint returns the existing proposal. " +
-      "Similar open proposals require confirm_distinct: true. Requires content_view or seo_edit. " +
-      "Live content is unchanged until a different user with edit caps calls update_proposal action apply (or acknowledge for notes).",
+    "Create a content proposal (does not write live YAML). kind is edits when entries[] is set (or promote_on_apply), otherwise notes. " +
+      "Optional variant on an entry: soft = apply field patches into that draft; with promote_on_apply = go-live when approved. " +
+      "At most one open proposal per variant — joining the existing proposal is required. " +
+      "Pass agent_session_id to allow same-session attach_variant later. " +
+      "Requires content_view or seo_edit. Four-eyes apply/acknowledge.",
     {
       title: z.string().describe("Short title"),
       summary: z.string().describe("Why + what (min 80 chars). For notes, include steps tried."),
@@ -75,6 +84,11 @@ export function registerProposalTools(
       tags: z.array(z.string()).optional(),
       confirm_distinct: z.boolean().optional(),
       situation_note: z.string().optional().describe("Plain-English picture of current live values."),
+      agent_session_id: z.string().optional().describe("From agent_session start — required to attach_variant later in the same session."),
+      promote_on_apply: z
+        .boolean()
+        .optional()
+        .describe("When true with a variant entry, approve promotes that draft to live (empty updates allowed)."),
       entries: z
         .array(
           z.object({
@@ -90,7 +104,7 @@ export function registerProposalTools(
                   reset: z.boolean().optional(),
                 }),
               )
-              .min(1),
+              .optional(),
           }),
         )
         .optional(),
@@ -102,10 +116,10 @@ export function registerProposalTools(
       const siteResult = resolveSiteContext(args.site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/admin/proposals${siteQuery(siteResult.domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals${siteQuery(siteResult.domain)}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
           body: JSON.stringify({
             title: args.title,
             summary: args.summary,
@@ -116,6 +130,8 @@ export function registerProposalTools(
             confirm_distinct: args.confirm_distinct,
             situation_note: args.situation_note,
             entries: args.entries,
+            agent_session_id: args.agent_session_id,
+            promote_on_apply: args.promote_on_apply,
           }),
         });
         const data = (await res.json()) as Record<string, unknown>;
@@ -142,26 +158,60 @@ export function registerProposalTools(
               ],
             );
           }
+          if (data.code === "proposal_exists") {
+            const existing = data.existing_proposal as { id?: string } | undefined;
+            return actionRequired(
+              {
+                success: false,
+                action_required: "join_existing_proposal",
+                ...data,
+              },
+              [
+                {
+                  tool: "list_proposals",
+                  reason: "Open the existing proposal for this variant and claim or add_blocker there.",
+                  priority: "required",
+                  args_hint: { proposal_id: existing?.id ?? data.duplicate_of },
+                },
+              ],
+            );
+          }
           return fail(String(data.error ?? "propose_change failed"), { code: data.code });
+        }
+        const proposal = (data as { proposal?: { id?: string; review_mode?: string; promote_on_apply?: boolean } })
+          .proposal;
+        const warnings: Array<{ code: string; message: string }> = [
+          {
+            code: "not_applied",
+            message:
+              "Proposal stored only. Does not write YAML, GitHub, or complete validation issues. Notes write no entries.",
+          },
+          {
+            code: "four_eyes",
+            message: "A different user with content_edit_text or seo_edit must apply or acknowledge.",
+          },
+        ];
+        if (proposal?.review_mode === "draft_backed" || proposal?.promote_on_apply) {
+          warnings.push({
+            code: "review_variant_before_apply",
+            message:
+              "This proposal includes a draft for go-live. Preview the attached variant before apply/reject. Soft field diffs alone are not enough.",
+          });
+        } else if (proposal?.review_mode === "soft_variant") {
+          warnings.push({
+            code: "review_variant_before_apply",
+            message:
+              "This soft proposal targets a draft variant. Preview that variant; apply writes field patches into the draft (does not promote).",
+          });
         }
         return ok({
           ...data,
-          warnings: [
-            {
-              code: "not_applied",
-              message:
-                "Proposal stored only. Does not write YAML, GitHub, or complete validation issues. Notes write no entries.",
-            },
-            {
-              code: "four_eyes",
-              message: "A different user with content_edit_text or seo_edit must apply or acknowledge.",
-            },
-          ],
+          warnings,
           next_actions: [
             {
               tool: "list_proposals",
               reason: "Re-read the stored proposal.",
-              args_hint: { proposal_id: (data as { proposal?: { id?: string } }).proposal?.id },
+              args_hint: { proposal_id: proposal?.id },
               priority: "optional",
             },
           ],
@@ -174,10 +224,9 @@ export function registerProposalTools(
 
   mcp.tool(
     "list_proposals",
-    "List or fetch content proposals (stats-first). With no filters, returns proposal_stats only " +
-      "(counts by status/kind) — not a full proposals[] dump. Pass proposal_id, query, issue_id, status, or kind " +
-      "to unlock paginated proposals[] (default limit 20, max 200; use offset / next_offset). " +
-      "proposal_stats stay site-wide even when the list is filtered. Requires content_view or seo_edit.",
+    "List or fetch content proposals (stats-first). With no filters, returns proposal_stats only. " +
+      "Pass proposal_id, query, issue_id, status, or kind for paginated proposals[] (includes review_mode, open_blocker_count, blockers). " +
+      "Requires content_view or seo_edit.",
     {
       proposal_id: z.string().optional(),
       query: z.string().optional(),
@@ -186,6 +235,14 @@ export function registerProposalTools(
       issue_id: z.string().optional(),
       limit: z.number().optional().describe("Page size when scoped (default 20, max 200)"),
       offset: z.number().optional().describe("Offset when scoped"),
+      sort: z
+        .string()
+        .optional()
+        .describe("Scoped only: created_at | updated_at (default updated_at). Invalid values fail."),
+      sort_dir: z
+        .string()
+        .optional()
+        .describe("Scoped only: asc | desc (default desc). Invalid values fail."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async (args) => {
@@ -198,6 +255,7 @@ export function registerProposalTools(
       const limit = clampProposalLimit(args.limit);
       const offset = clampProposalOffset(args.offset);
       const warnings: Array<{ code: string; message: string }> = [];
+      const sortArgsPresent = args.sort != null || args.sort_dir != null;
 
       if (!scoped) {
         warnings.push({
@@ -211,6 +269,21 @@ export function registerProposalTools(
             message: "limit/offset without a scope filter are ignored.",
           });
         }
+        if (sortArgsPresent) {
+          warnings.push({
+            code: "proposals_sort_ignored",
+            message: "sort/sort_dir without a scope filter are ignored (stats only).",
+          });
+        }
+      }
+
+      let sort = "updated_at";
+      let sort_dir = "desc";
+      if (scoped) {
+        const parsed = parseProposalSort(args.sort, args.sort_dir);
+        if (!parsed.ok) return fail(parsed.error, { code: "invalid_sort" });
+        sort = parsed.sort;
+        sort_dir = parsed.sortDir;
       }
 
       const qs = new URLSearchParams();
@@ -222,14 +295,15 @@ export function registerProposalTools(
         if (args.issue_id) qs.set("issue_id", args.issue_id);
         qs.set("limit", String(limit));
         qs.set("offset", String(offset));
+        qs.set("sort", sort);
+        qs.set("sort_dir", sort_dir);
       } else {
-        // Stats come from the list endpoint; avoid loading a large default page.
         qs.set("limit", "1");
         qs.set("offset", "0");
       }
       const extra = qs.toString();
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/admin/proposals${siteQuery(siteResult.domain, extra)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals${siteQuery(siteResult.domain, extra)}`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
         const data = (await res.json()) as {
           proposals?: unknown[];
@@ -241,24 +315,41 @@ export function registerProposalTools(
 
         const proposal_stats = data.stats ?? null;
         if (!scoped) {
-          return ok({
-            proposal_stats,
-            next_actions: [],
-          }, { warnings });
+          return ok(
+            {
+              proposal_stats,
+              next_actions: [],
+            },
+            { warnings },
+          );
         }
 
         const proposals = data.proposals ?? [];
         const total = typeof data.total === "number" ? data.total : proposals.length;
         const next_offset = proposalNextOffset(offset, limit, total, proposals.length);
-        return ok({
-          proposal_stats,
-          proposals,
-          total,
-          limit,
-          offset,
-          next_offset,
-          next_actions: [],
-        }, { warnings });
+        for (const p of proposals as Array<{ review_mode?: string; open_blocker_count?: number }>) {
+          if (p.review_mode === "draft_backed" || p.review_mode === "soft_variant") {
+            warnings.push({
+              code: "review_variant_before_apply",
+              message: "At least one listed proposal involves a draft — preview before judging.",
+            });
+            break;
+          }
+        }
+        return ok(
+          {
+            proposal_stats,
+            proposals,
+            total,
+            limit,
+            offset,
+            next_offset,
+            sort,
+            sort_dir,
+            next_actions: [],
+          },
+          { warnings },
+        );
       } catch (e) {
         return fail((e as Error).message);
       }
@@ -267,13 +358,37 @@ export function registerProposalTools(
 
   mcp.tool(
     "update_proposal",
-    "Lifecycle for a proposal (same pattern as update_issue). Actions: claim, release, withdraw, apply, acknowledge, reject. " +
-      "apply writes pending/failed entries after baseline vs live contrast (skips done). acknowledge finishes notes only. " +
-      "apply/acknowledge/reject require a different user than the proposer. Requires content_edit_text or seo_edit.",
+    "Lifecycle for a proposal. Actions: claim | release | withdraw | apply | acknowledge | reject | " +
+      "attach_variant (same creating session only; write-once) | add_blocker (feedback; no claim) | " +
+      "resolve_blocker (active claimant only) | reopen_blocker. " +
+      "Open blockers block apply only (not reject/withdraw). " +
+      "promote_on_apply apply may require confirm_end_experiment when other variants have traffic. " +
+      "Requires content_edit_text or seo_edit.",
     {
       proposal_id: z.string(),
-      action: z.enum(["claim", "release", "withdraw", "apply", "acknowledge", "reject"]),
+      action: z.enum([
+        "claim",
+        "release",
+        "withdraw",
+        "apply",
+        "acknowledge",
+        "reject",
+        "attach_variant",
+        "add_blocker",
+        "resolve_blocker",
+        "reopen_blocker",
+      ]),
       report: z.string().optional(),
+      agent_session_id: z.string().optional(),
+      body: z.string().optional().describe(`For add_blocker: ${BLOCKER_BODY_HINT}`),
+      blocker_id: z.number().optional().describe("For resolve_blocker / reopen_blocker"),
+      resolve_note: z.string().optional().describe("For resolve_blocker: what changed (min 20 chars)"),
+      variant: z.string().optional().describe("For attach_variant"),
+      promote_on_apply: z.boolean().optional().describe("For attach_variant: mark go-live on approve"),
+      confirm_end_experiment: z
+        .boolean()
+        .optional()
+        .describe("For apply on draft_backed when siblings have traffic"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async (args) => {
@@ -282,40 +397,158 @@ export function registerProposalTools(
       const siteResult = resolveSiteContext(args.site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/admin/proposals/${encodeURIComponent(args.proposal_id)}/${encodeURIComponent(args.action)}${siteQuery(siteResult.domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals/${encodeURIComponent(args.proposal_id)}/${encodeURIComponent(args.action)}${siteQuery(siteResult.domain)}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken),
-          body: JSON.stringify({ report: args.report }),
+          headers: internalHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
+          body: JSON.stringify({
+            report: args.report,
+            agent_session_id: args.agent_session_id,
+            body: args.body,
+            blocker_id: args.blocker_id,
+            resolve_note: args.resolve_note,
+            variant: args.variant,
+            promote_on_apply: args.promote_on_apply,
+            confirm_end_experiment: args.confirm_end_experiment,
+          }),
         });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
+          if (data.code === "confirm_end_experiment") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "confirm_end_experiment",
+                ...data,
+              },
+              [
+                {
+                  tool: "update_proposal",
+                  reason: "Confirm ending the experiment, then retry apply with confirm_end_experiment: true.",
+                  priority: "required",
+                  args_hint: {
+                    proposal_id: args.proposal_id,
+                    action: "apply",
+                    confirm_end_experiment: true,
+                    site: args.site,
+                  },
+                },
+              ],
+            );
+          }
+          if (data.code === "proposal_blocked") {
+            return fail(String(data.error ?? "proposal blocked"), {
+              code: "proposal_blocked",
+              next_actions: [
+                {
+                  tool: "list_proposals",
+                  reason: "Read open blockers, then claim and fix before apply.",
+                  priority: "required",
+                  args_hint: { proposal_id: args.proposal_id },
+                },
+              ],
+            });
+          }
+          if (data.code === "not_claimant") {
+            return fail(String(data.error ?? "not claimant"), {
+              code: "not_claimant",
+              next_actions: [
+                {
+                  tool: "update_proposal",
+                  reason: data.claim_expired
+                    ? "Claim expired — claim again, then resolve_blocker."
+                    : "Claim the proposal before resolve_blocker.",
+                  priority: "required",
+                  args_hint: { proposal_id: args.proposal_id, action: "claim", site: args.site },
+                },
+              ],
+            });
+          }
+          if (data.code === "proposal_exists") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "join_existing_proposal",
+                ...data,
+              },
+              [
+                {
+                  tool: "list_proposals",
+                  reason: "Join the existing open proposal for this variant.",
+                  priority: "required",
+                  args_hint: {
+                    proposal_id: (data.existing_proposal as { id?: string } | undefined)?.id,
+                  },
+                },
+              ],
+            );
+          }
           return fail(String(data.error ?? "update_proposal failed"), { code: data.code });
         }
-        const proposal = (data as { proposal?: { kind?: string; status?: string; related_issue_ids?: string[] } }).proposal;
+
+        const proposal = (
+          data as {
+            proposal?: {
+              kind?: string;
+              status?: string;
+              related_issue_ids?: string[];
+              open_blocker_count?: number;
+              review_mode?: string;
+              entries?: Array<{ contentType?: string; slug?: string; locale?: string; variant?: string | null }>;
+            };
+          }
+        ).proposal;
+        const warnings: Array<{ code: string; message: string }> = [
+          ...(Array.isArray(data.warnings) ? (data.warnings as Array<{ code: string; message: string }>) : []),
+        ];
+        if (!warnings.some((w) => w.code === "partial_progress") && args.action === "apply") {
+          warnings.push({
+            code: "partial_progress",
+            message:
+              "Edits apply remaining entries only. Proposal is finished only when every entry is done (or notes acknowledged).",
+          });
+        }
+
         const next: Array<{
           tool: string;
           reason: string;
-          priority: "recommended";
+          priority: "required" | "recommended" | "optional";
           args_hint: Record<string, unknown>;
         }> = [];
+
+        if (args.action === "resolve_blocker" && proposal?.open_blocker_count === 0) {
+          const entry = proposal.entries?.[0];
+          warnings.push({
+            code: "blockers_cleared_repreview",
+            message:
+              "All blockers cleared. Re-preview before apply — cleared blockers do not mean approved.",
+          });
+          next.push({
+            tool: "get_entry_content",
+            reason: "Re-preview the draft (or live entry) after fixes before apply.",
+            priority: "required",
+            args_hint: {
+              slug: entry?.slug,
+              contentType: entry?.contentType,
+              locale: entry?.locale,
+              ...(entry?.variant ? { variant: entry.variant } : {}),
+              site: args.site,
+            },
+          });
+        }
+
         if (proposal?.status === "finished" && proposal.related_issue_ids?.length) {
           next.push({
             tool: "update_issue",
             reason: "Proposal finished — complete linked issues only if they are actually gone after re-check.",
-            priority: "recommended" as const,
+            priority: "recommended",
             args_hint: { issue_id: proposal.related_issue_ids[0], action: "complete" },
           });
         }
+
         return ok({
           ...data,
-          warnings: [
-            {
-              code: "partial_progress",
-              message:
-                "Edits apply remaining entries only. Proposal is finished only when every entry is done (or notes acknowledged).",
-            },
-          ],
+          warnings,
           next_actions: next,
         });
       } catch (e) {

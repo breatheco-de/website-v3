@@ -26,7 +26,7 @@ export function getActiveRoleId(): string | undefined {
 
 /**
  * Check whether the user associated with the given MCP bearer token holds the
- * required capability, optionally scoped to a content type.
+ * required capability, optionally scoped to a content type or database slug.
  *
  * When the session has an active role (connector `/mcp/role/:id`), the check is
  * evaluated against that role's grants only.
@@ -38,6 +38,7 @@ export async function checkCap(
   mcpToken: string,
   cap: string,
   contentType?: string,
+  database?: string,
 ): Promise<boolean> {
   const username = getTokenUsername(mcpToken);
   if (!username) return false;
@@ -45,9 +46,10 @@ export async function checkCap(
   try {
     const params = new URLSearchParams({ cap, username });
     if (contentType) params.set("contentType", contentType);
+    if (database) params.set("database", database);
     const roleId = getActiveRoleId();
     if (roleId) params.set("role", roleId);
-    const url = `http://localhost:${MAIN_SERVER_PORT}/api/auth/check-capability?${params}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/auth/check-capability?${params}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${MCP_SERVER_SECRET}` },
     });
@@ -65,7 +67,7 @@ export async function fetchCallerGrants(mcpToken: string): Promise<CatalogGrant[
   if (!username) return null;
   try {
     const params = new URLSearchParams({ username });
-    const url = `http://localhost:${MAIN_SERVER_PORT}/api/auth/user-info?${params}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/auth/user-info?${params}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${MCP_SERVER_SECRET}` },
     });
@@ -90,7 +92,7 @@ export interface McpAccessFlags {
 export async function fetchMcpAccess(username: string): Promise<McpAccessFlags> {
   try {
     const params = new URLSearchParams({ username });
-    const url = `http://localhost:${MAIN_SERVER_PORT}/api/auth/user-info?${params}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/auth/user-info?${params}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${MCP_SERVER_SECRET}` },
     });
@@ -124,7 +126,7 @@ export async function fetchRoleContext(
 ): Promise<{ ok: true; data: McpRoleContext } | { ok: false; status: number; error: string }> {
   try {
     const params = new URLSearchParams({ username, role: roleId });
-    const url = `http://localhost:${MAIN_SERVER_PORT}/api/auth/mcp-role-context?${params}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/auth/mcp-role-context?${params}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${MCP_SERVER_SECRET}` },
     });
@@ -164,7 +166,7 @@ export async function fetchRoleInfo(
 ): Promise<McpRoleContext | null> {
   try {
     const params = new URLSearchParams({ role: roleId });
-    const url = `http://localhost:${MAIN_SERVER_PORT}/api/auth/mcp-role-info?${params}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/auth/mcp-role-info?${params}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${MCP_SERVER_SECRET}` },
     });

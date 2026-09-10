@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const rebuildSeoIndex = vi.fn();
-  const patchSeoIndexAfterLiveWrite = vi.fn();
   const invalidateSeoIndexCache = vi.fn();
   const loadSeoIndex = vi.fn(() => ({ entries: { "page/home/en": {} } }));
   const emitEvent = vi.fn(() => ({
@@ -15,58 +14,55 @@ const mocks = vi.hoisted(() => {
     published: true,
     created_at: Date.now(),
   }));
+  const scanFast = vi.fn();
+  const scanSlow = vi.fn();
+  const ContentIndex = vi.fn(function ContentIndexMock() {
+    return { scanFast, scanSlow };
+  });
+  const MediaGallery = vi.fn();
+  const DatabaseManager = vi.fn();
   return {
     rebuildSeoIndex,
-    patchSeoIndexAfterLiveWrite,
     invalidateSeoIndexCache,
     loadSeoIndex,
     emitEvent,
+    scanFast,
+    scanSlow,
+    ContentIndex,
+    MediaGallery,
+    DatabaseManager,
   };
 });
 
 vi.mock("../../seo-index", () => ({
   rebuildSeoIndex: mocks.rebuildSeoIndex,
-  patchSeoIndexAfterLiveWrite: mocks.patchSeoIndexAfterLiveWrite,
   invalidateSeoIndexCache: mocks.invalidateSeoIndexCache,
   loadSeoIndex: mocks.loadSeoIndex,
 }));
 vi.mock("../../events/event-store", () => ({ emitEvent: mocks.emitEvent }));
-vi.mock("../../content-index", () => ({ contentIndex: {} }));
-vi.mock("../../seo-effective-seo", () => ({
-  resolveEffectiveSeo: vi.fn(() => ({})),
-  localeYamlRelPath: vi.fn(() => "pages/home/en.yml"),
+vi.mock("../../content-index", () => ({
+  ContentIndex: mocks.ContentIndex,
+  contentIndex: {},
 }));
-vi.mock("../../seo-fields", () => ({
-  validateSeoSave: vi.fn(() => ({
-    ok: true,
-    coerced: {},
-    pillarLive: false,
-    warnings: [],
-  })),
-}));
-vi.mock("fs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("fs")>();
-  return {
-    ...actual,
-    default: {
-      ...actual,
-      existsSync: vi.fn(() => true),
-    },
-    existsSync: vi.fn(() => true),
-  };
-});
+vi.mock("../../media-gallery", () => ({ MediaGallery: mocks.MediaGallery }));
+vi.mock("../../database", () => ({ DatabaseManager: mocks.DatabaseManager }));
 
 import { SeoIndexRefreshJob } from "./seo-index-refresh";
 
 describe("SeoIndexRefreshJob", () => {
   beforeEach(() => {
     mocks.rebuildSeoIndex.mockClear();
-    mocks.patchSeoIndexAfterLiveWrite.mockClear();
     mocks.invalidateSeoIndexCache.mockClear();
     mocks.emitEvent.mockClear();
+    mocks.scanFast.mockClear();
+    mocks.scanSlow.mockClear();
+    mocks.ContentIndex.mockClear();
+    mocks.MediaGallery.mockClear();
+    mocks.DatabaseManager.mockClear();
+    mocks.loadSeoIndex.mockClear();
   });
 
-  it("rebuild mode rebuilds and emits seo_index_ready", async () => {
+  it("always full-rebuilds with a fresh ContentIndex and emits seo_index_ready", async () => {
     const job = new SeoIndexRefreshJob();
     await job.run({
       site: "site_test",
@@ -75,7 +71,16 @@ describe("SeoIndexRefreshJob", () => {
       mode: "rebuild",
       triggeredByEventId: 10,
     });
-    expect(mocks.rebuildSeoIndex).toHaveBeenCalled();
+    expect(mocks.ContentIndex).toHaveBeenCalled();
+    expect(mocks.scanFast).toHaveBeenCalled();
+    expect(mocks.scanSlow).toHaveBeenCalled();
+    expect(mocks.rebuildSeoIndex).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contentRoot: "/tmp/site_test",
+        reason: "seo_index_refresh",
+        ci: expect.anything(),
+      }),
+    );
     expect(mocks.invalidateSeoIndexCache).toHaveBeenCalled();
     expect(mocks.emitEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -86,7 +91,7 @@ describe("SeoIndexRefreshJob", () => {
     );
   });
 
-  it("patch mode patches listed entry keys", async () => {
+  it("treats legacy patch mode as a full rebuild", async () => {
     const job = new SeoIndexRefreshJob();
     await job.run({
       site: "site_test",
@@ -95,10 +100,12 @@ describe("SeoIndexRefreshJob", () => {
       mode: "patch",
       entryKeys: ["page/home/en"],
     });
-    expect(mocks.patchSeoIndexAfterLiveWrite).toHaveBeenCalled();
-    expect(mocks.rebuildSeoIndex).not.toHaveBeenCalled();
+    expect(mocks.rebuildSeoIndex).toHaveBeenCalled();
     expect(mocks.emitEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "seo_index_ready" }),
+      expect.objectContaining({
+        type: "seo_index_ready",
+        payload: expect.objectContaining({ mode: "rebuild" }),
+      }),
     );
   });
 });

@@ -3,7 +3,7 @@ import path from "path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import yaml from "js-yaml";
-import { resolveSiteContext } from "../lib/content.js";
+import { resolveSiteContext, hasMultipleSites } from "../lib/content.js";
 import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
 import { denyUnlessContentView } from "../lib/auth.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
@@ -254,8 +254,9 @@ export function registerExplainTools(
     "bootstrap_agent",
     "Call once near the start of any Website MCP content run (Claude.ai, Grok, or any connector), " +
       "before mutates or agent_session start. Returns: technical playbook, conversation conventions " +
-      "(skill.content on first call), and recent agent changelog (last 6 days). " +
-      "First call: omit params (or include_skill_content: true). " +
+      "(skill.content on first call; branded with brand.title + domain when site is passed or only one site is configured), " +
+      "and recent agent changelog (last 6 days). " +
+      "First call: omit params (or include_skill_content: true); pass site when multi-site so link examples match that brand. " +
       "Later calls in the same chat: include_skill_content: false and/or known_skill_version from the prior response " +
       "(changelog + playbook still returned; conventions body omitted). " +
       "Does NOT refresh the host MCP tool list — if tools look missing/stale after a deploy, " +
@@ -273,14 +274,48 @@ export function registerExplainTools(
         .describe(
           "If equal to skill.version from a prior bootstrap, omit skill.content even when include_skill_content is true.",
         ),
+      site: z
+        .string()
+        .optional()
+        .describe(SITE_PARAM_DESC),
     },
-    async ({ include_skill_content, known_skill_version }) => {
+    async ({ include_skill_content, known_skill_version, site }) => {
       const viewDenied = await denyUnlessContentView(mcpToken, undefined, grants);
       if (viewDenied) return viewDenied;
-      const payload = buildBootstrapPayload({
+      const result = buildBootstrapPayload({
         include_skill_content,
         known_skill_version,
+        site,
       });
+      if (!result.ok) {
+        return siteFailResult(result.error, "bootstrap_agent", { site });
+      }
+      const { payload } = result;
+      const multiSiteNoBrand =
+        payload.skill.branding.mode === "generic" && hasMultipleSites();
+      const next_actions = [
+        {
+          tool: "agent_session",
+          reason: "Start a content session; pass returned agent_session_id on mutates.",
+          priority: "recommended" as const,
+          args_hint: { action: "start" },
+        },
+        ...(multiSiteNoBrand
+          ? [
+              {
+                tool: "list_sites",
+                reason:
+                  "Pick a domain, then re-call bootstrap_agent with site so skill.content uses that brand and public links.",
+                priority: "recommended" as const,
+              },
+            ]
+          : []),
+      ];
+      const warnings = multiSiteNoBrand
+        ? [
+            "Conventions are generic (no site brand). Pass site on bootstrap_agent after list_sites so link examples use the correct domain.",
+          ]
+        : [];
       return ok(
         {
           ...payload,
@@ -289,15 +324,8 @@ export function registerExplainTools(
             "call agent_session start next; pass agent_session_id + report on mutates.",
         },
         {
-          warnings: [],
-          next_actions: [
-            {
-              tool: "agent_session",
-              reason: "Start a content session; pass returned agent_session_id on mutates.",
-              priority: "recommended",
-              args_hint: { action: "start" },
-            },
-          ],
+          warnings,
+          next_actions,
         },
       );
     },
@@ -307,7 +335,7 @@ export function registerExplainTools(
     "explain_site",
     "Returns architectural context about this codebase for a given topic. " +
       "Call this tool BEFORE making any structural change to the codebase — it explains how key subsystems work. " +
-      "Live catalogs (conversion_events, CRM tags, locales, content types, image presets) are loaded from that site's content folder (sites.yml content_folder, e.g. site_4geeks-com/). " +
+      "Live catalogs (conversion_events, CRM tags, locales, content types, image presets) are loaded from that site's content folder (sites.yml content_folder, e.g. site_example-com/). " +
       "Valid topics: 'overview' (start here — summary + list of all topics), 'content_system' (YAML content files, _common.yml merge, safeYamlLoad), " +
       "'routing' (URL patterns, locale prefixes, /en/ vs /es/, ?cache=false HTML cache bypass), " +
       "'images' (image registry, UniversalImage, image_id usage), " +

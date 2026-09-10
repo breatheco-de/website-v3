@@ -32,6 +32,7 @@ import type { ContentIndex } from "../content-index";
 import type { ValidationCacheService } from "./validationCacheService";
 import { listCacheIssuesFromStore } from "./validationCacheService";
 import { isUrlStaleForFullRun } from "./validationCacheMerge";
+import { getPackageRoot, getProjectRoot } from "@shared/paths";
 import { child } from "../logger";
 
 const log = child({ module: "diagnosticsJobService" });
@@ -729,11 +730,11 @@ function attachChildHandlers(
 }
 
 function spawnWorker(contentRoot: string, jobId: string, start: DiagnosticsWorkerStartMessage): void {
-  const workerFile = path.join(process.cwd(), "scripts/validation/diagnostics-worker.ts");
+  const workerFile = path.join(getPackageRoot(), "scripts/validation/diagnostics-worker.ts");
   let childProc: ChildProcess;
   try {
     childProc = fork(workerFile, [], {
-      cwd: process.cwd(),
+      cwd: getProjectRoot(),
       env: process.env,
       stdio: ["inherit", "inherit", "inherit", "ipc"],
       execArgv: ["--import", "tsx"],
