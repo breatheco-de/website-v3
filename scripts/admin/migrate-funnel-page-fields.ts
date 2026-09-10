@@ -53,13 +53,9 @@ function unionProducts(
 ): FunnelBlock["products"] | undefined {
   if (fromSections === "all") return "all";
   if (current === "all") return "all";
-  const lists: string[] = [];
+  const lists: unknown[] = [];
   if (Array.isArray(current)) lists.push(...current);
-  if (Array.isArray(fromSections)) {
-    for (const x of fromSections) {
-      if (typeof x === "string" && x) lists.push(x);
-    }
-  }
+  if (Array.isArray(fromSections)) lists.push(...fromSections);
   const normalized = normalizeFunnelProducts(lists.length ? lists : undefined);
   return normalized;
 }

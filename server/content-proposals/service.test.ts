@@ -660,4 +660,53 @@ describe("content proposals", () => {
     expect(done.ok).toBe(true);
     if (done.ok) expect(done.proposal.status).toBe("finished");
   });
+
+  it("persists proposer and claim actor provenance", async () => {
+    const svc = makeService();
+    const summary =
+      "Store MCP client and model on the proposal so staff can see which agent acted on behalf of which human. ".repeat(
+        1,
+      );
+    const created = await svc.create(
+      {
+        title: "Actor provenance",
+        summary,
+        entries: [sampleEntry()],
+      },
+      {
+        username: "alice@4geeks.com",
+        actor: { type: "mcp", client: "Cursor", model: "claude-4-sonnet" },
+      },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.proposal.proposer_username).toBe("alice@4geeks.com");
+    expect(created.proposal.proposer_actor).toEqual({
+      type: "mcp",
+      client: "Cursor",
+      model: "claude-4-sonnet",
+    });
+
+    const claimed = await svc.update(created.proposal.id, "claim", {
+      username: "alice@4geeks.com",
+      actor: { type: "mcp", client: "Cursor", model: "claude-4-sonnet" },
+    });
+    expect(claimed.ok).toBe(true);
+    if (!claimed.ok) return;
+    expect(claimed.proposal.claim?.by).toBe("alice@4geeks.com");
+    expect(claimed.proposal.claim?.actor).toEqual({
+      type: "mcp",
+      client: "Cursor",
+      model: "claude-4-sonnet",
+    });
+
+    // Same user can refresh claim with a different actor (UI).
+    const staffClaim = await svc.update(created.proposal.id, "claim", {
+      username: "alice@4geeks.com",
+      actor: { type: "ui" },
+    });
+    expect(staffClaim.ok).toBe(true);
+    if (!staffClaim.ok) return;
+    expect(staffClaim.proposal.claim?.actor).toEqual({ type: "ui" });
+  });
 });

@@ -17,7 +17,7 @@ import { queueFileChange } from "./auto-commit";
 import { contentIndex } from "./content-index";
 import { siteResolutionMiddleware, buildSiteContextMap, getSiteContextMap } from "./site-manager";
 import { loadSitesYmlFromBucket } from "./sites-yml-store";
-import { scanEcommerceContent, startEcommerceWatcher } from "./ecommerce/ecommerce-index";
+import { scanProductContent as scanEcommerceContent, startProductWatcher as startEcommerceWatcher } from "./product/product-index";
 import { loadUsersStateFromBucket } from "./user-store";
 import {
   loadAllRuntimeIssuesFromBucket,

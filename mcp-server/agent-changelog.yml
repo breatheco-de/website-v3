@@ -5,6 +5,20 @@
 window_days: 6
 
 entries:
+  - date: "2026-09-10"
+    summary: "Product sidecar _product.yml + audience (offer/personas) + funnel product+persona bindings"
+    agent_impact:
+      - "Product declaration is programs/{slug}/_product.yml (legacy _ecommerce.yml dual-read). Audience: get_product_audience / update_product_audience (confirm:true). Persona ids immutable; cannot demote while pages bind."
+      - "funnel.products is { product, persona? }[] or all. Landings need persona when audience exists; program self may omit. Codes: missing_product_audience, missing_funnel_persona, unknown_persona. explain_site topic product (ecommerce aliases)."
+      - "Reconnect MCP; re-bootstrap_agent."
+    paths:
+      - shared/funnel.ts
+      - shared/productAudience.ts
+      - server/product/
+      - mcp-server/tools/product.ts
+      - mcp-server/explain/product.md
+      - mcp-server/explain/funnel.md
+    tools_changed: true
   - date: "2026-09-09"
     summary: "Database caps split: create_or_update_database + scoped databases_edit_data for rows"
     agent_impact:

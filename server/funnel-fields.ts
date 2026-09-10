@@ -28,7 +28,7 @@ export type FunnelSaveWarning = {
 
 export type FunnelSaveResult =
   | { ok: true; coerced: FunnelBlock; warnings: FunnelSaveWarning[] }
-  | { ok: false; error: string; code: string };
+  | { ok: false; error: string; code: string; details?: unknown };
 
 function contentRootAbs(contentRoot?: string): string {
   const raw = contentRoot ?? getDefaultContentRoot();
@@ -70,7 +70,10 @@ function dumpFunnelBlock(funnel: FunnelBlock): string {
   if (funnel.products === "all") {
     cleaned.products = "all";
   } else if (Array.isArray(funnel.products) && funnel.products.length > 0) {
-    cleaned.products = funnel.products;
+    // Always dump object bindings (not bare strings)
+    cleaned.products = funnel.products.map((b) =>
+      b.persona ? { product: b.product, persona: b.persona } : { product: b.product },
+    );
   }
   if (Object.keys(cleaned).length === 0) return "";
   return yaml
@@ -128,7 +131,11 @@ export function coerceFunnelInput(raw: {
   } else if (raw.products === null || raw.products === undefined) {
     // omit
   } else {
-    return { ok: false, code: "invalid_products", error: "funnel.products must be a slug list or \"all\"" };
+    return {
+      ok: false,
+      code: "invalid_products",
+      error: 'funnel.products must be "all" or a list of product slugs / { product, persona? } bindings',
+    };
   }
 
   const products = normalizeFunnelProducts(out.products);

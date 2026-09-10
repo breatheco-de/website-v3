@@ -39,6 +39,7 @@ import {
 } from "@/lib/funnel-stage-ui";
 import { FUNNEL_STAGES, type FunnelBlock, type FunnelStage as FunnelStageKey } from "@shared/funnel";
 import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
+import { ProductAudiencePanel } from "@/components/store/ProductAudiencePanel";
 
 interface FunnelStepRow {
   source?: "locked" | "authored" | "auto";
@@ -181,17 +182,23 @@ function mergeProductIntoStageFunnel(
   existing: FunnelBlock,
   productSlug: string,
   stageKey: FunnelStageKey,
-): { stage: FunnelStageKey; products: string[] | "all" } {
+  persona?: string,
+): { stage: FunnelStageKey; products: FunnelBlock["products"] } {
   const products = existing.products;
-  let nextProducts: string[] | "all";
   if (products === "all") {
-    nextProducts = "all";
-  } else if (Array.isArray(products)) {
-    nextProducts = products.includes(productSlug) ? products : [...products, productSlug];
-  } else {
-    nextProducts = [productSlug];
+    return { stage: stageKey, products: "all" };
   }
-  return { stage: stageKey, products: nextProducts };
+  const list = Array.isArray(products) ? [...products] : [];
+  const normalized = list.map((p) =>
+    typeof p === "string" ? { product: p } : { product: p.product, ...(p.persona ? { persona: p.persona } : {}) },
+  );
+  const exists = normalized.some(
+    (b) => b.product === productSlug && (b.persona ?? "") === (persona ?? ""),
+  );
+  if (!exists) {
+    normalized.push(persona ? { product: productSlug, persona } : { product: productSlug });
+  }
+  return { stage: stageKey, products: normalized };
 }
 
 function AddFunnelContentButton({
@@ -798,7 +805,7 @@ export default function StoreProductDetailPage() {
           <Card>
             <CardContent className="py-8 text-center text-sm text-muted-foreground">
               Product not found or not purchasable. Enable{" "}
-              <code className="bg-muted px-1 rounded">_ecommerce.yml</code> with{" "}
+              <code className="bg-muted px-1 rounded">_product.yml</code> with{" "}
               <code className="bg-muted px-1 rounded">purchasable: true</code>.
             </CardContent>
           </Card>
@@ -867,6 +874,8 @@ export default function StoreProductDetailPage() {
                 valueClassName="tabular-nums"
               />
             </div>
+
+            <ProductAudiencePanel slug={slug!} />
 
             <section className="space-y-1">
               <div className="flex flex-wrap items-center justify-between gap-3 mb-3">

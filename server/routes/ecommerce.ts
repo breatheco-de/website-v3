@@ -19,6 +19,7 @@ import { getDefaultContentRoot } from "../site-config";
 import { resolveComponentBehaviors } from "@shared/component-behaviors";
 import { buildProductFunnelJourney } from "../ecommerce/funnel-journey";
 import { FUNNEL_STAGES } from "@shared/funnel";
+import { audienceStatus } from "@shared/productAudience";
 import { api } from "../rate-limit/api.js";
 import { child } from "../logger";
 
@@ -185,6 +186,11 @@ export function registerEcommerceRoutes(app: Express): void {
         content_slug: p.content_slug,
         actively_selling: p.actively_selling,
         active: p.actively_selling,
+        audience_status: audienceStatus(p.audience),
+        personas: (p.audience?.personas ?? []).map((persona) => ({
+          id: persona.id,
+          label: persona.label || persona.role,
+        })),
       }));
       res.json({ products });
     } catch (err) {
@@ -242,7 +248,10 @@ export function registerEcommerceRoutes(app: Express): void {
       const usage = scanEcommerceComponentUsage();
 
       res.json({
-        product: resolved,
+        product: {
+          ...resolved,
+          audience_status: audienceStatus(resolved?.audience),
+        },
         funnel: {
           locked: { ...journey.locked, source: "locked" as const },
           stages: journey.stages,
@@ -255,13 +264,15 @@ export function registerEcommerceRoutes(app: Express): void {
         },
         education: {
           summary:
-            "Conversion journey is a read-only query of pages whose _common.yml funnel.products includes this SKU (or all) and funnel.stage is set, grouped by stage. Edit membership on each page's Funnel tab — not here. The product page is always the locked decision step.",
+            "Conversion journey is a read-only query of pages whose _common.yml funnel.products includes this SKU (or all) and funnel.stage is set, grouped by stage. Edit membership on each page's Funnel tab — not here. The product page is always the locked decision step. Audience (offer + personas) lives on _product.yml.",
           advanced_paths: [
             "{contentType}/{slug}/_common.yml → funnel.stage, funnel.products",
+            "{contentType}/{slug}/_product.yml → offer, personas",
             "GET /api/content-types/:type/funnel/:slug",
+            "GET /api/product/:slug/audience",
             "server/ecommerce/funnel-journey.ts",
             "shared/funnel.ts",
-            "mcp-server/explain/ecommerce.md",
+            "mcp-server/explain/product.md",
           ],
         },
       });

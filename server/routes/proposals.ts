@@ -10,6 +10,7 @@ import {
   type ProposalUpdateAction,
 } from "../content-proposals/service";
 import { child } from "../logger";
+import { resolveEventActor } from "./_helpers";
 
 const log = child({ module: "routes/proposals" });
 
@@ -222,7 +223,7 @@ export function registerProposalRoutes(app: Express): void {
       },
       {
         username: auth.actor,
-        actor: { type: req.headers["x-mcp-author"] ? "mcp" : "ui" },
+        actor: resolveEventActor(req, { model: req.body?.model }),
       },
     );
     if (!result.ok) {
@@ -298,6 +299,7 @@ export function registerProposalRoutes(app: Express): void {
       username: auth.actor,
       report: typeof req.body?.report === "string" ? req.body.report : undefined,
       asStaff,
+      actor: resolveEventActor(req, { model: req.body?.model }),
       agent_session_id:
         typeof req.body?.agent_session_id === "string"
           ? req.body.agent_session_id

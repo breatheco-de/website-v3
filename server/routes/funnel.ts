@@ -4,7 +4,7 @@
 
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
-import { ecommerceManager } from "../ecommerce/ecommerce-manager";
+import { productManager as ecommerceManager } from "../product/product-manager";
 import {
   coerceFunnelInput,
   readFunnelBlockFromFile,
@@ -12,11 +12,14 @@ import {
   commonYmlPath,
 } from "../funnel-fields";
 import {
+  effectiveBindings,
   effectiveProducts,
   enrollmentIdsOutsideFunnel,
   funnelHasProductsWithoutStage,
   type FunnelBlock,
 } from "@shared/funnel";
+import { assertFunnelAudienceGates } from "../product/funnel-audience-gates";
+import { audienceStatus } from "@shared/productAudience";
 import { requireCapability } from "./_helpers";
 import { getDefaultContentRoot } from "../site-config";
 import { contentIndex } from "../content-index";
@@ -30,9 +33,19 @@ function getContentRoot(res: Response): string {
   return (res.locals.site as { contentRoot?: string } | undefined)?.contentRoot ?? getDefaultContentRoot();
 }
 
+const funnelBindingSchema = z.union([
+  z.string(),
+  z.object({
+    product: z.string().optional(),
+    slug: z.string().optional(),
+    persona: z.string().optional().nullable(),
+    persona_id: z.string().optional().nullable(),
+  }),
+]);
+
 const funnelPutSchema = z.object({
   stage: z.string().optional().nullable(),
-  products: z.union([z.literal("all"), z.array(z.string()), z.null()]).optional(),
+  products: z.union([z.literal("all"), z.array(funnelBindingSchema), z.null()]).optional(),
 });
 
 function resolveProductActive(slug: string): { active: boolean } | undefined {
@@ -59,23 +72,62 @@ function inactiveProductWarnings(funnel: FunnelBlock): { code: string; message: 
   return warnings;
 }
 
+function audienceWarningsForFunnel(
+  funnel: FunnelBlock,
+  ctx: { contentType: string; contentSlug: string },
+): { code: string; message: string; action_required?: string }[] {
+  const products = funnel.products;
+  if (!products || products === "all") return [];
+  const out: { code: string; message: string; action_required?: string }[] = [];
+  for (const b of products) {
+    const p =
+      ecommerceManager.findProductByCmsEntry("program", b.product, { includePaused: true }) ||
+      ecommerceManager.findProductByProgramId(b.product);
+    if (!p) continue;
+    const status = audienceStatus(p.audience);
+    const isSelf = ctx.contentType === "program" && ctx.contentSlug === b.product;
+    if (status === "missing") {
+      out.push({
+        code: "missing_product_audience",
+        message: `Product "${b.product}" has no minimal audience — set offer + persona before relying on this binding.`,
+        action_required: "missing_product_audience",
+      });
+    } else if (!b.persona && !isSelf) {
+      out.push({
+        code: "missing_funnel_persona",
+        message: `Binding to "${b.product}" is missing persona — pick one on next save.`,
+        action_required: "missing_funnel_persona",
+      });
+    }
+  }
+  return out;
+}
+
 function storeJourneyMembership(
   contentType: string,
   slug: string,
   funnel: FunnelBlock,
-): { productSlug: string; stage: string }[] {
+): { productSlug: string; stage: string; persona?: string }[] {
   const stage = typeof funnel.stage === "string" ? funnel.stage : "";
   if (!stage) return [];
-  const scope = effectiveProducts(funnel, { contentType, contentSlug: slug });
-  if (!scope) return [];
+  const bindings = effectiveBindings(funnel, { contentType, contentSlug: slug });
+  if (!bindings) return [];
 
   const products = ecommerceManager.getAllProducts().filter((p) => p.actively_selling !== false);
-  const out: { productSlug: string; stage: string }[] = [];
-  for (const product of products) {
-    const ps = product.content_slug;
-    if (scope === "all" || scope.includes(ps)) {
-      out.push({ productSlug: ps, stage });
+  const out: { productSlug: string; stage: string; persona?: string }[] = [];
+  if (bindings === "all") {
+    for (const product of products) {
+      out.push({ productSlug: product.content_slug, stage });
     }
+    return out;
+  }
+  for (const b of bindings) {
+    if (!products.some((p) => p.content_slug === b.product)) continue;
+    out.push({
+      productSlug: b.product,
+      stage,
+      ...(b.persona ? { persona: b.persona } : {}),
+    });
   }
   return out;
 }
@@ -89,6 +141,7 @@ export function registerFunnelRoutes(app: Express): void {
       const filePath = commonYmlPath(contentType, slug, contentRoot);
       const funnel = readFunnelBlockFromFile(filePath);
       const effective = effectiveProducts(funnel, { contentType, contentSlug: slug });
+      const bindings = effectiveBindings(funnel, { contentType, contentSlug: slug });
 
       const enrollmentWarnings: { code: string; message: string; ids: string[] }[] = [];
       const merged = contentIndex.loadMergedContent(contentType, slug, "en");
@@ -120,6 +173,7 @@ export function registerFunnelRoutes(app: Express): void {
       res.json({
         funnel,
         effectiveProducts: effective ?? null,
+        effectiveBindings: bindings ?? null,
         storeMembership: storeJourneyMembership(contentType, slug, funnel),
         warnings: [
           ...(funnelHasProductsWithoutStage(funnel)
@@ -132,6 +186,7 @@ export function registerFunnelRoutes(app: Express): void {
               ]
             : []),
           ...inactiveProductWarnings(funnel),
+          ...audienceWarningsForFunnel(funnel, { contentType, contentSlug: slug }),
           ...enrollmentWarnings,
         ],
         relativePath: relPath,
@@ -160,13 +215,29 @@ export function registerFunnelRoutes(app: Express): void {
         return res.status(400).json({ error: coerced.error, code: coerced.code });
       }
 
+      const gates = assertFunnelAudienceGates(coerced.coerced, {
+        contentType,
+        contentSlug: slug,
+      });
+      if (!gates.ok) {
+        return res.status(400).json({
+          error: gates.error,
+          code: gates.code,
+          details: gates.details,
+        });
+      }
+
       const { relativePath } = writeFunnelBlock(contentType, slug, coerced.coerced, contentRoot);
       markFileAsModified(relativePath, auth.author ?? "staff", undefined, contentRoot);
 
       res.json({
         success: true,
         funnel: coerced.coerced,
-        warnings: [...coerced.warnings, ...inactiveProductWarnings(coerced.coerced)],
+        warnings: [
+          ...coerced.warnings,
+          ...gates.warnings,
+          ...inactiveProductWarnings(coerced.coerced),
+        ],
         relativePath,
       });
     } catch (err) {

@@ -6,7 +6,7 @@ import {
   snapshotSiteContextMap,
   restoreSiteContextMap,
 } from "./site-manager";
-import { scanEcommerceContent } from "./ecommerce/ecommerce-index";
+import { scanProductContent as scanEcommerceContent } from "./product/product-index";
 import { clearImageRegistryCache } from "./image-registry";
 import { child } from "./logger";
 

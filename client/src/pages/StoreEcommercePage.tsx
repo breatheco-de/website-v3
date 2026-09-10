@@ -249,7 +249,7 @@ export default function StoreEcommercePage() {
           {products.length === 0 && (
             <p className="text-sm text-muted-foreground">
               No purchasable products. Add{" "}
-              <code className="bg-muted px-1 rounded">_ecommerce.yml</code> with{" "}
+              <code className="bg-muted px-1 rounded">_product.yml</code> with{" "}
               <code className="bg-muted px-1 rounded">purchasable: true</code>.
             </p>
           )}

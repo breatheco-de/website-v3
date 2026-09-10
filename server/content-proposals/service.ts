@@ -34,6 +34,8 @@ export type ProposalClaim = {
   by: string;
   expiresAt: string;
   report?: string;
+  /** MCP client/model (or ui) when claim was taken — for staff “via …” lines. */
+  actor?: EventActor;
 };
 
 export type ProposalEntryInput = {
@@ -188,6 +190,8 @@ export type ProposalUpdateCaller = {
   report?: string;
   asStaff?: boolean;
   agent_session_id?: string;
+  /** Provenance for claim (and any future actor-storing actions). */
+  actor?: EventActor;
   body?: string;
   blocker_id?: number;
   resolve_note?: string;
@@ -633,7 +637,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
 
   async function create(
     input: CreateProposalInput,
-    proposer: { username: string; actor?: Record<string, unknown> },
+    proposer: { username: string; actor?: EventActor | Record<string, unknown> },
   ): Promise<
     | { ok: true; proposal: ProposalRecord; duplicate?: boolean; similar?: SimilarProposal[] }
     | {
@@ -911,6 +915,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
         by: caller.username,
         expiresAt: new Date(now + PROPOSAL_CLAIM_TTL_MS).toISOString(),
         ...(report ? { report } : {}),
+        ...(caller.actor ? { actor: caller.actor } : {}),
       };
       db.prepare(`UPDATE content_proposals SET claim_json = ?, updated_at = ? WHERE id = ?`).run(
         JSON.stringify(next),

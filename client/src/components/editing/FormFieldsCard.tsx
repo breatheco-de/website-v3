@@ -395,7 +395,7 @@ export function FormFieldsCard({ fields, onFieldChange }: FormFieldsCardProps) {
           catalogs must set <code className="font-mono text-[10px]">query: purchasable=true</code>{" "}
           unless this is a non-product program page (that slug / related_field only).{" "}
           <code className="font-mono text-[10px]">purchasable</code> on the Fields tab is read-only;{" "}
-          <code className="font-mono text-[10px]">actively_selling</code> lives on _ecommerce.yml
+          <code className="font-mono text-[10px]">actively_selling</code> lives on _product.yml
           (store pause), not the form.
         </p>
         <p>

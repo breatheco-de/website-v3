@@ -4179,7 +4179,7 @@ export function registerPageTools(
       }
       if (field === PURCHASABLE_FIELD) {
         return fail(
-          "purchasable is a computed system field (from _ecommerce.yml). Do not write it. Edit the sidecar or use get_product_funnel / update_product_funnel.",
+          "purchasable is a computed system field (from _product.yml). Do not write it. Edit the sidecar or use get_product_funnel.",
         );
       }
       if (isKnownSeoFieldPath(field) || field === `${SEO_YAML_KEY}.pillar`) {
@@ -4517,8 +4517,8 @@ export function registerPageTools(
                   ...f,
                   writable: false,
                   system_hints: [
-                    "Computed from _ecommerce.yml (slug is in the product index).",
-                    "Do not write via update_fields / update_entry_field. Edit _ecommerce.yml or use get_product_funnel / update_product_funnel.",
+                    "Computed from _product.yml (slug is in the product index).",
+                    "Do not write via update_fields / update_entry_field. Edit _product.yml or use get_product_funnel.",
                     "Lead-form catalogs filter with source.query purchasable=true — not actively_selling.",
                   ],
                 };
@@ -8282,7 +8282,7 @@ export function registerPageTools(
                   enabled: true,
                   system_fields: [PURCHASABLE_FIELD],
                   description:
-                    "This type has at least one product in the ecommerce index (sidecar _ecommerce.yml with purchasable: true). Catalog lead forms should set source.query to purchasable=true unless this is a non-purchasable program page (use source.related_field or query slug=<this>). Confirm subsets with the user. purchasable is computed — do not write it. actively_selling on _ecommerce.yml pauses the store; it is not the form filter. source.value_path and source.label_path are required; do not guess them.",
+                    "This type has at least one product in the product index (sidecar _product.yml with purchasable: true). Catalog lead forms should set source.query to purchasable=true unless this is a non-purchasable program page (use source.related_field or query slug=<this>). Confirm subsets with the user. purchasable is computed — do not write it. actively_selling on _product.yml pauses the store; it is not the form filter. source.value_path and source.label_path are required; do not guess them.",
                 }
               : {
                   enabled: false,

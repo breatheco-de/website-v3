@@ -38,18 +38,23 @@ import type { SeoModalSavedDetail } from "@/components/editing/seoModalSaved";
 import { notifySeoModalSaved } from "@/components/editing/seoModalSaved";
 import type { ContentInfo } from "../types";
 
-type FunnelApiResponse = {
-  funnel: FunnelBlock;
-  effectiveProducts: string[] | "all" | null;
-  storeMembership: { productSlug: string; stage: string }[];
-  warnings: { code: string; message: string; ids?: string[] }[];
-  relativePath: string;
-};
-
 type ProductOption = {
   content_slug: string;
   name: string;
   actively_selling?: boolean;
+  audience_status?: "missing" | "minimal" | "complete";
+  personas?: { id: string; label: string }[];
+};
+
+type FunnelBinding = { product: string; persona?: string };
+
+type FunnelApiResponse = {
+  funnel: FunnelBlock;
+  effectiveProducts: string[] | "all" | null;
+  effectiveBindings?: FunnelBinding[] | "all" | null;
+  storeMembership: { productSlug: string; stage: string; persona?: string }[];
+  warnings: { code: string; message: string; ids?: string[]; action_required?: string }[];
+  relativePath: string;
 };
 
 const STAGE_OPTIONS: {
@@ -103,17 +108,18 @@ export type FunnelFieldsFormProps = {
   onStageEditingChange: (editing: boolean) => void;
   productsMode: FunnelProductsMode;
   onProductsModeChange: (mode: FunnelProductsMode) => void;
-  selectedProductSlugs: string[];
-  onSelectedProductSlugsChange: (slugs: string[]) => void;
+  selectedBindings: FunnelBinding[];
+  onSelectedBindingsChange: (bindings: FunnelBinding[]) => void;
   productOptions: ProductOption[];
   portalContainer?: HTMLElement | null;
   /** Extra education / context above the form controls */
   education?: ReactNode;
   /** Hide store membership section */
   hideStoreMembership?: boolean;
-  storeMembership?: { productSlug: string; stage: string }[];
-  warnings?: { code: string; message: string; ids?: string[] }[];
+  storeMembership?: { productSlug: string; stage: string; persona?: string }[];
+  warnings?: { code: string; message: string; ids?: string[]; action_required?: string }[];
   isProgram?: boolean;
+  contentSlug?: string;
   relativePathHint?: string;
   footer?: ReactNode;
 };
@@ -125,8 +131,8 @@ export function FunnelFieldsForm({
   onStageEditingChange,
   productsMode,
   onProductsModeChange,
-  selectedProductSlugs,
-  onSelectedProductSlugsChange,
+  selectedBindings,
+  onSelectedBindingsChange,
   productOptions,
   portalContainer,
   education,
@@ -134,32 +140,64 @@ export function FunnelFieldsForm({
   storeMembership,
   warnings,
   isProgram,
+  contentSlug,
   relativePathHint,
   footer,
 }: FunnelFieldsFormProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [addProductOpen, setAddProductOpen] = useState(false);
   const [addProductKey, setAddProductKey] = useState(0);
+  const [pendingProduct, setPendingProduct] = useState<string | null>(null);
 
   const productBySlug = new Map(productOptions.map((p) => [p.content_slug, p]));
-  const unselectedProducts = productOptions.filter(
-    (p) => !selectedProductSlugs.includes(p.content_slug),
-  );
+  const bindingKey = (b: FunnelBinding) => `${b.product}\0${b.persona ?? ""}`;
+  const selectedKeys = new Set(selectedBindings.map(bindingKey));
 
-  const toggleProductSlug = (slug: string) => {
-    onSelectedProductSlugsChange(
-      selectedProductSlugs.includes(slug)
-        ? selectedProductSlugs.filter((x) => x !== slug)
-        : [...selectedProductSlugs, slug],
-    );
+  const removeBinding = (b: FunnelBinding) => {
+    onSelectedBindingsChange(selectedBindings.filter((x) => bindingKey(x) !== bindingKey(b)));
   };
 
-  const addProductSlug = (slug: string) => {
-    if (!selectedProductSlugs.includes(slug)) {
-      onSelectedProductSlugsChange([...selectedProductSlugs, slug]);
-    }
+  const addBinding = (b: FunnelBinding) => {
+    if (selectedKeys.has(bindingKey(b))) return;
+    onSelectedBindingsChange([...selectedBindings, b]);
+    setPendingProduct(null);
     setAddProductOpen(false);
     setAddProductKey((k) => k + 1);
+  };
+
+  const tryAddProduct = (slug: string) => {
+    const product = productBySlug.get(slug);
+    const status = product?.audience_status ?? "missing";
+    const personas = product?.personas ?? [];
+    const isSelf = isProgram && contentSlug === slug;
+
+    if (status === "missing") {
+      // Still allow selecting for program self without persona; otherwise block in UI
+      if (isSelf) {
+        addBinding({ product: slug });
+        return;
+      }
+      setPendingProduct(null);
+      setAddProductOpen(false);
+      return;
+    }
+
+    if (personas.length === 0) {
+      if (isSelf) addBinding({ product: slug });
+      return;
+    }
+
+    if (isSelf) {
+      // Program catalog may omit persona — still offer picker
+      setPendingProduct(slug);
+      return;
+    }
+
+    if (personas.length === 1) {
+      addBinding({ product: slug, persona: personas[0]!.id });
+      return;
+    }
+    setPendingProduct(slug);
   };
 
   return (
@@ -172,11 +210,11 @@ export function FunnelFieldsForm({
           </p>
           <p>
             <strong>Stage</strong> is why this URL exists in the buyer journey.{" "}
-            <strong>Products</strong> are which purchasable SKUs this page supports (
-            <code className="text-xs bg-muted px-1 rounded">all</code> = every active product).
-            Tracking, Store journeys, and SEO diagnostics all read{" "}
-            <code className="text-xs bg-muted px-1 rounded">_common.yml</code> — not section widgets
-            or landing <code className="text-xs bg-muted px-1 rounded">single.programs</code>.
+            <strong>Products</strong> are product+persona bindings (or{" "}
+            <code className="text-xs bg-muted px-1 rounded">all</code> for every active product with
+            no persona). When a product has an audience, landings must pick a persona; the program
+            catalog page may omit persona for itself. Tracking and Store journeys read{" "}
+            <code className="text-xs bg-muted px-1 rounded">_common.yml</code>.
           </p>
           <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
             <CollapsibleTrigger className="flex items-center gap-1 text-xs text-foreground hover:text-foreground/80">
@@ -197,7 +235,8 @@ export function FunnelFieldsForm({
       {isProgram && (
         <p className="text-xs text-muted-foreground rounded-md border px-3 py-2">
           Program pages always include this slug in effective products, even when{" "}
-          <code className="text-[10px]">funnel.products</code> is empty.
+          <code className="text-[10px]">funnel.products</code> is empty. Persona is optional on this
+          catalog page; other pages that bind this product must pick a persona once audience exists.
         </p>
       )}
 
@@ -320,78 +359,133 @@ export function FunnelFieldsForm({
           ))}
         </div>
         {productsMode === "list" && (
-          <div className="rounded-md border p-3">
+          <div className="rounded-md border p-3 space-y-2">
             <div className="flex flex-wrap gap-1.5" data-testid="funnel-products-tag-cloud">
-              {selectedProductSlugs.map((slug) => {
-                const product = productBySlug.get(slug);
+              {selectedBindings.map((b) => {
+                const product = productBySlug.get(b.product);
+                const personaLabel =
+                  product?.personas?.find((p) => p.id === b.persona)?.label || b.persona;
                 return (
                   <button
-                    key={slug}
+                    key={bindingKey(b)}
                     type="button"
-                    onClick={() => toggleProductSlug(slug)}
+                    onClick={() => removeBinding(b)}
                     className="inline-flex"
-                    data-testid={`funnel-product-${slug}`}
+                    data-testid={`funnel-product-${b.product}${b.persona ? `-${b.persona}` : ""}`}
                   >
                     <Badge variant="default" className="gap-1">
                       <Check className="h-3 w-3" />
-                      {product?.name || slug}
+                      {product?.name || b.product}
+                      {personaLabel ? ` · ${personaLabel}` : ""}
                     </Badge>
                   </button>
                 );
               })}
-              {unselectedProducts.length > 0 ? (
-                <Popover open={addProductOpen} onOpenChange={setAddProductOpen} modal={false}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      role="combobox"
-                      aria-expanded={addProductOpen}
-                      className="inline-flex h-6 items-center gap-1 rounded-md border border-dashed px-2.5 text-xs text-muted-foreground shadow-none hover-elevate"
-                      data-testid="select-funnel-product-add"
-                    >
-                      <Plus className="h-3 w-3" />
-                      Add more +
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    className="w-64 p-0 z-[10001] pointer-events-auto"
-                    align="start"
-                    container={portalContainer}
-                    onCloseAutoFocus={(e) => e.preventDefault()}
-                    onPointerDown={(e) => e.stopPropagation()}
+              <Popover open={addProductOpen} onOpenChange={setAddProductOpen} modal={false}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    role="combobox"
+                    aria-expanded={addProductOpen}
+                    className="inline-flex h-6 items-center gap-1 rounded-md border border-dashed px-2.5 text-xs text-muted-foreground shadow-none hover-elevate"
+                    data-testid="select-funnel-product-add"
                   >
-                    <Command key={addProductKey}>
-                      <CommandInput
-                        placeholder="Search products…"
-                        data-testid="input-funnel-product-search"
-                      />
-                      <CommandList>
-                        <CommandEmpty>No products found.</CommandEmpty>
-                        <CommandGroup>
-                          {unselectedProducts.map((p) => (
+                    <Plus className="h-3 w-3" />
+                    Add more +
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-72 p-0 z-[10001] pointer-events-auto"
+                  align="start"
+                  container={portalContainer}
+                  onCloseAutoFocus={(e) => e.preventDefault()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <Command key={addProductKey}>
+                    <CommandInput
+                      placeholder="Search products…"
+                      data-testid="input-funnel-product-search"
+                    />
+                    <CommandList>
+                      <CommandEmpty>No products found.</CommandEmpty>
+                      <CommandGroup>
+                        {productOptions.map((p) => {
+                          const missing = (p.audience_status ?? "missing") === "missing";
+                          const isSelf = isProgram && contentSlug === p.content_slug;
+                          const blocked = missing && !isSelf;
+                          return (
                             <CommandItem
                               key={p.content_slug}
                               value={`${p.name} ${p.content_slug}`}
-                              onSelect={() => addProductSlug(p.content_slug)}
+                              disabled={blocked}
+                              onSelect={() => {
+                                if (blocked) return;
+                                tryAddProduct(p.content_slug);
+                              }}
                               data-testid={`option-funnel-product-${p.content_slug}`}
                             >
                               <span className="flex-1 truncate">{p.name || p.content_slug}</span>
                               <span className="text-[10px] text-muted-foreground font-mono ml-2 shrink-0">
-                                {p.content_slug}
+                                {blocked ? "needs audience" : p.content_slug}
                               </span>
                             </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              ) : selectedProductSlugs.length === 0 ? (
-                <Badge variant="outline" className="text-muted-foreground font-normal">
-                  No active purchasable products
-                </Badge>
-              ) : null}
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
+            {pendingProduct && (
+              <div
+                className="rounded-md border bg-muted/40 p-2 space-y-2"
+                data-testid="funnel-persona-picker"
+              >
+                <p className="text-xs text-muted-foreground">
+                  Pick a persona for <strong>{pendingProduct}</strong>
+                  {isProgram && contentSlug === pendingProduct
+                    ? " (optional on this program page)"
+                    : ""}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {(productBySlug.get(pendingProduct)?.personas ?? []).map((persona) => (
+                    <Button
+                      key={persona.id}
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="h-7 text-xs"
+                      onClick={() => addBinding({ product: pendingProduct, persona: persona.id })}
+                      data-testid={`button-funnel-persona-${persona.id}`}
+                    >
+                      {persona.label || persona.id}
+                    </Button>
+                  ))}
+                  {isProgram && contentSlug === pendingProduct && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      onClick={() => addBinding({ product: pendingProduct })}
+                      data-testid="button-funnel-persona-omit"
+                    >
+                      No persona (catalog)
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs"
+                    onClick={() => setPendingProduct(null)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -401,7 +495,7 @@ export function FunnelFieldsForm({
           <Label>Store product journeys</Label>
           <ul className="text-xs space-y-1">
             {storeMembership.map((m) => (
-              <li key={m.productSlug}>
+              <li key={`${m.productSlug}-${m.persona ?? ""}`}>
                 <Link
                   href={`/private/store/product/${m.productSlug}`}
                   className="text-primary hover:underline inline-flex items-center gap-1"
@@ -409,7 +503,11 @@ export function FunnelFieldsForm({
                   {m.productSlug}
                   <ExternalLink className="h-3 w-3" />
                 </Link>
-                <span className="text-muted-foreground"> · {STAGE_LABELS[m.stage] ?? m.stage}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {STAGE_LABELS[m.stage] ?? m.stage}
+                  {m.persona ? ` · ${m.persona}` : ""}
+                </span>
               </li>
             ))}
           </ul>
@@ -440,7 +538,7 @@ export function FunnelTab({
   const [stage, setStage] = useState<string>("");
   const [stageEditing, setStageEditing] = useState(false);
   const [productsMode, setProductsMode] = useState<FunnelProductsMode>("omit");
-  const [selectedSlugs, setSelectedSlugs] = useState<string[]>([]);
+  const [selectedBindings, setSelectedBindings] = useState<FunnelBinding[]>([]);
 
   const hasEntry = !!contentInfo.type && !!contentInfo.slug;
 
@@ -463,18 +561,32 @@ export function FunnelTab({
     setStageEditing(!nextStage);
     if (f.products === "all") {
       setProductsMode("all");
-      setSelectedSlugs([]);
+      setSelectedBindings([]);
     } else if (Array.isArray(f.products) && f.products.length > 0) {
       setProductsMode("list");
-      setSelectedSlugs(f.products);
+      setSelectedBindings(
+        f.products.map((p) =>
+          typeof p === "string"
+            ? { product: p }
+            : {
+                product: (p as FunnelBinding).product,
+                ...((p as FunnelBinding).persona
+                  ? { persona: (p as FunnelBinding).persona }
+                  : {}),
+              },
+        ),
+      );
     } else {
       setProductsMode("omit");
-      setSelectedSlugs([]);
+      setSelectedBindings([]);
     }
   }, [data?.funnel]);
 
   const saveMutation = useMutation({
-    mutationFn: async (body: { stage?: string | null; products?: string[] | "all" | null }) => {
+    mutationFn: async (body: {
+      stage?: string | null;
+      products?: FunnelBinding[] | "all" | null;
+    }) => {
       const res = await apiRequest(
         "PUT",
         `/api/content-types/${contentInfo.type}/funnel/${contentInfo.slug}`,
@@ -544,10 +656,10 @@ export function FunnelTab({
   );
 
   const handleSave = () => {
-    const body: { stage?: string | null; products?: string[] | "all" | null } = {};
+    const body: { stage?: string | null; products?: FunnelBinding[] | "all" | null } = {};
     body.stage = stage || null;
     if (productsMode === "all") body.products = "all";
-    else if (productsMode === "list") body.products = selectedSlugs;
+    else if (productsMode === "list") body.products = selectedBindings;
     else body.products = null;
     saveMutation.mutate(body);
   };
@@ -557,7 +669,7 @@ export function FunnelTab({
     (stage !== (data.funnel.stage ?? "") ||
       (productsMode === "all" && data.funnel.products !== "all") ||
       (productsMode === "list" &&
-        JSON.stringify(selectedSlugs) !== JSON.stringify(data.funnel.products ?? [])) ||
+        JSON.stringify(selectedBindings) !== JSON.stringify(data.funnel.products ?? [])) ||
       (productsMode === "omit" && data.funnel.products !== undefined));
 
   return (
@@ -568,11 +680,12 @@ export function FunnelTab({
       onStageEditingChange={setStageEditing}
       productsMode={productsMode}
       onProductsModeChange={setProductsMode}
-      selectedProductSlugs={selectedSlugs}
-      onSelectedProductSlugsChange={setSelectedSlugs}
+      selectedBindings={selectedBindings}
+      onSelectedBindingsChange={setSelectedBindings}
       productOptions={productOptions}
       portalContainer={portalContainer}
       isProgram={isProgram}
+      contentSlug={contentInfo.slug}
       warnings={data?.warnings}
       storeMembership={data?.storeMembership}
       relativePathHint={data?.relativePath}

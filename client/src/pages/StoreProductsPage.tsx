@@ -96,7 +96,7 @@ export default function StoreProductsPage() {
               <IconShoppingBag className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <p className="text-sm font-medium mb-1">No products found</p>
               <p className="text-xs text-muted-foreground">
-                Add an <code className="bg-muted px-1 rounded">_ecommerce.yml</code> file with{" "}
+                Add an <code className="bg-muted px-1 rounded">_product.yml</code> file with{" "}
                 <code className="bg-muted px-1 rounded">purchasable: true</code> to a content entry
                 to create a product.
               </p>

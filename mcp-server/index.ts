@@ -12,7 +12,7 @@ import { registerSeoClusterTools } from "./tools/seo-clusters.js";
 import { registerComponentTools } from "./tools/components.js";
 import { registerUserTools } from "./tools/user.js";
 import { registerExplainTools } from "./tools/explain.js";
-import { registerEcommerceTools } from "./tools/ecommerce.js";
+import { registerProductTools } from "./tools/product.js";
 import { registerDatabaseTools } from "./tools/databases.js";
 import { registerRedirectTools } from "./tools/redirects.js";
 import { registerMediaTools } from "./tools/media.js";
@@ -366,7 +366,7 @@ async function createMcpServer(
     roleLabel: opts?.roleLabel,
   });
   registerExplainTools(mcp, mcpToken, grants);
-  registerEcommerceTools(mcp, mcpToken, grants);
+  registerProductTools(mcp, mcpToken, grants);
   registerDatabaseTools(mcp, mcpToken);
   registerRedirectTools(mcp, mcpToken);
   registerMediaTools(mcp, mcpToken, grants);

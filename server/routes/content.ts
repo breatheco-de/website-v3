@@ -3515,7 +3515,16 @@ export function registerContentRoutes(app: Express): void {
           entry.funnel.products === "all"
             ? "all"
             : Array.isArray(entry.funnel.products)
-              ? entry.funnel.products.join(" ").toLowerCase()
+              ? entry.funnel.products
+                  .map((b) =>
+                    typeof b === "string"
+                      ? b
+                      : `${(b as { product?: string }).product ?? ""} ${
+                          (b as { persona?: string }).persona ?? ""
+                        }`,
+                  )
+                  .join(" ")
+                  .toLowerCase()
               : "";
         return (
           entry.slug.toLowerCase().includes(q) ||

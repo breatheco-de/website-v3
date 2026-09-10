@@ -5,8 +5,8 @@
  * identity + settings are injected under `ecommerce`. No plan catalog injection.
  */
 
-import { ecommerceManager } from "./ecommerce-manager";
-import type { EcommerceRenderContext } from "./types";
+import { productManager as ecommerceManager } from "../product/product-manager";
+import type { EcommerceRenderContext } from "../product/types";
 import { child } from "../logger";
 const log = child({ module: "ecommerce/ecommerce-resolver" });
 

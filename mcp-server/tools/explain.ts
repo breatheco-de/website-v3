@@ -23,6 +23,7 @@ const VALID_TOPICS = [
   "component-behaviors",
   "seo",
   "funnel",
+  "product",
   "ecommerce",
   "shared-layout",
   "relation-fields",
@@ -46,8 +47,11 @@ const TOPIC_DESC: Record<string, string> = {
   "component-behaviors": "CTA tracking, conversion_events catalog, CRM tags allowlist",
   seo: "meta gates, locale seo:, clustering inventory, GSC/Bing reads, organic traffic, SEO diagnostics",
   funnel:
-    "funnel.stage / products on _common.yml, money pages (decision), list_entries filters, inventory vs journey",
-  ecommerce: "products, product scope paths, get_product_funnel journey (stage inventory → funnel)",
+    "funnel.stage / products bindings on _common.yml, money pages (decision), list_entries filters, inventory vs journey",
+  product:
+    "product sidecar _product.yml, audience (offer+personas), get_product_funnel journey, product scope paths",
+  ecommerce:
+    "Alias of topic product (legacy name) — products, audience, get_product_funnel",
   "shared-layout":
     "single_template / shared shell, create_entry playbook, blog as example",
   "relation-fields":
@@ -393,7 +397,8 @@ export function registerExplainTools(
         };
       }
 
-      const filePath = path.join(EXPLAIN_DIR, `${topic as Topic}.md`);
+      const fileTopic = topic === "ecommerce" ? "product" : (topic as Topic);
+      const filePath = path.join(EXPLAIN_DIR, `${fileTopic}.md`);
       if (!fs.existsSync(filePath)) {
         return {
           content: [

@@ -293,7 +293,7 @@ export function formSourceWriteGate(
       `Catalog source.content_type on an ecommerce content type requires an explicit query. ` +
         `Typical: query: "purchasable=true". Subset: query: "${subset}". ` +
         `On a non-purchasable program page, bind that program only (source.related_field or slug query), not the full catalog. ` +
-        `Do not write single.purchasable. actively_selling on _ecommerce.yml pauses the store — it is not the form filter.`,
+        `Do not write single.purchasable. actively_selling on _product.yml pauses the store — it is not the form filter.`,
     );
   }
   parts.push("EN/ES are separate writes (no locale fan-out).");

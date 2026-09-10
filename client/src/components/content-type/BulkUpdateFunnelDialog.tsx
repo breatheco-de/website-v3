@@ -40,7 +40,9 @@ export function BulkUpdateFunnelDialog({
   const [stage, setStage] = useState("");
   const [stageEditing, setStageEditing] = useState(true);
   const [productsMode, setProductsMode] = useState<FunnelProductsMode>("omit");
-  const [selectedProductSlugs, setSelectedProductSlugs] = useState<string[]>([]);
+  const [selectedBindings, setSelectedBindings] = useState<
+    { product: string; persona?: string }[]
+  >([]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [portalEl, setPortalEl] = useState<HTMLElement | null>(null);
@@ -50,11 +52,19 @@ export function BulkUpdateFunnelDialog({
     setStage("");
     setStageEditing(true);
     setProductsMode("omit");
-    setSelectedProductSlugs([]);
+    setSelectedBindings([]);
     setAdvancedOpen(false);
   }, [open]);
 
-  const { data: productMap } = useQuery<{ products: ProductOption[] }>({
+  const { data: productMap } = useQuery<{
+    products: {
+      content_slug: string;
+      name: string;
+      actively_selling?: boolean;
+      audience_status?: "missing" | "minimal" | "complete";
+      personas?: { id: string; label: string }[];
+    }[];
+  }>({
     queryKey: ["/api/ecommerce/product-map"],
     enabled: open,
     staleTime: 5 * 60 * 1000,
@@ -69,13 +79,16 @@ export function BulkUpdateFunnelDialog({
   const handleApply = async () => {
     if (!canApply || saving) return;
     setSaving(true);
-    const body: { stage: string; products: string[] | "all" | null } = {
+    const body: {
+      stage: string;
+      products: { product: string; persona?: string }[] | "all" | null;
+    } = {
       stage: stage.trim(),
       products:
         productsMode === "all"
           ? "all"
           : productsMode === "list"
-            ? selectedProductSlugs
+            ? selectedBindings
             : null,
     };
     const ok: string[] = [];
@@ -120,11 +133,12 @@ export function BulkUpdateFunnelDialog({
           onStageEditingChange={setStageEditing}
           productsMode={productsMode}
           onProductsModeChange={setProductsMode}
-          selectedProductSlugs={selectedProductSlugs}
-          onSelectedProductSlugsChange={setSelectedProductSlugs}
+          selectedBindings={selectedBindings}
+          onSelectedBindingsChange={setSelectedBindings}
           productOptions={productOptions}
           portalContainer={portalEl}
           hideStoreMembership
+          isProgram={contentType === "program"}
           education={
             <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm text-muted-foreground">
               <p className="text-foreground font-medium flex items-center gap-1.5">

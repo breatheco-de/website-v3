@@ -73,6 +73,8 @@ describe("allowedToolNames", () => {
     expect(names.has("create_component_section_demo")).toBe(true);
     expect(names.has("get_product_funnel")).toBe(true);
     expect(names.has("get_product_funnel_analytics")).toBe(true);
+    expect(names.has("get_product_audience")).toBe(true);
+    expect(names.has("update_product_audience")).toBe(true);
     expect(names.has("get_or_set_media_to_gallery")).toBe(true);
     expect(names.has("get_organic_traffic")).toBe(false);
     expect(names.has("update_fields")).toBe(false);
