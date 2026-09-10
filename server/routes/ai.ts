@@ -467,6 +467,66 @@ export function registerAiRoutes(app: Express): void {
     }
   });
 
+  api.post(app, "/api/ai/generate-persona", { rate: "expensiveAi" }, async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "content_edit_structure", "program");
+      if (!auth.authorized) return;
+
+      const { generatePersona } = await import("../ai/generatePersona");
+
+      const { slug, offer, existingPersonas } = req.body ?? {};
+
+      if (!offer || typeof offer !== "object" || Array.isArray(offer)) {
+        res.status(400).json({ error: "offer must be an object" });
+        return;
+      }
+      if (typeof offer.one_liner !== "string" || !offer.one_liner.trim()) {
+        res.status(400).json({ error: "offer.one_liner must be a non-empty string" });
+        return;
+      }
+      if (typeof offer.who_its_for !== "string" || !offer.who_its_for.trim()) {
+        res.status(400).json({ error: "offer.who_its_for must be a non-empty string" });
+        return;
+      }
+      if (existingPersonas !== undefined && !Array.isArray(existingPersonas)) {
+        res.status(400).json({ error: "existingPersonas must be an array" });
+        return;
+      }
+
+      const result = await generatePersona({
+        slug: typeof slug === "string" ? slug : undefined,
+        offer: {
+          one_liner: offer.one_liner,
+          who_its_for: offer.who_its_for,
+          who_its_not_for:
+            typeof offer.who_its_not_for === "string" ? offer.who_its_not_for : undefined,
+        },
+        existingPersonas: Array.isArray(existingPersonas) ? existingPersonas : [],
+      });
+      res.json(result);
+    } catch (error: any) {
+      log.error("Error generating persona:", error?.message || error);
+      const message = error?.message || "Failed to generate persona";
+      const status =
+        message.includes("must be") ||
+        message.includes("non-empty") ||
+        message.includes("duplicate persona id")
+          ? 400
+          : message.includes("Empty response from LLM") ||
+              message.includes("LLM refused") ||
+              message.includes("invalid JSON") ||
+              message.includes("invalid persona") ||
+              message.includes("empty persona")
+            ? 502
+            : 500;
+      const clientMessage =
+        message.includes("Empty response from LLM")
+          ? "The AI model returned no text. Try again or switch models in AI settings."
+          : message;
+      res.status(status).json({ error: clientMessage });
+    }
+  });
+
   // ============================================
   // AI Chat Widget Routes (public)
   // ============================================

@@ -10,6 +10,7 @@ import {
   IconFileText,
   IconCircleCheck,
   IconPlayerPause,
+  IconPlayerPlay,
   IconLayersIntersect,
   IconChartBar,
   IconClick,
@@ -361,6 +362,7 @@ function KpiCard({
   icon: Icon,
   testId,
   valueClassName,
+  className,
 }: {
   label: string;
   value: ReactNode;
@@ -368,13 +370,14 @@ function KpiCard({
   icon: ComponentType<{ className?: string }>;
   testId: string;
   valueClassName?: string;
+  className?: string;
 }) {
   return (
-    <Card data-testid={testId}>
+    <Card data-testid={testId} className={cn("min-w-0", className)}>
       <CardContent className="pt-4 pb-3 space-y-1">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
           <Icon className="h-3.5 w-3.5 shrink-0" />
-          <span>{label}</span>
+          <span className="truncate" title={label}>{label}</span>
         </div>
         <p className={cn("text-sm font-medium truncate", valueClassName)}>{value}</p>
         {hint != null && (
@@ -822,7 +825,7 @@ export default function StoreProductDetailPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-7xl mx-auto px-4 pt-8 pb-[300px] space-y-6">
         <div className="flex items-center gap-3">
           <Link href="/private/store/ecommerce">
             <button className="p-1.5 rounded-md hover-elevate" data-testid="button-back">
@@ -836,11 +839,13 @@ export default function StoreProductDetailPage() {
         </div>
 
         {isLoading && (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
+          <div className="grid w-full gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
           </div>
         )}
         {isError && (
@@ -855,7 +860,7 @@ export default function StoreProductDetailPage() {
 
         {data && (
           <>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="grid w-full gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
               <KpiCard
                 label="Product ID"
                 value={data.product.product_id}
@@ -872,68 +877,90 @@ export default function StoreProductDetailPage() {
                 testId="card-kpi-cms-entry"
                 valueClassName="font-mono"
               />
-              <Card data-testid="card-kpi-selling" className="p-4 space-y-2">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wide">
-                  {selling ? (
-                    <IconCircleCheck className="h-4 w-4" />
-                  ) : (
-                    <IconPlayerPause className="h-4 w-4" />
-                  )}
-                  Status
-                </div>
-                <div className="text-lg font-semibold">{selling ? "Selling" : "Paused"}</div>
-                <p className="text-xs text-muted-foreground">
-                  Pausing hides this product from the store journey and selling surfaces. Pages,
-                  funnels, and lead forms stay as they are — you can turn selling back on anytime.
-                </p>
-                <Collapsible>
-                  <CollapsibleTrigger className="flex items-center gap-1 text-xs text-primary hover:underline">
-                    <ChevronDown className="h-3.5 w-3.5" />
-                    Read more (advanced)
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-1 text-xs text-muted-foreground font-mono space-y-1">
-                    <p>_product.yml → actively_selling</p>
-                    <p>Lead-form catalogs use purchasable=true — not actively_selling.</p>
-                  </CollapsibleContent>
-                </Collapsible>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={selling ? "secondary" : "default"}
-                      disabled={sellingMutation.isPending}
-                      data-testid="button-toggle-selling"
-                    >
-                      {sellingMutation.isPending
-                        ? "Updating…"
-                        : selling
-                          ? "Pause selling"
-                          : "Resume selling"}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>
-                        {selling ? `Pause ${data.product.name}?` : `Resume ${data.product.name}?`}
-                      </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {selling
-                          ? "It will not show as actively selling until you resume. Pages, funnels, and lead forms do not change."
-                          : "It will show as actively selling again on store journey surfaces."}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={() => sellingMutation.mutate(!selling)}
-                        data-testid="button-confirm-toggle-selling"
-                      >
-                        {selling ? "Pause" : "Resume"}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+              <Card data-testid="card-kpi-selling" className="min-w-0">
+                <CardContent className="pt-4 pb-3 space-y-1">
+                  <div className="flex items-center justify-between gap-1">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+                      {selling ? (
+                        <IconCircleCheck className="h-3.5 w-3.5 shrink-0" />
+                      ) : (
+                        <IconPlayerPause className="h-3.5 w-3.5 shrink-0" />
+                      )}
+                      <span className="truncate">Status</span>
+                    </div>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6 shrink-0"
+                          disabled={sellingMutation.isPending}
+                          aria-label={selling ? "Pause selling" : "Resume selling"}
+                          title={selling ? "Pause selling" : "Resume selling"}
+                          data-testid="button-toggle-selling"
+                        >
+                          {selling ? (
+                            <IconPlayerPause className="h-3.5 w-3.5" />
+                          ) : (
+                            <IconPlayerPlay className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            {selling ? `Pause selling for ${data.product.name}?` : `Resume selling for ${data.product.name}?`}
+                          </AlertDialogTitle>
+                          <AlertDialogDescription asChild>
+                            <div className="space-y-2 text-sm text-muted-foreground">
+                              {selling ? (
+                                <>
+                                  <p>
+                                    This product will stop appearing as actively selling on the store
+                                    journey and selling surfaces.
+                                  </p>
+                                  <p>
+                                    Pages, funnels, and lead forms stay as they are — nothing is deleted.
+                                    You can turn selling back on anytime.
+                                  </p>
+                                </>
+                              ) : (
+                                <p>
+                                  This product will show as actively selling again on store journey
+                                  surfaces.
+                                </p>
+                              )}
+                            </div>
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => sellingMutation.mutate(!selling)}
+                            data-testid="button-confirm-toggle-selling"
+                          >
+                            {selling ? "Pause selling" : "Resume selling"}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                  <p className="text-sm font-medium truncate">{selling ? "Selling" : "Paused"}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {selling ? "Visible on store journey" : "Hidden from selling surfaces"}
+                  </p>
+                  <Collapsible>
+                    <CollapsibleTrigger className="flex items-center gap-1 text-xs text-primary hover:underline">
+                      <ChevronDown className="h-3.5 w-3.5" />
+                      Read more (advanced)
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="mt-1 text-xs text-muted-foreground font-mono space-y-1">
+                      <p>_product.yml → actively_selling</p>
+                      <p>Lead-form catalogs use purchasable=true — not actively_selling.</p>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </CardContent>
               </Card>
               <KpiCard
                 label="Journey pages"

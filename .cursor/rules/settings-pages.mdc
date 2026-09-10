@@ -1,12 +1,12 @@
 ---
-description: Layout shell for private Settings and related admin config pages
-globs: client/src/pages/*Settings*.tsx,client/src/pages/SecurityPage.tsx,client/src/pages/TrackingPage.tsx,client/src/pages/McpServerPage.tsx,client/src/pages/AgentsOrgChartPage.tsx
+description: Layout shell for private Settings, store, and related admin dashboard pages
+globs: client/src/pages/*Settings*.tsx,client/src/pages/SecurityPage.tsx,client/src/pages/TrackingPage.tsx,client/src/pages/McpServerPage.tsx,client/src/pages/AgentsOrgChartPage.tsx,client/src/pages/Store*.tsx,client/src/pages/DiagnosticsPage.tsx
 alwaysApply: false
 ---
 
-# Settings pages layout
+# Settings / admin dashboard pages layout
 
-Private settings / config shells share one content width so pages do not feel narrower than General Settings.
+Private settings, store, and related admin shells share one content width so pages do not feel narrower than General Settings.
 
 ## Page shell
 
@@ -18,10 +18,29 @@ Inner content container:
 <div className="max-w-7xl mx-auto px-4 pt-8 pb-24 space-y-4">
 ```
 
-- Use `max-w-7xl` — not `max-w-3xl` / `max-w-4xl` for the page shell.
+- Use `max-w-7xl` — not `max-w-3xl` / `max-w-4xl` / `max-w-6xl` for the page shell.
 - Keep `mx-auto px-4 pt-8`; use **`pb-24` (~96px)** bottom padding so the last card/actions clear the floating DebugBubble. Do not use `py-8` alone — it leaves content under the bubble.
 - Vertical rhythm may be `space-y-4` or `space-y-6`.
 - Dialogs, tooltips, and form fields may still use their own narrower `max-w-*`.
+
+## KPI / summary card strips
+
+Top-of-page metric or identity cards (product KPIs, status tiles, summary counts) must stay readable — never cram an entire strip into one dense row on desktop.
+
+```tsx
+<div className="grid w-full gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+  {/* cards */}
+</div>
+```
+
+- **Full width** — strip uses the page shell width (`w-full` on the grid).
+- **Max 4 cards per row** — `lg:grid-cols-4` (or fewer). Do **not** use `grid-cols-5`, `grid-cols-6`, or `xl:grid-cols-6` for KPI strips.
+- **At least 2 rows when there are 5+ cards** — six tiles → 4 + 2 (or 3 + 3 on `md`); never a single row of six.
+- Keep each tile compact: short label, truncated value/hint; long education belongs in confirm dialogs, popovers, or **Read more (advanced)** — not paragraph body copy inside the tile.
+- Cards: `min-w-0` so mono IDs and long labels truncate instead of blowing the grid.
+- Loading skeletons must use the **same** column classes as the live strip.
+
+Exemplar: [`StoreProductDetailPage`](client/src/pages/StoreProductDetailPage.tsx) product KPI strip.
 
 ## Page heading — advanced info popover
 
@@ -154,5 +173,7 @@ Every settings surface that wires an external API, cloud credential, or vendor S
 - [`TrackingPage`](client/src/pages/TrackingPage.tsx) — header + top-right tabs (same shell)
 - [`McpServerPage`](client/src/pages/McpServerPage.tsx) — header + top-right tabs (Connection / Tools)
 - [`AgentsOrgChartPage`](client/src/pages/AgentsOrgChartPage.tsx) — page-heading advanced popover exemplar; header + top-right tabs (Org Chart / Proposals)
+- Store admin — [`StoreProductDetailPage`](client/src/pages/StoreProductDetailPage.tsx) (KPI strip exemplar), [`StoreEcommercePage`](client/src/pages/StoreEcommercePage.tsx), [`StoreProductsPage`](client/src/pages/StoreProductsPage.tsx)
+- [`DiagnosticsPage`](client/src/pages/DiagnosticsPage.tsx) — shell + page-heading advanced pattern
 
-Sibling admin surfaces (Background Pipeline, Diagnostics) may use a different width when the content warrants it; do not copy their shell onto Settings pages. New third-party cards on those surfaces still follow **Test connection** above.
+Sibling admin surfaces (Background Pipeline) may use a different width when the content warrants it; do not copy their shell onto Settings / store pages. New third-party cards on those surfaces still follow **Test connection** above. KPI strips on any of these surfaces still follow **KPI / summary card strips** above.
