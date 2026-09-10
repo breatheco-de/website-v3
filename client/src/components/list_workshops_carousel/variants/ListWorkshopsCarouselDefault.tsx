@@ -313,17 +313,12 @@ export default function ListWorkshopsCarouselDefault({
 
   if (items.length === 0) return null;
 
-  const bgStyle: React.CSSProperties | undefined = data.background
-    ? { background: data.background }
-    : undefined;
-
   return (
     <section
       className="w-full"
-      style={bgStyle}
       data-testid="section-list-workshops-carousel"
     >
-      <div className="max-w-7xl mx-auto px-4 md:px-8 py-12 md:py-16">
+      <div className="max-w-7xl mx-auto px-4 md:px-8">
         {titleHtml && (
           <div className="flex items-center justify-between gap-8 mb-6">
             <h2
