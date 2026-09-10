@@ -20,6 +20,7 @@ export const PROPOSAL_CLAIM_TTL_MS = 30 * 60 * 1000;
 export const RAG_SIMILARITY_THRESHOLD = 0.82;
 export const MIN_SUMMARY = 80;
 export const MIN_BLOCKER_BODY = 80;
+export const MIN_CLOSE_NOTE = 20;
 
 export type ProposalStatus = "open" | "partial" | "finished" | "rejected" | "withdrawn";
 export type ProposalKind = "edits" | "notes";
@@ -27,6 +28,22 @@ export type ProposalCategory = "content.field" | "content.seo";
 export type EntryRowStatus = "pending" | "done" | "failed";
 export type ReviewMode = "soft" | "soft_variant" | "draft_backed";
 export type BlockerStatus = "open" | "resolved";
+export type ProposalCloseReason =
+  | "wont_fix"
+  | "fixed_elsewhere"
+  | "tracked_elsewhere"
+  | "other";
+
+export const PROPOSAL_CLOSE_REASONS: ProposalCloseReason[] = [
+  "wont_fix",
+  "fixed_elsewhere",
+  "tracked_elsewhere",
+  "other",
+];
+
+export function isProposalCloseReason(raw: string): raw is ProposalCloseReason {
+  return (PROPOSAL_CLOSE_REASONS as string[]).includes(raw);
+}
 
 export type FieldUpdate = { field_path: string; value?: unknown; reset?: boolean };
 
@@ -100,6 +117,11 @@ export type ProposalRecord = {
   promote_on_apply: boolean;
   review_mode: ReviewMode;
   open_blocker_count: number;
+  no_auto_retry: boolean;
+  close_reason: ProposalCloseReason | null;
+  close_note: string | null;
+  closed_by: string | null;
+  closed_at: number | null;
   entries: ProposalEntryRow[];
   blockers: ProposalBlocker[];
 };
@@ -125,6 +147,11 @@ type ProposalRow = {
   search_text: string;
   created_agent_session_id: string | null;
   promote_on_apply: number;
+  no_auto_retry: number;
+  close_reason: string | null;
+  close_note: string | null;
+  closed_by: string | null;
+  closed_at: number | null;
 };
 
 type EntryDbRow = {
@@ -179,11 +206,13 @@ export type ProposalUpdateAction =
   | "withdraw"
   | "apply"
   | "acknowledge"
+  | "close"
   | "reject"
   | "attach_variant"
   | "add_blocker"
   | "resolve_blocker"
-  | "reopen_blocker";
+  | "reopen_blocker"
+  | "set_no_auto_retry";
 
 export type ProposalUpdateCaller = {
   username: string;
@@ -201,6 +230,9 @@ export type ProposalUpdateCaller = {
   locale?: string;
   confirm_end_experiment?: boolean;
   promote_on_apply?: boolean;
+  close_reason?: string;
+  close_note?: string;
+  no_auto_retry?: boolean;
 };
 
 function parseJson<T>(raw: string | null, fallback: T): T {
@@ -318,6 +350,11 @@ function mapProposal(
     promote_on_apply,
     review_mode: deriveReviewMode({ promote_on_apply, entries }),
     open_blocker_count: blockers.filter((b) => b.status === "open").length,
+    no_auto_retry: Boolean(row.no_auto_retry),
+    close_reason: (row.close_reason as ProposalCloseReason | null) ?? null,
+    close_note: row.close_note ?? null,
+    closed_by: row.closed_by ?? null,
+    closed_at: row.closed_at ?? null,
     entries,
     blockers,
   };
@@ -373,6 +410,53 @@ function activeClaim(
   return { active: claim, expired: false };
 }
 
+/** Open/partial notes with no_auto_retry that share any related issue id. */
+function findOpenNotesBlockingRetry(
+  db: Database.Database,
+  site: string,
+  relatedIssueIds: string[],
+): ProposalRecord | null {
+  if (relatedIssueIds.length === 0) return null;
+  const rows = db
+    .prepare(
+      `SELECT * FROM content_proposals
+       WHERE site = ? AND kind = 'notes' AND status IN ('open', 'partial') AND no_auto_retry = 1`,
+    )
+    .all(site) as ProposalRow[];
+  for (const row of rows) {
+    const ids = parseJson<string[]>(row.related_issue_ids_json, []);
+    if (relatedIssueIds.some((id) => ids.includes(id))) {
+      return mapProposal(row, loadEntries(db, row.id), loadBlockers(db, row.id));
+    }
+  }
+  return null;
+}
+
+function validateCloseReason(
+  reasonRaw: string | undefined,
+  noteRaw: string | undefined,
+):
+  | { ok: true; reason: ProposalCloseReason; note: string | null }
+  | { ok: false; code: string; error: string } {
+  const reason = (reasonRaw || "").trim();
+  if (!isProposalCloseReason(reason)) {
+    return {
+      ok: false,
+      code: "close_reason_required",
+      error: `close_reason required: ${PROPOSAL_CLOSE_REASONS.join(" | ")}`,
+    };
+  }
+  const note = (noteRaw || "").trim();
+  if (reason !== "wont_fix" && note.length < MIN_CLOSE_NOTE) {
+    return {
+      ok: false,
+      code: "close_note_required",
+      error: `close_note required (min ${MIN_CLOSE_NOTE} characters) for ${reason}: say where / what`,
+    };
+  }
+  return { ok: true, reason, note: note || null };
+}
+
 function emitProposalEvent(
   site: string,
   type:
@@ -380,6 +464,7 @@ function emitProposalEvent(
     | "proposal_applied_progress"
     | "proposal_finished"
     | "proposal_acknowledged"
+    | "proposal_closed"
     | "proposal_rejected"
     | "proposal_withdrawn",
   proposalId: string,
@@ -670,6 +755,18 @@ export function createProposalService(deps: ProposalServiceDeps) {
     }));
     const kind: ProposalKind = entriesIn.length > 0 || promote_on_apply ? "edits" : "notes";
 
+    if (kind === "notes" && related.length > 0) {
+      const blocking = findOpenNotesBlockingRetry(dbFor(site), site, related);
+      if (blocking) {
+        return {
+          ok: false,
+          code: "notes_no_auto_retry",
+          error: `An open notes proposal already covers linked issue(s) with no auto-retry (${blocking.id}). Claim that proposal or clear no_auto_retry before opening another notes handoff.`,
+          existing_proposal: blocking,
+        };
+      }
+    }
+
     if (promote_on_apply) {
       if (entriesIn.length !== 1) {
         return {
@@ -823,13 +920,14 @@ export function createProposalService(deps: ProposalServiceDeps) {
     const now = Date.now();
     const id = randomUUID();
     const sessionId = input.agent_session_id?.trim() || null;
+    const noAutoRetry = kind === "notes" ? 1 : 0;
     db.prepare(
       `INSERT INTO content_proposals (
         id, site, fingerprint, status, kind, category, title, summary, rationale,
         documentation_json, related_issue_ids_json, proposer_username, proposer_actor_json,
         created_at, updated_at, claim_json, tags_json, search_text,
-        created_agent_session_id, promote_on_apply
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        created_agent_session_id, promote_on_apply, no_auto_retry
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
       id,
       site,
@@ -851,6 +949,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       searchBlob,
       sessionId,
       promote_on_apply ? 1 : 0,
+      noAutoRetry,
     );
 
     for (const cap of captured) {
@@ -960,18 +1059,80 @@ export function createProposalService(deps: ProposalServiceDeps) {
       return { ok: true, proposal: get(id)! };
     }
 
-    if (action === "acknowledge") {
+    if (action === "close" || action === "acknowledge") {
       if (proposal.kind !== "notes") {
-        return { ok: false, code: "wrong_kind", error: "acknowledge is for notes proposals; use apply for edits" };
+        return {
+          ok: false,
+          code: "wrong_kind",
+          error: "close is for notes proposals; use apply for edits",
+        };
       }
-      if (caller.username === proposal.proposer_username) {
-        return { ok: false, code: "four_eyes", error: "Four-eyes: someone other than the proposer must acknowledge" };
+      if (
+        proposal.status === "finished" ||
+        proposal.status === "rejected" ||
+        proposal.status === "withdrawn"
+      ) {
+        return { ok: false, code: "closed", error: "Proposal is already closed" };
       }
-      db.prepare(`UPDATE content_proposals SET status = 'finished', claim_json = NULL, updated_at = ? WHERE id = ?`).run(
+      const validated = validateCloseReason(caller.close_reason, caller.close_note);
+      if (!validated.ok) {
+        return { ok: false, code: validated.code, error: validated.error };
+      }
+      db.prepare(
+        `UPDATE content_proposals
+         SET status = 'finished', claim_json = NULL, updated_at = ?,
+             close_reason = ?, close_note = ?, closed_by = ?, closed_at = ?
+         WHERE id = ?`,
+      ).run(now, validated.reason, validated.note, caller.username, now, id);
+      emitProposalEvent(site, "proposal_closed", id, caller.username, {
+        close_reason: validated.reason,
+        close_note: validated.note,
+      });
+      return { ok: true, proposal: get(id)! };
+    }
+
+    if (action === "set_no_auto_retry") {
+      if (proposal.kind !== "notes") {
+        return {
+          ok: false,
+          code: "wrong_kind",
+          error: "set_no_auto_retry is for notes proposals only",
+        };
+      }
+      if (
+        proposal.status === "finished" ||
+        proposal.status === "rejected" ||
+        proposal.status === "withdrawn"
+      ) {
+        return { ok: false, code: "closed", error: "Cannot change no_auto_retry on a closed proposal" };
+      }
+      if (typeof caller.no_auto_retry !== "boolean") {
+        return {
+          ok: false,
+          code: "no_auto_retry_required",
+          error: "no_auto_retry boolean is required",
+        };
+      }
+      const isMcp = caller.actor?.type === "mcp";
+      if (isMcp) {
+        const { active, expired } = activeClaim(proposal, now);
+        if (!active || active.by !== caller.username) {
+          return {
+            ok: false,
+            code: "not_claimant",
+            error: expired
+              ? "Claim expired. Claim the proposal again, then set_no_auto_retry."
+              : "MCP agents must claim the proposal before changing no_auto_retry.",
+            claim_expired: expired,
+            proposal,
+          };
+        }
+      }
+      db.prepare(`UPDATE content_proposals SET no_auto_retry = ?, updated_at = ? WHERE id = ?`).run(
+        caller.no_auto_retry ? 1 : 0,
         now,
         id,
       );
-      emitProposalEvent(site, "proposal_acknowledged", id, caller.username);
       return { ok: true, proposal: get(id)! };
     }
 
@@ -1136,7 +1297,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
 
     if (action === "apply") {
       if (proposal.kind !== "edits") {
-        return { ok: false, code: "wrong_kind", error: "apply is for edits proposals; use acknowledge for notes" };
+        return { ok: false, code: "wrong_kind", error: "apply is for edits proposals; use close for notes" };
       }
       if (caller.username === proposal.proposer_username) {
         return { ok: false, code: "four_eyes", error: "Four-eyes: someone other than the proposer must apply" };
@@ -1333,8 +1494,9 @@ export function replaceProposalsFromSnapshot(site: string, proposals: ProposalRe
       id, site, fingerprint, status, kind, category, title, summary, rationale,
       documentation_json, related_issue_ids_json, proposer_username, proposer_actor_json,
       created_at, updated_at, claim_json, tags_json, search_text,
-      created_agent_session_id, promote_on_apply
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      created_agent_session_id, promote_on_apply, no_auto_retry,
+      close_reason, close_note, closed_by, closed_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   const insertEntry = db.prepare(
     `INSERT INTO content_proposal_entries (
@@ -1382,6 +1544,11 @@ export function replaceProposalsFromSnapshot(site: string, proposals: ProposalRe
         p.search_text ?? "",
         p.created_agent_session_id ?? null,
         p.promote_on_apply ? 1 : 0,
+        p.no_auto_retry ? 1 : 0,
+        p.close_reason ?? null,
+        p.close_note ?? null,
+        p.closed_by ?? null,
+        p.closed_at ?? null,
       );
       for (const e of p.entries ?? []) {
         insertEntry.run(

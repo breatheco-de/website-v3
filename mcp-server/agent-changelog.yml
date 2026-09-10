@@ -6,6 +6,45 @@ window_days: 6
 
 entries:
   - date: "2026-09-10"
+    summary: "list_products / get_product / update_product replace audience-only tools; store visibility human-only"
+    agent_impact:
+      - "New tools: list_products (inventory), get_product (sidecar), update_product (offer/personas/metadata, confirm:true). Removed get_product_audience / update_product_audience — reconnect MCP."
+      - "Sellable (purchasable) and store pause (actively_selling) are human-only. Agents propose_change notes; staff use Store. MCP refuses those fields."
+      - "Vague site/brand about → list_products then get_product. explain_site overview includes live products table. Playbook v2."
+    paths:
+      - mcp-server/tools/product.ts
+      - mcp-server/explain/product.md
+      - mcp-server/explain/overview.md
+      - mcp-server/lib/mcp-playbook.ts
+      - shared/mcp-tool-catalog.ts
+      - server/product/product-io.ts
+    tools_changed: true
+  - date: "2026-09-10"
+    summary: "Agentic write gates: draft free; live needs same-locale issue claim; publish via proposal"
+    agent_impact:
+      - "On /mcp/role/<agentic>: draft/variant writes allowed; live writes need an active claim for that contentType/slug/locale (TTL refreshes on live write). promote/publish_draft/convert_to_draft/create_entry → propose_change (edits)."
+      - "Stuck on a claimed issue → update_issue release with report; do not open a notes proposal just to hand off. Unscoped /mcp (staff) unchanged."
+      - "Reconnect MCP; re-bootstrap_agent for conventions v11."
+    paths:
+      - mcp-server/lib/agentic-write-gate.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/agent-conventions.md
+      - mcp-server/explain/proposals.md
+      - server/services/validationCacheService.ts
+      - server/routes/validation.ts
+    tools_changed: false
+  - date: "2026-09-10"
+    summary: "Notes close with reasons + no_auto_retry (replace acknowledge-as-success)"
+    agent_impact:
+      - "Notes stay open as wall handoffs. close (acknowledge alias) needs close_reason + close_note (except wont_fix); no YAML change; not four-eyes."
+      - "Notes default no_auto_retry; second notes on same related_issue_id → notes_no_auto_retry (join existing). MCP must claim before set_no_auto_retry."
+      - "Reconnect MCP; re-bootstrap_agent. Prefer edits proposals for real fixes."
+    paths:
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/proposals.md
+      - server/content-proposals/service.ts
+    tools_changed: true
+  - date: "2026-09-10"
     summary: "Product sidecar _product.yml + audience (offer/personas) + funnel product+persona bindings"
     agent_impact:
       - "Product declaration is programs/{slug}/_product.yml (legacy _ecommerce.yml dual-read). Audience: get_product_audience / update_product_audience (confirm:true). Persona ids immutable; cannot demote while pages bind."

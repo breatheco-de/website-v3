@@ -457,7 +457,7 @@ export function writeMappedFields(
     return {
       success: false,
       error:
-        "purchasable is a computed system field (from _product.yml). Do not write it on the entry. Edit programs/{slug}/_product.yml or use get_product_funnel.",
+        "purchasable is a computed system field (from _product.yml). Do not write it on the entry. Edit programs/{slug}/_product.yml (staff Store) or use get_product / update_product for audience.",
       statusCode: 400,
     };
   }

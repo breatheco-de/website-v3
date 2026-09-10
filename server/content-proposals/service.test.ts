@@ -124,7 +124,7 @@ describe("content proposals", () => {
     }
   });
 
-  it("blocks four-eyes apply and acknowledge", async () => {
+  it("blocks four-eyes apply; close allows proposer with a reason", async () => {
     const svc = makeService();
     const created = await svc.create(
       {
@@ -150,8 +150,15 @@ describe("content proposals", () => {
     );
     expect(notes.ok).toBe(true);
     if (!notes.ok) return;
-    const ackSelf = await svc.update(notes.proposal.id, "acknowledge", { username: "alice" });
-    expect(ackSelf.ok).toBe(false);
+    expect(notes.proposal.no_auto_retry).toBe(true);
+    const closeSelf = await svc.update(notes.proposal.id, "close", {
+      username: "alice",
+      close_reason: "wont_fix",
+    });
+    expect(closeSelf.ok).toBe(true);
+    if (!closeSelf.ok) return;
+    expect(closeSelf.proposal.status).toBe("finished");
+    expect(closeSelf.proposal.close_reason).toBe("wont_fix");
   });
 
   it("applies remaining entries, skips done, marks stale, and rolls up partial then finished", async () => {
@@ -268,7 +275,7 @@ describe("content proposals", () => {
     expect(created.ok).toBe(true);
   });
 
-  it("acknowledges notes by a different user", async () => {
+  it("closes notes with reason; acknowledge alias requires same fields", async () => {
     const svc = makeService();
     const created = await svc.create(
       {
@@ -280,10 +287,111 @@ describe("content proposals", () => {
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     expect(created.proposal.kind).toBe("notes");
-    const ack = await svc.update(created.proposal.id, "acknowledge", { username: "bob" });
+    const missing = await svc.update(created.proposal.id, "acknowledge", { username: "bob" });
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.code).toBe("close_reason_required");
+
+    const ack = await svc.update(created.proposal.id, "acknowledge", {
+      username: "bob",
+      close_reason: "fixed_elsewhere",
+      close_note: "Shipped via edits proposal abc-123 after manual cluster fix.",
+    });
     expect(ack.ok).toBe(true);
     if (!ack.ok) return;
     expect(ack.proposal.status).toBe("finished");
+    expect(ack.proposal.close_reason).toBe("fixed_elsewhere");
+    expect(ack.proposal.closed_by).toBe("bob");
+  });
+
+  it("blocks duplicate notes on same issue when no_auto_retry; edits still allowed", async () => {
+    const svc = makeService();
+    const summary =
+      "Tried updating meta then hit a permission wall; recommend setting the title from H1. ".repeat(2);
+    const first = await svc.create(
+      { title: "Handoff A", summary, related_issue_ids: ["iss-1"] },
+      { username: "alice" },
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const second = await svc.create(
+      {
+        title: "Handoff B",
+        summary: `${summary} Different wording to bypass fingerprint.`,
+        related_issue_ids: ["iss-1"],
+      },
+      { username: "bob" },
+    );
+    expect(second.ok).toBe(false);
+    if (!second.ok) {
+      expect(second.code).toBe("notes_no_auto_retry");
+      expect(second.existing_proposal?.id).toBe(first.proposal.id);
+    }
+    const edits = await svc.create(
+      {
+        title: "Fix",
+        summary: "Replace the live CTA title with a clearer next step for this Spanish blog post. ".repeat(2),
+        related_issue_ids: ["iss-1"],
+        entries: [sampleEntry()],
+      },
+      { username: "bob" },
+    );
+    expect(edits.ok).toBe(true);
+  });
+
+  it("allows freestanding duplicate-ish notes without related issues", async () => {
+    const svc = makeService();
+    const summary =
+      "Tried updating meta then hit a permission wall; recommend setting the title from H1. ".repeat(2);
+    const first = await svc.create({ title: "Handoff A", summary }, { username: "alice" });
+    const second = await svc.create(
+      { title: "Handoff B", summary: `${summary} Extra.` },
+      { username: "bob" },
+    );
+    expect(first.ok && second.ok).toBe(true);
+  });
+
+  it("MCP must claim before clearing no_auto_retry; staff UI need not", async () => {
+    const svc = makeService();
+    const created = await svc.create(
+      {
+        title: "Handoff",
+        summary: "Tried updating meta then hit a permission wall; recommend setting the title from H1. ".repeat(2),
+        related_issue_ids: ["iss-2"],
+      },
+      { username: "alice" },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const mcpDenied = await svc.update(created.proposal.id, "set_no_auto_retry", {
+      username: "bob",
+      actor: { type: "mcp", client: "cursor" },
+      no_auto_retry: false,
+    });
+    expect(mcpDenied.ok).toBe(false);
+    if (!mcpDenied.ok) expect(mcpDenied.code).toBe("not_claimant");
+
+    await svc.update(created.proposal.id, "claim", {
+      username: "bob",
+      actor: { type: "mcp", client: "cursor" },
+    });
+    const mcpOk = await svc.update(created.proposal.id, "set_no_auto_retry", {
+      username: "bob",
+      actor: { type: "mcp", client: "cursor" },
+      no_auto_retry: false,
+    });
+    expect(mcpOk.ok).toBe(true);
+    if (!mcpOk.ok) return;
+    expect(mcpOk.proposal.no_auto_retry).toBe(false);
+
+    const staffOk = await svc.update(created.proposal.id, "set_no_auto_retry", {
+      username: "carol",
+      actor: { type: "ui" },
+      no_auto_retry: true,
+    });
+    expect(staffOk.ok).toBe(true);
+    if (!staffOk.ok) return;
+    expect(staffOk.proposal.no_auto_retry).toBe(true);
   });
 
   it("stats counts by status and kind; list supports offset", async () => {

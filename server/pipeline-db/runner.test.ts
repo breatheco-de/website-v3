@@ -246,6 +246,166 @@ describe("pipeline-db runner", () => {
     rmSite(site);
   });
 
+  it("adds close/no_auto_retry columns and backfills open notes when upgrading from v10-shaped DB", () => {
+    const site = `${TEST_PREFIX}-v10-close-${Date.now()}`;
+    rmSite(site);
+    fs.mkdirSync(siteDir(site), { recursive: true });
+    const raw = new Database(dbPath(site));
+    const now = Date.now();
+    raw.exec(`
+      CREATE TABLE events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        site TEXT NOT NULL,
+        resource_json TEXT NOT NULL DEFAULT '{}',
+        cause TEXT,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        triggered_by_event_id INTEGER,
+        triggered_by_event_ids_json TEXT,
+        attribution_json TEXT NOT NULL DEFAULT '[]',
+        published INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        agent_session_id TEXT
+      );
+      CREATE TABLE pipeline_schema_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO pipeline_schema_version (id, version) VALUES (1, 10);
+      CREATE TABLE pipeline_state (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+      CREATE TABLE leases (
+        resource TEXT PRIMARY KEY,
+        holder TEXT NOT NULL,
+        token INTEGER NOT NULL DEFAULT 1,
+        expires_at INTEGER NOT NULL
+      );
+      CREATE TABLE content_proposals (
+        id TEXT PRIMARY KEY,
+        site TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        status TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        category TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        rationale TEXT,
+        documentation_json TEXT NOT NULL DEFAULT '{}',
+        related_issue_ids_json TEXT NOT NULL DEFAULT '[]',
+        proposer_username TEXT NOT NULL,
+        proposer_actor_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        claim_json TEXT,
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        search_text TEXT NOT NULL DEFAULT '',
+        created_agent_session_id TEXT,
+        promote_on_apply INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE content_proposal_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        proposal_id TEXT NOT NULL,
+        entry_key TEXT NOT NULL,
+        locale TEXT NOT NULL,
+        variant TEXT,
+        variant_fingerprint TEXT,
+        status TEXT NOT NULL,
+        ops_json TEXT NOT NULL DEFAULT '[]',
+        baseline_context_json TEXT NOT NULL DEFAULT '{}',
+        last_error TEXT,
+        applied_at INTEGER,
+        applied_by TEXT
+      );
+      CREATE TABLE content_proposal_blockers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        proposal_id TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'blocker',
+        body TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        author TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        resolved_at INTEGER,
+        resolved_by TEXT,
+        resolve_note TEXT,
+        agent_session_id TEXT
+      );
+    `);
+    raw
+      .prepare(
+        `INSERT INTO content_proposals (
+          id, site, fingerprint, status, kind, category, title, summary,
+          documentation_json, related_issue_ids_json, proposer_username, proposer_actor_json,
+          created_at, updated_at, tags_json, search_text, promote_on_apply
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      )
+      .run(
+        "notes-open-1",
+        site,
+        "fp-notes",
+        "open",
+        "notes",
+        "content.field",
+        "Wall",
+        "x".repeat(80),
+        "{}",
+        "[]",
+        "alice",
+        "{}",
+        now,
+        now,
+        "[]",
+        "wall",
+        0,
+      );
+    raw
+      .prepare(
+        `INSERT INTO content_proposals (
+          id, site, fingerprint, status, kind, category, title, summary,
+          documentation_json, related_issue_ids_json, proposer_username, proposer_actor_json,
+          created_at, updated_at, tags_json, search_text, promote_on_apply
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      )
+      .run(
+        "edits-open-1",
+        site,
+        "fp-edits",
+        "open",
+        "edits",
+        "content.field",
+        "Edit",
+        "y".repeat(80),
+        "{}",
+        "[]",
+        "alice",
+        "{}",
+        now,
+        now,
+        "[]",
+        "edit",
+        0,
+      );
+    raw.close();
+
+    ensurePipelineDb(site, { skipBackup: true });
+    expect(getPipelineSchemaVersion(site)).toBe(PIPELINE_SCHEMA_VERSION);
+    const db = new Database(dbPath(site), { readonly: true });
+    expect(
+      db.prepare("SELECT 1 FROM pragma_table_info('content_proposals') WHERE name = 'no_auto_retry'").get(),
+    ).toBeDefined();
+    expect(
+      db.prepare("SELECT 1 FROM pragma_table_info('content_proposals') WHERE name = 'close_reason'").get(),
+    ).toBeDefined();
+    const notesFlag = db
+      .prepare(`SELECT no_auto_retry AS n FROM content_proposals WHERE id = 'notes-open-1'`)
+      .get() as { n: number };
+    const editsFlag = db
+      .prepare(`SELECT no_auto_retry AS n FROM content_proposals WHERE id = 'edits-open-1'`)
+      .get() as { n: number };
+    db.close();
+    expect(notesFlag.n).toBe(1);
+    expect(editsFlag.n).toBe(0);
+    rmSite(site);
+  });
+
   it("rewrites mcp attribution on system job follow-ups when upgrading from v8", () => {
     const site = `${TEST_PREFIX}-v8-system-attr-${Date.now()}`;
     rmSite(site);

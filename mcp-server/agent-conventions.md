@@ -65,9 +65,18 @@ If the page were already live and you edited the live locale directly
 (no `variant` param, `confirm_live_edit: true`), the link would omit
 `?force_variant=draft` entirely.
 
-### 2. If you cannot write, propose — and link issues
+### 2. Agentic roles: drafts free; live needs claim; publish via proposal
 
-When `update_fields` (or another mutate) is forbidden, call `propose_change` instead of pasting JSON in chat. If you cannot complete a validation issue, leave a proposal (`related_issue_ids`) with the edits or the steps you tried, then `update_issue` release.
+On an agentic swarm role connector (`/mcp/role/…`), write policy is enforced:
+
+- **Draft / variant writes** (any locale): allowed with your edit caps — no issue claim required.
+- **Live writes** (omit `variant`): allowed only while you hold an **active claim** on a validation issue for that **content type + slug + locale**. Successful live writes refresh the claim TTL (~30m).
+- **Publish / promote / demote / create_entry**: denied — open an **edits** `propose_change` (field updates and/or `promote_on_apply`). Notes are reminders only (close with a reason; no YAML).
+- **Stuck on a claimed issue:** `update_issue` **release** with a report (what you tried). Do **not** invent a proposal for that handoff — the issue stays in the open queue / can reopen for the next agent.
+
+Staff unscoped `/mcp` is unchanged (no agentic gate).
+
+When caps forbid a write (any connector), call `propose_change` (prefer **edits**) instead of pasting JSON in chat.
 
 **Worked example:** missing `content_edit_text` on a blog CTA → `propose_change` with that entry’s `updates[]`, then tell the human a different editor must `update_proposal` with `action: "apply"`.
 

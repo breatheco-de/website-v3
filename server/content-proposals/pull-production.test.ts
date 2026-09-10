@@ -41,6 +41,11 @@ function sampleSnapshot(overrides: Partial<ProposalRecord> = {}): ProposalRecord
     promote_on_apply: false,
     review_mode: "soft",
     open_blocker_count: 1,
+    no_auto_retry: false,
+    close_reason: null,
+    close_note: null,
+    closed_by: null,
+    closed_at: null,
     entries: [
       {
         id: 42,

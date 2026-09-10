@@ -8,7 +8,7 @@ import {
   type SystemJobFollowUpType,
 } from "../events/types";
 
-export const PIPELINE_SCHEMA_VERSION = 10;
+export const PIPELINE_SCHEMA_VERSION = 11;
 
 export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
   {
@@ -253,6 +253,37 @@ export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
         CREATE INDEX IF NOT EXISTS idx_content_proposal_blockers_proposal
           ON content_proposal_blockers(proposal_id, status);
       `);
+    },
+  },
+  {
+    version: 11,
+    name: "content_proposals_close_no_auto_retry",
+    up(db) {
+      if (!tableExists(db, "content_proposals")) return;
+      if (!tableHasColumn(db, "content_proposals", "close_reason")) {
+        db.exec("ALTER TABLE content_proposals ADD COLUMN close_reason TEXT");
+      }
+      if (!tableHasColumn(db, "content_proposals", "close_note")) {
+        db.exec("ALTER TABLE content_proposals ADD COLUMN close_note TEXT");
+      }
+      if (!tableHasColumn(db, "content_proposals", "closed_by")) {
+        db.exec("ALTER TABLE content_proposals ADD COLUMN closed_by TEXT");
+      }
+      if (!tableHasColumn(db, "content_proposals", "closed_at")) {
+        db.exec("ALTER TABLE content_proposals ADD COLUMN closed_at INTEGER");
+      }
+      if (!tableHasColumn(db, "content_proposals", "no_auto_retry")) {
+        db.exec(
+          "ALTER TABLE content_proposals ADD COLUMN no_auto_retry INTEGER NOT NULL DEFAULT 0",
+        );
+      }
+      if (tableHasColumn(db, "content_proposals", "kind")) {
+        db.exec(`
+          UPDATE content_proposals
+          SET no_auto_retry = 1
+          WHERE kind = 'notes' AND status IN ('open', 'partial')
+        `);
+      }
     },
   },
 ];

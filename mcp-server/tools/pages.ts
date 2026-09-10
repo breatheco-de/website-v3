@@ -20,6 +20,10 @@ import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sa
 import { notifyMcpContentWrite } from "../lib/content-write-notify.js";
 import { checkCap, denyResponse, denyWriteSuggestPropose, denyUnlessContentView, denyUnlessContentViewOrSeo } from "../lib/auth.js";
 import {
+  assertAgenticContentWriteAllowed,
+  refreshAgenticClaimAfterLiveWrite,
+} from "../lib/agentic-write-gate.js";
+import {
   grantsCanMutateMetrics,
   hasCapAnyScope,
   visibleContentTypes,
@@ -306,6 +310,22 @@ function internalHeaders(
   opts?: { agentSessionId?: string; omitJsonContentType?: boolean },
 ): Record<string, string> {
   return buildLoopbackHeaders(mcpToken, opts);
+}
+
+/** Agentic draft/live/publish gate. Returns deny response or whether to refresh claim after success. */
+async function runAgenticWriteGate(opts: {
+  mcpToken?: string;
+  contentType: string;
+  slug: string;
+  locale: string;
+  variant?: string | null;
+  intent?: "draft" | "live" | "publish" | "create_entry";
+  domain?: string;
+  site?: string;
+}): Promise<{ deny: McpTextResult } | { shouldRefreshClaim: boolean }> {
+  const gate = await assertAgenticContentWriteAllowed(opts);
+  if (!gate.allowed) return { deny: gate.response };
+  return { shouldRefreshClaim: gate.shouldRefreshClaim };
 }
 
 /**
@@ -3302,6 +3322,17 @@ export function registerPageTools(
         }
       }
 
+      const agenticGate = await runAgenticWriteGate({
+        mcpToken,
+        contentType: resolved.contentType,
+        slug,
+        locale,
+        variant,
+        domain,
+        site,
+      });
+      if ("deny" in agenticGate) return agenticGate.deny;
+
       const liveGate = confirmLiveEditGate({
         tool: "update_fields",
         slug,
@@ -3385,6 +3416,15 @@ export function registerPageTools(
                 ...(site ? { site } : {}),
               },
               priority: "recommended",
+            });
+          }
+          if (agenticGate.shouldRefreshClaim) {
+            await refreshAgenticClaimAfterLiveWrite({
+              mcpToken,
+              contentType: ct,
+              slug,
+              locale,
+              domain,
             });
           }
           return ok(
@@ -3949,6 +3989,16 @@ export function registerPageTools(
         );
       }
 
+      if (agenticGate.shouldRefreshClaim) {
+        await refreshAgenticClaimAfterLiveWrite({
+          mcpToken,
+          contentType: resolved.contentType,
+          slug,
+          locale,
+          domain,
+        });
+      }
+
       return ok(
         {
           message: `Applied ${updates.length} update(s) to ${resolved.contentType}/${slug}: ${results.join("; ")}`,
@@ -4023,6 +4073,21 @@ export function registerPageTools(
         return denyResponse("seo_edit", contentType);
       }
 
+      let refreshAnyClaim = false;
+      for (const s of slugs) {
+        const agenticGate = await runAgenticWriteGate({
+          mcpToken,
+          contentType,
+          slug: s,
+          locale,
+          variant,
+          domain,
+          site,
+        });
+        if ("deny" in agenticGate) return agenticGate.deny;
+        if (agenticGate.shouldRefreshClaim) refreshAnyClaim = true;
+      }
+
       try {
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/bulk-update-meta${
           domain ? `?__site=${encodeURIComponent(domain)}` : ""
@@ -4049,6 +4114,19 @@ export function registerPageTools(
         }
 
         const results = (data.results as Array<Record<string, unknown>>) || [];
+        if (refreshAnyClaim) {
+          for (const r of results) {
+            if (r.ok && typeof r.slug === "string") {
+              await refreshAgenticClaimAfterLiveWrite({
+                mcpToken,
+                contentType,
+                slug: r.slug,
+                locale,
+                domain,
+              });
+            }
+          }
+        }
         const warnings: McpWarning[] = [
           {
             code: "bulk_meta_coalesced_flush",
@@ -4179,7 +4257,7 @@ export function registerPageTools(
       }
       if (field === PURCHASABLE_FIELD) {
         return fail(
-          "purchasable is a computed system field (from _product.yml). Do not write it. Edit the sidecar or use get_product_funnel.",
+          "purchasable is a computed system field (from _product.yml). Do not write it. Edit the sidecar via staff Store / update_product (audience) or list_products.",
         );
       }
       if (isKnownSeoFieldPath(field) || field === `${SEO_YAML_KEY}.pillar`) {
@@ -4196,6 +4274,26 @@ export function registerPageTools(
       }
       if (mcpToken && !(await checkCap(mcpToken, "content_edit_text", resolved.contentType))) {
         return denyWriteSuggestPropose("content_edit_text", resolved.contentType);
+      }
+
+      const agenticGate = await runAgenticWriteGate({
+        mcpToken,
+        contentType: resolved.contentType,
+        slug,
+        locale,
+        variant,
+        domain,
+        site,
+      });
+      if ("deny" in agenticGate) return agenticGate.deny;
+      if (agenticGate.shouldRefreshClaim) {
+        await refreshAgenticClaimAfterLiveWrite({
+          mcpToken,
+          contentType: resolved.contentType,
+          slug,
+          locale,
+          domain,
+        });
       }
 
       const ct = resolved.contentType;
@@ -4518,7 +4616,7 @@ export function registerPageTools(
                   writable: false,
                   system_hints: [
                     "Computed from _product.yml (slug is in the product index).",
-                    "Do not write via update_fields / update_entry_field. Edit _product.yml or use get_product_funnel.",
+                    "Do not write via update_fields / update_entry_field. Edit _product.yml via staff Store or get_product / update_product.",
                     "Lead-form catalogs filter with source.query purchasable=true — not actively_selling.",
                   ],
                 };
@@ -4864,6 +4962,19 @@ export function registerPageTools(
         }
       }
 
+      {
+        const agenticGate = await runAgenticWriteGate({
+          mcpToken,
+          contentType,
+          slug,
+          locale: "en",
+          intent: "publish",
+          domain,
+          site,
+        });
+        if ("deny" in agenticGate) return agenticGate.deny;
+      }
+
       try {
         // Entry slug as-is (same as promote_variant) — do not remap attached entries to "single".
         const versioningSlug = slug;
@@ -4986,6 +5097,19 @@ export function registerPageTools(
         if (!await checkCap(mcpToken, "content_promote_variant", contentType)) {
           return denyResponse("content_promote_variant", contentType);
         }
+      }
+
+      {
+        const agenticGate = await runAgenticWriteGate({
+          mcpToken,
+          contentType,
+          slug,
+          locale,
+          intent: "publish",
+          domain,
+          site,
+        });
+        if ("deny" in agenticGate) return agenticGate.deny;
       }
 
       const configs = loadContentTypes(contentPath);
@@ -5360,6 +5484,19 @@ export function registerPageTools(
         }
       }
 
+      {
+        const agenticGate = await runAgenticWriteGate({
+          mcpToken,
+          contentType,
+          slug,
+          locale,
+          intent: "publish",
+          domain,
+          site,
+        });
+        if ("deny" in agenticGate) return agenticGate.deny;
+      }
+
       const configs = loadContentTypes(contentPath);
       const config = configs[contentType];
       const sharedLayout = config ? isSharedLayoutConfig(config) : false;
@@ -5578,6 +5715,21 @@ export function registerPageTools(
         if (!await checkCap(mcpToken, "content_create_entry", contentType)) {
           return denyResponse("content_create_entry", contentType);
         }
+      }
+
+      {
+        const primaryLocale =
+          Object.keys(locales).find((l) => l === "en") || Object.keys(locales)[0] || "en";
+        const agenticGate = await runAgenticWriteGate({
+          mcpToken,
+          contentType,
+          slug,
+          locale: primaryLocale,
+          intent: "create_entry",
+          domain,
+          site,
+        });
+        if ("deny" in agenticGate) return agenticGate.deny;
       }
 
       const sharedLayoutCreate = isSharedLayoutConfig(config) || !!config.single_template;
@@ -6070,6 +6222,26 @@ export function registerPageTools(
         }
       }
 
+      const agenticGate = await runAgenticWriteGate({
+        mcpToken,
+        contentType: resolved.contentType,
+        slug,
+        locale,
+        variant,
+        domain,
+        site,
+      });
+      if ("deny" in agenticGate) return agenticGate.deny;
+      if (agenticGate.shouldRefreshClaim) {
+        await refreshAgenticClaimAfterLiveWrite({
+          mcpToken,
+          contentType: resolved.contentType,
+          slug,
+          locale,
+          domain,
+        });
+      }
+
       const liveGate = confirmLiveEditGate({
         tool: "add_section",
         slug,
@@ -6327,6 +6499,26 @@ export function registerPageTools(
         }
       }
 
+      const agenticGate = await runAgenticWriteGate({
+        mcpToken,
+        contentType: resolved.contentType,
+        slug,
+        locale,
+        variant,
+        domain,
+        site,
+      });
+      if ("deny" in agenticGate) return agenticGate.deny;
+      if (agenticGate.shouldRefreshClaim) {
+        await refreshAgenticClaimAfterLiveWrite({
+          mcpToken,
+          contentType: resolved.contentType,
+          slug,
+          locale,
+          domain,
+        });
+      }
+
       const liveGate = confirmLiveEditGate({
         tool: "remove_section",
         slug,
@@ -6500,6 +6692,26 @@ export function registerPageTools(
         if (!await checkCap(mcpToken, "content_edit_structure", resolved.contentType)) {
           return denyResponse("content_edit_structure", resolved.contentType);
         }
+      }
+
+      const agenticGate = await runAgenticWriteGate({
+        mcpToken,
+        contentType: resolved.contentType,
+        slug,
+        locale,
+        variant,
+        domain,
+        site,
+      });
+      if ("deny" in agenticGate) return agenticGate.deny;
+      if (agenticGate.shouldRefreshClaim) {
+        await refreshAgenticClaimAfterLiveWrite({
+          mcpToken,
+          contentType: resolved.contentType,
+          slug,
+          locale,
+          domain,
+        });
       }
 
       const liveGate = confirmLiveEditGate({
@@ -6690,6 +6902,26 @@ export function registerPageTools(
         if (!await checkCap(mcpToken, "content_edit_structure", resolved.contentType)) {
           return denyResponse("content_edit_structure", resolved.contentType);
         }
+      }
+
+      const agenticGate = await runAgenticWriteGate({
+        mcpToken,
+        contentType: resolved.contentType,
+        slug,
+        locale,
+        variant,
+        domain,
+        site,
+      });
+      if ("deny" in agenticGate) return agenticGate.deny;
+      if (agenticGate.shouldRefreshClaim) {
+        await refreshAgenticClaimAfterLiveWrite({
+          mcpToken,
+          contentType: resolved.contentType,
+          slug,
+          locale,
+          domain,
+        });
       }
 
       const liveGate = confirmLiveEditGate({
@@ -7051,6 +7283,29 @@ export function registerPageTools(
           reason = "new_locale_starts_as_draft";
         }
         writeAsDraft = true;
+      }
+
+      {
+        const agenticGate = await runAgenticWriteGate({
+          mcpToken,
+          contentType: resolved.contentType,
+          slug,
+          locale: target_locale,
+          variant: writeAsDraft ? "draft" : undefined,
+          intent: writeAsDraft ? "draft" : "live",
+          domain,
+          site,
+        });
+        if ("deny" in agenticGate) return agenticGate.deny;
+        if (agenticGate.shouldRefreshClaim) {
+          await refreshAgenticClaimAfterLiveWrite({
+            mcpToken,
+            contentType: resolved.contentType,
+            slug,
+            locale: target_locale,
+            domain,
+          });
+        }
       }
 
       const targetFileName = writeAsDraft ? `draft.${target_locale}.yml` : `${target_locale}.yml`;
@@ -7451,6 +7706,28 @@ export function registerPageTools(
       if (mcpToken) {
         if (!await checkCap(mcpToken, "content_edit_structure", contentType)) {
           return denyResponse("content_edit_structure", contentType);
+        }
+      }
+
+      {
+        const agenticGate = await runAgenticWriteGate({
+          mcpToken,
+          contentType,
+          slug,
+          locale: previewLocale,
+          intent: "live",
+          domain,
+          site,
+        });
+        if ("deny" in agenticGate) return agenticGate.deny;
+        if (agenticGate.shouldRefreshClaim) {
+          await refreshAgenticClaimAfterLiveWrite({
+            mcpToken,
+            contentType,
+            slug,
+            locale: previewLocale,
+            domain,
+          });
         }
       }
 
@@ -7887,6 +8164,18 @@ export function registerPageTools(
       const { domain } = siteResult;
       if (!mcpToken || !(await checkCap(mcpToken, "content_delete_entry", contentType))) {
         return denyResponse("content_delete_entry", contentType);
+      }
+      for (const s of slugs) {
+        const agenticGate = await runAgenticWriteGate({
+          mcpToken,
+          contentType,
+          slug: s,
+          locale: "en",
+          intent: "live",
+          domain,
+          site,
+        });
+        if ("deny" in agenticGate) return agenticGate.deny;
       }
       try {
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/delete-entries${

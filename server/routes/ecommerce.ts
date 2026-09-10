@@ -20,6 +20,7 @@ import { resolveComponentBehaviors } from "@shared/component-behaviors";
 import { buildProductFunnelJourney } from "../ecommerce/funnel-journey";
 import { FUNNEL_STAGES } from "@shared/funnel";
 import { audienceStatus } from "@shared/productAudience";
+import { listProductRows } from "../product/product-io";
 import { api } from "../rate-limit/api.js";
 import { child } from "../logger";
 
@@ -169,7 +170,7 @@ function scanEcommerceComponentUsage(): Array<{
 export function registerEcommerceRoutes(app: Express): void {
   app.get("/api/ecommerce/products", (_req, res) => {
     try {
-      const products = ecommerceManager.getAllProducts();
+      const products = ecommerceManager.listAllProducts({ includePaused: true });
       res.json({ products, settings: ecommerceManager.getSettings() });
     } catch (err) {
       log.error({ err }, "[EcommerceRoutes] GET /api/ecommerce/products:");
@@ -179,18 +180,9 @@ export function registerEcommerceRoutes(app: Express): void {
 
   app.get("/api/ecommerce/product-map", (_req, res) => {
     try {
-      const products = ecommerceManager.getAllProducts().map((p) => ({
-        product_id: p.product_id,
-        name: p.name,
-        content_type: p.content_type,
-        content_slug: p.content_slug,
-        actively_selling: p.actively_selling,
+      const products = listProductRows({ includePaused: true }).map((p) => ({
+        ...p,
         active: p.actively_selling,
-        audience_status: audienceStatus(p.audience),
-        personas: (p.audience?.personas ?? []).map((persona) => ({
-          id: persona.id,
-          label: persona.label || persona.role,
-        })),
       }));
       res.json({ products });
     } catch (err) {
@@ -269,7 +261,8 @@ export function registerEcommerceRoutes(app: Express): void {
             "{contentType}/{slug}/_common.yml → funnel.stage, funnel.products",
             "{contentType}/{slug}/_product.yml → offer, personas",
             "GET /api/content-types/:type/funnel/:slug",
-            "GET /api/product/:slug/audience",
+            "GET /api/product/:slug",
+            "GET /api/product",
             "server/ecommerce/funnel-journey.ts",
             "shared/funnel.ts",
             "mcp-server/explain/product.md",

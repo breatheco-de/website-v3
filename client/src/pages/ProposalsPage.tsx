@@ -1,30 +1,49 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import {
   IconAlertTriangle,
   IconArrowsSort,
+  IconBan,
   IconCheck,
+  IconChevronLeft,
+  IconCircleCheck,
+  IconCircleX,
   IconCloudDownload,
-  IconDots,
+  IconExternalLink,
   IconFilter,
   IconInbox,
+  IconInfoCircle,
+  IconLink,
   IconLoader2,
+  IconLock,
+  IconLockOpen,
   IconSearch,
+  IconX,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { getDebugUserName } from "@/hooks/useDebugAuth";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -34,11 +53,30 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  CLOSE_NOTE_MIN,
+  PROPOSAL_CLOSE_REASON_OPTIONS,
+  closeNoteRequired,
+  type ProposalCloseReasonValue,
+} from "@/lib/proposalCloseReason";
+import { minLengthHint } from "@/lib/minLengthHint";
 import { ProposalListFiltersDialog } from "@/components/agents/ProposalListFiltersDialog";
 import {
   ProposalListCard,
   ProposalListCardSkeleton,
+  ProposalMetaRow,
 } from "@/components/agents/ProposalListCard";
+import { ProposalFieldDiff } from "@/components/agents/ProposalFieldDiff";
+import { ValidationIssueDetailModal } from "@/components/diagnostics/ValidationIssueDetailModal";
 import { apiFetch, apiRequestWithAuth } from "@/lib/queryClient";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { useToast } from "@/hooks/use-toast";
@@ -103,6 +141,11 @@ type Proposal = {
   review_mode?: string;
   promote_on_apply?: boolean;
   open_blocker_count?: number;
+  no_auto_retry?: boolean;
+  close_reason?: string | null;
+  close_note?: string | null;
+  closed_by?: string | null;
+  closed_at?: number | null;
   proposer_username: string;
   proposer_actor?: Record<string, unknown>;
   related_issue_ids: string[];
@@ -136,31 +179,242 @@ function previewHref(entry: EntryRow): string | null {
   return `/private/preview/${encodeURIComponent(entry.contentType)}/${encodeURIComponent(entry.slug)}?locale=${encodeURIComponent(entry.locale)}&force_variant=${encodeURIComponent(entry.variant)}`;
 }
 
-function ProposalStatusChip({ status }: { status: string }) {
-  const ui = proposalStatusUi(status);
-  const Icon = ui.icon;
+function proposalStatusExplain(
+  status: string,
+  kind: string,
+): { title: string; body: string; advanced: string[] } {
+  if (status === "open" && kind === "notes") {
+    return {
+      title: "Still being tracked",
+      body: "This handoff is on the open list as a reminder. Leave it open if work still needs doing, Claim if you are working it, or Close with a reason when you stop tracking it. Open does not change the live site.",
+      advanced: [
+        "Status stays open until Close, Withdraw, or Reject finishes the proposal.",
+        "No auto-retry (if on) only applies while the handoff stays open.",
+      ],
+    };
+  }
+  if (status === "open") {
+    return {
+      title: "Waiting for review",
+      body: "Suggested changes are not live yet. Someone else with edit access can Approve to apply them, or Reject. Open by itself does not change the live site.",
+      advanced: [
+        "Needs-change notes block Approve until the claimant marks them done.",
+        "Apply/Reject are four-eyes: the proposer cannot approve their own edits.",
+      ],
+    };
+  }
+  if (status === "partial") {
+    return {
+      title: "Partly applied",
+      body: "Some suggested entries from this proposal are already live; others still need Approve. The live site only changed for the entries that were applied.",
+      advanced: ["Remaining open entries can still be applied or the proposal can be rejected/withdrawn."],
+    };
+  }
+  if (status === "finished" && kind === "notes") {
+    return {
+      title: "Closed",
+      body: "This handoff is finished and off the open list. Closing did not change the live site or complete linked issues by itself.",
+      advanced: ["Close reason and note are stored on the proposal for later context."],
+    };
+  }
+  if (status === "finished") {
+    return {
+      title: "Finished",
+      body: "This proposal’s remaining work is done. Applied entries are live for their locales; nothing else is waiting on this card.",
+      advanced: ["Finished clears any active claim on the proposal."],
+    };
+  }
+  if (status === "rejected") {
+    return {
+      title: "Rejected",
+      body: "A reviewer rejected this proposal. It is no longer waiting for Approve. Reject does not undo entries that were already applied earlier.",
+      advanced: ["Reject is four-eyes on edits proposals."],
+    };
+  }
+  if (status === "withdrawn") {
+    return {
+      title: "Withdrawn",
+      body: "The proposer pulled this back. It is no longer waiting for review or tracking as an open handoff.",
+      advanced: ["Withdraw does not change the live site."],
+    };
+  }
+  return {
+    title: status || "Unknown status",
+    body: "This status is not one of the usual proposal states.",
+    advanced: [],
+  };
+}
+
+function ProposalStatusLabel({
+  status,
+  kind,
+  label,
+  className,
+}: {
+  status: string;
+  kind: string;
+  label: string;
+  className?: string;
+}) {
+  const [advanced, setAdvanced] = useState(false);
+  const explain = proposalStatusExplain(status, kind);
+
   return (
-    <span className={cn("inline-flex items-center gap-1 text-xs font-medium", ui.className)}>
-      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
-      {ui.label}
-    </span>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "inline-flex shrink-0 text-xs font-medium hover-elevate rounded-sm px-0.5 -mx-0.5",
+            className,
+          )}
+          data-testid="badge-proposal-status"
+          aria-label={`${label} — what this means`}
+        >
+          {label}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 space-y-3 text-sm" align="start" data-testid="popover-proposal-status">
+        <p className="font-medium text-foreground">{explain.title}</p>
+        <p className="text-muted-foreground leading-5">{explain.body}</p>
+        {explain.advanced.length > 0 ? (
+          <>
+            <button
+              type="button"
+              className="text-xs text-primary hover:underline"
+              data-testid="button-proposal-status-advanced"
+              onClick={() => setAdvanced((v) => !v)}
+            >
+              {advanced ? "Hide advanced" : "Read more (advanced)"}
+            </button>
+            {advanced ? (
+              <div className="space-y-1 border-t pt-2 text-xs text-muted-foreground leading-5">
+                {explain.advanced.map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </PopoverContent>
+    </Popover>
   );
 }
 
-function ProposalBlockersChip({ count }: { count: number }) {
-  if (count <= 0) {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-        <IconCheck className="h-3 w-3 shrink-0" aria-hidden />
-        Clear
-      </span>
-    );
-  }
+function HandoffKindBadge() {
+  const [advanced, setAdvanced] = useState(false);
+
   return (
-    <Badge variant="destructive" className="gap-1 font-normal">
-      <IconAlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
-      {count} blocker{count === 1 ? "" : "s"}
-    </Badge>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex shrink-0"
+          data-testid="badge-proposal-kind-handoff"
+          aria-label="Handoff — what this means"
+        >
+          <Badge variant="outline" className="cursor-pointer font-normal hover-elevate">
+            Handoff
+          </Badge>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 space-y-3 text-sm" align="start" data-testid="popover-handoff-kind">
+        <p className="font-medium text-foreground">A reminder note, not a content change</p>
+        <p className="text-muted-foreground leading-5">
+          Someone (often a coding agent) hit a wall and left this open so the next person can pick it
+          up. There is nothing to Approve — leave it open as a reminder, Claim if you are working it,
+          or Close with a reason when you stop tracking it. Closing does not change the live site.
+        </p>
+        <button
+          type="button"
+          className="text-xs text-primary hover:underline"
+          data-testid="button-handoff-kind-advanced"
+          onClick={() => setAdvanced((v) => !v)}
+        >
+          {advanced ? "Hide advanced" : "Read more (advanced)"}
+        </button>
+        {advanced ? (
+          <div className="space-y-1 border-t pt-2 text-xs text-muted-foreground leading-5">
+            <p>
+              Stored as proposal kind <code className="text-foreground">notes</code> — no field
+              updates or draft promote on apply.
+            </p>
+            <p>
+              Close is not four-eyes (unlike Approve/Reject on Edits). Prefer an Edits proposal when
+              there is a concrete fix to review.
+            </p>
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function NoAutoRetryBadge({
+  noAutoRetry,
+  disabled,
+  onNoAutoRetryChange,
+}: {
+  noAutoRetry: boolean;
+  disabled?: boolean;
+  onNoAutoRetryChange: (next: boolean) => void;
+}) {
+  const [advanced, setAdvanced] = useState(false);
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex shrink-0"
+          data-testid="badge-no-auto-retry"
+          aria-label={
+            noAutoRetry ? "No auto-retry — what this means" : "Retry allowed — what this means"
+          }
+        >
+          <Badge
+            variant={noAutoRetry ? "secondary" : "outline"}
+            className="cursor-pointer font-normal hover-elevate"
+          >
+            {noAutoRetry ? "No auto-retry" : "Retry allowed"}
+          </Badge>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 space-y-3 text-sm" align="start" data-testid="popover-no-auto-retry">
+        <p className="font-medium text-foreground">Blocks another proposal on the same issue</p>
+        <p className="text-muted-foreground leading-5">
+          While this reminder stays open, coding agents cannot open a second handoff note for the same
+          linked issue. That stops the same wall from being reported over and over.
+        </p>
+        <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+          <Label htmlFor="switch-no-auto-retry" className="text-xs leading-4 text-foreground">
+            Block another proposal on this issue
+          </Label>
+          <Switch
+            id="switch-no-auto-retry"
+            checked={noAutoRetry}
+            disabled={disabled}
+            onCheckedChange={onNoAutoRetryChange}
+            data-testid="switch-no-auto-retry"
+          />
+        </div>
+        <button
+          type="button"
+          className="text-xs text-primary hover:underline"
+          data-testid="button-no-auto-retry-advanced"
+          onClick={() => setAdvanced((v) => !v)}
+        >
+          {advanced ? "Hide advanced" : "Read more (advanced)"}
+        </button>
+        {advanced ? (
+          <div className="space-y-1 border-t pt-2 text-xs text-muted-foreground leading-5">
+            <p>New handoffs default to this block when they link an issue. Handoffs with no linked issue are not gated this way.</p>
+            <p>Staff can change this without claiming. Agents must claim first, then change the flag.</p>
+            <p>Closing or finishing this handoff ends the block for that issue link.</p>
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -282,10 +536,9 @@ export function ProposalListPanel() {
     <div className="space-y-5" data-testid="panel-agents-proposals">
       <div className="max-w-3xl">
         <p className="text-sm leading-6 text-muted-foreground">
-          Proposals are suggested entry changes or handoff notes. They do not change the live site until
-          someone else applies edits or acknowledges a notes handoff. Soft suggestions patch fields;
-          proposals that include a draft must be previewed before approve — go-live proposals promote that
-          draft. Open blockers mean not ready to approve (you can still reject).
+          Suggested entry changes wait for Approve or Reject (preview drafts first). Handoff notes stay
+          open when an agent hits a wall — leave them open as a reminder, or Close with a reason (that
+          does not change the live site). Needs changes (blockers) mean not ready to approve.
         </p>
         <Collapsible open={advanced} onOpenChange={setAdvanced}>
           <CollapsibleTrigger asChild>
@@ -295,7 +548,7 @@ export function ProposalListPanel() {
           </CollapsibleTrigger>
           <CollapsibleContent className="text-xs text-muted-foreground space-y-1 mt-1">
             <p>Stored in per-site SQLite (data/&lt;site&gt;/app.db). Exact fingerprint blocks clones; similar open proposals need confirm_distinct. One open proposal per draft variant.</p>
-            <p>MCP: propose_change and list_proposals need content_view or seo_edit. update_proposal needs content_edit_text or seo_edit. Apply is four-eyes. Claimant-only resolve for blockers.</p>
+            <p>Notes default to no auto-retry on linked issues. Close reasons: wont_fix, fixed_elsewhere, tracked_elsewhere, other. Apply/Reject are four-eyes; Close is not. MCP must claim before clearing no_auto_retry.</p>
             <p>Issue panels only list proposals linked to that issue. This page lists everything.</p>
           </CollapsibleContent>
         </Collapsible>
@@ -504,7 +757,7 @@ export function ProposalListPanel() {
                 <div className="space-y-1">
                   <p className="text-sm font-medium">No open proposals</p>
                   <p className="text-xs text-muted-foreground">
-                    Suggested entry changes and handoff notes show up here for review.
+                    Suggested entry changes and wall handoffs show up here for review.
                   </p>
                 </div>
               )}
@@ -525,6 +778,12 @@ export function ProposalDetailPanel({ id }: { id: string }) {
   const [resolveNotes, setResolveNotes] = useState<Record<number, string>>({});
   const [confirmExperiment, setConfirmExperiment] = useState(false);
   const [advanced, setAdvanced] = useState(false);
+  const [claimOpen, setClaimOpen] = useState(false);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [closeReason, setCloseReason] = useState<ProposalCloseReasonValue>("wont_fix");
+  const [closeNote, setCloseNote] = useState("");
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["/api/admin/proposals", id],
@@ -566,6 +825,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
 
   const p = data?.proposal;
   const mode = p ? reviewModeBadge(p) : null;
+  const ui = p ? proposalStatusUi(p.status) : null;
   const claimActive =
     p?.claim && new Date(p.claim.expiresAt).getTime() > Date.now() ? p.claim : null;
   const attribution = p
@@ -584,207 +844,513 @@ export function ProposalDetailPanel({ id }: { id: string }) {
   const blockersOpen = (p?.open_blocker_count ?? 0) > 0;
   const showPrimaryEdits = Boolean(p && p.kind === "edits" && !isTerminal);
   const showPrimaryNotes = Boolean(p && p.kind === "notes" && p.status === "open");
+  const viewerUsername = getDebugUserName().trim();
+  const isProposer =
+    Boolean(viewerUsername) &&
+    Boolean(p?.proposer_username) &&
+    viewerUsername.toLowerCase() === p!.proposer_username.trim().toLowerCase();
+  // Known identity: proposer sees Withdraw only; others see Reject (edits). Unknown: keep both.
+  const viewerKnown = Boolean(viewerUsername);
+  const showReject = Boolean(
+    p && p.kind === "edits" && !isTerminal && (!viewerKnown || !isProposer),
+  );
+  const showWithdraw = Boolean(p && !isTerminal && (!viewerKnown || isProposer));
   const primaryActionLabel = !p
     ? ""
     : p.kind === "notes"
-      ? "Acknowledge"
+      ? "Close this proposal"
       : p.promote_on_apply || p.review_mode === "draft_backed"
         ? confirmExperiment
           ? "Confirm end experiment & make draft live"
           : "Approve and make draft live"
         : "Apply remaining";
+  const closeNoteOk =
+    !closeNoteRequired(closeReason) || closeNote.trim().length >= CLOSE_NOTE_MIN;
+  const closeNoteHint = closeNoteRequired(closeReason)
+    ? minLengthHint(closeNote, CLOSE_NOTE_MIN)
+    : null;
+  const blockerHint =
+    blockerBody.trim().length > 0 ? minLengthHint(blockerBody, 80) : null;
+  const closeReasonLabel =
+    PROPOSAL_CLOSE_REASON_OPTIONS.find((o) => o.value === p?.close_reason)?.label ?? p?.close_reason;
+
+  const detailMeta: Array<{ key: string; node: ReactNode }> = [];
+  if (p && attribution) {
+    for (const line of attribution.lines) {
+      detailMeta.push({ key: `attr-${line}`, node: <span>{line}</span> });
+    }
+    if (attribution.expiredLine) {
+      detailMeta.push({
+        key: "expired",
+        node: <span className="text-muted-foreground/70">{attribution.expiredLine}</span>,
+      });
+    }
+    if (progress) {
+      detailMeta.push({
+        key: "progress",
+        node: (
+          <span className={progress.failed > 0 ? "font-medium text-destructive" : undefined}>
+            {progress.label}
+          </span>
+        ),
+      });
+    }
+    detailMeta.push({
+      key: "updated",
+      node: <span>Updated {formatProposalRelativeUpdatedAt(p.updated_at ?? p.created_at)}</span>,
+    });
+    if (claimActive) {
+      detailMeta.push({
+        key: "claim",
+        node: <span>Claim holds until {new Date(claimActive.expiresAt).toLocaleString()}</span>,
+      });
+    }
+  }
 
   return (
-    <div className="space-y-6" data-testid="panel-agents-proposal-detail">
-      <Button variant="ghost" size="sm" asChild>
-        <Link href={backHref}>Back</Link>
+    <div className="space-y-5" data-testid="panel-agents-proposal-detail">
+      <Button variant="ghost" asChild className="-ml-2 h-10 gap-1.5 px-3 text-sm text-muted-foreground">
+        <Link href={backHref}>
+          <IconChevronLeft className="h-5 w-5" />
+          All proposals
+        </Link>
       </Button>
-      {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
-      {p && mode && attribution && (
+      {isLoading && (
+        <Card className="space-y-3 p-5" data-testid="loading-proposal-detail">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-6 w-2/3" />
+          <Skeleton className="h-3 w-1/2" />
+        </Card>
+      )}
+      {p && mode && attribution && ui && (
         <>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-xl font-semibold">{p.title}</h2>
-            <ProposalStatusChip status={p.status} />
-            <Badge variant="outline" className="font-normal capitalize">
-              {p.kind}
-            </Badge>
-            <Badge variant={mode.variant}>{mode.label}</Badge>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <ProposalBlockersChip count={p.open_blocker_count ?? 0} />
-            {progress ? (
-              <span className={progress.failed > 0 ? "text-destructive" : undefined}>
-                {progress.label}
+          <Card className={cn("border-l-2", ui.accentClassName)}>
+            <div className="flex items-start gap-3 p-5">
+              <span
+                className={cn(
+                  "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                  ui.chipClassName,
+                )}
+                aria-hidden
+              >
+                <ui.icon className="h-5 w-5" />
               </span>
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <ProposalStatusLabel
+                    status={p.status}
+                    kind={p.kind}
+                    label={ui.label}
+                    className={ui.className}
+                  />
+                  {p.kind === "notes" ? (
+                    <HandoffKindBadge />
+                  ) : (
+                    <Badge variant="outline" className="font-normal">
+                      Edits
+                    </Badge>
+                  )}
+                  {p.kind === "edits" ? (
+                    <Badge variant={mode.variant} className="font-normal">
+                      {mode.label}
+                    </Badge>
+                  ) : null}
+                  {p.kind === "notes" && !isTerminal ? (
+                    <NoAutoRetryBadge
+                      noAutoRetry={Boolean(p.no_auto_retry)}
+                      disabled={mut.isPending}
+                      onNoAutoRetryChange={(next) =>
+                        mut.mutate({ action: "set_no_auto_retry", body: { no_auto_retry: next } })
+                      }
+                    />
+                  ) : null}
+                  {blockersOpen ? (
+                    <Badge variant="destructive" className="gap-1 font-normal">
+                      <IconAlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                      {p.open_blocker_count} needs changes
+                    </Badge>
+                  ) : null}
+                </div>
+                <h2 className="text-xl font-semibold leading-tight tracking-tight">{p.title}</h2>
+                <ProposalMetaRow items={detailMeta} className="text-xs" />
+              </div>
+            </div>
+            {!isTerminal ? (
+              <div className="flex flex-wrap items-center gap-2 border-t border-card-border px-5 py-3">
+                {showPrimaryEdits ? (
+                  <Button
+                    onClick={() => setApplyOpen(true)}
+                    disabled={mut.isPending || blockersOpen}
+                    data-testid="button-apply-proposal"
+                  >
+                    <IconCheck className="h-4 w-4" aria-hidden />
+                    {primaryActionLabel}
+                  </Button>
+                ) : null}
+                {showPrimaryNotes ? (
+                  <Button
+                    onClick={() => setCloseOpen(true)}
+                    disabled={mut.isPending}
+                    data-testid="button-close-proposal"
+                  >
+                    <IconX className="h-4 w-4" aria-hidden />
+                    {primaryActionLabel}
+                  </Button>
+                ) : null}
+                {claimActive ? (
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      mut.mutate({
+                        action: "release",
+                        body: { report: "Released after review work. ".repeat(4) },
+                      })
+                    }
+                    disabled={mut.isPending}
+                    data-testid="button-release-proposal"
+                  >
+                    <IconLockOpen className="h-4 w-4" aria-hidden />
+                    Release claim
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={() => setClaimOpen(true)}
+                    disabled={mut.isPending}
+                    data-testid="button-claim-proposal"
+                  >
+                    <IconLock className="h-4 w-4" aria-hidden />
+                    Claim
+                  </Button>
+                )}
+                {showReject ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => mut.mutate({ action: "reject" })}
+                    disabled={mut.isPending}
+                    data-testid="button-reject-proposal"
+                  >
+                    <IconCircleX className="h-4 w-4" aria-hidden />
+                    Reject
+                  </Button>
+                ) : null}
+                {showWithdraw ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => mut.mutate({ action: "withdraw" })}
+                    disabled={mut.isPending}
+                    data-testid="button-withdraw-proposal"
+                  >
+                    <IconBan className="h-4 w-4" aria-hidden />
+                    Withdraw
+                  </Button>
+                ) : null}
+                {blockersOpen && showReject ? (
+                  <span className="text-xs text-muted-foreground">
+                    Approve is disabled while needs-changes items are open. Reject remains available.
+                  </span>
+                ) : blockersOpen ? (
+                  <span className="text-xs text-muted-foreground">
+                    Approve is disabled while needs-changes items are open.
+                  </span>
+                ) : null}
+              </div>
             ) : null}
-            <span>
-              Updated {formatProposalRelativeUpdatedAt(p.updated_at ?? p.created_at)}
-            </span>
-          </div>
-          {attribution.lines.map((line) => (
-            <p key={line} className="text-sm text-muted-foreground">
-              {line}
-            </p>
-          ))}
-          {attribution.expiredLine ? (
-            <p className="text-sm text-muted-foreground/80">{attribution.expiredLine}</p>
-          ) : null}
-          {claimActive ? (
-            <p className="text-xs text-muted-foreground">
-              Claim holds until {new Date(claimActive.expiresAt).toLocaleString()}
-            </p>
-          ) : null}
-          {p.review_mode === "draft_backed" || p.promote_on_apply ? (
-            <p className="text-sm">
-              This proposal includes a prepared draft. Preview that version before you approve or reject.
-              Approving makes that draft the live page for this locale. Open blockers block approve;
-              clearing them still requires a fresh preview — resolving means the acceptance criteria were
-              met, not “I disagree.”
-            </p>
-          ) : p.review_mode === "soft_variant" || p.entries.some((e) => e.variant) ? (
-            <p className="text-sm">
-              Soft suggestion on a draft. Approving writes the proposed field changes into that draft —
-              it does not go live. Preview the draft before deciding.
-            </p>
-          ) : (
-            <p className="text-sm">
-              Soft suggestion only. Nothing is live until you apply. There is no separate draft page to
-              preview unless an entry lists a variant.
-            </p>
-          )}
-          <p className="text-sm">{p.summary}</p>
-          {p.related_issue_ids.length > 0 && (
-            <p className="text-xs text-muted-foreground">
-              Linked issues: {p.related_issue_ids.join(", ")}
-            </p>
-          )}
+          </Card>
 
-          {p.kind === "edits" && (
+          {confirmExperiment ? (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
+              <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <p>
+                Other versions still have traffic. Confirming will remove those traffic-bearing
+                variants when this draft goes live.
+              </p>
+            </div>
+          ) : null}
+
+          {p.status === "finished" && p.kind === "notes" && p.close_reason ? (
+            <div
+              className="flex items-start gap-2 rounded-md border border-card-border bg-muted/40 px-3 py-2.5 text-sm"
+              data-testid="text-proposal-close-reason"
+            >
+              <IconCircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+              <p>
+                Closed as {closeReasonLabel}
+                {p.closed_by ? ` by ${p.closed_by}` : ""}
+                {p.close_note ? `: ${p.close_note}` : ""}
+              </p>
+            </div>
+          ) : null}
+
+          {!isTerminal ? (
+          <div className="flex items-start gap-2 rounded-md border border-card-border bg-muted/40 px-3 py-2.5 text-sm leading-6">
+            <IconInfoCircle className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+            {p.kind === "notes" ? (
+              <p>
+                Wall handoff — no content change is attached. Leave open as a reminder, Claim if you (or
+                a coding agent) are working it, or Close with a reason when you stop tracking it. Closing
+                does not change the live site.
+                {p.no_auto_retry ? (
+                  <>
+                    {" "}
+                    No auto-retry is on, so agents cannot open another handoff for the same linked issue
+                    — click the badge above to turn it off.
+                  </>
+                ) : null}
+              </p>
+            ) : p.review_mode === "draft_backed" || p.promote_on_apply ? (
+              <p>
+                This proposal includes a prepared draft. Preview that version before you approve or
+                reject. Approving makes that draft the live page for this locale. Open needs-changes
+                items block approve; clearing them still requires a fresh preview — resolving means the
+                acceptance criteria were met, not “I disagree.”
+              </p>
+            ) : p.review_mode === "soft_variant" || p.entries.some((e) => e.variant) ? (
+              <p>
+                Soft suggestion on a draft. Approving writes the proposed field changes into that draft —
+                it does not go live. Preview the draft before deciding.
+              </p>
+            ) : (
+              <p>
+                Soft suggestion only. Nothing is live until you apply. There is no separate draft page to
+                preview unless an entry lists a variant.
+              </p>
+            )}
+          </div>
+          ) : null}
+
+          <Card className="p-5 space-y-2">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {p.kind === "notes" ? "Handoff note" : "Summary"}
+            </h3>
+            <p className="whitespace-pre-wrap text-sm leading-6">{p.summary}</p>
+            {p.related_issue_ids.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-xs text-muted-foreground">Linked issues</span>
+                {p.related_issue_ids.map((issueId) => (
+                  <button
+                    key={issueId}
+                    type="button"
+                    onClick={() => setSelectedIssueId(issueId)}
+                    className="inline-flex max-w-full"
+                    data-testid={`button-linked-issue-${issueId}`}
+                  >
+                    <Badge
+                      variant="outline"
+                      className="gap-1 font-mono font-normal cursor-pointer hover:bg-muted max-w-full truncate"
+                    >
+                      <IconLink className="h-3 w-3 shrink-0" aria-hidden />
+                      <span className="truncate">{issueId}</span>
+                    </Badge>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </Card>
+
+          <ValidationIssueDetailModal
+            issueId={selectedIssueId}
+            open={Boolean(selectedIssueId)}
+            onOpenChange={(next) => {
+              if (!next) setSelectedIssueId(null);
+            }}
+          />
+
+          {p.kind === "edits" && p.entries.length > 0 && (
             <div className="space-y-3">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Proposed changes ({p.entries.length})
+              </h3>
               {p.entries.map((e) => {
                 const href = previewHref(e);
                 return (
                   <Card key={e.id}>
-                    <CardHeader className="py-3">
-                      <CardTitle className="text-sm">
-                        {e.contentType}/{e.slug} ({e.locale})
-                        {e.variant ? ` · draft ${e.variant}` : ""} — {e.status}
-                      </CardTitle>
-                      {href && (
-                        <Button variant="outline" size="sm" asChild className="w-fit mt-2">
-                          <a href={href} target="_blank" rel="noreferrer">
-                            Preview draft
-                          </a>
-                        </Button>
+                    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-card-border px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {e.contentType}/{e.slug}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {e.locale}
+                          {e.variant ? ` · draft ${e.variant}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span
+                          className={cn(
+                            "text-xs font-medium capitalize",
+                            e.status === "done"
+                              ? "text-status-online"
+                              : e.status === "failed"
+                                ? "text-destructive"
+                                : "text-muted-foreground",
+                          )}
+                        >
+                          {e.status}
+                        </span>
+                        {href && (
+                          <Button variant="outline" size="sm" asChild>
+                            <a href={href} target="_blank" rel="noreferrer">
+                              <IconExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                              Preview draft
+                            </a>
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="space-y-2 p-4">
+                      {e.last_error && (
+                        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                          <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                          <p className="whitespace-pre-wrap">{e.last_error}</p>
+                        </div>
                       )}
-                    </CardHeader>
-                    <CardContent className="text-xs space-y-2">
-                      {e.last_error && <p className="text-destructive">{e.last_error}</p>}
                       {e.ops.length === 0 && (p.promote_on_apply || p.review_mode === "draft_backed") && (
-                        <p className="text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           No field-diff list — the attached draft is the change. Preview it before approve.
                         </p>
                       )}
                       {e.ops.map((op) => (
-                        <div key={op.field_path} className="border rounded p-2">
-                          <p className="font-mono">{op.field_path}</p>
-                          <p className="text-muted-foreground">
-                            Then: {JSON.stringify(e.baseline_context.values[op.field_path])}
-                          </p>
-                          <p>Proposed: {JSON.stringify(op.value)}</p>
-                        </div>
+                        <ProposalFieldDiff
+                          key={op.field_path}
+                          fieldPath={op.field_path}
+                          current={e.baseline_context.values[op.field_path]}
+                          proposed={op.value}
+                        />
                       ))}
-                    </CardContent>
+                    </div>
                   </Card>
                 );
               })}
             </div>
           )}
 
-          <Card>
-            <CardHeader className="py-3">
-              <CardTitle className="text-sm">
-                Blockers {(p.open_blocker_count ?? 0) > 0 ? `(${p.open_blocker_count} open)` : ""}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {(p.blockers ?? []).length === 0 && (
-                <p className="text-xs text-muted-foreground">No blockers yet.</p>
-              )}
-              {(p.blockers ?? []).map((b) => (
-                <div key={b.id} className="border rounded p-3 space-y-2 text-sm">
-                  <div className="flex gap-2 items-center">
-                    <Badge variant={b.status === "open" ? "destructive" : "secondary"}>{b.status}</Badge>
-                    <span className="text-xs text-muted-foreground">by {b.author}</span>
-                  </div>
-                  <p className="whitespace-pre-wrap">{b.body}</p>
-                  {b.resolve_note && (
-                    <p className="text-xs text-muted-foreground">
-                      Resolved by {b.resolved_by}: {b.resolve_note}
-                    </p>
-                  )}
-                  {b.status === "open" && canResolveUi && (
-                    <div className="space-y-2">
-                      <Textarea
-                        placeholder="What changed (min 20 chars)"
-                        value={resolveNotes[b.id] ?? ""}
-                        onChange={(ev) =>
-                          setResolveNotes((prev) => ({ ...prev, [b.id]: ev.target.value }))
-                        }
-                        data-testid={`input-resolve-blocker-${b.id}`}
-                      />
+          {p.kind === "edits" ? (
+            <Card>
+              <div className="flex items-center justify-between gap-2 border-b border-card-border px-4 py-3">
+                <h3 className="text-sm font-medium">Needs changes</h3>
+                {blockersOpen ? (
+                  <Badge variant="destructive" className="font-normal">
+                    {p.open_blocker_count} open
+                  </Badge>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    <IconCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    Clear
+                  </span>
+                )}
+              </div>
+              <div className="space-y-3 p-4">
+                {(p.blockers ?? []).length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Nothing is blocking this proposal yet.
+                  </p>
+                )}
+                {(p.blockers ?? []).map((b) => (
+                  <div
+                    key={b.id}
+                    className={cn(
+                      "space-y-2 rounded-md border border-card-border p-3 text-sm",
+                      b.status === "open" ? "border-l-2 border-l-destructive" : "bg-muted/30",
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                      <span
+                        className={cn(
+                          "font-medium capitalize",
+                          b.status === "open" ? "text-destructive" : "text-status-online",
+                        )}
+                      >
+                        {b.status}
+                      </span>
+                      <span aria-hidden className="text-muted-foreground/40">
+                        ·
+                      </span>
+                      <span>by {b.author}</span>
+                      <span aria-hidden className="text-muted-foreground/40">
+                        ·
+                      </span>
+                      <span>{formatProposalRelativeUpdatedAt(b.created_at)}</span>
+                    </div>
+                    <p className="whitespace-pre-wrap leading-6">{b.body}</p>
+                    {b.resolve_note && (
+                      <p className="rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+                        Resolved by {b.resolved_by}: {b.resolve_note}
+                      </p>
+                    )}
+                    {b.status === "open" && canResolveUi && (
+                      <div className="space-y-2 pt-1">
+                        <Textarea
+                          placeholder="What changed (min 20 chars)"
+                          value={resolveNotes[b.id] ?? ""}
+                          onChange={(ev) =>
+                            setResolveNotes((prev) => ({ ...prev, [b.id]: ev.target.value }))
+                          }
+                          data-testid={`input-resolve-blocker-${b.id}`}
+                        />
+                        <Button
+                          size="sm"
+                          disabled={mut.isPending}
+                          onClick={() =>
+                            mut.mutate({
+                              action: "resolve_blocker",
+                              body: { blocker_id: b.id, resolve_note: resolveNotes[b.id] },
+                            })
+                          }
+                          data-testid={`button-resolve-blocker-${b.id}`}
+                        >
+                          Resolve (claimant)
+                        </Button>
+                      </div>
+                    )}
+                    {b.status === "resolved" && (
                       <Button
                         size="sm"
+                        variant="outline"
                         disabled={mut.isPending}
                         onClick={() =>
-                          mut.mutate({
-                            action: "resolve_blocker",
-                            body: { blocker_id: b.id, resolve_note: resolveNotes[b.id] },
-                          })
+                          mut.mutate({ action: "reopen_blocker", body: { blocker_id: b.id } })
                         }
-                        data-testid={`button-resolve-blocker-${b.id}`}
                       >
-                        Resolve (claimant)
+                        Reopen
                       </Button>
-                    </div>
-                  )}
-                  {b.status === "resolved" && (
+                    )}
+                  </div>
+                ))}
+                <div className="space-y-2 border-t border-card-border pt-3">
+                  <p className="text-xs text-muted-foreground">
+                    Add needs-change note: what’s wrong, what fixed looks like, and why (min 80
+                    characters). No tool lists.
+                  </p>
+                  <Textarea
+                    placeholder="On draft …, X is wrong. It must be Y because …"
+                    value={blockerBody}
+                    onChange={(e) => setBlockerBody(e.target.value)}
+                    data-testid="input-add-blocker"
+                  />
+                  <div className="flex items-center gap-2">
                     <Button
                       size="sm"
-                      variant="outline"
-                      disabled={mut.isPending}
-                      onClick={() => mut.mutate({ action: "reopen_blocker", body: { blocker_id: b.id } })}
+                      variant="secondary"
+                      disabled={mut.isPending || blockerBody.trim().length < 80}
+                      onClick={() => {
+                        mut.mutate({ action: "add_blocker", body: { body: blockerBody } });
+                        setBlockerBody("");
+                      }}
+                      data-testid="button-add-blocker"
                     >
-                      Reopen
+                      Add needs-change note
                     </Button>
-                  )}
+                    {blockerHint ? (
+                      <span className={blockerHint.className} data-testid="text-blocker-length-hint">
+                        {blockerHint.text}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
-              ))}
-              <div className="space-y-2 pt-2 border-t">
-                <p className="text-xs text-muted-foreground">
-                  Add blocker: what’s wrong, what fixed looks like, and why (min 80 characters). No tool lists.
-                </p>
-                <Textarea
-                  placeholder="On draft …, X is wrong. It must be Y because …"
-                  value={blockerBody}
-                  onChange={(e) => setBlockerBody(e.target.value)}
-                  data-testid="input-add-blocker"
-                />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={mut.isPending || blockerBody.trim().length < 80}
-                  onClick={() => {
-                    mut.mutate({ action: "add_blocker", body: { body: blockerBody } });
-                    setBlockerBody("");
-                  }}
-                  data-testid="button-add-blocker"
-                >
-                  Add blocker
-                </Button>
               </div>
-            </CardContent>
-          </Card>
+            </Card>
+          ) : null}
 
           <Collapsible open={advanced} onOpenChange={setAdvanced}>
             <CollapsibleTrigger asChild>
@@ -799,96 +1365,238 @@ export function ProposalDetailPanel({ id }: { id: string }) {
             </CollapsibleContent>
           </Collapsible>
 
-          {!isTerminal ? (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                {showPrimaryEdits ? (
-                  <Button
-                    onClick={() =>
-                      mut.mutate({
+          <AlertDialog open={applyOpen} onOpenChange={setApplyOpen}>
+            <AlertDialogContent data-testid="dialog-apply-proposal">
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {p.promote_on_apply || p.review_mode === "draft_backed"
+                    ? confirmExperiment
+                      ? "End experiment and make draft live?"
+                      : "Approve and make draft live?"
+                    : p.review_mode === "soft_variant" || p.entries.some((e) => e.variant)
+                      ? "Apply changes to the draft?"
+                      : "Apply remaining changes?"}
+                </AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div className="space-y-2 text-sm text-muted-foreground">
+                    {p.promote_on_apply || p.review_mode === "draft_backed" ? (
+                      <>
+                        <p>
+                          Approving copies the prepared draft over the live page for this locale.
+                          Visitors will see that version.
+                        </p>
+                        {confirmExperiment ? (
+                          <p className="text-destructive">
+                            Other versions still have traffic. Confirming will remove those
+                            traffic-bearing variants when this draft goes live.
+                          </p>
+                        ) : (
+                          <p>This does not push to GitHub by itself or complete linked validation issues.</p>
+                        )}
+                      </>
+                    ) : p.review_mode === "soft_variant" || p.entries.some((e) => e.variant) ? (
+                      <>
+                        <p>
+                          This writes the proposed field changes into the draft only. The live page
+                          does not change until someone promotes that draft later.
+                        </p>
+                        <p>This does not complete linked validation issues.</p>
+                      </>
+                    ) : (
+                      <>
+                        <p>
+                          This writes the remaining suggested field changes onto the live page for
+                          each open entry. Those updates become visible to visitors.
+                        </p>
+                        <p>
+                          This does not push to GitHub by itself or complete linked validation
+                          issues. Reject or Withdraw if you do not want these changes live.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel data-testid="button-cancel-apply-proposal">Cancel</AlertDialogCancel>
+                <Button
+                  type="button"
+                  disabled={mut.isPending || blockersOpen}
+                  onClick={() => {
+                    mut.mutate(
+                      {
                         action: "apply",
                         body: confirmExperiment ? { confirm_end_experiment: true } : {},
-                      })
-                    }
-                    disabled={mut.isPending || blockersOpen}
-                    data-testid="button-apply-proposal"
-                  >
-                    {primaryActionLabel}
-                  </Button>
-                ) : null}
-                {showPrimaryNotes ? (
-                  <Button
-                    onClick={() => mut.mutate({ action: "acknowledge" })}
-                    disabled={mut.isPending}
-                    data-testid="button-acknowledge-proposal"
-                  >
-                    {primaryActionLabel}
-                  </Button>
-                ) : null}
-                <Button
-                  variant="outline"
-                  onClick={() => mut.mutate({ action: "reject" })}
-                  disabled={mut.isPending}
-                  data-testid="button-reject-proposal"
+                      },
+                      {
+                        onSuccess: () => setApplyOpen(false),
+                      },
+                    );
+                  }}
+                  data-testid="button-confirm-apply-proposal"
                 >
-                  Reject
+                  <IconCheck className="h-4 w-4" aria-hidden />
+                  {primaryActionLabel}
                 </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      disabled={mut.isPending}
-                      aria-label="More actions"
-                      data-testid="button-proposal-more-actions"
-                    >
-                      <IconDots className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    <DropdownMenuItem
-                      disabled={mut.isPending}
-                      onClick={() => mut.mutate({ action: "claim" })}
-                      data-testid="button-claim-proposal"
-                    >
-                      Claim
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={mut.isPending}
-                      onClick={() =>
-                        mut.mutate({
-                          action: "release",
-                          body: { report: "Released after review work. ".repeat(4) },
-                        })
-                      }
-                      data-testid="button-release-proposal"
-                    >
-                      Release claim
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      disabled={mut.isPending}
-                      onClick={() => mut.mutate({ action: "withdraw" })}
-                      data-testid="button-withdraw-proposal"
-                    >
-                      Withdraw
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog open={claimOpen} onOpenChange={setClaimOpen}>
+            <AlertDialogContent data-testid="dialog-claim-proposal">
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {p.kind === "notes" ? "Claim this handoff?" : "Claim this proposal?"}
+                </AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div className="space-y-2 text-sm text-muted-foreground">
+                    {p.kind === "notes" ? (
+                      <>
+                        <p>
+                          You are saying you are working this for about 30 minutes. Others can still
+                          see it; when the claim expires (or you release it), anyone else can claim
+                          next.
+                        </p>
+                        <p>This does not close the handoff, change the live site, or complete linked issues.</p>
+                      </>
+                    ) : (
+                      <>
+                        <p>
+                          You are saying you are the person fixing the review notes right now (about
+                          30 minutes). While your claim is active, only you can mark those notes done.
+                        </p>
+                        <p>
+                          This does not approve or apply content, and it does not change the live
+                          site. You can release the claim early when you are done.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel data-testid="button-cancel-claim-proposal">Cancel</AlertDialogCancel>
+                <Button
+                  type="button"
+                  disabled={mut.isPending}
+                  onClick={() => {
+                    mut.mutate(
+                      { action: "claim" },
+                      {
+                        onSuccess: () => setClaimOpen(false),
+                      },
+                    );
+                  }}
+                  data-testid="button-confirm-claim-proposal"
+                >
+                  Claim
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <Dialog
+            open={closeOpen}
+            onOpenChange={(open) => {
+              setCloseOpen(open);
+              if (!open) {
+                setCloseNote("");
+                setCloseReason("wont_fix");
+              }
+            }}
+          >
+            <DialogContent data-testid="dialog-close-proposal">
+              <DialogHeader>
+                <DialogTitle>Close this handoff?</DialogTitle>
+                <DialogDescription asChild>
+                  <div className="space-y-2 text-sm text-muted-foreground">
+                    <p>
+                      Closing removes this reminder from the open list and marks it finished. Pick a
+                      reason so the next person knows why it stopped being tracked.
+                    </p>
+                    <p>
+                      This does not change the live site or complete linked issues. If “No auto-retry”
+                      was on, closing also ends that block so agents can open another handoff for the
+                      same issue.
+                    </p>
+                  </div>
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label htmlFor="proposal-close-reason">Reason</Label>
+                  <Select
+                    value={closeReason}
+                    onValueChange={(v) => setCloseReason(v as ProposalCloseReasonValue)}
+                  >
+                    <SelectTrigger id="proposal-close-reason" data-testid="select-close-reason">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PROPOSAL_CLOSE_REASON_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {PROPOSAL_CLOSE_REASON_OPTIONS.find((o) => o.value === closeReason)?.hint}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="proposal-close-note">Note</Label>
+                  <Textarea
+                    id="proposal-close-note"
+                    value={closeNote}
+                    onChange={(e) => setCloseNote(e.target.value)}
+                    placeholder={
+                      closeNoteRequired(closeReason)
+                        ? "Where / what (min 20 characters)"
+                        : "Optional"
+                    }
+                    data-testid="input-close-note"
+                  />
+                  {closeNoteHint ? (
+                    <p className={closeNoteHint.className} data-testid="text-close-note-length-hint">
+                      {closeNoteHint.text}
+                    </p>
+                  ) : null}
+                </div>
               </div>
-              {confirmExperiment ? (
-                <p className="text-sm text-destructive">
-                  Other versions still have traffic. Confirming will remove those traffic-bearing
-                  variants when this draft goes live.
-                </p>
-              ) : null}
-              {blockersOpen ? (
-                <p className="text-xs text-muted-foreground">
-                  Approve is disabled while blockers are open. Reject remains available.
-                </p>
-              ) : null}
-            </>
-          ) : null}
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={() => setCloseOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={mut.isPending || !closeNoteOk}
+                  onClick={() => {
+                    mut.mutate(
+                      {
+                        action: "close",
+                        body: {
+                          close_reason: closeReason,
+                          ...(closeNote.trim() ? { close_note: closeNote.trim() } : {}),
+                        },
+                      },
+                      {
+                        onSuccess: () => {
+                          setCloseOpen(false);
+                          setCloseNote("");
+                          setCloseReason("wont_fix");
+                        },
+                      },
+                    );
+                  }}
+                  data-testid="button-confirm-close-proposal"
+                >
+                  <IconX className="h-4 w-4" aria-hidden />
+                  Close handoff
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </>
       )}
     </div>

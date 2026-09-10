@@ -27,6 +27,7 @@ export const EVENT_TYPES = [
   "proposal_applied_progress",
   "proposal_finished",
   "proposal_acknowledged",
+  "proposal_closed",
   "proposal_rejected",
   "proposal_withdrawn",
 ] as const;
@@ -72,6 +73,7 @@ export const EVENT_TYPE_META: Record<EventType, EventTypeMeta> = {
   proposal_applied_progress: { outbox: "audit", affectsWriteGeneration: false },
   proposal_finished: { outbox: "audit", affectsWriteGeneration: false },
   proposal_acknowledged: { outbox: "audit", affectsWriteGeneration: false },
+  proposal_closed: { outbox: "audit", affectsWriteGeneration: false },
   proposal_rejected: { outbox: "audit", affectsWriteGeneration: false },
   proposal_withdrawn: { outbox: "audit", affectsWriteGeneration: false },
 };

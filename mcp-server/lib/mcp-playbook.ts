@@ -8,13 +8,13 @@ import path from "path";
 import { createHash } from "crypto";
 
 /** Bump when the technical playbook markdown below changes. */
-export const PLAYBOOK_VERSION = "1";
+export const PLAYBOOK_VERSION = "2";
 
 /**
  * Explicit conventions seed version. Bump when editing mcp-server/agent-conventions.md
  * so agents re-fetch skill.content (known_skill_version mismatch).
  */
-export const CONVENTIONS_VERSION = "10";
+export const CONVENTIONS_VERSION = "11";
 
 export const CONVENTIONS_PATH = "mcp-server/agent-conventions.md";
 
@@ -44,9 +44,15 @@ Honor \`warnings\`, \`side_effects\`, and \`next_actions\`. \`next_actions[].too
 - Call \`list_sites\` if unsure; always pass \`site\` (domain from sites.yml). Never assume the first site.
 - Shared layout: use \`layout_target\` / confirm gates; MCP does not auto-fan-out locales.
 
+## Products and positioning
+
+- Vague “what is this site / brand about?” → \`list_products\` then \`get_product\` on relevant slugs (offer + personas).
+- Change audience (offer/personas) → \`update_product\` with \`confirm: true\` (needs content_edit_structure).
+- Make sellable or pause/resume store visibility → human only: \`propose_change\` notes asking staff to use the Store. Never set \`purchasable\` / \`actively_selling\` via MCP.
+
 ## Depth and stale tools
 
-- Architecture deep-dives → \`explain_site\` topics.
+- Architecture deep-dives → \`explain_site\` topics (overview includes a live products table).
 - Missing \`agent_session_id\` → soft Unscoped warning; write may still succeed.
 - If tools look missing/stale after a deploy, ask the human to reconnect the MCP connector — agents cannot refresh tools/list mid-session.
 `;

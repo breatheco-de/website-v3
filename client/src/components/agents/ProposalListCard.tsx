@@ -37,9 +37,21 @@ export type ProposalCardData = {
   updated_at?: number;
 };
 
-function MetaRow({ items }: { items: Array<{ key: string; node: ReactNode }> }) {
+/** Dot-separated meta line shared by the proposal list card and detail header. */
+export function ProposalMetaRow({
+  items,
+  className,
+}: {
+  items: Array<{ key: string; node: ReactNode }>;
+  className?: string;
+}) {
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-4 text-muted-foreground">
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-4 text-muted-foreground",
+        className,
+      )}
+    >
       {items.map((item, i) => (
         <span key={item.key} className="inline-flex items-center gap-2">
           {i > 0 ? (
@@ -84,7 +96,7 @@ export function ProposalListCard({
       node: (
         <span className="inline-flex items-center gap-1 capitalize">
           <KindIcon className="h-3 w-3 shrink-0" aria-hidden />
-          {p.kind}
+          {p.kind === "notes" ? "Handoff" : p.kind}
         </span>
       ),
     },
@@ -178,7 +190,7 @@ export function ProposalListCard({
           {p.summary ? (
             <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{p.summary}</p>
           ) : null}
-          <MetaRow items={meta} />
+          <ProposalMetaRow items={meta} />
         </div>
       </Card>
     </Link>

@@ -4,7 +4,7 @@ import { checkCap, denyResponse } from "../lib/auth.js";
 import { hasCapAnyScope } from "../lib/tool-catalog.js";
 import { ok, fail, actionRequired } from "../lib/respond.js";
 import { resolveSiteContext } from "../lib/content.js";
-import { getTokenUsername } from "../lib/oauth.js";
+import { buildLoopbackHeaders } from "../lib/loopback.js";
 import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
 import {
@@ -16,24 +16,6 @@ import {
 } from "../lib/list-proposals-mcp.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
-const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
-
-function internalHeaders(
-  mcpToken?: string,
-  opts?: { agentSessionId?: string },
-): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (INTERNAL_SECRET) {
-    headers.Authorization = `Bearer ${INTERNAL_SECRET}`;
-    const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
-    if (username) headers["x-mcp-author"] = username;
-  } else if (mcpToken) {
-    const username = getTokenUsername(mcpToken);
-    if (username) headers["x-mcp-author"] = username;
-  }
-  if (opts?.agentSessionId) headers["x-agent-session-id"] = opts.agentSessionId;
-  return headers;
-}
 
 function siteQuery(domain: string | null, extra = ""): string {
   const parts: string[] = [];
@@ -71,10 +53,11 @@ export function registerProposalTools(
   mcp.tool(
     "propose_change",
     "Create a content proposal (does not write live YAML). kind is edits when entries[] is set (or promote_on_apply), otherwise notes. " +
+      "Notes default to no_auto_retry: another notes handoff on the same related_issue_id is blocked until claim + set_no_auto_retry false (or close). " +
       "Optional variant on an entry: soft = apply field patches into that draft; with promote_on_apply = go-live when approved. " +
       "At most one open proposal per variant — joining the existing proposal is required. " +
       "Pass agent_session_id to allow same-session attach_variant later. " +
-      "Requires content_view or seo_edit. Four-eyes apply/acknowledge.",
+      "Requires content_view or seo_edit. Four-eyes apply/reject (not close).",
     {
       title: z.string().describe("Short title"),
       summary: z.string().describe("Why + what (min 80 chars). For notes, include steps tried."),
@@ -119,7 +102,7 @@ export function registerProposalTools(
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals${siteQuery(siteResult.domain)}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
+          headers: buildLoopbackHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
           body: JSON.stringify({
             title: args.title,
             summary: args.summary,
@@ -176,6 +159,25 @@ export function registerProposalTools(
               ],
             );
           }
+          if (data.code === "notes_no_auto_retry") {
+            const existing = data.existing_proposal as { id?: string } | undefined;
+            return actionRequired(
+              {
+                success: false,
+                action_required: "join_existing_notes",
+                ...data,
+              },
+              [
+                {
+                  tool: "list_proposals",
+                  reason:
+                    "Join the open notes handoff (no auto-retry). Claim it, or set_no_auto_retry false after claim to allow another notes attempt. Prefer an edits proposal for a real fix.",
+                  priority: "required",
+                  args_hint: { proposal_id: existing?.id },
+                },
+              ],
+            );
+          }
           return fail(String(data.error ?? "propose_change failed"), { code: data.code });
         }
         const proposal = (data as { proposal?: { id?: string; review_mode?: string; promote_on_apply?: boolean } })
@@ -188,7 +190,8 @@ export function registerProposalTools(
           },
           {
             code: "four_eyes",
-            message: "A different user with content_edit_text or seo_edit must apply or acknowledge.",
+            message:
+              "A different user with content_edit_text or seo_edit must apply or reject edits. Notes close with a reason (not four-eyes) — close does not fix content.",
           },
         ];
         if (proposal?.review_mode === "draft_backed" || proposal?.promote_on_apply) {
@@ -304,7 +307,7 @@ export function registerProposalTools(
       const extra = qs.toString();
       try {
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals${siteQuery(siteResult.domain, extra)}`;
-        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const res = await fetch(url, { headers: buildLoopbackHeaders(mcpToken) });
         const data = (await res.json()) as {
           proposals?: unknown[];
           total?: number;
@@ -358,10 +361,12 @@ export function registerProposalTools(
 
   mcp.tool(
     "update_proposal",
-    "Lifecycle for a proposal. Actions: claim | release | withdraw | apply | acknowledge | reject | " +
+    "Lifecycle for a proposal. Actions: claim | release | withdraw | apply | close | acknowledge (alias of close) | reject | " +
       "attach_variant (same creating session only; write-once) | add_blocker (feedback; no claim) | " +
-      "resolve_blocker (active claimant only) | reopen_blocker. " +
-      "Open blockers block apply only (not reject/withdraw). " +
+      "resolve_blocker (active claimant only) | reopen_blocker | set_no_auto_retry (notes; MCP must claim first). " +
+      "close requires close_reason (wont_fix | fixed_elsewhere | tracked_elsewhere | other); close_note min 20 except wont_fix. " +
+      "Close finishes notes without changing YAML — not a success path for fixes. " +
+      "Open blockers block apply only (not reject/withdraw/close). " +
       "promote_on_apply apply may require confirm_end_experiment when other variants have traffic. " +
       "Requires content_edit_text or seo_edit.",
     {
@@ -372,11 +377,13 @@ export function registerProposalTools(
         "withdraw",
         "apply",
         "acknowledge",
+        "close",
         "reject",
         "attach_variant",
         "add_blocker",
         "resolve_blocker",
         "reopen_blocker",
+        "set_no_auto_retry",
       ]),
       report: z.string().optional(),
       agent_session_id: z.string().optional(),
@@ -389,6 +396,18 @@ export function registerProposalTools(
         .boolean()
         .optional()
         .describe("For apply on draft_backed when siblings have traffic"),
+      close_reason: z
+        .enum(["wont_fix", "fixed_elsewhere", "tracked_elsewhere", "other"])
+        .optional()
+        .describe("For close / acknowledge: disposition (not a content fix)"),
+      close_note: z
+        .string()
+        .optional()
+        .describe("For close: required min 20 chars except wont_fix (say where / what)"),
+      no_auto_retry: z
+        .boolean()
+        .optional()
+        .describe("For set_no_auto_retry: MCP must hold an active claim"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async (args) => {
@@ -400,7 +419,7 @@ export function registerProposalTools(
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals/${encodeURIComponent(args.proposal_id)}/${encodeURIComponent(args.action)}${siteQuery(siteResult.domain)}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
+          headers: buildLoopbackHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
           body: JSON.stringify({
             report: args.report,
             agent_session_id: args.agent_session_id,
@@ -410,6 +429,9 @@ export function registerProposalTools(
             variant: args.variant,
             promote_on_apply: args.promote_on_apply,
             confirm_end_experiment: args.confirm_end_experiment,
+            close_reason: args.close_reason,
+            close_note: args.close_note,
+            no_auto_retry: args.no_auto_retry,
           }),
         });
         const data = (await res.json()) as Record<string, unknown>;
@@ -505,7 +527,14 @@ export function registerProposalTools(
           warnings.push({
             code: "partial_progress",
             message:
-              "Edits apply remaining entries only. Proposal is finished only when every entry is done (or notes acknowledged).",
+              "Edits apply remaining entries only. Proposal is finished only when every entry is done (or notes closed with a reason).",
+          });
+        }
+        if (args.action === "close" || args.action === "acknowledge") {
+          warnings.push({
+            code: "close_no_content_change",
+            message:
+              "Notes closed. Does not write YAML, complete issues, or apply a fix. Prefer an edits proposal when there is a real change to approve.",
           });
         }
 

@@ -37,6 +37,20 @@ class ProductManager {
     return Array.from(productMap.values()).filter((p) => p.actively_selling);
   }
 
+  /** All indexed purchasable products, optionally including paused. Deduped by product_id. */
+  listAllProducts(opts?: { includePaused?: boolean }): CmsProduct[] {
+    const includePaused = opts?.includePaused !== false;
+    const seen = new Set<string>();
+    const out: CmsProduct[] = [];
+    for (const product of productMap.values()) {
+      if (seen.has(product.product_id)) continue;
+      seen.add(product.product_id);
+      if (!includePaused && !product.actively_selling) continue;
+      out.push(product);
+    }
+    return out;
+  }
+
   /** True when this content type has at least one purchasable product in the index. */
   contentTypeHasProducts(contentType: string): boolean {
     for (const product of productMap.values()) {

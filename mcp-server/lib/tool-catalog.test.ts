@@ -73,8 +73,11 @@ describe("allowedToolNames", () => {
     expect(names.has("create_component_section_demo")).toBe(true);
     expect(names.has("get_product_funnel")).toBe(true);
     expect(names.has("get_product_funnel_analytics")).toBe(true);
-    expect(names.has("get_product_audience")).toBe(true);
-    expect(names.has("update_product_audience")).toBe(true);
+    expect(names.has("list_products")).toBe(true);
+    expect(names.has("get_product")).toBe(true);
+    expect(names.has("update_product")).toBe(false);
+    expect(names.has("get_product_audience")).toBe(false);
+    expect(names.has("update_product_audience")).toBe(false);
     expect(names.has("get_or_set_media_to_gallery")).toBe(true);
     expect(names.has("get_organic_traffic")).toBe(false);
     expect(names.has("update_fields")).toBe(false);
@@ -106,6 +109,8 @@ describe("allowedToolNames", () => {
     const names = new Set(allowedToolNames(platformSteward));
     expect(names.has("update_fields")).toBe(true);
     expect(names.has("create_entry")).toBe(true);
+    expect(names.has("update_product")).toBe(true);
+    expect(names.has("list_products")).toBe(true);
     expect(names.has("run_entry_diagnostics")).toBe(true);
     expect(names.has("get_validation_issues")).toBe(true);
     expect(names.has("reindex_database")).toBe(true);

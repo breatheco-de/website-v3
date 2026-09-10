@@ -48,7 +48,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `update_fields` | Single-entry field writes (meta + body + one section); `updates[]` length ≥ 1 |
 | `propose_change` | Store an entry-change proposal or issue handoff notes (does not write YAML). Caps: `content_view` or `seo_edit` |
 | `list_proposals` | List / get / search proposals; `issue_id` filters to linked only. Optional `sort`/`sort_dir` when scoped. Same caps as `propose_change` |
-| `update_proposal` | Lifecycle `action`: claim, release, withdraw, apply, acknowledge, reject. Caps: `content_edit_text` or `seo_edit`; four-eyes on apply/ack/reject |
+| `update_proposal` | Lifecycle `action`: claim, release, withdraw, apply, close (acknowledge alias), reject, set_no_auto_retry, blockers…. Caps: `content_edit_text` or `seo_edit`; four-eyes on apply/reject (not close) |
 | `update_meta_fields` | Multi-entry meta-only bulk (same `updates[]` across `slugs[]`, max 50) |
 | `add_section` / `remove_section` / `reorder_sections` / `replace_entry_sections` | Section topology |
 | `translate_entry` | Translate locale fields (attached) or sections (detached/classic); draft-first for new locales |
@@ -61,7 +61,8 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `add_database_item` / `add_database_items` / `update_database_item` / `update_database_items` / `delete_database_item` | Local YAML item CRUD (FAQ etc.; bulk max 40). Cap: `databases_edit_data` for that slug |
 | `create_or_update_database` | Create bank (empty local items) or deep-patch config (`confirm:true`). Cap: `databases_manage` |
 | `reindex_database` | Vector reindex after item writes or vector_search definition patches (`databases_manage`) |
-| `get_product_funnel` / `update_product_funnel` | Product conversion funnels |
+| `list_products` / `get_product` / `update_product` | Product inventory, sidecar read, audience/metadata patch (confirm). Store visibility human-only. |
+| `get_product_funnel` / `get_product_funnel_analytics` | Product conversion journey (read-only; `update_product_funnel` retired) |
 | `test_redirect` | Inspect one URL: first-match winner + conflicts (`read_redirects`) |
 | `update_redirect` | Add / delete / move one CMS redirect (`edit_redirects`; call `test_redirect` first) |
 

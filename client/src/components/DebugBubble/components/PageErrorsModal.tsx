@@ -24,6 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { apiFetch } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { minLengthHint } from "@/lib/minLengthHint";
 import { formatIssueActorLine } from "@/lib/formatIssueActor";
 import {
   type GscInspectionGetResponse,
@@ -48,6 +49,7 @@ import {
   IconLockOpen,
   IconRefresh,
   IconUser,
+  IconX,
 } from "@tabler/icons-react";
 import * as Flags from "country-flag-icons/react/3x2";
 import { buildSolveWithAiPrompt, type SolveWithAiAgentId } from "../solveWithAiPrompt";
@@ -90,7 +92,7 @@ interface PageErrorsModalProps {
 
 export type PageErrorsTab = "errors" | "warnings" | "crawlers" | "completed";
 
-type PageIssue = NonNullable<PageDiagnostics["issues"]>[number];
+export type PageIssue = NonNullable<PageDiagnostics["issues"]>[number];
 
 function formatStaleness(isoDate: string): string {
   const diffMs = Date.now() - new Date(isoDate).getTime();
@@ -451,7 +453,7 @@ function LinkedIssueProposals({ issueId }: { issueId: string }) {
   );
 }
 
-function IssueCard({
+export function IssueCard({
   issue,
   index,
   variant,
@@ -459,6 +461,8 @@ function IssueCard({
   onUpdateIssue,
   togglePending,
   showSeverityBadge = false,
+  forceExpanded = false,
+  onClose,
 }: {
   issue: PageIssue;
   index: number;
@@ -467,12 +471,18 @@ function IssueCard({
   onUpdateIssue?: (
     issue: PageIssue,
     action: "claim" | "release" | "complete" | "uncomplete",
+    report?: string,
   ) => void;
   togglePending?: boolean;
   /** When true, show Error/Warning badge (used on Completed tab). */
   showSeverityBadge?: boolean;
+  /** Always show details; no expand/collapse (e.g. proposal issue modal). */
+  forceExpanded?: boolean;
+  /** When set with forceExpanded, replace the chevron with a close control. */
+  onClose?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const expanded = forceExpanded || open;
   const isError = variant === "error";
   const cacheBuiltAt = issue.validationCacheBuiltAt;
   const isCompleted = Boolean(issue.completed);
@@ -489,65 +499,133 @@ function IssueCard({
       (issue.attempts && issue.attempts.length > 0),
   );
 
-  return (
-    <Collapsible open={open} onOpenChange={setOpen}>
+  const codeRow = (
+    <div className="flex flex-wrap items-center gap-1.5">
       <div
         className={
+          isCompleted
+            ? "font-mono font-medium text-muted-foreground text-xs"
+            : isError
+              ? "font-mono font-medium text-destructive text-xs"
+              : "font-mono font-medium text-amber-700 dark:text-amber-300 text-xs"
+        }
+      >
+        {issue.code}
+      </div>
+      {showSeverityBadge && (
+        <span
+          className={cn(
+            "rounded px-1 py-0 text-[10px] font-semibold uppercase tracking-wide",
+            isError
+              ? "bg-destructive/15 text-destructive"
+              : "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+          )}
+        >
+          {isError ? "Error" : "Warning"}
+        </span>
+      )}
+      {issue.reopenedAt ? (
+        <span
+          className="rounded px-1 py-0 text-[10px] font-semibold uppercase tracking-wide bg-amber-500/15 text-amber-700 dark:text-amber-300"
+          data-testid={`modal-${variant}-${index}-reopened-badge`}
+        >
+          Reopened
+        </span>
+      ) : null}
+    </div>
+  );
+
+  const detailsBody = (
+    <div className={cn("px-3 space-y-1", canAct ? "pb-1" : "pb-3")}>
+      {issue.details?.expected && (
+        <div className="text-xs text-muted-foreground">
+          Expected: <span className="font-mono">{issue.details.expected}</span>
+          {issue.details.received && (
+            <>
+              {" "}
+              | Received: <span className="font-mono">{issue.details.received}</span>
+            </>
+          )}
+        </div>
+      )}
+      {issue.suggestion && (
+        <div className="text-xs text-muted-foreground">
+          <IssueMessageWithLinks text={issue.suggestion} formatSitePath={formatSitePath} />
+        </div>
+      )}
+      {issue.file && (
+        <div className="text-xs text-muted-foreground font-mono" title={issue.file}>
+          {formatSitePath(issue.file)}
+        </div>
+      )}
+      {cacheBuiltAt && (
+        <div className="text-xs text-muted-foreground flex items-center gap-1">
+          <IconClock className="h-3 w-3" />
+          Cache built at {new Date(cacheBuiltAt).toLocaleString()}
+        </div>
+      )}
+      {issue.attempts && issue.attempts.length > 0 && !isCompleted && (
+        <div className="text-xs text-muted-foreground space-y-1 pt-1 border-t border-border/50">
+          <div className="font-medium text-foreground">
+            Tried {issue.attempts.length}×
+          </div>
+          {issue.attempts.slice(0, 3).map((a, i) => (
+            <div key={`${a.at}-${i}`}>
+              {a.reason === "ttl_expired"
+                ? `Claim expired (30m) — ${formatIssueActorLine(a.by, a.actor)}`
+                : `Released by ${formatIssueActorLine(a.by, a.actor)}`}
+              {a.claimedBy && a.claimedBy !== a.by ? ` (held by ${a.claimedBy})` : ""}
+              {a.report ? `: ${a.report}` : ""}
+            </div>
+          ))}
+        </div>
+      )}
+      {issue.id && <LinkedIssueProposals issueId={issue.id} />}
+      {forceExpanded && issue.id ? (
+        <p className="text-[11px] text-muted-foreground font-mono break-all pt-1">
+          id: {issue.id}
+        </p>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <Collapsible open={expanded} onOpenChange={forceExpanded ? undefined : setOpen}>
+      <div
+        className={cn(
           isCompleted
             ? "rounded-md bg-muted/40 border border-border text-sm opacity-80"
             : isError
               ? "rounded-md bg-destructive/10 border border-destructive/30 text-sm"
-              : "rounded-md bg-amber-500/10 border border-amber-500/30 text-sm"
-        }
+              : "rounded-md bg-amber-500/10 border border-amber-500/30 text-sm",
+          forceExpanded && "bg-background shadow-lg opacity-100",
+        )}
         data-testid={`modal-${variant}-${index}${isCompleted ? "-completed" : ""}`}
       >
-        <div className="flex w-full items-stretch gap-2 p-3">
+        <div
+          className={cn(
+            "flex w-full items-stretch gap-2 px-3 pt-3",
+            canAct ? "pb-2" : "pb-3",
+          )}
+        >
           <div className="min-w-0 flex-1">
-            <CollapsibleTrigger asChild disabled={!hasDetails}>
-              <button
-                type="button"
-                className={cn(
-                  "w-full text-left",
-                  hasDetails ? "cursor-pointer" : "cursor-default",
-                )}
-                data-testid={`modal-${variant}-${index}-toggle`}
-                aria-expanded={open}
-              >
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <div
-                    className={
-                      isCompleted
-                        ? "font-mono font-medium text-muted-foreground text-xs"
-                        : isError
-                          ? "font-mono font-medium text-destructive text-xs"
-                          : "font-mono font-medium text-amber-700 dark:text-amber-300 text-xs"
-                    }
-                  >
-                    {issue.code}
-                  </div>
-                  {showSeverityBadge && (
-                    <span
-                      className={cn(
-                        "rounded px-1 py-0 text-[10px] font-semibold uppercase tracking-wide",
-                        isError
-                          ? "bg-destructive/15 text-destructive"
-                          : "bg-amber-500/15 text-amber-700 dark:text-amber-300",
-                      )}
-                    >
-                      {isError ? "Error" : "Warning"}
-                    </span>
+            {forceExpanded ? (
+              <div data-testid={`modal-${variant}-${index}-toggle`}>{codeRow}</div>
+            ) : (
+              <CollapsibleTrigger asChild disabled={!hasDetails}>
+                <button
+                  type="button"
+                  className={cn(
+                    "w-full text-left",
+                    hasDetails ? "cursor-pointer" : "cursor-default",
                   )}
-                  {issue.reopenedAt ? (
-                    <span
-                      className="rounded px-1 py-0 text-[10px] font-semibold uppercase tracking-wide bg-amber-500/15 text-amber-700 dark:text-amber-300"
-                      data-testid={`modal-${variant}-${index}-reopened-badge`}
-                    >
-                      Reopened
-                    </span>
-                  ) : null}
-                </div>
-              </button>
-            </CollapsibleTrigger>
+                  data-testid={`modal-${variant}-${index}-toggle`}
+                  aria-expanded={expanded}
+                >
+                  {codeRow}
+                </button>
+              </CollapsibleTrigger>
+            )}
             <div className={cn("mt-1", isCompleted ? "text-muted-foreground" : "text-foreground")}>
               <IssueMessageWithLinks text={issue.message} formatSitePath={formatSitePath} />
             </div>
@@ -591,136 +669,107 @@ function IssueCard({
             )}
           </div>
           <div className="flex shrink-0 flex-col items-end self-stretch">
-            {hasDetails && (
+            {forceExpanded && onClose ? (
+              <button
+                type="button"
+                className="mt-0.5 rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100"
+                aria-label="Close"
+                data-testid={`modal-${variant}-${index}-close`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose();
+                }}
+              >
+                <IconX className="h-4 w-4" />
+              </button>
+            ) : hasDetails ? (
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
                   className="mt-0.5 text-muted-foreground"
-                  aria-label={open ? "Hide details" : "Show details"}
+                  aria-label={expanded ? "Hide details" : "Show details"}
                   data-testid={`modal-${variant}-${index}-chevron`}
                 >
                   <IconChevronDown
                     className={cn(
                       "h-4 w-4 transition-transform",
-                      open && "rotate-180",
+                      expanded && "rotate-180",
                     )}
                   />
                 </button>
               </CollapsibleTrigger>
-            )}
-            {canAct && (
-              <div className="mt-auto flex items-center gap-0.5">
-                {!isCompleted && (
-                  <button
-                    type="button"
-                    className={cn(
-                      "rounded-md p-1 transition-colors",
-                      isClaimed
-                        ? "text-status-away hover:bg-muted"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted",
-                    )}
-                    aria-label={isClaimed ? "Release claim" : "Claim issue"}
-                    title={
-                      isClaimed
-                        ? `Release claim (${issue.claimed?.by})`
-                        : "Claim — mark as in progress (30m)"
-                    }
-                    disabled={togglePending}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onUpdateIssue?.(issue, isClaimed ? "release" : "claim");
-                    }}
-                    data-testid={`modal-${variant}-${index}-claim`}
-                  >
-                    {togglePending ? (
-                      <IconLoader2 className="h-4 w-4 animate-spin" />
-                    ) : isClaimed ? (
-                      <IconLockOpen className="h-4 w-4" />
-                    ) : (
-                      <IconLock className="h-4 w-4" />
-                    )}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className={cn(
-                    "rounded-md p-1 transition-colors",
-                    isCompleted
-                      ? "text-status-online hover:bg-muted"
-                      : "text-muted-foreground hover:text-status-online hover:bg-muted",
-                  )}
-                  aria-label={isCompleted ? "Mark as open" : "Mark as fixed"}
-                  title={
-                    isCompleted
-                      ? "Mark as open"
-                      : "Mark as fixed — re-checks live content for this page; refuses if still failing"
-                  }
-                  disabled={togglePending}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onUpdateIssue?.(issue, isCompleted ? "uncomplete" : "complete");
-                  }}
-                  data-testid={`modal-${variant}-${index}-complete`}
-                >
-                  {togglePending ? (
-                    <IconLoader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <IconCheck className="h-4 w-4" stroke={isCompleted ? 2.5 : 1.5} />
-                  )}
-                </button>
-              </div>
-            )}
+            ) : null}
           </div>
         </div>
-        {hasDetails && (
-          <CollapsibleContent>
-            <div className="px-3 pb-3 space-y-1">
-              {issue.details?.expected && (
-                <div className="text-xs text-muted-foreground">
-                  Expected: <span className="font-mono">{issue.details.expected}</span>
-                  {issue.details.received && (
-                    <>
-                      {" "}
-                      | Received: <span className="font-mono">{issue.details.received}</span>
-                    </>
-                  )}
-                </div>
+        {hasDetails &&
+          (forceExpanded ? (
+            detailsBody
+          ) : (
+            <CollapsibleContent>{detailsBody}</CollapsibleContent>
+          ))}
+        {canAct && (
+          <div className="flex items-center justify-end gap-1.5 px-3 pb-3">
+            {!isCompleted && (
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors",
+                  isClaimed
+                    ? "text-status-away hover:bg-muted"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                )}
+                aria-label={isClaimed ? "Release claim" : "Claim issue"}
+                title={
+                  isClaimed
+                    ? `Release claim (${issue.claimed?.by})`
+                    : "Claim — mark as in progress (30m)"
+                }
+                disabled={togglePending}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpdateIssue?.(issue, isClaimed ? "release" : "claim");
+                }}
+                data-testid={`modal-${variant}-${index}-claim`}
+              >
+                {togglePending ? (
+                  <IconLoader2 className="h-3 w-3 animate-spin" />
+                ) : isClaimed ? (
+                  <IconLockOpen className="h-3 w-3" />
+                ) : (
+                  <IconLock className="h-3 w-3" />
+                )}
+                {isClaimed ? "Release" : "Claim"}
+              </button>
+            )}
+            <button
+              type="button"
+              className={cn(
+                "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors",
+                isCompleted
+                  ? "text-status-online hover:bg-muted"
+                  : "text-muted-foreground hover:text-status-online hover:bg-muted",
               )}
-              {issue.suggestion && (
-                <div className="text-xs text-muted-foreground">
-                  <IssueMessageWithLinks text={issue.suggestion} formatSitePath={formatSitePath} />
-                </div>
+              aria-label={isCompleted ? "Mark as open" : "Mark as fixed"}
+              title={
+                isCompleted
+                  ? "Mark as open"
+                  : "Mark as fixed — re-checks live content for this page; refuses if still failing"
+              }
+              disabled={togglePending}
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdateIssue?.(issue, isCompleted ? "uncomplete" : "complete");
+              }}
+              data-testid={`modal-${variant}-${index}-complete`}
+            >
+              {togglePending ? (
+                <IconLoader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <IconCheck className="h-3 w-3" stroke={isCompleted ? 2.5 : 1.5} />
               )}
-              {issue.file && (
-                <div className="text-xs text-muted-foreground font-mono" title={issue.file}>
-                  {formatSitePath(issue.file)}
-                </div>
-              )}
-              {cacheBuiltAt && (
-                <div className="text-xs text-muted-foreground flex items-center gap-1">
-                  <IconClock className="h-3 w-3" />
-                  Cache built at {new Date(cacheBuiltAt).toLocaleString()}
-                </div>
-              )}
-              {issue.attempts && issue.attempts.length > 0 && !isCompleted && (
-                <div className="text-xs text-muted-foreground space-y-1 pt-1 border-t border-border/50">
-                  <div className="font-medium text-foreground">
-                    Tried {issue.attempts.length}×
-                  </div>
-                  {issue.attempts.slice(0, 3).map((a, i) => (
-                    <div key={`${a.at}-${i}`}>
-                      {a.reason === "ttl_expired"
-                        ? `Claim expired (30m) — ${formatIssueActorLine(a.by, a.actor)}`
-                        : `Released by ${formatIssueActorLine(a.by, a.actor)}`}
-                      {a.claimedBy && a.claimedBy !== a.by ? ` (held by ${a.claimedBy})` : ""}
-                      {a.report ? `: ${a.report}` : ""}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {issue.id && <LinkedIssueProposals issueId={issue.id} />}
-            </div>
-          </CollapsibleContent>
+              {isCompleted ? "Reopen" : "Fixed"}
+            </button>
+          </div>
         )}
       </div>
     </Collapsible>
@@ -966,6 +1015,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
 
   const unpublishedVariant =
     pageDiagnostics?.validationSkippedReason === "unpublished_variant";
+  const releaseReportHint = minLengthHint(releaseReport, 80);
 
   return (
     <>
@@ -1388,8 +1438,8 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
               placeholder="Tried X… still failing because Y…"
               data-testid="textarea-release-report"
             />
-            <p className="text-[10px] text-muted-foreground">
-              {releaseReport.trim().length}/80
+            <p className={releaseReportHint.className} data-testid="text-release-report-count">
+              {releaseReportHint.text}
             </p>
           </div>
           <DialogFooter className="gap-2">

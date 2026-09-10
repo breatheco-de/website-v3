@@ -13,6 +13,17 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 type PersonaDraft = {
   id: string;
@@ -91,9 +102,9 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
   const [personas, setPersonas] = useState<PersonaDraft[]>([]);
 
   const { data, isLoading } = useQuery<AudienceResponse>({
-    queryKey: [`/api/product/${slug}/audience`],
+    queryKey: [`/api/product/${slug}`],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/product/${slug}/audience`);
+      const res = await apiRequest("GET", `/api/product/${slug}`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -128,6 +139,7 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
     mutationFn: async () => {
       const body = {
         content_type: "program",
+        replace_personas: true as const,
         offer: {
           one_liner: oneLiner,
           who_its_for: whoFor,
@@ -152,14 +164,15 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
           },
         })),
       };
-      const res = await apiRequest("PUT", `/api/product/${slug}/audience`, body);
+      const res = await apiRequest("PUT", `/api/product/${slug}`, body);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Save failed");
       return json;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: [`/api/product/${slug}/audience`] });
+      void queryClient.invalidateQueries({ queryKey: [`/api/product/${slug}`] });
       void queryClient.invalidateQueries({ queryKey: ["/api/ecommerce/product-map"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/ecommerce/products"] });
       void queryClient.invalidateQueries({ queryKey: [`/api/ecommerce/funnel/${slug}`] });
       toast({ title: "Audience saved" });
     },
@@ -418,14 +431,35 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
       </div>
 
       <div className="flex justify-end">
-        <Button
-          type="button"
-          onClick={() => saveMutation.mutate()}
-          disabled={saveMutation.isPending}
-          data-testid="button-save-audience"
-        >
-          {saveMutation.isPending ? "Saving…" : "Save audience"}
-        </Button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              type="button"
+              disabled={saveMutation.isPending}
+              data-testid="button-save-audience"
+            >
+              {saveMutation.isPending ? "Saving…" : "Save audience"}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Save audience?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This updates who the product is for and how buyers think. It does not change page
+                copy, funnels, or publish anything.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => saveMutation.mutate()}
+                data-testid="button-confirm-save-audience"
+              >
+                Save
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );

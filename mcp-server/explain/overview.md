@@ -21,6 +21,13 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 <!-- @dynamic:active_locales -->
 <!-- /dynamic -->
 
+## Products and audience
+
+Locale-agnostic offer + personas (avatar = buyer depth) live on each product’s `_product.yml`. For “what we sell / who for,” call **`list_products`** then **`get_product`** on a slug. Journey pages → topic `funnel` / `get_product_funnel`. Changing offer/personas → **`update_product`** (`confirm: true`, needs structure edit). Making sellable or pausing the store is **human-only** (staff Store / `propose_change` notes).
+
+<!-- @dynamic:products -->
+<!-- /dynamic -->
+
 ## Available topics
 
 | Topic | When to use |
@@ -35,7 +42,8 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 | `component-behaviors` | behaviors ids, CTA `tracking`, conversion_events catalog, CRM tags allowlist |
 | `seo` | meta gates, locale `seo:`, clustering inventory, GSC/Bing, organic traffic, SEO diagnostics |
 | `funnel` | `funnel.stage` / products, money pages (`decision`), `list_entries` filters, inventory vs journey |
-| `ecommerce` | products, product scope property paths, `get_product_funnel` journey (stage inventory → `funnel`) |
+| `product` | What we sell / who for: `list_products`, `get_product`, `update_product` (audience); store visibility is human-only; journey tools |
+| `ecommerce` | Alias of topic `product` (legacy name) |
 | `shared-layout` | `single_template` / DB shared shell; create_entry playbook; blog as example |
 | `relation-fields` | Relation editor, authors hubs, listing vs hydrate, delete reassign |
 | `lead-forms` | Catalog `source` (`content_type` / `database` / `related_field`), required `value_path`/`label_path`, required `query` on ecommerce catalogs, `purchasable` vs `actively_selling` |

@@ -8,6 +8,7 @@ import {
   getValidationCacheService,
   claimToApiRow,
   completionToApiRow,
+  getCacheIssueListRowsById,
 } from "../services/validationCacheService";
 import {
   CACHE_FRESHNESS_MAX_AGE_SECONDS,
@@ -84,6 +85,7 @@ import {
   writeIssueContext,
 } from "../validation-issue-context";
 import { markFileAsModified } from "../sync-state";
+import { api } from "../rate-limit/api";
 const log = child({ module: "routes/validation" });
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
@@ -938,6 +940,106 @@ export function registerValidationRoutes(app: Express): void {
     const result = listCacheIssues(getValidationCache(res), filters);
     res.json(result);
   });
+
+  /** Staff/MCP: one validation-cache issue by id (includes soft-completed). */
+  api.get(app, "/api/validation/cache-issues/by-id", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+    const issueId =
+      typeof req.query.issueId === "string"
+        ? req.query.issueId.trim()
+        : typeof req.query.id === "string"
+          ? req.query.id.trim()
+          : "";
+    if (!issueId) {
+      return res.status(400).json({ error: "issueId is required" });
+    }
+    const rows = getCacheIssueListRowsById(getValidationCache(res), issueId);
+    if (rows.length === 0) {
+      return res.status(404).json({
+        error: "Issue not found in the validation cache (it may be a legacy id that was purged).",
+        code: "issue_not_found",
+        issueId,
+      });
+    }
+    res.json({ issueId, issues: rows });
+  });
+
+  /** MCP loopback: locale-strict active claim check for agentic live-write gates. */
+  api.get(
+    app,
+    "/api/validation/cache-issues/active-claim-for-entry",
+    { rate: "staffWrite" },
+    async (req, res) => {
+      const auth = await requireMutatingStaff(req, res);
+      if (!auth.authorized) return;
+      const contentType =
+        typeof req.query.contentType === "string" ? req.query.contentType.trim() : "";
+      const slug = typeof req.query.slug === "string" ? req.query.slug.trim() : "";
+      const locale = typeof req.query.locale === "string" ? req.query.locale.trim() : "";
+      const authorFromQuery =
+        typeof req.query.author === "string" ? req.query.author.trim() : "";
+      const author = authorFromQuery || auth.author || auth.username || "";
+      if (!contentType || !slug || !locale) {
+        return res.status(400).json({
+          error: "contentType, slug, and locale are required",
+        });
+      }
+      if (!author) {
+        return res.status(400).json({ error: "author is required (query or x-mcp-author)" });
+      }
+      const result = getValidationCache(res).authorHasActiveClaimOnEntry({
+        author,
+        contentType,
+        slug,
+        locale,
+      });
+      res.json({
+        has_active_claim: result.has_active_claim,
+        claim_issue_ids: result.claim_issue_ids,
+        entryKey: buildEntryKey(contentType, slug, locale),
+        author,
+      });
+    },
+  );
+
+  /** MCP loopback: extend claim TTL after a successful agentic live write. */
+  api.post(
+    app,
+    "/api/validation/cache-issues/refresh-claims-for-entry",
+    { rate: "staffWrite" },
+    async (req, res) => {
+      const auth = await requireMutatingStaff(req, res);
+      if (!auth.authorized) return;
+      const contentType =
+        typeof req.body?.contentType === "string" ? req.body.contentType.trim() : "";
+      const slug = typeof req.body?.slug === "string" ? req.body.slug.trim() : "";
+      const locale = typeof req.body?.locale === "string" ? req.body.locale.trim() : "";
+      const authorFromBody =
+        typeof req.body?.author === "string" ? req.body.author.trim() : "";
+      const author = authorFromBody || auth.author || auth.username || "";
+      if (!contentType || !slug || !locale) {
+        return res.status(400).json({
+          error: "contentType, slug, and locale are required",
+        });
+      }
+      if (!author) {
+        return res.status(400).json({ error: "author is required (body or x-mcp-author)" });
+      }
+      const result = await getValidationCache(res).refreshClaimsForEntry({
+        author,
+        contentType,
+        slug,
+        locale,
+      });
+      res.json({
+        refreshed: result.refreshed,
+        claim_issue_ids: result.claim_issue_ids,
+        entryKey: buildEntryKey(contentType, slug, locale),
+        author,
+      });
+    },
+  );
 
   app.get("/api/validation/resolved-issues", async (req, res) => {
     const auth = await requireCapability(req, res, "metrics_view");

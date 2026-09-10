@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import {
   IconShoppingBag,
   IconInfoCircle,
@@ -20,6 +20,18 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { isActivelySelling } from "@/lib/ecommerceProductMap";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -735,9 +747,11 @@ export default function StoreProductDetailPage() {
   const slug = params.slug ?? "";
   const queryClient = useQueryClient();
   const [educationOpen, setEducationOpen] = useState(false);
-  const [analyticsMode, setAnalyticsMode] = useState<"page_performance" | "stage_flow">(
-    "page_performance",
+  const [journeyView, setJourneyView] = useState<"strategy" | "page_performance" | "stage_flow">(
+    "strategy",
   );
+  // KPIs + page cards need page_performance; only stage_flow tab uses that mode.
+  const analyticsQueryMode = journeyView === "stage_flow" ? "stage_flow" : "page_performance";
 
   const { data, isLoading, isError } = useQuery<FunnelResponse>({
     queryKey: [`/api/ecommerce/funnel/${slug}`],
@@ -745,10 +759,10 @@ export default function StoreProductDetailPage() {
   });
 
   const { data: analytics, isLoading: analyticsLoading } = useQuery<JourneyAnalyticsResponse>({
-    queryKey: [`/api/ecommerce/funnel/${slug}/analytics`, analyticsMode],
+    queryKey: [`/api/ecommerce/funnel/${slug}/analytics`, analyticsQueryMode],
     queryFn: async () => {
       const res = await apiFetch(
-        `/api/ecommerce/funnel/${encodeURIComponent(slug)}/analytics?mode=${analyticsMode}&days=28`,
+        `/api/ecommerce/funnel/${encodeURIComponent(slug)}/analytics?mode=${analyticsQueryMode}&days=28`,
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -759,12 +773,40 @@ export default function StoreProductDetailPage() {
     enabled: !!slug && !!data,
   });
 
+  const { toast } = useToast();
+
   const refreshJourney = () => {
     void queryClient.invalidateQueries({ queryKey: [`/api/ecommerce/funnel/${slug}`] });
     void queryClient.invalidateQueries({
       queryKey: [`/api/ecommerce/funnel/${slug}/analytics`],
     });
+    void queryClient.invalidateQueries({ queryKey: ["/api/ecommerce/products"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/ecommerce/product-map"] });
   };
+
+  const sellingMutation = useMutation({
+    mutationFn: async (actively_selling: boolean) => {
+      const res = await apiRequest("PUT", `/api/product/${slug}`, {
+        content_type: data?.product.content_type || "program",
+        actively_selling,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Update failed");
+      return json;
+    },
+    onSuccess: (_data, actively_selling) => {
+      refreshJourney();
+      toast({
+        title: actively_selling ? "Product is selling again" : "Product paused",
+        description: actively_selling
+          ? "Visible on selling surfaces again."
+          : "Hidden from the store journey. Pages and funnels are unchanged.",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not update selling status", description: err.message, variant: "destructive" });
+    },
+  });
 
   const stageOrder = data?.funnel.stage_order ?? [...FUNNEL_STAGES];
   const selling = data ? isActivelySelling(data.product) : false;
@@ -830,13 +872,69 @@ export default function StoreProductDetailPage() {
                 testId="card-kpi-cms-entry"
                 valueClassName="font-mono"
               />
-              <KpiCard
-                label="Status"
-                value={selling ? "Selling" : "Paused"}
-                hint={selling ? "Visible in the store journey" : "Hidden from the store journey"}
-                icon={selling ? IconCircleCheck : IconPlayerPause}
-                testId="card-kpi-selling"
-              />
+              <Card data-testid="card-kpi-selling" className="p-4 space-y-2">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wide">
+                  {selling ? (
+                    <IconCircleCheck className="h-4 w-4" />
+                  ) : (
+                    <IconPlayerPause className="h-4 w-4" />
+                  )}
+                  Status
+                </div>
+                <div className="text-lg font-semibold">{selling ? "Selling" : "Paused"}</div>
+                <p className="text-xs text-muted-foreground">
+                  Pausing hides this product from the store journey and selling surfaces. Pages,
+                  funnels, and lead forms stay as they are — you can turn selling back on anytime.
+                </p>
+                <Collapsible>
+                  <CollapsibleTrigger className="flex items-center gap-1 text-xs text-primary hover:underline">
+                    <ChevronDown className="h-3.5 w-3.5" />
+                    Read more (advanced)
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-1 text-xs text-muted-foreground font-mono space-y-1">
+                    <p>_product.yml → actively_selling</p>
+                    <p>Lead-form catalogs use purchasable=true — not actively_selling.</p>
+                  </CollapsibleContent>
+                </Collapsible>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={selling ? "secondary" : "default"}
+                      disabled={sellingMutation.isPending}
+                      data-testid="button-toggle-selling"
+                    >
+                      {sellingMutation.isPending
+                        ? "Updating…"
+                        : selling
+                          ? "Pause selling"
+                          : "Resume selling"}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        {selling ? `Pause ${data.product.name}?` : `Resume ${data.product.name}?`}
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {selling
+                          ? "It will not show as actively selling until you resume. Pages, funnels, and lead forms do not change."
+                          : "It will show as actively selling again on store journey surfaces."}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => sellingMutation.mutate(!selling)}
+                        data-testid="button-confirm-toggle-selling"
+                      >
+                        {selling ? "Pause" : "Resume"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </Card>
               <KpiCard
                 label="Journey pages"
                 value={journeyPages}
@@ -875,20 +973,23 @@ export default function StoreProductDetailPage() {
               />
             </div>
 
-            <ProductAudiencePanel slug={slug!} />
-
             <section className="space-y-1">
               <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                   Conversion journey
                 </h2>
                 <ToggleButtonBar
-                  value={analyticsMode}
+                  value={journeyView}
                   onValueChange={(v) => {
-                    if (v === "page_performance" || v === "stage_flow") setAnalyticsMode(v);
+                    if (v === "strategy" || v === "page_performance" || v === "stage_flow") {
+                      setJourneyView(v);
+                    }
                   }}
                   listTestId="toggle-journey-analytics-mode"
                 >
+                  <ToggleButtonBarTrigger value="strategy" data-testid="tab-strategy">
+                    Strategy
+                  </ToggleButtonBarTrigger>
                   <ToggleButtonBarTrigger value="page_performance" data-testid="tab-page-performance">
                     Page performance
                   </ToggleButtonBarTrigger>
@@ -898,170 +999,181 @@ export default function StoreProductDetailPage() {
                 </ToggleButtonBar>
               </div>
 
-              {analyticsMode === "page_performance" ? (
-                <p className="text-xs text-muted-foreground mb-2">
-                  Traffic and clicks on these pages. Numbers are not proof that one stage fed the next.
-                  {analytics?.as_of ? (
-                    <>
-                      {" "}
-                      As of <span className="font-mono">{analytics.as_of}</span>
-                      {analytics.window_days ? ` (${analytics.window_days}d)` : null}.
-                    </>
-                  ) : null}
-                </p>
+              {journeyView === "strategy" ? (
+                <ProductAudiencePanel slug={slug!} />
               ) : (
-                <p className="text-xs text-muted-foreground mb-2">
-                  Coming soon — will show only sessions that moved between stages in this journey.
-                </p>
-              )}
-
-              {analyticsMode === "page_performance" && analytics?.summary && (
-                <p className="text-xs text-muted-foreground mb-3 tabular-nums">
-                  Sessions on product-specific pages:{" "}
-                  {analytics.summary.sessions_product_specific.toLocaleString()} · on shared pages:{" "}
-                  {analytics.summary.sessions_shared.toLocaleString()}
-                  {analytics.status === "unavailable" ? (
-                    <>
-                      {" "}
-                      —{" "}
-                      <Link href="/private/tracking/ga4" className="text-primary underline">
-                        Configure GA4
-                      </Link>
-                    </>
-                  ) : null}
-                </p>
-              )}
-
-              {analytics?.warnings && analytics.warnings.length > 0 && analyticsMode === "page_performance" && (
-                <ul className="text-xs text-amber-600 dark:text-amber-400 mb-3 list-disc pl-4 space-y-0.5">
-                  {analytics.warnings.slice(0, 3).map((w) => (
-                    <li key={w.code + w.message}>{w.message}</li>
-                  ))}
-                </ul>
-              )}
-
-              <Card data-testid="card-education" className="mb-4">
-                <Collapsible open={educationOpen} onOpenChange={setEducationOpen}>
-                  <div className="px-3 py-2 space-y-2 text-sm text-muted-foreground">
-                    <CollapsibleTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 text-foreground font-medium text-left"
-                        aria-expanded={educationOpen}
-                        data-testid="button-how-it-works"
-                      >
-                        <IconInfoCircle className="h-4 w-4 shrink-0" />
-                        <span className="flex-1">How it works</span>
-                        <ChevronDown
-                          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${educationOpen ? "rotate-180" : ""}`}
-                        />
-                      </button>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="space-y-2">
-                      <p>{data.education.summary}</p>
-                      <p>
-                        Shared badge means the page is tagged for all products — its traffic is not exclusive
-                        to this SKU. Stage session totals count unique sessions in that stage (not the sum of
-                        page cards).
-                      </p>
-                      <details className="text-xs">
-                        <summary className="cursor-pointer text-foreground font-medium">Read more (advanced)</summary>
-                        <ul className="mt-2 list-disc pl-5 font-mono space-y-1">
-                          {data.education.advanced_paths.map((p) => (
-                            <li key={p}>{p}</li>
-                          ))}
-                          <li>GET /api/ecommerce/funnel/:slug/analytics</li>
-                          <li>server/ecommerce/journey-analytics.ts</li>
-                          <li>/private/tracking/ga4</li>
-                        </ul>
-                      </details>
-                    </CollapsibleContent>
-                  </div>
-                </Collapsible>
-              </Card>
-              <p className="text-xs text-muted-foreground mb-4">
-                Pages appear here when their{" "}
-                <code className="bg-muted px-1 rounded">funnel.stage</code> and{" "}
-                <code className="bg-muted px-1 rounded">funnel.products</code> include this SKU.
-                Use <strong>Add content +</strong> on a stage to attach a page from the sitemap.
-                Awareness is grouped by content type so large lists stay scannable; other stages
-                group the same way once they grow past {STAGE_GROUP_THRESHOLD} pages.
-              </p>
-
-              {analyticsMode === "stage_flow" ? (
-                <Card>
-                  <CardContent className="py-10 text-center text-sm text-muted-foreground space-y-2">
-                    <p>{analytics?.message || "Stage flow is not implemented yet."}</p>
-                    <p className="text-xs">
-                      Switch to <strong>Page performance</strong> for on-page traffic and product-scoped KPIs.
+                <>
+                  {journeyView === "page_performance" ? (
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Traffic and clicks on these pages. Numbers are not proof that one stage fed the next.
+                      {analytics?.as_of ? (
+                        <>
+                          {" "}
+                          As of <span className="font-mono">{analytics.as_of}</span>
+                          {analytics.window_days ? ` (${analytics.window_days}d)` : null}.
+                        </>
+                      ) : null}
                     </p>
-                  </CardContent>
-                </Card>
-              ) : (
-                stageOrder.map((stageKey, i) => {
-                  const meta = STAGE_META[stageKey] ?? {
-                    label: stageKey,
-                    description: "",
-                    icon: IconTarget,
-                    taper: "mid" as const,
-                  };
-                  const pages = data.funnel.stages[stageKey] ?? [];
-                  const isDecision = stageKey === "decision";
-                  const locked = isDecision ? data.funnel.locked : null;
-                  const isLast = i === stageOrder.length - 1;
-                  const funnelStageKey = stageKey as FunnelStageKey;
-                  const stageSessions = analytics?.stages?.[stageKey]?.sessions_distinct;
+                  ) : (
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Coming soon — will show only sessions that moved between stages in this journey.
+                    </p>
+                  )}
 
-                  return (
-                    <FunnelStage
-                      key={stageKey}
-                      label={meta.label}
-                      description={
-                        stageSessions != null
-                          ? `${meta.description} · ${stageSessions.toLocaleString()} unique sessions`
-                          : meta.description
-                      }
-                      icon={meta.icon}
-                      index={stageIndex++}
-                      taper={meta.taper}
-                      isLast={isLast}
-                      headerAction={
-                        FUNNEL_STAGES.includes(funnelStageKey) ? (
-                          <AddFunnelContentButton
-                            stageKey={funnelStageKey}
-                            stageLabel={meta.label}
-                            productSlug={slug}
-                            onSuccess={refreshJourney}
-                          />
-                        ) : null
-                      }
-                    >
-                      {locked && (
-                        <div className="space-y-2 mb-2">
-                          <StepCard
-                            step={locked}
-                            badge="locked product page"
-                            metrics={pageMetrics(locked)}
-                            metricsLoading={analyticsLoading}
-                          />
-                        </div>
-                      )}
-                      {pages.length === 0 ? (
-                        <p className="text-xs text-muted-foreground rounded-md border border-dashed px-3 py-3">
-                          No pages at this stage yet. Click <strong>Add content +</strong> to pick a page
-                          from the sitemap.
+                  {journeyView === "page_performance" && analytics?.summary && (
+                    <p className="text-xs text-muted-foreground mb-3 tabular-nums">
+                      Sessions on product-specific pages:{" "}
+                      {analytics.summary.sessions_product_specific.toLocaleString()} · on shared pages:{" "}
+                      {analytics.summary.sessions_shared.toLocaleString()}
+                      {analytics.status === "unavailable" ? (
+                        <>
+                          {" "}
+                          —{" "}
+                          <Link href="/private/tracking/ga4" className="text-primary underline">
+                            Configure GA4
+                          </Link>
+                        </>
+                      ) : null}
+                    </p>
+                  )}
+
+                  {analytics?.warnings &&
+                    analytics.warnings.length > 0 &&
+                    journeyView === "page_performance" && (
+                      <ul className="text-xs text-amber-600 dark:text-amber-400 mb-3 list-disc pl-4 space-y-0.5">
+                        {analytics.warnings.slice(0, 3).map((w) => (
+                          <li key={w.code + w.message}>{w.message}</li>
+                        ))}
+                      </ul>
+                    )}
+
+                  <Card data-testid="card-education" className="mb-4">
+                    <Collapsible open={educationOpen} onOpenChange={setEducationOpen}>
+                      <div className="px-3 py-2 space-y-2 text-sm text-muted-foreground">
+                        <CollapsibleTrigger asChild>
+                          <button
+                            type="button"
+                            className="flex w-full items-center gap-2 text-foreground font-medium text-left"
+                            aria-expanded={educationOpen}
+                            data-testid="button-how-it-works"
+                          >
+                            <IconInfoCircle className="h-4 w-4 shrink-0" />
+                            <span className="flex-1">How it works</span>
+                            <ChevronDown
+                              className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${educationOpen ? "rotate-180" : ""}`}
+                            />
+                          </button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="space-y-2">
+                          <p>{data.education.summary}</p>
+                          <p>
+                            Shared badge means the page is tagged for all products — its traffic is not
+                            exclusive to this SKU. Stage session totals count unique sessions in that stage
+                            (not the sum of page cards).
+                          </p>
+                          <details className="text-xs">
+                            <summary className="cursor-pointer text-foreground font-medium">
+                              Read more (advanced)
+                            </summary>
+                            <ul className="mt-2 list-disc pl-5 font-mono space-y-1">
+                              {data.education.advanced_paths.map((p) => (
+                                <li key={p}>{p}</li>
+                              ))}
+                              <li>GET /api/ecommerce/funnel/:slug/analytics</li>
+                              <li>server/ecommerce/journey-analytics.ts</li>
+                              <li>/private/tracking/ga4</li>
+                            </ul>
+                          </details>
+                        </CollapsibleContent>
+                      </div>
+                    </Collapsible>
+                  </Card>
+                  <p className="text-xs text-muted-foreground mb-4">
+                    Pages appear here when their{" "}
+                    <code className="bg-muted px-1 rounded">funnel.stage</code> and{" "}
+                    <code className="bg-muted px-1 rounded">funnel.products</code> include this SKU.
+                    Use <strong>Add content +</strong> on a stage to attach a page from the sitemap.
+                    Awareness is grouped by content type so large lists stay scannable; other stages
+                    group the same way once they grow past {STAGE_GROUP_THRESHOLD} pages.
+                  </p>
+
+                  {journeyView === "stage_flow" ? (
+                    <Card>
+                      <CardContent className="py-10 text-center text-sm text-muted-foreground space-y-2">
+                        <p>{analytics?.message || "Stage flow is not implemented yet."}</p>
+                        <p className="text-xs">
+                          Switch to <strong>Page performance</strong> for on-page traffic and product-scoped
+                          KPIs.
                         </p>
-                      ) : (
-                        <StagePagesList
-                          stageKey={stageKey}
-                          pages={pages}
-                          getMetrics={pageMetrics}
-                          metricsLoading={analyticsLoading}
-                        />
-                      )}
-                    </FunnelStage>
-                  );
-                })
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    stageOrder.map((stageKey, i) => {
+                      const meta = STAGE_META[stageKey] ?? {
+                        label: stageKey,
+                        description: "",
+                        icon: IconTarget,
+                        taper: "mid" as const,
+                      };
+                      const pages = data.funnel.stages[stageKey] ?? [];
+                      const isDecision = stageKey === "decision";
+                      const locked = isDecision ? data.funnel.locked : null;
+                      const isLast = i === stageOrder.length - 1;
+                      const funnelStageKey = stageKey as FunnelStageKey;
+                      const stageSessions = analytics?.stages?.[stageKey]?.sessions_distinct;
+
+                      return (
+                        <FunnelStage
+                          key={stageKey}
+                          label={meta.label}
+                          description={
+                            stageSessions != null
+                              ? `${meta.description} · ${stageSessions.toLocaleString()} unique sessions`
+                              : meta.description
+                          }
+                          icon={meta.icon}
+                          index={stageIndex++}
+                          taper={meta.taper}
+                          isLast={isLast}
+                          headerAction={
+                            FUNNEL_STAGES.includes(funnelStageKey) ? (
+                              <AddFunnelContentButton
+                                stageKey={funnelStageKey}
+                                stageLabel={meta.label}
+                                productSlug={slug}
+                                onSuccess={refreshJourney}
+                              />
+                            ) : null
+                          }
+                        >
+                          {locked && (
+                            <div className="space-y-2 mb-2">
+                              <StepCard
+                                step={locked}
+                                badge="locked product page"
+                                metrics={pageMetrics(locked)}
+                                metricsLoading={analyticsLoading}
+                              />
+                            </div>
+                          )}
+                          {pages.length === 0 ? (
+                            <p className="text-xs text-muted-foreground rounded-md border border-dashed px-3 py-3">
+                              No pages at this stage yet. Click <strong>Add content +</strong> to pick a page
+                              from the sitemap.
+                            </p>
+                          ) : (
+                            <StagePagesList
+                              stageKey={stageKey}
+                              pages={pages}
+                              getMetrics={pageMetrics}
+                              metricsLoading={analyticsLoading}
+                            />
+                          )}
+                        </FunnelStage>
+                      );
+                    })
+                  )}
+                </>
               )}
             </section>
           </>

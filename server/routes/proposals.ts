@@ -49,6 +49,7 @@ function siteName(res: Response): string | null {
 const WRITE_ACTIONS = new Set<ProposalUpdateAction>([
   "apply",
   "acknowledge",
+  "close",
   "reject",
   "claim",
   "release",
@@ -56,6 +57,7 @@ const WRITE_ACTIONS = new Set<ProposalUpdateAction>([
   "resolve_blocker",
   "reopen_blocker",
   "attach_variant",
+  "set_no_auto_retry",
 ]);
 
 const ALL_ACTIONS = new Set<ProposalUpdateAction>([
@@ -64,11 +66,13 @@ const ALL_ACTIONS = new Set<ProposalUpdateAction>([
   "withdraw",
   "apply",
   "acknowledge",
+  "close",
   "reject",
   "attach_variant",
   "add_blocker",
   "resolve_blocker",
   "reopen_blocker",
+  "set_no_auto_retry",
 ]);
 
 export function registerProposalRoutes(app: Express): void {
@@ -228,7 +232,11 @@ export function registerProposalRoutes(app: Express): void {
     );
     if (!result.ok) {
       const status =
-        result.code === "similar_proposals" || result.code === "proposal_exists" ? 409 : 400;
+        result.code === "similar_proposals" ||
+        result.code === "proposal_exists" ||
+        result.code === "notes_no_auto_retry"
+          ? 409
+          : 400;
       res.status(status).json(result);
       return;
     }
@@ -249,6 +257,10 @@ export function registerProposalRoutes(app: Express): void {
     if (!auth) return;
 
     let asStaff = needsWrite && action !== "attach_variant" && action !== "add_blocker";
+    if (action === "set_no_auto_retry") {
+      // Staff UI may flip without claim; MCP must claim (enforced in service via actor.type).
+      asStaff = true;
+    }
     if (action === "withdraw") {
       const svcPeek = siteService(req, res);
       if (!svcPeek) return;
@@ -317,14 +329,20 @@ export function registerProposalRoutes(app: Express): void {
       variant: typeof req.body?.variant === "string" ? req.body.variant : undefined,
       confirm_end_experiment: req.body?.confirm_end_experiment === true,
       promote_on_apply: req.body?.promote_on_apply === true,
+      close_reason: typeof req.body?.close_reason === "string" ? req.body.close_reason : undefined,
+      close_note: typeof req.body?.close_note === "string" ? req.body.close_note : undefined,
+      no_auto_retry:
+        typeof req.body?.no_auto_retry === "boolean" ? req.body.no_auto_retry : undefined,
     });
     if (!result.ok) {
       const status =
         result.code === "not_found"
           ? 404
-          : result.code === "four_eyes"
+          : result.code === "four_eyes" || result.code === "not_claimant"
             ? 403
-            : result.code === "proposal_exists" || result.code === "confirm_end_experiment"
+            : result.code === "proposal_exists" ||
+                result.code === "confirm_end_experiment" ||
+                result.code === "notes_no_auto_retry"
               ? 409
               : 400;
       res.status(status).json(result);

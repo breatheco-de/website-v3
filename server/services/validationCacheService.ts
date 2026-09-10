@@ -33,7 +33,7 @@ import {
   isEntryLocalValidator,
   isMediaValidator,
 } from "../../scripts/validation/shared/runClass";
-import { entryKeyFromContentFile } from "../../scripts/validation/shared/entryKey";
+import { buildEntryKey, entryKeyFromContentFile } from "../../scripts/validation/shared/entryKey";
 import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
 import { isIssueCodeCodingAgentOnly } from "../../scripts/validation/shared/issueCodeRegistry";
 import { siteSyncGcsKey, SYNC_FILENAMES, validationCacheReadKeys } from "@shared/gcsKeys";
@@ -526,6 +526,66 @@ export class ValidationCacheService {
 
   isClaimActive(issueId: string, nowMs: number = Date.now()): boolean {
     return Boolean(this.getActiveClaim(issueId, nowMs));
+  }
+
+  /**
+   * Locale-strict: true when `author` holds at least one non-expired claim on an
+   * issue indexed under the live entry key for contentType/slug/locale.
+   */
+  authorHasActiveClaimOnEntry(opts: {
+    author: string;
+    contentType: string;
+    slug: string;
+    locale: string;
+    nowMs?: number;
+  }): { has_active_claim: boolean; claim_issue_ids: string[] } {
+    const author = opts.author.trim();
+    if (!author || !opts.contentType?.trim() || !opts.slug?.trim() || !opts.locale?.trim()) {
+      return { has_active_claim: false, claim_issue_ids: [] };
+    }
+    const entryKey = buildEntryKey(opts.contentType, opts.slug, opts.locale);
+    const nowMs = opts.nowMs ?? Date.now();
+    const claim_issue_ids: string[] = [];
+    for (const issue of this.getIssuesByEntryKey(entryKey)) {
+      const claim = this.getActiveClaim(issue.id, nowMs);
+      if (claim && claim.claimedBy === author) {
+        claim_issue_ids.push(issue.id);
+      }
+    }
+    return { has_active_claim: claim_issue_ids.length > 0, claim_issue_ids };
+  }
+
+  /**
+   * Extend TTL for this author's active claims on the live entry key.
+   * Returns how many claim rows were refreshed.
+   */
+  async refreshClaimsForEntry(opts: {
+    author: string;
+    contentType: string;
+    slug: string;
+    locale: string;
+    nowMs?: number;
+  }): Promise<{ refreshed: number; claim_issue_ids: string[] }> {
+    const author = opts.author.trim();
+    if (!author || !opts.contentType?.trim() || !opts.slug?.trim() || !opts.locale?.trim()) {
+      return { refreshed: 0, claim_issue_ids: [] };
+    }
+    const entryKey = buildEntryKey(opts.contentType, opts.slug, opts.locale);
+    const nowMs = opts.nowMs ?? Date.now();
+    const claim_issue_ids: string[] = [];
+    for (const issue of this.getIssuesByEntryKey(entryKey)) {
+      const claim = this.getActiveClaim(issue.id, nowMs);
+      if (!claim || claim.claimedBy !== author) continue;
+      this.claims[issue.id] = {
+        ...claim,
+        expiresAt: new Date(nowMs + CLAIM_TTL_MS).toISOString(),
+      };
+      claim_issue_ids.push(issue.id);
+    }
+    if (claim_issue_ids.length > 0) {
+      await this.flush();
+    }
+    return { refreshed: claim_issue_ids.length, claim_issue_ids };
   }
 
   private buildClaim(
@@ -1614,6 +1674,18 @@ function buildCacheIssueRowsFromIssues(
     }
   }
   return out;
+}
+
+/** One or more list rows for a single issue id (multi-entry targets expand). */
+export function getCacheIssueListRowsById(
+  cache: ValidationCacheService,
+  issueId: string,
+): CacheIssueListRow[] {
+  const id = issueId.trim();
+  if (!id) return [];
+  const issue = cache.getIssueById(id);
+  if (!issue) return [];
+  return buildCacheIssueRowsFromIssues(cache, [issue]);
 }
 
 function computeCacheIssuesTotals(rows: CacheIssueListRow[]): CacheIssuesTotals {

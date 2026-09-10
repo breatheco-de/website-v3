@@ -3,7 +3,9 @@ import {
   buildEntryKey,
   entryKeyFromContentFile,
   entryKeyLayerLabel,
+  isLegacySyntheticEntryKey,
   parseEntryKey,
+  urlFromLegacyEntryKey,
 } from "./entryKey";
 import type { ContentFile } from "./types";
 
@@ -64,6 +66,22 @@ describe("entryKeyFromContentFile", () => {
       variant: "draft",
     };
     expect(entryKeyFromContentFile(file)).toBe("landing/foo/es@draft");
+  });
+});
+
+describe("legacy synthetic entry keys", () => {
+  it("detects migration orphans", () => {
+    expect(isLegacySyntheticEntryKey("legacy__en__blog__post")).toBe(true);
+    expect(isLegacySyntheticEntryKey("blog/post/en")).toBe(false);
+  });
+
+  it("reverses legacy URL encoding and collapses empty segments", () => {
+    expect(urlFromLegacyEntryKey("legacy__en__blog__best-online-coding-bootcamp")).toBe(
+      "/en/blog/best-online-coding-bootcamp",
+    );
+    expect(
+      urlFromLegacyEntryKey("legacy__en__blog____best-online-coding-bootcamp"),
+    ).toBe("/en/blog/best-online-coding-bootcamp");
   });
 });
 

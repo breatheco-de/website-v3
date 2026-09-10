@@ -7,6 +7,7 @@ import { resolveSiteContext, hasMultipleSites } from "../lib/content.js";
 import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
 import { denyUnlessContentView } from "../lib/auth.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
+import { listProductRows } from "../../server/product/product-io.js";
 
 // Use cwd so this resolves correctly both under tsx (mcp-server/…) and the
 // production bundle (dist/mcp-server.js).
@@ -49,9 +50,9 @@ const TOPIC_DESC: Record<string, string> = {
   funnel:
     "funnel.stage / products bindings on _common.yml, money pages (decision), list_entries filters, inventory vs journey",
   product:
-    "product sidecar _product.yml, audience (offer+personas), get_product_funnel journey, product scope paths",
+    "what we sell / who for: list_products, get_product, update_product (audience); store visibility human-only; journey",
   ecommerce:
-    "Alias of topic product (legacy name) — products, audience, get_product_funnel",
+    "Alias of topic product (legacy name) — list_products, get_product, update_product, get_product_funnel",
   "shared-layout":
     "single_template / shared shell, create_entry playbook, blog as example",
   "relation-fields":
@@ -223,6 +224,33 @@ function resolveCrmTags(contentPath: string): string {
   return lines.join("\n");
 }
 
+function resolveProducts(_contentPath: string): string {
+  try {
+    const rows = listProductRows({ includePaused: true });
+    if (rows.length === 0) {
+      return "_No purchasable products._";
+    }
+    const lines: string[] = [
+      "| Name | Entry | Selling | Audience | Persona ids |",
+      "|---|---|---|---|---|",
+    ];
+    for (const p of rows) {
+      const personas =
+        p.personas.length > 0
+          ? p.personas.map((x) => `\`${x.id}\``).join(", ")
+          : "—";
+      lines.push(
+        `| ${p.name} | \`${p.content_type}/${p.content_slug}\` | ${p.actively_selling ? "yes" : "paused"} | ${p.audience_status} | ${personas} |`,
+      );
+    }
+    lines.push("");
+    lines.push("Depth: `get_product` on a slug. Inventory tool: `list_products`.");
+    return lines.join("\n");
+  } catch {
+    return "_Could not load product index_";
+  }
+}
+
 // ─── Tag resolver ─────────────────────────────────────────────────────────────
 
 const TAG_RESOLVERS: Record<string, TagResolver> = {
@@ -231,6 +259,7 @@ const TAG_RESOLVERS: Record<string, TagResolver> = {
   image_storage: resolveImageStorage,
   conversion_events: resolveConversionEvents,
   crm_tags: resolveCrmTags,
+  products: resolveProducts,
 };
 
 export function resolveDynamicTags(content: string, contentPath: string): string {
@@ -366,7 +395,7 @@ export function registerExplainTools(
       topic: z
         .string()
         .describe(
-          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, seo, funnel, ecommerce, shared-layout, relation-fields, lead-forms, redirects, proposals.",
+          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, seo, funnel, product, ecommerce, shared-layout, relation-fields, lead-forms, redirects, proposals.",
         ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },

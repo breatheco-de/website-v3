@@ -2,15 +2,25 @@
  * Verified complete: re-run validators for the issue's entry (and seo-duplicates when needed),
  * soft-complete only if the target id is gone; report siblings cleared on that entry;
  * refuse + record attempt forensics when the issue still reproduces.
+ *
+ * Legacy v4→v5 synthetic entryKeys (`legacy__…`) cannot be parsed as type/slug/locale.
+ * We resolve them via target URL / reverse encoding, revalidate the real entry when found,
+ * then soft-complete the legacy row if the code is gone (or if no content matches — orphan).
  */
 
 import { ValidationService } from "../../scripts/validation/service";
 import { ENTRY_LOCAL_VALIDATOR_NAMES } from "../../scripts/validation/shared/runClass";
 import {
   entryKeyFromContentFile,
+  isLegacySyntheticEntryKey,
   parseEntryKey,
+  urlFromLegacyEntryKey,
 } from "../../scripts/validation/shared/entryKey";
-import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
+import {
+  getCanonicalUrl,
+  matchContentFilesForUrl,
+  normalizeUrl,
+} from "../../scripts/validation/shared/canonicalUrls";
 import { filterContentFilesForEntry } from "../jobs/definitions/on-save-validation";
 import type { ContentIndex } from "../content-index";
 import type {
@@ -53,6 +63,62 @@ function entryKeysForIssue(issue: StoredValidationIssue): string[] {
     if (t.type === "entry" && t.entryKey) keys.push(t.entryKey);
   }
   return keys;
+}
+
+function issueTargetUrl(issue: StoredValidationIssue, entryKey: string): string | null {
+  for (const t of issue.targets) {
+    if (t.type === "entry" && t.url) return normalizeUrl(t.url);
+  }
+  const fromLegacy = urlFromLegacyEntryKey(entryKey);
+  return fromLegacy ? normalizeUrl(fromLegacy) : null;
+}
+
+async function resolveParseableEntryKey(args: {
+  entryKey: string;
+  issue: StoredValidationIssue;
+  cache: ValidationCacheService;
+  contentRoot: string;
+  ci: ContentIndex;
+}): Promise<
+  | { ok: true; entryKey: string }
+  | { ok: false; orphan: true; error: string }
+  | { ok: false; orphan?: false; error: string }
+> {
+  if (parseEntryKey(args.entryKey)) {
+    return { ok: true, entryKey: args.entryKey };
+  }
+
+  const url = issueTargetUrl(args.issue, args.entryKey);
+  if (!url) {
+    return {
+      ok: false,
+      orphan: true,
+      error: `Cannot parse entryKey and no URL to resolve: ${args.entryKey}`,
+    };
+  }
+
+  const mapped = args.cache.resolveEntryKeyFromUrl(url);
+  if (mapped && parseEntryKey(mapped)) {
+    return { ok: true, entryKey: mapped };
+  }
+
+  const service = new ValidationService();
+  await service.buildContext({ contentRoot: args.contentRoot, ci: args.ci });
+  const context = service.getContext();
+  if (!context) {
+    return { ok: false, error: "No validation context" };
+  }
+
+  const matched = matchContentFilesForUrl(context.contentFiles, url);
+  const live = matched.find((f) => !f.variant) ?? matched[0];
+  if (!live) {
+    return {
+      ok: false,
+      orphan: true,
+      error: `No content entry matches ${url} (legacy cache key ${args.entryKey})`,
+    };
+  }
+  return { ok: true, entryKey: entryKeyFromContentFile(live) };
 }
 
 async function applyEntryLocalRevalidation(args: {
@@ -142,6 +208,32 @@ function clearedSiblingIds(
   return openBefore.filter((id) => id !== excludeId && !openAfter.has(id));
 }
 
+async function softCompleteSuccess(args: {
+  cache: ValidationCacheService;
+  issueId: string;
+  author: string;
+  actor?: ValidationIssueActor;
+  report?: string;
+  auto_completed_ids?: string[];
+}): Promise<VerifiedCompleteResult> {
+  const completed = await args.cache.completeIssue(
+    args.issueId,
+    args.author,
+    args.actor,
+    args.report,
+  );
+  if (!completed.ok) {
+    return { ok: false, error: completed.error, code: "complete_failed", status: 404 };
+  }
+  return {
+    ok: true,
+    action: "complete",
+    completed: completionToApiRow(completed.completion),
+    claimed: null,
+    auto_completed_ids: args.auto_completed_ids ?? [],
+  };
+}
+
 /**
  * Re-validate then complete (or refuse with attempt forensics).
  */
@@ -170,6 +262,7 @@ export async function verifiedCompleteIssue(args: {
       : [issue];
   const snapshotById = new Map(openBeforeIssues.map((i) => [i.id, i]));
   const openBefore = openBeforeIssues.map((i) => i.id);
+  const legacyKey = Boolean(primaryEntryKey && isLegacySyntheticEntryKey(primaryEntryKey));
 
   if (DUPLICATE_CODES.has(issue.code)) {
     const dup = await applySeoDuplicatesRevalidation({
@@ -181,14 +274,59 @@ export async function verifiedCompleteIssue(args: {
       return { ok: false, error: dup.error, code: "revalidate_failed", status: 500 };
     }
   } else if (primaryEntryKey) {
+    let keyForRevalidate = primaryEntryKey;
+    if (!parseEntryKey(primaryEntryKey)) {
+      const resolved = await resolveParseableEntryKey({
+        entryKey: primaryEntryKey,
+        issue,
+        cache,
+        contentRoot: args.contentRoot,
+        ci: args.ci,
+      });
+      if (!resolved.ok) {
+        if (resolved.orphan) {
+          // Migration orphan with no matching content — dismiss instead of parse error.
+          return softCompleteSuccess({
+            cache,
+            issueId,
+            author,
+            actor,
+            report:
+              report ??
+              "Dismissed legacy validation cache issue (no matching content entry to re-check).",
+          });
+        }
+        return { ok: false, error: resolved.error, code: "revalidate_failed", status: 500 };
+      }
+      keyForRevalidate = resolved.entryKey;
+    }
+
     const local = await applyEntryLocalRevalidation({
       contentRoot: args.contentRoot,
       ci: args.ci,
       cache,
-      entryKey: primaryEntryKey,
+      entryKey: keyForRevalidate,
     });
     if (!local.ok) {
       return { ok: false, error: local.error, code: "revalidate_failed", status: 500 };
+    }
+
+    // Legacy rows are not rewritten by applyValidatorResults on the real entryKey.
+    // If the same code is gone on the resolved entry, soft-complete the legacy issue.
+    if (legacyKey && cache.getIssueById(issueId)) {
+      const stillOnResolved = cache
+        .getOpenIssuesByEntryKey(keyForRevalidate)
+        .some((i) => i.code === issue.code);
+      if (!stillOnResolved) {
+        return softCompleteSuccess({
+          cache,
+          issueId,
+          author,
+          actor,
+          report,
+        });
+      }
+      // Same code still open on the real entry — fall through to refuse below.
     }
   } else {
     return {

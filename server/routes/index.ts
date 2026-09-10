@@ -255,7 +255,7 @@ import { registerValidationRoutes } from "./validation";
 import { registerProposalRoutes } from "./proposals";
 import { registerEcommerceRoutes } from "./ecommerce";
 import { registerFunnelRoutes } from "./funnel";
-import { registerProductAudienceRoutes } from "./product-audience";
+import { registerProductRoutes } from "./product";
 import { registerWebhooksRoutes } from "./webhooks";
 import { registerOverlaysRoutes } from "./overlays";
 import { setWorkerRunNow } from "./_worker-state";
@@ -339,7 +339,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerProposalRoutes(app);
   registerEcommerceRoutes(app);
   registerFunnelRoutes(app);
-  registerProductAudienceRoutes(app);
+  registerProductRoutes(app);
   registerWebhooksRoutes(app);
   registerOverlaysRoutes(app);
 
