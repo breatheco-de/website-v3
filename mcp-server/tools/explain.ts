@@ -313,7 +313,11 @@ export function registerExplainTools(
       ];
       const warnings = multiSiteNoBrand
         ? [
-            "Conventions are generic (no site brand). Pass site on bootstrap_agent after list_sites so link examples use the correct domain.",
+            {
+              code: "conventions_generic_no_site",
+              message:
+                "Conventions are generic (no site brand). Pass site on bootstrap_agent after list_sites so link examples use the correct domain.",
+            },
           ]
         : [];
       return ok(
