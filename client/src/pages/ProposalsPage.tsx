@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import {
@@ -18,6 +18,7 @@ import {
   IconLoader2,
   IconLock,
   IconLockOpen,
+  IconMessage,
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
@@ -76,8 +77,13 @@ import {
   ProposalMetaRow,
 } from "@/components/agents/ProposalListCard";
 import { ProposalFieldDiff } from "@/components/agents/ProposalFieldDiff";
+import { EntryActivityBadge } from "@/components/pipeline/EntryActivityBadge";
+import { AskActivityGateCopy } from "@/components/DebugBubble/SolveWithAiAgentDropdown";
 import { ValidationIssueDetailModal } from "@/components/diagnostics/ValidationIssueDetailModal";
+import { buildEntryKey } from "@/lib/entryKeyToPageUrl";
+import { ENTRY_ACTIVITY_WINDOW_DAYS } from "@shared/event-log-filters";
 import { apiFetch, apiRequestWithAuth } from "@/lib/queryClient";
+import { Checkbox } from "@/components/ui/checkbox";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -158,6 +164,8 @@ type Proposal = {
   } | null;
   created_at: number;
   updated_at?: number;
+  recent_activity?: Array<{ entryKey: string; writeCount: number; windowDays: number }>;
+  recent_activity_error?: string;
 };
 
 function headers(): Record<string, string> {
@@ -780,10 +788,20 @@ export function ProposalDetailPanel({ id }: { id: string }) {
   const [advanced, setAdvanced] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
   const [applyOpen, setApplyOpen] = useState(false);
+  const [activityAck, setActivityAck] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [closeReason, setCloseReason] = useState<ProposalCloseReasonValue>("wont_fix");
   const [closeNote, setCloseNote] = useState("");
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const addBlockerFormRef = useRef<HTMLDivElement>(null);
+  const addBlockerInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const scrollToAskForChanges = () => {
+    addBlockerFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => {
+      addBlockerInputRef.current?.focus();
+    }, 350);
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ["/api/admin/proposals", id],
@@ -819,6 +837,11 @@ export function ProposalDetailPanel({ id }: { id: string }) {
       toast({ title: e.message, variant: "destructive" });
       if (e.data?.code === "confirm_end_experiment") {
         setConfirmExperiment(true);
+        setApplyOpen(true);
+      }
+      if (e.data?.code === "confirm_recent_activity") {
+        setApplyOpen(true);
+        setActivityAck(false);
       }
     },
   });
@@ -826,6 +849,16 @@ export function ProposalDetailPanel({ id }: { id: string }) {
   const p = data?.proposal;
   const mode = p ? reviewModeBadge(p) : null;
   const ui = p ? proposalStatusUi(p.status) : null;
+  const recentActivity = p?.recent_activity ?? [];
+  const activityByKey = useMemo(() => {
+    const m = new Map<string, { writeCount: number; windowDays: number }>();
+    for (const row of recentActivity) {
+      m.set(row.entryKey, { writeCount: row.writeCount, windowDays: row.windowDays });
+    }
+    return m;
+  }, [recentActivity]);
+  const gateWriteTotal = recentActivity.reduce((sum, row) => sum + (row.writeCount || 0), 0);
+  const needsActivityAck = gateWriteTotal > 0;
   const claimActive =
     p?.claim && new Date(p.claim.expiresAt).getTime() > Date.now() ? p.claim : null;
   const attribution = p
@@ -863,7 +896,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
         ? confirmExperiment
           ? "Confirm end experiment & make draft live"
           : "Approve and make draft live"
-        : "Apply remaining";
+        : "Apply changes";
   const closeNoteOk =
     !closeNoteRequired(closeReason) || closeNote.trim().length >= CLOSE_NOTE_MIN;
   const closeNoteHint = closeNoteRequired(closeReason)
@@ -972,6 +1005,66 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                   ) : null}
                 </div>
                 <h2 className="text-xl font-semibold leading-tight tracking-tight">{p.title}</h2>
+                {p.kind === "edits" && p.entries.length > 0 ? (
+                  <div
+                    className="flex flex-wrap items-center gap-1.5"
+                    data-testid="proposal-related-entries"
+                  >
+                    <span className="text-xs text-muted-foreground">Related</span>
+                    {p.entries.map((e) => {
+                      const liveKey = buildEntryKey({
+                        contentType: e.contentType,
+                        slug: e.slug,
+                        locale: e.locale,
+                      });
+                      const draftKey = e.variant
+                        ? buildEntryKey({
+                            contentType: e.contentType,
+                            slug: e.slug,
+                            locale: e.locale,
+                            variant: e.variant,
+                          })
+                        : null;
+                      const liveAct = activityByKey.get(liveKey);
+                      const draftAct = draftKey ? activityByKey.get(draftKey) : undefined;
+                      return (
+                        <span
+                          key={e.id}
+                          className="inline-flex max-w-full flex-wrap items-center gap-1"
+                        >
+                          <Badge
+                            variant="outline"
+                            className="gap-1 font-mono font-normal max-w-full truncate"
+                            data-testid={`badge-related-entry-${e.id}`}
+                          >
+                            <IconLink className="h-3 w-3 shrink-0" aria-hidden />
+                            <span className="truncate">
+                              {e.contentType}/{e.slug}
+                              <span className="text-muted-foreground"> · {e.locale}</span>
+                              {e.variant ? (
+                                <span className="text-muted-foreground"> · draft {e.variant}</span>
+                              ) : null}
+                            </span>
+                          </Badge>
+                          <EntryActivityBadge
+                            entryKey={liveKey}
+                            writeCount={liveAct?.writeCount ?? 0}
+                            windowDays={liveAct?.windowDays ?? ENTRY_ACTIVITY_WINDOW_DAYS}
+                            testIdPrefix={`proposal-activity-live-${e.id}`}
+                          />
+                          {draftKey ? (
+                            <EntryActivityBadge
+                              entryKey={draftKey}
+                              writeCount={draftAct?.writeCount ?? 0}
+                              windowDays={draftAct?.windowDays ?? ENTRY_ACTIVITY_WINDOW_DAYS}
+                              testIdPrefix={`proposal-activity-draft-${e.id}`}
+                            />
+                          ) : null}
+                        </span>
+                      );
+                    })}
+                  </div>
+                ) : null}
                 <ProposalMetaRow items={detailMeta} className="text-xs" />
               </div>
             </div>
@@ -979,8 +1072,11 @@ export function ProposalDetailPanel({ id }: { id: string }) {
               <div className="flex flex-wrap items-center gap-2 border-t border-card-border px-5 py-3">
                 {showPrimaryEdits ? (
                   <Button
-                    onClick={() => setApplyOpen(true)}
-                    disabled={mut.isPending || blockersOpen}
+                    onClick={() => {
+                      setActivityAck(false);
+                      setApplyOpen(true);
+                    }}
+                    disabled={mut.isPending || blockersOpen || Boolean(p.recent_activity_error)}
                     data-testid="button-apply-proposal"
                   >
                     <IconCheck className="h-4 w-4" aria-hidden />
@@ -1023,6 +1119,17 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     Claim
                   </Button>
                 )}
+                {showPrimaryEdits ? (
+                  <Button
+                    variant="outline"
+                    onClick={scrollToAskForChanges}
+                    disabled={mut.isPending}
+                    data-testid="button-ask-for-changes"
+                  >
+                    <IconMessage className="h-4 w-4" aria-hidden />
+                    Ask for changes
+                  </Button>
+                ) : null}
                 {showReject ? (
                   <Button
                     variant="outline"
@@ -1030,8 +1137,8 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     disabled={mut.isPending}
                     data-testid="button-reject-proposal"
                   >
-                    <IconCircleX className="h-4 w-4" aria-hidden />
-                    Reject
+                    <IconCircleX className="h-4 w-4 text-destructive" aria-hidden />
+                    Reject Completely
                   </Button>
                 ) : null}
                 {showWithdraw ? (
@@ -1047,7 +1154,8 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                 ) : null}
                 {blockersOpen && showReject ? (
                   <span className="text-xs text-muted-foreground">
-                    Approve is disabled while needs-changes items are open. Reject remains available.
+                    Approve is disabled while needs-changes items are open. Reject Completely remains
+                    available.
                   </span>
                 ) : blockersOpen ? (
                   <span className="text-xs text-muted-foreground">
@@ -1064,6 +1172,37 @@ export function ProposalDetailPanel({ id }: { id: string }) {
               <p>
                 Other versions still have traffic. Confirming will remove those traffic-bearing
                 variants when this draft goes live.
+              </p>
+            </div>
+          ) : null}
+
+          {p.kind === "edits" && p.recent_activity_error ? (
+            <div
+              className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+              data-testid="banner-proposal-activity-error"
+            >
+              <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <p>
+                Could not load recent changes for linked pages. Approve is blocked until activity
+                history is available again.
+              </p>
+            </div>
+          ) : null}
+
+          {p.kind === "edits" && !isTerminal && gateWriteTotal > 0 ? (
+            <div
+              className="rounded-md border border-card-border bg-muted/40 px-3 py-2.5"
+              data-testid="banner-proposal-recent-activity"
+            >
+              <AskActivityGateCopy
+                writeCount={gateWriteTotal}
+                windowDays={
+                  recentActivity[0]?.windowDays ?? ENTRY_ACTIVITY_WINDOW_DAYS
+                }
+                testId="proposal-activity-gate-copy"
+              />
+              <p className="mt-2 text-xs text-muted-foreground pl-10">
+                Open the write count badges above to review recent changes before you approve.
               </p>
             </div>
           ) : null}
@@ -1174,6 +1313,46 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                           {e.locale}
                           {e.variant ? ` · draft ${e.variant}` : ""}
                         </p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                          <EntryActivityBadge
+                            entryKey={buildEntryKey({
+                              contentType: e.contentType,
+                              slug: e.slug,
+                              locale: e.locale,
+                            })}
+                            writeCount={
+                              activityByKey.get(
+                                buildEntryKey({
+                                  contentType: e.contentType,
+                                  slug: e.slug,
+                                  locale: e.locale,
+                                }),
+                              )?.writeCount ?? 0
+                            }
+                            testIdPrefix={`proposal-entry-activity-${e.id}`}
+                          />
+                          {e.variant ? (
+                            <EntryActivityBadge
+                              entryKey={buildEntryKey({
+                                contentType: e.contentType,
+                                slug: e.slug,
+                                locale: e.locale,
+                                variant: e.variant,
+                              })}
+                              writeCount={
+                                activityByKey.get(
+                                  buildEntryKey({
+                                    contentType: e.contentType,
+                                    slug: e.slug,
+                                    locale: e.locale,
+                                    variant: e.variant,
+                                  }),
+                                )?.writeCount ?? 0
+                              }
+                              testIdPrefix={`proposal-entry-draft-activity-${e.id}`}
+                            />
+                          ) : null}
+                        </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         <span
@@ -1317,12 +1496,17 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     )}
                   </div>
                 ))}
-                <div className="space-y-2 border-t border-card-border pt-3">
+                <div
+                  ref={addBlockerFormRef}
+                  id="proposal-ask-for-changes"
+                  className="space-y-2 border-t border-card-border pt-3"
+                >
                   <p className="text-xs text-muted-foreground">
                     Add needs-change note: what’s wrong, what fixed looks like, and why (min 80
                     characters). No tool lists.
                   </p>
                   <Textarea
+                    ref={addBlockerInputRef}
                     placeholder="On draft …, X is wrong. It must be Y because …"
                     value={blockerBody}
                     onChange={(e) => setBlockerBody(e.target.value)}
@@ -1362,6 +1546,12 @@ export function ProposalDetailPanel({ id }: { id: string }) {
               <p>Promote copies the draft over live for one locale; SEO cluster on live is preserved when promoting over an existing live file.</p>
               <p>Ending an experiment deletes other traffic-bearing variants after confirm. Claim TTL is 30 minutes; only the claimant resolves blockers.</p>
               <p>Variant attachment is write-once in the creating agent session.</p>
+              <p>
+                Recent-activity warnings use a {ENTRY_ACTIVITY_WINDOW_DAYS}-day window of people and
+                agent writes. The live page always counts; a named draft counts too. Approve always
+                re-checks. This proposal&apos;s own earlier applies do not re-trigger the Approve
+                warning. If activity history cannot load, create/approve stays blocked.
+              </p>
             </CollapsibleContent>
           </Collapsible>
 
@@ -1375,7 +1565,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                       : "Approve and make draft live?"
                     : p.review_mode === "soft_variant" || p.entries.some((e) => e.variant)
                       ? "Apply changes to the draft?"
-                      : "Apply remaining changes?"}
+                      : "Apply changes?"}
                 </AlertDialogTitle>
                 <AlertDialogDescription asChild>
                   <div className="space-y-2 text-sm text-muted-foreground">
@@ -1414,6 +1604,29 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                         </p>
                       </>
                     )}
+                    {needsActivityAck ? (
+                      <div
+                        className="space-y-2 rounded-md border border-card-border bg-muted/40 p-3"
+                        data-testid="apply-recent-activity-ack"
+                      >
+                        <AskActivityGateCopy
+                          writeCount={gateWriteTotal}
+                          windowDays={
+                            recentActivity[0]?.windowDays ?? ENTRY_ACTIVITY_WINDOW_DAYS
+                          }
+                          testId="apply-activity-gate-copy"
+                        />
+                        <label className="flex items-start gap-2 text-sm text-foreground cursor-pointer">
+                          <Checkbox
+                            checked={activityAck}
+                            onCheckedChange={(v) => setActivityAck(v === true)}
+                            className="mt-0.5"
+                            data-testid="checkbox-activity-ack"
+                          />
+                          <span>I checked recent changes — this proposal is still needed.</span>
+                        </label>
+                      </div>
+                    ) : null}
                   </div>
                 </AlertDialogDescription>
               </AlertDialogHeader>
@@ -1421,15 +1634,26 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                 <AlertDialogCancel data-testid="button-cancel-apply-proposal">Cancel</AlertDialogCancel>
                 <Button
                   type="button"
-                  disabled={mut.isPending || blockersOpen}
+                  disabled={
+                    mut.isPending ||
+                    blockersOpen ||
+                    Boolean(p.recent_activity_error) ||
+                    (needsActivityAck && !activityAck)
+                  }
                   onClick={() => {
+                    const body: Record<string, unknown> = {};
+                    if (confirmExperiment) body.confirm_end_experiment = true;
+                    if (needsActivityAck) body.confirm_recent_activity = true;
                     mut.mutate(
                       {
                         action: "apply",
-                        body: confirmExperiment ? { confirm_end_experiment: true } : {},
+                        body,
                       },
                       {
-                        onSuccess: () => setApplyOpen(false),
+                        onSuccess: () => {
+                          setApplyOpen(false);
+                          setActivityAck(false);
+                        },
                       },
                     );
                   }}

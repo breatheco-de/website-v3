@@ -6,6 +6,19 @@ window_days: 6
 
 entries:
   - date: "2026-09-10"
+    summary: "Proposal recent-activity gate + get_entry_activity"
+    agent_impact:
+      - "Edits propose_change / update_proposal apply soft-block when linked entries have recent writes (confirm_recent_activity after inspecting). activity_unavailable is fail-closed — retry when readable."
+      - "New tool get_entry_activity: 14-day people/agent writes; gate_write_count excludes current agent_session_id. Reconnect MCP."
+      - "list_proposals / proposal records may include recent_activity[]. Confirming does not apply YAML or complete issues."
+    paths:
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/proposals.md
+      - shared/mcp-tool-catalog.ts
+      - server/content-proposals/entry-activity.ts
+      - server/content-proposals/service.ts
+    tools_changed: true
+  - date: "2026-09-10"
     summary: "list_products / get_product / update_product replace audience-only tools; store visibility human-only"
     agent_impact:
       - "New tools: list_products (inventory), get_product (sidecar), update_product (offer/personas/metadata, confirm:true). Removed get_product_audience / update_product_audience — reconnect MCP."

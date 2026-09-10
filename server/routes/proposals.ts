@@ -234,7 +234,9 @@ export function registerProposalRoutes(app: Express): void {
       const status =
         result.code === "similar_proposals" ||
         result.code === "proposal_exists" ||
-        result.code === "notes_no_auto_retry"
+        result.code === "notes_no_auto_retry" ||
+        result.code === "confirm_recent_activity" ||
+        result.code === "activity_unavailable"
           ? 409
           : 400;
       res.status(status).json(result);
@@ -328,6 +330,7 @@ export function registerProposalRoutes(app: Express): void {
       resolve_note: typeof req.body?.resolve_note === "string" ? req.body.resolve_note : undefined,
       variant: typeof req.body?.variant === "string" ? req.body.variant : undefined,
       confirm_end_experiment: req.body?.confirm_end_experiment === true,
+      confirm_recent_activity: req.body?.confirm_recent_activity === true,
       promote_on_apply: req.body?.promote_on_apply === true,
       close_reason: typeof req.body?.close_reason === "string" ? req.body.close_reason : undefined,
       close_note: typeof req.body?.close_note === "string" ? req.body.close_note : undefined,
@@ -342,6 +345,8 @@ export function registerProposalRoutes(app: Express): void {
             ? 403
             : result.code === "proposal_exists" ||
                 result.code === "confirm_end_experiment" ||
+                result.code === "confirm_recent_activity" ||
+                result.code === "activity_unavailable" ||
                 result.code === "notes_no_auto_retry"
               ? 409
               : 400;

@@ -80,7 +80,12 @@ import {
   type SeoContextChoice,
 } from "@/components/editing/SeoContextPickerDialog";
 import type { SeoModalTab } from "@/components/DebugBubble/components/SeoModal";
-import { isFunnelStage, type FunnelBlock } from "@shared/funnel";
+import {
+  isFunnelStage,
+  normalizeFunnelBinding,
+  type FunnelBlock,
+  type FunnelProductBinding,
+} from "@shared/funnel";
 import {
   FUNNEL_STAGE_TAPER,
   FUNNEL_STAGE_TONE,
@@ -9027,16 +9032,25 @@ export default function ContentTypeManagePage() {
                                         All products
                                       </Badge>
                                     ) : (
-                                      (products as string[]).map((p) => (
-                                        <Badge
-                                          key={p}
-                                          variant="outline"
-                                          className="text-xs font-mono font-normal"
-                                          data-testid={`badge-funnel-product-${slug}-${p}`}
-                                        >
-                                          {p}
-                                        </Badge>
-                                      ))
+                                      (products as FunnelProductBinding[])
+                                        .map((raw) => normalizeFunnelBinding(raw))
+                                        .filter((b): b is FunnelProductBinding => b != null)
+                                        .map((b) => {
+                                          const label = b.persona
+                                            ? `${b.product} · ${b.persona}`
+                                            : b.product;
+                                          const key = `${b.product}\0${b.persona ?? ""}`;
+                                          return (
+                                            <Badge
+                                              key={key}
+                                              variant="outline"
+                                              className="text-xs font-mono font-normal"
+                                              data-testid={`badge-funnel-product-${slug}-${b.product}${b.persona ? `-${b.persona}` : ""}`}
+                                            >
+                                              {label}
+                                            </Badge>
+                                          );
+                                        })
                                     )}
                                   </div>
                                 ) : (

@@ -48,7 +48,7 @@ Locale-agnostic offer + personas (avatar = buyer depth) live on each product’s
 | `relation-fields` | Relation editor, authors hubs, listing vs hydrate, delete reassign |
 | `lead-forms` | Catalog `source` (`content_type` / `database` / `related_field`), required `value_path`/`label_path`, required `query` on ecommerce catalogs, `purchasable` vs `actively_selling` |
 | `redirects` | CMS 301/302: two stores, first-match, `test_redirect` (`read_redirects`) + `update_redirect` (`edit_redirects`) |
-| `proposals` | Entry change proposals + issue handoff notes: 3 tools, four-eyes apply; `list_proposals` is stats-first |
+| `proposals` | Entry change proposals + issue handoff notes: 4 tools incl. `get_entry_activity`, four-eyes apply; `list_proposals` is stats-first |
 
 **Metrics Viewer:** use `get_validation_issues` for open/resolved KPI stats (and scoped rows with `set`), and `get_organic_traffic` for GSC organic clicks (site / paths / clusters / opportunities / queries). Content agents keep `run_entry_diagnostics` to refresh/fix issues; SEO agents with `seo_edit` also see `get_organic_traffic`.
 

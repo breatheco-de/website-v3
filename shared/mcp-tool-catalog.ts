@@ -101,6 +101,7 @@ export const TOOL_GATES: Record<string, ToolGate> = {
   propose_change: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
   list_proposals: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
   update_proposal: { kind: "anyCap", caps: ["content_edit_text", "seo_edit"] },
+  get_entry_activity: { kind: "anyCap", caps: ["content_view", "seo_edit"] },
 };
 
 export function hasCapAnyScope(grants: CatalogGrant[], cap: string): boolean {

@@ -57,6 +57,7 @@ export function registerProposalTools(
       "Optional variant on an entry: soft = apply field patches into that draft; with promote_on_apply = go-live when approved. " +
       "At most one open proposal per variant — joining the existing proposal is required. " +
       "Pass agent_session_id to allow same-session attach_variant later. " +
+      "Edits proposals soft-block when linked entries have recent writes (confirm_recent_activity after get_entry_activity). " +
       "Requires content_view or seo_edit. Four-eyes apply/reject (not close).",
     {
       title: z.string().describe("Short title"),
@@ -66,6 +67,12 @@ export function registerProposalTools(
       related_issue_ids: z.array(z.string()).optional(),
       tags: z.array(z.string()).optional(),
       confirm_distinct: z.boolean().optional(),
+      confirm_recent_activity: z
+        .boolean()
+        .optional()
+        .describe(
+          "Required after confirm_recent_activity action_required — set true only after inspecting get_entry_activity.",
+        ),
       situation_note: z.string().optional().describe("Plain-English picture of current live values."),
       agent_session_id: z.string().optional().describe("From agent_session start — required to attach_variant later in the same session."),
       promote_on_apply: z
@@ -111,6 +118,7 @@ export function registerProposalTools(
             related_issue_ids: args.related_issue_ids,
             tags: args.tags,
             confirm_distinct: args.confirm_distinct,
+            confirm_recent_activity: args.confirm_recent_activity,
             situation_note: args.situation_note,
             entries: args.entries,
             agent_session_id: args.agent_session_id,
@@ -137,6 +145,60 @@ export function registerProposalTools(
                   tool: "list_proposals",
                   reason: "Inspect similar proposals first.",
                   priority: "recommended",
+                },
+              ],
+            );
+          }
+          if (data.code === "confirm_recent_activity") {
+            const firstEntry = args.entries?.[0];
+            return actionRequired(
+              {
+                success: false,
+                action_required: "confirm_recent_activity",
+                ...data,
+              },
+              [
+                {
+                  tool: "get_entry_activity",
+                  reason:
+                    "Inspect recent writes on the linked entry (SEO/traffic may still be catching up).",
+                  priority: "required",
+                  args_hint: firstEntry
+                    ? {
+                        contentType: firstEntry.contentType,
+                        slug: firstEntry.slug,
+                        locale: firstEntry.locale,
+                        ...(firstEntry.variant ? { variant: firstEntry.variant } : {}),
+                        ...(args.site ? { site: args.site } : {}),
+                        ...(args.agent_session_id
+                          ? { agent_session_id: args.agent_session_id }
+                          : {}),
+                      }
+                    : undefined,
+                },
+                {
+                  tool: "propose_change",
+                  reason:
+                    "Retry with confirm_recent_activity: true only if this proposal is still distinct from recent edits.",
+                  priority: "required",
+                  args_hint: { ...args, confirm_recent_activity: true },
+                },
+              ],
+            );
+          }
+          if (data.code === "activity_unavailable") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "retry_when_activity_available",
+                ...data,
+              },
+              [
+                {
+                  tool: "propose_change",
+                  reason: "Retry when entry activity history is readable (fail-closed; do not invent confirm).",
+                  priority: "required",
+                  args_hint: { ...args },
                 },
               ],
             );
@@ -396,6 +458,12 @@ export function registerProposalTools(
         .boolean()
         .optional()
         .describe("For apply on draft_backed when siblings have traffic"),
+      confirm_recent_activity: z
+        .boolean()
+        .optional()
+        .describe(
+          "For apply: required after confirm_recent_activity action_required — set true only after get_entry_activity.",
+        ),
       close_reason: z
         .enum(["wont_fix", "fixed_elsewhere", "tracked_elsewhere", "other"])
         .optional()
@@ -429,6 +497,7 @@ export function registerProposalTools(
             variant: args.variant,
             promote_on_apply: args.promote_on_apply,
             confirm_end_experiment: args.confirm_end_experiment,
+            confirm_recent_activity: args.confirm_recent_activity,
             close_reason: args.close_reason,
             close_note: args.close_note,
             no_auto_retry: args.no_auto_retry,
@@ -452,6 +521,83 @@ export function registerProposalTools(
                     proposal_id: args.proposal_id,
                     action: "apply",
                     confirm_end_experiment: true,
+                    confirm_recent_activity: args.confirm_recent_activity,
+                    site: args.site,
+                  },
+                },
+              ],
+            );
+          }
+          if (data.code === "confirm_recent_activity") {
+            const proposal = data.proposal as
+              | {
+                  entries?: Array<{
+                    contentType?: string;
+                    slug?: string;
+                    locale?: string;
+                    variant?: string | null;
+                    status?: string;
+                  }>;
+                }
+              | undefined;
+            const entry =
+              proposal?.entries?.find((e) => e.status === "pending" || e.status === "failed") ??
+              proposal?.entries?.[0];
+            return actionRequired(
+              {
+                success: false,
+                action_required: "confirm_recent_activity",
+                ...data,
+              },
+              [
+                {
+                  tool: "get_entry_activity",
+                  reason: "Inspect recent writes before approving — traffic/CTR may still reflect prior edits.",
+                  priority: "required",
+                  args_hint: entry?.contentType
+                    ? {
+                        contentType: entry.contentType,
+                        slug: entry.slug,
+                        locale: entry.locale,
+                        ...(entry.variant ? { variant: entry.variant } : {}),
+                        ...(args.site ? { site: args.site } : {}),
+                        ...(args.agent_session_id
+                          ? { agent_session_id: args.agent_session_id }
+                          : {}),
+                      }
+                    : undefined,
+                },
+                {
+                  tool: "update_proposal",
+                  reason:
+                    "Retry apply with confirm_recent_activity: true after inspecting activity (compose with confirm_end_experiment when needed).",
+                  priority: "required",
+                  args_hint: {
+                    proposal_id: args.proposal_id,
+                    action: "apply",
+                    confirm_recent_activity: true,
+                    confirm_end_experiment: args.confirm_end_experiment,
+                    site: args.site,
+                  },
+                },
+              ],
+            );
+          }
+          if (data.code === "activity_unavailable") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "retry_when_activity_available",
+                ...data,
+              },
+              [
+                {
+                  tool: "update_proposal",
+                  reason: "Retry apply when entry activity history is readable (fail-closed).",
+                  priority: "required",
+                  args_hint: {
+                    proposal_id: args.proposal_id,
+                    action: "apply",
                     site: args.site,
                   },
                 },
@@ -582,6 +728,103 @@ export function registerProposalTools(
         });
       } catch (e) {
         return fail((e as Error).message);
+      }
+    },
+  );
+
+  mcp.tool(
+    "get_entry_activity",
+    "List recent people/agent writes for a CMS entry (14-day window). " +
+      "Use before confirm_recent_activity on propose_change / update_proposal apply. " +
+      "events[] is unfiltered history; gate_write_count excludes the current agent_session_id when provided. " +
+      "Does not write YAML. Requires content_view or seo_edit.",
+    {
+      contentType: z.string(),
+      slug: z.string(),
+      locale: z.string(),
+      variant: z.string().optional().describe("When set, activity includes this draft key as well as live."),
+      limit: z.number().int().min(1).max(100).optional().describe("Max events to return (default 20)"),
+      agent_session_id: z
+        .string()
+        .optional()
+        .describe("When set, gate_write_count omits this session's writes (same as proposal create gate)."),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async (args) => {
+      const denied = await requireProposeListCap(mcpToken, grants);
+      if (denied) return denied;
+      const siteResult = resolveSiteContext(args.site);
+      if (!siteResult.ok) return siteFailResult(siteResult.error, "get_entry_activity", args);
+      try {
+        const { listEntryActivityEvents, resolveProposalEntryActivity } = await import(
+          "../../server/content-proposals/entry-activity.js"
+        );
+        const listed = listEntryActivityEvents({
+          site: siteResult.contentRootName,
+          contentType: args.contentType,
+          slug: args.slug,
+          locale: args.locale,
+          variant: args.variant,
+          limit: args.limit,
+        });
+        if (!listed.ok) {
+          return fail(listed.error, { code: listed.code });
+        }
+        const gated = resolveProposalEntryActivity({
+          site: siteResult.contentRootName,
+          entries: [
+            {
+              contentType: args.contentType,
+              slug: args.slug,
+              locale: args.locale,
+              variant: args.variant,
+            },
+          ],
+          excludeAgentSessionId: args.agent_session_id,
+        });
+        if (!gated.ok) {
+          return fail(gated.error, { code: gated.code });
+        }
+        const events = (listed.events ?? []).map((ev) => ({
+          id: ev.id,
+          type: ev.type,
+          created_at: ev.created_at,
+          author: ev.attribution?.[0]?.author ?? null,
+          actor: ev.attribution?.[0]?.actor ?? null,
+          agent_session_id: ev.agent_session_id ?? null,
+          entry_key:
+            typeof ev.payload?.entryKey === "string"
+              ? ev.payload.entryKey
+              : [
+                  (ev.resource as { contentType?: string })?.contentType,
+                  (ev.resource as { slug?: string })?.slug,
+                  (ev.resource as { locale?: string })?.locale,
+                ]
+                  .filter(Boolean)
+                  .join("/") || null,
+          path:
+            typeof (ev.resource as { path?: string })?.path === "string"
+              ? (ev.resource as { path: string }).path
+              : typeof ev.payload?.path === "string"
+                ? ev.payload.path
+                : null,
+        }));
+        return ok({
+          activity: listed.activity,
+          gate_write_count: gated.gateWriteCount,
+          window_days: listed.windowDays,
+          events,
+          warnings: [
+            {
+              code: "inspect_only",
+              message:
+                "Read-only. Confirming recent activity on propose_change/apply does not write YAML or complete validation issues.",
+            },
+          ],
+          next_actions: [],
+        });
+      } catch (e) {
+        return fail((e as Error).message, { code: "activity_unavailable" });
       }
     },
   );

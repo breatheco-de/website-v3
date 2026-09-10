@@ -89,6 +89,7 @@ describe("allowedToolNames", () => {
     expect(names.has("get_validation_issues")).toBe(false);
     expect(names.has("propose_change")).toBe(true);
     expect(names.has("list_proposals")).toBe(true);
+    expect(names.has("get_entry_activity")).toBe(true);
     expect(names.has("update_proposal")).toBe(false);
   });
 
@@ -102,6 +103,7 @@ describe("allowedToolNames", () => {
     expect(names.has("update_redirect")).toBe(false);
     expect(names.has("propose_change")).toBe(true);
     expect(names.has("list_proposals")).toBe(true);
+    expect(names.has("get_entry_activity")).toBe(true);
     expect(names.has("update_proposal")).toBe(true);
   });
 
@@ -186,6 +188,7 @@ describe("allowedToolNames", () => {
     expect(names.has("reset_entry_field")).toBe(false);
     expect(names.has("propose_change")).toBe(true);
     expect(names.has("list_proposals")).toBe(true);
+    expect(names.has("get_entry_activity")).toBe(true);
     expect(names.has("update_proposal")).toBe(true);
   });
 

@@ -8,6 +8,10 @@ import { singleAttribution, type EventActor } from "../events/types";
 import { getContentForEdit, editContent } from "../content-editor";
 import type { SiteContext } from "../site-manager";
 import { fingerprintEdits, fingerprintNotes, stableJson } from "./fingerprint";
+import {
+  resolveProposalEntryActivity,
+  type ResolveRecentActivityResult,
+} from "./entry-activity";
 import { hashVariantFileContents } from "../versioning/promote-with-teardown";
 import { child } from "../logger";
 import type { ContentType } from "@shared/schema";
@@ -124,6 +128,9 @@ export type ProposalRecord = {
   closed_at: number | null;
   entries: ProposalEntryRow[];
   blockers: ProposalBlocker[];
+  /** Enriched on read — not persisted. */
+  recent_activity?: Array<{ entryKey: string; writeCount: number; windowDays: number }>;
+  recent_activity_error?: string;
 };
 
 type ProposalRow = {
@@ -193,6 +200,8 @@ export type CreateProposalInput = {
   tags?: string[];
   entries?: ProposalEntryInput[];
   confirm_distinct?: boolean;
+  /** Soft-confirm after inspecting recent entry writes (see confirm_recent_activity gate). */
+  confirm_recent_activity?: boolean;
   situation_note?: string;
   agent_session_id?: string;
   promote_on_apply?: boolean;
@@ -229,6 +238,8 @@ export type ProposalUpdateCaller = {
   slug?: string;
   locale?: string;
   confirm_end_experiment?: boolean;
+  /** Soft-confirm after inspecting recent entry writes on apply. */
+  confirm_recent_activity?: boolean;
   promote_on_apply?: boolean;
   close_reason?: string;
   close_note?: string;
@@ -506,6 +517,19 @@ export type ProposalServiceDeps = {
   }>;
   findSimilar?: (query: string) => Promise<SimilarProposal[]>;
   indexSearch?: (proposal: ProposalRecord) => Promise<void>;
+  /** Override for tests; default uses event-store recent writes. */
+  resolveRecentActivity?: (opts: {
+    entries: Array<{ contentType: string; slug: string; locale: string; variant?: string | null }>;
+    excludeAgentSessionId?: string | null;
+    excludeProposalApplies?: Array<{
+      contentType: string;
+      slug: string;
+      locale: string;
+      variant?: string | null;
+      applied_at: number | null;
+      applied_by: string | null;
+    }>;
+  }) => ResolveRecentActivityResult;
 };
 
 export type ProposalStats = {
@@ -618,7 +642,45 @@ export function listOpenProposalsForVariant(
 export function createProposalService(deps: ProposalServiceDeps) {
   const site = deps.site;
 
+  function runResolveActivity(opts: {
+    entries: Array<{ contentType: string; slug: string; locale: string; variant?: string | null }>;
+    excludeAgentSessionId?: string | null;
+    excludeProposalApplies?: Array<{
+      contentType: string;
+      slug: string;
+      locale: string;
+      variant?: string | null;
+      applied_at: number | null;
+      applied_by: string | null;
+    }>;
+  }): ResolveRecentActivityResult {
+    if (deps.resolveRecentActivity) return deps.resolveRecentActivity(opts);
+    return resolveProposalEntryActivity({ site, ...opts });
+  }
+
+  function enrichRecentActivity(proposal: ProposalRecord): ProposalRecord {
+    if (proposal.kind !== "edits" || proposal.entries.length === 0) return proposal;
+    const resolved = runResolveActivity({
+      entries: proposal.entries.map((e) => ({
+        contentType: e.contentType,
+        slug: e.slug,
+        locale: e.locale,
+        variant: e.variant,
+      })),
+    });
+    if (!resolved.ok) {
+      return { ...proposal, recent_activity_error: resolved.error };
+    }
+    return { ...proposal, recent_activity: resolved.activity };
+  }
+
   function get(id: string): ProposalRecord | null {
+    const raw = loadProposal(dbFor(site), id);
+    return raw ? enrichRecentActivity(raw) : null;
+  }
+
+  /** Unenriched load for internal mutate paths (avoid nested activity reads mid-apply). */
+  function getRaw(id: string): ProposalRecord | null {
     return loadProposal(dbFor(site), id);
   }
 
@@ -702,7 +764,10 @@ export function createProposalService(deps: ProposalServiceDeps) {
         .filter((p) => p.related_issue_ids.includes(opts.issue_id!));
       records = [...records].sort((a, b) => compareProposalsBySort(a, b, sort, sortDir));
       const total = records.length;
-      return { proposals: records.slice(offset, offset + limit), total };
+      return {
+        proposals: records.slice(offset, offset + limit).map(enrichRecentActivity),
+        total,
+      };
     }
 
     const totalRow = db
@@ -715,7 +780,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       )
       .all(...params, limit, offset) as ProposalRow[];
     const proposals = rows.map((r) =>
-      mapProposal(r, loadEntries(db, r.id), loadBlockers(db, r.id)),
+      enrichRecentActivity(mapProposal(r, loadEntries(db, r.id), loadBlockers(db, r.id))),
     );
     return { proposals, total };
   }
@@ -732,6 +797,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
         similar?: SimilarProposal[];
         duplicate_of?: string;
         existing_proposal?: ProposalRecord;
+        activity?: Array<{ entryKey: string; writeCount: number; windowDays: number }>;
       }
   > {
     const summary = (input.summary || "").trim();
@@ -877,6 +943,36 @@ export function createProposalService(deps: ProposalServiceDeps) {
       }
     }
 
+    if (kind === "edits" && entriesIn.length > 0) {
+      const activityResult = runResolveActivity({
+        entries: entriesIn.map((e) => ({
+          contentType: e.contentType,
+          slug: e.slug,
+          locale: e.locale,
+          variant: e.variant,
+        })),
+        excludeAgentSessionId: input.agent_session_id,
+      });
+      if (!activityResult.ok) {
+        return {
+          ok: false,
+          code: "activity_unavailable",
+          error:
+            activityResult.error ||
+            "Could not load recent entry activity. Retry when activity history is available.",
+        };
+      }
+      if (activityResult.gateWriteCount > 0 && !input.confirm_recent_activity) {
+        return {
+          ok: false,
+          code: "confirm_recent_activity",
+          error:
+            "This entry has recent writes. Inspect recent activity, then pass confirm_recent_activity: true if this proposal is still needed.",
+          activity: activityResult.activity,
+        };
+      }
+    }
+
     const captured: Array<{
       input: ProposalEntryInput & { updates: FieldUpdate[] };
       baseline: { values: Record<string, unknown>; note?: string };
@@ -996,10 +1092,11 @@ export function createProposalService(deps: ProposalServiceDeps) {
         claim_expired?: boolean;
         traffic_siblings?: Array<{ slug: string; locale: string; allocation: number }>;
         existing_proposal?: ProposalRecord;
+        activity?: Array<{ entryKey: string; writeCount: number; windowDays: number }>;
       }
   > {
     const db = dbFor(site);
-    const proposal = get(id);
+    const proposal = getRaw(id);
     if (!proposal) return { ok: false, code: "not_found", error: "Proposal not found" };
 
     const report = caller.report?.trim() ?? "";
@@ -1307,11 +1404,56 @@ export function createProposalService(deps: ProposalServiceDeps) {
           ok: false,
           code: "proposal_blocked",
           error: `Cannot apply while ${proposal.open_blocker_count} open blocker(s) remain`,
-          proposal,
+          proposal: enrichRecentActivity(proposal),
         };
       }
 
       const work = proposal.entries.filter((e) => e.status === "pending" || e.status === "failed");
+      if (work.length > 0) {
+        const activityResult = runResolveActivity({
+          entries: work.map((e) => ({
+            contentType: e.contentType,
+            slug: e.slug,
+            locale: e.locale,
+            variant: e.variant,
+          })),
+          excludeAgentSessionId: caller.agent_session_id,
+          excludeProposalApplies: proposal.entries
+            .filter((e) => e.status === "done")
+            .map((e) => ({
+              contentType: e.contentType,
+              slug: e.slug,
+              locale: e.locale,
+              variant: e.variant,
+              applied_at: e.applied_at,
+              applied_by: e.applied_by,
+            })),
+        });
+        if (!activityResult.ok) {
+          return {
+            ok: false,
+            code: "activity_unavailable",
+            error:
+              activityResult.error ||
+              "Could not load recent entry activity. Retry when activity history is available.",
+            proposal: enrichRecentActivity(proposal),
+          };
+        }
+        if (activityResult.gateWriteCount > 0 && !caller.confirm_recent_activity) {
+          return {
+            ok: false,
+            code: "confirm_recent_activity",
+            error:
+              "Linked entries have recent writes. Inspect recent activity, then pass confirm_recent_activity: true to apply.",
+            activity: activityResult.activity,
+            proposal: enrichRecentActivity({
+              ...proposal,
+              recent_activity: activityResult.activity,
+            }),
+          };
+        }
+      }
+
       for (const entry of work) {
         if (proposal.promote_on_apply) {
           if (!entry.variant) {

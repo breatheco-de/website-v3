@@ -4,15 +4,24 @@ Read-only agents and staff can **propose** entry field changes. Live YAML does n
 
 Agentic swarm role connectors may write **drafts** freely, may write **live** only with an active same-locale issue claim, and must use proposals (not MCP promote/create) to go live — see agent-conventions §2.
 
-## Tools (exactly 3)
+## Tools (exactly 4)
 
 | Tool | Caps | Job |
 |---|---|---|
-| `propose_change` | `content_view` or `seo_edit` | Create. `entries[]` → kind edits; omit → notes. Optional `variant`, `promote_on_apply`, `agent_session_id`. Optional `related_issue_ids` (must exist). Notes default `no_auto_retry`. |
-| `list_proposals` | same | **Stats-first:** no filters → `proposal_stats` only. Pass `proposal_id` / `query` / `issue_id` / `status` / `kind` for paginated `proposals[]` (`limit`/`offset`). Includes `review_mode`, `open_blocker_count`, `blockers`, `no_auto_retry`, close fields when finished. |
-| `update_proposal` | `content_edit_text` or `seo_edit` | `action`: claim \| release \| withdraw \| apply \| close \| acknowledge (alias) \| reject \| attach_variant \| add_blocker \| resolve_blocker \| reopen_blocker \| set_no_auto_retry |
+| `propose_change` | `content_view` or `seo_edit` | Create. `entries[]` → kind edits; omit → notes. Optional `variant`, `promote_on_apply`, `agent_session_id`. Optional `related_issue_ids` (must exist). Notes default `no_auto_retry`. Soft-blocks on recent entry writes (`confirm_recent_activity`). |
+| `list_proposals` | same | **Stats-first:** no filters → `proposal_stats` only. Pass `proposal_id` / `query` / `issue_id` / `status` / `kind` for paginated `proposals[]` (`limit`/`offset`). Includes `review_mode`, `open_blocker_count`, `blockers`, `no_auto_retry`, `recent_activity`, close fields when finished. |
+| `update_proposal` | `content_edit_text` or `seo_edit` | `action`: claim \| release \| withdraw \| apply \| close \| acknowledge (alias) \| reject \| attach_variant \| add_blocker \| resolve_blocker \| reopen_blocker \| set_no_auto_retry. Apply re-checks recent activity. |
+| `get_entry_activity` | `content_view` or `seo_edit` | Read recent people/agent writes (14 days). Use before `confirm_recent_activity`. |
 
 Do not invent `get_proposal`, `apply_proposal`, etc.
+
+## Recent activity gate
+
+- Edits create/apply: if linked live (and named draft) pages have people/agent writes in the last 14 days → `action_required: confirm_recent_activity` with `activity[]`. Call `get_entry_activity`, then retry with `confirm_recent_activity: true`.
+- Current `agent_session_id` writes are omitted from the **gate** count only (still listed in `events[]`).
+- Apply also ignores this proposal's own prior applies for the gate count.
+- Activity unreadable → `activity_unavailable` (fail-closed; no confirm shortcut).
+- Confirming does **not** write YAML or complete validation issues.
 
 ## Review modes
 

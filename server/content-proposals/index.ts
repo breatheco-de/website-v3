@@ -20,3 +20,9 @@ export {
   type ProposalUpdateAction,
   type ReviewMode,
 } from "./service";
+export {
+  resolveProposalEntryActivity,
+  listEntryActivityEvents,
+  activityKeysForEntries,
+  type RecentActivityRow,
+} from "./entry-activity";
