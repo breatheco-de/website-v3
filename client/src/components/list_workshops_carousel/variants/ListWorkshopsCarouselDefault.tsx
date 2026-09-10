@@ -41,10 +41,10 @@ function resolveWorkshopCtaUrl(item: WorkshopCarouselItem): string {
   const slug = coerceToText((item as { slug?: unknown }).slug);
   if (!slug) return "";
 
-  // Learn public card: /[lang]/workshops/:slug (en/us omit lang prefix)
+  // Learn hosts workshop detail pages (API url is often null).
   const lang = coerceToText(item.lang).toLowerCase();
-  if (lang === "es") return `/es/workshops/${slug}`;
-  return `/workshops/${slug}`;
+  const path = lang === "es" ? `/es/workshops/${slug}` : `/workshops/${slug}`;
+  return `https://learn.4geeks.com${path}`;
 }
 
 function isItemLive(item: WorkshopCarouselItem, now: number): boolean {
@@ -318,49 +318,47 @@ export default function ListWorkshopsCarouselDefault({
       className="w-full"
       data-testid="section-list-workshops-carousel"
     >
-      <div className="max-w-7xl mx-auto px-4 md:px-8">
-        {titleHtml && (
-          <div className="flex items-center justify-between gap-8 mb-6">
-            <h2
-              className="text-h2 font-heading font-bold text-foreground"
-              dangerouslySetInnerHTML={{ __html: titleHtml }}
-              data-testid="text-workshops-heading"
+      {titleHtml && (
+        <div className="flex items-center justify-between gap-8 mb-6">
+          <h2
+            className="text-h2 font-heading font-bold text-foreground"
+            dangerouslySetInnerHTML={{ __html: titleHtml }}
+            data-testid="text-workshops-heading"
+          />
+          {showArrow && (
+            <IconArrowNarrowRight
+              className="hidden sm:block w-14 h-8 text-foreground shrink-0"
+              aria-hidden
             />
-            {showArrow && (
-              <IconArrowNarrowRight
-                className="hidden sm:block w-14 h-8 text-foreground shrink-0"
-                aria-hidden
-              />
-            )}
-          </div>
-        )}
-
-        <div
-          ref={ref}
-          className={cn(
-            "overflow-x-auto scrollbar-hide [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-            canDrag && "cursor-grab",
           )}
-          onPointerDown={canDrag ? onPointerDown : undefined}
-          onPointerMove={canDrag ? onPointerMove : undefined}
-          onPointerUp={canDrag ? endDrag : undefined}
-          onPointerCancel={canDrag ? endDrag : undefined}
-          onClickCapture={canDrag ? suppressClickIfDragged : undefined}
-          data-testid="workshops-carousel-track"
-        >
-          <div className="flex gap-5 w-max py-1.5 px-1.5">
-            {items.map((item, index) => (
-              <WorkshopCard
-                key={`${coerceToText(item.title)}-${index}`}
-                item={item}
-                index={index}
-                ctaFallback={data.cta_label}
-                hostPrefix={data.host_prefix}
-                liveNowLabel={data.live_now_label}
-                live={isItemLive(item, now)}
-              />
-            ))}
-          </div>
+        </div>
+      )}
+
+      <div
+        ref={ref}
+        className={cn(
+          "overflow-x-auto scrollbar-hide [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          canDrag && "cursor-grab",
+        )}
+        onPointerDown={canDrag ? onPointerDown : undefined}
+        onPointerMove={canDrag ? onPointerMove : undefined}
+        onPointerUp={canDrag ? endDrag : undefined}
+        onPointerCancel={canDrag ? endDrag : undefined}
+        onClickCapture={canDrag ? suppressClickIfDragged : undefined}
+        data-testid="workshops-carousel-track"
+      >
+        <div className="flex gap-5 w-max py-1.5 px-1.5">
+          {items.map((item, index) => (
+            <WorkshopCard
+              key={`${coerceToText(item.title)}-${index}`}
+              item={item}
+              index={index}
+              ctaFallback={data.cta_label}
+              hostPrefix={data.host_prefix}
+              liveNowLabel={data.live_now_label}
+              live={isItemLive(item, now)}
+            />
+          ))}
         </div>
       </div>
     </section>

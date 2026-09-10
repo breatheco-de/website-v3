@@ -110,7 +110,8 @@ props:
         type: string
         required: false
         description: >-
-          Workshop slug — used to build /workshops/:slug (or /es/workshops/:slug) when cta_url is empty
+          Workshop slug — used to build https://learn.4geeks.com/.../workshops/:slug
+          when cta_url is empty
       technology_image_ids:
         type: array
         required: false

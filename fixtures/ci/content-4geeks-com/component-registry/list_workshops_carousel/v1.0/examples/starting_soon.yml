@@ -4,6 +4,13 @@
   cta_label: See more
   host_prefix: "By "
   live_now_label: Live now
+  background: hsl(210 100% 50% / 0.05)
+  paddingY:
+    mobile: md
+    desktop: lg
+  maxWidth:
+    mobile: 2xl
+    desktop: 2xl
   dynamic_entries:
     database: workshops
     limit: 10
