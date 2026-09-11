@@ -7,6 +7,9 @@ import { useMenuConfig } from "@/hooks/useMenuConfig";
 import { getMenuChromeHeights } from "@/lib/menuChrome";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 
+/** Matches Tailwind `nav:` screen — mobile navbar chrome below this width. */
+const NAV_MOBILE_MAX_WIDTH = 830;
+
 interface HeaderProps {
   menuId?: string;
   menuConfig?: NavbarConfig;
@@ -19,7 +22,7 @@ export default function Header({ menuId = "main-navbar", menuConfig: injectedMen
   const [isScrolled, setIsScrolled] = useState(false);
   const [isPastThreshold, setIsPastThreshold] = useState(false);
   const [isTopZone, setIsTopZone] = useState(true);
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < NAV_MOBILE_MAX_WIDTH : false);
   const locale = i18n.language || 'en';
 
   const hasInjectedMenuState = injectedMenuConfig !== undefined || injectedIsLoading !== undefined;
@@ -50,7 +53,7 @@ export default function Header({ menuId = "main-navbar", menuConfig: injectedMen
         return prev;
       });
     };
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    const handleResize = () => setIsMobile(window.innerWidth < NAV_MOBILE_MAX_WIDTH);
     window.addEventListener('scroll', handleScroll);
     window.addEventListener('resize', handleResize);
     return () => {
@@ -92,8 +95,8 @@ export default function Header({ menuId = "main-navbar", menuConfig: injectedMen
   const hasVisibleMarquee = showMarquee && !marqueeCollapsed;
 
   const marqueeVisibilityClass =
-    marqueeShowOn === "mobile" ? "md:hidden" :
-    marqueeShowOn === "desktop" ? "hidden md:block" :
+    marqueeShowOn === "mobile" ? "nav:hidden" :
+    marqueeShowOn === "desktop" ? "hidden nav:block" :
     "";
 
   const floatingVisualOffset = useFloatingChrome ? 12 : 0;
@@ -136,8 +139,8 @@ export default function Header({ menuId = "main-navbar", menuConfig: injectedMen
 
   return (
     <>
-      <div aria-hidden="true" className="hidden md:block" style={{ height: `${totalHeightDesktop}px` }} />
-      <div aria-hidden="true" className="md:hidden" style={{ height: `${totalHeightMobile}px` }} />
+      <div aria-hidden="true" className="hidden nav:block" style={{ height: `${totalHeightDesktop}px` }} />
+      <div aria-hidden="true" className="nav:hidden" style={{ height: `${totalHeightMobile}px` }} />
 
       <div
         className="fixed left-0 right-0 z-50 transition-[top] duration-300 ease-in-out"
@@ -146,7 +149,7 @@ export default function Header({ menuId = "main-navbar", menuConfig: injectedMen
         <div
           className={`relative transition-transform duration-150 ease-out ${
             useFloatingChrome
-              ? "mx-3 translate-y-3 drop-shadow-[0_18px_22px_hsl(var(--foreground)/0.14)] md:mx-4"
+              ? "mx-3 translate-y-3 drop-shadow-[0_18px_22px_hsl(var(--foreground)/0.14)] nav:mx-4"
               : ""
           }`}
         >
@@ -168,7 +171,7 @@ export default function Header({ menuId = "main-navbar", menuConfig: injectedMen
           >
             <MenuVisualContextProvider value={{ isCompact: useSubtleAtTop }}>
               <div className={`flex items-center gap-4 ${constrainClass}`} style={{ height: `${navSize}px` }}>
-                <div className="hidden md:flex flex-1">
+                <div className="hidden nav:flex flex-1">
                   {isLoading ? (
                     <div className="flex items-center gap-4">
                       {[1, 2, 3, 4, 5].map((i) => (
@@ -180,7 +183,7 @@ export default function Header({ menuId = "main-navbar", menuConfig: injectedMen
                   ) : null}
                 </div>
 
-                <div className="flex md:hidden flex-1 items-center justify-between gap-3">
+                <div className="flex nav:hidden flex-1 items-center justify-between gap-3">
                   {logoItem && renderNavbarItem(logoItem, undefined, undefined, menuConfig?.navbar?.constrained_margin)}
                   <div className="flex items-center gap-2">
                     {langItem && renderNavbarItem(langItem)}

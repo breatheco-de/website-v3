@@ -192,7 +192,7 @@ export function MobileNav({ config }: MobileNavProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="md:hidden"
+          className="nav:hidden"
           data-testid="button-mobile-menu"
         >
           <Menu className="h-5 w-5" />

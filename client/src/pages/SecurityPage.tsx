@@ -96,13 +96,110 @@ function capabilityLabel(name: string): string {
   return CAPABILITY_REGISTRY.find((c) => c.name === name)?.label ?? name;
 }
 
-function formatGrantScope(cap: CapabilityGrant): string | null {
+interface CapabilityGrant {
+  name: string;
+  contentTypes?: string[] | "*";
+  databases?: string[] | "*";
+}
+
+interface RoleDefinition {
+  label: string;
+  description?: string;
+  capabilities: CapabilityGrant[];
+  agentic?: boolean;
+}
+
+interface AdminRolesResponse {
+  roles: Record<string, RoleDefinition>;
+  builtInDescriptionOverrides: Record<string, string>;
+}
+
+/** Specific scope entries for a grant, or null when unscoped / all (`*`). */
+function getGrantScopeItems(cap: CapabilityGrant): string[] | null {
   const scopeKind = getCapabilityScopeKind(cap.name);
   if (scopeKind === "none") return null;
   const raw = scopeKind === "databases" ? cap.databases : cap.contentTypes;
-  if (raw === "*" || raw == null) return "all";
-  if (Array.isArray(raw)) return raw.length > 0 ? raw.join(", ") : "all";
+  if (raw === "*" || raw == null) return null;
+  if (Array.isArray(raw)) return raw.length > 0 ? raw : null;
   return null;
+}
+
+function isGrantScopedToAll(cap: CapabilityGrant): boolean {
+  const scopeKind = getCapabilityScopeKind(cap.name);
+  if (scopeKind === "none") return false;
+  const raw = scopeKind === "databases" ? cap.databases : cap.contentTypes;
+  if (raw === "*" || raw == null) return true;
+  if (Array.isArray(raw)) return raw.length === 0;
+  return false;
+}
+
+/**
+ * Capability chip: label only when unscoped/all; long scopes stay collapsed
+ * under a +N control so popovers and role cards stay within bounds.
+ */
+function CapabilityGrantChip({
+  cap,
+  display,
+  mono,
+  testIdPrefix,
+}: {
+  cap: CapabilityGrant;
+  display: string;
+  mono?: boolean;
+  testIdPrefix?: string;
+}) {
+  const scopeItems = getGrantScopeItems(cap);
+  const showAll = isGrantScopedToAll(cap);
+  const testId = testIdPrefix ? `${testIdPrefix}-${cap.name}` : undefined;
+
+  if (!scopeItems) {
+    return (
+      <Badge
+        variant="outline"
+        className={cn("text-xs font-normal gap-1 max-w-full", mono && "font-mono")}
+        data-testid={testId}
+      >
+        <span className="truncate">{display}</span>
+        {showAll && (
+          <span className="text-muted-foreground font-mono text-[10px] shrink-0">all</span>
+        )}
+      </Badge>
+    );
+  }
+
+  return (
+    <details
+      className="group min-w-0 max-w-full open:basis-full"
+      data-testid={testId}
+    >
+      <summary className="list-none cursor-pointer inline-flex max-w-full [&::-webkit-details-marker]:hidden">
+        <Badge
+          variant="outline"
+          className={cn(
+            "text-xs font-normal gap-1 max-w-full pointer-events-none",
+            mono && "font-mono",
+          )}
+        >
+          <span className="truncate">{display}</span>
+          <span className="text-muted-foreground font-mono text-[10px] shrink-0">
+            +{scopeItems.length}
+          </span>
+          <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+        </Badge>
+      </summary>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {scopeItems.map((item) => (
+          <Badge
+            key={item}
+            variant="secondary"
+            className="text-[10px] font-mono font-normal max-w-full"
+          >
+            <span className="truncate">{item}</span>
+          </Badge>
+        ))}
+      </div>
+    </details>
+  );
 }
 
 /** Compact marker for MCP swarm / agent roles — icon only; click explains. */
@@ -135,24 +232,6 @@ function AgentRoleMarker({ roleId }: { roleId: string }) {
       </PopoverContent>
     </Popover>
   );
-}
-
-interface CapabilityGrant {
-  name: string;
-  contentTypes?: string[] | "*";
-  databases?: string[] | "*";
-}
-
-interface RoleDefinition {
-  label: string;
-  description?: string;
-  capabilities: CapabilityGrant[];
-  agentic?: boolean;
-}
-
-interface AdminRolesResponse {
-  roles: Record<string, RoleDefinition>;
-  builtInDescriptionOverrides: Record<string, string>;
 }
 
 /** Clickable role chip: summary of caps/scopes + link to Staff Roles. */
@@ -206,19 +285,14 @@ function RoleSummaryBadge({
           <p className="text-xs font-medium text-foreground">Capabilities</p>
           {role && role.capabilities.length > 0 ? (
             <div className="flex flex-wrap gap-1">
-              {role.capabilities.map((cap) => {
-                const scope = formatGrantScope(cap);
-                return (
-                  <Badge key={cap.name} variant="outline" className="text-xs font-normal gap-1 max-w-full">
-                    <span className="truncate">{capabilityLabel(cap.name)}</span>
-                    {scope && (
-                      <span className="text-muted-foreground font-mono text-[10px] shrink-0">
-                        ({scope})
-                      </span>
-                    )}
-                  </Badge>
-                );
-              })}
+              {role.capabilities.map((cap) => (
+                <CapabilityGrantChip
+                  key={cap.name}
+                  cap={cap}
+                  display={capabilityLabel(cap.name)}
+                  testIdPrefix="chip-role-summary-cap"
+                />
+              ))}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
@@ -1463,27 +1537,15 @@ function RolesTab() {
                       </details>
                     )}
                     <div className="flex flex-wrap gap-1">
-                      {role.capabilities.map((cap) => {
-                        const scopeKind = getCapabilityScopeKind(cap.name);
-                        const scopeList =
-                          scopeKind === "databases"
-                            ? Array.isArray(cap.databases)
-                              ? cap.databases
-                              : null
-                            : Array.isArray(cap.contentTypes)
-                              ? cap.contentTypes
-                              : null;
-                        return (
-                          <Badge key={cap.name} variant="outline" className="text-xs font-mono">
-                            {cap.name}
-                            {scopeList && scopeList.length > 0 && (
-                              <span className="text-muted-foreground ml-1">
-                                ({scopeList.join(",")})
-                              </span>
-                            )}
-                          </Badge>
-                        );
-                      })}
+                      {role.capabilities.map((cap) => (
+                        <CapabilityGrantChip
+                          key={cap.name}
+                          cap={cap}
+                          display={cap.name}
+                          mono
+                          testIdPrefix={`chip-role-card-cap-${roleId}`}
+                        />
+                      ))}
                       {role.capabilities.length === 0 && (
                         <span className="text-xs text-muted-foreground">No capabilities assigned</span>
                       )}

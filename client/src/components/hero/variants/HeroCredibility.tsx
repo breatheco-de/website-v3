@@ -181,12 +181,13 @@ export default function HeroCredibility({ data }: HeroCredibilityProps) {
                 className="order-1 lg:order-2 text-foreground text-center lg:text-left font-inter"
                 data-testid="text-hero-title"
               >
-                {/* Mobile: RTE HTML without font-size, br stripped */}
+                {/* Mobile: RTE HTML without font-size/line-height, br stripped */}
                 <div
-                  className="block lg:hidden text-[50px] md:text-6xl leading-[25px] "
+                  className="block lg:hidden text-[50px] md:text-6xl leading-[1.05]"
                   dangerouslySetInnerHTML={{
                     __html: (data.title || "")
-                      .replace(/font-size\s*:[^;"]*(;)?/g, "")
+                      .replace(/font-size\s*:[^;"]*(;)?/gi, "")
+                      .replace(/line-height\s*:[^;"]*(;)?/gi, "")
                       .replace(/<br\s*\/?>/gi, " ")
                   }}
                 />

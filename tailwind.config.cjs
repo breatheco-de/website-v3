@@ -14,6 +14,10 @@ module.exports = {
   },
   theme: {
     extend: {
+      // Navbar desktop chrome only — keep global md at 768px
+      screens: {
+        nav: "830px",
+      },
       borderRadius: {
         lg: ".5625rem" /* 9px */,
         md: ".375rem" /* 6px */,
