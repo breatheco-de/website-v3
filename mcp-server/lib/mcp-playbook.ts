@@ -8,13 +8,13 @@ import path from "path";
 import { createHash } from "crypto";
 
 /** Bump when the technical playbook markdown below changes. */
-export const PLAYBOOK_VERSION = "3";
+export const PLAYBOOK_VERSION = "4";
 
 /**
  * Explicit conventions seed version. Bump when editing mcp-server/agent-conventions.md
  * so agents re-fetch skill.content (known_skill_version mismatch).
  */
-export const CONVENTIONS_VERSION = "12";
+export const CONVENTIONS_VERSION = "14";
 
 export const CONVENTIONS_PATH = "mcp-server/agent-conventions.md";
 
@@ -28,10 +28,17 @@ export const PLAYBOOK_MARKDOWN = `# Website MCP — technical playbook
 
 For remote chat agents (Claude.ai, Grok, custom connectors). Conversation style belongs in agent-conventions (skill.content); this playbook is protocol only.
 
+## Identity (required for writes)
+
+- Connect via a **role URL** (\`/mcp/role/copy_editor\`, etc.) — plain \`/mcp\` is read-only.
+- Set exact \`MCP_AGENT_MODEL\` as \`provider/model\` (e.g. \`claude/sonnet-4.5\`). Family-only labels like \`claude\` fail.
+- Staff path: Private → MCP Server → Connection → choose a role → reconnect.
+- Ownership / four-eyes = username + role (not model). Exact model is stored for staff observability.
+
 ## Session order
 
 1. Call \`bootstrap_agent\` once near the start of the run (empty args on first call; pass \`site\` when multi-site so conventions brand correctly).
-2. Call \`agent_session\` with \`action: "start"\` — keep \`agent_session_id\`.
+2. Call \`agent_session\` with \`action: "start"\` — keep \`agent_session_id\` (requires role connector + exact model).
 3. On every content mutate, pass \`agent_session_id\`, \`why\` (plain English goal), and \`highlights\` when touching big fields (sections, link lists, long text). Server fills simple field values (meta.title, seo.*) for staff. Issue \`complete\` also needs \`why\` + \`highlights\`. Claim/note/summarize still use string \`report\` (min 80).
 4. Prefer one \`agent_session\` \`summarize\` at the end.
 

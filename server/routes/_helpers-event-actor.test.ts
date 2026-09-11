@@ -40,4 +40,23 @@ describe("resolveEventActor", () => {
       model: "claude-4-sonnet",
     });
   });
+
+  it("includes role from x-mcp-role header on loopback", () => {
+    const secret = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "test-mcp-secret";
+    process.env.MCP_SERVER_SECRET = secret;
+    const req = mockReq(
+      {
+        "x-mcp-client": "Cursor",
+        "x-mcp-model": "claude/sonnet-4.5",
+        "x-mcp-role": "copy_editor",
+      },
+      `Bearer ${secret}`,
+    );
+    expect(resolveEventActor(req)).toEqual({
+      type: "mcp",
+      client: "Cursor",
+      model: "claude/sonnet-4.5",
+      role: "copy_editor",
+    });
+  });
 });

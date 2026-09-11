@@ -8,7 +8,7 @@ import {
   type SystemJobFollowUpType,
 } from "../events/types";
 
-export const PIPELINE_SCHEMA_VERSION = 11;
+export const PIPELINE_SCHEMA_VERSION = 12;
 
 export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
   {
@@ -283,6 +283,18 @@ export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
           SET no_auto_retry = 1
           WHERE kind = 'notes' AND status IN ('open', 'partial')
         `);
+      }
+    },
+  },
+  {
+    version: 12,
+    name: "content_proposals_related_entries",
+    up(db) {
+      if (!tableExists(db, "content_proposals")) return;
+      if (!tableHasColumn(db, "content_proposals", "related_entries_json")) {
+        db.exec(
+          "ALTER TABLE content_proposals ADD COLUMN related_entries_json TEXT NOT NULL DEFAULT '[]'",
+        );
       }
     },
   },

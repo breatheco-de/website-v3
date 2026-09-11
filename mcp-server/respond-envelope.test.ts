@@ -20,7 +20,7 @@ const CATALOG = new Set(Object.keys(TOOL_GATES));
 
 const MUTATING_TOOLS = [
   "update_fields",
-  "update_meta_fields",
+  "update_entry_attributes",
   "create_variant",
   "delete_variant",
   "promote_variant",

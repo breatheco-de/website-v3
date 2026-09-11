@@ -75,6 +75,7 @@ import {
   FixerItemStatus,
   resolveAgentSessionId,
 } from "./_helpers";
+import { sameAgentIdentity } from "@shared/agent-identity";
 import {
   emitValidationIssueWorkflowEvent,
   resolveSiteForIssue,
@@ -993,6 +994,7 @@ export function registerValidationRoutes(app: Express): void {
         contentType,
         slug,
         locale,
+        actor: resolveIssueActor(req),
       });
       res.json({
         has_active_claim: result.has_active_claim,
@@ -1031,6 +1033,7 @@ export function registerValidationRoutes(app: Express): void {
         contentType,
         slug,
         locale,
+        actor: resolveIssueActor(req),
       });
       res.json({
         refreshed: result.refreshed,
@@ -1140,7 +1143,10 @@ export function registerValidationRoutes(app: Express): void {
         report = gated.report;
       } else {
         const existing = cache.getActiveClaim(issueId);
-        const isRefresh = existing?.claimedBy === author;
+        const isRefresh = Boolean(
+          existing &&
+            sameAgentIdentity(existing.claimedBy, existing.actor, author, actor ?? null),
+        );
         if (!isRefresh) {
           const parsed = requireIssueReport(req.body?.report);
           if (!parsed.ok) {
@@ -1208,7 +1214,8 @@ export function registerValidationRoutes(app: Express): void {
     }
 
     const result = await cache.updateIssue(issueId, action, author, {
-      staffForceRelease: true,
+      // Staff UI may override any claim; MCP must match human+role.
+      staffForceRelease: !actor || actor.type === "ui",
       actor,
       report,
       agent_session_id,

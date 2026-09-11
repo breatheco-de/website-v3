@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Link } from "wouter";
 import {
   IconAlertTriangle,
+  IconBulb,
   IconChevronRight,
   IconLink,
   IconNote,
@@ -125,7 +126,10 @@ export function ProposalListCard({
 }) {
   const ui = proposalStatusUi(p.status);
   const StatusIcon = ui.icon;
-  const KindIcon = p.kind === "notes" ? IconNote : IconPencil;
+  const KindIcon =
+    p.kind === "notes" ? IconNote : p.kind === "idea" ? IconBulb : IconPencil;
+  const kindLabel =
+    p.kind === "notes" ? "Handoff" : p.kind === "idea" ? "Idea" : p.kind;
   const attribution = proposalAttributionLines({
     proposerUsername: p.proposer_username,
     proposerActor: p.proposer_actor,
@@ -146,7 +150,7 @@ export function ProposalListCard({
       node: (
         <span className="inline-flex items-center gap-1 capitalize">
           <KindIcon className="h-3 w-3 shrink-0" aria-hidden />
-          {p.kind === "notes" ? "Handoff" : p.kind}
+          {kindLabel}
         </span>
       ),
     },

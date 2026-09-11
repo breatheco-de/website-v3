@@ -73,27 +73,27 @@ If the page were already live and you edited the live locale directly
 
 On an agentic swarm role connector (`/mcp/role/…`), write policy is enforced:
 
+- **Identity:** Set exact `MCP_AGENT_MODEL` (`provider/model`, e.g. `claude/sonnet-4.5`). Mutates without it fail. Plain `/mcp` is **read-only** — use Private → MCP Server → Connection → choose a role (e.g. `/mcp/role/copy_editor`).
 - **Draft / variant writes** (any locale): allowed with your edit caps — no issue claim required.
-- **Live writes** (omit `variant`): allowed only while you hold an **active claim** on a validation issue for that **content type + slug + locale**. Successful live writes refresh the claim TTL (~30m).
-- **Publish / promote / demote / create_entry**: denied — open an **edits** `propose_change` (field updates and/or `promote_on_apply`). Notes are reminders only (close with a reason; no YAML).
-- **Stuck on a claimed issue:** `update_issue` **release** with a report (what you tried). Do **not** invent a proposal for that handoff — the issue stays in the open queue / can reopen for the next agent.
+- **Live writes** (omit `variant`): allowed only while you hold an **active claim** on a validation issue for that **content type + slug + locale** as the **same human+role**. Successful live writes refresh the claim TTL (~30m).
+- **Publish / promote / demote / create_entry**: denied — open an **edits** `propose_change` (field updates and/or `promote_on_apply`). For a brief before work exists, use `propose_change` with `kind:"idea"` (accept ≠ apply; no YAML). Notes are wall reminders only (close with a reason; no YAML) — do not use notes for new-spoke pitches.
+- **Stuck on a claimed issue:** `update_issue` **release** with a report (what you tried). Do **not** invent a notes proposal for that handoff — the issue stays in the open queue / can reopen for the next agent.
 
-Staff unscoped `/mcp` is unchanged (no agentic gate).
+When caps forbid a write (any connector), call `propose_change` (prefer **edits**, or **idea** for a brief) instead of pasting JSON in chat.
 
-When caps forbid a write (any connector), call `propose_change` (prefer **edits**) instead of pasting JSON in chat.
-
-**Worked example:** missing `content_edit_text` on a blog CTA → `propose_change` with that entry’s `updates[]`, then tell the human a different editor must `update_proposal` with `action: "apply"`.
+**Worked example:** missing `content_edit_text` on a blog CTA → `propose_change` with that entry’s `updates[]`, then tell the human a **different role** (or staff UI) must `update_proposal` with `action: "apply"`.
 
 ### 2b. Proposal collaboration (claim vs blocker vs approve)
 
 Proposals are a shared work item, not a chat. Prefer one open proposal per draft variant (`proposal_exists` → join it).
 
-- **Claim** only when you will edit the draft / soft updates. **add_blocker** to leave review feedback (what’s wrong, what fixed looks like, why — min 80 chars; no tool shopping lists). Do not claim only to approve.
-- Only the **active claimant** may `resolve_blocker`. Do not resolve to overturn a disagreement — escalate or leave open; reviewers `reopen_blocker`.
-- Open blockers block **apply** only (reject/withdraw still OK). Cleared blockers ≠ ship — re-preview, then four-eyes `apply`. For `promote_on_apply`, confirm ending experiments when asked (`confirm_end_experiment`).
+- **Claim** only when you will edit the draft / soft updates (same human+role; staff UI may take over). **add_blocker** to leave review feedback (what’s wrong, what fixed looks like, why — min 80 chars; no tool shopping lists). Do not claim only to approve.
+- Only the **active claimant** (human+role) may `resolve_blocker`. Do not resolve to overturn a disagreement — escalate or leave open; reviewers `reopen_blocker`.
+- Open blockers block **apply** and idea **accept** (reject/withdraw/close still OK). Cleared blockers ≠ ship — re-preview, then four-eyes `apply` / `accept`. For `promote_on_apply`, confirm ending experiments when asked (`confirm_end_experiment`).
+- Four-eyes = different **username+role** (or staff UI), not merely a different model under the same role.
 - **`list_proposals(proposal_id)`** on an open/partial proposal may include **`discovery_path`**: optional research menu (`think` + `tool` items). Use it to deepen judgment before apply/reject/add_blocker. It is **not** `next_actions` and skip does **not** block decide actions. Items with `available: false` need a human to enable access, then refresh MCP.
 
-**Worked example:** Blake adds a blocker on CTA product; Alex claims, fixes the draft, resolves with a note; Casey previews again then applies.
+**Worked example:** Blake adds a blocker on CTA product; Alex claims, fixes the draft, resolves with a note; Casey (different role or UI) previews again then applies.
 
 ### 3. Cluster SEO only on live (or draft-before-live)
 

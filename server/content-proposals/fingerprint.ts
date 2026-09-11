@@ -63,3 +63,19 @@ export function fingerprintNotes(opts: {
     `${opts.site}|${opts.category}|${ids.join(",")}|${normalizeSummary(opts.summary)}`,
   );
 }
+
+export function fingerprintIdeas(opts: {
+  site: string;
+  title: string;
+  summary: string;
+  relatedIssueIds: string[];
+  relatedEntries: Array<{ contentType: string; slug: string; locale?: string }>;
+}): string {
+  const ids = [...opts.relatedIssueIds].sort();
+  const entries = [...opts.relatedEntries]
+    .map((e) => `${e.contentType}/${e.slug}/${e.locale ?? ""}`)
+    .sort();
+  return hashFingerprint(
+    `${opts.site}|idea|${normalizeSummary(opts.title)}|${normalizeSummary(opts.summary)}|${ids.join(",")}|${entries.join(";")}`,
+  );
+}

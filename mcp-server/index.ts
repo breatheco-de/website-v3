@@ -356,7 +356,11 @@ async function createMcpServer(
     }
   }
 
-  applyToolCatalogFilter(mcp, allowed);
+  const isRoleScoped = Boolean(opts?.activeRoleId);
+  applyToolCatalogFilter(mcp, allowed, {
+    stripMutating: !isRoleScoped,
+    requireIdentityOnMutate: isRoleScoped,
+  });
   registerPageTools(mcp, mcpAuthor, mcpToken, grants);
   registerSeoClusterTools(mcp, mcpToken, grants);
   registerComponentTools(mcp, mcpToken, grants);

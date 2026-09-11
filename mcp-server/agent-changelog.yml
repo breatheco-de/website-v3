@@ -6,6 +6,21 @@ window_days: 6
 
 entries:
   - date: "2026-09-11"
+    summary: "Agent identity human+role; idea proposals; unscoped read-only"
+    agent_impact:
+      - "Mutating tools require a role connector (/mcp/role/…) + exact MCP_AGENT_MODEL (provider/model, e.g. claude/sonnet-4.5). Plain /mcp is read-only — Private → MCP Server → Connection → choose a role."
+      - "Four-eyes apply/reject/accept and issue/proposal claims compare username+role (staff UI = separate). Exact model is stored for observability only."
+      - "propose_change kind:\"idea\" for pre-work briefs (no YAML). update_proposal accept (next_step) greenlights; close parks ideas. Reconnect MCP + bootstrap_agent."
+    paths:
+      - shared/agent-identity.ts
+      - mcp-server/lib/loopback.ts
+      - mcp-server/tools/proposals.ts
+      - server/content-proposals/service.ts
+      - mcp-server/explain/proposals.md
+      - mcp-server/agent-conventions.md
+      - mcp-server/lib/mcp-playbook.ts
+    tools_changed: true
+  - date: "2026-09-11"
     summary: "Persona id rename when unbound; duplicate ids rejected"
     agent_impact:
       - "Persona ids are immutable while any funnel page binds them (incl. product self if bound). Rename OK when unbound (remove+add). Creating a persona on the product does not bind pages. No cascade rewrite of funnel YAML."

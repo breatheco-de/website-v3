@@ -15,7 +15,7 @@ export type ProposalListStatus =
   | "rejected"
   | "withdrawn";
 
-export type ProposalListKind = "all" | "edits" | "notes";
+export type ProposalListKind = "all" | "edits" | "notes" | "idea";
 
 export type ProposalListSortField = "created_at" | "updated_at";
 export type ProposalListSortDir = "asc" | "desc";
@@ -53,7 +53,7 @@ const STATUS_VALUES = new Set<ProposalListStatus>([
   "withdrawn",
 ]);
 
-const KIND_VALUES = new Set<ProposalListKind>(["all", "edits", "notes"]);
+const KIND_VALUES = new Set<ProposalListKind>(["all", "edits", "notes", "idea"]);
 
 function parseStatus(raw: string | null): ProposalListStatus {
   if (raw == null || raw === "") return DEFAULT_PROPOSAL_LIST_FILTERS.status;
@@ -209,6 +209,7 @@ export const PROPOSAL_KIND_OPTIONS: Array<{ value: ProposalListKind; label: stri
   { value: "all", label: "All" },
   { value: "edits", label: "Edits" },
   { value: "notes", label: "Notes" },
+  { value: "idea", label: "Idea" },
 ];
 
 export type ProposalSortPreset = {

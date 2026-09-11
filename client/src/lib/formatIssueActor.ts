@@ -1,9 +1,10 @@
-export type IssueActorRef = {
-  type: "ui" | "mcp" | "system";
-  client?: string;
-  model?: string;
-  source?: string;
-};
+import {
+  formatAgentActorLine,
+  formatAgentActorSuffix,
+  type AgentActorLike,
+} from "@shared/agent-identity";
+
+export type IssueActorRef = AgentActorLike;
 
 export type EventAttributionEntry = {
   author?: string;
@@ -12,20 +13,11 @@ export type EventAttributionEntry = {
 
 /** Human-readable provenance suffix for claimed/completed lines. */
 export function formatIssueActorSuffix(actor?: IssueActorRef | null): string {
-  if (!actor) return "";
-  if (actor.type === "mcp") {
-    const via = actor.client?.trim() || "MCP";
-    const model = actor.model?.trim();
-    return model ? ` · via ${via} (${model})` : ` · via ${via}`;
-  }
-  if (actor.type === "system") {
-    return ` · via ${actor.source?.trim() || "system"}`;
-  }
-  return "";
+  return formatAgentActorSuffix(actor);
 }
 
 export function formatIssueActorLine(by: string, actor?: IssueActorRef | null): string {
-  return `${by}${formatIssueActorSuffix(actor)}`;
+  return formatAgentActorLine(by, actor);
 }
 
 export function formatAttributionEntry(entry: EventAttributionEntry): string {

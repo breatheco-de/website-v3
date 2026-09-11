@@ -146,7 +146,7 @@ The official playbook for shared-layout creates is not “call `create_entry` an
 3. `explain_site` on the recommended topic (for blog: `shared-layout`) when the contract says the write goes live immediately.
 4. Sample peers with `list_entries` so category slugs and markdown shape match reality.
 5. `create_entry` with exactly one locale for shared-layout, required fields on the locale object, `sections: []` (or omit), URL params / category on `common` as the type expects.
-6. SEO via `update_fields / update_meta_fields` if needed; verify with `get_entry_content` / `get_entry_seo`; `run_entry_diagnostics` when ready.
+6. SEO via `update_fields / update_entry_attributes` if needed; verify with `get_entry_content` / `get_entry_seo`; `run_entry_diagnostics` when ready.
 
 If a URL-param or select value is not in observed peers, stop. Get approval from the principal. Re-call with `confirm_new_values: true`. Inventing taxonomy is a product decision, not an agent flourish.
 

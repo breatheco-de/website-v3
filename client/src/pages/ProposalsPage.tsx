@@ -64,7 +64,9 @@ import {
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  ACCEPT_NEXT_STEP_MIN,
   CLOSE_NOTE_MIN,
+  IDEA_PARK_CLOSE_REASON_OPTIONS,
   PROPOSAL_CLOSE_REASON_OPTIONS,
   closeNoteRequired,
   type ProposalCloseReasonValue,
@@ -98,7 +100,8 @@ import {
   proposalEntryProgress,
   shortProposalId,
 } from "@/lib/proposalCardMeta";
-import { McpCopyButton } from "@/components/mcp/McpSetupUi";import {
+import { McpCopyButton } from "@/components/mcp/McpSetupUi";
+import {
   PROPOSAL_KIND_OPTIONS,
   PROPOSAL_SORT_PRESETS,
   PROPOSAL_STATUS_OPTIONS,
@@ -145,6 +148,12 @@ type BlockerRow = {
   resolved_by: string | null;
 };
 
+type RelatedEntryRef = {
+  contentType: string;
+  slug: string;
+  locale?: string;
+};
+
 type Proposal = {
   id: string;
   title: string;
@@ -164,6 +173,7 @@ type Proposal = {
   proposer_username: string;
   proposer_actor?: Record<string, unknown>;
   related_issue_ids: string[];
+  related_entries?: RelatedEntryRef[];
   entries: EntryRow[];
   blockers?: BlockerRow[];
   claim?: {
@@ -298,6 +308,16 @@ function proposalStatusExplain(
       ],
     };
   }
+  if (status === "open" && kind === "idea") {
+    return {
+      title: "Waiting for a greenlight",
+      body: "This is a brief, not a publish. Accept greenlights the idea with a next step; park it if you are stopping tracking. Open by itself does not change the live site.",
+      advanced: [
+        "Needs-change notes block Accept until they are cleared.",
+        "Accept is four-eyes for MCP roles; staff UI can always Accept.",
+      ],
+    };
+  }
   if (status === "open") {
     return {
       title: "Waiting for review",
@@ -322,6 +342,13 @@ function proposalStatusExplain(
       advanced: ["Close reason and note are stored on the proposal for later context."],
     };
   }
+  if (status === "finished" && kind === "idea") {
+    return {
+      title: "Finished",
+      body: "This idea is off the open list — either accepted with a next step, or parked with a reason. Nothing on the live site changed from this card alone.",
+      advanced: ["Accept stores close_reason accepted plus the next-step note; park uses wont_fix, tracked_elsewhere, or other."],
+    };
+  }
   if (status === "finished") {
     return {
       title: "Finished",
@@ -333,7 +360,7 @@ function proposalStatusExplain(
     return {
       title: "Rejected",
       body: "A reviewer rejected this proposal. It is no longer waiting for Approve. Reject does not undo entries that were already applied earlier.",
-      advanced: ["Reject is four-eyes on edits proposals."],
+      advanced: ["Reject is four-eyes on edits and idea proposals."],
     };
   }
   if (status === "withdrawn") {
@@ -502,6 +529,65 @@ function EditsKindBadge() {
       </PopoverContent>
     </Popover>
   );
+}
+
+function IdeaKindBadge() {
+  const [advanced, setAdvanced] = useState(false);
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex shrink-0"
+          data-testid="badge-proposal-kind-idea"
+          aria-label="Idea — what this means"
+        >
+          <Badge variant="outline" className="cursor-pointer font-normal hover-elevate">
+            Idea
+          </Badge>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 space-y-3 text-sm" align="start" data-testid="popover-idea-kind">
+        <p className="font-medium text-foreground">A brief to greenlight — not a publish</p>
+        <p className="text-muted-foreground leading-5">
+          This pitches work before any YAML change. Accept greenlights it with a next step. Needs-change
+          notes block Accept until cleared. A different agent role — or this staff UI — can Accept.
+          Agents pick a role under MCP Server → Connection.
+        </p>
+        <button
+          type="button"
+          className="text-xs text-primary hover:underline"
+          data-testid="button-idea-kind-advanced"
+          onClick={() => setAdvanced((v) => !v)}
+        >
+          {advanced ? "Hide advanced" : "Read more (advanced)"}
+        </button>
+        {advanced ? (
+          <div className="space-y-1 border-t pt-2 text-xs text-muted-foreground leading-5">
+            <p>
+              Stored as proposal kind <code className="text-foreground">idea</code> — Accept finishes
+              with <code className="text-foreground">close_reason: accepted</code> and a next-step note;
+              it does not write content.
+            </p>
+            <p>
+              Park (Close) uses wont_fix, tracked_elsewhere, or other — not fixed_elsewhere. Staff UI
+              is always a different identity from MCP roles, so Accept stays available here.
+            </p>
+            <p>
+              Role connectors: Private → MCP Server → Connection → choose a role → Choose this Role.
+            </p>
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ProposalKindBadge({ kind }: { kind: string }) {
+  if (kind === "notes") return <HandoffKindBadge />;
+  if (kind === "idea") return <IdeaKindBadge />;
+  return <EditsKindBadge />;
 }
 
 function NoAutoRetryBadge({
@@ -938,6 +1024,8 @@ export function ProposalDetailPanel({ id }: { id: string }) {
   const [closeOpen, setCloseOpen] = useState(false);
   const [closeReason, setCloseReason] = useState<ProposalCloseReasonValue>("wont_fix");
   const [closeNote, setCloseNote] = useState("");
+  const [acceptOpen, setAcceptOpen] = useState(false);
+  const [acceptNextStep, setAcceptNextStep] = useState("");
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectPending, setRejectPending] = useState(false);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
@@ -1075,35 +1163,51 @@ export function ProposalDetailPanel({ id }: { id: string }) {
   const blockersOpen = (p?.open_blocker_count ?? 0) > 0;
   const showPrimaryEdits = Boolean(p && p.kind === "edits" && !isTerminal);
   const showPrimaryNotes = Boolean(p && p.kind === "notes" && p.status === "open");
+  const showPrimaryIdeas = Boolean(p && p.kind === "idea" && p.status === "open");
+  const showBlockersSection = Boolean(p && (p.kind === "edits" || p.kind === "idea"));
   const viewerUsername = getDebugUserName().trim();
   const isProposer =
     Boolean(viewerUsername) &&
     Boolean(p?.proposer_username) &&
     viewerUsername.toLowerCase() === p!.proposer_username.trim().toLowerCase();
-  // Known identity: proposer sees Withdraw only; others see Reject (edits). Unknown: keep both.
+  // Known identity: proposer sees Withdraw only; others see Reject (edits/ideas). Unknown: keep both.
+  // Staff UI can always Accept ideas (UI identity ≠ MCP role).
   const viewerKnown = Boolean(viewerUsername);
   const showReject = Boolean(
-    p && p.kind === "edits" && !isTerminal && (!viewerKnown || !isProposer),
+    p &&
+      (p.kind === "edits" || p.kind === "idea") &&
+      !isTerminal &&
+      (!viewerKnown || !isProposer),
   );
   const showWithdraw = Boolean(p && !isTerminal && (!viewerKnown || isProposer));
   const primaryActionLabel = !p
     ? ""
-    : p.kind === "notes"
-      ? "Close this proposal"
-      : p.promote_on_apply || p.review_mode === "draft_backed"
-        ? confirmExperiment
-          ? "Confirm end experiment & make draft live"
-          : "Approve and make draft live"
-        : "Apply changes";
+    : p.kind === "idea"
+      ? "Accept idea"
+      : p.kind === "notes"
+        ? "Close this proposal"
+        : p.promote_on_apply || p.review_mode === "draft_backed"
+          ? confirmExperiment
+            ? "Confirm end experiment & make draft live"
+            : "Approve and make draft live"
+          : "Apply changes";
+  const closeReasonOptions =
+    p?.kind === "idea" ? IDEA_PARK_CLOSE_REASON_OPTIONS : PROPOSAL_CLOSE_REASON_OPTIONS;
   const closeNoteOk =
     !closeNoteRequired(closeReason) || closeNote.trim().length >= CLOSE_NOTE_MIN;
   const closeNoteHint = closeNoteRequired(closeReason)
     ? minLengthHint(closeNote, CLOSE_NOTE_MIN)
     : null;
+  const acceptNextStepOk = acceptNextStep.trim().length >= ACCEPT_NEXT_STEP_MIN;
+  const acceptNextStepHint =
+    acceptNextStep.trim().length > 0 ? minLengthHint(acceptNextStep, ACCEPT_NEXT_STEP_MIN) : null;
   const blockerHint =
     blockerBody.trim().length > 0 ? minLengthHint(blockerBody, 80) : null;
   const closeReasonLabel =
-    PROPOSAL_CLOSE_REASON_OPTIONS.find((o) => o.value === p?.close_reason)?.label ?? p?.close_reason;
+    p?.close_reason === "accepted"
+      ? "Accepted"
+      : PROPOSAL_CLOSE_REASON_OPTIONS.find((o) => o.value === p?.close_reason)?.label ??
+        p?.close_reason;
 
   const detailMeta: Array<{ key: string; node: ReactNode }> = [];
   if (p && attribution) {
@@ -1174,7 +1278,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     label={ui.label}
                     className={ui.className}
                   />
-                  {p.kind === "notes" ? <HandoffKindBadge /> : <EditsKindBadge />}
+                  <ProposalKindBadge kind={p.kind} />
                   {p.kind === "edits" ? (
                     <ReviewModeBadge proposal={p} label={mode.label} variant={mode.variant} />
                   ) : null}
@@ -1280,6 +1384,30 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     })}
                   </div>
                 ) : null}
+                {p.kind === "idea" && (p.related_entries?.length ?? 0) > 0 ? (
+                  <div
+                    className="flex flex-wrap items-center gap-1.5"
+                    data-testid="proposal-idea-related-entries"
+                  >
+                    <span className="text-xs text-muted-foreground">Context</span>
+                    {p.related_entries!.map((ref, i) => (
+                      <Badge
+                        key={`${ref.contentType}/${ref.slug}/${ref.locale ?? ""}-${i}`}
+                        variant="outline"
+                        className="gap-1 font-mono font-normal max-w-full truncate"
+                        data-testid={`badge-idea-related-entry-${i}`}
+                      >
+                        <IconLink className="h-3 w-3 shrink-0" aria-hidden />
+                        <span className="truncate">
+                          {ref.contentType}/{ref.slug}
+                          {ref.locale ? (
+                            <span className="text-muted-foreground"> · {ref.locale}</span>
+                          ) : null}
+                        </span>
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
                 <ProposalMetaRow items={detailMeta} className="text-xs" />
               </div>
             </div>
@@ -1298,6 +1426,16 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     {primaryActionLabel}
                   </Button>
                 ) : null}
+                {showPrimaryIdeas ? (
+                  <Button
+                    onClick={() => setAcceptOpen(true)}
+                    disabled={mut.isPending || rejectPending || blockersOpen}
+                    data-testid="button-accept-idea"
+                  >
+                    <IconCheck className="h-4 w-4" aria-hidden />
+                    {primaryActionLabel}
+                  </Button>
+                ) : null}
                 {showPrimaryNotes ? (
                   <Button
                     onClick={() => setCloseOpen(true)}
@@ -1306,6 +1444,21 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                   >
                     <IconX className="h-4 w-4" aria-hidden />
                     {primaryActionLabel}
+                  </Button>
+                ) : null}
+                {showPrimaryIdeas ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setCloseReason("wont_fix");
+                      setCloseNote("");
+                      setCloseOpen(true);
+                    }}
+                    disabled={mut.isPending || rejectPending}
+                    data-testid="button-park-idea"
+                  >
+                    <IconX className="h-4 w-4" aria-hidden />
+                    Close / park
                   </Button>
                 ) : null}
                 {claimActive ? (
@@ -1334,7 +1487,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     Claim
                   </Button>
                 )}
-                {showPrimaryEdits ? (
+                {showPrimaryEdits || showPrimaryIdeas ? (
                   <Button
                     variant="outline"
                     onClick={scrollToAskForChanges}
@@ -1369,12 +1522,13 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                 ) : null}
                 {blockersOpen && showReject ? (
                   <span className="text-xs text-muted-foreground">
-                    Approve is disabled while needs-changes items are open. Reject Completely remains
-                    available.
+                    {p.kind === "idea" ? "Accept" : "Approve"} is disabled while needs-changes items
+                    are open. Reject Completely remains available.
                   </span>
                 ) : blockersOpen ? (
                   <span className="text-xs text-muted-foreground">
-                    Approve is disabled while needs-changes items are open.
+                    {p.kind === "idea" ? "Accept" : "Approve"} is disabled while needs-changes items
+                    are open.
                   </span>
                 ) : null}
               </div>
@@ -1442,14 +1596,16 @@ export function ProposalDetailPanel({ id }: { id: string }) {
             </div>
           ) : null}
 
-          {p.status === "finished" && p.kind === "notes" && p.close_reason ? (
+          {p.status === "finished" &&
+          (p.kind === "notes" || p.kind === "idea") &&
+          p.close_reason ? (
             <div
               className="flex items-start gap-2 rounded-md border border-card-border bg-muted/40 px-3 py-2.5 text-sm"
               data-testid="text-proposal-close-reason"
             >
               <IconCircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
               <p>
-                Closed as {closeReasonLabel}
+                {p.close_reason === "accepted" ? "Accepted" : `Closed as ${closeReasonLabel}`}
                 {p.closed_by ? ` by ${p.closed_by}` : ""}
                 {p.close_note ? `: ${p.close_note}` : ""}
               </p>
@@ -1471,6 +1627,13 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     — click the badge above to turn it off.
                   </>
                 ) : null}
+              </p>
+            ) : p.kind === "idea" ? (
+              <p>
+                This is a brief, not a publish. Accept greenlights the idea with a next step.
+                Needs-change notes block Accept until cleared. A different agent role — or this staff
+                UI — can Accept. Agents pick a role under MCP Server → Connection. Park (Close) if you
+                are stopping tracking without greenlighting.
               </p>
             ) : p.review_mode === "draft_backed" || p.promote_on_apply ? (
               <p>
@@ -1495,7 +1658,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
 
           <Card className="p-5 space-y-2">
             <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {p.kind === "notes" ? "Handoff note" : "Summary"}
+              {p.kind === "notes" ? "Handoff note" : p.kind === "idea" ? "Idea brief" : "Summary"}
             </h3>
             <p className="whitespace-pre-wrap text-sm leading-6">{p.summary}</p>
             {p.related_issue_ids.length > 0 ? (
@@ -1649,7 +1812,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
             </div>
           )}
 
-          {p.kind === "edits" ? (
+          {showBlockersSection ? (
             <Card>
               <div className="flex items-center justify-between gap-2 border-b border-card-border px-4 py-3">
                 <h3 className="text-sm font-medium">Needs changes</h3>
@@ -1741,6 +1904,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     )}
                   </div>
                 ))}
+                {!isTerminal ? (
                 <div
                   ref={addBlockerFormRef}
                   id="proposal-ask-for-changes"
@@ -1777,6 +1941,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     ) : null}
                   </div>
                 </div>
+                ) : null}
               </div>
             </Card>
           ) : null}
@@ -1915,7 +2080,11 @@ export function ProposalDetailPanel({ id }: { id: string }) {
             <AlertDialogContent data-testid="dialog-claim-proposal">
               <AlertDialogHeader>
                 <AlertDialogTitle>
-                  {p.kind === "notes" ? "Claim this handoff?" : "Claim this proposal?"}
+                  {p.kind === "notes"
+                    ? "Claim this handoff?"
+                    : p.kind === "idea"
+                      ? "Claim this idea?"
+                      : "Claim this proposal?"}
                 </AlertDialogTitle>
                 <AlertDialogDescription asChild>
                   <div className="space-y-2 text-sm text-muted-foreground">
@@ -1927,6 +2096,17 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                           next.
                         </p>
                         <p>This does not close the handoff, change the live site, or complete linked issues.</p>
+                      </>
+                    ) : p.kind === "idea" ? (
+                      <>
+                        <p>
+                          You are saying you are working the needs-change notes on this brief right now
+                          (about 30 minutes). While your claim is active, only you can mark those notes
+                          done.
+                        </p>
+                        <p>
+                          This does not Accept or park the idea, and it does not change the live site.
+                        </p>
                       </>
                     ) : (
                       <>
@@ -2020,18 +2200,35 @@ export function ProposalDetailPanel({ id }: { id: string }) {
           >
             <DialogContent data-testid="dialog-close-proposal">
               <DialogHeader>
-                <DialogTitle>Close this handoff?</DialogTitle>
+                <DialogTitle>
+                  {p.kind === "idea" ? "Park this idea?" : "Close this handoff?"}
+                </DialogTitle>
                 <DialogDescription asChild>
                   <div className="space-y-2 text-sm text-muted-foreground">
-                    <p>
-                      Closing removes this reminder from the open list and marks it finished. Pick a
-                      reason so the next person knows why it stopped being tracked.
-                    </p>
-                    <p>
-                      This does not change the live site or complete linked issues. If “No auto-retry”
-                      was on, closing also ends that block so agents can open another handoff for the
-                      same issue.
-                    </p>
+                    {p.kind === "idea" ? (
+                      <>
+                        <p>
+                          Parking removes this brief from the open list without greenlighting it. Pick
+                          a reason so the next person knows why it stopped being tracked.
+                        </p>
+                        <p>
+                          This does not change the live site. To greenlight instead, cancel and use
+                          Accept idea.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p>
+                          Closing removes this reminder from the open list and marks it finished. Pick a
+                          reason so the next person knows why it stopped being tracked.
+                        </p>
+                        <p>
+                          This does not change the live site or complete linked issues. If “No auto-retry”
+                          was on, closing also ends that block so agents can open another handoff for the
+                          same issue.
+                        </p>
+                      </>
+                    )}
                   </div>
                 </DialogDescription>
               </DialogHeader>
@@ -2046,7 +2243,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {PROPOSAL_CLOSE_REASON_OPTIONS.map((opt) => (
+                      {closeReasonOptions.map((opt) => (
                         <SelectItem key={opt.value} value={opt.value}>
                           {opt.label}
                         </SelectItem>
@@ -2054,7 +2251,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    {PROPOSAL_CLOSE_REASON_OPTIONS.find((o) => o.value === closeReason)?.hint}
+                    {closeReasonOptions.find((o) => o.value === closeReason)?.hint}
                   </p>
                 </div>
                 <div className="space-y-1">
@@ -2105,7 +2302,72 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                   data-testid="button-confirm-close-proposal"
                 >
                   <IconX className="h-4 w-4" aria-hidden />
-                  Close handoff
+                  {p.kind === "idea" ? "Park idea" : "Close handoff"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={acceptOpen}
+            onOpenChange={(open) => {
+              setAcceptOpen(open);
+              if (!open) setAcceptNextStep("");
+            }}
+          >
+            <DialogContent data-testid="dialog-accept-idea">
+              <DialogHeader>
+                <DialogTitle>Accept this idea?</DialogTitle>
+                <DialogDescription asChild>
+                  <div className="space-y-2 text-sm text-muted-foreground">
+                    <p>
+                      Accepting greenlights the brief and finishes this proposal. It does not publish
+                      or write YAML — record what should happen next.
+                    </p>
+                    <p>Open needs-change notes must be cleared first.</p>
+                  </div>
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-1">
+                <Label htmlFor="proposal-accept-next-step">Next step</Label>
+                <Textarea
+                  id="proposal-accept-next-step"
+                  value={acceptNextStep}
+                  onChange={(e) => setAcceptNextStep(e.target.value)}
+                  placeholder="What should happen next (min 20 characters)"
+                  data-testid="input-accept-next-step"
+                />
+                {acceptNextStepHint ? (
+                  <p className={acceptNextStepHint.className} data-testid="text-accept-next-step-hint">
+                    {acceptNextStepHint.text}
+                  </p>
+                ) : null}
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={() => setAcceptOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={mut.isPending || blockersOpen || !acceptNextStepOk}
+                  onClick={() => {
+                    mut.mutate(
+                      {
+                        action: "accept",
+                        body: { next_step: acceptNextStep.trim() },
+                      },
+                      {
+                        onSuccess: () => {
+                          setAcceptOpen(false);
+                          setAcceptNextStep("");
+                        },
+                      },
+                    );
+                  }}
+                  data-testid="button-confirm-accept-idea"
+                >
+                  <IconCheck className="h-4 w-4" aria-hidden />
+                  Accept idea
                 </Button>
               </DialogFooter>
             </DialogContent>

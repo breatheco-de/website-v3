@@ -99,7 +99,7 @@ export function liveRequiredFieldsActionRequired(opts: {
       details: {
         remedy:
           "Use update_fields with every missing path in updates[]. " +
-          "update_meta_fields is multi-entry meta-only and cannot set body description.",
+          "update_entry_attributes is multi-entry meta/funnel only and cannot set body description.",
         non_effects:
           "Draft-only writes are exempt. This gate does not auto-copy description ↔ meta.description.",
       },

@@ -502,6 +502,13 @@ function sanitizeIssueActorModel(model: unknown): string | undefined {
   if (typeof model !== "string") return undefined;
   const trimmed = model.trim();
   if (!trimmed) return undefined;
+  return trimmed.length > 128 ? trimmed.slice(0, 128) : trimmed;
+}
+
+function sanitizeIssueActorRole(role: unknown): string | undefined {
+  if (typeof role !== "string") return undefined;
+  const trimmed = role.trim();
+  if (!trimmed) return undefined;
   return trimmed.length > 64 ? trimmed.slice(0, 64) : trimmed;
 }
 
@@ -668,8 +675,8 @@ export { runWithContentWriteContextAsync, enterContentWriteContext };
 
 /**
  * Resolve actor provenance for validation issue claim/complete overlays.
- * MCP path: client from x-mcp-client (set by MCP server); model from body on MCP only.
- * Staff UI: type ui only — never trust client/model from browser POST.
+ * MCP path: client/role/model from x-mcp-* headers (model may also come from body).
+ * Staff UI: type ui only — never trust client/model/role from browser POST.
  */
 export function resolveIssueActor(
   req: Request,
@@ -681,10 +688,14 @@ export function resolveIssueActor(
       typeof clientHeader === "string" && clientHeader.trim() ? clientHeader.trim() : undefined;
     const modelHeader = req.headers["x-mcp-model"];
     const model = sanitizeIssueActorModel(opts?.model ?? modelHeader);
+    const roleHeader = req.headers["x-mcp-role"];
+    const role =
+      typeof roleHeader === "string" ? sanitizeIssueActorRole(roleHeader) : undefined;
     return {
       type: "mcp",
       ...(client ? { client } : {}),
       ...(model ? { model } : {}),
+      ...(role ? { role } : {}),
     };
   }
   return { type: "ui" };
@@ -695,7 +706,7 @@ import { markFileAsModified } from "../sync-state";
 
 /**
  * Resolve actor provenance for content writes and background events.
- * MCP path: client from x-mcp-client; model optional. Staff UI: type ui only (EC6).
+ * MCP path: client / role / exact model from headers. Staff UI: type ui only (EC6).
  */
 export function resolveEventActor(
   req: Request,
@@ -707,6 +718,7 @@ export function resolveEventActor(
       type: "mcp",
       ...(issueActor.client ? { client: issueActor.client } : {}),
       ...(issueActor.model ? { model: issueActor.model } : {}),
+      ...(issueActor.role ? { role: issueActor.role } : {}),
     };
   }
   return { type: "ui" };

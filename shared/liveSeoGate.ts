@@ -51,6 +51,6 @@ export function circularRequiredFieldsHint(missingFields: string[]): string | nu
     `CIRCULAR_REQUIRED_FIELDS: live saves validate SEO meta and editor.required fields together. ` +
     `Set all of [${missingFields.join(", ")}] in one multi-field write ` +
     `(MCP: update_fields; API: edit-sections with multiple update_field ops). ` +
-    `Meta-only bulk (update_meta_fields) cannot set body description and stays blocked while the other side is empty.`
+    `Safe-attr bulk (update_entry_attributes: meta.* / funnel.*) cannot set body description and stays blocked while the other side is empty.`
   );
 }

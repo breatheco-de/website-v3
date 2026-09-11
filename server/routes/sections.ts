@@ -84,6 +84,12 @@ import {
   validateBulkMetaUpdates,
   BULK_META_MAX_SLUGS,
 } from "../bulk-update-meta";
+import {
+  bulkUpdateEntryAttributes,
+  validateBulkEntryAttrUpdates,
+  BULK_ENTRY_ATTR_MAX_SLUGS,
+} from "../bulk-update-entry-attributes";
+import { isFunnelFieldPath } from "../funnel-fields";
 import { bindingManager } from "../bindings";
 import { bindingHolderId, checkBindingLeaseConflicts } from "../binding-lease-guard";
 import { emitBindingPropagationStarted } from "../content-events";
@@ -1500,6 +1506,141 @@ export function registerSectionsRoutes(app: Express): void {
       });
     } catch (error) {
       log.error({ err: error }, "Bulk meta update error:");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/content/bulk-update-entry-attributes", async (req, res) => {
+    try {
+      req.body = decodeHtmlValues(req.body);
+
+      const {
+        slugs,
+        locale,
+        updates,
+        contentType,
+        variant,
+        confirm_live_edit,
+        author: requestAuthor,
+      } = req.body;
+
+      if (typeof contentType !== "string" || !contentType.trim()) {
+        res.status(400).json({ error: "contentType is required" });
+        return;
+      }
+
+      if (!Array.isArray(updates) || updates.length === 0) {
+        res.status(400).json({ error: "updates must be a non-empty array" });
+        return;
+      }
+      const updatesErr = validateBulkEntryAttrUpdates(updates);
+      if (updatesErr) {
+        res.status(400).json({ error: updatesErr });
+        return;
+      }
+
+      const ct = contentType.trim();
+      const hasFunnel = updates.some(
+        (u: { field_path?: string }) =>
+          typeof u.field_path === "string" && isFunnelFieldPath(u.field_path),
+      );
+      const hasMeta = updates.some((u: { field_path?: string }) => {
+        const p = typeof u.field_path === "string" ? u.field_path : "";
+        return p.startsWith("meta.") || (p.length > 0 && !isFunnelFieldPath(p) && !p.startsWith("sections."));
+      });
+
+      let authorName: string | undefined;
+      if (hasMeta) {
+        const authMeta = await requireCapability(req, res, "seo_edit", ct);
+        if (!authMeta.authorized) return;
+        authorName = authMeta.author;
+      }
+      if (hasFunnel) {
+        const authFunnel = await requireCapability(req, res, "content_edit_structure", ct);
+        if (!authFunnel.authorized) return;
+        authorName = authFunnel.author || authorName;
+      }
+      if (!hasMeta && !hasFunnel) {
+        res.status(400).json({ error: "updates must include meta.* or funnel.*" });
+        return;
+      }
+
+      if (!Array.isArray(slugs) || slugs.length === 0) {
+        res.status(400).json({ error: "slugs must be a non-empty array" });
+        return;
+      }
+      if (slugs.length > BULK_ENTRY_ATTR_MAX_SLUGS) {
+        res.status(400).json({
+          error: `Too many slugs (${slugs.length}). Maximum is ${BULK_ENTRY_ATTR_MAX_SLUGS}.`,
+        });
+        return;
+      }
+      const slugSet = new Set<string>();
+      for (const s of slugs) {
+        if (typeof s !== "string" || !s.trim()) {
+          res.status(400).json({ error: "Each slug must be a non-empty string" });
+          return;
+        }
+        if (slugSet.has(s)) {
+          res.status(400).json({ error: `Duplicate slug in slugs[]: ${s}` });
+          return;
+        }
+        slugSet.add(s);
+      }
+
+      if (requestAuthor && typeof requestAuthor === "string") {
+        authorName = authorName || requestAuthor;
+      }
+
+      const result = await bulkUpdateEntryAttributes({
+        slugs,
+        locale,
+        updates,
+        contentType: ct,
+        variant: typeof variant === "string" ? variant : undefined,
+        confirm_live_edit: !!confirm_live_edit,
+        author: authorName,
+        contentRoot: getContentRoot(res),
+        contentRootName: getContentRootName(res),
+        ci: getCI(res),
+        database: getDB(res),
+      });
+
+      try {
+        const { getSyncLogForResponse } = await import("../sync-log");
+        const okCount = result.results.filter((r) => r.ok).length;
+        if (okCount > 0) {
+          getSyncLogForResponse(res).log(
+            "EDIT",
+            `BULK_ENTRY_ATTR: ${okCount}/${result.results.length} slug(s) updated (${locale || "en"})`,
+            authorName,
+            {
+              slugs: result.results.filter((r) => r.ok).map((r) => r.slug),
+              flushed: result.flushed,
+              common_meta_touched: result.common_meta_touched,
+              funnel_touched: result.funnel_touched,
+            },
+          );
+        }
+      } catch { /* non-fatal */ }
+
+      const status = result.success ? 200 : result.results.some((r) => r.ok) ? 207 : 400;
+      res.status(status).json({
+        success: result.success,
+        results: result.results,
+        flushed: result.flushed,
+        common_meta_touched: result.common_meta_touched,
+        funnel_touched: result.funnel_touched,
+        warnings: result.warnings,
+        side_effects: {
+          preview_capture: "skipped_for_entry_attr_bulk",
+          flush: result.flushed
+            ? "coalesced_after_batch"
+            : "skipped_no_successful_writes",
+        },
+      });
+    } catch (error) {
+      log.error({ err: error }, "Bulk entry-attributes update error:");
       res.status(500).json({ error: "Internal server error" });
     }
   });

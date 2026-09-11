@@ -29,7 +29,7 @@ When a type does **not** yet use shared layout and you need to turn it on:
 2. `get_content_type_info` with `contentType` + `site` — read `field_mapping`, `editor` / `editor_required_modes`, URL params, observed values, `create_via`.
 3. `create_entry` with **exactly one** locale (all content types); put required fields on the locale object; `sections: []` (or omit) for shared-layout; put **URL pattern params on the locale object** (never `_common.yml` — they are language-specific when slugs differ).
 4. If a URL-param/select value is **not** in observed peers **for that locale** → stop; get approval from the **principal** (human or orchestrator/reviewer), then re-call with `confirm_new_values: true`.
-5. Fill SEO via `update_fields` or multi-entry `update_meta_fields` if needed; verify with `get_entry_content` / `get_entry_seo`.
+5. Fill SEO via `update_fields` or multi-entry `update_entry_attributes` if needed; verify with `get_entry_content` / `get_entry_seo`.
 6. Add another locale with `translate_entry` (optional `url_slug`; fields while attached → draft → promote). Do **not** detach for field translation.
 7. `run_entry_diagnostics` when ready.
 

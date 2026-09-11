@@ -99,7 +99,8 @@ const PRODUCT_MODES = [
   { value: "list" as const, label: "Specific" },
 ];
 
-export type FunnelProductsMode = "omit" | "all" | "list";
+/** Single-page: omit=None (clear). Bulk: leave | all | list | clear. */
+export type FunnelProductsMode = "omit" | "all" | "list" | "leave" | "clear";
 
 export type FunnelFieldsFormProps = {
   stage: string;
@@ -112,6 +113,8 @@ export type FunnelFieldsFormProps = {
   onSelectedBindingsChange: (bindings: FunnelBinding[]) => void;
   productOptions: ProductOption[];
   portalContainer?: HTMLElement | null;
+  /** Override products mode toggles (bulk Leave/Set/Clear). */
+  productsModeOptions?: { value: FunnelProductsMode; label: string }[];
   /** Extra education / context above the form controls */
   education?: ReactNode;
   /** Hide store membership section */
@@ -135,6 +138,7 @@ export function FunnelFieldsForm({
   onSelectedBindingsChange,
   productOptions,
   portalContainer,
+  productsModeOptions,
   education,
   hideStoreMembership,
   storeMembership,
@@ -144,6 +148,7 @@ export function FunnelFieldsForm({
   relativePathHint,
   footer,
 }: FunnelFieldsFormProps) {
+  const productModes = productsModeOptions ?? PRODUCT_MODES;
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [addProductOpen, setAddProductOpen] = useState(false);
   const [addProductKey, setAddProductKey] = useState(0);
@@ -340,7 +345,7 @@ export function FunnelFieldsForm({
           aria-label="Products scope"
           data-testid="funnel-products-mode-bar"
         >
-          {PRODUCT_MODES.map((mode, i) => (
+          {productModes.map((mode, i) => (
             <Button
               key={mode.value}
               type="button"

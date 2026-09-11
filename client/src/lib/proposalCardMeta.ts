@@ -2,6 +2,7 @@ import {
   formatIssueActorLine,
   type IssueActorRef,
 } from "@/lib/formatIssueActor";
+import { sameAgentIdentity } from "@shared/agent-identity";
 
 export type ProposalClaimLike = {
   by: string;
@@ -18,17 +19,9 @@ function asIssueActor(raw: unknown): IssueActorRef | null {
     type,
     ...(typeof o.client === "string" ? { client: o.client } : {}),
     ...(typeof o.model === "string" ? { model: o.model } : {}),
+    ...(typeof o.role === "string" ? { role: o.role } : {}),
     ...(typeof o.source === "string" ? { source: o.source } : {}),
   };
-}
-
-function actorIdentityKey(actor: IssueActorRef | null): string {
-  if (!actor) return "";
-  if (actor.type === "mcp") {
-    return `mcp:${actor.client ?? ""}:${actor.model ?? ""}`;
-  }
-  if (actor.type === "system") return `system:${actor.source ?? ""}`;
-  return "ui";
 }
 
 /** Staff-facing category labels for proposal chips. */
@@ -83,7 +76,7 @@ export type ProposalAttributionLines = {
 
 /**
  * Build attribution lines for list/detail.
- * Collapse propose+claim when same staff author and same agent identity.
+ * Collapse propose+claim when same staff author and same agent identity (username + role).
  * Expired claims stay visible (not a lock).
  */
 export function proposalAttributionLines(opts: {
@@ -113,10 +106,9 @@ export function proposalAttributionLines(opts: {
     };
   }
 
-  const sameAuthor = claim.by === opts.proposerUsername;
-  const sameAgent = actorIdentityKey(proposerActor) === actorIdentityKey(claimActor);
-
-  if (sameAuthor && sameAgent) {
+  if (
+    sameAgentIdentity(opts.proposerUsername, proposerActor, claim.by, claimActor)
+  ) {
     return {
       lines: [`Proposed & claimed by ${claimFmt}`],
       expiredLine: null,

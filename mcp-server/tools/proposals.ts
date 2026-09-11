@@ -55,19 +55,34 @@ export function registerProposalTools(
 ): void {
   mcp.tool(
     "propose_change",
-    "Create a content proposal (does not write live YAML). kind is edits when entries[] is set (or promote_on_apply), otherwise notes. " +
-      "Notes default to no_auto_retry: another notes handoff on the same related_issue_id is blocked until claim + set_no_auto_retry false (or close). " +
-      "Optional variant on an entry: soft = apply field patches into that draft; with promote_on_apply = go-live when approved. " +
-      "At most one open proposal per variant — joining the existing proposal is required. " +
-      "Pass agent_session_id to allow same-session attach_variant later. " +
-      "Edits proposals soft-block when linked entries have recent writes (confirm_recent_activity after get_entry_activity). " +
-      "Requires content_view or seo_edit. Four-eyes apply/reject (not close).",
+    "Create a proposal (does not write live YAML). " +
+      "Pass entries[] (or promote_on_apply) → kind edits. " +
+      "Pass kind:\"idea\" for a pre-work brief (new page, update, or config pitch) — no YAML until a later edits proposal. " +
+      "Omit kind with no entries → notes (wall handoff; default no_auto_retry). " +
+      "Do not use notes for new-spoke pitches — use kind idea. " +
+      "Optional related_entries for idea context (slug need not exist yet). " +
+      "Mutating MCP requires a role connector + exact MCP_AGENT_MODEL (provider/model). " +
+      "Four-eyes apply/reject/accept compare human+role (not username alone).",
     {
       title: z.string().describe("Short title"),
       summary: z.string().describe("Why + what (min 80 chars). For notes, include steps tried."),
       rationale: z.string().optional(),
       category: z.enum(["content.field", "content.seo"]).optional(),
+      kind: z
+        .enum(["notes", "idea"])
+        .optional()
+        .describe("When no entries: idea = brief; notes = wall handoff (default). Ignored if entries set."),
       related_issue_ids: z.array(z.string()).optional(),
+      related_entries: z
+        .array(
+          z.object({
+            contentType: z.string(),
+            slug: z.string(),
+            locale: z.string().optional(),
+          }),
+        )
+        .optional()
+        .describe("Optional context targets for ideas (may not exist yet)."),
       tags: z.array(z.string()).optional(),
       confirm_distinct: z.boolean().optional(),
       confirm_recent_activity: z
@@ -118,7 +133,9 @@ export function registerProposalTools(
             summary: args.summary,
             rationale: args.rationale,
             category: args.category,
+            kind: args.kind,
             related_issue_ids: args.related_issue_ids,
+            related_entries: args.related_entries,
             tags: args.tags,
             confirm_distinct: args.confirm_distinct,
             confirm_recent_activity: args.confirm_recent_activity,
@@ -300,7 +317,7 @@ export function registerProposalTools(
       proposal_id: z.string().optional(),
       query: z.string().optional(),
       status: z.enum(["open", "partial", "finished", "rejected", "withdrawn"]).optional(),
-      kind: z.enum(["edits", "notes"]).optional(),
+      kind: z.enum(["edits", "notes", "idea"]).optional(),
       issue_id: z.string().optional(),
       limit: z.number().optional().describe("Page size when scoped (default 20, max 200)"),
       offset: z.number().optional().describe("Offset when scoped"),
@@ -482,14 +499,12 @@ export function registerProposalTools(
 
   mcp.tool(
     "update_proposal",
-    "Lifecycle for a proposal. Actions: claim | release | withdraw | apply | close | acknowledge (alias of close) | reject | " +
+    "Lifecycle for a proposal. Actions: claim | release | withdraw | apply | accept (ideas) | close | acknowledge (notes alias) | reject | " +
       "attach_variant (same creating session only; write-once) | add_blocker (feedback; no claim) | " +
       "resolve_blocker (active claimant only) | reopen_blocker | set_no_auto_retry (notes; MCP must claim first). " +
-      "close requires close_reason (wont_fix | fixed_elsewhere | tracked_elsewhere | other); close_note min 20 except wont_fix. " +
-      "Close finishes notes without changing YAML — not a success path for fixes. " +
-      "Open blockers block apply only (not reject/withdraw/close). " +
-      "promote_on_apply apply may require confirm_end_experiment when other variants have traffic. " +
-      "Requires content_edit_text or seo_edit.",
+      "accept (ideas): four-eyes by human+role; blockers block; next_step min 20; no YAML. " +
+      "close notes/ideas: close_reason + close_note (min 20 except wont_fix). Idea park: wont_fix | tracked_elsewhere | other. " +
+      "Open blockers block apply/accept only. Four-eyes = username+role. Requires content_edit_text or seo_edit.",
     {
       proposal_id: z.string(),
       action: z.enum([
@@ -497,6 +512,7 @@ export function registerProposalTools(
         "release",
         "withdraw",
         "apply",
+        "accept",
         "acknowledge",
         "close",
         "reject",
@@ -531,6 +547,10 @@ export function registerProposalTools(
         .string()
         .optional()
         .describe("For close: required min 20 chars except wont_fix (say where / what)"),
+      next_step: z
+        .string()
+        .optional()
+        .describe("For accept: free-text next step after greenlight (min 20)"),
       no_auto_retry: z
         .boolean()
         .optional()
@@ -559,6 +579,7 @@ export function registerProposalTools(
             confirm_recent_activity: args.confirm_recent_activity,
             close_reason: args.close_reason,
             close_note: args.close_note,
+            next_step: args.next_step,
             no_auto_retry: args.no_auto_retry,
           }),
         });

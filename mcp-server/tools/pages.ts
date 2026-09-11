@@ -147,6 +147,15 @@ import {
 import { applyPurchasableToRecord, ecommerceManager, PURCHASABLE_FIELD } from "../../server/ecommerce/ecommerce-manager.js";
 import { FUNNEL_STAGES } from "@shared/funnel";
 import {
+  applyFunnelFieldUpdates,
+  isFunnelFieldPath,
+  prepareAndWriteFunnelMerge,
+  readFunnelBlockFromFile,
+  type FunnelFieldUpdate,
+  type FunnelMergePatch,
+} from "../../server/funnel-fields.js";
+import { assertFunnelAudienceGates } from "../../server/product/funnel-audience-gates.js";
+import {
   assertFunnelFilterConflict,
   hasAnyFunnelFilter,
 } from "../lib/list-entries-funnel.js";
@@ -1196,6 +1205,7 @@ export function registerPageTools(
   mcp.tool(
     "agent_session",
     "Prefer bootstrap_agent once per MCP run before start (Claude.ai / Grok / any connector). " +
+    "Requires a role connector (/mcp/role/…) and exact MCP_AGENT_MODEL (provider/model). " +
     "Start, note, or summarize an agent content session for staff monitoring on Background Pipeline. " +
     "start returns agent_session_id — pass it on mutating tools. " +
     "note/summarize require agent_session_id + report (min 80 chars). " +
@@ -3048,8 +3058,10 @@ export function registerPageTools(
     "other known meta.* → locale; unknown meta.* requires meta_target locale|common.\n\n" +
     "Live gate: live writes need meta.page_title + meta.description; editor.required cannot be cleared on live. Drafts exempt.\n" +
     "CIRCULAR TRAP: if both meta.description and body description are empty, set BOTH in this one updates[] call.\n\n" +
-    "For identical meta across many slugs use update_meta_fields instead. Not for section topology (add/remove/reorder).\n" +
-    "updated_at: title / meta.page_title / meta.description / section copy or images stamp now on the layer file; seo.* / robots / redirects / og_image do not; variants do not move live lastmod until promote.\n\n" +
+    "funnel.stage / funnel.products (and funnel / reset:true) write page _common.yml journey membership. " +
+    "Requires content_edit_structure. Path-touched merge; gate fail before any other writes → nothing applied. " +
+    "locale/variant do not scope funnel (warning). Multi-slug meta/funnel: update_entry_attributes. Not for section topology.\n" +
+    "updated_at: title / meta.page_title / meta.description / section copy or images stamp now on the layer file; seo.* / robots / redirects / og_image / funnel do not; variants do not move live lastmod until promote.\n\n" +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
     "IMPORTANT — versioning: ask before live edit when versioning.yml exists; pass confirm_live_edit: true or variant.\n\n" +
     "Account gate (Require Signup): is_signup:true must satisfy auth.signup.field_map when allow_signup is not false. " +
@@ -3063,7 +3075,7 @@ export function registerPageTools(
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       updates: z.array(z.object({
         field_path: z.string().describe(
-          "Dot path: sections.0.title, meta.description, seo.main_keyword, seo.kw_monthly_volume, seo.kw_difficulty, seo.refresh_tier, seo.include_in_clustering, title, …",
+          "Dot path: sections.0.title, meta.description, seo.main_keyword, funnel.stage, funnel.products, title, …",
         ),
         value: z.unknown().optional().describe("New value (required unless reset:true)"),
         reset: z.boolean().optional().describe(
@@ -3227,12 +3239,27 @@ export function registerPageTools(
         isKnownSeoFieldPath(p) ||
         p === `${SEO_YAML_KEY}.pillar` ||
         isSeoIncludeInClusteringPath(p);
+      const funnelUpdates = updates.filter((u) => isFunnelFieldPath(u.field_path));
+      const nonFunnelUpdates = updates.filter((u) => !isFunnelFieldPath(u.field_path));
       for (const u of updates) {
         const p = u.field_path;
-        if (p.startsWith("sections.") || p.startsWith("meta.") || isSeoPath(p) || safeTop.has(p)) continue;
+        if (
+          p.startsWith("sections.") ||
+          p.startsWith("meta.") ||
+          isSeoPath(p) ||
+          isFunnelFieldPath(p) ||
+          safeTop.has(p)
+        ) {
+          continue;
+        }
         return fail(
-          `Disallowed field_path '${p}'. Must start with 'sections.', 'meta.', 'seo.main_keyword|seo.kw_monthly_volume|seo.kw_difficulty|seo.pillar_path|seo.is_pillar|seo.refresh_tier|seo.include_in_clustering', or be one of: ${[...safeTop].join(", ")}.`,
+          `Disallowed field_path '${p}'. Must start with 'sections.', 'meta.', 'funnel.stage|funnel.products', 'seo.main_keyword|seo.kw_monthly_volume|seo.kw_difficulty|seo.pillar_path|seo.is_pillar|seo.refresh_tier|seo.include_in_clustering', or be one of: ${[...safeTop].join(", ")}.`,
         );
+      }
+      for (const u of funnelUpdates) {
+        if (u.meta_target) {
+          return fail("funnel.* always writes _common.yml; do not pass meta_target.");
+        }
       }
       for (const u of updates) {
         if (isSeoPath(u.field_path) && u.meta_target) {
@@ -3301,25 +3328,129 @@ export function registerPageTools(
         }
       }
 
-      const resetUpdates = updates.filter((u) => u.reset === true);
-      const setUpdates = updates.filter((u) => u.reset !== true);
+      const resetUpdates = nonFunnelUpdates.filter((u) => u.reset === true);
+      const setUpdates = nonFunnelUpdates.filter((u) => u.reset !== true);
 
       const liveSlugUpdate = !variant
         ? setUpdates.find((u) => u.field_path === "slug" && typeof u.value === "string")
         : undefined;
       if (mcpToken) {
-        const allForCap = updates; // both reset and set
-        const needsSeo = allForCap.some((u) => u.field_path.startsWith("meta.") || isSeoPath(u.field_path));
-        const needsContent = allForCap.some((u) => !u.field_path.startsWith("meta.") && !isSeoPath(u.field_path));
+        const needsSeo = nonFunnelUpdates.some((u) => u.field_path.startsWith("meta.") || isSeoPath(u.field_path));
+        const needsContent = nonFunnelUpdates.some(
+          (u) => !u.field_path.startsWith("meta.") && !isSeoPath(u.field_path),
+        );
+        const needsFunnelStructure = funnelUpdates.length > 0;
         if (needsSeo && !(await checkCap(mcpToken, "seo_edit", resolved.contentType))) {
           return denyWriteSuggestPropose("seo_edit", resolved.contentType);
         }
         if (needsContent && !(await checkCap(mcpToken, "content_edit_text", resolved.contentType))) {
           return denyWriteSuggestPropose("content_edit_text", resolved.contentType);
         }
-        if (liveSlugUpdate && !(await checkCap(mcpToken, "content_edit_structure", resolved.contentType))) {
+        if (
+          (liveSlugUpdate || needsFunnelStructure) &&
+          !(await checkCap(mcpToken, "content_edit_structure", resolved.contentType))
+        ) {
           return denyResponse("content_edit_structure", resolved.contentType);
         }
+      }
+
+      // Atomic funnel gate: validate merge before any YAML writes in this call.
+      let preparedFunnel:
+        | { patch: FunnelMergePatch; warnings: { code: string; message: string }[] }
+        | null = null;
+      if (funnelUpdates.length > 0) {
+        const commonPath = path.join(
+          contentPath,
+          getDirectory(resolved.contentType, resolved.config),
+          slug,
+          "_common.yml",
+        );
+        const currentFunnel = readFunnelBlockFromFile(commonPath);
+        const fieldUpdates: FunnelFieldUpdate[] = funnelUpdates.map((u) => ({
+          field_path: u.field_path,
+          value: u.value,
+          reset: u.reset === true,
+        }));
+        const merged = applyFunnelFieldUpdates(currentFunnel, fieldUpdates);
+        if (!merged.ok) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: merged.code,
+              code: merged.code,
+              message: merged.error,
+              details: merged.details,
+            },
+            [
+              {
+                tool: "get_product_funnel",
+                reason: "Inspect journey membership before retrying funnel writes",
+                args_hint: { slug, site },
+                priority: "recommended",
+              },
+            ],
+          );
+        }
+        const gates = assertFunnelAudienceGates(merged.coerced, {
+          contentType: resolved.contentType,
+          contentSlug: slug,
+        });
+        if (!gates.ok) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: gates.code,
+              code: gates.code,
+              message: gates.error,
+              details: gates.details,
+            },
+            [
+              {
+                tool: "get_product",
+                reason: "Fix product audience / personas, then retry funnel bindings",
+                args_hint: { slug: (gates.details as { product?: string } | undefined)?.product, site },
+                priority: "required",
+              },
+              {
+                tool: "get_product_funnel",
+                reason: "Re-read journey after audience fix",
+                args_hint: { slug, site },
+                priority: "recommended",
+              },
+            ],
+          );
+        }
+        const patch: FunnelMergePatch = {};
+        for (const u of funnelUpdates) {
+          if (u.field_path === "funnel.stage") {
+            patch.touchStage = true;
+            patch.stage = u.reset ? null : u.value;
+          } else if (u.field_path === "funnel.products") {
+            patch.touchProducts = true;
+            patch.products = u.reset ? null : u.value;
+          } else if (u.field_path === "funnel") {
+            if (u.reset) {
+              patch.touchStage = true;
+              patch.stage = null;
+              patch.touchProducts = true;
+              patch.products = null;
+            } else if (u.value && typeof u.value === "object" && !Array.isArray(u.value)) {
+              const b = u.value as Record<string, unknown>;
+              if ("stage" in b) {
+                patch.touchStage = true;
+                patch.stage = b.stage;
+              }
+              if ("products" in b) {
+                patch.touchProducts = true;
+                patch.products = b.products;
+              }
+            }
+          }
+        }
+        preparedFunnel = {
+          patch,
+          warnings: [...merged.warnings, ...gates.warnings],
+        };
       }
 
       const agenticGate = await runAgenticWriteGate({
@@ -3382,7 +3513,7 @@ export function registerPageTools(
           }
         }
 
-        if (setUpdates.length === 0) {
+        if (setUpdates.length === 0 && !preparedFunnel) {
           const hasSeo = resetUpdates.some(
             (u) => u.field_path.startsWith("meta.") || isSeoPath(u.field_path),
           );
@@ -3436,6 +3567,8 @@ export function registerPageTools(
           );
         }
 
+        updates = setUpdates;
+      } else {
         updates = setUpdates;
       }
 
@@ -3863,6 +3996,83 @@ export function registerPageTools(
         );
       }
 
+      if (preparedFunnel) {
+        const funnelWrite = prepareAndWriteFunnelMerge(
+          resolved.contentType,
+          slug,
+          preparedFunnel.patch,
+          contentPath,
+          assertFunnelAudienceGates,
+        );
+        if (!funnelWrite.ok) {
+          if (results.length > 0) {
+            return actionRequired(
+              {
+                success: false,
+                action_required: funnelWrite.code,
+                code: funnelWrite.code,
+                message:
+                  `Other fields were written but funnel update failed: ${funnelWrite.error}. ` +
+                  "Retry update_fields with only funnel.* paths.",
+                wrote: results,
+                details: funnelWrite.details,
+              },
+              [
+                {
+                  tool: "update_fields",
+                  priority: "required",
+                  reason: "Retry funnel paths only",
+                  args_hint: {
+                    slug,
+                    locale,
+                    contentType: resolved.contentType,
+                    confirm_live_edit: true,
+                    updates: funnelUpdates.map((u) =>
+                      u.reset === true
+                        ? { field_path: u.field_path, reset: true }
+                        : { field_path: u.field_path, value: u.value },
+                    ),
+                  },
+                },
+              ],
+            );
+          }
+          return actionRequired(
+            {
+              success: false,
+              action_required: funnelWrite.code,
+              code: funnelWrite.code,
+              message: funnelWrite.error,
+              details: funnelWrite.details,
+            },
+            [],
+          );
+        }
+        if (funnelWrite.relativePath) {
+          notifyMcpContentWrite(funnelWrite.relativePath, undefined, {
+            agent_session_id,
+          });
+        }
+        results.push(`funnel → _common.yml`);
+        for (const w of preparedFunnel.warnings) {
+          warnings.push({ code: w.code, message: w.message });
+        }
+        for (const w of funnelWrite.warnings) {
+          if (!warnings.some((x) => x.code === w.code && x.message === w.message)) {
+            warnings.push({ code: w.code, message: w.message });
+          }
+        }
+        warnings.push({
+          code: "funnel_locale_agnostic",
+          message:
+            "funnel.stage / funnel.products are page-level on _common.yml (all languages). locale and variant do not scope this write.",
+        });
+      }
+
+      if (results.length === 0) {
+        return fail("No operations applied");
+      }
+
       const side_effects: McpSideEffect[] = [...(bindingPropagateSideEffects(boundUpdates) || [])];
       const next_actions: NextAction[] = [];
       warnings.push(UPDATED_AT_STAMP_WARNING);
@@ -4001,7 +4211,7 @@ export function registerPageTools(
 
       return ok(
         {
-          message: `Applied ${updates.length} update(s) to ${resolved.contentType}/${slug}: ${results.join("; ")}`,
+          message: `Applied ${inputUpdates.length} update(s) to ${resolved.contentType}/${slug}: ${results.join("; ")}`,
           ...(renameResult?.oldUrl ? { old_url: renameResult.oldUrl } : {}),
           ...(renameResult?.newUrl ? { new_url: renameResult.newUrl } : {}),
           ...(renameResult?.locale ? { locale: renameResult.locale } : {}),
@@ -4020,26 +4230,31 @@ export function registerPageTools(
     }
   );
 
-  // update_meta_fields — multi-entry meta-only bulk (same updates across slugs)
+  // update_entry_attributes — multi-entry safe attrs (meta.* + funnel.*) bulk
   mcp.tool(
-    "update_meta_fields",
-    "Apply the SAME meta field updates to many entry slugs in one call (token saver). Meta paths only — no sections or body fields. " +
-    "For one entry (or meta+body/section together) use update_fields instead.\n\n" +
-    "Server coalesces cache/sitemap/CI/redirect flush once after the batch; skips entry-preview capture. " +
-    "Per-slug live-gate failures continue the batch; fix circular traps with update_fields.\n\n" +
-    "Max 50 unique slugs. Duplicate slugs rejected. contentType is required (all slugs must belong to that type).\n\n" +
+    "update_entry_attributes",
+    "Apply the SAME safe entry-attribute updates to many slugs (token saver). " +
+    "Allowlist: meta.* and funnel.stage|funnel.products (optional reset:true on funnel paths). " +
+    "Rejects sections/body — use update_fields for one page when editing template/layout. " +
+    "BREAKING: replaces update_meta_fields (removed; reconnect MCP).\n\n" +
+    "Funnel requires content_edit_structure; meta requires seo_edit; mix needs both. " +
+    "Path-touched funnel merge; if funnel fails gates for a slug, that slug gets neither meta nor funnel. " +
+    "Other slugs continue (207 partial). locale/variant ignored for funnel (warning).\n\n" +
+    "Server coalesces flush once after the batch; skips entry-preview capture. " +
+    "Max 50 unique slugs. contentType required.\n\n" +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
     "IMPORTANT — versioning: pass confirm_live_edit: true when any slug has versioning.yml and you intend live edits.",
     {
       slugs: z.array(z.string()).min(1).max(50).describe("Entry slugs to update (unique, max 50)"),
-      locale: z.string().default("en").describe("Shared locale for all slugs"),
+      locale: z.string().default("en").describe("Shared locale for meta paths (ignored for funnel)"),
       updates: z.array(z.object({
-        field_path: z.string().describe("Meta path, e.g. meta.robots or meta.page_title"),
-        value: z.unknown().describe("New value"),
+        field_path: z.string().describe("meta.* or funnel.stage|funnel.products"),
+        value: z.unknown().optional().describe("New value (required unless reset:true on funnel)"),
+        reset: z.boolean().optional().describe("Clear funnel path only (not supported for meta in bulk)"),
         meta_target: z.enum(["locale", "common"]).optional().describe("Required for unknown meta keys"),
-      })).min(1).describe("Meta updates applied identically to every slug"),
+      })).min(1).describe("Attribute updates applied identically to every slug"),
       contentType: z.string().describe("Content type for all slugs (required; cross-type batches are rejected)"),
-      variant: z.string().optional().describe("Optional variant for locale-routed meta (common meta ignores variant)"),
+      variant: z.string().optional().describe("Optional variant for locale-routed meta (ignored for funnel/common)"),
       confirm_live_edit: z.boolean().optional().describe("Confirm live overwrite for versioned slugs"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
@@ -4062,15 +4277,36 @@ export function registerPageTools(
         seen.add(s);
       }
 
+      const hasFunnel = updates.some((u) => isFunnelFieldPath(u.field_path));
+      const hasMeta = updates.some((u) => {
+        const p = u.field_path.startsWith("meta.") ? u.field_path : u.field_path;
+        return p.startsWith("meta.") || (!isFunnelFieldPath(p) && !p.startsWith("sections."));
+      });
       for (const u of updates) {
-        const p = u.field_path.startsWith("meta.") ? u.field_path : `meta.${u.field_path}`;
-        if (!p.startsWith("meta.")) {
-          return fail(`Non-meta path '${u.field_path}'. Use update_fields for body/section paths.`);
+        const p = u.field_path;
+        if (p.startsWith("sections.") || (!p.startsWith("meta.") && !isFunnelFieldPath(p) && !ALL_KNOWN_META_FIELDS.has(p))) {
+          return fail(
+            `Disallowed bulk path '${p}'. Only meta.* and funnel.stage|funnel.products. Use update_fields for body/sections.`,
+          );
+        }
+        if (isFunnelFieldPath(p)) {
+          if (u.reset !== true && u.value === undefined) {
+            return fail(`value is required for '${p}' unless reset:true`);
+          }
+        } else if (u.reset === true) {
+          return fail(`reset:true is not supported for meta.* in bulk ('${p}')`);
+        } else if (u.value === undefined) {
+          return fail(`value is required for '${p}'`);
         }
       }
 
-      if (mcpToken && !(await checkCap(mcpToken, "seo_edit", contentType))) {
-        return denyResponse("seo_edit", contentType);
+      if (mcpToken) {
+        if (hasMeta && !(await checkCap(mcpToken, "seo_edit", contentType))) {
+          return denyResponse("seo_edit", contentType);
+        }
+        if (hasFunnel && !(await checkCap(mcpToken, "content_edit_structure", contentType))) {
+          return denyResponse("content_edit_structure", contentType);
+        }
       }
 
       let refreshAnyClaim = false;
@@ -4089,7 +4325,7 @@ export function registerPageTools(
       }
 
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/bulk-update-meta${
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/bulk-update-entry-attributes${
           domain ? `?__site=${encodeURIComponent(domain)}` : ""
         }`;
         const res = await fetch(url, {
@@ -4099,8 +4335,11 @@ export function registerPageTools(
             slugs,
             locale,
             updates: updates.map((u) => ({
-              field_path: u.field_path.startsWith("meta.") ? u.field_path : `meta.${u.field_path}`,
-              value: u.value,
+              field_path:
+                isFunnelFieldPath(u.field_path) || u.field_path.startsWith("meta.")
+                  ? u.field_path
+                  : `meta.${u.field_path}`,
+              ...(u.reset === true ? { reset: true } : { value: u.value }),
               ...(u.meta_target ? { meta_target: u.meta_target } : {}),
             })),
             contentType,
@@ -4129,21 +4368,24 @@ export function registerPageTools(
         }
         const warnings: McpWarning[] = [
           {
-            code: "bulk_meta_coalesced_flush",
+            code: "bulk_entry_attr_coalesced_flush",
             message:
               data.flushed
                 ? "Cache, sitemap, CI refresh, and redirect cache were flushed once after the batch (not per slug)."
                 : "No successful writes — post-write flush was skipped.",
           },
           {
-            code: "bulk_meta_no_preview_capture",
-            message: "Entry preview capture was skipped for this meta-only bulk update.",
+            code: "bulk_entry_attr_no_preview_capture",
+            message: "Entry preview capture was skipped for this attribute bulk update.",
           },
           UPDATED_AT_STAMP_WARNING,
         ];
         for (const w of (data.warnings as string[]) || []) {
           if (w.includes("common_meta_ignores_variant")) {
             warnings.push({ code: "common_meta_ignores_variant", message: w });
+          }
+          if (w.includes("funnel_locale_agnostic")) {
+            warnings.push({ code: "funnel_locale_agnostic", message: w });
           }
         }
 
@@ -4167,10 +4409,20 @@ export function registerPageTools(
             });
           } else if (r.action_required === "confirm_live_edit" || r.code === "confirm_live_edit") {
             next_actions.push({
-              tool: "update_meta_fields",
+              tool: "update_entry_attributes",
               priority: "required",
               reason: `Re-call with confirm_live_edit: true for versioned slug '${r.slug}' (or pass variant).`,
               args_hint: { slugs: [r.slug], locale, updates, confirm_live_edit: true, contentType },
+            });
+          } else if (
+            typeof r.code === "string" &&
+            (r.code.startsWith("missing_") || r.code === "unknown_persona" || r.code === "invalid_stage")
+          ) {
+            next_actions.push({
+              tool: "get_product_funnel",
+              priority: "recommended",
+              reason: `Inspect funnel failure on '${r.slug}'`,
+              args_hint: { slug: r.slug, site },
             });
           }
         }
@@ -4179,9 +4431,10 @@ export function registerPageTools(
         if (okCount === results.length) {
           return ok(
             {
-              message: `Updated meta on ${okCount} slug(s)`,
+              message: `Updated attributes on ${okCount} slug(s)`,
               results,
               flushed: data.flushed,
+              funnel_touched: data.funnel_touched,
               side_effects_detail: data.side_effects,
             },
             { warnings, next_actions: [] },
@@ -4190,17 +4443,18 @@ export function registerPageTools(
         return actionRequired(
           {
             success: false,
-            action_required: "review_bulk_meta_results",
-            message: `Bulk meta partial success: ${okCount}/${results.length} slug(s) updated`,
+            action_required: "review_bulk_entry_attr_results",
+            message: `Bulk entry-attributes partial success: ${okCount}/${results.length} slug(s) updated`,
             results,
             flushed: data.flushed,
+            funnel_touched: data.funnel_touched,
             side_effects_detail: data.side_effects,
             warnings,
           },
           next_actions,
         );
       } catch (e) {
-        return fail(`Failed to call bulk-update-meta API: ${(e as Error).message}`);
+        return fail(`Failed to call bulk-update-entry-attributes API: ${(e as Error).message}`);
       }
     }
   );

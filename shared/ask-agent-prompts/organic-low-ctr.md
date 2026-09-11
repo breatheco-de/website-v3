@@ -49,6 +49,6 @@ Do:
 3. Keep body changes minimal unless the title cannot be honest without a small on-page fix.
 4. Summarize the new title/description in plain text.
 
-Tools: list_entries, get_entry_seo, update_fields, update_meta_fields, propose_change (if you cannot edit).
+Tools: list_entries, get_entry_seo, update_fields, update_entry_attributes, propose_change (if you cannot edit).
 
 Don’t: rewrite the whole page; run diagnostics with confirm:true; locale fan-out unless a tool next_action says so.

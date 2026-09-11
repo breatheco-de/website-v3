@@ -35,7 +35,9 @@ export function registerEcommerceTools(
 ): void {
   mcp.tool(
     "get_product_funnel",
-    "Read-only conversion journey for a purchasable product: pages whose _common.yml funnel.products includes this SKU (or all), grouped by funnel.stage, plus the locked product page. Membership is edited per page (Funnel tab / funnel.stage + funnel.products bindings on _common.yml) — not _product.yml. Audience is on _product.yml via get_product / update_product. Requires content_view.",
+    "Read-only conversion journey for a purchasable product: pages whose _common.yml funnel.products includes this SKU (or all), grouped by funnel.stage, plus the locked product page. " +
+      "Edit membership per page with update_fields (funnel.stage / funnel.products; content_edit_structure) or update_entry_attributes for many slugs — or Funnel tab. Not on _product.yml. " +
+      "Audience is on _product.yml via get_product / update_product. Requires content_view.",
     {
       slug: z.string().describe("Product content slug, e.g. ai-fluency"),
       site: z.string().optional().describe('Site domain when multi-site. Always pass site when multiple sites are configured; call list_sites if unsure.'),
@@ -66,7 +68,8 @@ export function registerEcommerceTools(
               {
                 code: "membership_is_on_page",
                 message:
-                  "Journey membership is on each page's _common.yml (funnel.stage + funnel.products as { product, persona? } bindings, or all). Use Funnel tab / funnel PUT — not update_product_funnel. Product declaration is _product.yml.",
+                  "Journey membership is on each page's _common.yml (funnel.stage + funnel.products as { product, persona? } bindings, or all). " +
+                    "Write via update_fields (one page) or update_entry_attributes (many slugs) or Funnel tab — not update_product / not update_product_funnel. Product declaration is _product.yml.",
               },
               {
                 code: "does_not_read_single_programs",

@@ -49,7 +49,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `propose_change` | Store an entry-change proposal or issue handoff notes (does not write YAML). Caps: `content_view` or `seo_edit` |
 | `list_proposals` | List / get / search proposals; `issue_id` filters to linked only. Optional `sort`/`sort_dir` when scoped. Same caps as `propose_change` |
 | `update_proposal` | Lifecycle `action`: claim, release, withdraw, apply, close (acknowledge alias), reject, set_no_auto_retry, blockers…. Caps: `content_edit_text` or `seo_edit`; four-eyes on apply/reject (not close) |
-| `update_meta_fields` | Multi-entry meta-only bulk (same `updates[]` across `slugs[]`, max 50) |
+| `update_entry_attributes` | Multi-entry safe attrs bulk: `meta.*` + `funnel.*` (same `updates[]` across `slugs[]`, max 50; not sections) |
 | `add_section` / `remove_section` / `reorder_sections` / `replace_entry_sections` | Section topology |
 | `translate_entry` | Translate locale fields (attached) or sections (detached/classic); draft-first for new locales |
 | `set_entry_attachment` | Detach/reattach shared-layout shell ownership (`confirm` required to execute) |
@@ -206,26 +206,28 @@ Rejects two or more distinct section indexes (`action_required: split_section_up
 
 ---
 
-### `update_meta_fields`
+### `update_entry_attributes`
 
-Multi-entry **meta-only** bulk: apply the **same** `updates[]` to every slug in `slugs[]` (max 50, unique).
-For one entry or meta+body/section mixes, use `update_fields`.
+Multi-entry **safe attributes** bulk (`meta.*` and `funnel.stage` / `funnel.products`): apply the **same** `updates[]` to every slug in `slugs[]` (max 50, unique).
+Never sections/body — use `update_fields` for one page when editing template/layout or mixing meta+body.
 
 Server coalesces cache/sitemap/CI/redirect flush once after the batch; skips entry-preview capture.
-Per-slug live-gate failures continue; fix circular traps with `update_fields`.
+Per-slug failures continue (207); if funnel is in the batch and fails gates for a slug, that slug gets neither meta nor funnel.
+Funnel requires `content_edit_structure`; meta requires `seo_edit`.
 
-**Parameters:** `slugs`, `updates` (meta paths), `locale`, optional `contentType`, `variant`, `confirm_live_edit`, `site`.
+**Parameters:** `slugs`, `updates` (meta and/or funnel paths; optional `reset:true` on funnel), `locale`, `contentType`, optional `variant`, `confirm_live_edit`, `site`.
 
 ```json
 {
-  "name": "update_meta_fields",
+  "name": "update_entry_attributes",
   "arguments": {
     "slugs": ["home", "about", "pricing"],
     "locale": "en",
+    "contentType": "page",
     "confirm_live_edit": true,
     "updates": [
       { "field_path": "meta.robots", "value": "index, follow" },
-      { "field_path": "meta.priority", "value": 0.8 }
+      { "field_path": "funnel.stage", "value": "consideration" }
     ]
   }
 }
@@ -433,8 +435,11 @@ A typical editing session looks like this:
        { field_path: "sections.2.title", value: "FAQ" },
        { field_path: "meta.page_title", value: "Home | Example Brand" }
      ]}
-   Call update_meta_fields to set the same meta on many slugs:
-     { slugs: ["home","about"], locale: "en", updates: [{ field_path: "meta.robots", value: "index, follow" }] }
+   Call update_entry_attributes to set the same meta/funnel attrs on many slugs:
+     { slugs: ["home","about"], locale: "en", contentType: "page", updates: [
+       { field_path: "meta.robots", value: "index, follow" },
+       { field_path: "funnel.stage", value: "consideration" }
+     ]}
    Call reorder_sections to move the new section earlier.
    ```
 
@@ -442,11 +447,11 @@ A typical editing session looks like this:
 
 | What you want to edit | Tool to use |
 |---|---|
-| One entry — any fields (meta, body, one section) | `update_fields` |
-| Same meta on many entries | `update_meta_fields` |
+| One entry — any fields (meta, body, one section, funnel) | `update_fields` |
+| Same meta and/or funnel on many entries (not sections) | `update_entry_attributes` |
 | Section topology | `add_section` / `remove_section` / `reorder_sections` / `replace_entry_sections` |
 
-**Circular live-required trap:** Live saves validate SEO meta and `editor.required` fields together. If both `meta.description` and body `description` are empty, set both in one `update_fields` `updates[]`. Multi-entry `update_meta_fields` cannot set body `description`. Failures return `action_required: fix_live_required_fields` with `missing_fields`.
+**Circular live-required trap:** Live saves validate SEO meta and `editor.required` fields together. If both `meta.description` and body `description` are empty, set both in one `update_fields` `updates[]`. Multi-entry `update_entry_attributes` cannot set body `description`. Failures return `action_required: fix_live_required_fields` with `missing_fields`.
 
 ## Transport
 
@@ -508,7 +513,7 @@ curl -X POST http://localhost:3001/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "X-Api-Key: $TOKEN" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","id":6,"params":{"name":"update_meta_fields","arguments":{"slugs":["home"],"locale":"en","updates":[{"field_path":"meta.page_title","value":"Home | Example Brand"},{"field_path":"meta.description","value":"Join our AI bootcamp."},{"field_path":"meta.robots","value":"index, follow"}]}}}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":6,"params":{"name":"update_entry_attributes","arguments":{"slugs":["home"],"locale":"en","updates":[{"field_path":"meta.page_title","value":"Home | Example Brand"},{"field_path":"meta.description","value":"Join our AI bootcamp."},{"field_path":"meta.robots","value":"index, follow"}]}}}'
 
 ```
 

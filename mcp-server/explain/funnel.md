@@ -20,8 +20,11 @@ Legacy `products: [ai-fluency]` still reads (coerced to `{ product }`). Writes d
 
 - **Not** under `meta` / `seo:`.
 - **`seo.intent` was removed** — use `funnel.stage`.
-- Staff: SEO modal **Funnel** tab; content-type manage **Funnel** list perspective.
-- Surgical APIs: `GET/PUT /api/content-types/:type/funnel/:slug`.
+- Staff: SEO modal **Funnel** tab; content-type manage **Funnel** list perspective (bulk Leave / Set / Clear).
+- Surgical APIs: `GET/PUT /api/content-types/:type/funnel/:slug` (path-touched merge: omitted keys leave current; `null` clears).
+- **MCP writes:**
+  - Single page: `update_fields` with `funnel.stage` / `funnel.products` (or `reset:true`). Requires `content_edit_structure`. Gate fail → nothing else in that call is applied. `locale`/`variant` ignored for funnel (warning).
+  - Many pages: `update_entry_attributes` (safe attrs: `meta.*` + `funnel.*` only — not sections). Per-slug rollback if funnel fails. **BREAKING:** `update_meta_fields` removed — reconnect MCP.
 - When a product has minimal audience, landings must include a valid `persona`. Program self-page may omit persona. `"all"` never carries personas.
 - Codes: `missing_product_audience`, `missing_funnel_persona`, `unknown_persona`.
 
@@ -64,5 +67,5 @@ Do not treat those two answers as the same list. Tag programs as `decision` so i
 
 ## Related
 
-- Edit membership per page (Funnel tab / funnel write APIs) — not `update_product_funnel` (retired).
+- Edit membership via Funnel tab / `update_fields` / `update_entry_attributes` — not `update_product` / not retired `update_product_funnel`.
 - `funnel.products` also scopes analytics `item_id` on forms when set — see topic `lead-forms` / `product`.

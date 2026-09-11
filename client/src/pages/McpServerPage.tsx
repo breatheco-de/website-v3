@@ -468,24 +468,33 @@ function ConnectionPanel({
               )}
               {pendingRoleId === null && (
                 <p className="text-xs text-muted-foreground leading-relaxed" data-testid="text-setup-role-hint-all">
-                  Connector uses everything your account can do (union of your roles).
-                  Pick <span className="text-foreground font-medium">Only …</span> for a focused
+                  Plain{" "}
+                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">/mcp</code>{" "}
+                  is <span className="text-foreground font-medium">read-only</span> (list/explain).
+                  Agents that need to write must use a role connector (
+                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">/mcp/role/…</code>
+                  ) with an exact model (
+                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">provider/model</code>
+                  ). Pick <span className="text-foreground font-medium">Only …</span> for a focused
                   Claude.ai / agent connector URL.
                 </p>
               )}
               {pendingRoleId === undefined && (
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Pick <span className="text-foreground font-medium">All roles</span> for full
-                  access, or <span className="text-foreground font-medium">Only …</span> for a
-                  focused connector.
+                  Pick a role for write access, or{" "}
+                  <span className="text-foreground font-medium">All roles</span> for a read-only
+                  connector. Prefer <span className="text-foreground font-medium">Only …</span> for
+                  agents that edit content.
                 </p>
               )}
               {localDev && pendingRoleId !== undefined && (
                 <p className="text-xs text-muted-foreground">
-                  Local note: plain{" "}
-                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">/mcp</code>{" "}
-                  may list more tools here than in production (production filters by your grants).
-                  Role URLs always filter by that role.
+                  Local note: role URLs filter tools by that role and allow mutates when{" "}
+                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">MCP_AGENT_MODEL</code>{" "}
+                  is set to an exact <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">provider/model</code>.
+                  Plain{" "}
+                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">/mcp</code> stays
+                  read-only.
                 </p>
               )}
             </div>

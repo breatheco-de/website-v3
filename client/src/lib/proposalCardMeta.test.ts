@@ -53,24 +53,62 @@ describe("proposalCardMeta", () => {
       },
       nowMs: Date.now(),
     });
-    expect(lines.lines).toEqual(["Proposed & claimed by alice · via Cursor (claude-4)"]);
+    expect(lines.lines).toEqual([
+      "Proposed & claimed by alice · unknown · claude-4 · via Cursor",
+    ]);
     expect(lines.expiredLine).toBeNull();
   });
 
-  it("keeps two lines when agent identity differs", () => {
+  it("keeps two lines when agent role differs", () => {
     const lines = proposalAttributionLines({
       proposerUsername: "alice",
-      proposerActor: { type: "mcp", client: "Cursor", model: "claude-4" },
+      proposerActor: {
+        type: "mcp",
+        client: "Cursor",
+        role: "copy_editor",
+        model: "claude/sonnet-4.5",
+      },
       claim: {
         by: "alice",
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
-        actor: { type: "mcp", client: "Cursor", model: "gpt-5" },
+        actor: {
+          type: "mcp",
+          client: "Cursor",
+          role: "seo_specialist",
+          model: "claude/sonnet-4.5",
+        },
       },
       nowMs: Date.now(),
     });
     expect(lines.lines).toHaveLength(2);
     expect(lines.lines[0]).toContain("Proposed by");
     expect(lines.lines[1]).toContain("Claimed by");
+  });
+
+  it("collapses propose+claim when same role even if model differs", () => {
+    const lines = proposalAttributionLines({
+      proposerUsername: "alice",
+      proposerActor: {
+        type: "mcp",
+        client: "Cursor",
+        role: "copy_editor",
+        model: "claude/sonnet-4.5",
+      },
+      claim: {
+        by: "alice",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        actor: {
+          type: "mcp",
+          client: "Cursor",
+          role: "copy_editor",
+          model: "claude/fable-1.5",
+        },
+      },
+      nowMs: Date.now(),
+    });
+    expect(lines.lines).toHaveLength(1);
+    expect(lines.lines[0]).toContain("Proposed & claimed by");
+    expect(lines.lines[0]).toContain("copy_editor");
   });
 
   it("shows claim expired with last claimant", () => {
@@ -85,16 +123,16 @@ describe("proposalCardMeta", () => {
       nowMs: Date.now(),
     });
     expect(lines.lines).toEqual(["Proposed by alice"]);
-    expect(lines.expiredLine).toBe("Claim expired · blake · via Cursor (claude-4)");
+    expect(lines.expiredLine).toBe("Claim expired · blake · unknown · claude-4 · via Cursor");
   });
 
-  it("uses via MCP when type mcp but client/model missing", () => {
+  it("uses unknown role when type mcp but client/model missing", () => {
     const lines = proposalAttributionLines({
       proposerUsername: "alice",
       proposerActor: { type: "mcp" },
       nowMs: Date.now(),
     });
-    expect(lines.lines[0]).toBe("Proposed by alice · via MCP");
+    expect(lines.lines[0]).toBe("Proposed by alice · unknown · via MCP");
   });
 });
 

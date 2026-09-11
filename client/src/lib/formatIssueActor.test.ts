@@ -7,14 +7,25 @@ describe("formatIssueActor", () => {
     expect(formatIssueActorLine("jane.doe", { type: "ui" })).toBe("jane.doe");
   });
 
-  it("shows via MCP when client missing", () => {
-    expect(formatIssueActorLine("jane.doe", { type: "mcp" })).toBe("jane.doe · via MCP");
+  it("shows unknown role when client missing", () => {
+    expect(formatIssueActorLine("jane.doe", { type: "mcp" })).toBe("jane.doe · unknown · via MCP");
   });
 
-  it("shows client and model for mcp actor", () => {
+  it("shows role, exact model, and client for mcp actor", () => {
+    expect(
+      formatIssueActorLine("jane.doe", {
+        type: "mcp",
+        client: "Cursor",
+        role: "copy_editor",
+        model: "claude/sonnet-4.5",
+      }),
+    ).toBe("jane.doe · copy_editor · claude/sonnet-4.5 · via Cursor");
+  });
+
+  it("legacy mcp without role shows unknown", () => {
     expect(
       formatIssueActorLine("jane.doe", { type: "mcp", client: "Cursor", model: "claude-4" }),
-    ).toBe("jane.doe · via Cursor (claude-4)");
+    ).toBe("jane.doe · unknown · claude-4 · via Cursor");
   });
 
   it("shows system source suffix", () => {

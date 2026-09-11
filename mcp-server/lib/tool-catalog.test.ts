@@ -177,7 +177,8 @@ describe("allowedToolNames", () => {
     expect(names.has("get_organic_traffic")).toBe(true);
     expect(names.has("run_entry_diagnostics")).toBe(true);
     expect(names.has("get_diagnostics_job")).toBe(true);
-    expect(names.has("update_meta_fields")).toBe(true);
+    expect(names.has("update_entry_attributes")).toBe(true);
+    expect(names.has("update_meta_fields")).toBe(false);
     expect(names.has("update_fields")).toBe(true);
     expect(names.has("test_redirect")).toBe(false);
     expect(names.has("update_redirect")).toBe(false);

@@ -16,11 +16,12 @@ import {
   type FunnelProductsMode,
 } from "@/components/DebugBubble/components/FunnelTab";
 
-type ProductOption = {
-  content_slug: string;
-  name: string;
-  actively_selling?: boolean;
-};
+const BULK_PRODUCT_MODES: { value: FunnelProductsMode; label: string }[] = [
+  { value: "leave", label: "Leave" },
+  { value: "all", label: "All" },
+  { value: "list", label: "Specific" },
+  { value: "clear", label: "Clear" },
+];
 
 export function BulkUpdateFunnelDialog({
   open,
@@ -39,7 +40,7 @@ export function BulkUpdateFunnelDialog({
 }) {
   const [stage, setStage] = useState("");
   const [stageEditing, setStageEditing] = useState(true);
-  const [productsMode, setProductsMode] = useState<FunnelProductsMode>("omit");
+  const [productsMode, setProductsMode] = useState<FunnelProductsMode>("leave");
   const [selectedBindings, setSelectedBindings] = useState<
     { product: string; persona?: string }[]
   >([]);
@@ -51,7 +52,7 @@ export function BulkUpdateFunnelDialog({
     if (!open) return;
     setStage("");
     setStageEditing(true);
-    setProductsMode("omit");
+    setProductsMode("leave");
     setSelectedBindings([]);
     setAdvancedOpen(false);
   }, [open]);
@@ -81,16 +82,17 @@ export function BulkUpdateFunnelDialog({
     setSaving(true);
     const body: {
       stage: string;
-      products: { product: string; persona?: string }[] | "all" | null;
+      products?: { product: string; persona?: string }[] | "all" | null;
     } = {
       stage: stage.trim(),
-      products:
-        productsMode === "all"
-          ? "all"
-          : productsMode === "list"
-            ? selectedBindings
-            : null,
     };
+    // Leave = omit products key (path-touched merge preserves existing).
+    // Clear = null. Set all/list = value.
+    if (productsMode === "all") body.products = "all";
+    else if (productsMode === "list") body.products = selectedBindings;
+    else if (productsMode === "clear") body.products = null;
+    // leave: do not set products
+
     const ok: string[] = [];
     const failed: { slug: string; error: string }[] = [];
     const results = await Promise.allSettled(
@@ -136,6 +138,7 @@ export function BulkUpdateFunnelDialog({
           selectedBindings={selectedBindings}
           onSelectedBindingsChange={setSelectedBindings}
           productOptions={productOptions}
+          productsModeOptions={BULK_PRODUCT_MODES}
           portalContainer={portalEl}
           hideStoreMembership
           isProgram={contentType === "program"}
@@ -146,8 +149,10 @@ export function BulkUpdateFunnelDialog({
                 Bulk funnel update
               </p>
               <p>
-                You’re setting the same stage and products on every selected page. That replaces each
-                page’s current funnel settings. A stage is required.
+                Same stage (and optional products) on every selected page.{" "}
+                <span className="text-foreground">Leave</span> keeps each page’s current products;{" "}
+                <span className="text-foreground">Clear</span> removes products on purpose. A stage is
+                required.
               </p>
               {isDbView && (
                 <p>
@@ -163,8 +168,8 @@ export function BulkUpdateFunnelDialog({
                   Read more (advanced)
                 </CollapsibleTrigger>
                 <CollapsibleContent className="mt-2 text-xs space-y-1 font-mono">
-                  <p>{`{type}/{slug}/_common.yml`}</p>
-                  <p>PUT /api/content-types/:type/funnel/:slug</p>
+                  <p>{`{type}/{slug}/_common.yml → funnel`}</p>
+                  <p>PUT /api/content-types/:type/funnel/:slug (path-touched merge)</p>
                 </CollapsibleContent>
               </Collapsible>
             </div>

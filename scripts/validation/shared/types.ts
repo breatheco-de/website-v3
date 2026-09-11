@@ -121,8 +121,10 @@ export interface ValidationIssueActor {
   type: "ui" | "mcp";
   /** MCP OAuth client name (e.g. Cursor) — server-derived only. */
   client?: string;
-  /** Best-effort model name when reported by MCP agent. */
+  /** Exact versioned model (e.g. claude/sonnet-4.5). */
   model?: string;
+  /** MCP role id (e.g. copy_editor). Legacy rows may omit → treated as unknown. */
+  role?: string;
 }
 
 export interface ValidationIssueCompletion {

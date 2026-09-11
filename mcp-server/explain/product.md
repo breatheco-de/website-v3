@@ -56,8 +56,8 @@ funnel:
 
 ## Journey tools
 
-- `get_product_funnel` / `get_product_funnel_analytics`
-- Membership edited per page (Funnel tab / funnel PUT) — not on `_product.yml`
+- `get_product_funnel` / `get_product_funnel_analytics` (read)
+- Membership writes: `update_fields` (`funnel.stage` / `funnel.products`, structure cap) or multi-slug `update_entry_attributes` — or Funnel tab / PUT. Not on `_product.yml`.
 
 ## GA / dataLayer names (unchanged)
 

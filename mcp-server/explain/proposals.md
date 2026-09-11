@@ -1,84 +1,69 @@
 # Content proposals
 
-Read-only agents and staff can **propose** entry field changes. Live YAML does not change until a **different** user with edit caps **applies** (edits). Notes handoffs stay open as reminders; **close** finishes them with a reason (no content change; not four-eyes).
+Read-only agents and staff can **propose** entry field changes or **idea** briefs. Live YAML does not change until a **different agent role** (or staff UI) **applies** edits. Notes handoffs stay open as reminders; **close** finishes them with a reason (no content change). Ideas use **accept** to greenlight a brief (still no YAML).
 
-Agentic swarm role connectors may write **drafts** freely, may write **live** only with an active same-locale issue claim, and must use proposals (not MCP promote/create) to go live — see agent-conventions §2.
+**Identity:** Mutating MCP requires a **role connector** (`/mcp/role/…`) and exact `MCP_AGENT_MODEL` (`provider/model`). Four-eyes and claims compare **username + role** (staff UI is separate). Exact model is stored for observability.
+
+Agentic swarm role connectors may write **drafts** freely, may write **live** only with an active same-locale issue claim (same human+role), and must use proposals (not MCP promote/create) to go live — see agent-conventions §2.
 
 ## Tools (exactly 4)
 
 | Tool | Caps | Job |
 |---|---|---|
-| `propose_change` | `content_view` or `seo_edit` | Create. `entries[]` → kind edits; omit → notes. Optional `variant`, `promote_on_apply`, `agent_session_id`. Optional `related_issue_ids` (must exist). Notes default `no_auto_retry`. Soft-blocks on recent entry writes (`confirm_recent_activity`). |
-| `list_proposals` | same | **Stats-first:** no filters → `proposal_stats` only. Pass `proposal_id` / `query` / `issue_id` / `status` / `kind` for paginated `proposals[]` (`limit`/`offset`). Includes `review_mode`, `open_blocker_count`, `blockers`, `no_auto_retry`, `recent_activity`, close fields when finished. |
-| `update_proposal` | `content_edit_text` or `seo_edit` | `action`: claim \| release \| withdraw \| apply \| close \| acknowledge (alias) \| reject \| attach_variant \| add_blocker \| resolve_blocker \| reopen_blocker \| set_no_auto_retry. Apply re-checks recent activity. |
-| `get_entry_activity` | `content_view` or `seo_edit` | Read recent people/agent writes (14 days). Use before `confirm_recent_activity`. |
+| `propose_change` | `content_view` or `seo_edit` | Create. `entries[]` → edits; `kind:"idea"` → idea brief; omit → notes. Optional `related_entries` (idea context; slug need not exist). Notes default `no_auto_retry`. Soft-blocks on recent entry writes. |
+| `list_proposals` | same | **Stats-first.** Filter with `proposal_id` / `query` / `issue_id` / `status` / `kind` (`edits`\|`notes`\|`idea`). |
+| `update_proposal` | `content_edit_text` or `seo_edit` | `action`: claim \| release \| withdraw \| apply \| **accept** \| close \| acknowledge \| reject \| blockers \| set_no_auto_retry \| attach_variant. |
+| `get_entry_activity` | `content_view` or `seo_edit` | Read recent writes (14 days). Use before `confirm_recent_activity`. |
 
 Do not invent `get_proposal`, `apply_proposal`, etc.
 
+## Kinds
+
+| Kind | When | Primary disposition |
+|---|---|---|
+| `edits` | `entries[]` or `promote_on_apply` | Four-eyes **apply** / **reject** |
+| `notes` | No entries, default | **close** with reason (wall handoff) |
+| `idea` | `kind:"idea"`, no entries | **accept** (next_step) or **close** park |
+
+Do **not** use notes for new-spoke / config pitches — use `kind:"idea"`.
+
+## Ideas
+
+- **accept:** four-eyes (human+role); open blockers block; `next_step` min 20; → `finished` + `accepted`. **No YAML.**
+- **close** park: `wont_fix` \| `tracked_elsewhere` \| `other` (not four-eyes). Do not use close for “yes.”
+- Optional `related_entries`: context only; targets may not exist yet.
+
 ## Recent activity gate
 
-- Edits create/apply: if linked live (and named draft) pages have people/agent writes in the last 14 days → `action_required: confirm_recent_activity` with `activity[]`. Call `get_entry_activity`, then retry with `confirm_recent_activity: true`.
-- Current `agent_session_id` writes are omitted from the **gate** count only (still listed in `events[]`).
-- Apply also ignores this proposal's own prior applies for the gate count.
-- Activity unreadable → `activity_unavailable` (fail-closed; no confirm shortcut).
+- Edits create/apply: recent writes → `confirm_recent_activity` after `get_entry_activity`.
 - Confirming does **not** write YAML or complete validation issues.
 
-## Review modes
+## Review modes (edits)
 
-| `review_mode` | Meaning | On apply |
-|---|---|---|
-| `soft` | Field suggestions | Write `updates[]` to live |
-| `soft_variant` | Field suggestions **into** a draft | Write `updates[]` into that variant file (no promote) |
-| `draft_backed` | Prepared draft for go-live (`promote_on_apply`) | **Promote** variant (empty `updates` OK). May need `confirm_end_experiment` |
-
-Always preview an attached draft before apply/reject. Notes have no apply — use **close** with a disposition.
+| `review_mode` | On apply |
+|---|---|
+| `soft` | Write `updates[]` to live |
+| `soft_variant` | Write into draft variant (no promote) |
+| `draft_backed` | Promote variant. May need `confirm_end_experiment` |
 
 ## Notes / no_auto_retry
 
-- New notes: `no_auto_retry: true`. Open notes with that flag + shared `related_issue_id` → second notes create fails (`notes_no_auto_retry`); join the existing id. Freestanding notes (no issues) are not gated this way. Edits creates remain allowed.
-- MCP must **claim** before `set_no_auto_retry`. Staff UI may flip without claim. Claim alone does not clear the flag.
-- Do not blindly retry the same wall; claim, escalate, or open an **edits** proposal with a real fix.
+- New notes: `no_auto_retry: true`. Duplicate notes on same issue blocked until claim + clear flag or close.
+- MCP must **claim** before `set_no_auto_retry`. Staff UI may flip without claim.
 
 ## Close (notes)
 
-- `close` / `acknowledge` (alias): `close_reason` = `wont_fix` \| `fixed_elsewhere` \| `tracked_elsewhere` \| `other`.
-- `close_note` min 20 chars except `wont_fix` (say where / what). No verification that “elsewhere” exists.
-- Finishes the proposal; **no YAML change**; not four-eyes. Prefer leaving open if work remains.
+- `close` / `acknowledge`: `wont_fix` \| `fixed_elsewhere` \| `tracked_elsewhere` \| `other`.
+- Finishes without YAML; not four-eyes.
 
 ## Collaboration
 
-- **One open proposal per variant** — second create/attach → `proposal_exists`; join the existing id.
-- **Claim** to fix the artifact; **add_blocker** to leave feedback (no claim). Multiple open blockers allowed.
-- **Blocker body** (min 80): what's wrong, what fixed looks like, why — not MCP tool lists.
-- **resolve_blocker**: active non-expired claimant only + resolve note. Expired claim → claim first.
-- **Open blockers block apply only** — reject/withdraw/close still work.
-- Cleared blockers ≠ approved — re-preview (`next_actions`) then four-eyes apply.
-- No `challenge_blocker` — disagree without resolving; reviewer can `reopen_blocker`.
-
-## `list_proposals` (token hygiene)
-
-- Unscoped call returns **counts only** (`proposal_stats` by status/kind) plus warning `proposals_need_filter`.
-- Any of `status`, `kind`, `query`, `issue_id`, `proposal_id` unlocks the list (default page size 20).
-- `proposal_stats` stay **site-wide** even when the list is filtered.
-
-## `discovery_path` (first consumer)
-
-When `list_proposals` is called with **`proposal_id`** and that proposal is still decidable (`open` | `partial`), the response may include top-level **`discovery_path`**.
-
-- **Contract:** moment-agnostic field defined in `docs/blog/mcp-standards.md` (Standard 5) / `DiscoveryPath` in `respond.ts`. Proposals only choose which `items` to emit.
-- **Shape:** `goal`, `items[]` (`kind: "think"` then `kind: "tool"`), `non_effects`. Think items steer judgment (card, deep-read, audience, content-type **strategy** fit, disposition). Tool items: `get_entry_content`, `get_entry_activity`, `get_entry_seo`, `get_organic_traffic`, `run_entry_diagnostics` with `available` from your grants.
-- **Not `next_actions`:** skip does not block apply/reject/add_blocker. Items with `available: false` include a hint to ask a human to enable access, then refresh MCP (`discovery_tool_capped` warning when any are capped).
-- **Null when:** multi-row lists, stats-only, or closed proposals (`finished` | `rejected` | `withdrawn`).
-- Notes proposals get a short think-heavy path (close disposition), not the full edits research tool list.
+- **One open proposal per variant** → `proposal_exists`.
+- **Claim** = working it (human+role; staff UI may take over). **add_blocker** = feedback.
+- **Open blockers block apply and idea accept** — reject/withdraw/close still work.
+- Cleared blockers ≠ approved — re-preview then four-eyes apply/accept.
 
 ## Rules
 
-- **Four-eyes:** apply / reject caller ≠ proposer username. **Close is not four-eyes.**
-- **Multi-entry:** each entry has pending / done / failed. Apply skips done; re-checks baseline vs live only for remaining. Finished only when all entries are done.
-- **Stale context:** if live/variant values or variant file fingerprint diverged, that entry fails with `context_stale`.
-- **Issues:** optional links. Issue UI shows only linked proposals. Freestanding proposals are allowed.
-- **Non-effects:** does not push GitHub, does not auto-complete validation issues (hint `update_issue` complete after apply). Config / redirects / RBAC are out of scope. Blockers are not diagnostics issues. Close does not complete issues.
-
-## Cannot finish an issue
-
-Release the claim with a report (what you tried). Prefer leaving the issue open for the next agent — do not open a notes proposal just to clear the queue. Use an **edits** proposal only when you have a concrete field/promote fix for someone else to apply.
+- **Four-eyes:** apply / reject / accept when caller identity (username+role or UI) ≠ proposer identity. **Close/park is not four-eyes.**
+- **Non-effects:** no GitHub push; no auto-complete issues; accept/close do not create entries.

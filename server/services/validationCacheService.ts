@@ -37,6 +37,11 @@ import { buildEntryKey, entryKeyFromContentFile } from "../../scripts/validation
 import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
 import { isIssueCodeCodingAgentOnly } from "../../scripts/validation/shared/issueCodeRegistry";
 import { siteSyncGcsKey, SYNC_FILENAMES, validationCacheReadKeys } from "@shared/gcsKeys";
+import {
+  formatAgentActorLine,
+  isStaffUiActor,
+  sameAgentIdentity,
+} from "@shared/agent-identity";
 import { gcs } from "../gcs";
 import { getSiteContextMap } from "../site-manager";
 import { child } from "../logger";
@@ -537,6 +542,7 @@ export class ValidationCacheService {
     contentType: string;
     slug: string;
     locale: string;
+    actor?: ValidationIssueActor | null;
     nowMs?: number;
   }): { has_active_claim: boolean; claim_issue_ids: string[] } {
     const author = opts.author.trim();
@@ -548,7 +554,10 @@ export class ValidationCacheService {
     const claim_issue_ids: string[] = [];
     for (const issue of this.getIssuesByEntryKey(entryKey)) {
       const claim = this.getActiveClaim(issue.id, nowMs);
-      if (claim && claim.claimedBy === author) {
+      if (
+        claim &&
+        sameAgentIdentity(claim.claimedBy, claim.actor, author, opts.actor ?? null)
+      ) {
         claim_issue_ids.push(issue.id);
       }
     }
@@ -564,6 +573,7 @@ export class ValidationCacheService {
     contentType: string;
     slug: string;
     locale: string;
+    actor?: ValidationIssueActor | null;
     nowMs?: number;
   }): Promise<{ refreshed: number; claim_issue_ids: string[] }> {
     const author = opts.author.trim();
@@ -575,7 +585,12 @@ export class ValidationCacheService {
     const claim_issue_ids: string[] = [];
     for (const issue of this.getIssuesByEntryKey(entryKey)) {
       const claim = this.getActiveClaim(issue.id, nowMs);
-      if (!claim || claim.claimedBy !== author) continue;
+      if (
+        !claim ||
+        !sameAgentIdentity(claim.claimedBy, claim.actor, author, opts.actor ?? null)
+      ) {
+        continue;
+      }
       this.claims[issue.id] = {
         ...claim,
         expiresAt: new Date(nowMs + CLAIM_TTL_MS).toISOString(),
@@ -687,16 +702,24 @@ export class ValidationCacheService {
       };
     }
     const existing = this.getActiveClaim(issueId);
-    if (existing && existing.claimedBy !== claimedBy) {
+    if (
+      existing &&
+      !sameAgentIdentity(existing.claimedBy, existing.actor, claimedBy, actor ?? null)
+    ) {
+      const holder = formatAgentActorLine(existing.claimedBy, existing.actor);
       return {
         ok: false,
-        error: `Issue already claimed by ${existing.claimedBy} until ${existing.expiresAt}`,
+        error: `Issue already claimed by ${holder} until ${existing.expiresAt}`,
         code: "issue_already_claimed",
         claimedBy: existing.claimedBy,
       };
     }
     const claimReport =
-      report ?? (existing?.claimedBy === claimedBy ? existing.report : undefined);
+      report ??
+      (existing &&
+      sameAgentIdentity(existing.claimedBy, existing.actor, claimedBy, actor ?? null)
+        ? existing.report
+        : undefined);
     const claim = this.buildClaim(claimedBy, actor, claimReport);
     this.claims[issueId] = claim;
     await this.flush();
@@ -730,10 +753,18 @@ export class ValidationCacheService {
       await this.flush();
       return { ok: true, attempt: null };
     }
-    if (existing.claimedBy !== author && !options?.force) {
+    const ownsClaim = sameAgentIdentity(
+      existing.claimedBy,
+      existing.actor,
+      author,
+      options?.actor ?? null,
+    );
+    const uiOverride = isStaffUiActor(options?.actor) || options?.force === true;
+    if (!ownsClaim && !uiOverride) {
+      const holder = formatAgentActorLine(existing.claimedBy, existing.actor);
       return {
         ok: false,
-        error: `Claimed by ${existing.claimedBy}; only that author or staff can release`,
+        error: `Claimed by ${holder}; only that agent role or staff UI can release`,
         code: "claim_not_owned",
       };
     }

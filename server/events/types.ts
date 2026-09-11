@@ -131,7 +131,7 @@ export type EventResource = {
 
 export type EventActor =
   | { type: "ui" }
-  | { type: "mcp"; client?: string; model?: string }
+  | { type: "mcp"; client?: string; model?: string; role?: string }
   | { type: "system"; source: string };
 
 export type EventAttribution = {

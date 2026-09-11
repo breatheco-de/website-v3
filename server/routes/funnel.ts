@@ -6,10 +6,9 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { productManager as ecommerceManager } from "../product/product-manager";
 import {
-  coerceFunnelInput,
   readFunnelBlockFromFile,
-  writeFunnelBlock,
   commonYmlPath,
+  prepareAndWriteFunnelMerge,
 } from "../funnel-fields";
 import {
   effectiveBindings,
@@ -210,35 +209,40 @@ export function registerFunnelRoutes(app: Express): void {
       const contentType = req.params.type;
       const slug = req.params.slug;
       const contentRoot = getContentRoot(res);
-      const coerced = coerceFunnelInput(parsed.data);
-      if (!coerced.ok) {
-        return res.status(400).json({ error: coerced.error, code: coerced.code });
-      }
-
-      const gates = assertFunnelAudienceGates(coerced.coerced, {
+      // Path-touched merge: omitted keys leave current; null clears.
+      const body = parsed.data;
+      const result = prepareAndWriteFunnelMerge(
         contentType,
-        contentSlug: slug,
-      });
-      if (!gates.ok) {
+        slug,
+        {
+          touchStage: body.stage !== undefined,
+          stage: body.stage,
+          touchProducts: body.products !== undefined,
+          products: body.products,
+        },
+        contentRoot,
+        assertFunnelAudienceGates,
+      );
+      if (!result.ok) {
         return res.status(400).json({
-          error: gates.error,
-          code: gates.code,
-          details: gates.details,
+          error: result.error,
+          code: result.code,
+          details: result.details,
         });
       }
 
-      const { relativePath } = writeFunnelBlock(contentType, slug, coerced.coerced, contentRoot);
-      markFileAsModified(relativePath, auth.author ?? "staff", undefined, contentRoot);
+      if (result.relativePath) {
+        markFileAsModified(result.relativePath, auth.author ?? "staff", undefined, contentRoot);
+      }
 
       res.json({
         success: true,
-        funnel: coerced.coerced,
+        funnel: result.coerced,
         warnings: [
-          ...coerced.warnings,
-          ...gates.warnings,
-          ...inactiveProductWarnings(coerced.coerced),
+          ...result.warnings,
+          ...inactiveProductWarnings(result.coerced),
         ],
-        relativePath,
+        relativePath: result.relativePath,
       });
     } catch (err) {
       log.error({ err }, "PUT funnel");

@@ -51,6 +51,7 @@ const WRITE_ACTIONS = new Set<ProposalUpdateAction>([
   "acknowledge",
   "close",
   "reject",
+  "accept",
   "claim",
   "release",
   "add_blocker",
@@ -68,6 +69,7 @@ const ALL_ACTIONS = new Set<ProposalUpdateAction>([
   "acknowledge",
   "close",
   "reject",
+  "accept",
   "attach_variant",
   "add_blocker",
   "resolve_blocker",
@@ -334,6 +336,7 @@ export function registerProposalRoutes(app: Express): void {
       promote_on_apply: req.body?.promote_on_apply === true,
       close_reason: typeof req.body?.close_reason === "string" ? req.body.close_reason : undefined,
       close_note: typeof req.body?.close_note === "string" ? req.body.close_note : undefined,
+      next_step: typeof req.body?.next_step === "string" ? req.body.next_step : undefined,
       no_auto_retry:
         typeof req.body?.no_auto_retry === "boolean" ? req.body.no_auto_retry : undefined,
     });

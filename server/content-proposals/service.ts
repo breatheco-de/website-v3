@@ -7,7 +7,7 @@ import { emitEvent } from "../events/event-store";
 import { singleAttribution, type EventActor } from "../events/types";
 import { getContentForEdit, editContent } from "../content-editor";
 import type { SiteContext } from "../site-manager";
-import { fingerprintEdits, fingerprintNotes, stableJson } from "./fingerprint";
+import { fingerprintEdits, fingerprintNotes, fingerprintIdeas, stableJson } from "./fingerprint";
 import {
   resolveProposalEntryActivity,
   type ResolveRecentActivityResult,
@@ -17,6 +17,12 @@ import { child } from "../logger";
 import type { ContentType } from "@shared/schema";
 import { getFolder } from "../content-types";
 import { resolveWritableVersioningTarget } from "../shared-layout-entry";
+import {
+  sameAgentIdentity,
+  formatAgentActorLine,
+  isStaffUiActor,
+  type AgentActorLike,
+} from "@shared/agent-identity";
 
 const log = child({ module: "content-proposals" });
 
@@ -25,9 +31,10 @@ export const RAG_SIMILARITY_THRESHOLD = 0.82;
 export const MIN_SUMMARY = 80;
 export const MIN_BLOCKER_BODY = 80;
 export const MIN_CLOSE_NOTE = 20;
+export const MIN_ACCEPT_NEXT_STEP = 20;
 
 export type ProposalStatus = "open" | "partial" | "finished" | "rejected" | "withdrawn";
-export type ProposalKind = "edits" | "notes";
+export type ProposalKind = "edits" | "notes" | "idea";
 export type ProposalCategory = "content.field" | "content.seo";
 export type EntryRowStatus = "pending" | "done" | "failed";
 export type ReviewMode = "soft" | "soft_variant" | "draft_backed";
@@ -36,14 +43,29 @@ export type ProposalCloseReason =
   | "wont_fix"
   | "fixed_elsewhere"
   | "tracked_elsewhere"
-  | "other";
+  | "other"
+  | "accepted";
 
 export const PROPOSAL_CLOSE_REASONS: ProposalCloseReason[] = [
   "wont_fix",
   "fixed_elsewhere",
   "tracked_elsewhere",
   "other",
+  "accepted",
 ];
+
+/** Close/park reasons for ideas (Accept uses accepted separately). */
+export const IDEA_PARK_REASONS: ProposalCloseReason[] = [
+  "wont_fix",
+  "tracked_elsewhere",
+  "other",
+];
+
+export type RelatedEntryRef = {
+  contentType: string;
+  slug: string;
+  locale?: string;
+};
 
 export function isProposalCloseReason(raw: string): raw is ProposalCloseReason {
   return (PROPOSAL_CLOSE_REASONS as string[]).includes(raw);
@@ -126,6 +148,7 @@ export type ProposalRecord = {
   close_note: string | null;
   closed_by: string | null;
   closed_at: number | null;
+  related_entries: RelatedEntryRef[];
   entries: ProposalEntryRow[];
   blockers: ProposalBlocker[];
   /** Enriched on read — not persisted. */
@@ -159,6 +182,7 @@ type ProposalRow = {
   close_note: string | null;
   closed_by: string | null;
   closed_at: number | null;
+  related_entries_json: string | null;
 };
 
 type EntryDbRow = {
@@ -205,6 +229,9 @@ export type CreateProposalInput = {
   situation_note?: string;
   agent_session_id?: string;
   promote_on_apply?: boolean;
+  /** Explicit notes|idea when no entries; default notes. Ignored when entries/promote. */
+  kind?: "notes" | "idea";
+  related_entries?: RelatedEntryRef[];
 };
 
 export type SimilarProposal = { id: string; title: string; score: number };
@@ -221,7 +248,8 @@ export type ProposalUpdateAction =
   | "add_blocker"
   | "resolve_blocker"
   | "reopen_blocker"
-  | "set_no_auto_retry";
+  | "set_no_auto_retry"
+  | "accept";
 
 export type ProposalUpdateCaller = {
   username: string;
@@ -244,6 +272,8 @@ export type ProposalUpdateCaller = {
   close_reason?: string;
   close_note?: string;
   no_auto_retry?: boolean;
+  /** Accept idea: free-text next step (min MIN_ACCEPT_NEXT_STEP). */
+  next_step?: string;
 };
 
 function parseJson<T>(raw: string | null, fallback: T): T {
@@ -280,7 +310,7 @@ function valuesEqual(a: unknown, b: unknown): boolean {
 }
 
 function rollupStatus(kind: ProposalKind, entries: ProposalEntryRow[]): ProposalStatus {
-  if (kind === "notes") return "open";
+  if (kind === "notes" || kind === "idea") return "open";
   if (entries.length === 0) return "open";
   if (entries.every((e) => e.status === "done")) return "finished";
   if (entries.some((e) => e.status === "done")) return "partial";
@@ -366,6 +396,7 @@ function mapProposal(
     close_note: row.close_note ?? null,
     closed_by: row.closed_by ?? null,
     closed_at: row.closed_at ?? null,
+    related_entries: parseJson(row.related_entries_json ?? null, [] as RelatedEntryRef[]),
     entries,
     blockers,
   };
@@ -401,7 +432,7 @@ function loadProposal(db: Database.Database, id: string): ProposalRecord | null 
 }
 
 function persistRollup(db: Database.Database, proposal: ProposalRecord): ProposalStatus {
-  if (proposal.kind === "notes") return proposal.status;
+  if (proposal.kind === "notes" || proposal.kind === "idea") return proposal.status;
   const next = rollupStatus(proposal.kind, proposal.entries);
   db.prepare(`UPDATE content_proposals SET status = ?, updated_at = ? WHERE id = ?`).run(
     next,
@@ -450,6 +481,13 @@ function validateCloseReason(
   | { ok: true; reason: ProposalCloseReason; note: string | null }
   | { ok: false; code: string; error: string } {
   const reason = (reasonRaw || "").trim();
+  if (reason === "accepted") {
+    return {
+      ok: false,
+      code: "use_accept",
+      error: "Use action accept with next_step to greenlight an idea",
+    };
+  }
   if (!isProposalCloseReason(reason)) {
     return {
       ok: false,
@@ -549,7 +587,29 @@ const EMPTY_STATUS_COUNTS: Record<ProposalStatus, number> = {
 const EMPTY_KIND_COUNTS: Record<ProposalKind, number> = {
   edits: 0,
   notes: 0,
+  idea: 0,
 };
+
+function asAgentActor(actor: EventActor | Record<string, unknown> | undefined | null): AgentActorLike | null {
+  if (!actor || typeof actor !== "object") return null;
+  const type = (actor as { type?: string }).type;
+  if (type !== "ui" && type !== "mcp" && type !== "system") return null;
+  return actor as AgentActorLike;
+}
+
+function fourEyesBlocked(
+  proposerUsername: string,
+  proposerActor: Record<string, unknown> | EventActor | undefined,
+  callerUsername: string,
+  callerActor: EventActor | undefined,
+): boolean {
+  return sameAgentIdentity(
+    proposerUsername,
+    asAgentActor(proposerActor),
+    callerUsername,
+    asAgentActor(callerActor),
+  );
+}
 
 export const PROPOSAL_SORT_FIELDS = ["created_at", "updated_at"] as const;
 export type ProposalSortField = (typeof PROPOSAL_SORT_FIELDS)[number];
@@ -819,7 +879,30 @@ export function createProposalService(deps: ProposalServiceDeps) {
       ...e,
       updates: e.updates ?? [],
     }));
-    const kind: ProposalKind = entriesIn.length > 0 || promote_on_apply ? "edits" : "notes";
+    let kind: ProposalKind;
+    if (entriesIn.length > 0 || promote_on_apply) {
+      kind = "edits";
+    } else if (input.kind === "idea") {
+      kind = "idea";
+    } else {
+      kind = "notes";
+    }
+
+    if (input.kind === "idea" && (entriesIn.length > 0 || promote_on_apply)) {
+      return {
+        ok: false,
+        code: "invalid_kind",
+        error: "kind idea cannot include entries or promote_on_apply — use an edits proposal",
+      };
+    }
+
+    const relatedEntries: RelatedEntryRef[] = (input.related_entries ?? [])
+      .map((r) => ({
+        contentType: String(r.contentType || "").trim(),
+        slug: String(r.slug || "").trim(),
+        ...(r.locale?.trim() ? { locale: r.locale.trim() } : {}),
+      }))
+      .filter((r) => r.contentType && r.slug);
 
     if (kind === "notes" && related.length > 0) {
       const blocking = findOpenNotesBlockingRetry(dbFor(site), site, related);
@@ -886,21 +969,30 @@ export function createProposalService(deps: ProposalServiceDeps) {
     }
 
     const category: ProposalCategory =
-      input.category ?? (kind === "notes" ? "content.field" : inferCategory(entriesIn));
+      input.category ??
+      (kind === "edits" ? inferCategory(entriesIn) : "content.field");
     const fingerprint =
-      kind === "notes"
-        ? fingerprintNotes({ site, category, relatedIssueIds: related, summary })
-        : fingerprintEdits({
+      kind === "idea"
+        ? fingerprintIdeas({
             site,
-            category,
-            entries: entriesIn.map((e) => ({
-              contentType: e.contentType,
-              slug: e.slug,
-              locale: e.locale,
-              variant: e.variant,
-              updates: e.updates ?? [],
-            })),
-          });
+            title,
+            summary,
+            relatedIssueIds: related,
+            relatedEntries,
+          })
+        : kind === "notes"
+          ? fingerprintNotes({ site, category, relatedIssueIds: related, summary })
+          : fingerprintEdits({
+              site,
+              category,
+              entries: entriesIn.map((e) => ({
+                contentType: e.contentType,
+                slug: e.slug,
+                locale: e.locale,
+                variant: e.variant,
+                updates: e.updates ?? [],
+              })),
+            });
 
     const existing = db
       .prepare(
@@ -1022,8 +1114,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
         id, site, fingerprint, status, kind, category, title, summary, rationale,
         documentation_json, related_issue_ids_json, proposer_username, proposer_actor_json,
         created_at, updated_at, claim_json, tags_json, search_text,
-        created_agent_session_id, promote_on_apply, no_auto_retry
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        created_agent_session_id, promote_on_apply, no_auto_retry, related_entries_json
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
       id,
       site,
@@ -1046,6 +1138,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       sessionId,
       promote_on_apply ? 1 : 0,
       noAutoRetry,
+      JSON.stringify(relatedEntries),
     );
 
     for (const cap of captured) {
@@ -1104,8 +1197,20 @@ export function createProposalService(deps: ProposalServiceDeps) {
 
     if (action === "claim") {
       const claim = proposal.claim;
-      if (claim && new Date(claim.expiresAt).getTime() > now && claim.by !== caller.username) {
-        return { ok: false, code: "claimed", error: `Claimed by ${claim.by} until ${claim.expiresAt}` };
+      const uiTakeover = isStaffUiActor(asAgentActor(caller.actor));
+      if (
+        claim &&
+        new Date(claim.expiresAt).getTime() > now &&
+        !sameAgentIdentity(
+          claim.by,
+          asAgentActor(claim.actor),
+          caller.username,
+          asAgentActor(caller.actor),
+        ) &&
+        !uiTakeover
+      ) {
+        const holder = formatAgentActorLine(claim.by, asAgentActor(claim.actor));
+        return { ok: false, code: "claimed", error: `Claimed by ${holder} until ${claim.expiresAt}` };
       }
       const next: ProposalClaim = {
         by: caller.username,
@@ -1145,8 +1250,19 @@ export function createProposalService(deps: ProposalServiceDeps) {
     }
 
     if (action === "reject") {
-      if (caller.username === proposal.proposer_username) {
-        return { ok: false, code: "four_eyes", error: "Four-eyes: someone other than the proposer must reject" };
+      if (
+        fourEyesBlocked(
+          proposal.proposer_username,
+          proposal.proposer_actor,
+          caller.username,
+          caller.actor,
+        )
+      ) {
+        return {
+          ok: false,
+          code: "four_eyes",
+          error: "Four-eyes: a different agent role (or staff UI) must reject",
+        };
       }
       db.prepare(`UPDATE content_proposals SET status = 'rejected', claim_json = NULL, updated_at = ? WHERE id = ?`).run(
         now,
@@ -1156,12 +1272,12 @@ export function createProposalService(deps: ProposalServiceDeps) {
       return { ok: true, proposal: get(id)! };
     }
 
-    if (action === "close" || action === "acknowledge") {
-      if (proposal.kind !== "notes") {
+    if (action === "accept") {
+      if (proposal.kind !== "idea") {
         return {
           ok: false,
           code: "wrong_kind",
-          error: "close is for notes proposals; use apply for edits",
+          error: "accept is for idea proposals only",
         };
       }
       if (
@@ -1170,6 +1286,88 @@ export function createProposalService(deps: ProposalServiceDeps) {
         proposal.status === "withdrawn"
       ) {
         return { ok: false, code: "closed", error: "Proposal is already closed" };
+      }
+      if (
+        fourEyesBlocked(
+          proposal.proposer_username,
+          proposal.proposer_actor,
+          caller.username,
+          caller.actor,
+        )
+      ) {
+        return {
+          ok: false,
+          code: "four_eyes",
+          error: "Four-eyes: a different agent role (or staff UI) must accept",
+        };
+      }
+      if (proposal.open_blocker_count > 0) {
+        return {
+          ok: false,
+          code: "proposal_blocked",
+          error: `Cannot accept while ${proposal.open_blocker_count} open blocker(s) remain`,
+          proposal,
+        };
+      }
+      const nextStep = (caller.next_step || caller.close_note || "").trim();
+      if (nextStep.length < MIN_ACCEPT_NEXT_STEP) {
+        return {
+          ok: false,
+          code: "next_step_required",
+          error: `Accept requires a next-step note (min ${MIN_ACCEPT_NEXT_STEP} characters)`,
+        };
+      }
+      db.prepare(
+        `UPDATE content_proposals
+         SET status = 'finished', claim_json = NULL, updated_at = ?,
+             close_reason = ?, close_note = ?, closed_by = ?, closed_at = ?
+         WHERE id = ?`,
+      ).run(now, "accepted", nextStep, caller.username, now, id);
+      emitProposalEvent(site, "proposal_closed", id, caller.username, {
+        close_reason: "accepted",
+        close_note: nextStep,
+      });
+      return { ok: true, proposal: get(id)! };
+    }
+
+    if (action === "close" || action === "acknowledge") {
+      if (proposal.kind === "edits") {
+        return {
+          ok: false,
+          code: "wrong_kind",
+          error: "close is for notes or idea proposals; use apply for edits",
+        };
+      }
+      if (action === "acknowledge" && proposal.kind !== "notes") {
+        return {
+          ok: false,
+          code: "wrong_kind",
+          error: "acknowledge is a notes-only alias of close",
+        };
+      }
+      if (
+        proposal.status === "finished" ||
+        proposal.status === "rejected" ||
+        proposal.status === "withdrawn"
+      ) {
+        return { ok: false, code: "closed", error: "Proposal is already closed" };
+      }
+      if (proposal.kind === "idea") {
+        const reasonRaw = (caller.close_reason || "").trim();
+        if (reasonRaw === "accepted") {
+          return {
+            ok: false,
+            code: "use_accept",
+            error: "Use action accept (with next_step) to greenlight an idea",
+          };
+        }
+        if (!IDEA_PARK_REASONS.includes(reasonRaw as ProposalCloseReason)) {
+          return {
+            ok: false,
+            code: "close_reason_invalid",
+            error: `Idea close reason must be one of: ${IDEA_PARK_REASONS.join(", ")}`,
+          };
+        }
       }
       const validated = validateCloseReason(caller.close_reason, caller.close_note);
       if (!validated.ok) {
@@ -1213,7 +1411,15 @@ export function createProposalService(deps: ProposalServiceDeps) {
       const isMcp = caller.actor?.type === "mcp";
       if (isMcp) {
         const { active, expired } = activeClaim(proposal, now);
-        if (!active || active.by !== caller.username) {
+        if (
+          !active ||
+          !sameAgentIdentity(
+            active.by,
+            asAgentActor(active.actor),
+            caller.username,
+            asAgentActor(caller.actor),
+          )
+        ) {
           return {
             ok: false,
             code: "not_claimant",
@@ -1256,7 +1462,15 @@ export function createProposalService(deps: ProposalServiceDeps) {
 
     if (action === "resolve_blocker") {
       const { active, expired } = activeClaim(proposal, now);
-      if (!active || active.by !== caller.username) {
+      if (
+        !active ||
+        !sameAgentIdentity(
+          active.by,
+          asAgentActor(active.actor),
+          caller.username,
+          asAgentActor(caller.actor),
+        )
+      ) {
         return {
           ok: false,
           code: "not_claimant",
@@ -1396,8 +1610,19 @@ export function createProposalService(deps: ProposalServiceDeps) {
       if (proposal.kind !== "edits") {
         return { ok: false, code: "wrong_kind", error: "apply is for edits proposals; use close for notes" };
       }
-      if (caller.username === proposal.proposer_username) {
-        return { ok: false, code: "four_eyes", error: "Four-eyes: someone other than the proposer must apply" };
+      if (
+        fourEyesBlocked(
+          proposal.proposer_username,
+          proposal.proposer_actor,
+          caller.username,
+          caller.actor,
+        )
+      ) {
+        return {
+          ok: false,
+          code: "four_eyes",
+          error: "Four-eyes: a different agent role (or staff UI) must apply",
+        };
       }
       if (proposal.open_blocker_count > 0) {
         return {
@@ -1637,8 +1862,8 @@ export function replaceProposalsFromSnapshot(site: string, proposals: ProposalRe
       documentation_json, related_issue_ids_json, proposer_username, proposer_actor_json,
       created_at, updated_at, claim_json, tags_json, search_text,
       created_agent_session_id, promote_on_apply, no_auto_retry,
-      close_reason, close_note, closed_by, closed_at
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      close_reason, close_note, closed_by, closed_at, related_entries_json
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   const insertEntry = db.prepare(
     `INSERT INTO content_proposal_entries (
@@ -1691,6 +1916,7 @@ export function replaceProposalsFromSnapshot(site: string, proposals: ProposalRe
         p.close_note ?? null,
         p.closed_by ?? null,
         p.closed_at ?? null,
+        JSON.stringify(p.related_entries ?? []),
       );
       for (const e of p.entries ?? []) {
         insertEntry.run(

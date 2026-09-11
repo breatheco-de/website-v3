@@ -20,8 +20,9 @@ Purchase completes off-site. This site never fires `purchase`.
 
 - `get_product_funnel` — locked product page + pages whose `funnel.products` includes this SKU (or `all`), grouped by `funnel.stage`
 - `get_product_funnel_analytics` — page performance for that journey (GA4 BigQuery)
-- **`update_product_funnel` is retired** — edit membership on each page (Funnel tab / funnel write APIs), not `_ecommerce.yml` funnel.steps
-- Do **not** use `update_fields` looking for `funnel` on a hero
+- **`update_product_funnel` is retired** — edit membership via `update_fields` (`funnel.stage` / `funnel.products`) or Funnel tab / PUT, not `_ecommerce.yml` funnel.steps
+- Bulk safe attrs (meta + funnel): `update_entry_attributes` (**BREAKING:** `update_meta_fields` removed)
+- Do **not** look for `funnel` on a hero section — it is top-level on `_common.yml`
 
 The product page is always the **locked decision step** in the journey response, even when `_common.yml` has no `funnel.stage`. Site money-page lists (`list_entries` + `contentType` + `is_money_page`) use overlay `_common.yml` tags — see topic `funnel` (inventory vs journey).
 

@@ -215,7 +215,8 @@ export function registerProductTools(
               },
               {
                 code: "journey_separate",
-                message: "Journey membership is not in this payload — use get_product_funnel.",
+                message:
+                  "Journey membership is not in this payload — use get_product_funnel to read; write with update_fields / update_entry_attributes (funnel.*) or Funnel tab.",
               },
             ],
             next_actions: next,

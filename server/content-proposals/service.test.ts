@@ -817,4 +817,145 @@ describe("content proposals", () => {
     if (!staffClaim.ok) return;
     expect(staffClaim.proposal.claim?.actor).toEqual({ type: "ui" });
   });
+
+  it("creates idea, accepts with next_step (four-eyes), parks with tracked_elsewhere", async () => {
+    const svc = makeService();
+    const summary =
+      "Pitch a new Miami spoke landing for the AI bootcamp with a short brief for later edits work. ".repeat(
+        2,
+      );
+    const mcpAlice = {
+      username: "alice",
+      actor: {
+        type: "mcp" as const,
+        client: "Cursor",
+        role: "copy_editor",
+        model: "claude/sonnet-4.5",
+      },
+    };
+    const mcpBob = {
+      username: "bob",
+      actor: {
+        type: "mcp" as const,
+        client: "Cursor",
+        role: "seo_specialist",
+        model: "claude/sonnet-4.5",
+      },
+    };
+    const created = await svc.create(
+      {
+        kind: "idea",
+        title: "New Miami AI spoke",
+        summary,
+        related_entries: [{ contentType: "landing", slug: "miami-ai-bootcamp-new" }],
+      },
+      mcpAlice,
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.proposal.kind).toBe("idea");
+    expect(created.proposal.related_entries?.[0]?.slug).toBe("miami-ai-bootcamp-new");
+
+    const selfAccept = await svc.update(created.proposal.id, "accept", {
+      ...mcpAlice,
+      next_step: "Draft the landing hero and CTA in a follow-up edits proposal.",
+    });
+    expect(selfAccept.ok).toBe(false);
+    if (!selfAccept.ok) expect(selfAccept.code).toBe("four_eyes");
+
+    const short = await svc.update(created.proposal.id, "accept", {
+      ...mcpBob,
+      next_step: "too short",
+    });
+    expect(short.ok).toBe(false);
+
+    const accepted = await svc.update(created.proposal.id, "accept", {
+      ...mcpBob,
+      next_step: "Open an edits proposal for landing/miami-ai-bootcamp-new after research.",
+    });
+    expect(accepted.ok).toBe(true);
+    if (!accepted.ok) return;
+    expect(accepted.proposal.status).toBe("finished");
+    expect(accepted.proposal.close_reason).toBe("accepted");
+    expect(accepted.proposal.close_note).toContain("edits proposal");
+
+    const park = await svc.create(
+      {
+        kind: "idea",
+        title: "Duplicate-ish pitch B",
+        summary:
+          "Another brief about a catalog config change we may track in Linear instead of here. ".repeat(2),
+      },
+      mcpAlice,
+    );
+    expect(park.ok).toBe(true);
+    if (!park.ok) return;
+    const closed = await svc.update(park.proposal.id, "close", {
+      ...mcpAlice,
+      close_reason: "tracked_elsewhere",
+      close_note: "Already tracked as LINEAR-123 for the catalog work.",
+    });
+    expect(closed.ok).toBe(true);
+    if (!closed.ok) return;
+    expect(closed.proposal.close_reason).toBe("tracked_elsewhere");
+  });
+
+  it("blocks idea accept while blockers open; same role cannot four-eyes", async () => {
+    const svc = makeService();
+    const summary =
+      "Brief for updating scholarship FAQ structure before any YAML changes are filed. ".repeat(2);
+    const aliceCopy = {
+      username: "alice",
+      actor: {
+        type: "mcp" as const,
+        role: "copy_editor",
+        model: "claude/sonnet-4.5",
+        client: "Cursor",
+      },
+    };
+    const aliceSeo = {
+      username: "alice",
+      actor: {
+        type: "mcp" as const,
+        role: "seo_specialist",
+        model: "claude/opus-4",
+        client: "Cursor",
+      },
+    };
+    const created = await svc.create(
+      { kind: "idea", title: "Scholarship FAQ brief", summary },
+      aliceCopy,
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const sameRole = await svc.update(created.proposal.id, "accept", {
+      username: "alice",
+      actor: {
+        type: "mcp",
+        role: "copy_editor",
+        model: "claude/fable-1.5",
+        client: "Cursor",
+      },
+      next_step: "File an edits proposal after the FAQ outline is approved by staff.",
+    });
+    expect(sameRole.ok).toBe(false);
+    if (!sameRole.ok) expect(sameRole.code).toBe("four_eyes");
+
+    const blocked = await svc.update(created.proposal.id, "add_blocker", {
+      ...aliceSeo,
+      body:
+        "Needs clearer acceptance criteria for which locales ship first and why ES is out of scope. ".repeat(
+          2,
+        ),
+    });
+    expect(blocked.ok).toBe(true);
+
+    const withBlocker = await svc.update(created.proposal.id, "accept", {
+      ...aliceSeo,
+      next_step: "File an edits proposal after the FAQ outline is approved by staff.",
+    });
+    expect(withBlocker.ok).toBe(false);
+    if (!withBlocker.ok) expect(withBlocker.code).toBe("proposal_blocked");
+  });
 });
