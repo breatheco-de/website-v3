@@ -40,7 +40,13 @@ import {
   type DiagnosticsIssueQueueResult,
 } from "../lib/diagnostics-issue-queue.js";
 import { getTokenUsername, getTokenClientName } from "../lib/oauth.js";
-import { buildLoopbackHeaders, missingSessionWarning } from "../lib/loopback.js";
+import { buildLoopbackHeaders } from "../lib/loopback.js";
+import {
+  dropAgentSession,
+  registerAgentSession,
+} from "../lib/agent-session-store.js";
+import { getActiveRoleId } from "../lib/auth.js";
+import { isExactAgentModel, normalizeMcpClientName } from "../../shared/agent-identity.js";
 import {
   AGENT_HIGHLIGHTS_DESC,
   AGENT_REPORT_ISSUE_COMPLETE_EXAMPLE,
@@ -71,6 +77,7 @@ import {
   wrotePayload,
   sharedStructuralEnvelope,
   mutateReportZodFields,
+  requiredAgentSessionIdField,
   requireMutateWhyHighlights,
   type LayoutTarget,
 } from "../lib/page-tool-helpers.js";
@@ -1205,9 +1212,9 @@ export function registerPageTools(
   mcp.tool(
     "agent_session",
     "Prefer bootstrap_agent once per MCP run before start (Claude.ai / Grok / any connector). " +
-    "Requires a role connector (/mcp/role/…) and exact MCP_AGENT_MODEL (provider/model). " +
-    "Start, note, or summarize an agent content session for staff monitoring on Background Pipeline. " +
-    "start returns agent_session_id — pass it on mutating tools. " +
+    "Requires a role connector (/mcp/role/…). " +
+    "start requires exact model (provider/model, e.g. claude/sonnet-4.5); if an open session exists for this username+role+client+site, retry with resume:true or force_new:true + report. " +
+    "start returns agent_session_id — required on every mutating tool. " +
     "note/summarize require agent_session_id + report (min 80 chars). " +
     "summarize closes the run for the staff banner (last summarize wins). " +
     "Reports are staff-readable: for copy you set, list plain values (Title: …); no JSON/YAML dumps. " +
@@ -1217,17 +1224,27 @@ export function registerPageTools(
       action: z.enum(["start", "note", "summarize"]).describe("start | note | summarize"),
       agent_session_id: z
         .string()
-        .optional()
         .describe("Required for note/summarize. From start."),
       label: z.string().optional().describe("Optional short label on start (e.g. Fix blog SEO batch)"),
       report: z
         .string()
         .optional()
-        .describe(AGENT_REPORT_SESSION_DESC),
+        .describe(AGENT_REPORT_SESSION_DESC + " Required for note/summarize and for force_new on start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
-      model: z.string().optional().describe("Optional LLM model name for attribution"),
+      model: z
+        .string()
+        .optional()
+        .describe("Required on start: exact provider/model (e.g. claude/sonnet-4.5). Ignored on resume (frozen)."),
+      resume: z
+        .boolean()
+        .optional()
+        .describe("On start: continue the open session for this username+role+client+site (same model)."),
+      force_new: z
+        .boolean()
+        .optional()
+        .describe("On start: abandon the open session (requires report) and start fresh with model."),
     },
-    async ({ action, agent_session_id, label, report, site, model }) => {
+    async ({ action, agent_session_id, label, report, site, model, resume, force_new }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
@@ -1239,6 +1256,7 @@ export function registerPageTools(
           method: "POST",
           headers: internalHeaders(mcpToken, {
             agentSessionId: agent_session_id,
+            ...(model && isExactAgentModel(model) ? { model } : {}),
           }),
           body: JSON.stringify({
             action,
@@ -1247,11 +1265,57 @@ export function registerPageTools(
             ...(label ? { label } : {}),
             ...(report ? { report } : {}),
             ...(model ? { model } : {}),
+            ...(resume === true ? { resume: true } : {}),
+            ...(force_new === true ? { force_new: true } : {}),
           }),
         });
         const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
         if (!res.ok) {
           const code = typeof data.code === "string" ? data.code : "agent_session_failed";
+          if (data.action_required === "session_conflict" || code === "session_conflict") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "session_conflict",
+                code: "session_conflict",
+                message: String(data.message ?? data.error ?? "Open session conflict"),
+                agent_session_id: data.agent_session_id,
+                model: data.model,
+                label: data.label,
+                last_activity_at: data.last_activity_at,
+              },
+              [
+                {
+                  tool: "agent_session",
+                  priority: "required",
+                  reason: "Retry with resume:true to continue, or force_new:true + report to abandon.",
+                  args_hint: {
+                    action: "start",
+                    resume: true,
+                    agent_session_id: data.agent_session_id,
+                  },
+                },
+              ],
+            );
+          }
+          if (code === "exact_model_required" || data.action_required === "exact_model_required") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "exact_model_required",
+                code: "exact_model_required",
+                message: String(data.error ?? "Exact model required on start"),
+              },
+              [
+                {
+                  tool: "agent_session",
+                  priority: "required",
+                  reason: "Pass model as provider/model (e.g. claude/sonnet-4.5).",
+                  args_hint: { action: "start", model: "provider/model" },
+                },
+              ],
+            );
+          }
           if (code === "session_unknown" || data.action_required === "start") {
             return actionRequired(
               {
@@ -1265,7 +1329,7 @@ export function registerPageTools(
                   tool: "agent_session",
                   reason: "Start a session, then retry note/summarize with the returned agent_session_id.",
                   priority: "required",
-                  args_hint: { action: "start" },
+                  args_hint: { action: "start", model: "provider/model" },
                 },
               ],
             );
@@ -1284,14 +1348,39 @@ export function registerPageTools(
           return fail(String(data.error ?? `agent_session failed (${res.status})`), { code });
         }
         const sid = String(data.agent_session_id ?? agent_session_id ?? "");
+        const sessionModel =
+          (typeof data.model === "string" && data.model.trim()) ||
+          (model && isExactAgentModel(model) ? model.trim() : "");
+        if (action === "start" && sid && sessionModel) {
+          const abandoned =
+            typeof data.abandoned_session_id === "string"
+              ? data.abandoned_session_id.trim()
+              : "";
+          if (abandoned) dropAgentSession(abandoned);
+          registerAgentSession({
+            agentSessionId: sid,
+            model: sessionModel,
+            username: getTokenUsername(mcpToken ?? "") || "mcp",
+            role: getActiveRoleId()?.trim() || "",
+            client: normalizeMcpClientName(getTokenClientName(mcpToken ?? "")),
+            site: siteResult.contentFolder,
+          });
+        }
+        if (action === "summarize" && sid) {
+          dropAgentSession(sid);
+        }
         return ok(
           {
             action,
             agent_session_id: sid,
+            model: sessionModel || null,
+            resumed: data.resumed === true,
             event_id: data.event_id ?? null,
             message:
               action === "start"
-                ? "Session started. Prefer bootstrap_agent once per MCP run before start if you have not already. Pass agent_session_id on mutating tools; call summarize when done. Follow bootstrap conventions (skill.content) for human-facing replies."
+                ? data.resumed === true
+                  ? "Session resumed. Pass agent_session_id on mutating tools; call summarize when done."
+                  : "Session started. Prefer bootstrap_agent once per MCP run before start if you have not already. Pass agent_session_id on mutating tools; call summarize when done. Follow bootstrap conventions (skill.content) for human-facing replies."
                 : action === "summarize"
                   ? "Session summarized for staff banner."
                   : "Session note recorded.",
@@ -1301,7 +1390,10 @@ export function registerPageTools(
             side_effects: [
               {
                 kind: "pipeline_event",
-                summary: `Emitted agent_session_${action === "start" ? "started" : action === "note" ? "note" : "summarized"}`,
+                summary:
+                  action === "start" && data.resumed === true
+                    ? "Resumed existing agent session (no new start event)"
+                    : `Emitted agent_session_${action === "start" ? "started" : action === "note" ? "note" : "summarized"}`,
               },
             ],
             next_actions:
@@ -1309,7 +1401,7 @@ export function registerPageTools(
                 ? [
                     {
                       tool: "update_fields",
-                      reason: "Pass agent_session_id + report on content mutates.",
+                      reason: "Pass agent_session_id on content mutates.",
                       priority: "recommended",
                       args_hint: { agent_session_id: sid },
                     },
@@ -2105,8 +2197,7 @@ export function registerPageTools(
       highlights: z.array(z.string()).optional().describe(AGENT_HIGHLIGHTS_DESC + " Required for complete."),
       agent_session_id: z
         .string()
-        .optional()
-        .describe("Optional. From agent_session start — groups claim/complete/release under the same run."),
+        .describe("Required. From agent_session start — groups claim/complete/release under the same run."),
     },
     async ({ issue_id, action, site, model, report, why, highlights, agent_session_id }) => {
       const canMutate =
@@ -2313,9 +2404,10 @@ export function registerPageTools(
         .optional()
         .describe("When true, replace hand-picked meta.og_image. Default false. Does not touch cover/_image."),
       slugs: z.array(z.string()).optional().describe("Optional entry slugs to regenerate; omit for all in those locales"),
+      ...requiredAgentSessionIdField,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ content_type, locales, mode, overwrite, slugs, site }) => {
+    async ({ content_type, locales, mode, overwrite, slugs, agent_session_id, site }) => {
       if (mcpToken && !(await checkCap(mcpToken, "content_edit_media"))) {
         return denyResponse("content_edit_media");
       }
@@ -2337,7 +2429,7 @@ export function registerPageTools(
           `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(content_type)}/entry-previews/enqueue${q}`,
           {
             method: "POST",
-            headers: { ...internalHeaders(mcpToken), "Content-Type": "application/json" },
+            headers: { ...internalHeaders(mcpToken, { agentSessionId: agent_session_id }), "Content-Type": "application/json" },
             body: JSON.stringify({
               locales,
               mode: mode ?? "missing",
@@ -2482,6 +2574,7 @@ export function registerPageTools(
       freshness: z.enum(["hard", "max_age"]).optional().describe("max_age (default) uses lastFullRunAt; hard always recomputes."),
       max_age_seconds: z.number().optional().describe("TTL for max_age freshness (default 86400). Ignored when freshness is hard."),
       confirm: z.boolean().optional().describe("Required only for full-site / unscoped jobs after needs_confirm. Slug-scoped starts skip confirm. Requires metrics-mutating cap to start any job."),
+      ...requiredAgentSessionIdField,
       site: z.string().optional().describe(SITE_PARAM_DESC),
       ...diagnosticsIssueListParams,
     },
@@ -2491,6 +2584,7 @@ export function registerPageTools(
       freshness,
       max_age_seconds,
       confirm,
+      agent_session_id,
       site,
       open_issues_limit,
       open_issues_offset,
@@ -2499,6 +2593,7 @@ export function registerPageTools(
       category,
       codes,
     }) => {
+      void agent_session_id;
       const issueList: DiagnosticsIssueListArgs = {
         open_issues_limit,
         open_issues_offset,
@@ -3110,8 +3205,7 @@ export function registerPageTools(
       highlights: z.array(z.string()).optional().describe(AGENT_HIGHLIGHTS_DESC),
       agent_session_id: z
         .string()
-        .optional()
-        .describe("Optional. From agent_session start — groups this write for staff monitoring."),
+        .describe("Required. From agent_session start — groups this write for staff monitoring."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ slug, locale, updates: inputUpdates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, confirm_new_values, confirm_cluster_resolution, seo_research_source, create_redirect, why, highlights, agent_session_id, site }) => {
@@ -3858,11 +3952,7 @@ export function registerPageTools(
         ...variantWarningsIfNeeded(variant),
         ...clusterToggleWarnings,
       ];
-      {
-        const sessWarn = missingSessionWarning(agent_session_id);
-        if (sessWarn) warnings.push(sessWarn);
-      }
-      let renameResult: Record<string, unknown> | null = null;
+let renameResult: Record<string, unknown> | null = null;
       if (touchesSections) {
         warnings.push({
           code: "section_index_no_create",
@@ -5089,9 +5179,10 @@ export function registerPageTools(
       variantSlug: z.string().describe("Slug for the new variant, e.g. 'draft-v2' or 'ab-test-headline'. Lowercase letters, numbers, and hyphens only."),
       locale: z.string().default("en").describe("Locale to copy, e.g. 'en' or 'es'"),
       sourceVariant: z.string().optional().describe("When page is unpublished, optional draft slug to copy from (defaults to 'draft' or first available)."),
+      ...requiredAgentSessionIdField,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, variantSlug, locale, sourceVariant, site }) => {
+    async ({ contentType, slug, variantSlug, locale, sourceVariant, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain, contentPath } = siteResult;
@@ -5116,7 +5207,7 @@ export function registerPageTools(
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
           body: JSON.stringify({ variantSlug, locale, ...(sourceVariant ? { sourceVariant } : {}) }),
         });
         const data = await res.json() as Record<string, unknown>;
@@ -5181,8 +5272,7 @@ export function registerPageTools(
         .describe(AGENT_REPORT_MUTATE_DESC),
       agent_session_id: z
         .string()
-        .optional()
-        .describe("Optional. From agent_session start."),
+        .describe("Required. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, slug, variantSlug, report, agent_session_id, site }) => {
@@ -5267,10 +5357,7 @@ export function registerPageTools(
           },
           {
             warnings: [
-              ...(missingSessionWarning(agent_session_id)
-                ? [missingSessionWarning(agent_session_id)!]
-                : []),
-              {
+{
                 code: "page_now_live",
                 message: "Page is live for the listed locales and will appear in the sitemap. Confirm with the user before publishing in the future.",
               },
@@ -5317,8 +5404,7 @@ export function registerPageTools(
         .describe(AGENT_REPORT_MUTATE_DESC),
       agent_session_id: z
         .string()
-        .optional()
-        .describe("Optional. From agent_session start."),
+        .describe("Required. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, slug, variantSlug, locale, report, agent_session_id, site }) => {
@@ -5418,9 +5504,7 @@ export function registerPageTools(
                 "Live cluster seo: was kept; variant seo: was not applied. Edit SEO on the live locale with update_fields (omit variant).",
             });
           }
-          const sessWarn = missingSessionWarning(agent_session_id);
-          if (sessWarn) promoteWarns.unshift(sessWarn);
-          return ok(
+return ok(
             {
               message: `Variant '${variantSlug}' promoted to live for ${contentType}/${slug} (${locale})`,
               ignoredVariantSeo: data.ignoredVariantSeo === true,
@@ -5465,8 +5549,7 @@ export function registerPageTools(
         ),
       agent_session_id: z
         .string()
-        .optional()
-        .describe("Optional. From agent_session start."),
+        .describe("Required. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({
@@ -5676,11 +5759,7 @@ export function registerPageTools(
             : `Deleted variant file ${variantSlug}.${locale}.yml`,
           paths: [variantRelPath],
         }];
-
-        const sessWarn = missingSessionWarning(agent_session_id);
-        if (sessWarn) warnings.unshift(sessWarn);
-
-        const next_actions: NextAction[] = entryDeleted
+const next_actions: NextAction[] = entryDeleted
           ? []
           : [{
               tool: "list_variants",
@@ -5907,8 +5986,7 @@ export function registerPageTools(
         .describe(AGENT_REPORT_MUTATE_DESC),
       agent_session_id: z
         .string()
-        .optional()
-        .describe("Optional. From agent_session start."),
+        .describe("Required. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, slug, common, locales, confirm_new_values, report, agent_session_id, site }) => {
@@ -6269,11 +6347,7 @@ export function registerPageTools(
       }
 
       const warnings: McpWarning[] = [];
-      {
-        const sessWarn = missingSessionWarning(agent_session_id);
-        if (sessWarn) warnings.push(sessWarn);
-      }
-      const ghWarning = githubCommitWarning(commitResult);
+const ghWarning = githubCommitWarning(commitResult);
       if (ghWarning) warnings.push(ghWarning);
       const side_effects: McpSideEffect[] = [];
       const next_actions: NextAction[] = [];
@@ -6611,11 +6685,7 @@ export function registerPageTools(
         ...variantWarningsIfNeeded(variant),
         ...schemaOrgPageOverrideWarnings(sectionToAdd),
       ];
-      {
-        const sessWarn = missingSessionWarning(agent_session_id);
-        if (sessWarn) warnings.push(sessWarn);
-      }
-      appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
+appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
       if (pathInfo.layer === "type_template") {
@@ -6855,11 +6925,7 @@ export function registerPageTools(
       if ("error" in apiResult) return apiResult.error;
 
       const warnings: McpWarning[] = [REMOVE_SECTION_NO_BINDING_FANOUT, ...variantWarningsIfNeeded(variant)];
-      {
-        const sessWarn = missingSessionWarning(agent_session_id);
-        if (sessWarn) warnings.push(sessWarn);
-      }
-      appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
+appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
       if (pathInfo.layer === "type_template") {
@@ -7057,11 +7123,7 @@ export function registerPageTools(
       if ("error" in apiResult) return apiResult.error;
 
       const warnings: McpWarning[] = [REORDER_NO_BINDING_FANOUT, ...variantWarningsIfNeeded(variant)];
-      {
-        const sessWarn = missingSessionWarning(agent_session_id);
-        if (sessWarn) warnings.push(sessWarn);
-      }
-      appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
+appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
       if (pathInfo.layer === "type_template") {
@@ -7270,11 +7332,7 @@ export function registerPageTools(
         UPDATED_AT_STAMP_WARNING,
         ...variantWarningsIfNeeded(variant),
       ];
-      {
-        const sessWarn = missingSessionWarning(agent_session_id);
-        if (sessWarn) warnings.push(sessWarn);
-      }
-      appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
+appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
       if (pathInfo.layer === "type_template") {
@@ -7369,8 +7427,10 @@ export function registerPageTools(
       confirm_new_values: z.boolean().optional().describe(
         "Set true after principal approval when category uses a slug not yet seen on target-locale peers.",
       ),
+      ...requiredAgentSessionIdField,
     },
-    async ({ slug, contentType, source_locale, target_locale, content, url_slug, site, confirm_new_values }) => {
+    async ({ slug, contentType, source_locale, target_locale, content, url_slug, site, confirm_new_values, agent_session_id }) => {
+      void agent_session_id;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
@@ -7938,9 +7998,11 @@ export function registerPageTools(
       action: z.enum(["detach", "reattach"]).describe('detach = bake shell onto entry; reattach = return to shared single template'),
       confirm: z.boolean().optional().describe("Must be true to execute; omit or false returns a confirm_* preview"),
       locale: z.string().optional().describe("Locale for reattach loss preview (default en)"),
+      ...requiredAgentSessionIdField,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, action, confirm, locale, site }) => {
+    async ({ contentType, slug, action, confirm, locale, agent_session_id, site }) => {
+      void agent_session_id;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
         return siteFailResult(siteResult.error, "set_entry_attachment", {
@@ -8404,8 +8466,7 @@ export function registerPageTools(
         .describe(AGENT_REPORT_MUTATE_DESC),
       agent_session_id: z
         .string()
-        .optional()
-        .describe("Optional. From agent_session start."),
+        .describe("Required. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, slugs, confirm, reassignments, report, agent_session_id, site }) => {
@@ -8552,10 +8613,7 @@ export function registerPageTools(
           },
           {
             warnings: [
-              ...(missingSessionWarning(agent_session_id)
-                ? [missingSessionWarning(agent_session_id)!]
-                : []),
-              {
+{
                 code: "best_effort_bulk",
                 message: "Best-effort bulk: check results[] per slug.",
               },
@@ -8968,6 +9026,7 @@ export function registerPageTools(
         .describe(
           "Field patches and template replace: false/omit → preview; true → execute. Strategy patches ignore confirm.",
         ),
+      ...requiredAgentSessionIdField,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({
@@ -8983,8 +9042,10 @@ export function registerPageTools(
       template_entry_source_locale,
       shared_layout_base_locale,
       confirm,
+      agent_session_id,
       site,
     }) => {
+      void agent_session_id;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
         return siteFailResult(siteResult.error, "update_content_type", { contentType });
@@ -9302,9 +9363,10 @@ export function registerPageTools(
       schema_type: z.string().describe("Required schema.org type, e.g. 'LocalBusiness'"),
       dry_run: z.boolean().optional().describe("When true, report what would be added without writing"),
       slugs: z.array(z.string()).optional().describe("Optional subset of entry slugs; omit for all missing"),
+      ...requiredAgentSessionIdField,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, schema_type, dry_run, slugs, site }) => {
+    async ({ contentType, schema_type, dry_run, slugs, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error, "ensure_content_type_schema_org", {
         contentType,
@@ -9327,7 +9389,7 @@ export function registerPageTools(
           `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/schema-org-ensure${q}`,
           {
             method: "POST",
-            headers: { ...internalHeaders(mcpToken), "Content-Type": "application/json" },
+            headers: { ...internalHeaders(mcpToken, { agentSessionId: agent_session_id }), "Content-Type": "application/json" },
             body: JSON.stringify({
               schema_type,
               dry_run: !!dry_run,

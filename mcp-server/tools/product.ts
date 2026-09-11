@@ -10,24 +10,10 @@ import { getTokenUsername } from "../lib/oauth.js";
 import { denyUnlessContentView, checkCap, denyResponse } from "../lib/auth.js";
 import { hasCapAnyScope, type CatalogGrant } from "../lib/tool-catalog.js";
 import { registerEcommerceTools } from "./ecommerce.js";
+import { buildLoopbackHeaders } from "../lib/loopback.js";
+import { requiredAgentSessionIdField } from "../lib/page-tool-helpers.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
-const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
-
-function internalHeaders(mcpToken?: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (INTERNAL_SECRET) {
-    headers.Authorization = `Bearer ${INTERNAL_SECRET}`;
-    const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
-    if (username) headers["x-mcp-author"] = username;
-  } else if (mcpToken) {
-    const username = getTokenUsername(mcpToken);
-    if (username) headers["x-mcp-author"] = username;
-  }
-  return headers;
-}
 
 function siteQuery(domain: string | null | undefined, extra?: Record<string, string>): string {
   const params = new URLSearchParams();
@@ -75,7 +61,7 @@ export function registerProductTools(
         };
         if (content_type) extra.content_type = content_type;
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/product${siteQuery(siteResult.domain, extra)}`;
-        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const res = await fetch(url, { headers: buildLoopbackHeaders(mcpToken) });
         const data = (await res.json()) as {
           products?: Array<{ content_slug: string; audience_status?: string }>;
           error?: string;
@@ -161,7 +147,7 @@ export function registerProductTools(
           siteResult.domain,
           { content_type: ct },
         )}`;
-        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const res = await fetch(url, { headers: buildLoopbackHeaders(mcpToken) });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
           return fail((data.error as string) || `Server error: ${res.status}`);
@@ -278,6 +264,7 @@ export function registerProductTools(
       purchasable: z.boolean().optional(),
       site: z.string().optional(),
       confirm: z.boolean().optional().describe("Preview when omitted; set true to write"),
+      ...requiredAgentSessionIdField,
     },
     async (args) => {
       if (!(await checkCap(mcpToken || "", "content_edit_structure", args.content_type || "program"))) {
@@ -354,7 +341,7 @@ export function registerProductTools(
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/product/${encodeURIComponent(args.slug)}${siteQuery(domain)}`;
         const res = await fetch(url, {
           method: "PUT",
-          headers: internalHeaders(mcpToken),
+          headers: buildLoopbackHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
           body: JSON.stringify(patchBody),
         });
         const data = (await res.json()) as Record<string, unknown>;

@@ -18,6 +18,8 @@ import {
 } from "../lib/respond.js";
 import { resolveSiteContext } from "../lib/content.js";
 import { getTokenUsername } from "../lib/oauth.js";
+import { buildLoopbackHeaders } from "../lib/loopback.js";
+import { requiredAgentSessionIdField } from "../lib/page-tool-helpers.js";
 import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
 import { AI_IMAGE_GC_GRACE_MS, normalizePromptAlt } from "../../shared/ai-image-gc.js";
@@ -75,20 +77,14 @@ const EXT_TO_MIME: Record<string, string> = {
   ".pdf": "application/pdf",
 };
 
-function internalHeaders(mcpToken?: string, omitJsonContentType = false): Record<string, string> {
-  const headers: Record<string, string> = {};
-  if (!omitJsonContentType) {
-    headers["Content-Type"] = "application/json";
-  }
-  if (INTERNAL_SECRET) {
-    headers.Authorization = `Bearer ${INTERNAL_SECRET}`;
-    const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
-    headers["x-mcp-author"] = username || "mcp";
-  } else if (mcpToken) {
-    const username = getTokenUsername(mcpToken);
-    if (username) headers["x-mcp-author"] = username;
-  }
-  return headers;
+function internalHeaders(
+  mcpToken?: string,
+  opts?: { omitJsonContentType?: boolean; agentSessionId?: string },
+): Record<string, string> {
+  return buildLoopbackHeaders(mcpToken, {
+    omitJsonContentType: opts?.omitJsonContentType,
+    agentSessionId: opts?.agentSessionId,
+  });
 }
 
 function siteQuery(domain: string | null): string {
@@ -486,6 +482,7 @@ export type GetOrSetMediaArgs = {
   tags?: string[];
   site?: string;
   aspect_ratio?: string;
+  agent_session_id?: string;
 };
 
 type UploadOrigin = "upload" | "import" | "ai";
@@ -501,6 +498,7 @@ async function uploadBytesToGallery(opts: {
   origin: UploadOrigin;
   tags?: string[];
   sourceUrl?: string;
+  agentSessionId?: string;
   ai?: { generated: true; model?: string; prompt?: string; generated_at?: string };
 }): Promise<
   | { ok: true; id: string; src?: string; alt?: string; duplicate?: boolean; existingId?: string }
@@ -525,7 +523,10 @@ async function uploadBytesToGallery(opts: {
   try {
     uploadRes = await opts.fetchFn(uploadUrl, {
       method: "POST",
-      headers: internalHeaders(opts.mcpToken, true),
+      headers: internalHeaders(opts.mcpToken, {
+        omitJsonContentType: true,
+        agentSessionId: opts.agentSessionId,
+      }),
       body: form,
     });
   } catch (e) {
@@ -783,6 +784,7 @@ export async function handleGetOrSetMediaToGallery(
     const uploaded = await uploadBytesToGallery({
       fetchFn,
       mcpToken,
+      agentSessionId: args.agent_session_id,
       q,
       bytes: fetched.bytes,
       filename: meta.filename,
@@ -886,6 +888,7 @@ export async function handleGetOrSetMediaToGallery(
     const uploaded = await uploadBytesToGallery({
       fetchFn,
       mcpToken,
+      agentSessionId: args.agent_session_id,
       q,
       bytes,
       filename: meta.filename,
@@ -945,7 +948,7 @@ export async function handleGetOrSetMediaToGallery(
   try {
     genRes = await fetchFn(genUrl, {
       method: "POST",
-      headers: internalHeaders(mcpToken),
+      headers: internalHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
       body: JSON.stringify({
         prompt,
         n: 1,
@@ -990,6 +993,7 @@ export async function handleGetOrSetMediaToGallery(
   const uploaded = await uploadBytesToGallery({
     fetchFn,
     mcpToken,
+      agentSessionId: args.agent_session_id,
     q,
     bytes,
     filename,
@@ -1102,6 +1106,7 @@ export function registerMediaTools(
         .string()
         .optional()
         .describe("Optional aspect ratio for generation (e.g. '16:9')"),
+      ...requiredAgentSessionIdField,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async (raw) =>
@@ -1117,6 +1122,7 @@ export function registerMediaTools(
           tags: raw.tags,
           site: raw.site,
           aspect_ratio: raw.aspect_ratio,
+          agent_session_id: raw.agent_session_id,
         },
         { mcpToken, grants },
       ),

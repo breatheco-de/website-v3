@@ -10,6 +10,10 @@ import {
   type AgentFilterId,
   type EventActorId,
 } from "@shared/event-log-filters";
+import {
+  AGENT_SESSION_IDLE_MS,
+  normalizeMcpClientName,
+} from "../../shared/agent-identity";
 import { getSiteSqlite } from "../db";
 import { ensurePipelineDb } from "../pipeline-db/runner";
 import type {
@@ -837,6 +841,9 @@ export function getAgentSessionDetail(
     if (e.type === "agent_session_summarized" && report && !headline) {
       headline = report;
     }
+    if (e.type === "agent_session_abandoned" && report && !headline) {
+      headline = `[abandoned] ${report}`;
+    }
   }
 
   // Prefer newest summarize (events are newest-first so first match is newest)
@@ -862,6 +869,227 @@ export function getAgentSessionDetail(
     reports,
     headline,
     attribution,
+  };
+}
+
+export type AgentSessionScopeQuery = {
+  site: string;
+  author: string;
+  role: string;
+  client?: string | null;
+  idleMs?: number;
+  now?: number;
+};
+
+export type OpenAgentSessionInfo = {
+  agent_session_id: string;
+  model?: string;
+  label?: string;
+  last_activity_at: number;
+  author: string;
+  role: string;
+  client: string;
+};
+
+function sessionClosedBy(events: ContentEvent[]): "summarized" | "abandoned" | null {
+  for (const e of events) {
+    if (e.type === "agent_session_summarized") return "summarized";
+    if (e.type === "agent_session_abandoned") return "abandoned";
+  }
+  return null;
+}
+
+function startedModel(events: ContentEvent[]): string | undefined {
+  // events newest-first from listEvents
+  const started = [...events].reverse().find((e) => e.type === "agent_session_started");
+  if (!started) return undefined;
+  for (const entry of started.attribution) {
+    if (entry.actor?.type === "mcp" && entry.actor.model?.trim()) {
+      return entry.actor.model.trim();
+    }
+  }
+  return undefined;
+}
+
+function startedLabel(events: ContentEvent[]): string | undefined {
+  const started = [...events].reverse().find((e) => e.type === "agent_session_started");
+  const label = started?.payload?.label;
+  return typeof label === "string" && label.trim() ? label.trim() : undefined;
+}
+
+function primaryMcpScopeFromStart(events: ContentEvent[]): {
+  author: string;
+  role: string;
+  client: string;
+} | null {
+  const started = [...events].reverse().find((e) => e.type === "agent_session_started");
+  if (!started) return null;
+  for (const entry of started.attribution) {
+    if (entry.actor?.type !== "mcp") continue;
+    return {
+      author: (entry.author || "").trim() || "mcp",
+      role: (entry.actor.role || "").trim(),
+      client: normalizeMcpClientName(entry.actor.client),
+    };
+  }
+  return null;
+}
+
+/**
+ * Latest open (not summarized/abandoned) session for author+role+client on this site
+ * with activity inside the idle window. Idle-expired sessions are not returned.
+ */
+export function findOpenAgentSession(
+  opts: AgentSessionScopeQuery,
+): OpenAgentSessionInfo | null {
+  const idleMs = opts.idleMs ?? AGENT_SESSION_IDLE_MS;
+  const now = opts.now ?? Date.now();
+  const client = normalizeMcpClientName(opts.client);
+  const author = opts.author.trim();
+  const role = opts.role.trim();
+  if (!opts.site || !author || !role) return null;
+
+  const since = now - Math.max(idleMs * 2, 7 * 24 * 60 * 60 * 1000);
+  const candidates = listAgentSessions(opts.site, { since, limit: 100 });
+  for (const row of candidates) {
+    const events = listEvents({
+      site: opts.site,
+      agentSessionId: row.agent_session_id,
+      limit: 500,
+    });
+    if (events.length === 0) continue;
+    if (sessionClosedBy(events)) continue;
+    const lastActivity = Math.max(...events.map((e) => e.created_at));
+    if (now - lastActivity > idleMs) continue;
+    const scope = primaryMcpScopeFromStart(events);
+    if (!scope) continue;
+    if (
+      scope.author.toLowerCase() !== author.toLowerCase() ||
+      scope.role !== role ||
+      scope.client !== client
+    ) {
+      continue;
+    }
+    return {
+      agent_session_id: row.agent_session_id,
+      model: startedModel(events),
+      label: startedLabel(events),
+      last_activity_at: lastActivity,
+      author: scope.author,
+      role: scope.role,
+      client: scope.client,
+    };
+  }
+  return null;
+}
+
+export type ResolveUsableAgentSessionResult =
+  | {
+      ok: true;
+      agent_session_id: string;
+      model: string;
+      author: string;
+      role: string;
+      client: string;
+      label?: string;
+      last_activity_at: number;
+    }
+  | {
+      ok: false;
+      code: "session_unknown" | "session_expired" | "session_closed" | "session_scope_mismatch";
+      message: string;
+    };
+
+/** Usable for mutates: started, not closed, not idle-expired, matching scope. */
+export function resolveUsableAgentSession(
+  opts: AgentSessionScopeQuery & { agentSessionId: string },
+): ResolveUsableAgentSessionResult {
+  const idleMs = opts.idleMs ?? AGENT_SESSION_IDLE_MS;
+  const now = opts.now ?? Date.now();
+  const client = normalizeMcpClientName(opts.client);
+  const author = opts.author.trim();
+  const role = opts.role.trim();
+  const agentSessionId = opts.agentSessionId.trim();
+  if (!opts.site || !agentSessionId) {
+    return { ok: false, code: "session_unknown", message: "Missing site or agent_session_id" };
+  }
+
+  const events = listEvents({
+    site: opts.site,
+    agentSessionId,
+    limit: 500,
+  });
+  if (events.length === 0) {
+    return {
+      ok: false,
+      code: "session_unknown",
+      message: "Unknown agent_session_id — call agent_session start first",
+    };
+  }
+
+  const closed = sessionClosedBy(events);
+  if (closed === "summarized") {
+    return {
+      ok: false,
+      code: "session_closed",
+      message: "Session was summarized — start a new session",
+    };
+  }
+  if (closed === "abandoned") {
+    return {
+      ok: false,
+      code: "session_closed",
+      message: "Session was abandoned — start a new session",
+    };
+  }
+
+  const lastActivity = Math.max(...events.map((e) => e.created_at));
+  if (now - lastActivity > idleMs) {
+    return {
+      ok: false,
+      code: "session_expired",
+      message: "Session idle-expired (24h with no events) — start a new session",
+    };
+  }
+
+  const scope = primaryMcpScopeFromStart(events);
+  if (!scope || !scope.role) {
+    return {
+      ok: false,
+      code: "session_unknown",
+      message: "Session start is missing MCP role attribution",
+    };
+  }
+  if (
+    scope.author.toLowerCase() !== author.toLowerCase() ||
+    scope.role !== role ||
+    scope.client !== client
+  ) {
+    return {
+      ok: false,
+      code: "session_scope_mismatch",
+      message: "agent_session_id does not match this username/role/client/site",
+    };
+  }
+
+  const model = startedModel(events);
+  if (!model) {
+    return {
+      ok: false,
+      code: "session_unknown",
+      message: "Session start is missing exact model attribution",
+    };
+  }
+
+  return {
+    ok: true,
+    agent_session_id: agentSessionId,
+    model,
+    author: scope.author,
+    role: scope.role,
+    client: scope.client,
+    label: startedLabel(events),
+    last_activity_at: lastActivity,
   };
 }
 

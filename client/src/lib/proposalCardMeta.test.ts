@@ -54,7 +54,7 @@ describe("proposalCardMeta", () => {
       nowMs: Date.now(),
     });
     expect(lines.lines).toEqual([
-      "Proposed & claimed by alice · unknown · claude-4 · via Cursor",
+      "Proposed & claimed by alice · via claude-4",
     ]);
     expect(lines.expiredLine).toBeNull();
   });
@@ -123,16 +123,16 @@ describe("proposalCardMeta", () => {
       nowMs: Date.now(),
     });
     expect(lines.lines).toEqual(["Proposed by alice"]);
-    expect(lines.expiredLine).toBe("Claim expired · blake · unknown · claude-4 · via Cursor");
+    expect(lines.expiredLine).toBe("Claim expired · blake · via claude-4");
   });
 
-  it("uses unknown role when type mcp but client/model missing", () => {
+  it("falls back to via MCP when type mcp but client/model missing", () => {
     const lines = proposalAttributionLines({
       proposerUsername: "alice",
       proposerActor: { type: "mcp" },
       nowMs: Date.now(),
     });
-    expect(lines.lines[0]).toBe("Proposed by alice · unknown · via MCP");
+    expect(lines.lines[0]).toBe("Proposed by alice · via MCP");
   });
 });
 

@@ -11,6 +11,8 @@ const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_K
 
 interface McpSessionStore {
   roleId?: string;
+  /** Bearer token for the current MCP request (identity / rehydrate). */
+  mcpToken?: string;
 }
 
 const mcpSession = new AsyncLocalStorage<McpSessionStore>();
@@ -22,6 +24,11 @@ export function runInMcpSession<T>(ctx: McpSessionStore, fn: () => Promise<T>): 
 
 export function getActiveRoleId(): string | undefined {
   return mcpSession.getStore()?.roleId;
+}
+
+export function getActiveMcpToken(): string | undefined {
+  const t = mcpSession.getStore()?.mcpToken?.trim();
+  return t || undefined;
 }
 
 /**

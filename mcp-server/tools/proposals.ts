@@ -61,7 +61,7 @@ export function registerProposalTools(
       "Omit kind with no entries → notes (wall handoff; default no_auto_retry). " +
       "Do not use notes for new-spoke pitches — use kind idea. " +
       "Optional related_entries for idea context (slug need not exist yet). " +
-      "Mutating MCP requires a role connector + exact MCP_AGENT_MODEL (provider/model). " +
+      "Mutating MCP requires a role connector, agent_session start with exact model (provider/model), and agent_session_id on mutates. " +
       "Four-eyes apply/reject/accept compare human+role (not username alone).",
     {
       title: z.string().describe("Short title"),
@@ -92,7 +92,7 @@ export function registerProposalTools(
           "Required after confirm_recent_activity action_required — set true only after inspecting get_entry_activity.",
         ),
       situation_note: z.string().optional().describe("Plain-English picture of current live values."),
-      agent_session_id: z.string().optional().describe("From agent_session start — required to attach_variant later in the same session."),
+      agent_session_id: z.string().describe("Required. From agent_session start — attach_variant later in the same session."),
       promote_on_apply: z
         .boolean()
         .optional()
@@ -523,7 +523,7 @@ export function registerProposalTools(
         "set_no_auto_retry",
       ]),
       report: z.string().optional(),
-      agent_session_id: z.string().optional(),
+      agent_session_id: z.string().describe("Required. From agent_session start."),
       body: z.string().optional().describe(`For add_blocker: ${BLOCKER_BODY_HINT}`),
       blocker_id: z.number().optional().describe("For resolve_blocker / reopen_blocker"),
       resolve_note: z.string().optional().describe("For resolve_blocker: what changed (min 20 chars)"),

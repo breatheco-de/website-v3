@@ -5,6 +5,10 @@ import {
   sameAgentIdentity,
   isStaffUiActor,
   MCP_MUTATING_TOOLS,
+  normalizeMcpClientName,
+  UNKNOWN_MCP_CLIENT,
+  sessionRequiredPayload,
+  sessionConflictPayload,
 } from "./agent-identity";
 
 describe("isExactAgentModel", () => {
@@ -18,6 +22,32 @@ describe("isExactAgentModel", () => {
     expect(isExactAgentModel("")).toBe(false);
     expect(isExactAgentModel("claude/")).toBe(false);
     expect(isExactAgentModel("/sonnet")).toBe(false);
+  });
+});
+
+describe("normalizeMcpClientName", () => {
+  it("maps blank to unknown-client", () => {
+    expect(normalizeMcpClientName("")).toBe(UNKNOWN_MCP_CLIENT);
+    expect(normalizeMcpClientName(null)).toBe(UNKNOWN_MCP_CLIENT);
+    expect(normalizeMcpClientName("Grok")).toBe("Grok");
+  });
+});
+
+describe("session payloads", () => {
+  it("session_required points at agent_session start", () => {
+    const p = sessionRequiredPayload("update_fields");
+    expect(p.code).toBe("session_required");
+    expect(p.message).toContain("agent_session");
+  });
+
+  it("session_conflict includes open id", () => {
+    const p = sessionConflictPayload({
+      agent_session_id: "sess-1",
+      model: "xai/grok-4",
+    });
+    expect(p.code).toBe("session_conflict");
+    expect(p.agent_session_id).toBe("sess-1");
+    expect(p.message).toContain("resume:true");
   });
 });
 

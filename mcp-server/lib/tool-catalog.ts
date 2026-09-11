@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { isMcpMutatingTool } from "../../shared/agent-identity.js";
-import { assertMutatingAgentIdentity } from "./loopback.js";
+import { assertMutatingAgentIdentity, extractToolArgs } from "./loopback.js";
 
 export {
   IDENTITY_TOOLS,
@@ -16,7 +16,7 @@ export {
 type CatalogFilterOpts = {
   /** Unscoped /mcp: do not register mutating tools. */
   stripMutating?: boolean;
-  /** Role connector: wrap mutates to require exact model. */
+  /** Role connector: wrap mutates to require session + exact model. */
   requireIdentityOnMutate?: boolean;
 };
 
@@ -47,7 +47,8 @@ export function applyToolCatalogFilter(
       const handler = rest[handlerIdx];
       if (typeof handler === "function") {
         const wrapped = async (...args: unknown[]) => {
-          const denied = assertMutatingAgentIdentity(name);
+          const toolArgs = extractToolArgs(args);
+          const denied = await assertMutatingAgentIdentity(name, toolArgs);
           if (denied) return denied;
           return (handler as (...a: unknown[]) => unknown)(...args);
         };

@@ -2129,12 +2129,12 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       </Dialog>
 
       <div className="space-y-0">
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 border-b border-border" data-testid="cache-summary-bar">
+        <div className="grid grid-cols-5 gap-1.5 sm:gap-3 border-b border-border" data-testid="cache-summary-bar">
           <Card
             role="button"
             tabIndex={0}
             aria-pressed={errorsKpiActive}
-            className={`rounded-none cursor-pointer ${kpiActiveClass(errorsKpiActive)}`}
+            className={`rounded-none cursor-pointer min-w-0 ${kpiActiveClass(errorsKpiActive)}`}
             onClick={() => {
               setActiveKpiTab("errors");
             }}
@@ -2145,16 +2145,16 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               }
             }}
           >
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-destructive">{kpiSummary.errors}</p>
-              <p className="text-xs text-muted-foreground">Errors</p>
+            <CardContent className="p-2 sm:p-4 text-center">
+              <p className="text-lg sm:text-2xl font-bold text-destructive">{kpiSummary.errors}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground leading-tight">Errors</p>
             </CardContent>
           </Card>
           <Card
             role="button"
             tabIndex={0}
             aria-pressed={warningsKpiActive}
-            className={`rounded-none cursor-pointer ${kpiActiveClass(warningsKpiActive)}`}
+            className={`rounded-none cursor-pointer min-w-0 ${kpiActiveClass(warningsKpiActive)}`}
             onClick={() => {
               setActiveKpiTab("warnings");
             }}
@@ -2165,16 +2165,16 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               }
             }}
           >
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-chart-2">{kpiSummary.warnings}</p>
-              <p className="text-xs text-muted-foreground">Warnings</p>
+            <CardContent className="p-2 sm:p-4 text-center">
+              <p className="text-lg sm:text-2xl font-bold text-chart-2">{kpiSummary.warnings}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground leading-tight">Warnings</p>
             </CardContent>
           </Card>
           <Card
             role="button"
             tabIndex={0}
             aria-pressed={uniqueKpiActive}
-            className={`rounded-none cursor-pointer ${kpiActiveClass(uniqueKpiActive)}`}
+            className={`rounded-none cursor-pointer min-w-0 ${kpiActiveClass(uniqueKpiActive)}`}
             onClick={() => {
               setActiveKpiTab("unique");
               setFreshUrlFilter("all");
@@ -2191,16 +2191,16 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               }
             }}
           >
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-foreground">{kpiSummary.urls}</p>
-              <p className="text-xs text-muted-foreground">Unique URLs</p>
+            <CardContent className="p-2 sm:p-4 text-center">
+              <p className="text-lg sm:text-2xl font-bold text-foreground">{kpiSummary.urls}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground leading-tight">Unique URLs</p>
             </CardContent>
           </Card>
           <Card
             role="button"
             tabIndex={0}
             aria-pressed={coverageKpiActive}
-            className={`rounded-none cursor-pointer ${kpiActiveClass(coverageKpiActive)}`}
+            className={`rounded-none cursor-pointer min-w-0 ${kpiActiveClass(coverageKpiActive)}`}
             onClick={() => {
               setActiveKpiTab("coverage");
               setFreshUrlFilter("fresh");
@@ -2217,13 +2217,13 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               }
             }}
           >
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-foreground" data-testid="text-coverage-mean">
+            <CardContent className="p-2 sm:p-4 text-center">
+              <p className="text-lg sm:text-2xl font-bold text-foreground" data-testid="text-coverage-mean">
                 {coverageSummary ? `${coverageSummary.meanPercent}%` : "—"}
               </p>
-              <p className="text-xs text-muted-foreground">Avg coverage</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground leading-tight">Avg coverage</p>
               {coverageSummary && (
-                <p className="text-[11px] text-muted-foreground mt-0.5">
+                <p className="text-[9px] sm:text-[11px] text-muted-foreground mt-0.5 leading-tight">
                   {coverageSummary.fullyCovered}/{coverageSummary.totalUrls} fully covered
                 </p>
               )}
@@ -2233,7 +2233,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             role="button"
             tabIndex={0}
             aria-pressed={completedKpiActive}
-            className={`rounded-none cursor-pointer ${kpiActiveClass(completedKpiActive)}`}
+            className={`rounded-none cursor-pointer min-w-0 ${kpiActiveClass(completedKpiActive)}`}
             onClick={() => {
               setActiveKpiTab("completed");
             }}
@@ -2244,17 +2244,17 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               }
             }}
           >
-            <CardContent className="p-4 text-center">
+            <CardContent className="p-2 sm:p-4 text-center">
               <p
-                className="text-2xl font-bold text-emerald-600 dark:text-emerald-400"
+                className="text-lg sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400"
                 data-testid="text-resolved-count"
               >
                 {resolvedSummaryData?.resolvedCount ?? "—"}
               </p>
-              <p className="text-xs text-muted-foreground">Resolved</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">Last ~2 months</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground leading-tight">Resolved</p>
+              <p className="text-[9px] sm:text-[11px] text-muted-foreground mt-0.5 leading-tight">Last ~2 months</p>
               {resolvedSummaryData && resolvedSummaryData.reopened > 0 ? (
-                <p className="text-[11px] text-muted-foreground mt-0.5" data-testid="text-resolved-reopened">
+                <p className="text-[9px] sm:text-[11px] text-muted-foreground mt-0.5 leading-tight" data-testid="text-resolved-reopened">
                   {resolvedSummaryData.reopened} reopened
                 </p>
               ) : null}

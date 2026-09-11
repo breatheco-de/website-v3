@@ -54,8 +54,14 @@ export const mutateReportZodFields = {
   highlights: z.array(z.string()).optional().describe(AGENT_HIGHLIGHTS_DESC),
   agent_session_id: z
     .string()
-    .optional()
-    .describe("Optional. From agent_session start — groups this write for staff monitoring."),
+    .describe("Required. From agent_session start — groups this write for staff monitoring."),
+};
+
+/** Required session id for mutates that do not use mutateReportZodFields. */
+export const requiredAgentSessionIdField = {
+  agent_session_id: z
+    .string()
+    .describe("Required. From agent_session start — groups this write for staff monitoring."),
 };
 
 export function requireMutateWhyHighlights(

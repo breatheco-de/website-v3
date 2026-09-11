@@ -2,6 +2,7 @@ import {
   formatAttributionEntry,
   type EventAttributionEntry,
 } from "@/lib/formatIssueActor";
+import { formatMcpActorSubject } from "@shared/agent-identity";
 import { parseEntryKey } from "@/lib/parseEntryKey";
 import { cn } from "@/lib/utils";
 import { formatAgentLabel, resolveAgentId } from "./agentIcons";
@@ -63,12 +64,18 @@ function resolveActorInfo(
   if (asSystem) {
     return { label: formatSystemActor(attribution), tone: "system" };
   }
+  const primary = attribution[0];
   const agentId = resolveAgentId(attribution);
+  if (primary?.actor?.type === "mcp") {
+    const family = agentId ? formatAgentLabel(agentId) : null;
+    const label = formatMcpActorSubject(primary.actor, { familyLabel: family });
+    if (label) return { label, tone: "user" };
+  }
   if (agentId) {
     return { label: formatAgentLabel(agentId), tone: "user" };
   }
   if (attribution.length === 0) return { label: "Someone", tone: "user" };
-  return { label: formatAttributionEntry(attribution[0]!), tone: "user" };
+  return { label: formatAttributionEntry(primary!), tone: "user" };
 }
 
 function formatSystemActor(attribution: EventAttributionEntry[]): string {

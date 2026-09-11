@@ -2,7 +2,7 @@
 
 Read-only agents and staff can **propose** entry field changes or **idea** briefs. Live YAML does not change until a **different agent role** (or staff UI) **applies** edits. Notes handoffs stay open as reminders; **close** finishes them with a reason (no content change). Ideas use **accept** to greenlight a brief (still no YAML).
 
-**Identity:** Mutating MCP requires a **role connector** (`/mcp/role/…`) and exact `MCP_AGENT_MODEL` (`provider/model`). Four-eyes and claims compare **username + role** (staff UI is separate). Exact model is stored for observability.
+**Identity:** Mutating MCP requires a **role connector** (`/mcp/role/…`), `agent_session` start with exact `model` (`provider/model`), and `agent_session_id` on every mutate. Four-eyes and claims compare **username + role** (staff UI is separate). Exact model is stored for observability.
 
 Agentic swarm role connectors may write **drafts** freely, may write **live** only with an active same-locale issue claim (same human+role), and must use proposals (not MCP promote/create) to go live — see agent-conventions §2.
 

@@ -6,6 +6,9 @@ import { geoGet, geoSet } from "../geo-cache";
 import { getQueueStats, enqueueOptimization, getPendingOptimizations, getFailedEntries, retryFailedImages, resetOptimizeSession, getOptimizeSession, enqueueExternalImage } from "../image-registry";
 import { getAllQueueState } from "../image-queue-state";
 import { enrichWithEcommerceData } from "../ecommerce/ecommerce-resolver";
+import {
+  normalizeMcpClientName,
+} from "../../shared/agent-identity";
 
 
 import * as fs from "fs";
@@ -684,8 +687,9 @@ export function resolveIssueActor(
 ): import("../../scripts/validation/shared/types").ValidationIssueActor {
   if (isMcpLoopbackRequest(req)) {
     const clientHeader = req.headers["x-mcp-client"];
-    const client =
-      typeof clientHeader === "string" && clientHeader.trim() ? clientHeader.trim() : undefined;
+    const client = normalizeMcpClientName(
+      typeof clientHeader === "string" ? clientHeader : undefined,
+    );
     const modelHeader = req.headers["x-mcp-model"];
     const model = sanitizeIssueActorModel(opts?.model ?? modelHeader);
     const roleHeader = req.headers["x-mcp-role"];
@@ -693,7 +697,7 @@ export function resolveIssueActor(
       typeof roleHeader === "string" ? sanitizeIssueActorRole(roleHeader) : undefined;
     return {
       type: "mcp",
-      ...(client ? { client } : {}),
+      client,
       ...(model ? { model } : {}),
       ...(role ? { role } : {}),
     };
@@ -716,7 +720,7 @@ export function resolveEventActor(
   if (issueActor.type === "mcp") {
     return {
       type: "mcp",
-      ...(issueActor.client ? { client: issueActor.client } : {}),
+      client: normalizeMcpClientName(issueActor.client),
       ...(issueActor.model ? { model: issueActor.model } : {}),
       ...(issueActor.role ? { role: issueActor.role } : {}),
     };

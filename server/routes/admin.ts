@@ -43,8 +43,9 @@ import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager, DatabaseManager } from "../database";
 import { collectSystemAlerts, recheckDatabaseHealth } from "../system-alerts";
-import { listEvents, listEventAuthors, clearAllEvents, listAgentSessions, getAgentSessionDetail, emitEvent, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents } from "../events/event-store";
+import { listEvents, listEventAuthors, clearAllEvents, listAgentSessions, getAgentSessionDetail, emitEvent, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents, findOpenAgentSession, resolveUsableAgentSession } from "../events/event-store";
 import { singleAttribution, EVENT_TYPES, type EventType } from "../events/types";
+import { isExactAgentModel, normalizeMcpClientName, sessionConflictPayload } from "../../shared/agent-identity";
 import { seedDemoPipelineEvents } from "../events/seed-demo";
 import {
   expandKindIdsToTypes,
@@ -752,7 +753,7 @@ export function registerAdminRoutes(app: Express): void {
     res.json(detail);
   });
 
-  /** MCP loopback: emit agent_session_started | note | summarized audit events. */
+  /** MCP loopback: emit agent_session_* audit events; start conflict / resolve usable. */
   app.post("/api/admin/agent-sessions/checkpoint", async (req, res) => {
     if (!isMcpLoopbackRequest(req)) {
       res.status(403).json({ error: "MCP loopback only" });
@@ -766,16 +767,152 @@ export function registerAdminRoutes(app: Express): void {
       return;
     }
     const action = req.body?.action as string | undefined;
-    if (action !== "start" && action !== "note" && action !== "summarize") {
-      res.status(400).json({ error: "action must be start | note | summarize" });
+    if (
+      action !== "start" &&
+      action !== "note" &&
+      action !== "summarize" &&
+      action !== "resolve"
+    ) {
+      res.status(400).json({ error: "action must be start | note | summarize | resolve" });
       return;
     }
     const author =
       (typeof req.headers["x-mcp-author"] === "string" && req.headers["x-mcp-author"]) ||
       "mcp";
+    const roleHeader =
+      typeof req.headers["x-mcp-role"] === "string" ? req.headers["x-mcp-role"].trim() : "";
+    const client = normalizeMcpClientName(
+      typeof req.headers["x-mcp-client"] === "string" ? req.headers["x-mcp-client"] : undefined,
+    );
+
+    if (action === "resolve") {
+      const agent_session_id =
+        (typeof req.body?.agent_session_id === "string" && req.body.agent_session_id.trim()) ||
+        resolveAgentSessionId(req);
+      if (!agent_session_id) {
+        return res.status(400).json({
+          error: "agent_session_id required for resolve",
+          code: "session_required",
+          usable: false,
+        });
+      }
+      if (!roleHeader) {
+        return res.status(400).json({
+          error: "x-mcp-role required for resolve",
+          code: "role_connector_required",
+          usable: false,
+        });
+      }
+      const resolved = resolveUsableAgentSession({
+        site,
+        agentSessionId: agent_session_id,
+        author,
+        role: roleHeader,
+        client,
+      });
+      if (!resolved.ok) {
+        return res.status(404).json({
+          error: resolved.message,
+          code: resolved.code,
+          usable: false,
+          action_required: "start",
+        });
+      }
+      return res.json({
+        success: true,
+        action: "resolve",
+        usable: true,
+        agent_session_id: resolved.agent_session_id,
+        model: resolved.model,
+        author: resolved.author,
+        role: resolved.role,
+        client: resolved.client,
+        label: resolved.label ?? null,
+        last_activity_at: resolved.last_activity_at,
+      });
+    }
+
     const actor = resolveEventActor(req, { model: req.body?.model });
 
     if (action === "start") {
+      const resume = req.body?.resume === true;
+      const forceNew = req.body?.force_new === true;
+      if (resume && forceNew) {
+        return res.status(400).json({
+          error: "Pass resume:true or force_new:true, not both",
+          code: "invalid_start_flags",
+        });
+      }
+
+      if (!roleHeader) {
+        return res.status(400).json({
+          error: "x-mcp-role required to start an agent session",
+          code: "role_connector_required",
+        });
+      }
+
+      const open = findOpenAgentSession({
+        site,
+        author,
+        role: roleHeader,
+        client,
+      });
+
+      if (open && resume) {
+        const frozenModel = open.model;
+        if (!frozenModel || !isExactAgentModel(frozenModel)) {
+          return res.status(409).json({
+            error: "Open session has no exact model — use force_new with a report",
+            code: "session_conflict",
+            action_required: "session_conflict",
+            ...sessionConflictPayload(open),
+          });
+        }
+        return res.json({
+          success: true,
+          action: "start",
+          resumed: true,
+          agent_session_id: open.agent_session_id,
+          model: frozenModel,
+          label: open.label ?? null,
+          event_id: null,
+        });
+      }
+
+      if (open && !forceNew) {
+        const payload = sessionConflictPayload(open);
+        return res.status(409).json({
+          error: payload.message,
+          ...payload,
+        });
+      }
+
+      if (open && forceNew) {
+        const parsed = requireIssueReport(req.body?.report);
+        if (!parsed.ok) {
+          return res.status(400).json({ error: parsed.error, code: parsed.code });
+        }
+        emitEvent({
+          site,
+          type: "agent_session_abandoned",
+          agent_session_id: open.agent_session_id,
+          attribution: singleAttribution(author, actor),
+          payload: { report: parsed.report },
+        });
+      }
+
+      const modelRaw = req.body?.model;
+      if (!isExactAgentModel(modelRaw)) {
+        return res.status(400).json({
+          error:
+            'Exact model required on start (provider/model), e.g. "claude/sonnet-4.5" or "xai/grok-4"',
+          code: "exact_model_required",
+          action_required: "exact_model_required",
+        });
+      }
+      const model = String(modelRaw).trim();
+      const actorWithModel = resolveEventActor(req, { model });
+
       const agent_session_id =
         (typeof req.body?.agent_session_id === "string" && req.body.agent_session_id.trim()) ||
         randomUUID();
@@ -787,14 +924,17 @@ export function registerAdminRoutes(app: Express): void {
         site,
         type: "agent_session_started",
         agent_session_id,
-        attribution: singleAttribution(author, actor),
+        attribution: singleAttribution(author, actorWithModel),
         payload: { ...(label ? { label } : {}) },
       });
       return res.json({
         success: true,
         action: "start",
+        resumed: false,
         agent_session_id,
+        model,
         event_id: event.id,
+        abandoned_session_id: open && forceNew ? open.agent_session_id : null,
       });
     }
 
@@ -807,11 +947,23 @@ export function registerAdminRoutes(app: Express): void {
         code: "session_required",
       });
     }
-    const existing = listEvents({ site, agentSessionId: agent_session_id, limit: 1 });
-    if (existing.length === 0) {
+    if (!roleHeader) {
+      return res.status(400).json({
+        error: "x-mcp-role required",
+        code: "role_connector_required",
+      });
+    }
+    const usable = resolveUsableAgentSession({
+      site,
+      agentSessionId: agent_session_id,
+      author,
+      role: roleHeader,
+      client,
+    });
+    if (!usable.ok) {
       return res.status(404).json({
-        error: "Unknown agent_session_id — call agent_session start first",
-        code: "session_unknown",
+        error: usable.message,
+        code: usable.code,
         action_required: "start",
       });
     }

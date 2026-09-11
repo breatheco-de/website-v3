@@ -11,6 +11,8 @@ import { ok, fail, actionRequired, type NextAction, type McpWarning, type McpSid
 import { checkCap, denyResponse } from "../lib/auth.js";
 import { loadVersioning, resolveSiteContext } from "../lib/content.js";
 import { getTokenUsername } from "../lib/oauth.js";
+import { buildLoopbackHeaders } from "../lib/loopback.js";
+import { requiredAgentSessionIdField } from "../lib/page-tool-helpers.js";
 import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
 import {
   collectMissingConfirms,
@@ -23,21 +25,12 @@ import {
 } from "../lib/redirect-update.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
-const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
 
-function internalHeaders(mcpToken?: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (INTERNAL_SECRET) {
-    headers.Authorization = `Bearer ${INTERNAL_SECRET}`;
-    const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
-    if (username) headers["x-mcp-author"] = username;
-  } else if (mcpToken) {
-    const username = getTokenUsername(mcpToken);
-    if (username) headers["x-mcp-author"] = username;
-  }
-  return headers;
+function internalHeaders(
+  mcpToken?: string,
+  opts?: { agentSessionId?: string },
+): Record<string, string> {
+  return buildLoopbackHeaders(mcpToken, opts);
 }
 
 function siteQuery(domain?: string): string {
@@ -282,6 +275,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
       locale: z.string().optional().describe("Optional locale for inspect / dest resolution (add)"),
       status: z.number().optional().describe("301 or 302 (add; default 301)"),
       priority: z.enum(["before", "fallback"]).optional().describe("Custom-file priority (add; default before)"),
+      ...requiredAgentSessionIdField,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async (args) => {
@@ -301,7 +295,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
       const { action } = validated;
       const from = args.from!.trim();
       const siteHint = args.site ? { site: args.site } : {};
-
+      const sessOpts = { agentSessionId: args.agent_session_id };
       try {
         if (action === "add") {
           const to = args.to!.trim();
@@ -362,7 +356,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
             `http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects${siteQuery(domain)}`,
             {
               method: "POST",
-              headers: internalHeaders(mcpToken),
+              headers: internalHeaders(mcpToken, sessOpts),
               body: JSON.stringify(body),
             },
           );
@@ -437,7 +431,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
             `http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects${siteQuery(domain)}`,
             {
               method: "DELETE",
-              headers: internalHeaders(mcpToken),
+              headers: internalHeaders(mcpToken, sessOpts),
               body: JSON.stringify({ from, source, author: authorName(mcpToken) }),
             },
           );
@@ -479,7 +473,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
           `http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects/move${siteQuery(domain)}`,
           {
             method: "PATCH",
-            headers: internalHeaders(mcpToken),
+            headers: internalHeaders(mcpToken, sessOpts),
             body: JSON.stringify({
               from,
               before_from: beforeFrom,

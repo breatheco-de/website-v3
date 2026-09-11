@@ -39,15 +39,49 @@ describe("entryRefFromEvent", () => {
 });
 
 describe("formatEventHeadlinePlain", () => {
-  it("formats locale save with agent and entry", () => {
+  it("formats locale save with exact model when present", () => {
     expect(
       formatEventHeadlinePlain(
         baseEvent({
-          attribution: [{ author: "demo", actor: { type: "mcp", client: "Cursor", model: "claude-4-sonnet" } }],
+          attribution: [
+            {
+              author: "demo",
+              actor: {
+                type: "mcp",
+                client: "Cursor",
+                model: "claude/sonnet-4.5",
+                role: "copy_editor",
+              },
+            },
+          ],
+          resource: { contentType: "blog", slug: "demo-post", locale: "en" },
+        }),
+      ),
+    ).toBe("#42 claude/sonnet-4.5 as copy_editor has updated your blog en/demo-post");
+  });
+
+  it("formats locale save with family label when model missing", () => {
+    expect(
+      formatEventHeadlinePlain(
+        baseEvent({
+          attribution: [{ author: "demo", actor: { type: "mcp", client: "Claude" } }],
           resource: { contentType: "blog", slug: "demo-post", locale: "en" },
         }),
       ),
     ).toBe("#42 Claude has updated your blog en/demo-post");
+  });
+
+  it("formats locale save with legacy model string when present", () => {
+    expect(
+      formatEventHeadlinePlain(
+        baseEvent({
+          attribution: [
+            { author: "demo", actor: { type: "mcp", client: "Cursor", model: "claude-4-sonnet" } },
+          ],
+          resource: { contentType: "blog", slug: "demo-post", locale: "en" },
+        }),
+      ),
+    ).toBe("#42 claude-4-sonnet has updated your blog en/demo-post");
   });
 
   it("formats skipped validation as muted headline", () => {

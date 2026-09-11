@@ -6,6 +6,21 @@ window_days: 6
 
 entries:
   - date: "2026-09-11"
+    summary: "Session-bound MCP identity — required agent_session_id + model on start"
+    agent_impact:
+      - "Mutates require agent_session_id. Start with exact model (provider/model). MCP_AGENT_MODEL env removed. Reconnect MCP after tool schema change."
+      - "Open session conflict (same username+role+client+site): resume:true or force_new:true + report. Idle 24h expires the session."
+      - "bootstrap_agent playbook/conventions bumped — re-fetch skill.content."
+    paths:
+      - shared/agent-identity.ts
+      - mcp-server/lib/loopback.ts
+      - mcp-server/lib/agent-session-store.ts
+      - mcp-server/lib/mcp-playbook.ts
+      - mcp-server/agent-conventions.md
+      - server/events/event-store.ts
+      - server/routes/admin.ts
+    tools_changed: true
+  - date: "2026-09-11"
     summary: "Agent identity human+role; idea proposals; unscoped read-only"
     agent_impact:
       - "Mutating tools require a role connector (/mcp/role/…) + exact MCP_AGENT_MODEL (provider/model, e.g. claude/sonnet-4.5). Plain /mcp is read-only — Private → MCP Server → Connection → choose a role."

@@ -473,9 +473,13 @@ function ConnectionPanel({
                   is <span className="text-foreground font-medium">read-only</span> (list/explain).
                   Agents that need to write must use a role connector (
                   <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">/mcp/role/…</code>
-                  ) with an exact model (
+                  ), start an{" "}
+                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">agent_session</code>
+                  {" "}with an exact model (
                   <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">provider/model</code>
-                  ). Pick <span className="text-foreground font-medium">Only …</span> for a focused
+                  ), and pass{" "}
+                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">agent_session_id</code>
+                  {" "}on mutates. Pick <span className="text-foreground font-medium">Only …</span> for a focused
                   Claude.ai / agent connector URL.
                 </p>
               )}
@@ -489,10 +493,13 @@ function ConnectionPanel({
               )}
               {localDev && pendingRoleId !== undefined && (
                 <p className="text-xs text-muted-foreground">
-                  Local note: role URLs filter tools by that role and allow mutates when{" "}
-                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">MCP_AGENT_MODEL</code>{" "}
-                  is set to an exact <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">provider/model</code>.
-                  Plain{" "}
+                  Local note: role URLs filter tools by that role and allow mutates after{" "}
+                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">agent_session</code>{" "}
+                  start with an exact{" "}
+                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">provider/model</code>
+                  {" "}(pass{" "}
+                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">agent_session_id</code>
+                  {" "}on every write). Plain{" "}
                   <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">/mcp</code> stays
                   read-only.
                 </p>

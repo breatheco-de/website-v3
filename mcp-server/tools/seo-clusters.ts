@@ -271,8 +271,7 @@ export function registerSeoClusterTools(
       why: z.string().describe(AGENT_WHY_DESC),
       agent_session_id: z
         .string()
-        .optional()
-        .describe("Optional. From agent_session start — groups this call for staff monitoring."),
+        .describe("Required. From agent_session start — groups this call for staff monitoring."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, slug, locale, keyword, why, agent_session_id, site }) => {

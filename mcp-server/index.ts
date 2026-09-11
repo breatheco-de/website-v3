@@ -1096,7 +1096,9 @@ async function handleMcpRequest(
       return;
     }
 
-    await runInMcpSession({ roleId: activeRoleId }, async () => {
+    await runInMcpSession(
+      { roleId: activeRoleId, mcpToken: credentialToken || undefined },
+      async () => {
       const mcp = await createMcpServer(resolvedUsername, credentialToken || undefined, {
         filterCatalog: true,
         activeRoleId,

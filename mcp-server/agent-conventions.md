@@ -73,7 +73,7 @@ If the page were already live and you edited the live locale directly
 
 On an agentic swarm role connector (`/mcp/role/…`), write policy is enforced:
 
-- **Identity:** Set exact `MCP_AGENT_MODEL` (`provider/model`, e.g. `claude/sonnet-4.5`). Mutates without it fail. Plain `/mcp` is **read-only** — use Private → MCP Server → Connection → choose a role (e.g. `/mcp/role/copy_editor`).
+- **Identity:** Call `agent_session` start with exact `model` (`provider/model`, e.g. `claude/sonnet-4.5`). Pass `agent_session_id` on every mutate — unscoped writes are blocked. Plain `/mcp` is **read-only** — use Private → MCP Server → Connection → choose a role (e.g. `/mcp/role/copy_editor`).
 - **Draft / variant writes** (any locale): allowed with your edit caps — no issue claim required.
 - **Live writes** (omit `variant`): allowed only while you hold an **active claim** on a validation issue for that **content type + slug + locale** as the **same human+role**. Successful live writes refresh the claim TTL (~30m).
 - **Publish / promote / demote / create_entry**: denied — open an **edits** `propose_change` (field updates and/or `promote_on_apply`). For a brief before work exists, use `propose_change` with `kind:"idea"` (accept ≠ apply; no YAML). Notes are wall reminders only (close with a reason; no YAML) — do not use notes for new-spoke pitches.

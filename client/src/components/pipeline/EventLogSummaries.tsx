@@ -14,6 +14,7 @@ import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 import { Badge } from "@/components/ui/badge";
 import { useContentTypes } from "@/hooks/useContentTypes";
 import { formatIssueActorLine, formatAttributionEntry, formatAttributionSummary, formatCausalityLabel, type EventAttributionEntry } from "@/lib/formatIssueActor";
+import { formatMcpActorSubject } from "@shared/agent-identity";
 import { entryPartsToPageUrl } from "@/lib/entryKeyToPageUrl";
 import { parseEntryKey } from "@/lib/parseEntryKey";
 import { apiFetch } from "@/lib/queryClient";
@@ -99,9 +100,14 @@ const TYPED_DETAIL_TYPES = new Set([
   "validation_results_ready",
 ]);
 
-/** Prefer icon-matched agent label (e.g. "Grok") over author · via client (model). */
+/** Prefer model [as role], else family label, else author · via … */
 function formatAttributionDisplay(entry: EventAttributionEntry): string {
   const agentId = resolveAgentId([entry]);
+  if (entry.actor?.type === "mcp") {
+    const family = agentId ? formatAgentLabel(agentId) : null;
+    const subject = formatMcpActorSubject(entry.actor, { familyLabel: family });
+    if (subject) return subject;
+  }
   if (agentId) return formatAgentLabel(agentId);
   return formatAttributionEntry(entry);
 }

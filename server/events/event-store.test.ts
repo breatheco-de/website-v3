@@ -25,9 +25,12 @@ import {
   attachCommitShaToEvents,
   attachCommitShaForCommittedFiles,
   findLatestWriteEventsByCommitShas,
+  findOpenAgentSession,
+  resolveUsableAgentSession,
 } from "./event-store";
 import { singleAttribution } from "./types";
 import { AUTHOR_FILTER_NONE } from "@shared/event-log-filters";
+import { AGENT_SESSION_IDLE_MS } from "../../shared/agent-identity";
 
 const TEST_SITE = "site_test-events";
 
@@ -687,4 +690,134 @@ describe("event-store", () => {
     });
   });
 
+  describe("findOpenAgentSession / resolveUsableAgentSession", () => {
+    const mcpAttr = (overrides?: { client?: string; role?: string; model?: string }) =>
+      singleAttribution("alice", {
+        type: "mcp",
+        client: overrides?.client ?? "Grok",
+        role: overrides?.role ?? "copy_editor",
+        model: overrides?.model ?? "xai/grok-4",
+      });
+
+    it("finds open session and freezes model; summarized is closed", () => {
+      const site = `${TEST_SITE}-open-sess-${Date.now()}`;
+      const sid = "sess-open-1";
+      emitEvent({
+        site,
+        type: "agent_session_started",
+        agent_session_id: sid,
+        attribution: mcpAttr(),
+        payload: { label: "fix SEO" },
+      });
+      const open = findOpenAgentSession({
+        site,
+        author: "alice",
+        role: "copy_editor",
+        client: "Grok",
+      });
+      expect(open?.agent_session_id).toBe(sid);
+      expect(open?.model).toBe("xai/grok-4");
+
+      const usable = resolveUsableAgentSession({
+        site,
+        agentSessionId: sid,
+        author: "alice",
+        role: "copy_editor",
+        client: "Grok",
+      });
+      expect(usable.ok).toBe(true);
+      if (usable.ok) expect(usable.model).toBe("xai/grok-4");
+
+      emitEvent({
+        site,
+        type: "agent_session_summarized",
+        agent_session_id: sid,
+        attribution: mcpAttr(),
+        payload: { report: "done ".padEnd(80, "x") },
+      });
+      expect(
+        findOpenAgentSession({
+          site,
+          author: "alice",
+          role: "copy_editor",
+          client: "Grok",
+        }),
+      ).toBeNull();
+      const closed = resolveUsableAgentSession({
+        site,
+        agentSessionId: sid,
+        author: "alice",
+        role: "copy_editor",
+        client: "Grok",
+      });
+      expect(closed.ok).toBe(false);
+      if (!closed.ok) expect(closed.code).toBe("session_closed");
+    });
+
+    it("idle-expires sessions", () => {
+      const site = `${TEST_SITE}-idle-sess-${Date.now()}`;
+      const sid = "sess-idle-1";
+      const now = Date.now();
+      emitEvent({
+        site,
+        type: "agent_session_started",
+        agent_session_id: sid,
+        attribution: mcpAttr({ client: "Cursor" }),
+        payload: {},
+      });
+      const db = new Database(path.join("data", site.replace(/\//g, "-"), "app.db"));
+      db.prepare(`UPDATE events SET created_at = ? WHERE agent_session_id = ?`).run(
+        now - AGENT_SESSION_IDLE_MS - 60_000,
+        sid,
+      );
+      db.close();
+
+      expect(
+        findOpenAgentSession({
+          site,
+          author: "alice",
+          role: "copy_editor",
+          client: "Cursor",
+          now,
+        }),
+      ).toBeNull();
+      const expired = resolveUsableAgentSession({
+        site,
+        agentSessionId: sid,
+        author: "alice",
+        role: "copy_editor",
+        client: "Cursor",
+        now,
+      });
+      expect(expired.ok).toBe(false);
+      if (!expired.ok) expect(expired.code).toBe("session_expired");
+    });
+
+    it("abandoned closes the session", () => {
+      const site = `${TEST_SITE}-abandon-sess-${Date.now()}`;
+      const sid = "sess-abandon-1";
+      emitEvent({
+        site,
+        type: "agent_session_started",
+        agent_session_id: sid,
+        attribution: mcpAttr(),
+        payload: {},
+      });
+      emitEvent({
+        site,
+        type: "agent_session_abandoned",
+        agent_session_id: sid,
+        attribution: mcpAttr(),
+        payload: { report: "switching models ".padEnd(80, "y") },
+      });
+      expect(
+        findOpenAgentSession({
+          site,
+          author: "alice",
+          role: "copy_editor",
+          client: "Grok",
+        }),
+      ).toBeNull();
+    });
+  });
 });

@@ -12,6 +12,8 @@ import { ok, fail, actionRequired, type McpWarning, type NextAction } from "../l
 import { loadContentTypes, resolveSiteContext } from "../lib/content.js";
 import { planDatabaseConfigPatch } from "../lib/database-config-patch.js";
 import { getTokenUsername } from "../lib/oauth.js";
+import { buildLoopbackHeaders } from "../lib/loopback.js";
+import { requiredAgentSessionIdField } from "../lib/page-tool-helpers.js";
 import {
   FAQ_DB_NAME,
   applyFaqDefaults,
@@ -33,24 +35,15 @@ import {
 } from "../lib/database-items.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
-const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
 
 const REFRESH_ARG_DESC =
   "Force rebuild the database cache before reading. Expensive for api/remote sources (hits the external API). Use sparingly when stale cache is blocking; prefer the default TTL cache. Ignored when page > 1 on list (refresh on page 1 only).";
 
-function internalHeaders(mcpToken?: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (INTERNAL_SECRET) {
-    headers.Authorization = `Bearer ${INTERNAL_SECRET}`;
-    const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
-    if (username) headers["x-mcp-author"] = username;
-  } else if (mcpToken) {
-    const username = getTokenUsername(mcpToken);
-    if (username) headers["x-mcp-author"] = username;
-  }
-  return headers;
+function internalHeaders(
+  mcpToken?: string,
+  opts?: { agentSessionId?: string },
+): Record<string, string> {
+  return buildLoopbackHeaders(mcpToken, opts);
 }
 
 function siteQuery(domain: string | null): string {
@@ -589,9 +582,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       database: z.string(),
       item: itemSchema.describe("Item fields to append"),
       reindex: z.boolean().optional().describe("If true and vector_search enabled, reindex after write (needs databases_manage)"),
+      ...requiredAgentSessionIdField,
       site: z.string().optional(),
     },
-    async ({ database, item, reindex, site }) => {
+    async ({ database, item, reindex, agent_session_id, site }) => {
       const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
@@ -652,7 +646,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items${siteQuery(domain)}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
           body: JSON.stringify({ item: toWrite }),
         });
         const data = (await res.json()) as Record<string, unknown>;
@@ -715,9 +709,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         .describe(
           "If true and vector_search enabled, reindex once after any successful write (needs databases_manage)",
         ),
+      ...requiredAgentSessionIdField,
       site: z.string().optional(),
     },
-    async ({ database, items, reindex, site }) => {
+    async ({ database, items, reindex, agent_session_id, site }) => {
       const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
@@ -777,7 +772,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items${siteQuery(domain)}`;
           const res = await fetch(url, {
             method: "POST",
-            headers: internalHeaders(mcpToken),
+            headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
             body: JSON.stringify({ items: toWrite.map((r) => r.item) }),
           });
           const data = (await res.json()) as Record<string, unknown>;
@@ -873,9 +868,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         .optional()
         .describe("If set, must match current item.question or update is refused"),
       reindex: z.boolean().optional(),
+      ...requiredAgentSessionIdField,
       site: z.string().optional(),
     },
-    async ({ database, index, item, expect_question, reindex, site }) => {
+    async ({ database, index, item, expect_question, reindex, agent_session_id, site }) => {
       const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
@@ -961,7 +957,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${index}${siteQuery(domain)}`;
         const res = await fetch(url, {
           method: "PATCH",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
           body: JSON.stringify(item),
         });
         const data = (await res.json()) as Record<string, unknown>;
@@ -1026,9 +1022,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         .max(40)
         .describe("Updates to apply (max 40)"),
       reindex: z.boolean().optional(),
+      ...requiredAgentSessionIdField,
       site: z.string().optional(),
     },
-    async ({ database, updates, reindex, site }) => {
+    async ({ database, updates, reindex, agent_session_id, site }) => {
       const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
@@ -1088,7 +1085,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${row.index}${siteQuery(domain)}`;
           const res = await fetch(url, {
             method: "PATCH",
-            headers: internalHeaders(mcpToken),
+            headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
             body: JSON.stringify(row.item),
           });
           const data = (await res.json()) as Record<string, unknown>;
@@ -1193,9 +1190,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       confirm: z.boolean().optional().describe("Must be true to perform delete"),
       expect_question: z.string().optional(),
       reindex: z.boolean().optional(),
+      ...requiredAgentSessionIdField,
       site: z.string().optional(),
     },
-    async ({ database, index, confirm, expect_question, reindex, site }) => {
+    async ({ database, index, confirm, expect_question, reindex, agent_session_id, site }) => {
       const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
@@ -1311,7 +1309,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${index}${siteQuery(domain)}`;
         const res = await fetch(url, {
           method: "DELETE",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
         });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
@@ -1374,9 +1372,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         .boolean()
         .optional()
         .describe("Update only: false/omit → preview; true → execute. Ignored on create."),
+      ...requiredAgentSessionIdField,
       site: z.string().optional(),
     },
-    async ({ database, config, confirm, site }) => {
+    async ({ database, config, confirm, agent_session_id, site }) => {
       const denied = await requireManageCap(mcpToken);
       if (denied) return denied;
 
@@ -1429,7 +1428,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases${siteQuery(domain)}`;
           const res = await fetch(url, {
             method: "POST",
-            headers: internalHeaders(mcpToken),
+            headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
             body: JSON.stringify({ slug: database, config }),
           });
           const data = (await res.json()) as Record<string, unknown>;
@@ -1516,7 +1515,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/config${siteQuery(domain)}`;
         const res = await fetch(url, {
           method: "PUT",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
           body: JSON.stringify(merged),
         });
         const data = (await res.json()) as Record<string, unknown>;
@@ -1568,9 +1567,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       "Call after item CRUD, or after create_or_update_database patches that enable/change vector_search, so semantic search includes new/changed rows.",
     {
       database: z.string(),
+      ...requiredAgentSessionIdField,
       site: z.string().optional(),
     },
-    async ({ database, site }) => {
+    async ({ database, agent_session_id, site }) => {
       const denied = await requireManageCap(mcpToken);
       if (denied) return denied;
 
@@ -1588,7 +1588,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/reindex${siteQuery(domain)}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
         });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {

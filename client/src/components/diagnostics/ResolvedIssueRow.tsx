@@ -30,7 +30,7 @@ export type ResolvedArchiveRow = {
   file?: string;
   resolvedAt: string;
   resolvedBy: string;
-  actor?: { type: "ui" | "mcp"; client?: string; model?: string };
+  actor?: { type: "ui" | "mcp"; client?: string; model?: string; role?: string };
   report?: string;
   reopenedAt?: string;
   agent_session_id?: string;

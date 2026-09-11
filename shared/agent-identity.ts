@@ -16,11 +16,24 @@ export type AgentActorLike = {
 
 export const LEGACY_UNKNOWN_ROLE = "unknown";
 
+/** OAuth client bucket when the connector did not register a display name. */
+export const UNKNOWN_MCP_CLIENT = "unknown-client";
+
+/** Idle window: no events of any type → session fully expired (not open; mutates fail). */
+export const AGENT_SESSION_IDLE_MS = 24 * 60 * 60 * 1000;
+
 /** Staff-facing path to pick a role connector. */
 export const ROLE_CONNECTOR_UI_HINT =
   "Private → MCP Server → Connection → choose a role (e.g. Copy Editor) → Choose this Role. " +
   "Reconnect to a role URL such as /mcp/role/copy_editor (local example: http://localhost:3001/mcp/role/copy_editor). " +
   "Plain /mcp is read-only.";
+
+/** Normalize OAuth client name for open-session scope (blank → unknown-client). */
+export function normalizeMcpClientName(client: unknown): string {
+  if (typeof client !== "string") return UNKNOWN_MCP_CLIENT;
+  const trimmed = client.trim();
+  return trimmed || UNKNOWN_MCP_CLIENT;
+}
 
 /**
  * Exact model must be provider/model (contains `/`), not a family label like `claude`.
@@ -86,14 +99,29 @@ export function isStaffUiActor(actor?: AgentActorLike | null): boolean {
   return !actor || actor.type === "ui";
 }
 
+/**
+ * MCP display subject: prefer exact model, then optional family label, then client.
+ * Appends ` as {role}` only when role is known (not legacy unknown).
+ */
+export function formatMcpActorSubject(
+  actor: AgentActorLike,
+  opts?: { familyLabel?: string | null },
+): string | null {
+  if (actor.type !== "mcp") return null;
+  const model = actor.model?.trim();
+  const client = actor.client?.trim();
+  const family = opts?.familyLabel?.trim();
+  const role = normalizeAgentRole(actor.role);
+  const roleBit = role && role !== LEGACY_UNKNOWN_ROLE ? ` as ${role}` : "";
+  const via = model || family || client || "MCP";
+  return `${via}${roleBit}`;
+}
+
 export function formatAgentActorSuffix(actor?: AgentActorLike | null): string {
   if (!actor) return "";
   if (actor.type === "mcp") {
-    const via = actor.client?.trim() || "MCP";
-    const role = actor.role?.trim() || LEGACY_UNKNOWN_ROLE;
-    const model = actor.model?.trim();
-    // Staff display: username · role · exact/model · via client
-    return ` · ${role}${model ? ` · ${model}` : ""} · via ${via}`;
+    const subject = formatMcpActorSubject(actor);
+    return subject ? ` · via ${subject}` : "";
   }
   if (actor.type === "system") {
     return ` · via ${actor.source?.trim() || "system"}`;
@@ -182,7 +210,80 @@ export function missingExactModelPayload(toolName: string): {
     code: "exact_model_required",
     tool: toolName,
     message:
-      `Mutating tool '${toolName}' requires an exact versioned model (provider/model), e.g. claude/sonnet-4.5. ` +
-      `Set MCP_AGENT_MODEL or pass model on the tool / loopback. Family labels like "claude" are rejected.`,
+      `Tool '${toolName}' requires an exact versioned model (provider/model), e.g. claude/sonnet-4.5 or xai/grok-4. ` +
+      `Pass model on agent_session start. Family labels like "claude" or "grok" are rejected.`,
+  };
+}
+
+export function sessionRequiredPayload(toolName: string): {
+  success: false;
+  action_required: "session_required";
+  code: "session_required";
+  message: string;
+  tool: string;
+} {
+  return {
+    success: false,
+    action_required: "session_required",
+    code: "session_required",
+    tool: toolName,
+    message:
+      `Mutating tool '${toolName}' requires agent_session_id. ` +
+      `Call agent_session with action "start" and an exact model (provider/model), then pass the returned agent_session_id on every mutate.`,
+  };
+}
+
+export function sessionUnknownPayload(
+  toolName: string,
+  detail?: string,
+): {
+  success: false;
+  action_required: "session_unknown";
+  code: "session_unknown";
+  message: string;
+  tool: string;
+} {
+  return {
+    success: false,
+    action_required: "session_unknown",
+    code: "session_unknown",
+    tool: toolName,
+    message:
+      detail?.trim() ||
+      `agent_session_id is unknown, closed, idle-expired (24h), or does not match this username/role/client/site. ` +
+        `Call agent_session start again.`,
+  };
+}
+
+export function sessionConflictPayload(open: {
+  agent_session_id: string;
+  model?: string;
+  label?: string;
+  last_activity_at?: number;
+}): {
+  success: false;
+  action_required: "session_conflict";
+  code: "session_conflict";
+  message: string;
+  agent_session_id: string;
+  model?: string;
+  label?: string;
+  last_activity_at?: number;
+} {
+  const modelBit = open.model ? ` (model ${open.model})` : "";
+  const labelBit = open.label ? ` — "${open.label}"` : "";
+  return {
+    success: false,
+    action_required: "session_conflict",
+    code: "session_conflict",
+    agent_session_id: open.agent_session_id,
+    ...(open.model ? { model: open.model } : {}),
+    ...(open.label ? { label: open.label } : {}),
+    ...(typeof open.last_activity_at === "number"
+      ? { last_activity_at: open.last_activity_at }
+      : {}),
+    message:
+      `An open agent session already exists for this username + role + client + site: ${open.agent_session_id}${modelBit}${labelBit}. ` +
+      `Retry agent_session start with resume:true to continue (same model), or force_new:true plus report (min 80 chars) to abandon and start fresh.`,
   };
 }

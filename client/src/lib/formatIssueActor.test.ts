@@ -7,11 +7,11 @@ describe("formatIssueActor", () => {
     expect(formatIssueActorLine("jane.doe", { type: "ui" })).toBe("jane.doe");
   });
 
-  it("shows unknown role when client missing", () => {
-    expect(formatIssueActorLine("jane.doe", { type: "mcp" })).toBe("jane.doe · unknown · via MCP");
+  it("falls back to MCP when client and model missing", () => {
+    expect(formatIssueActorLine("jane.doe", { type: "mcp" })).toBe("jane.doe · via MCP");
   });
 
-  it("shows role, exact model, and client for mcp actor", () => {
+  it("shows via exact model as role when both available", () => {
     expect(
       formatIssueActorLine("jane.doe", {
         type: "mcp",
@@ -19,13 +19,23 @@ describe("formatIssueActor", () => {
         role: "copy_editor",
         model: "claude/sonnet-4.5",
       }),
-    ).toBe("jane.doe · copy_editor · claude/sonnet-4.5 · via Cursor");
+    ).toBe("jane.doe · via claude/sonnet-4.5 as copy_editor");
   });
 
-  it("legacy mcp without role shows unknown", () => {
+  it("omits as-role when role unknown; prefers model over client", () => {
     expect(
       formatIssueActorLine("jane.doe", { type: "mcp", client: "Cursor", model: "claude-4" }),
-    ).toBe("jane.doe · unknown · claude-4 · via Cursor");
+    ).toBe("jane.doe · via claude-4");
+  });
+
+  it("uses client when model missing and includes role when known", () => {
+    expect(
+      formatIssueActorLine("jane.doe", {
+        type: "mcp",
+        client: "Claude",
+        role: "copy_editor",
+      }),
+    ).toBe("jane.doe · via Claude as copy_editor");
   });
 
   it("shows system source suffix", () => {

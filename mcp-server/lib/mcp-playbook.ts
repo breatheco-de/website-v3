@@ -8,13 +8,13 @@ import path from "path";
 import { createHash } from "crypto";
 
 /** Bump when the technical playbook markdown below changes. */
-export const PLAYBOOK_VERSION = "4";
+export const PLAYBOOK_VERSION = "5";
 
 /**
  * Explicit conventions seed version. Bump when editing mcp-server/agent-conventions.md
  * so agents re-fetch skill.content (known_skill_version mismatch).
  */
-export const CONVENTIONS_VERSION = "14";
+export const CONVENTIONS_VERSION = "15";
 
 export const CONVENTIONS_PATH = "mcp-server/agent-conventions.md";
 
@@ -31,14 +31,16 @@ For remote chat agents (Claude.ai, Grok, custom connectors). Conversation style 
 ## Identity (required for writes)
 
 - Connect via a **role URL** (\`/mcp/role/copy_editor\`, etc.) — plain \`/mcp\` is read-only.
-- Set exact \`MCP_AGENT_MODEL\` as \`provider/model\` (e.g. \`claude/sonnet-4.5\`). Family-only labels like \`claude\` fail.
+- Call \`agent_session\` \`start\` with exact \`model\` as \`provider/model\` (e.g. \`claude/sonnet-4.5\` or \`xai/grok-4\`). Family-only labels like \`claude\` fail. There is no \`MCP_AGENT_MODEL\` env.
+- Every mutating tool requires \`agent_session_id\` from that start (no unscoped writes). Sessions are per site; scope is username + role + OAuth client.
+- If an open session already exists for that scope: \`action_required: session_conflict\` — retry with \`resume:true\` (same model) or \`force_new:true\` + report (abandon). Idle 24h fully expires a session.
 - Staff path: Private → MCP Server → Connection → choose a role → reconnect.
 - Ownership / four-eyes = username + role (not model). Exact model is stored for staff observability.
 
 ## Session order
 
 1. Call \`bootstrap_agent\` once near the start of the run (empty args on first call; pass \`site\` when multi-site so conventions brand correctly).
-2. Call \`agent_session\` with \`action: "start"\` — keep \`agent_session_id\` (requires role connector + exact model).
+2. Call \`agent_session\` with \`action: "start"\` + exact \`model\` — keep \`agent_session_id\`.
 3. On every content mutate, pass \`agent_session_id\`, \`why\` (plain English goal), and \`highlights\` when touching big fields (sections, link lists, long text). Server fills simple field values (meta.title, seo.*) for staff. Issue \`complete\` also needs \`why\` + \`highlights\`. Claim/note/summarize still use string \`report\` (min 80).
 4. Prefer one \`agent_session\` \`summarize\` at the end.
 
@@ -61,7 +63,7 @@ Optional \`discovery_path\` (when present) is a research menu to deepen judgment
 ## Depth and stale tools
 
 - Architecture deep-dives → \`explain_site\` topics (overview includes a live products table).
-- Missing \`agent_session_id\` → soft Unscoped warning; write may still succeed.
+- Missing / idle / wrong-scope \`agent_session_id\` → mutate denied (\`session_required\` / \`session_unknown\`) — start again.
 - If tools look missing/stale after a deploy, ask the human to reconnect the MCP connector — agents cannot refresh tools/list mid-session.
 `;
 
