@@ -26,6 +26,7 @@ export const SAFE_EDITOR_TYPES = new Set([
   "number",
   "json",
   "relation",
+  "live_request",
 ]);
 
 const SYSTEM_SPECIALS = new Set([
@@ -53,6 +54,15 @@ export type EditorHint = {
   label?: string;
   multiple?: boolean;
   description?: string;
+  request?: {
+    url?: string;
+    method?: string;
+    query?: Record<string, string>;
+  };
+  response?: {
+    items_path?: string;
+  };
+  on_error?: string;
 };
 
 export type FieldMappingValue = string | { source: string; default: string | null };
@@ -190,6 +200,17 @@ export function validateEditorConfig(
           code: "EDITOR_RELATION_SOURCE_MISSING",
           field,
           message: `editor.${field}: type relation requires a non-empty source (content type or database slug)`,
+        });
+      }
+    }
+    if (type === "live_request") {
+      const url = hint.request?.url;
+      if (!url || typeof url !== "string" || !url.trim()) {
+        issues.push({
+          severity: "error",
+          code: "EDITOR_LIVE_REQUEST_URL_MISSING",
+          field,
+          message: `editor.${field}: type live_request requires request.url`,
         });
       }
     }

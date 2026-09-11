@@ -1,0 +1,87 @@
+name: "Workshop event hero (static preview)"
+description: >-
+  Standalone workshop detail hero with hardcoded copy, seats, host, and LeadForm.
+  No {{ entry.* }} bindings — use this for component preview without a workshop content type.
+yaml: |
+  - type: hero
+    version: "1.0"
+    variant: workshop
+    back_label: Back to workshops
+    back_url: /workshops
+    badge: AI Trends
+    title: >-
+      <span style="font-size: 3.5rem; letter-spacing: -0.02em; line-height: 1.03; font-weight: 800">Back to the Job Search with <em>AI</em></span>
+    description: |
+      Build a real solution live with Marcelo Ricigliano, CEO of 4Geeks Academy.
+
+      Bring your curiosity — no expert skills required.
+    starting_at: "2030-06-15T17:30:00Z"
+    ending_at: "2030-06-15T18:45:00Z"
+    date_icon: Calendar
+    duration_label: 1h 15m
+    duration_suffix: long
+    duration_icon: Clock
+    host_name: Marcelo Ricigliano
+    host_avatar_url: man-profile-headshot-1-0850c276
+    host_bio: CEO and co-founder of 4Geeks Academy.
+    host_heading: Host for this event
+    live_now_label: Live now
+    capacity: 150
+    registered_count: 101
+    seats_remaining: 49
+    seats_copy: 101 people are already registered in this event. 49 more spots available
+    countdown_background_image: /static/videos/bubbles_2.gif
+    registrant_avatars:
+      - woman-profile-headshot-1-608aff01
+      - man-profile-headshot-1-0850c276
+      - woman-profile-headshot-2-a0ea2c29
+      - man-profile-headshot-2-516b72e4
+    fallback_avatars: []
+    form_card_title: Register for this workshop
+    form_card_subtitle: Create an account or log in to save your seat.
+    form_card_disclaimer: No spam. Unsubscribe anytime.
+    form:
+      variant: stacked
+      is_signup: true
+      conversion_name: workshop_registration
+      submit_label: Register
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: false
+          required: false
+      messages:
+        guest:
+          subtitle: Create an account to save your seat
+          submit_label: Register
+        login:
+          subtitle: Log in to save your seat
+          submit_label: Log in
+          back_label: Back to create account
+        incomplete:
+          subtitle: We still need a couple of details
+          submit_label: Continue
+        ready:
+          subtitle: You are registered for this workshop
+          submit_label: Continue
+    calendar_cta:
+      text: Add to calendar
+      variant: primary
+      icon: Calendar
+      items:
+        - name: Google
+          url: "https://calendar.google.com/calendar/render?action=TEMPLATE&text=Demo"
+        - name: Outlook.com
+          url: "https://outlook.live.com/owa/?rru=addevent"
+        - name: Yahoo
+          url: "https://calendar.yahoo.com/?v=60&view=d&type=20"
+    maxWidth:
+      desktop: xl

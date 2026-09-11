@@ -412,7 +412,7 @@ import {
   FixerItemStatus,
 } from "./_helpers";
 import { api } from "../rate-limit/api.js";
-import { resolveRelationsOnEntry } from "../resolve-relations";
+import { hydrateEntryForDelivery } from "../hydrate-entry-delivery";
 import { child } from "../logger";
 const log = child({ module: "routes/content" });
 
@@ -1105,7 +1105,7 @@ export function registerContentRoutes(app: Express): void {
             contentRoot: root,
           });
           if (singleEntry) {
-            singleEntry = await resolveRelationsOnEntry(contentType, singleEntry, {
+            singleEntry = await hydrateEntryForDelivery(contentType, singleEntry, {
               contentRoot: root,
               locale,
               contentIndex: getCI(res),
@@ -1251,7 +1251,7 @@ export function registerContentRoutes(app: Express): void {
       contentRoot: getContentRoot(res),
     });
     if (singleEntry) {
-      singleEntry = await resolveRelationsOnEntry(contentType, singleEntry, {
+      singleEntry = await hydrateEntryForDelivery(contentType, singleEntry, {
         contentRoot: getContentRoot(res),
         locale,
         contentIndex: getCI(res),

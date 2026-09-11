@@ -38,6 +38,7 @@ import {
   resolveTemplateLocalePath,
 } from "./shared-layout-paths";
 import { applyFieldOverridesToItem, readFieldOverrides } from "./field-overrides";
+import { hydrateEntryForDelivery } from "./hydrate-entry-delivery";
 import type { TemplatePage } from "@shared/schema";
 import { ENTRY_OR_SINGLE_KEY_RE } from "@shared/entryTemplateVars";
 import { child } from "./logger";
@@ -542,6 +543,19 @@ export async function loadDatabaseSinglePage(
     applyComponentSectionDefaults(sections as unknown[]);
     applyComponentImageSizes(sections as unknown[]);
 
+    const finalized =
+      finalizeSingleEntryForTemplates(singleItem as Record<string, unknown>, {
+        slug,
+        locale,
+      }) || {};
+    // Live_request + relation hydrate for DB singles (SSR, API, seo-preview).
+    const singleEntry = await hydrateEntryForDelivery(contentType, finalized, {
+      contentRoot: resolvedRoot,
+      locale,
+      db,
+      contentIndex,
+    });
+
     const page: TemplatePage = {
       slug: (merged.slug as string) || slug,
       title: (merged.title as string) || (singleItem.title as string) || slug,
@@ -549,10 +563,7 @@ export async function loadDatabaseSinglePage(
       sections,
       settings: (merged.settings as TemplatePage["settings"]) || undefined,
       schema: (merged.schema as TemplatePage["schema"]) || undefined,
-      singleEntry: finalizeSingleEntryForTemplates(singleItem as Record<string, unknown>, {
-        slug,
-        locale,
-      }),
+      singleEntry,
       perEntryRemovedSections: perEntryRemovedSections.length > 0 ? perEntryRemovedSections : undefined,
     };
 

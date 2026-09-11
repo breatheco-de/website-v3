@@ -293,6 +293,16 @@ export type EditorHint = {
   label?: string;
   /** Allow selecting multiple related entries. */
   multiple?: boolean;
+  /** `live_request`: public GET URL template (`{{ entry.* }}` tokens). */
+  request?: {
+    url?: string;
+    method?: string;
+    query?: Record<string, string>;
+  };
+  response?: {
+    items_path?: string;
+  };
+  on_error?: string;
 };
 
 export type EditorTypeDialogProps = {
@@ -301,6 +311,11 @@ export type EditorTypeDialogProps = {
   initialHint?: EditorHint;
   /** When true, type select is locked to image (DB image-cache mode). */
   lockImageType?: boolean;
+  /**
+   * When false, hide `live_request` (Private Databases — resolve is CT delivery only).
+   * Default true for content-type Fields.
+   */
+  allowLiveRequest?: boolean;
   /**
    * Mapped items (same shape the item editor uses) for the populate/CSV preview.
    * Pass post–field_mapping rows keyed by editor field names.
@@ -351,6 +366,7 @@ export function EditorTypeDialog({
   fieldName,
   initialHint,
   lockImageType = false,
+  allowLiveRequest = true,
   existingItems,
   existingItemsLoading = false,
   onClose,
@@ -375,6 +391,10 @@ export function EditorTypeDialog({
   const [relationLabel, setRelationLabel] = useState("");
   const [relationMultiple, setRelationMultiple] = useState(false);
   const [relationError, setRelationError] = useState<string | null>(null);
+  const [liveRequestUrl, setLiveRequestUrl] = useState("");
+  const [liveRequestItemsPath, setLiveRequestItemsPath] = useState("$");
+  const [liveRequestQueryText, setLiveRequestQueryText] = useState("");
+  const [liveRequestError, setLiveRequestError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showSchemaAiPrompt, setShowSchemaAiPrompt] = useState(false);
   const [schemaAiPrompt, setSchemaAiPrompt] = useState("");
@@ -425,6 +445,14 @@ export function EditorTypeDialog({
     setRelationLabel(hint.label || "");
     setRelationMultiple(hint.multiple ?? false);
     setRelationError(null);
+    setLiveRequestUrl(hint.request?.url || "");
+    setLiveRequestItemsPath(hint.response?.items_path || "$");
+    setLiveRequestQueryText(
+      hint.request?.query && typeof hint.request.query === "object"
+        ? JSON.stringify(hint.request.query, null, 2)
+        : "",
+    );
+    setLiveRequestError(null);
     setShowAdvanced(false);
     setShowSchemaAiPrompt(false);
     setSchemaAiPrompt("");
@@ -587,6 +615,41 @@ export function EditorTypeDialog({
       if (relationMultiple) hint.multiple = true;
       setRelationError(null);
     }
+    if (resolvedType === "live_request") {
+      const url = liveRequestUrl.trim();
+      if (!url) {
+        setLiveRequestError("live_request requires a request URL");
+        return;
+      }
+      let query: Record<string, string> | undefined;
+      const qText = liveRequestQueryText.trim();
+      if (qText) {
+        try {
+          const parsed = JSON.parse(qText) as unknown;
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            setLiveRequestError("query must be a JSON object of string values");
+            return;
+          }
+          query = {};
+          for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+            query[k] = String(v ?? "");
+          }
+        } catch {
+          setLiveRequestError("query must be valid JSON");
+          return;
+        }
+      }
+      hint.request = {
+        url,
+        method: "GET",
+        ...(query && Object.keys(query).length > 0 ? { query } : {}),
+      };
+      hint.response = {
+        items_path: liveRequestItemsPath.trim() || "$",
+      };
+      hint.on_error = "empty";
+      setLiveRequestError(null);
+    }
     if (initialHint?.cache_images) hint.cache_images = true;
     onApply(hint);
   };
@@ -649,6 +712,11 @@ export function EditorTypeDialog({
                 <SelectItem value="tags">multi select — multi-value</SelectItem>
                 <SelectItem value="json">json — structured JSON (schema required)</SelectItem>
                 <SelectItem value="relation">relation — link to content type or database entries</SelectItem>
+                {allowLiveRequest && (
+                  <SelectItem value="live_request">
+                    live_request — fetch URL on page delivery (SSR)
+                  </SelectItem>
+                )}
               </SelectContent>
             </Select>
             {lockImageType && (
@@ -673,6 +741,14 @@ export function EditorTypeDialog({
               <p className="text-[11px] text-muted-foreground" data-testid="text-hint-relation-howto">
                 Stores pointer slug(s) to related entries. Source is a content type or database;
                 options come from <code className="text-foreground">/api/query-options</code>.
+              </p>
+            )}
+            {type === "live_request" && !lockImageType && (
+              <p className="text-[11px] text-muted-foreground" data-testid="text-hint-live-request-howto">
+                On content-type page load (SSR), GETs the URL (supports{" "}
+                <code className="text-foreground">{"{{ entry.id }}"}</code> etc.). Private/internal
+                hosts are blocked. Use Code → Use a function on other fields to derive counts from
+                the result. Not run when refreshing a Private Database cache.
               </p>
             )}
           </div>
@@ -993,6 +1069,57 @@ export function EditorTypeDialog({
                     <code className="text-foreground">server/query-entries.ts</code>
                   </p>
                 </div>
+              )}
+            </div>
+          )}
+          {type === "live_request" && !lockImageType && allowLiveRequest && (
+            <div className="space-y-3" data-testid="live-request-editor-fields">
+              <div className="space-y-1">
+                <Label className="text-xs">Request URL</Label>
+                <input
+                  type="text"
+                  value={liveRequestUrl}
+                  onChange={(e) => {
+                    setLiveRequestUrl(e.target.value);
+                    setLiveRequestError(null);
+                  }}
+                  placeholder="https://…/event/{{ entry.id }}/checkin"
+                  className="w-full text-sm px-3 py-1.5 rounded-md border bg-background font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+                  data-testid="input-hint-live-request-url"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Items path</Label>
+                <input
+                  type="text"
+                  value={liveRequestItemsPath}
+                  onChange={(e) => setLiveRequestItemsPath(e.target.value)}
+                  placeholder="$"
+                  className="w-full text-sm px-3 py-1.5 rounded-md border bg-background font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+                  data-testid="input-hint-live-request-items-path"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Where the list sits in the JSON (<code className="text-foreground">$</code> = root
+                  array, or <code className="text-foreground">results</code>).
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Query (JSON object, optional)</Label>
+                <Textarea
+                  value={liveRequestQueryText}
+                  onChange={(e) => {
+                    setLiveRequestQueryText(e.target.value);
+                    setLiveRequestError(null);
+                  }}
+                  placeholder={'{\n  "foo": "bar"\n}'}
+                  className="text-sm font-mono resize-y min-h-[72px]"
+                  data-testid="textarea-hint-live-request-query"
+                />
+              </div>
+              {liveRequestError && (
+                <p className="text-[11px] text-destructive" data-testid="text-hint-live-request-error">
+                  {liveRequestError}
+                </p>
               )}
             </div>
           )}

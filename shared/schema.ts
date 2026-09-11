@@ -132,6 +132,7 @@ export type {
   HeroCourse,
   HeroApplyFormProductShowcase,
   HeroExercise,
+  HeroWorkshop,
 } from "./component-registry/hero/v1.0/schema";
 
 // HeroCredibility is already exported via the re-export block above

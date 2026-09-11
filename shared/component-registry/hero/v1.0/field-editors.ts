@@ -102,4 +102,16 @@ export const fieldEditors: Record<string, EditorType> = {
   "exercise:stats[].icon": "icon-picker",
   "exercise:form": "form-settings",
   "exercise:form_card_image": "image-with-style-picker",
+
+  // workshop variant
+  "workshop:title": "rich-text-editor:custom-font-size,custom-letter-spacing,custom-line-height,custom-font-weight",
+  "workshop:back_url": "link-picker",
+  "workshop:date_icon": "icon-picker",
+  "workshop:duration_icon": "icon-picker",
+  "workshop:countdown_background_image": "image-picker",
+  "workshop:fallback_avatars[]": "image-picker",
+  "workshop:form": "form-settings",
+  "workshop:calendar_cta": "cta-button",
+  "workshop:calendar_cta.icon": "icon-picker",
+  "workshop:calendar_cta.items[].url": "link-picker",
 };

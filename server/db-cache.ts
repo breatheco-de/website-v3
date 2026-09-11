@@ -27,10 +27,11 @@ export interface CacheStats {
 }
 
 export interface IDatabaseCache {
-  read(dbName: string, ttlHours: number, raw?: boolean): CacheEntry | null;
+  /** @param ttlMinutes Max age in minutes; 0 ≈ always stale on next read. */
+  read(dbName: string, ttlMinutes: number, raw?: boolean): CacheEntry | null;
   write(dbName: string, entry: CacheEntry, raw?: boolean): void;
   clear(dbName: string): void;
-  has(dbName: string, ttlHours: number): boolean;
+  has(dbName: string, ttlMinutes: number): boolean;
   getCacheStats(): CacheStats;
 }
 
@@ -46,14 +47,14 @@ export class JsonFileCache implements IDatabaseCache {
     return path.join(this.cacheDir, `db-${dbName}${suffix}.json`);
   }
 
-  read(dbName: string, ttlHours: number, raw = false): CacheEntry | null {
+  read(dbName: string, ttlMinutes: number, raw = false): CacheEntry | null {
     const filePath = this.cachePath(dbName, raw);
     if (!fs.existsSync(filePath)) return null;
     try {
       const content = fs.readFileSync(filePath, "utf-8");
       const entry = JSON.parse(content) as CacheEntry;
-      const age = (Date.now() - new Date(entry.fetched_at).getTime()) / (1000 * 60 * 60);
-      if (age > ttlHours) return null;
+      const age = (Date.now() - new Date(entry.fetched_at).getTime()) / (1000 * 60);
+      if (age > ttlMinutes) return null;
       return entry;
     } catch {
       return null;
@@ -77,8 +78,8 @@ export class JsonFileCache implements IDatabaseCache {
     if (fs.existsSync(raw)) fs.unlinkSync(raw);
   }
 
-  has(dbName: string, ttlHours: number): boolean {
-    return this.read(dbName, ttlHours) !== null;
+  has(dbName: string, ttlMinutes: number): boolean {
+    return this.read(dbName, ttlMinutes) !== null;
   }
 
   getCacheStats(): CacheStats {
@@ -146,7 +147,7 @@ export class SqliteCache implements IDatabaseCache {
     `);
   }
 
-  read(dbName: string, ttlHours: number, raw = false): CacheEntry | null {
+  read(dbName: string, ttlMinutes: number, raw = false): CacheEntry | null {
     const variant = raw ? "raw" : "";
     const row = this.db
       .prepare(
@@ -157,8 +158,8 @@ export class SqliteCache implements IDatabaseCache {
       | undefined;
 
     if (!row) return null;
-    const age = (Date.now() - new Date(row.fetched_at).getTime()) / (1000 * 60 * 60);
-    if (age > ttlHours) return null;
+    const age = (Date.now() - new Date(row.fetched_at).getTime()) / (1000 * 60);
+    if (age > ttlMinutes) return null;
 
     try {
       const items = JSON.parse(row.payload) as Record<string, unknown>[];
@@ -186,8 +187,8 @@ export class SqliteCache implements IDatabaseCache {
     this.db.prepare("DELETE FROM cache_entries WHERE db_name = ?").run(dbName);
   }
 
-  has(dbName: string, ttlHours: number): boolean {
-    return this.read(dbName, ttlHours) !== null;
+  has(dbName: string, ttlMinutes: number): boolean {
+    return this.read(dbName, ttlMinutes) !== null;
   }
 
   /**

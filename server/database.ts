@@ -12,6 +12,7 @@ import { applyEditorialStampToDbMappedUpdates } from "./editorial-updated-at";
 import { setJobState } from "./db-job-state";
 import type { MediaGallery } from "./media-gallery";
 import { expandEditorFieldTokens } from "@shared/editor-field-values";
+import { resolveCacheTtlMinutes } from "@shared/db-cache-ttl";
 import { child } from "./logger";
 const log = child({ module: "database" });
 
@@ -58,6 +59,8 @@ export interface DatabaseConfig {
     };
   };
   cache?: {
+    ttl_minutes?: number;
+    /** @deprecated Prefer ttl_minutes. */
     ttl_hours?: number;
   };
   field_mapping?: Record<string, string>;
@@ -756,7 +759,7 @@ export class DatabaseManager {
     facets?: Record<string, string[]>;
   }> {
     const config = this.get(name);
-    const ttl = config.cache?.ttl_hours ?? 24;
+    const ttlMinutes = resolveCacheTtlMinutes(config.cache);
 
     if (!forceRefresh) {
       const memEntry = this.memoryCache.get(name);
@@ -765,7 +768,7 @@ export class DatabaseManager {
         return { ...memEntry.data, from_cache: true };
       }
 
-      const cached = this.cache.read(name, ttl);
+      const cached = this.cache.read(name, ttlMinutes);
       if (cached) {
         if (!cached.facets && config.editor) {
           const facets: Record<string, string[]> = {};
@@ -787,7 +790,7 @@ export class DatabaseManager {
         }
         this.memoryCache.set(name, {
           data: cached,
-          expires: Date.now() + ttl * 60 * 60 * 1000,
+          expires: Date.now() + ttlMinutes * 60 * 1000,
         });
         this.scheduleExternalImages(name, config, cached.items);
         return { ...cached, from_cache: true };
@@ -866,7 +869,7 @@ export class DatabaseManager {
     this.cache.write(name, entry);
     this.memoryCache.set(name, {
       data: entry,
-      expires: Date.now() + ttl * 60 * 60 * 1000,
+      expires: Date.now() + ttlMinutes * 60 * 1000,
     });
 
     this.scheduleExternalImages(name, config, items);
@@ -891,8 +894,8 @@ export class DatabaseManager {
 
     const toWarm = names.filter((name) => {
       const config = this.configs.get(name)!;
-      const ttl = config.cache?.ttl_hours ?? 24;
-      return !this.cache.has(name, ttl);
+      const ttlMinutes = resolveCacheTtlMinutes(config.cache);
+      return !this.cache.has(name, ttlMinutes);
     });
 
     if (toWarm.length === 0) {
@@ -977,8 +980,8 @@ export class DatabaseManager {
       return keys.size;
     }
 
-    const ttl = config.cache?.ttl_hours ?? 24;
-    const cached = this.cache.read(name, ttl);
+    const ttlMinutes = resolveCacheTtlMinutes(config.cache);
+    const cached = this.cache.read(name, ttlMinutes);
     if (cached && cached.items.length > 0) {
       const keys = new Set<string>();
       for (const item of cached.items) {
@@ -1056,8 +1059,8 @@ export class DatabaseManager {
 
     const config = this.configs.get(name);
     if (!config) return null;
-    const ttl = config.cache?.ttl_hours ?? 24;
-    const cached = this.cache.read(name, ttl);
+    const ttlMinutes = resolveCacheTtlMinutes(config.cache);
+    const cached = this.cache.read(name, ttlMinutes);
     if (cached) {
       return {
         fetched_at: cached.fetched_at,
@@ -1070,8 +1073,8 @@ export class DatabaseManager {
   countTransformErrors(name: string): number {
     const config = this.configs.get(name);
     if (!config) return 0;
-    const ttl = config.cache?.ttl_hours ?? 24;
-    const cached = this.cache.read(name, ttl);
+    const ttlMinutes = resolveCacheTtlMinutes(config.cache);
+    const cached = this.cache.read(name, ttlMinutes);
     if (!cached) return 0;
     return countTransformErrorsInItems(cached.items);
   }
@@ -1083,10 +1086,10 @@ export class DatabaseManager {
   getRawItems(name: string): Record<string, unknown>[] | null {
     const config = this.configs.get(name);
     if (!config) return null;
-    const ttl = config.cache?.ttl_hours ?? 24;
-    const rawEntry = this.cache.read(name, ttl, true);
+    const ttlMinutes = resolveCacheTtlMinutes(config.cache);
+    const rawEntry = this.cache.read(name, ttlMinutes, true);
     if (rawEntry) return rawEntry.items;
-    const mappedEntry = this.cache.read(name, ttl);
+    const mappedEntry = this.cache.read(name, ttlMinutes);
     if (mappedEntry) return mappedEntry.items;
     return null;
   }
@@ -1094,8 +1097,8 @@ export class DatabaseManager {
   getMappedItems(name: string): Record<string, unknown>[] | null {
     const config = this.configs.get(name);
     if (!config) return null;
-    const ttl = config.cache?.ttl_hours ?? 24;
-    const mappedEntry = this.cache.read(name, ttl);
+    const ttlMinutes = resolveCacheTtlMinutes(config.cache);
+    const mappedEntry = this.cache.read(name, ttlMinutes);
     if (mappedEntry) return mappedEntry.items;
     return null;
   }

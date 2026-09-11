@@ -14,7 +14,7 @@ import {
   type SchemaComponentContext,
 } from "./schema-components";
 import { combinedArticleContentFromSections } from "@shared/reading-time";
-import { resolveRelationsOnEntry } from "./resolve-relations";
+import { hydrateEntryForDelivery } from "./hydrate-entry-delivery";
 import {
   getContentTypeConfig,
   getLocaleKey,
@@ -103,7 +103,7 @@ export async function collectDatabaseRecordSchemas(
 
   record = ensureRecordArticleContent(contentType, { ...record }, locale, contentRoot);
 
-  const hydrated = await resolveRelationsOnEntry(contentType, record, {
+  const hydrated = await hydrateEntryForDelivery(contentType, record, {
     contentRoot,
     locale,
     contentIndex: ci,
