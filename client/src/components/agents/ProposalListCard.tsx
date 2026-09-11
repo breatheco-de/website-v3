@@ -16,6 +16,7 @@ import { proposalStatusUi } from "@/lib/proposalStatusUi";
 import {
   formatProposalRelativeUpdatedAt,
   proposalAttributionLines,
+  proposalCategoryLabel,
   proposalEntryProgress,
 } from "@/lib/proposalCardMeta";
 
@@ -25,6 +26,8 @@ export type ProposalCardData = {
   summary: string;
   kind: string;
   status: string;
+  category?: string;
+  tags?: string[];
   review_mode?: string;
   promote_on_apply?: boolean;
   open_blocker_count?: number;
@@ -36,6 +39,53 @@ export type ProposalCardData = {
   created_at: number;
   updated_at?: number;
 };
+
+/** Category badge + optional tag chips (hide entirely when no tags if only tags requested). */
+export function ProposalCategoryTags({
+  category,
+  tags,
+  maxTags,
+  testIdPrefix,
+}: {
+  category?: string;
+  tags?: string[];
+  /** Cap visible tags; remaining shown as +N. Omit to show all. */
+  maxTags?: number;
+  testIdPrefix?: string;
+}) {
+  const tagList = Array.isArray(tags) ? tags.filter((t) => typeof t === "string" && t.trim()) : [];
+  const visible = maxTags != null ? tagList.slice(0, maxTags) : tagList;
+  const overflow = maxTags != null ? Math.max(0, tagList.length - maxTags) : 0;
+  const showCategory = Boolean(category);
+  if (!showCategory && visible.length === 0) return null;
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1.5"
+      data-testid={testIdPrefix ? `${testIdPrefix}-category-tags` : undefined}
+    >
+      {showCategory ? (
+        <Badge
+          variant="outline"
+          className="font-normal"
+          data-testid={testIdPrefix ? `${testIdPrefix}-category` : undefined}
+        >
+          {proposalCategoryLabel(category!)}
+        </Badge>
+      ) : null}
+      {visible.map((tag) => (
+        <Badge key={tag} variant="outline" className="font-normal font-mono text-[11px]">
+          {tag}
+        </Badge>
+      ))}
+      {overflow > 0 ? (
+        <span className="text-[11px] text-muted-foreground" data-testid={testIdPrefix ? `${testIdPrefix}-tags-more` : undefined}>
+          +{overflow}
+        </span>
+      ) : null}
+    </div>
+  );
+}
 
 /** Dot-separated meta line shared by the proposal list card and detail header. */
 export function ProposalMetaRow({
@@ -190,6 +240,12 @@ export function ProposalListCard({
           {p.summary ? (
             <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{p.summary}</p>
           ) : null}
+          <ProposalCategoryTags
+            category={p.category}
+            tags={p.tags}
+            maxTags={2}
+            testIdPrefix={`proposal-${p.id}`}
+          />
           <ProposalMetaRow items={meta} />
         </div>
       </Card>

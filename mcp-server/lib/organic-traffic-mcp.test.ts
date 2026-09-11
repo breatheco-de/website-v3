@@ -6,15 +6,68 @@ import {
   flattenOpportunityCards,
   normalizePathBatch,
   paginateFlat,
+  resolveAssembleWindow,
   resolveSeriesInclusion,
   seriesIgnoredForQueriesWarning,
+  siteVsPathsSourceWarning,
+  opportunitiesDatesRejectMessage,
   validateBatchSize,
   MAX_ORGANIC_PATHS,
   MAX_ORGANIC_HUBS,
   SERIES_BATCH_MAX,
   OPPORTUNITIES_DEFAULT_LIMIT,
   OPPORTUNITIES_MAX_LIMIT,
+  ORGANIC_MAX_SPAN_DAYS,
 } from "./organic-traffic-mcp";
+
+describe("resolveAssembleWindow", () => {
+  it("rejects span over max with OpenRush hint", () => {
+    const r = resolveAssembleWindow({
+      start: "2026-01-01",
+      end: "2026-06-01",
+    });
+    expect("error" in r).toBe(true);
+    if (!("error" in r)) return;
+    expect(r.error).toContain(String(ORGANIC_MAX_SPAN_DAYS));
+    expect(r.error.toLowerCase()).toContain("openrush");
+  });
+
+  it("hard-fails empty after clamp", () => {
+    const r = resolveAssembleWindow({
+      start: "2099-01-01",
+      end: "2099-01-07",
+    });
+    expect("error" in r).toBe(true);
+    if (!("error" in r)) return;
+    expect(r.error.toLowerCase()).toMatch(/no complete|retry/);
+  });
+
+  it("defaults when both omitted", () => {
+    const r = resolveAssembleWindow({});
+    expect("error" in r).toBe(false);
+    if ("error" in r) return;
+    expect(r.days_expected).toBe(28);
+    expect(r.start <= r.end).toBe(true);
+  });
+});
+
+describe("siteVsPathsSourceWarning", () => {
+  it("names the source mismatch", () => {
+    expect(siteVsPathsSourceWarning().code).toBe("organic_site_vs_paths_source");
+  });
+});
+
+describe("opportunitiesDatesRejectMessage", () => {
+  it("rejects when dates are set", () => {
+    expect(opportunitiesDatesRejectMessage("2026-08-27", "2026-09-02")).toMatch(/decay_window/);
+    expect(opportunitiesDatesRejectMessage("2026-08-27", undefined)).toMatch(/not supported/);
+  });
+
+  it("allows omitting dates", () => {
+    expect(opportunitiesDatesRejectMessage(undefined, undefined)).toBeNull();
+    expect(opportunitiesDatesRejectMessage("", "  ")).toBeNull();
+  });
+});
 
 describe("dedupeStrings", () => {
   it("preserves order and drops duplicates", () => {

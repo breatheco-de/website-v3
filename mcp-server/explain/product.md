@@ -33,10 +33,11 @@ Vague “what is this site about?” → `list_products` then `get_product` on r
 ## Audience
 
 - Minimal: `offer.one_liner`, `offer.who_its_for`, ≥1 persona with `id`, `role`, avatar `fears` (≥1), `internal_dialogue`, `objections` (≥1).
-- Persona **ids are immutable** after create; display `label` is editable.
-- Cannot remove a persona (or demote below minimal) while pages still bind that persona/product in funnel (except program self-page bindings).
+- Persona **ids are immutable while funnel pages bind** them (including the product’s own page if it binds that persona). Creating a persona on the product does **not** bind any page. Rename (remove old id + add new) is allowed when unbound. Duplicate ids on the same product are rejected. Display `label` is always editable.
+- Cannot remove a persona (or demote below minimal) while pages still bind that persona/product in funnel. **No cascade rename** of page `_common.yml` bindings.
 - Purchasable without audience is OK; **specific funnel bindings** require minimal audience. `"all"` hubs never carry personas.
 - `update_product`: preview then `confirm: true`. Cap: `content_edit_structure`.
+- Codes: `persona_in_use`, `duplicate_persona_id`, `last_persona`, `audience_in_use`.
 
 ## Funnel bindings
 

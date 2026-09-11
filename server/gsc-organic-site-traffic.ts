@@ -17,6 +17,7 @@ import {
   type OrganicDayPoint,
   type OrganicSiteTotals,
 } from "./gsc-organic-path-traffic";
+import { inclusiveDaySpan } from "./gsc-organic-window";
 import { getDefaultContentFolder } from "./site-config";
 import { child } from "./logger";
 
@@ -128,15 +129,43 @@ export async function buildSiteOrganicTraffic(opts?: {
   contentRoot?: string;
   contentFolder?: string;
   days?: number;
+  /** Explicit window (both required). When set, overrides trailing `days`. */
+  start?: string;
+  end?: string;
   now?: Date;
   /** Force a BigQuery refresh even if cache is fresh. */
   force?: boolean;
 }): Promise<SiteOrganicTraffic> {
   const folder = opts?.contentFolder || getDefaultContentFolder();
-  const daysExpected = opts?.days ?? ORGANIC_TRAFFIC_WINDOW_DAYS;
-  const expected = completeDataDates(opts?.now);
-  const window = sliceExpectedWindow(expected, daysExpected);
   const status = getGscBigQueryConfigStatus(opts?.contentRoot);
+
+  const hasExplicit =
+    typeof opts?.start === "string" &&
+    opts.start.trim() !== "" &&
+    typeof opts?.end === "string" &&
+    opts.end.trim() !== "";
+
+  let window: { start: string; end: string } | null = null;
+  let daysExpected: number;
+
+  if (hasExplicit) {
+    const start = opts!.start!.trim();
+    const end = opts!.end!.trim();
+    daysExpected = inclusiveDaySpan(start, end);
+    if (!Number.isFinite(daysExpected) || daysExpected < 1 || start > end) {
+      return emptySiteOrganic({
+        window: null,
+        daysExpected: ORGANIC_TRAFFIC_WINDOW_DAYS,
+        configured: status.configured,
+        error: "Invalid start/end window",
+      });
+    }
+    window = { start, end };
+  } else {
+    daysExpected = opts?.days ?? ORGANIC_TRAFFIC_WINDOW_DAYS;
+    const expected = completeDataDates(opts?.now);
+    window = sliceExpectedWindow(expected, daysExpected);
+  }
 
   if (!window) {
     return emptySiteOrganic({

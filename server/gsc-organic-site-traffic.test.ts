@@ -147,4 +147,38 @@ describe("buildSiteOrganicTraffic", () => {
     expect(result.totals.clicks).toBe(5);
     expect(result.error).toMatch(/BQ unavailable/);
   });
+
+  it("uses explicit start/end for BigQuery and cache key", async () => {
+    mockedStatus.mockReturnValue({
+      configured: true,
+      enabled: true,
+      settings: {
+        enabled: true,
+        project_id: "p",
+        dataset_id: "d",
+        location: "US",
+        url_impression_table: "searchdata_url_impression",
+        export_log_table: "ExportLog",
+      },
+      credentials_hint: "",
+      credentials_source: "gcs_json",
+      warnings: [],
+    });
+    mockedQuery.mockResolvedValue([
+      { day: "2026-08-27", clicks: 4, impressions: 40 },
+      { day: "2026-08-28", clicks: 6, impressions: 60 },
+    ]);
+
+    const result = await buildSiteOrganicTraffic({
+      contentFolder: FOLDER,
+      start: "2026-08-27",
+      end: "2026-08-28",
+    });
+
+    expect(mockedQuery).toHaveBeenCalledWith("2026-08-27", "2026-08-28", undefined);
+    expect(result.window).toEqual({ start: "2026-08-27", end: "2026-08-28" });
+    expect(result.days_expected).toBe(2);
+    expect(result.totals.clicks).toBe(10);
+    expect(fs.existsSync(path.join(cacheDir(), "2026-08-27_2026-08-28.json"))).toBe(true);
+  });
 });

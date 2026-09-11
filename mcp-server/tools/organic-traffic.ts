@@ -15,10 +15,12 @@ import {
   assemblePathsMode,
   assembleQueriesMode,
   assembleSiteMode,
+  opportunitiesDatesRejectMessage,
   MAX_ORGANIC_HUBS,
   MAX_ORGANIC_PATHS,
   OPPORTUNITIES_DEFAULT_LIMIT,
   OPPORTUNITIES_MAX_LIMIT,
+  ORGANIC_MAX_SPAN_DAYS,
   QUERIES_DEFAULT_LIMIT,
   QUERIES_MAX_LIMIT,
   QUERIES_DEFAULT_PAGES_PER_QUERY,
@@ -37,8 +39,9 @@ export function registerOrganicTrafficTools(
       "Exclusive mode per call: site | paths | clusters | opportunities | queries. " +
       `paths: 1–${MAX_ORGANIC_PATHS} public paths or absolute URLs (not slugs; deduped). ` +
       `clusters: 1–${MAX_ORGANIC_HUBS} hub ids or pillar paths (deduped; selection_totals = unique paths, not site). ` +
-      "opportunities: flattened work queue with kind (page2|low_ctr|link_gaps|decay|cannibalization|missing_serp), paginated. " +
+      "opportunities: flattened work queue with kind (page2|low_ctr|link_gaps|decay|cannibalization|missing_serp), paginated — do not pass start/end (use decay_window). " +
       `queries: GSC-style query text search (query_contains min ${QUERIES_MIN_CONTAINS_LEN} chars); match contains|equals|starts_with; BigQuery first, day-cache fallback; nested landing pages; selection_totals = all matches in window. ` +
+      `start/end (YYYY-MM-DD, both or neither) for site|paths|clusters|queries; omit for last 28 complete days; max span ${ORGANIC_MAX_SPAN_DAYS}; longer → use OpenRush get_search_performance or specialized SEO APIs. ` +
       "Soft partial for unknown paths/hubs; empty batch fails. market for paths/clusters/queries. " +
       "include_series default false; series for site when requested, or paths/clusters when batch ≤ 5; ignored for queries. " +
       "Read-only — does not backfill days, refresh SERP, or call URL Inspection. " +
@@ -69,11 +72,15 @@ export function registerOrganicTrafficTools(
       start: z
         .string()
         .optional()
-        .describe("queries mode: YYYY-MM-DD. Both start and end required together; omit both for last 28 complete days."),
+        .describe(
+          `site|paths|clusters|queries: YYYY-MM-DD. Both start and end required together; omit both for last 28 complete days. Rejected for opportunities. Max span ${ORGANIC_MAX_SPAN_DAYS}.`,
+        ),
       end: z
         .string()
         .optional()
-        .describe("queries mode: YYYY-MM-DD. Max span 90 days with start."),
+        .describe(
+          `site|paths|clusters|queries: YYYY-MM-DD with start. Max span ${ORGANIC_MAX_SPAN_DAYS}; longer → OpenRush/specialized APIs. Rejected for opportunities.`,
+        ),
       include_series: z
         .boolean()
         .optional()
@@ -152,14 +159,35 @@ export function registerOrganicTrafficTools(
       const siteDomain = site || domain;
 
       try {
+        if (mode === "opportunities") {
+          const datesReject = opportunitiesDatesRejectMessage(start, end);
+          if (datesReject) return fail(datesReject);
+          const result = await assembleOpportunitiesMode({
+            contentRoot: contentPath,
+            contentFolder,
+            decay_window,
+            opportunities_limit,
+            opportunities_offset,
+            marketProvided,
+            site: siteDomain,
+          });
+          return ok(
+            { message: "Organic opportunities", ...result.payload },
+            { warnings: result.warnings, side_effects: [], next_actions: result.next_actions },
+          );
+        }
+
         if (mode === "site") {
           const result = await assembleSiteMode({
             contentRoot: contentPath,
             contentFolder,
             include_series,
             marketProvided,
+            start,
+            end,
             site: siteDomain,
           });
+          if ("error" in result) return fail(result.error);
           return ok(
             { message: "Site organic traffic", ...result.payload },
             { warnings: result.warnings, side_effects: [], next_actions: result.next_actions },
@@ -176,6 +204,8 @@ export function registerOrganicTrafficTools(
             paths,
             market: marketProvided ? market!.trim() : undefined,
             include_series,
+            start,
+            end,
             site: siteDomain,
           });
           if ("error" in result) return fail(result.error);
@@ -195,6 +225,8 @@ export function registerOrganicTrafficTools(
             hub_ids,
             market: marketProvided ? market!.trim() : undefined,
             include_series,
+            start,
+            end,
             site: siteDomain,
           });
           if ("error" in result) return fail(result.error);
@@ -229,20 +261,7 @@ export function registerOrganicTrafficTools(
           );
         }
 
-        // opportunities
-        const result = await assembleOpportunitiesMode({
-          contentRoot: contentPath,
-          contentFolder,
-          decay_window,
-          opportunities_limit,
-          opportunities_offset,
-          marketProvided,
-          site: siteDomain,
-        });
-        return ok(
-          { message: "Organic opportunities", ...result.payload },
-          { warnings: result.warnings, side_effects: [], next_actions: result.next_actions },
-        );
+        return fail(`Unknown mode: ${mode}`);
       } catch (e) {
         return fail(`get_organic_traffic failed: ${(e as Error).message}`);
       }

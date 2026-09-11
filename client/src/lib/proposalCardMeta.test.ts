@@ -2,11 +2,23 @@ import { describe, expect, it } from "vitest";
 import {
   formatProposalRelativeUpdatedAt,
   proposalAttributionLines,
+  proposalCategoryLabel,
   proposalEntryProgress,
+  shortProposalId,
 } from "./proposalCardMeta";
 import { PROPOSAL_STATUS_UI, proposalStatusUi } from "./proposalStatusUi";
 
 describe("proposalCardMeta", () => {
+  it("maps category to staff labels", () => {
+    expect(proposalCategoryLabel("content.seo")).toBe("SEO");
+    expect(proposalCategoryLabel("content.field")).toBe("Field");
+    expect(proposalCategoryLabel("other")).toBe("other");
+  });
+
+  it("shortens proposal ids for display", () => {
+    expect(shortProposalId("e6a1b7a7-4001-425c-9dba-eb8e3ad78f25")).toBe("e6a1b7a7…");
+  });
+
   it("formats relative updated_at", () => {
     const now = Date.parse("2026-09-09T20:00:00.000Z");
     expect(formatProposalRelativeUpdatedAt(now, now)).toBe("just now");

@@ -3,7 +3,7 @@
  * Offer and personas render as read-only cards; pencil opens the editor.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
@@ -43,12 +43,16 @@ import {
 
 type PersonaDraft = {
   id: string;
+  /** Non-null when this row exists on the server (id at last hydrate). */
+  savedId: string | null;
   label: string;
   role: string;
   industry_or_context: string;
   demographics: string;
   buying_behavior: string;
+  /** True when funnel pages still bind the saved id — id field disabled. */
   idLocked: boolean;
+  usagePages: PersonaUsagePage[];
   avatar: {
     fears: string;
     internal_dialogue: string;
@@ -56,6 +60,9 @@ type PersonaDraft = {
     aspirational_identity: string;
   };
 };
+
+type PersonaUsagePage = { contentType: string; slug: string; href?: string };
+type PersonaUsageResponse = { persona_id: string; pages: PersonaUsagePage[] };
 
 type AudienceResponse = {
   audience: {
@@ -80,18 +87,21 @@ type AudienceResponse = {
     }>;
   } | null;
   status: "missing" | "minimal" | "complete";
+  persona_usage?: Record<string, { pages: PersonaUsagePage[] }>;
   education?: { summary: string; advanced_paths: string[] };
 };
 
 function emptyPersona(): PersonaDraft {
   return {
     id: "",
+    savedId: null,
     label: "",
     role: "",
     industry_or_context: "",
     demographics: "",
     buying_behavior: "",
     idLocked: false,
+    usagePages: [],
     avatar: {
       fears: "",
       internal_dialogue: "",
@@ -153,15 +163,19 @@ function offerFromApi(offer?: {
 
 function personaFromApi(
   p: NonNullable<NonNullable<AudienceResponse["audience"]>["personas"]>[number],
+  usage?: Record<string, { pages: PersonaUsagePage[] }>,
 ): PersonaDraft {
+  const pages = usage?.[p.id]?.pages ?? [];
   return {
     id: p.id,
+    savedId: p.id,
     label: p.label ?? "",
     role: p.role,
     industry_or_context: p.industry_or_context ?? "",
     demographics: p.demographics ?? "",
     buying_behavior: p.buying_behavior ?? "",
-    idLocked: true,
+    idLocked: pages.length > 0,
+    usagePages: pages,
     avatar: {
       fears: (p.avatar?.fears ?? []).join("\n"),
       internal_dialogue: p.avatar?.internal_dialogue ?? "",
@@ -591,6 +605,7 @@ function PersonaEditor({
   const update = (patch: Partial<PersonaDraft>) => onChange({ ...persona, ...patch });
   const updateAvatar = (patch: Partial<PersonaDraft["avatar"]>) =>
     onChange({ ...persona, avatar: { ...persona.avatar, ...patch } });
+  const usageCount = persona.usagePages.length;
 
   return (
     <div
@@ -623,6 +638,49 @@ function PersonaEditor({
             placeholder="career-changer"
             data-testid={`input-persona-id-${index}`}
           />
+          {persona.idLocked ? (
+            <div className="space-y-1 text-xs text-muted-foreground">
+              <p>
+                Used on {usageCount} funnel {usageCount === 1 ? "page" : "pages"} — change the id
+                only after those pages use another persona or none. Use label for a friendly name
+                anytime.
+              </p>
+              <details className="rounded-md border border-border/60 bg-muted/20 px-2 py-1.5">
+                <summary
+                  className="cursor-pointer select-none text-primary hover:underline"
+                  data-testid={`details-persona-usage-${index}`}
+                >
+                  Show pages
+                </summary>
+                <ul className="mt-1.5 space-y-1 list-none pl-0">
+                  {persona.usagePages.map((page) => {
+                    const label = `${page.contentType}/${page.slug}`;
+                    return (
+                      <li key={label}>
+                        {page.href ? (
+                          <a
+                            href={page.href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-primary underline-offset-2 hover:underline"
+                          >
+                            {label}
+                          </a>
+                        ) : (
+                          <span className="text-foreground">{label}</span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </details>
+            </div>
+          ) : persona.savedId ? (
+            <p className="text-xs text-muted-foreground">
+              No funnel pages bind this persona yet — you can rename the id. Label is the friendly
+              display name.
+            </p>
+          ) : null}
         </div>
         <div className="space-y-1">
           <Label>Label</Label>
@@ -728,6 +786,9 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
   const [personas, setPersonas] = useState<PersonaDraft[]>([]);
   /** Indices currently open in the form editor (new personas start here). */
   const [editingIndices, setEditingIndices] = useState<Set<number>>(new Set());
+  const [pendingRemoveIndex, setPendingRemoveIndex] = useState<number | null>(null);
+  /** Skip hydrating local drafts when we only patch cache after an immediate persona delete. */
+  const skipAudienceHydrateRef = useRef(false);
 
   const { data, isLoading } = useQuery<AudienceResponse>({
     queryKey: [`/api/product/${slug}`],
@@ -736,19 +797,75 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
+    refetchOnMount: "always",
   });
 
   useEffect(() => {
     if (!data) return;
+    if (skipAudienceHydrateRef.current) {
+      skipAudienceHydrateRef.current = false;
+      return;
+    }
     const nextOffer = offerFromApi(data.audience?.offer);
     setOneLiner(nextOffer.oneLiner);
     setWhoFor(nextOffer.whoFor);
     setWhoNot(nextOffer.whoNot);
     // Empty offer starts in the editor; saved offer shows the read-only card.
     setEditingOffer(!isOfferSet(nextOffer));
-    setPersonas((data.audience?.personas ?? []).map(personaFromApi));
+    setPersonas(
+      (data.audience?.personas ?? []).map((p) => personaFromApi(p, data.persona_usage)),
+    );
     setEditingIndices(new Set());
   }, [data]);
+
+  const pendingPersona =
+    pendingRemoveIndex !== null ? (personas[pendingRemoveIndex] ?? null) : null;
+  const savedPersonaCount = data?.audience?.personas?.length ?? 0;
+  const isPendingSaved = Boolean(pendingPersona?.savedId);
+  const isLastSavedPersona = isPendingSaved && savedPersonaCount <= 1;
+  const pendingUsageId = pendingPersona?.savedId?.trim() || pendingPersona?.id?.trim() || "";
+  const shouldFetchUsage =
+    pendingRemoveIndex !== null &&
+    isPendingSaved &&
+    !isLastSavedPersona &&
+    Boolean(pendingUsageId);
+
+  const {
+    data: usageData,
+    isFetching: usageFetching,
+    isError: usageError,
+    refetch: refetchUsage,
+  } = useQuery<PersonaUsageResponse>({
+    queryKey: [
+      `/api/product/${slug}/personas/${pendingUsageId}/usage`,
+      pendingUsageId,
+    ],
+    queryFn: async () => {
+      if (!pendingUsageId) throw new Error("Missing persona id");
+      const res = await apiRequest(
+        "GET",
+        `/api/product/${slug}/personas/${encodeURIComponent(pendingUsageId)}/usage?content_type=program`,
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Could not load persona usage");
+      return json as PersonaUsageResponse;
+    },
+    enabled: shouldFetchUsage,
+    retry: false,
+  });
+
+  const usagePages =
+    usageData?.pages ??
+    (pendingPersona?.usagePages?.length ? pendingPersona.usagePages : []);
+  const usageInUse =
+    shouldFetchUsage &&
+    !usageFetching &&
+    !usageError &&
+    usagePages.length > 0;
+  const usageReady =
+    !isPendingSaved ||
+    isLastSavedPersona ||
+    (shouldFetchUsage && !usageFetching && !usageError && usagePages.length === 0);
 
   const offerDraft: OfferDraft = { oneLiner, whoFor, whoNot };
   const savedOffer = offerFromApi(data?.audience?.offer);
@@ -757,6 +874,13 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      const ids = personas.map((p) => p.id.trim()).filter(Boolean);
+      const dup = ids.find((id, i) => ids.indexOf(id) !== i);
+      if (dup) {
+        throw new Error(
+          `Persona id "${dup}" is used more than once. Each persona needs a unique id.`,
+        );
+      }
       const body = {
         content_type: "program",
         replace_personas: true as const,
@@ -786,7 +910,13 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
       };
       const res = await apiRequest("PUT", `/api/product/${slug}`, body);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Save failed");
+      if (!res.ok) {
+        const err = new Error(json.error || "Save failed") as Error & {
+          code?: string;
+        };
+        err.code = typeof json.code === "string" ? json.code : undefined;
+        throw err;
+      }
       return json;
     },
     onSuccess: () => {
@@ -798,8 +928,76 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
       setEditingIndices(new Set());
       toast({ title: "Audience saved" });
     },
-    onError: (err: Error) => {
+    onError: (err: Error & { code?: string }) => {
+      if (err.code === "persona_in_use" || err.code === "duplicate_persona_id") {
+        void queryClient.invalidateQueries({ queryKey: [`/api/product/${slug}`] });
+      }
       toast({ title: "Could not save audience", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deletePersonaMutation = useMutation({
+    mutationFn: async (personaId: string) => {
+      const res = await apiRequest("PUT", `/api/product/${slug}`, {
+        content_type: "program",
+        clear_personas: [personaId],
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        const pages = (json.details as { pages?: PersonaUsagePage[] } | undefined)?.pages;
+        const pageHint =
+          Array.isArray(pages) && pages.length > 0
+            ? ` Pages: ${pages.map((p) => `${p.contentType}/${p.slug}`).slice(0, 5).join(", ")}`
+            : "";
+        throw new Error(`${json.error || "Could not remove persona"}${pageHint}`);
+      }
+      return { json, personaId };
+    },
+    onSuccess: ({ personaId }) => {
+      skipAudienceHydrateRef.current = true;
+      setPersonas((prev) => {
+        const idx = prev.findIndex((p) => p.savedId === personaId);
+        if (idx < 0) return prev.filter((p) => p.savedId !== personaId && p.id !== personaId);
+        setEditingIndices((eds) => {
+          const next = new Set<number>();
+          for (const i of eds) {
+            if (i === idx) continue;
+            next.add(i > idx ? i - 1 : i);
+          }
+          return next;
+        });
+        return prev.filter((_, i) => i !== idx);
+      });
+      queryClient.setQueryData<AudienceResponse>([`/api/product/${slug}`], (old) => {
+        if (!old) return old;
+        const nextPersonas = (old.audience?.personas ?? []).filter((p) => p.id !== personaId);
+        const nextUsage = { ...(old.persona_usage ?? {}) };
+        delete nextUsage[personaId];
+        if (!old.audience) {
+          return { ...old, audience: { personas: nextPersonas }, persona_usage: nextUsage };
+        }
+        return {
+          ...old,
+          audience: {
+            ...old.audience,
+            personas: nextPersonas,
+          },
+          persona_usage: nextUsage,
+        };
+      });
+      void queryClient.invalidateQueries({ queryKey: ["/api/ecommerce/product-map"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/ecommerce/products"] });
+      void queryClient.invalidateQueries({ queryKey: [`/api/ecommerce/funnel/${slug}`] });
+      setPendingRemoveIndex(null);
+      toast({ title: "Persona removed" });
+    },
+    onError: (err: Error) => {
+      void queryClient.invalidateQueries({ queryKey: [`/api/product/${slug}`] });
+      toast({
+        title: "Could not remove persona",
+        description: err.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -876,12 +1074,14 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
           ...prev,
           {
             id: p.id,
+            savedId: null,
             label: p.label ?? "",
             role: p.role,
             industry_or_context: p.industry_or_context ?? "",
             demographics: p.demographics ?? "",
             buying_behavior: p.buying_behavior ?? "",
             idLocked: false,
+            usagePages: [],
             avatar: {
               fears: (p.avatar.fears ?? []).join("\n"),
               internal_dialogue: p.avatar.internal_dialogue ?? "",
@@ -918,6 +1118,27 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
     });
   };
 
+  const requestRemovePersona = (idx: number) => {
+    setPendingRemoveIndex(idx);
+  };
+
+  const confirmPendingRemove = () => {
+    const persona = pendingRemoveIndex !== null ? personas[pendingRemoveIndex] : null;
+    if (!persona) {
+      setPendingRemoveIndex(null);
+      return;
+    }
+    if (!persona.savedId) {
+      removePersona(pendingRemoveIndex!);
+      setPendingRemoveIndex(null);
+      return;
+    }
+    if (isLastSavedPersona || usageInUse || !usageReady || usageError) return;
+    const id = persona.savedId.trim();
+    if (!id) return;
+    deletePersonaMutation.mutate(id);
+  };
+
   const cancelOfferEdit = () => {
     const restored = offerFromApi(data?.audience?.offer);
     setOneLiner(restored.oneLiner);
@@ -931,14 +1152,14 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
     if (!current) return;
 
     // Brand-new / unsaved persona: discard it entirely.
-    if (!current.idLocked) {
+    if (!current.savedId) {
       removePersona(idx);
       return;
     }
 
-    const saved = (data?.audience?.personas ?? []).find((p) => p.id === current.id);
+    const saved = (data?.audience?.personas ?? []).find((p) => p.id === current.savedId);
     if (saved) {
-      const restored = personaFromApi(saved);
+      const restored = personaFromApi(saved, data?.persona_usage);
       setPersonas((prev) => prev.map((p, i) => (i === idx ? restored : p)));
     }
     setEditingIndices((prev) => {
@@ -996,16 +1217,20 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
                   and at least one persona with fears, internal dialogue, and objections filled in.
                 </p>
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  After you create a persona, its id stays fixed so pages that already point at it
-                  keep working. You also can&apos;t strip the audience down below what live pages
-                  still need while those pages are bound to it.
+                  The persona <span className="font-medium text-foreground">id</span> is what funnel
+                  pages use. You can rename it only when no page binds that persona yet (creating a
+                  persona here does not bind any page). Use{" "}
+                  <span className="font-medium text-foreground">label</span> for the friendly name
+                  anytime. You also can&apos;t strip the audience below what live pages still need
+                  while those pages are bound.
                 </p>
                 <details className="text-[11px] text-muted-foreground">
                   <summary className="cursor-pointer select-none text-xs text-primary hover:underline">
                     Under the hood
                   </summary>
                   <div className="mt-1.5 space-y-1 font-mono leading-snug">
-                    <p>programs/{slug}/_product.yml → offer, personas[].avatar</p>
+                    <p>programs/{slug}/_product.yml → offer, personas[].id / avatar</p>
+                    <p>page _common.yml → funnel.products[].persona (no cascade rename)</p>
                     <p>
                       Minimal: offer.one_liner, offer.who_its_for, ≥1 persona with fears, dialogue,
                       objections
@@ -1110,29 +1335,138 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
           {personas.map((p, idx) =>
             editingIndices.has(idx) ? (
               <PersonaEditor
-                key={p.idLocked ? p.id : `new-${idx}`}
+                key={p.savedId ?? `new-${idx}`}
                 persona={p}
                 index={idx}
                 onChange={(next) =>
                   setPersonas((prev) => prev.map((x, i) => (i === idx ? next : x)))
                 }
                 onCancel={() => cancelPersonaEdit(idx)}
-                onRemove={() => removePersona(idx)}
+                onRemove={() => requestRemovePersona(idx)}
                 isSaving={saveMutation.isPending}
                 onSave={() => saveMutation.mutate()}
               />
             ) : (
               <PersonaReadOnlyCard
-                key={p.idLocked ? p.id : `new-${idx}`}
+                key={p.savedId ?? `new-${idx}`}
                 persona={p}
                 index={idx}
                 onEdit={() => startEditing(idx)}
-                onRemove={() => removePersona(idx)}
+                onRemove={() => requestRemovePersona(idx)}
               />
             ),
           )}
         </div>
       </div>
+
+      <AlertDialog
+        open={pendingRemoveIndex !== null}
+        onOpenChange={(open) => {
+          if (!open && !deletePersonaMutation.isPending) setPendingRemoveIndex(null);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-remove-persona">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {isLastSavedPersona
+                ? "Keep at least one persona"
+                : usageInUse
+                  ? "Persona is still in use"
+                  : usageError && isPendingSaved
+                    ? "Could not verify usage"
+                    : `Remove ${pendingPersona ? personaDisplayName(pendingPersona, pendingRemoveIndex ?? 0) : "persona"}?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                {isLastSavedPersona ? (
+                  <p>
+                    This is the only persona on the product. Add another persona and save it first,
+                    or edit this one instead of deleting it.
+                  </p>
+                ) : usageError && isPendingSaved ? (
+                  <p>
+                    Could not verify whether landings still use this persona. Retry before removing.
+                  </p>
+                ) : usageInUse ? (
+                  <>
+                    <p>
+                      This persona is still used on funnel landings. Open each page and change or
+                      remove the binding under Funnel first.
+                    </p>
+                    <ul className="space-y-1.5 list-none pl-0">
+                      {usagePages.map((page) => {
+                        const label = `${page.contentType}/${page.slug}`;
+                        return (
+                          <li key={label} className="text-sm">
+                            {page.href ? (
+                              <a
+                                href={page.href}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-primary underline-offset-2 hover:underline"
+                              >
+                                {label}
+                              </a>
+                            ) : (
+                              <span className="text-foreground">{label}</span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <p className="text-xs">
+                      On the page, open Funnel in the staff bubble to change the product+persona
+                      binding.
+                    </p>
+                  </>
+                ) : isPendingSaved ? (
+                  <p>
+                    Remove this persona from the product now? This does not change page copy or
+                    funnel bindings, and does not save other unsaved audience edits.
+                  </p>
+                ) : (
+                  <p>Discard this unsaved persona from the list?</p>
+                )}
+                {shouldFetchUsage && usageFetching ? (
+                  <p className="flex items-center gap-2 text-xs">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                    Checking funnel landings…
+                  </p>
+                ) : null}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletePersonaMutation.isPending}>Cancel</AlertDialogCancel>
+            {usageError && isPendingSaved && !isLastSavedPersona ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void refetchUsage()}
+                data-testid="button-retry-persona-usage"
+              >
+                Retry
+              </Button>
+            ) : null}
+            {!isLastSavedPersona && !usageInUse && !(usageError && isPendingSaved) ? (
+              <AlertDialogAction
+                disabled={
+                  deletePersonaMutation.isPending ||
+                  (isPendingSaved && (usageFetching || !usageReady))
+                }
+                onClick={(e) => {
+                  e.preventDefault();
+                  confirmPendingRemove();
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                data-testid="button-confirm-remove-persona"
+              >
+                {deletePersonaMutation.isPending ? "Removing…" : "Remove"}
+              </AlertDialogAction>
+            ) : null}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

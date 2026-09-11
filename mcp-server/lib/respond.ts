@@ -26,10 +26,49 @@ export type McpSideEffect = {
   paths?: string[];
 };
 
+/** Optional research menu — deepen judgment before a consequential next step (≠ next_actions). */
+export type DiscoveryPathThinkItem = {
+  kind: "think";
+  id: string;
+  title: string;
+  why: string;
+  look_for: string[];
+};
+
+export type DiscoveryPathToolItem = {
+  kind: "tool";
+  id: string;
+  tool: string;
+  why: string;
+  look_for: string[];
+  available: boolean;
+  /** When available === false: ask human to enable access, then refresh MCP. */
+  hint?: string;
+};
+
+export type DiscoveryPathItem = DiscoveryPathThinkItem | DiscoveryPathToolItem;
+
+export type DiscoveryPath = {
+  goal: string;
+  /** Prefer think items first, then tool items. */
+  items: DiscoveryPathItem[];
+  non_effects: string[];
+};
+
 export type McpTextResult = {
   content: [{ type: "text"; text: string }];
   isError?: true;
 };
+
+/** Assert tool names appear in the MCP tool catalog (next_actions / discovery tool items). */
+export function assertCatalogToolNames(
+  toolNames: string[],
+  catalogNames: ReadonlySet<string> | readonly string[],
+): { ok: true } | { ok: false; unknown: string[] } {
+  const set = catalogNames instanceof Set ? catalogNames : new Set(catalogNames);
+  const unknown = [...new Set(toolNames.filter((t) => !set.has(t)))];
+  return unknown.length === 0 ? { ok: true } : { ok: false, unknown };
+}
 
 function textResult(payload: Record<string, unknown>, isError?: true): McpTextResult {
   const result: McpTextResult = {

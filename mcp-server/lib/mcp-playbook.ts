@@ -8,13 +8,13 @@ import path from "path";
 import { createHash } from "crypto";
 
 /** Bump when the technical playbook markdown below changes. */
-export const PLAYBOOK_VERSION = "2";
+export const PLAYBOOK_VERSION = "3";
 
 /**
  * Explicit conventions seed version. Bump when editing mcp-server/agent-conventions.md
  * so agents re-fetch skill.content (known_skill_version mismatch).
  */
-export const CONVENTIONS_VERSION = "11";
+export const CONVENTIONS_VERSION = "12";
 
 export const CONVENTIONS_PATH = "mcp-server/agent-conventions.md";
 
@@ -38,6 +38,7 @@ For remote chat agents (Claude.ai, Grok, custom connectors). Conversation style 
 ## Envelopes
 
 Honor \`warnings\`, \`side_effects\`, and \`next_actions\`. \`next_actions[].tool\` must be a real registered MCP tool — never invent tools.
+Optional \`discovery_path\` (when present) is a research menu to deepen judgment before a consequential step — not \`next_actions\`, not a gate; skip is allowed.
 
 ## Multi-site and layout
 

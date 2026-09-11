@@ -231,7 +231,7 @@ export function registerProductTools(
     "update_product",
     "Patch product sidecar offer, personas, name, description, product_id (preview unless confirm:true). " +
       "Cannot set purchasable or actively_selling — those are human Store decisions; use propose_change notes. " +
-      "Persona ids immutable after create; cannot remove while pages bind. Requires content_edit_structure.",
+      "Persona ids immutable while funnel pages bind (incl. product self if bound); rename OK when unbound; duplicate ids rejected. Cannot remove while pages bind. Requires content_edit_structure.",
     {
       slug: z.string(),
       content_type: z.string().optional().describe("Default program"),
@@ -359,6 +359,42 @@ export function registerProductTools(
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
           const code = data.code as string | undefined;
+          if (code === "last_persona") {
+            return actionRequired(
+              {
+                action_required: "keep_one_persona",
+                message:
+                  (data.error as string) ||
+                  "The product must keep at least one persona. Add another first, or edit the existing one.",
+                details: data.details,
+              },
+              [
+                {
+                  tool: "get_product",
+                  args_hint: { slug: args.slug },
+                  reason: "Review current personas before removing",
+                },
+              ],
+            );
+          }
+          if (code === "duplicate_persona_id") {
+            return actionRequired(
+              {
+                action_required: "fix_duplicate_persona_id",
+                message:
+                  (data.error as string) ||
+                  "Each persona on a product needs a unique id.",
+                details: data.details,
+              },
+              [
+                {
+                  tool: "get_product",
+                  args_hint: { slug: args.slug },
+                  reason: "Review persona ids before retrying",
+                },
+              ],
+            );
+          }
           if (code === "persona_in_use" || code === "audience_in_use") {
             return actionRequired(
               {

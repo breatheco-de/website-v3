@@ -75,6 +75,7 @@ import {
   ProposalListCard,
   ProposalListCardSkeleton,
   ProposalMetaRow,
+  ProposalCategoryTags,
 } from "@/components/agents/ProposalListCard";
 import { ProposalFieldDiff } from "@/components/agents/ProposalFieldDiff";
 import { EntryActivityBadge } from "@/components/pipeline/EntryActivityBadge";
@@ -88,14 +89,16 @@ import { apiFetch, apiRequestWithAuth } from "@/lib/queryClient";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { proposalStatusUi } from "@/lib/proposalStatusUi";
 import {
   formatProposalRelativeUpdatedAt,
   proposalAttributionLines,
   proposalEntryProgress,
+  shortProposalId,
 } from "@/lib/proposalCardMeta";
-import {
+import { McpCopyButton } from "@/components/mcp/McpSetupUi";import {
   PROPOSAL_KIND_OPTIONS,
   PROPOSAL_SORT_PRESETS,
   PROPOSAL_STATUS_OPTIONS,
@@ -112,6 +115,8 @@ import {
 } from "@/pages/proposals-list-filters";
 
 export const AGENTS_PROPOSALS_BASE = "/private/agents/proposals";
+
+const REJECT_UNDO_MS = 10_000;
 
 function proposalsListHref(search: string): string {
   const qs = search.startsWith("?") ? search.slice(1) : search;
@@ -146,6 +151,8 @@ type Proposal = {
   summary: string;
   kind: string;
   status: string;
+  category?: string;
+  tags?: string[];
   review_mode?: string;
   promote_on_apply?: boolean;
   open_blocker_count?: number;
@@ -931,9 +938,13 @@ export function ProposalDetailPanel({ id }: { id: string }) {
   const [closeOpen, setCloseOpen] = useState(false);
   const [closeReason, setCloseReason] = useState<ProposalCloseReasonValue>("wont_fix");
   const [closeNote, setCloseNote] = useState("");
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectPending, setRejectPending] = useState(false);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const addBlockerFormRef = useRef<HTMLDivElement>(null);
   const addBlockerInputRef = useRef<HTMLTextAreaElement>(null);
+  const rejectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rejectToastDismissRef = useRef<(() => void) | null>(null);
 
   const scrollToAskForChanges = () => {
     addBlockerFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -984,6 +995,54 @@ export function ProposalDetailPanel({ id }: { id: string }) {
       }
     },
   });
+  const mutRef = useRef(mut);
+  mutRef.current = mut;
+
+  const clearPendingReject = () => {
+    if (rejectTimerRef.current) {
+      clearTimeout(rejectTimerRef.current);
+      rejectTimerRef.current = null;
+    }
+    rejectToastDismissRef.current?.();
+    rejectToastDismissRef.current = null;
+    setRejectPending(false);
+  };
+
+  const undoReject = () => {
+    if (!rejectTimerRef.current) return;
+    clearPendingReject();
+    toast({
+      title: "Rejection cancelled",
+      description: "The proposal is still open for review.",
+    });
+  };
+
+  const scheduleReject = () => {
+    clearPendingReject();
+    setRejectOpen(false);
+    setRejectPending(true);
+    const rejectToast = toast({
+      title: "Rejecting proposal…",
+      description: "Undo within 10 seconds to keep it open.",
+      duration: REJECT_UNDO_MS,
+      action: (
+        <ToastAction
+          altText="Undo rejection"
+          onClick={undoReject}
+          data-testid="toast-undo-reject-proposal"
+        >
+          Undo
+        </ToastAction>
+      ),
+    });
+    rejectToastDismissRef.current = rejectToast.dismiss;
+    rejectTimerRef.current = setTimeout(() => {
+      rejectTimerRef.current = null;
+      rejectToastDismissRef.current = null;
+      setRejectPending(false);
+      mutRef.current.mutate({ action: "reject" });
+    }, REJECT_UNDO_MS);
+  };
 
   const p = data?.proposal;
   const mode = p ? reviewModeBadge(p) : null;
@@ -1136,6 +1195,22 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                   ) : null}
                 </div>
                 <h2 className="text-xl font-semibold leading-tight tracking-tight">{p.title}</h2>
+                <div
+                  className="flex flex-wrap items-center gap-2"
+                  data-testid="proposal-identity-row"
+                >
+                  <ProposalCategoryTags
+                    category={p.category}
+                    tags={p.tags}
+                    testIdPrefix="proposal-detail"
+                  />
+                  <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+                    <span className="font-mono" data-testid="text-proposal-short-id" title={p.id}>
+                      {shortProposalId(p.id)}
+                    </span>
+                    <McpCopyButton text={p.id} testId="button-copy-proposal-id" />
+                  </span>
+                </div>
                 {p.kind === "edits" && p.entries.length > 0 ? (
                   <div
                     className="flex flex-wrap items-center gap-1.5"
@@ -1216,7 +1291,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                       setActivityAck(false);
                       setApplyOpen(true);
                     }}
-                    disabled={mut.isPending || blockersOpen || Boolean(p.recent_activity_error)}
+                    disabled={mut.isPending || rejectPending || blockersOpen || Boolean(p.recent_activity_error)}
                     data-testid="button-apply-proposal"
                   >
                     <IconCheck className="h-4 w-4" aria-hidden />
@@ -1226,7 +1301,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                 {showPrimaryNotes ? (
                   <Button
                     onClick={() => setCloseOpen(true)}
-                    disabled={mut.isPending}
+                    disabled={mut.isPending || rejectPending}
                     data-testid="button-close-proposal"
                   >
                     <IconX className="h-4 w-4" aria-hidden />
@@ -1242,7 +1317,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                         body: { report: "Released after review work. ".repeat(4) },
                       })
                     }
-                    disabled={mut.isPending}
+                    disabled={mut.isPending || rejectPending}
                     data-testid="button-release-proposal"
                   >
                     <IconLockOpen className="h-4 w-4" aria-hidden />
@@ -1252,7 +1327,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                   <Button
                     variant="outline"
                     onClick={() => setClaimOpen(true)}
-                    disabled={mut.isPending}
+                    disabled={mut.isPending || rejectPending}
                     data-testid="button-claim-proposal"
                   >
                     <IconLock className="h-4 w-4" aria-hidden />
@@ -1263,7 +1338,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                   <Button
                     variant="outline"
                     onClick={scrollToAskForChanges}
-                    disabled={mut.isPending}
+                    disabled={mut.isPending || rejectPending}
                     data-testid="button-ask-for-changes"
                   >
                     <IconMessage className="h-4 w-4" aria-hidden />
@@ -1273,19 +1348,19 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                 {showReject ? (
                   <Button
                     variant="outline"
-                    onClick={() => mut.mutate({ action: "reject" })}
-                    disabled={mut.isPending}
+                    onClick={() => setRejectOpen(true)}
+                    disabled={mut.isPending || rejectPending}
                     data-testid="button-reject-proposal"
                   >
                     <IconCircleX className="h-4 w-4 text-destructive" aria-hidden />
-                    Reject Completely
+                    {rejectPending ? "Rejecting…" : "Reject Completely"}
                   </Button>
                 ) : null}
                 {showWithdraw ? (
                   <Button
                     variant="outline"
                     onClick={() => mut.mutate({ action: "withdraw" })}
-                    disabled={mut.isPending}
+                    disabled={mut.isPending || rejectPending}
                     data-testid="button-withdraw-proposal"
                   >
                     <IconBan className="h-4 w-4" aria-hidden />
@@ -1313,6 +1388,26 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                 Other versions still have traffic. Confirming will remove those traffic-bearing
                 variants when this draft goes live.
               </p>
+            </div>
+          ) : null}
+
+          {rejectPending ? (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm"
+              data-testid="banner-reject-pending"
+            >
+              <p className="text-destructive">
+                Rejecting this proposal… You can undo for 10 seconds. Live content stays as it is.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={undoReject}
+                data-testid="button-undo-reject-proposal"
+              >
+                Undo
+              </Button>
             </div>
           ) : null}
 
@@ -1864,6 +1959,50 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                   data-testid="button-confirm-claim-proposal"
                 >
                   Claim
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog
+            open={rejectOpen}
+            onOpenChange={(open) => {
+              if (rejectPending) return;
+              setRejectOpen(open);
+            }}
+          >
+            <AlertDialogContent data-testid="dialog-reject-proposal">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reject this proposal completely?</AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div className="space-y-2 text-sm text-muted-foreground">
+                    <p>
+                      Rejecting closes this proposal. It leaves the open list and will no longer wait
+                      for Approve.
+                    </p>
+                    <p>
+                      The live site does not change from this action. Entries already applied earlier
+                      stay as they are — reject does not roll those back.
+                    </p>
+                    <p>
+                      After you confirm, you have 10 seconds to undo before the rejection is final.
+                    </p>
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel data-testid="button-cancel-reject-proposal">
+                  Cancel
+                </AlertDialogCancel>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={mut.isPending || rejectPending}
+                  onClick={scheduleReject}
+                  data-testid="button-confirm-reject-proposal"
+                >
+                  <IconCircleX className="h-4 w-4" aria-hidden />
+                  Reject completely
                 </Button>
               </AlertDialogFooter>
             </AlertDialogContent>

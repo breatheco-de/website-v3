@@ -37,6 +37,10 @@ conventions only.
 
 ## Conventions
 
+### 0. Mutate education vs optional discovery
+
+After writes, trust structured \`warnings\` / \`side_effects\` / \`next_actions\` (real tool names only). When a response includes \`discovery_path\`, treat it as optional context to improve judgment before the next consequential step — not required calls, and not a substitute for \`next_actions\`.
+
 ### 1. Always link to a page you modified, and flag drafts
 
 Whenever you tell the human you changed a page through the Website MCP,
@@ -87,6 +91,7 @@ Proposals are a shared work item, not a chat. Prefer one open proposal per draft
 - **Claim** only when you will edit the draft / soft updates. **add_blocker** to leave review feedback (what’s wrong, what fixed looks like, why — min 80 chars; no tool shopping lists). Do not claim only to approve.
 - Only the **active claimant** may `resolve_blocker`. Do not resolve to overturn a disagreement — escalate or leave open; reviewers `reopen_blocker`.
 - Open blockers block **apply** only (reject/withdraw still OK). Cleared blockers ≠ ship — re-preview, then four-eyes `apply`. For `promote_on_apply`, confirm ending experiments when asked (`confirm_end_experiment`).
+- **`list_proposals(proposal_id)`** on an open/partial proposal may include **`discovery_path`**: optional research menu (`think` + `tool` items). Use it to deepen judgment before apply/reject/add_blocker. It is **not** `next_actions` and skip does **not** block decide actions. Items with `available: false` need a human to enable access, then refresh MCP.
 
 **Worked example:** Blake adds a blocker on CTA product; Alex claims, fixes the draft, resolves with a note; Casey previews again then applies.
 

@@ -61,6 +61,16 @@ Always preview an attached draft before apply/reject. Notes have no apply — us
 - Any of `status`, `kind`, `query`, `issue_id`, `proposal_id` unlocks the list (default page size 20).
 - `proposal_stats` stay **site-wide** even when the list is filtered.
 
+## `discovery_path` (first consumer)
+
+When `list_proposals` is called with **`proposal_id`** and that proposal is still decidable (`open` | `partial`), the response may include top-level **`discovery_path`**.
+
+- **Contract:** moment-agnostic field defined in `docs/blog/mcp-standards.md` (Standard 5) / `DiscoveryPath` in `respond.ts`. Proposals only choose which `items` to emit.
+- **Shape:** `goal`, `items[]` (`kind: "think"` then `kind: "tool"`), `non_effects`. Think items steer judgment (card, deep-read, audience, content-type **strategy** fit, disposition). Tool items: `get_entry_content`, `get_entry_activity`, `get_entry_seo`, `get_organic_traffic`, `run_entry_diagnostics` with `available` from your grants.
+- **Not `next_actions`:** skip does not block apply/reject/add_blocker. Items with `available: false` include a hint to ask a human to enable access, then refresh MCP (`discovery_tool_capped` warning when any are capped).
+- **Null when:** multi-row lists, stats-only, or closed proposals (`finished` | `rejected` | `withdrawn`).
+- Notes proposals get a short think-heavy path (close disposition), not the full edits research tool list.
+
 ## Rules
 
 - **Four-eyes:** apply / reject caller ≠ proposer username. **Close is not four-eyes.**

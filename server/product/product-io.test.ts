@@ -107,4 +107,16 @@ describe("product-io", () => {
     expect(result.product.personas?.[0]?.avatar.fears).toEqual(["Failing", "Debt"]);
     expect(result.product.personas?.[0]?.role).toBe("Career switcher");
   });
+
+  it("refuses clearing the last persona", () => {
+    const result = writeEntryProduct(
+      "program",
+      "full-stack",
+      { clear_personas: ["career-changer"] },
+      tmp,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("last_persona");
+  });
 });

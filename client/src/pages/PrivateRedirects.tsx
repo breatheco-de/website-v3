@@ -380,6 +380,29 @@ export default function PrivateRedirects() {
     ? validationResult.errors.length + validationResult.warnings.length
     : 0;
 
+  const [removingFrom, setRemovingFrom] = useState<string | null>(null);
+
+  const removeIssueFromValidation = (redirectUrl: string) => {
+    setValidationResult((prev) => {
+      if (!prev) return prev;
+      const matchesUrl = (issue: ValidationIssue) => issue.message.includes(`"${redirectUrl}"`);
+      const errors = prev.errors.filter((e) => !matchesUrl(e));
+      const warnings = prev.warnings.filter((w) => !matchesUrl(w));
+      const status: ValidationResult["status"] =
+        errors.length === 0 && warnings.length === 0
+          ? "passed"
+          : errors.length > 0
+            ? "failed"
+            : "warning";
+      return {
+        ...prev,
+        errors,
+        warnings,
+        status,
+      };
+    });
+  };
+
   const handleDeleteRedirect = async (redirect?: Redirect | null) => {
     const target = redirect ?? deletingRedirect;
     if (!target) return;
@@ -413,7 +436,7 @@ export default function PrivateRedirects() {
       setDeletingRedirect(null);
       setDontAskAgainDelete(false);
       queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
-      runValidation();
+      removeIssueFromValidation(target.from);
     } catch (err) {
       toast({
         title: "Failed to delete redirect",
@@ -432,20 +455,6 @@ export default function PrivateRedirects() {
     }
     setDontAskAgainDelete(false);
     setDeletingRedirect(redirect);
-  };
-
-  const [removingFrom, setRemovingFrom] = useState<string | null>(null);
-
-  const removeIssueFromValidation = (redirectUrl: string) => {
-    setValidationResult((prev) => {
-      if (!prev) return prev;
-      const matchesUrl = (issue: ValidationIssue) => issue.message.includes(`"${redirectUrl}"`);
-      return {
-        ...prev,
-        errors: prev.errors.filter((e) => !matchesUrl(e)),
-        warnings: prev.warnings.filter((w) => !matchesUrl(w)),
-      };
-    });
   };
 
   const handleRemoveFromFile = async (redirectUrl: string, source: string) => {
@@ -1601,7 +1610,6 @@ export default function PrivateRedirects() {
         key={showAddDialog ? "open" : "closed"}
         open={showAddDialog}
         onOpenChange={setShowAddDialog}
-        onSuccess={runValidation}
       />
       <Dialog
         open={!!deletingRedirect}
@@ -1698,7 +1706,9 @@ export default function PrivateRedirects() {
         conflict={activeConflict}
         onResolved={() => {
           queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
-          runValidation();
+          if (activeConflict?.redirectUrl) {
+            removeIssueFromValidation(activeConflict.redirectUrl);
+          }
         }}
       />
       {showYamlEditor && (
@@ -1707,7 +1717,6 @@ export default function PrivateRedirects() {
             onClose={() => setShowYamlEditor(false)}
             onSaved={() => {
               queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
-              runValidation();
             }}
           />
         </Suspense>

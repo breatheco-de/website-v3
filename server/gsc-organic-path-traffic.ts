@@ -17,6 +17,7 @@ import {
   rowMatchesMarket,
   type OrganicMarket,
 } from "./gsc-organic-markets";
+import { inclusiveDaySpan } from "./gsc-organic-window";
 import { getSearchConsoleSettings } from "./settings";
 import { getDefaultContentFolder } from "./site-config";
 
@@ -241,6 +242,9 @@ export function buildOrganicPathTraffic(opts?: {
   contentFolder?: string;
   contentRoot?: string;
   days?: number;
+  /** Explicit window (both required). When set, overrides trailing `days`. */
+  start?: string;
+  end?: string;
   market?: string | null;
   /**
    * When set, `totals` and `series` only include these normalized paths.
@@ -249,7 +253,6 @@ export function buildOrganicPathTraffic(opts?: {
   kpiPaths?: Set<string> | null;
 }): OrganicPathTraffic {
   const folder = opts?.contentFolder || getDefaultContentFolder();
-  const windowDays = opts?.days ?? ORGANIC_TRAFFIC_WINDOW_DAYS;
   const markets =
     opts?.contentRoot != null
       ? getSearchConsoleSettings(opts.contentRoot).organic_markets
@@ -257,13 +260,40 @@ export function buildOrganicPathTraffic(opts?: {
   const resolved = resolveMarket(markets, opts?.market);
   const market = resolved.market;
 
-  const expected = completeDataDates();
-  const window = sliceExpected(expected, windowDays);
+  const hasExplicit =
+    typeof opts?.start === "string" &&
+    opts.start.trim() !== "" &&
+    typeof opts?.end === "string" &&
+    opts.end.trim() !== "";
+
+  let window: { start: string; end: string } | null = null;
+  let daysExpected: number;
+
+  if (hasExplicit) {
+    const start = opts!.start!.trim();
+    const end = opts!.end!.trim();
+    daysExpected = inclusiveDaySpan(start, end);
+    if (!Number.isFinite(daysExpected) || daysExpected < 1 || start > end) {
+      return emptyOrganicPathTraffic(
+        listOrganicDayDates(folder).length,
+        ORGANIC_TRAFFIC_WINDOW_DAYS,
+        market,
+        markets,
+        resolved.warning,
+      );
+    }
+    window = { start, end };
+  } else {
+    daysExpected = opts?.days ?? ORGANIC_TRAFFIC_WINDOW_DAYS;
+    const expected = completeDataDates();
+    window = sliceExpected(expected, daysExpected);
+  }
+
   const present = listOrganicDayDates(folder);
   if (!window) {
     return emptyOrganicPathTraffic(
       present.length,
-      windowDays,
+      daysExpected,
       market,
       markets,
       resolved.warning,
@@ -273,7 +303,7 @@ export function buildOrganicPathTraffic(opts?: {
   if (files.length === 0) {
     return emptyOrganicPathTraffic(
       present.length,
-      windowDays,
+      daysExpected,
       market,
       markets,
       resolved.warning,
@@ -295,7 +325,7 @@ export function buildOrganicPathTraffic(opts?: {
   // Count days that actually have traffic rows — empty stub files do not count.
   // Completeness is about cache coverage (market rows), not whether kpiPaths had clicks.
   const daysWithData = filtered.filter((f) => f.rows.length > 0).length;
-  const incomplete = daysWithData < windowDays || country_less || truncated;
+  const incomplete = daysWithData < daysExpected || country_less || truncated;
   const byPath = aggregateTrafficByPath(filtered);
   // null/undefined = all paths; Set (even empty) = scope KPI to those paths only
   const kpiPaths = opts?.kpiPaths != null ? opts.kpiPaths : null;
@@ -304,7 +334,7 @@ export function buildOrganicPathTraffic(opts?: {
     window,
     days_present: present.length,
     days_in_window: daysWithData,
-    days_expected: windowDays,
+    days_expected: daysExpected,
     incomplete,
     country_less,
     truncated,

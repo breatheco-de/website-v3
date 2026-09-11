@@ -14,6 +14,10 @@ import {
   writeEntryProduct,
   writeEntryProductAudienceReplace,
 } from "../product/product-io";
+import {
+  getPersonaFunnelUsage,
+  getProductPersonaUsageMap,
+} from "../product/product-audience-io";
 import { child } from "../logger";
 import { api } from "../rate-limit/api";
 
@@ -126,18 +130,21 @@ export function registerProductRoutes(app: Express): void {
       if (!snapshot) {
         return res.status(404).json({ error: `No purchasable product for slug "${slug}"` });
       }
+      const persona_usage = getProductPersonaUsageMap(slug, contentRoot);
       res.json({
         product: snapshot,
         audience: snapshot.offer || snapshot.personas
           ? { offer: snapshot.offer, personas: snapshot.personas }
           : null,
         status: snapshot.audience_status,
+        persona_usage,
         education: {
           summary:
-            "Product sidecar: offer, personas (avatar), and store visibility. Saving audience does not change page copy. Pausing hides from selling surfaces — pages and funnels stay.",
+            "Product sidecar: offer, personas (avatar), and store visibility. Persona id is editable only when no funnel page binds it (creating a persona is not a binding). Label is always editable. Saving audience does not change page copy.",
           advanced_paths: [
             snapshot.relative_path,
             "shared/productAudience.ts",
+            "page _common.yml → funnel.products[].persona",
           ],
         },
       });
@@ -146,6 +153,32 @@ export function registerProductRoutes(app: Express): void {
       res.status(500).json({ error: String(err) });
     }
   });
+
+  api.get(
+    app,
+    "/api/product/:slug/personas/:personaId/usage",
+    { rate: "publicRead" },
+    async (req, res) => {
+      try {
+        const slug = String(req.params.slug || "").trim();
+        const personaId = String(req.params.personaId || "").trim();
+        const contentType = String(req.query.content_type || "program").trim() || "program";
+        if (!slug || !personaId) {
+          return res.status(400).json({ error: "slug and personaId are required" });
+        }
+        const contentRoot = getContentRoot(res);
+        const snapshot = readEntryProduct(contentType, slug, contentRoot);
+        if (!snapshot) {
+          return res.status(404).json({ error: `No purchasable product for slug "${slug}"` });
+        }
+        const usage = getPersonaFunnelUsage(contentType, slug, personaId, contentRoot);
+        res.json(usage);
+      } catch (err) {
+        log.error({ err }, "GET product persona usage");
+        res.status(500).json({ error: String(err) });
+      }
+    },
+  );
 
   api.put(app, "/api/product/:slug", { rate: "staffWrite" }, async (req, res) => {
     const slug = String(req.params.slug || "").trim();

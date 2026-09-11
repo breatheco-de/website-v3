@@ -31,6 +31,20 @@ function actorIdentityKey(actor: IssueActorRef | null): string {
   return "ui";
 }
 
+/** Staff-facing category labels for proposal chips. */
+export function proposalCategoryLabel(category: string): string {
+  if (category === "content.seo") return "SEO";
+  if (category === "content.field") return "Field";
+  return category;
+}
+
+/** Short id for display; copy actions should still use the full UUID. */
+export function shortProposalId(id: string): string {
+  const compact = id.replace(/-/g, "");
+  const head = compact.slice(0, 8) || id.slice(0, 8);
+  return head ? `${head}…` : id;
+}
+
 export function formatProposalRelativeUpdatedAt(
   updatedAtMs: number,
   nowMs: number = Date.now(),

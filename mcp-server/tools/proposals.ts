@@ -1,12 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { checkCap, denyResponse } from "../lib/auth.js";
-import { hasCapAnyScope } from "../lib/tool-catalog.js";
+import { allowedToolNames, hasCapAnyScope, type CatalogGrant } from "../lib/tool-catalog.js";
 import { ok, fail, actionRequired } from "../lib/respond.js";
-import { resolveSiteContext } from "../lib/content.js";
+import { loadContentTypes, resolveSiteContext } from "../lib/content.js";
 import { buildLoopbackHeaders } from "../lib/loopback.js";
 import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
-import type { CatalogGrant } from "../lib/tool-catalog.js";
 import {
   clampProposalLimit,
   clampProposalOffset,
@@ -14,6 +13,10 @@ import {
   parseProposalSort,
   proposalNextOffset,
 } from "../lib/list-proposals-mcp.js";
+import {
+  buildProposalDiscoveryPath,
+  resolveStrategyForContentType,
+} from "../lib/proposal-discovery-path.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 
@@ -291,6 +294,7 @@ export function registerProposalTools(
     "list_proposals",
     "List or fetch content proposals (stats-first). With no filters, returns proposal_stats only. " +
       "Pass proposal_id, query, issue_id, status, or kind for paginated proposals[] (includes review_mode, open_blocker_count, blockers). " +
+      "When proposal_id is set and the proposal is open|partial, includes discovery_path (optional research menu — think|tool items; not next_actions; skip does not block apply). " +
       "Requires content_view or seo_edit.",
     {
       proposal_id: z.string().optional(),
@@ -401,6 +405,60 @@ export function registerProposalTools(
             break;
           }
         }
+
+        let discovery_path: ReturnType<typeof buildProposalDiscoveryPath>["discovery_path"] = null;
+        const proposalId = args.proposal_id?.trim();
+        if (proposalId) {
+          const match = (proposals as Array<{
+            id?: string;
+            status?: string;
+            kind?: string;
+            title?: string;
+            summary?: string;
+            entries?: Array<{
+              contentType: string;
+              slug: string;
+              locale: string;
+              variant?: string | null;
+              status?: string;
+            }>;
+            open_blocker_count?: number;
+            blockers?: unknown[];
+          }>).find((p) => p.id === proposalId);
+          if (match && (match.status === "open" || match.status === "partial")) {
+            const entries = match.entries ?? [];
+            const first =
+              entries.find((e) => !e.status || e.status === "pending" || e.status === "failed") ??
+              entries[0];
+            let strategy = null as ReturnType<typeof resolveStrategyForContentType>;
+            if (first?.contentType) {
+              try {
+                const configs = loadContentTypes(siteResult.contentPath);
+                strategy = resolveStrategyForContentType(configs[first.contentType]?.strategy);
+              } catch {
+                strategy = null;
+              }
+            }
+            const allowed = grants ? new Set(allowedToolNames(grants)) : null;
+            const built = buildProposalDiscoveryPath({
+              proposal: {
+                id: match.id ?? proposalId,
+                status: match.status ?? "open",
+                kind: match.kind ?? "edits",
+                title: match.title,
+                summary: match.summary,
+                entries: match.entries,
+                open_blocker_count: match.open_blocker_count,
+                blockers: match.blockers,
+              },
+              allowedTools: allowed,
+              strategy,
+            });
+            discovery_path = built.discovery_path;
+            warnings.push(...built.warnings);
+          }
+        }
+
         return ok(
           {
             proposal_stats,
@@ -411,6 +469,7 @@ export function registerProposalTools(
             next_offset,
             sort,
             sort_dir,
+            discovery_path,
             next_actions: [],
           },
           { warnings },

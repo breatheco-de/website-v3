@@ -147,6 +147,91 @@ describe("gsc-organic-path-traffic", () => {
     expect(result.series).toEqual([{ day: date, clicks: 7, impressions: 70 }]);
   });
 
+  it("buildOrganicPathTraffic honors explicit start/end window", () => {
+    saveOrganicDay(
+      day("2026-08-27", [
+        {
+          query: "a",
+          url: "https://example.com/us/a",
+          country: "usa",
+          clicks: 1,
+          impressions: 10,
+          sum_position: 50,
+          ctr: 0.1,
+        },
+      ]),
+      FOLDER,
+    );
+    saveOrganicDay(
+      day("2026-08-28", [
+        {
+          query: "b",
+          url: "https://example.com/us/b",
+          country: "usa",
+          clicks: 2,
+          impressions: 20,
+          sum_position: 100,
+          ctr: 0.1,
+        },
+      ]),
+      FOLDER,
+    );
+    saveOrganicDay(
+      day("2026-08-30", [
+        {
+          query: "c",
+          url: "https://example.com/us/c",
+          country: "usa",
+          clicks: 99,
+          impressions: 990,
+          sum_position: 100,
+          ctr: 0.1,
+        },
+      ]),
+      FOLDER,
+    );
+
+    const result = buildOrganicPathTraffic({
+      contentFolder: FOLDER,
+      start: "2026-08-27",
+      end: "2026-08-28",
+    });
+    expect(result.window).toEqual({ start: "2026-08-27", end: "2026-08-28" });
+    expect(result.days_expected).toBe(2);
+    expect(result.days_in_window).toBe(2);
+    expect(result.incomplete).toBe(false);
+    expect(result.byPath["/us/a"]?.clicks).toBe(1);
+    expect(result.byPath["/us/b"]?.clicks).toBe(2);
+    expect(result.byPath["/us/c"]).toBeUndefined();
+    expect(result.totals.clicks).toBe(3);
+  });
+
+  it("buildOrganicPathTraffic marks incomplete when a day in the explicit window is missing", () => {
+    saveOrganicDay(
+      day("2026-08-27", [
+        {
+          query: "a",
+          url: "https://example.com/us/a",
+          country: "usa",
+          clicks: 1,
+          impressions: 10,
+          sum_position: 50,
+          ctr: 0.1,
+        },
+      ]),
+      FOLDER,
+    );
+    const result = buildOrganicPathTraffic({
+      contentFolder: FOLDER,
+      start: "2026-08-27",
+      end: "2026-08-29",
+    });
+    expect(result.days_expected).toBe(3);
+    expect(result.days_in_window).toBe(1);
+    expect(result.incomplete).toBe(true);
+    expect(result.totals.clicks).toBe(1);
+  });
+
   it("buildOrganicPathTraffic ignores empty day stubs when counting days_in_window", () => {
     const now = new Date();
     const last = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 2));

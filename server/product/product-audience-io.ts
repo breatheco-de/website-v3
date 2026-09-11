@@ -87,14 +87,29 @@ export type AudienceWriteResult =
     }
   | { ok: false; error: string; code: string; details?: unknown };
 
-function listFunnelBindingsUsingPersona(
-  contentType: string,
+export type PersonaFunnelUsagePage = {
+  contentType: string;
+  slug: string;
+  href?: string;
+};
+
+function primaryHrefForEntry(contentType: string, slug: string): string | undefined {
+  try {
+    const urls = contentIndex.getAlternateUrls(slug, contentType) ?? {};
+    return urls.en || urls.es || Object.values(urls)[0] || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function listFunnelBindingsUsingPersona(
+  _contentType: string,
   productSlug: string,
   personaId: string,
   contentRoot?: string,
-): { contentType: string; slug: string }[] {
+): PersonaFunnelUsagePage[] {
   const root = contentRootAbs(contentRoot);
-  const hits: { contentType: string; slug: string }[] = [];
+  const hits: PersonaFunnelUsagePage[] = [];
   const configs = getAllConfigs(contentRoot);
   for (const [ct, cfg] of Object.entries(configs)) {
     const folder = typeof (cfg as { directory?: string }).directory === "string"
@@ -110,11 +125,83 @@ function listFunnelBindingsUsingPersona(
       const funnel = readFunnelBlockFromFile(funnelPath);
       const bound = personasBoundToProduct(funnel, productSlug);
       if (bound.includes(personaId)) {
-        hits.push({ contentType: ct, slug });
+        const href = primaryHrefForEntry(ct, slug);
+        hits.push(href ? { contentType: ct, slug, href } : { contentType: ct, slug });
       }
     }
   }
   return hits;
+}
+
+/** Pages whose funnel.products bind this product+persona (for Store delete UI). */
+export function getPersonaFunnelUsage(
+  contentType: string,
+  productSlug: string,
+  personaId: string,
+  contentRoot?: string,
+): { persona_id: string; pages: PersonaFunnelUsagePage[] } {
+  const id = personaId.trim();
+  return {
+    persona_id: id,
+    pages: id ? listFunnelBindingsUsingPersona(contentType, productSlug, id, contentRoot) : [],
+  };
+}
+
+/**
+ * Map of persona id → funnel pages that bind this product+persona (single directory walk).
+ * Includes the product’s own page when it binds that persona.
+ */
+export function getProductPersonaUsageMap(
+  productSlug: string,
+  contentRoot?: string,
+): Record<string, { pages: PersonaFunnelUsagePage[] }> {
+  const root = contentRootAbs(contentRoot);
+  const byPersona = new Map<string, PersonaFunnelUsagePage[]>();
+  const configs = getAllConfigs(contentRoot);
+  for (const [ct, cfg] of Object.entries(configs)) {
+    const folder = typeof (cfg as { directory?: string }).directory === "string"
+      ? (cfg as { directory: string }).directory
+      : ct;
+    const typeDir = path.join(root, folder);
+    if (!fs.existsSync(typeDir)) continue;
+    for (const ent of fs.readdirSync(typeDir, { withFileTypes: true })) {
+      if (!ent.isDirectory()) continue;
+      const slug = ent.name;
+      const funnelPath = commonYmlPath(ct, slug, contentRoot);
+      if (!fs.existsSync(funnelPath)) continue;
+      const funnel = readFunnelBlockFromFile(funnelPath);
+      const bound = personasBoundToProduct(funnel, productSlug);
+      if (bound.length === 0) continue;
+      const href = primaryHrefForEntry(ct, slug);
+      const page: PersonaFunnelUsagePage = href
+        ? { contentType: ct, slug, href }
+        : { contentType: ct, slug };
+      for (const personaId of bound) {
+        const list = byPersona.get(personaId) ?? [];
+        list.push(page);
+        byPersona.set(personaId, list);
+      }
+    }
+  }
+  const out: Record<string, { pages: PersonaFunnelUsagePage[] }> = {};
+  for (const [id, pages] of byPersona) {
+    out[id] = { pages };
+  }
+  return out;
+}
+
+/** Reject duplicate persona ids on the same product. */
+export function findDuplicatePersonaIds(
+  personas: { id: string }[],
+): string | null {
+  const seen = new Set<string>();
+  for (const p of personas) {
+    const id = p.id.trim();
+    if (!id) continue;
+    if (seen.has(id)) return id;
+    seen.add(id);
+  }
+  return null;
 }
 
 function listPagesBindingProduct(
@@ -147,8 +234,10 @@ function listPagesBindingProduct(
 }
 
 /**
- * Assert audience update does not orphan funnel bindings (edge 1a)
- * and does not rename persona ids (edge 2a).
+ * Assert audience update does not orphan funnel bindings.
+ * Persona id rename is treated as remove+add: allowed only when the old id
+ * has zero funnel bindings (including the product’s own page). Ids are
+ * immutable while bound — not forever.
  */
 export function assertAudienceUpdateAllowed(
   contentType: string,
@@ -156,9 +245,29 @@ export function assertAudienceUpdateAllowed(
   nextAudience: ProductAudience,
   contentRoot?: string,
 ): { ok: true } | { ok: false; error: string; code: string; details?: unknown } {
+  const dup = findDuplicatePersonaIds(nextAudience.personas);
+  if (dup) {
+    return {
+      ok: false,
+      code: "duplicate_persona_id",
+      error: `Persona id "${dup}" is used more than once on this product. Each persona needs a unique id.`,
+      details: { persona_id: dup },
+    };
+  }
+
   const prev = readEntryAudience(contentType, slug, contentRoot);
   const prevIds = new Set((prev?.personas ?? []).map((p) => p.id));
   const nextIds = new Set(nextAudience.personas.map((p) => p.id));
+
+  if ((prev?.personas.length ?? 0) > 0 && nextAudience.personas.length === 0) {
+    return {
+      ok: false,
+      code: "last_persona",
+      error:
+        "The product must keep at least one persona. Add another persona first, or edit the existing one instead of deleting it.",
+      details: { persona_ids_removed: [...prevIds] },
+    };
+  }
 
   for (const id of prevIds) {
     if (!nextIds.has(id)) {
@@ -167,19 +276,10 @@ export function assertAudienceUpdateAllowed(
         return {
           ok: false,
           code: "persona_in_use",
-          error: `Cannot remove persona "${id}" while pages still bind to it. Re-point or clear those funnel bindings first.`,
+          error: `Cannot remove or rename persona "${id}" while pages still bind to it. Re-point or clear those funnel bindings first.`,
           details: { persona_id: id, pages: users },
         };
       }
-    }
-  }
-
-  // Immutable ids: if same count and labels changed but an id disappeared while a new id appeared with same label — still blocked by remove check.
-  // Explicit: cannot change an existing persona's id field (treat as remove+add).
-  if (prev) {
-    for (const oldP of prev.personas) {
-      const still = nextAudience.personas.find((p) => p.id === oldP.id);
-      if (!still) continue; // handled above if in use; if not in use, delete OK
     }
   }
 

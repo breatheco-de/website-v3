@@ -105,6 +105,17 @@ describe("resolveQueriesWindow", () => {
     if (!r.ok) return;
     expect(r.end).toBe("2026-09-06");
   });
+
+  it("hard-fails when range is empty after clamp", () => {
+    const r = resolveQueriesWindow({
+      start: "2026-09-07",
+      end: "2026-09-10",
+      now,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toContain("2026-09-06");
+  });
 });
 
 describe("clamps", () => {

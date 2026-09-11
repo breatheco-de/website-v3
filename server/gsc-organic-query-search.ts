@@ -13,8 +13,6 @@ import {
 // this module (it owns the parse/validate surface for match modes).
 export type { OrganicQueryMatchMode } from "./gsc-bigquery-client";
 import {
-  completeDataDates,
-  listOrganicDayDates,
   loadDaysRange,
 } from "./gsc-organic-days";
 import {
@@ -23,11 +21,16 @@ import {
   rowMatchesMarket,
   type OrganicMarket,
 } from "./gsc-organic-markets";
+import { pathKeyFromUrlOrPath, type OrganicSiteTotals } from "./gsc-organic-path-traffic";
 import {
-  ORGANIC_TRAFFIC_WINDOW_DAYS,
-  pathKeyFromUrlOrPath,
-  type OrganicSiteTotals,
-} from "./gsc-organic-path-traffic";
+  inclusiveDaySpan,
+  resolveOrganicWindow,
+  resolveQueriesWindow,
+  ORGANIC_DEFAULT_WINDOW_DAYS,
+  ORGANIC_MAX_SPAN_DAYS,
+  QUERIES_DEFAULT_WINDOW_DAYS,
+  QUERIES_MAX_SPAN_DAYS,
+} from "./gsc-organic-window";
 import { getSearchConsoleSettings } from "./settings";
 import { getDefaultContentFolder } from "./site-config";
 import { aggregateDayRows } from "./seo-organic-opportunities";
@@ -35,15 +38,20 @@ import { child } from "./logger";
 
 const log = child({ module: "gsc-organic-query-search" });
 
-export const QUERIES_DEFAULT_WINDOW_DAYS = ORGANIC_TRAFFIC_WINDOW_DAYS;
-export const QUERIES_MAX_SPAN_DAYS = 90;
+export {
+  inclusiveDaySpan,
+  resolveOrganicWindow,
+  resolveQueriesWindow,
+  ORGANIC_DEFAULT_WINDOW_DAYS,
+  ORGANIC_MAX_SPAN_DAYS,
+  QUERIES_DEFAULT_WINDOW_DAYS,
+  QUERIES_MAX_SPAN_DAYS,
+};
 export const QUERIES_MIN_CONTAINS_LEN = 2;
 export const QUERIES_DEFAULT_LIMIT = 25;
 export const QUERIES_MAX_LIMIT = 50;
 export const QUERIES_DEFAULT_PAGES_PER_QUERY = 5;
 export const QUERIES_MAX_PAGES_PER_QUERY = 15;
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export type OrganicQueryPageRow = {
   url: string;
@@ -103,78 +111,6 @@ export function queryTextMatches(
   if (match === "equals") return q === n;
   if (match === "starts_with") return q.startsWith(n);
   return q.includes(n);
-}
-
-export function inclusiveDaySpan(start: string, end: string): number {
-  const a = Date.parse(`${start}T00:00:00.000Z`);
-  const b = Date.parse(`${end}T00:00:00.000Z`);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return NaN;
-  return Math.floor((b - a) / 86_400_000) + 1;
-}
-
-export function resolveQueriesWindow(opts: {
-  start?: string | null;
-  end?: string | null;
-  now?: Date;
-}): { ok: true; start: string; end: string; days_expected: number } | { ok: false; message: string } {
-  const startRaw = typeof opts.start === "string" ? opts.start.trim() : "";
-  const endRaw = typeof opts.end === "string" ? opts.end.trim() : "";
-  const hasStart = Boolean(startRaw);
-  const hasEnd = Boolean(endRaw);
-  if (hasStart !== hasEnd) {
-    return {
-      ok: false,
-      message: "start and end must both be set (YYYY-MM-DD), or both omitted for the default 28-day window.",
-    };
-  }
-
-  const expected = completeDataDates(opts.now ?? new Date(), Math.max(QUERIES_MAX_SPAN_DAYS, QUERIES_DEFAULT_WINDOW_DAYS));
-  const latestComplete = expected[expected.length - 1];
-  if (!latestComplete) {
-    return { ok: false, message: "Could not resolve a complete GSC data date." };
-  }
-
-  if (!hasStart && !hasEnd) {
-    const slice = expected.slice(-QUERIES_DEFAULT_WINDOW_DAYS);
-    const start = slice[0]!;
-    const end = slice[slice.length - 1]!;
-    return { ok: true, start, end, days_expected: QUERIES_DEFAULT_WINDOW_DAYS };
-  }
-
-  if (!DATE_RE.test(startRaw) || !DATE_RE.test(endRaw)) {
-    return { ok: false, message: "start and end must be YYYY-MM-DD." };
-  }
-  if (startRaw > endRaw) {
-    return { ok: false, message: "start must be on or before end." };
-  }
-  const span = inclusiveDaySpan(startRaw, endRaw);
-  if (!Number.isFinite(span) || span < 1) {
-    return { ok: false, message: "Invalid date range." };
-  }
-  if (span > QUERIES_MAX_SPAN_DAYS) {
-    return {
-      ok: false,
-      message: `Date range span is ${span} days; max is ${QUERIES_MAX_SPAN_DAYS}.`,
-    };
-  }
-
-  let start = startRaw;
-  let end = endRaw;
-  if (end > latestComplete) end = latestComplete;
-  if (start > end) {
-    return {
-      ok: true,
-      start,
-      end,
-      days_expected: 0,
-    };
-  }
-  return {
-    ok: true,
-    start,
-    end,
-    days_expected: inclusiveDaySpan(start, end),
-  };
 }
 
 export function clampQueriesLimit(raw: number | undefined): number {
@@ -366,7 +302,7 @@ export async function searchOrganicQueries(opts: {
   const emptyBase = (): OrganicQuerySearchResult => ({
     configured: false,
     source: "none",
-    window: window.days_expected === 0 ? null : { start: window.start, end: window.end },
+    window: { start: window.start, end: window.end },
     days_in_window: 0,
     days_expected: window.days_expected,
     incomplete: true,
@@ -384,13 +320,6 @@ export async function searchOrganicQueries(opts: {
     limit,
     notes,
   });
-
-  if (window.days_expected === 0) {
-    const out = emptyBase();
-    out.configured = getGscBigQueryConfigStatus(opts.contentRoot).configured || listOrganicDayDates(folder).length > 0;
-    out.notes.push("Date window empty after clamping to latest complete GSC day.");
-    return out;
-  }
 
   const bq = getGscBigQueryConfigStatus(opts.contentRoot);
   let rows: OrganicQueryUrlAggRow[] = [];

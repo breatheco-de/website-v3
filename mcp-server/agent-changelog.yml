@@ -5,6 +5,57 @@
 window_days: 6
 
 entries:
+  - date: "2026-09-11"
+    summary: "Persona id rename when unbound; duplicate ids rejected"
+    agent_impact:
+      - "Persona ids are immutable while any funnel page binds them (incl. product self if bound). Rename OK when unbound (remove+add). Creating a persona on the product does not bind pages. No cascade rewrite of funnel YAML."
+      - "duplicate_persona_id → action_required fix_duplicate_persona_id. persona_in_use still → fix_funnel_bindings. GET /api/product/:slug includes persona_usage map."
+      - "Reconnect MCP so update_product description refreshes; re-bootstrap_agent for explain/product."
+    paths:
+      - mcp-server/tools/product.ts
+      - mcp-server/explain/product.md
+      - server/product/product-audience-io.ts
+      - server/routes/product.ts
+      - client/src/components/store/ProductAudiencePanel.tsx
+    tools_changed: true
+  - date: "2026-09-11"
+    summary: "get_organic_traffic start/end for site|paths|clusters (max 90)"
+    agent_impact:
+      - "start/end (both or neither) now apply to site|paths|clusters|queries; omit → last 28 complete GSC days; max span 90. Longer → hard fail — use OpenRush get_search_performance or specialized SEO APIs. Empty after clamp to latest complete day → hard fail (queries aligned)."
+      - "mode=opportunities rejects start/end (use decay_window). Soft incomplete when day-cache gaps. Site BigQuery vs paths/clusters day-cache totals may disagree for the same window."
+      - "Reconnect MCP so get_organic_traffic schema/description refreshes."
+    paths:
+      - mcp-server/tools/organic-traffic.ts
+      - mcp-server/lib/organic-traffic-mcp.ts
+      - mcp-server/explain/seo.md
+      - server/gsc-organic-window.ts
+      - server/gsc-organic-path-traffic.ts
+      - server/gsc-organic-site-traffic.ts
+    tools_changed: true
+  - date: "2026-09-11"
+    summary: "MCP standards refresh + discovery_path on list_proposals"
+    agent_impact:
+      - "Mutate contract unchanged: honor warnings, side_effects, next_actions (real catalog tools only). bootstrap_agent playbook/conventions reaffirm this; conventions v12."
+      - "list_proposals(proposal_id) on open|partial now may return discovery_path — optional think|tool research menu before apply/reject/add_blocker. Not next_actions; skip does not block. available:false tools need a human to enable access then refresh MCP."
+      - "Reconnect MCP so the updated list_proposals description is visible."
+    paths:
+      - docs/blog/mcp-standards.md
+      - mcp-server/lib/respond.ts
+      - mcp-server/lib/proposal-discovery-path.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/agent-conventions.md
+      - mcp-server/explain/proposals.md
+      - mcp-server/lib/mcp-playbook.ts
+    tools_changed: true
+  - date: "2026-09-11"
+    summary: "update_product last_persona when clearing the only persona"
+    agent_impact:
+      - "Clearing or replacing personas down to zero returns action_required keep_one_persona (code last_persona). Add another persona first, or edit the existing one."
+      - "persona_in_use / audience_in_use still require fix_funnel_bindings. No new tools — reconnect not required for catalog."
+    paths:
+      - mcp-server/tools/product.ts
+      - server/product/product-audience-io.ts
+    tools_changed: false
   - date: "2026-09-10"
     summary: "Proposal recent-activity gate + get_entry_activity"
     agent_impact:

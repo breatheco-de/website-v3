@@ -1,11 +1,22 @@
 /**
- * Light guard: mutating page tools must route success/gate/error through respond helpers.
+ * Light guard: mutating tools must route success/gate/error through respond helpers.
  * Crude source scan — fails if a mutating tool callback still returns bare `{ content:`.
+ * Also catalog-checks known next_actions helpers and discovery tool lists.
  */
 import fs from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
-import { ok, fail, actionRequired, diagnosticsAfterGoLiveNextAction } from "../mcp-server/lib/respond";
+import { TOOL_GATES } from "../shared/mcp-tool-catalog";
+import { proposalDiscoveryToolNames } from "../mcp-server/lib/proposal-discovery-path";
+import {
+  ok,
+  fail,
+  actionRequired,
+  diagnosticsAfterGoLiveNextAction,
+  assertCatalogToolNames,
+} from "../mcp-server/lib/respond";
+
+const CATALOG = new Set(Object.keys(TOOL_GATES));
 
 const MUTATING_TOOLS = [
   "update_fields",
@@ -26,10 +37,16 @@ const MUTATING_TOOLS = [
   "ensure_content_type_schema_org",
   "update_content_type",
   "update_redirect",
+  "propose_change",
+  "update_proposal",
+  "update_product",
 ] as const;
 
 const TOOL_SOURCE_FILE: Record<string, string> = {
   update_redirect: "mcp-server/tools/redirects.ts",
+  propose_change: "mcp-server/tools/proposals.ts",
+  update_proposal: "mcp-server/tools/proposals.ts",
+  update_product: "mcp-server/tools/product.ts",
 };
 
 function mutatingToolSource(toolName: string): string {
@@ -96,6 +113,28 @@ describe("respond helpers", () => {
     });
     const noSite = diagnosticsAfterGoLiveNextAction("other");
     expect(noSite.args_hint).toEqual({ slugs: ["other"], freshness: "hard", confirm: true });
+  });
+
+  it("diagnosticsAfterGoLiveNextAction tool is in the catalog", () => {
+    expect(assertCatalogToolNames([diagnosticsAfterGoLiveNextAction("x").tool], CATALOG)).toEqual({
+      ok: true,
+    });
+  });
+
+  it("actionRequired next_actions tool names must be catalog members", () => {
+    const result = actionRequired(
+      { action_required: "confirm_live_edit", message: "ask" },
+      [{ tool: "create_variant", reason: "draft first", priority: "recommended" }],
+    );
+    const payload = JSON.parse(result.content[0].text) as {
+      next_actions: Array<{ tool: string }>;
+    };
+    const names = payload.next_actions.map((a) => a.tool);
+    expect(assertCatalogToolNames(names, CATALOG)).toEqual({ ok: true });
+  });
+
+  it("proposal discovery tool list is catalog-valid", () => {
+    expect(assertCatalogToolNames(proposalDiscoveryToolNames(), CATALOG)).toEqual({ ok: true });
   });
 });
 

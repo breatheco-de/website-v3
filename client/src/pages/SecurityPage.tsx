@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   IconArrowLeft,
   IconCheck,
@@ -23,7 +23,7 @@ import {
   IconLock,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -80,6 +80,31 @@ function resolveSecurityTab(pathname: string): SecurityTab | null {
   return null;
 }
 
+const BUILT_IN_STAFF_ROLE_IDS = new Set([
+  "user_admin",
+  "platform_steward",
+  "platform_ops",
+  "metrics_viewer",
+  "content_viewer",
+]);
+
+function isBuiltInStaffRole(roleId: string): boolean {
+  return BUILT_IN_STAFF_ROLE_IDS.has(roleId);
+}
+
+function capabilityLabel(name: string): string {
+  return CAPABILITY_REGISTRY.find((c) => c.name === name)?.label ?? name;
+}
+
+function formatGrantScope(cap: CapabilityGrant): string | null {
+  const scopeKind = getCapabilityScopeKind(cap.name);
+  if (scopeKind === "none") return null;
+  const raw = scopeKind === "databases" ? cap.databases : cap.contentTypes;
+  if (raw === "*" || raw == null) return "all";
+  if (Array.isArray(raw)) return raw.length > 0 ? raw.join(", ") : "all";
+  return null;
+}
+
 /** Compact marker for MCP swarm / agent roles — icon only; click explains. */
 function AgentRoleMarker({ roleId }: { roleId: string }) {
   return (
@@ -111,6 +136,7 @@ function AgentRoleMarker({ roleId }: { roleId: string }) {
     </Popover>
   );
 }
+
 interface CapabilityGrant {
   name: string;
   contentTypes?: string[] | "*";
@@ -127,6 +153,95 @@ interface RoleDefinition {
 interface AdminRolesResponse {
   roles: Record<string, RoleDefinition>;
   builtInDescriptionOverrides: Record<string, string>;
+}
+
+/** Clickable role chip: summary of caps/scopes + link to Staff Roles. */
+function RoleSummaryBadge({
+  roleId,
+  rolesData,
+}: {
+  roleId: string;
+  rolesData: Record<string, RoleDefinition> | undefined;
+}) {
+  const [, setLocation] = useLocation();
+  const role = rolesData?.[roleId];
+  const label = role?.label || roleId;
+  const builtIn = isBuiltInStaffRole(roleId);
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Badge
+          variant="secondary"
+          className="text-xs gap-1 cursor-pointer"
+          role="button"
+          tabIndex={0}
+          data-testid={`badge-role-summary-${roleId}`}
+          aria-label={`Role summary: ${label}`}
+        >
+          {label}
+          {role?.agentic && <AgentRoleMarker roleId={roleId} />}
+        </Badge>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 space-y-3" data-testid={`popover-role-summary-${roleId}`}>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-medium text-foreground">{label}</p>
+            <code className="text-[11px] font-mono text-muted-foreground">{roleId}</code>
+            {builtIn && (
+              <Badge variant="outline" className="text-[10px] gap-1">
+                <IconCode className="h-3 w-3" />
+                managed by code
+              </Badge>
+            )}
+          </div>
+          {role?.description ? (
+            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">{role.description}</p>
+          ) : !role ? (
+            <p className="text-xs text-destructive">This role is not in the role list anymore.</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-foreground">Capabilities</p>
+          {role && role.capabilities.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {role.capabilities.map((cap) => {
+                const scope = formatGrantScope(cap);
+                return (
+                  <Badge key={cap.name} variant="outline" className="text-xs font-normal gap-1 max-w-full">
+                    <span className="truncate">{capabilityLabel(cap.name)}</span>
+                    {scope && (
+                      <span className="text-muted-foreground font-mono text-[10px] shrink-0">
+                        ({scope})
+                      </span>
+                    )}
+                  </Badge>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {role ? "No capabilities assigned" : "Capabilities unavailable"}
+            </p>
+          )}
+        </div>
+
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="w-full gap-1.5"
+          disabled={!role}
+          onClick={() => setLocation(`/private/security/roles?role=${encodeURIComponent(roleId)}`)}
+          data-testid={`button-edit-role-from-summary-${roleId}`}
+        >
+          <IconPencil className="h-3.5 w-3.5" />
+          {builtIn ? "View role" : "Edit role"}
+        </Button>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 interface UserRecord {
@@ -454,6 +569,8 @@ function parseApiErrorMessage(message: string, fallback: string): string {
 function RolesTab() {
   const { toast } = useToast();
   const { isValidated } = useDebugAuth();
+  const [, setLocation] = useLocation();
+  const searchString = useSearch();
   const { data: rolesResponse, isLoading } = useQuery<AdminRolesResponse>({
     queryKey: ["/api/admin/roles"],
     enabled: isValidated === true,
@@ -477,6 +594,7 @@ function RolesTab() {
   const [editingBuiltinDescRoleId, setEditingBuiltinDescRoleId] = useState<string | null>(null);
   const [builtinDescForm, setBuiltinDescForm] = useState("");
   const [expandedRoleIds, setExpandedRoleIds] = useState<Set<string>>(() => new Set());
+  const focusedRoleFromUrl = useRef<string | null>(null);
 
   const roles = rolesData
     ? Object.entries(rolesData).filter(([, role]) => !role.agentic)
@@ -490,6 +608,34 @@ function RolesTab() {
       return next;
     });
   }
+
+  useEffect(() => {
+    if (!rolesData) return;
+    const roleId = new URLSearchParams(searchString).get("role")?.trim();
+    if (!roleId || focusedRoleFromUrl.current === roleId) return;
+    const role = rolesData[roleId];
+    if (!role) return;
+    focusedRoleFromUrl.current = roleId;
+    setRoleExpanded(roleId, true);
+    if (!isBuiltInStaffRole(roleId) && !role.agentic) {
+      setEditingRoleId(roleId);
+      setEditRoleForm({
+        label: role.label,
+        description: role.description || "",
+        capabilities: capMapFromGrants(role.capabilities),
+      });
+      setEditingBuiltinDescRoleId(null);
+      setBuiltinDescForm("");
+      setNewRoleForm(null);
+      setNewRoleIdTouched(false);
+    }
+    setLocation("/private/security/roles", { replace: true });
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-testid="card-role-${roleId}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [rolesData, searchString, setLocation]);
   useEffect(() => {
     if (!newRoleForm) {
       setDebouncedNewRoleId("");
@@ -959,12 +1105,7 @@ function RolesTab() {
           <p className="text-sm text-muted-foreground text-center py-8">No roles defined yet.</p>
         )}
         {roles.map(([roleId, role]) => {
-          const isBuiltIn =
-            roleId === "user_admin" ||
-            roleId === "platform_steward" ||
-            roleId === "platform_ops" ||
-            roleId === "metrics_viewer" ||
-            roleId === "content_viewer";
+          const isBuiltIn = isBuiltInStaffRole(roleId);
           const isEditing = editingRoleId === roleId;
           const isEditingBuiltinDesc = editingBuiltinDescRoleId === roleId;
           const isDeleting = deletingRoleId === roleId;
@@ -1645,7 +1786,7 @@ function UsersTab() {
                     </div>
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs text-muted-foreground">Role:</span>
-                      <Badge variant="secondary" className="text-xs">{rolesData?.[p.role]?.label || p.role}</Badge>
+                      <RoleSummaryBadge roleId={p.role} rolesData={rolesData} />
                     </div>
                   </div>
                   {!isDeleting && !isAssigning && (
@@ -1904,10 +2045,7 @@ function UsersTab() {
                       <span className="text-xs text-muted-foreground">No roles assigned</span>
                     ) : (
                       user.roles.map((roleId) => (
-                        <Badge key={roleId} variant="secondary" className="text-xs gap-1">
-                          {rolesData?.[roleId]?.label || roleId}
-                          {rolesData?.[roleId]?.agentic && <AgentRoleMarker roleId={roleId} />}
-                        </Badge>
+                        <RoleSummaryBadge key={roleId} roleId={roleId} rolesData={rolesData} />
                       ))
                     )}
                     {user.lastLoginAt && (

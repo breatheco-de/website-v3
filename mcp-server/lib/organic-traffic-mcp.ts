@@ -35,6 +35,10 @@ import {
   parseOrganicQueryMatchMode,
   type OrganicQueryMatchMode,
 } from "../../server/gsc-organic-query-search.js";
+import {
+  resolveOrganicWindow,
+  ORGANIC_MAX_SPAN_DAYS,
+} from "../../server/gsc-organic-window.js";
 
 export const MAX_ORGANIC_PATHS = 50;
 export const MAX_ORGANIC_HUBS = 25;
@@ -48,6 +52,7 @@ export {
   QUERIES_MAX_PAGES_PER_QUERY,
   QUERIES_MIN_CONTAINS_LEN,
 };
+export { ORGANIC_MAX_SPAN_DAYS };
 
 export type OrganicTrafficMode = "site" | "paths" | "clusters" | "opportunities" | "queries";
 
@@ -260,6 +265,35 @@ export function seriesIgnoredForQueriesWarning(): McpWarning {
   );
 }
 
+export function siteVsPathsSourceWarning(): McpWarning {
+  return warn(
+    "organic_site_vs_paths_source",
+    "Site totals come from BigQuery (all Search Console URLs). paths/clusters use the keep-filtered day cache — the same calendar window can disagree. Not a bug.",
+  );
+}
+
+/** Resolve start/end for site/paths/clusters/queries; omit both for default 28 complete days. */
+export function resolveAssembleWindow(opts: {
+  start?: string;
+  end?: string;
+}): { ok: true; start: string; end: string; days_expected: number } | { error: string } {
+  const window = resolveOrganicWindow({ start: opts.start, end: opts.end });
+  if (!window.ok) return { error: window.message };
+  return { ok: true, start: window.start, end: window.end, days_expected: window.days_expected };
+}
+
+/** Hard-fail message when opportunities is called with start/end. */
+export function opportunitiesDatesRejectMessage(
+  start?: string,
+  end?: string,
+): string | null {
+  const datesProvided =
+    (typeof start === "string" && start.trim() !== "") ||
+    (typeof end === "string" && end.trim() !== "");
+  if (!datesProvided) return null;
+  return "start/end are not supported for mode=opportunities. Omit dates and use decay_window (7|28) instead.";
+}
+
 export type NormalizedPathBatch = {
   /** Normalized pathname keys in request order (unique). */
   keys: string[];
@@ -433,14 +467,26 @@ export async function assembleSiteMode(opts: {
   contentFolder: string;
   include_series?: boolean;
   marketProvided?: boolean;
+  start?: string;
+  end?: string;
   site?: string;
-}): Promise<OrganicAssembleResult> {
+}): Promise<OrganicAssembleResult | { error: string }> {
+  const window = resolveAssembleWindow({ start: opts.start, end: opts.end });
+  if ("error" in window) return { error: window.error };
+
+  const datesProvided =
+    (typeof opts.start === "string" && opts.start.trim() !== "") ||
+    (typeof opts.end === "string" && opts.end.trim() !== "");
+
   const siteTraffic = await buildSiteOrganicTraffic({
     contentRoot: opts.contentRoot,
     contentFolder: opts.contentFolder,
+    start: window.start,
+    end: window.end,
   });
   const warnings: McpWarning[] = [...identityNonEffectWarnings()];
   if (opts.marketProvided) warnings.push(marketIgnoredWarning("site"));
+  if (datesProvided) warnings.push(siteVsPathsSourceWarning());
 
   const configured = siteTraffic.configured;
   if (!configured) {
@@ -498,8 +544,13 @@ export function assemblePathsMode(opts: {
   paths: string[];
   market?: string;
   include_series?: boolean;
+  start?: string;
+  end?: string;
   site?: string;
 }): OrganicAssembleResult | { error: string } {
+  const window = resolveAssembleWindow({ start: opts.start, end: opts.end });
+  if ("error" in window) return { error: window.error };
+
   const { unique, dropped } = dedupeStrings(opts.paths);
   const sizeCheck = validateBatchSize("paths", unique.length);
   if (!sizeCheck.ok) return { error: sizeCheck.message };
@@ -518,6 +569,8 @@ export function assemblePathsMode(opts: {
     contentFolder: opts.contentFolder,
     contentRoot: opts.contentRoot,
     market: opts.market,
+    start: window.start,
+    end: window.end,
     kpiPaths: seriesGate.include ? new Set(normalized.keys) : null,
   });
 
@@ -589,8 +642,13 @@ export function assembleClustersMode(opts: {
   hub_ids: string[];
   market?: string;
   include_series?: boolean;
+  start?: string;
+  end?: string;
   site?: string;
 }): OrganicAssembleResult | { error: string } {
+  const window = resolveAssembleWindow({ start: opts.start, end: opts.end });
+  if ("error" in window) return { error: window.error };
+
   const { unique, dropped } = dedupeStrings(opts.hub_ids);
   const sizeCheck = validateBatchSize("clusters", unique.length);
   if (!sizeCheck.ok) return { error: sizeCheck.message };
@@ -607,6 +665,8 @@ export function assembleClustersMode(opts: {
     contentFolder: opts.contentFolder,
     contentRoot: opts.contentRoot,
     market: opts.market,
+    start: window.start,
+    end: window.end,
   });
 
   let clustersPayload = buildClustersPayload({
