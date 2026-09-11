@@ -386,7 +386,7 @@ export function registerProductTools(
             warnings: Array.isArray(data.warnings) ? (data.warnings as []) : [],
             side_effects: [
               {
-                type: "content_write",
+                kind: "content_write",
                 summary: "Patched product sidecar",
                 paths: data.relativePath ? [String(data.relativePath)] : [],
               },
