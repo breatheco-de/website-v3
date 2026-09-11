@@ -490,6 +490,92 @@ export const heroExerciseSchema = z.object({
   form: leadFormDataSchema.nullish(),
 }).passthrough();
 
+// Workshop / event detail hero — content left, LeadForm right; seats from entry props
+export const heroWorkshopSchema = z.object({
+  type: z.literal("hero"),
+  version: z.string().optional(),
+  variant: z.literal("workshop"),
+  back_label: z.string().optional(),
+  back_url: z.string().optional(),
+  badge: z.string().optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  starting_at: z.string().optional(),
+  ending_at: z.string().optional(),
+  /** Icon for the formatted date/time line (icon-picker). */
+  date_icon: z.string().optional(),
+  duration_label: z.string().optional(),
+  duration_suffix: z.string().optional(),
+  /** Icon for the duration badge (icon-picker). */
+  duration_icon: z.string().optional(),
+  host_name: z.string().optional(),
+  host_avatar_url: z.string().optional(),
+  host_bio: z.string().optional(),
+  /** Label above the host card, e.g. "Host for this event". */
+  host_heading: z.string().optional(),
+  /** Social links under host name (icon-picker + url); empty urls hidden. */
+  host_socials: z
+    .array(
+      z.object({
+        name: z.string().optional(),
+        url: z.string().optional(),
+        icon: z.string().optional(),
+      }),
+    )
+    .optional(),
+  live_now_label: z.string().optional(),
+  capacity: z.union([z.number(), z.string()]).optional(),
+  registered_count: z.union([z.number(), z.string()]).optional(),
+  seats_remaining: z.union([z.number(), z.string()]).optional(),
+  registrant_avatars: z
+    .union([
+      z.array(z.string()),
+      z.array(
+        z
+          .object({
+            name: z.string().optional(),
+            avatar_url: z.string().optional(),
+            url: z.string().optional(),
+          })
+          .passthrough(),
+      ),
+      z.string(),
+    ])
+    .optional(),
+  fallback_avatars: z.union([z.array(z.string()), z.string()]).optional(),
+  /** Learn-like seats sentence; bind {{ entry.registered_count }} etc. in YAML. */
+  seats_copy: z.string().optional(),
+  registered_suffix: z.string().optional(),
+  remaining_prefix: z.string().optional(),
+  /** Decorative media (e.g. GIF) behind the countdown strip above the form. */
+  countdown_background_image: z.string().optional(),
+  form_card_title: z.string().optional(),
+  form_card_subtitle: z.string().optional(),
+  form_card_disclaimer: z.string().optional(),
+  form: leadFormDataSchema.nullish(),
+  /**
+   * Add-to-calendar card below the form. Hidden when `items` is empty / all urls blank.
+   * `heading` = text above the button (Learn-like); `text` = dropdown trigger label;
+   * `items` = calendar provider links (from CT functions).
+   */
+  calendar_cta: z
+    .object({
+      heading: z.string().optional(),
+      text: z.string(),
+      variant: z.enum(["primary", "secondary", "outline"]).optional(),
+      icon: z.string().optional(),
+      items: z
+        .array(
+          z.object({
+            name: z.string(),
+            url: z.string(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
+}).passthrough();
+
 // Combined hero section schema
 export const heroSectionSchema = z.union([
   heroSingleColumnSchema,
@@ -504,6 +590,7 @@ export const heroSectionSchema = z.union([
   heroCredibilitySchema,
   heroOrbitSchema,
   heroExerciseSchema,
+  heroWorkshopSchema,
 ]);
 
 // Type exports
@@ -534,4 +621,5 @@ export type HeroOrbitBadge = z.infer<typeof heroOrbitBadgeSchema>;
 export type HeroOrbitDiagram = z.infer<typeof heroOrbitDiagramSchema>;
 export type HeroOrbit = z.infer<typeof heroOrbitSchema>;
 export type HeroExercise = z.infer<typeof heroExerciseSchema>;
+export type HeroWorkshop = z.infer<typeof heroWorkshopSchema>;
 export type HeroSection = z.infer<typeof heroSectionSchema>;

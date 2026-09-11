@@ -110,8 +110,11 @@ export const fieldEditors: Record<string, EditorType> = {
   "workshop:duration_icon": "icon-picker",
   "workshop:countdown_background_image": "image-picker",
   "workshop:fallback_avatars[]": "image-picker",
+  "workshop:host_socials[].icon": "icon-picker",
+  "workshop:host_socials[].url": "link-picker",
   "workshop:form": "form-settings",
   "workshop:calendar_cta": "cta-button",
+  "workshop:calendar_cta.heading": "text-input",
   "workshop:calendar_cta.icon": "icon-picker",
   "workshop:calendar_cta.items[].url": "link-picker",
 };

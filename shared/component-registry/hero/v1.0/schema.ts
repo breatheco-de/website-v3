@@ -513,6 +513,16 @@ export const heroWorkshopSchema = z.object({
   host_bio: z.string().optional(),
   /** Label above the host card, e.g. "Host for this event". */
   host_heading: z.string().optional(),
+  /** Social links under host name (icon-picker + url); empty urls hidden. */
+  host_socials: z
+    .array(
+      z.object({
+        name: z.string().optional(),
+        url: z.string().optional(),
+        icon: z.string().optional(),
+      }),
+    )
+    .optional(),
   live_now_label: z.string().optional(),
   capacity: z.union([z.number(), z.string()]).optional(),
   registered_count: z.union([z.number(), z.string()]).optional(),
@@ -545,10 +555,12 @@ export const heroWorkshopSchema = z.object({
   form: leadFormDataSchema.nullish(),
   /**
    * Add-to-calendar card below the form. Hidden when `items` is empty / all urls blank.
-   * `text` = dropdown trigger label; `items` = calendar provider links (from CT functions).
+   * `heading` = text above the button (Learn-like); `text` = dropdown trigger label;
+   * `items` = calendar provider links (from CT functions).
    */
   calendar_cta: z
     .object({
+      heading: z.string().optional(),
       text: z.string(),
       variant: z.enum(["primary", "secondary", "outline"]).optional(),
       icon: z.string().optional(),

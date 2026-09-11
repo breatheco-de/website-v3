@@ -31,9 +31,9 @@ const TOP_ROW_BG = "hsl(var(--primary) / 0.09)";
 /** Learn-like seats: ~5 per row, load-more then scroll. */
 const SEATS_INITIAL = 15;
 const SEATS_COLS = 4;
-const SEATS_GRID_MAX_H = "11.5rem"; // ~3 rows when expanded
+const SEATS_GRID_MAX_H = "10rem"; // ~2–3 rows when expanded
 const SEATS_PLACEHOLDER_MIN_H = "5.5rem";
-const AVATAR_SIZE = "2.35rem";
+const AVATAR_SIZE = "2.5rem";
 
 const LeadForm = lazy(
   () => import("@/components/lead_form/variants/LeadFormDefault"),
@@ -190,6 +190,8 @@ export interface HeroWorkshopData {
   host_bio?: string;
   /** Section label above the host card (e.g. "Host for this event"). */
   host_heading?: string;
+  /** Social icon links under the host name; empty urls are hidden. */
+  host_socials?: Array<{ name?: string; url?: string; icon?: string }>;
   live_now_label?: string;
   capacity?: number | string;
   registered_count?: number | string;
@@ -210,6 +212,8 @@ export interface HeroWorkshopData {
   form?: LeadFormData | null;
   /** Add-to-calendar dropdown card; hidden when items empty. */
   calendar_cta?: {
+    /** Learn-like prompt above the dropdown button. */
+    heading?: string;
     text?: string;
     variant?: "primary" | "secondary" | "outline";
     icon?: string;
@@ -241,6 +245,13 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
   const hostName = coerceToText(data.host_name);
   const hostBio = coerceToText(data.host_bio);
   const hostHeading = coerceToText(data.host_heading);
+  const hostSocials = (data.host_socials || [])
+    .map((it) => ({
+      name: coerceToText(it?.name),
+      url: coerceToText(it?.url),
+      icon: coerceToText(it?.icon),
+    }))
+    .filter((it) => !!it.url);
   const liveNowLabel = coerceToText(data.live_now_label);
   const seatsCopy = coerceToText(data.seats_copy);
   const countdownBg = coerceToText(data.countdown_background_image);
@@ -266,6 +277,7 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
   const canLoadMoreSeats = registrants.length > SEATS_INITIAL && !showAllSeats;
   const loadMoreLabel = pageLocale().startsWith("es") ? "Ver más" : "Load more";
 
+  const calendarHeading = coerceToText(data.calendar_cta?.heading);
   const calendarCtaLabel = coerceToText(data.calendar_cta?.text);
   const calendarItems = (data.calendar_cta?.items || [])
     .map((it) => ({
@@ -334,7 +346,7 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
           style={{ background: TOP_ROW_BG }}
           data-testid="workshop-top-row-bg"
         /> */}
-        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,25rem)] lg:gap-x-16 gap-y-8">
+        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,23rem)] lg:gap-x-16 gap-y-8">
           <div className="space-y-4">
             {badge && (
               <span
@@ -423,7 +435,7 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
                 )}
                 {countdown && (
                   <div
-                    className={`flex gap-2 sm:gap-3 font-inter tabular-nums items-center py-10 ${
+                    className={`flex gap-2 sm:gap-3 font-inter tabu lar-nums items-center py-6 ${
                       countdownBg ? "text-white drop-shadow-sm" : "text-foreground"
                     }`}
                   >
@@ -467,7 +479,7 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
       </div>
 
       {/* Row 2: description/host | form + seats — same column tracks as row 1 */}
-      <div className="ps-3 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,25rem)] lg:items-start lg:gap-x-16 gap-y-8 lg:pt-0">
+      <div className="ps-3 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,23rem)] lg:items-start lg:gap-x-16 gap-y-8 lg:pt-0">
         <div className="min-w-0 space-y-4 lg:pt-10">
           {paragraphs.length > 0 && (
             <div className="space-y-3 text-[15px] leading-relaxed text-muted-foreground" data-testid="text-workshop-description">
@@ -489,14 +501,14 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
                   {hostHeading}
                 </p>
               )}
-              {(hostName || hostBio || data.host_avatar_url) && (
+              {(hostName || hostBio || data.host_avatar_url || hostSocials.length > 0) && (
                 <Card
                   className="w-full rounded-[16px] overflow-hidden bg-card shadow-lg shadow-black/5 border border-border"
                   data-testid="workshop-host"
                 >
-                  <div className="flex gap-4 items-start p-5">
+                  <div className="flex gap-4 items-center p-5">
                     {data.host_avatar_url ? (
-                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden shrink-0 bg-muted">
+                      <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-full overflow-hidden shrink-0 bg-muted">
                         <UniversalImage
                           id={String(data.host_avatar_url)}
                           alt={hostName || "Host"}
@@ -505,14 +517,14 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
                         />
                       </div>
                     ) : hostName ? (
-                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full shrink-0 bg-muted flex items-center justify-center text-3xl font-bold text-muted-foreground">
+                      <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full shrink-0 bg-muted flex items-center justify-center text-2xl font-bold text-muted-foreground">
                         {hostName.charAt(0)}
                       </div>
                     ) : null}
-                    <div className="min-w-0 flex-1 pt-0.5">
+                    <div className="min-w-0 flex-1">
                       {hostName && (
                         <p
-                          className="font-inter text-[19px] sm:text-[22px] font-semibold tracking-tight text-foreground"
+                          className="font-inter text-[19px] sm:text-[21.5px] font-semibold tracking-tight text-foreground"
                           data-testid="text-workshop-host-name"
                         >
                           {hostName}
@@ -520,11 +532,44 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
                       )}
                       {hostBio && (
                         <p
-                          className="text-sm sm:text-[15px] text-muted-foreground mt-1.5 leading-relaxed whitespace-pre-line"
+                          className="text-xs sm:text-[14px] text-muted-foreground mt-0.2 leading-snug whitespace-pre-line"
                           data-testid="text-workshop-host-bio"
                         >
                           {hostBio}
                         </p>
+                      )}
+                      {hostSocials.length > 0 && (
+                        <div
+                          className="flex flex-wrap items-center gap-2.5 mt-2"
+                          data-testid="workshop-host-socials"
+                        >
+                          {hostSocials.map((social, i) => {
+                            const SocialIcon = social.icon
+                              ? getIcon(social.icon)
+                              : null;
+                            const label = social.name || social.url;
+                            return (
+                              <a
+                                key={`${social.url}-${i}`}
+                                href={social.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={label}
+                                aria-label={label}
+                                className="inline-flex text-primary hover:opacity-80 transition-opacity"
+                                data-testid={`link-workshop-host-social-${social.name || i}`}
+                              >
+                                {SocialIcon ? (
+                                  <SocialIcon className="h-5 w-5" aria-hidden />
+                                ) : (
+                                  <span className="text-xs font-semibold underline">
+                                    {label}
+                                  </span>
+                                )}
+                              </a>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -593,7 +638,7 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
                     <>
                       {seatsCopy ? (
                         <p
-                          className="text-sm font-semibold text-foreground text-center leading-snug"
+                          className="text-xs mb-3 fon text-foreground text-center leading-snug"
                           data-testid="text-workshop-seats-copy"
                         >
                           {seatsCopy}
@@ -721,7 +766,15 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
               className="w-full h-fit shrink-0 rounded-[16px] overflow-hidden bg-card shadow-lg shadow-black/5 border border-border"
               data-testid="workshop-calendar-card"
             >
-              <div className="p-5">
+              <div className="p-5 space-y-3">
+                {calendarHeading ? (
+                  <p
+                    className="text-sm font-semibold text-foreground text-center leading-snug"
+                    data-testid="text-workshop-calendar-heading"
+                  >
+                    {calendarHeading}
+                  </p>
+                ) : null}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button

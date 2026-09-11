@@ -3333,6 +3333,19 @@ variant_props:
     host_heading:
       type: string
       required: false
+    host_socials:
+      type: array
+      required: false
+      items:
+        name:
+          type: string
+          required: false
+        url:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
     live_now_label:
       type: string
       required: false
@@ -3379,6 +3392,9 @@ variant_props:
       type: object
       required: false
       properties:
+        heading:
+          type: string
+          required: false
         text:
           type: string
           required: true
