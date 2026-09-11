@@ -760,7 +760,7 @@ export function registerProposalTools(
           "../../server/content-proposals/entry-activity.js"
         );
         const listed = listEntryActivityEvents({
-          site: siteResult.contentFolder,
+          site: siteResult.contentRootName,
           contentType: args.contentType,
           slug: args.slug,
           locale: args.locale,
@@ -771,7 +771,7 @@ export function registerProposalTools(
           return fail(listed.error, { code: listed.code });
         }
         const gated = resolveProposalEntryActivity({
-          site: siteResult.contentFolder,
+          site: siteResult.contentRootName,
           entries: [
             {
               contentType: args.contentType,
