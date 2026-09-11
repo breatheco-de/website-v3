@@ -148,8 +148,8 @@ export async function buildResolvedSingleEntryFromContent(
 ): Promise<Record<string, unknown> | undefined> {
   const entry = buildSingleEntryFromContent(contentType, pageData, opts);
   if (!entry) return undefined;
-  const { resolveRelationsOnEntry } = await import("./resolve-relations");
-  return resolveRelationsOnEntry(contentType, entry, {
+  const { hydrateEntryForDelivery } = await import("./hydrate-entry-delivery");
+  return hydrateEntryForDelivery(contentType, entry, {
     contentRoot: opts?.contentRoot,
     locale: opts?.locale,
     baseUrl: opts?.baseUrl,

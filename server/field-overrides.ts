@@ -44,6 +44,7 @@ import { writeSeoFields } from "./seo-index";
 import { readSeoBlockFromYamlText } from "./seo-fields";
 import { resolveEffectiveSeo, seoBaselineFromDbItem } from "./seo-effective-seo";
 import { assertSeoWriteLayerAllowed } from "./seo-write-layer";
+import { hydrateEntryForDelivery } from "./hydrate-entry-delivery";
 import {
   DEFAULT_DRAFT_VARIANT,
   getEntryContentDir,
@@ -938,6 +939,15 @@ export async function buildFieldProvenance(opts: {
     const cached = await db.fetchItems(dbName);
     const items = cached.items as Record<string, unknown>[];
     mappedItem = items.find((i) => String(i[lookupKey] ?? "") === slug) ?? null;
+    // Live_request + function remaps so Fields tab matches page delivery (e.g. seats).
+    if (mappedItem) {
+      mappedItem = await hydrateEntryForDelivery(contentType, { ...mappedItem }, {
+        contentRoot,
+        locale,
+        db,
+        contentIndex,
+      });
+    }
   } else if (!hasDatabase) {
     const { data } = contentIndex.loadMergedContent(
       contentType,

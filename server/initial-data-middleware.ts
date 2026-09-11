@@ -22,7 +22,7 @@ import { toOgLocale } from "../shared/locale";
 import { loadDatabaseSinglePage, attachVariableFieldsToSections } from "./database-single-loader";
 import { resolveAllTemplateVars, buildContentDeliveryParamBag } from "./resolve-template-vars";
 import { buildSingleEntryFromContent } from "./build-single-entry";
-import { resolveRelationsOnEntry } from "./resolve-relations";
+import { hydrateEntryForDelivery } from "./hydrate-entry-delivery";
 import { databaseManager, type DatabaseManager, getCachedDatabaseEntryCount } from "./database";
 import { applyEntryModulePreload } from "./utils/html-transforms";
 import { applyEntryPreviewOgImage } from "./entry-preview-manager";
@@ -296,7 +296,7 @@ export async function resolvePageQuery(
         contentRoot: ci.contentRoot,
       });
       if (singleEntry) {
-        singleEntry = await resolveRelationsOnEntry(contentType, singleEntry, {
+        singleEntry = await hydrateEntryForDelivery(contentType, singleEntry, {
           contentRoot: ci.contentRoot,
           locale,
           db: dbm,

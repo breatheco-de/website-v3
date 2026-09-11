@@ -95,6 +95,16 @@ export type ContentTypeEditorHint = {
   label?: string;
   /** When true, store string[] of pointers. */
   multiple?: boolean;
+  /** When type is `live_request`: HTTP GET config (public; SSRF-blocked private hosts). */
+  request?: {
+    url?: string;
+    method?: string;
+    query?: Record<string, string>;
+  };
+  response?: {
+    items_path?: string;
+  };
+  on_error?: string;
 };
 
 export interface ContentTypeEntry {

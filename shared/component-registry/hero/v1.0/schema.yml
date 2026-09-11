@@ -81,6 +81,11 @@ variants:
   twoColumn:
     description: Two-column hero with image or media on one side and text/CTAs on the other (legacy variant)
     best_for: General landing pages, legacy pages using the older two-column hero layout
+  workshop:
+    description: >-
+      Event/workshop detail hero: back link, badge, rich title, date/duration, description, host, seats summary,
+      countdown on the left; LeadForm card on the right. Seat counts come from entry props (live_request on the CT).
+    best_for: Workshop / event detail pages
 variant_props:
   ApplyFormProductShowcase:
     brand_mark:
@@ -125,6 +130,9 @@ variant_props:
             - stacked
             - inline
         conversion_name:
+          type: string
+          required: false
+        ecommerce_product_field:
           type: string
           required: false
         title:
@@ -1352,6 +1360,9 @@ variant_props:
                 - stacked
                 - inline
             conversion_name:
+              type: string
+              required: false
+            ecommerce_product_field:
               type: string
               required: false
             title:
@@ -3044,12 +3055,6 @@ variant_props:
       required: false
       description: Show decorative arrow pointing to CTA
   simpleTwoColumn:
-    title:
-      type: string
-      required: true
-      description: >-
-        Hero title (rich HTML). Supports custom font-size / weight / letter-spacing /
-        line-height via the editor (same as credibility / orbit). Mobile strips inline font-size.
     subtitle:
       type: string
       required: false
@@ -3058,40 +3063,6 @@ variant_props:
       required: false
       description: Small label displayed below the subtitle
       example: Coding Bootcamp Projects & Alumni
-    media_at_right:
-      type: boolean
-      required: false
-      description: >-
-        When true, text is on the left and media on the right (desktop).
-        Default false keeps legacy layout (media left, text right).
-    proportions:
-      type: array
-      required: false
-      description: >-
-        Optional 12-column spans [left, right]. When omitted, uses the legacy
-        media md:4/lg:5 + text md:7/lg:7 column widths.
-        Ignored when proportions_percentage is set.
-      items:
-        type: number
-    proportions_percentage:
-      type: array
-      required: false
-      description: >-
-        Optional left/right widths as percentages (e.g. [55, 45] for a split
-        between 5/7 and 6/6). Takes precedence over proportions. Normalized to 100.
-      items:
-        type: number
-      example: [55, 45]
-    alignment:
-      type: string
-      required: false
-      options:
-        - start
-        - center
-        - end
-      description: >-
-        Vertical alignment of the text column on desktop (start = top, center = middle,
-        end = bottom). Default center matches the previous layout.
     image:
       type: string
       required: false
@@ -3180,6 +3151,37 @@ variant_props:
       type: string
       required: false
       description: Background Tailwind class
+    media_at_right:
+      type: boolean
+      required: false
+      description: >-
+        When true, text is on the left and media on the right (desktop). Default false keeps legacy layout (media left,
+        text right).
+    proportions:
+      type: array
+      required: false
+      description: >-
+        Optional 12-column spans [left, right]. When omitted, uses the legacy media md:4/lg:5 + text md:7/lg:7 column
+        widths. Ignored when proportions_percentage is set.
+    proportions_percentage:
+      type: array
+      required: false
+      description: >-
+        Optional left/right widths as percentages (e.g. [55, 45] for a split between 5/7 and 6/6). Takes precedence over
+        proportions. Normalized to 100.
+      example:
+        - 55
+        - 45
+    alignment:
+      type: string
+      required: false
+      options:
+        - start
+        - center
+        - end
+      description: >-
+        Vertical alignment of the text column on desktop (start = top, center = middle, end = bottom). Default center
+        matches the previous layout.
   simpleStacked:
     subtitle:
       type: string
@@ -3288,6 +3290,134 @@ variant_props:
     background:
       type: string
       required: false
+  workshop:
+    back_label:
+      type: string
+      required: false
+    back_url:
+      type: string
+      required: false
+    badge:
+      type: string
+      required: false
+    description:
+      type: string
+      required: false
+    starting_at:
+      type: string
+      required: false
+    ending_at:
+      type: string
+      required: false
+    date_icon:
+      type: string
+      required: false
+    duration_label:
+      type: string
+      required: false
+    duration_suffix:
+      type: string
+      required: false
+    duration_icon:
+      type: string
+      required: false
+    host_name:
+      type: string
+      required: false
+    host_avatar_url:
+      type: string
+      required: false
+    host_bio:
+      type: string
+      required: false
+    host_heading:
+      type: string
+      required: false
+    host_socials:
+      type: array
+      required: false
+      items:
+        name:
+          type: string
+          required: false
+        url:
+          type: string
+          required: false
+        icon:
+          type: string
+          required: false
+    live_now_label:
+      type: string
+      required: false
+    capacity:
+      type: string
+      required: false
+    registered_count:
+      type: string
+      required: false
+    seats_remaining:
+      type: string
+      required: false
+    registrant_avatars:
+      type: string
+      required: false
+    fallback_avatars:
+      type: string
+      required: false
+    seats_copy:
+      type: string
+      required: false
+    registered_suffix:
+      type: string
+      required: false
+    remaining_prefix:
+      type: string
+      required: false
+    countdown_background_image:
+      type: string
+      required: false
+    form_card_title:
+      type: string
+      required: false
+    form_card_subtitle:
+      type: string
+      required: false
+    form_card_disclaimer:
+      type: string
+      required: false
+    form:
+      type: string
+      required: false
+    calendar_cta:
+      type: object
+      required: false
+      properties:
+        heading:
+          type: string
+          required: false
+        text:
+          type: string
+          required: true
+        variant:
+          type: string
+          required: false
+          options:
+            - primary
+            - secondary
+            - outline
+        icon:
+          type: string
+          required: false
+        items:
+          type: array
+          required: false
+          items:
+            name:
+              type: string
+              required: true
+            url:
+              type: string
+              required: true
 props:
   title:
     type: string

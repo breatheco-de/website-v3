@@ -9,7 +9,7 @@ import { getHomePage, resolveEffectiveRobots, isIndexingBlocked } from "./settin
 import { mergeSingleTemplate } from "./database-single-loader";
 import { resolveAllTemplateVars } from "./resolve-template-vars";
 import { combinedArticleContentFromSections } from "@shared/reading-time";
-import { resolveRelationsOnEntry } from "./resolve-relations";
+import { hydrateEntryForDelivery } from "./hydrate-entry-delivery";
 import {
   applyFaqHideOnLocations,
   normalizeFaqEntries,
@@ -257,7 +257,7 @@ export async function generateDatabaseSsrHtml(
 
   record = ensureRecordArticleContent(contentType, { ...record }, locale, contentRoot);
 
-  const hydrated = await resolveRelationsOnEntry(contentType, record, {
+  const hydrated = await hydrateEntryForDelivery(contentType, record, {
     contentRoot,
     locale,
     contentIndex: ci,

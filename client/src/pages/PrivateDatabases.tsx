@@ -36,6 +36,12 @@ import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTy
 import JsonViewer from "@/components/editing/JsonViewer";
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
 import {
+  resolveCacheTtlMinutes,
+  ttlCachePayload,
+  ttlUiFromCache,
+  type TtlUiUnit,
+} from "@shared/db-cache-ttl";
+import {
   decodeFunctionMapping,
   encodeFunctionMapping,
 } from "@shared/functionEncoding";
@@ -103,7 +109,7 @@ interface DatabaseDetail {
         results_path?: string;
       };
     };
-    cache?: { ttl_hours?: number };
+    cache?: { ttl_minutes?: number; ttl_hours?: number };
     field_mapping?: Record<string, string>;
     filter_by_locale?: boolean;
     editor?: Record<string, { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; split_comma_values?: boolean; cache_images?: boolean; description?: string }>;
@@ -540,7 +546,8 @@ function CreateDatabaseDialog({
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
   const [description, setDescription] = useState("");
-  const [ttlHours, setTtlHours] = useState("24");
+  const [ttlValue, setTtlValue] = useState("24");
+  const [ttlUnitCreate, setTtlUnitCreate] = useState<TtlUiUnit>("hours");
 
   const [sourceType, setSourceType] = useState<SourceType>("api");
   const [endpoint, setEndpoint] = useState("");
@@ -587,7 +594,7 @@ function CreateDatabaseDialog({
     setSlug("");
     setSlugTouched(false);
     setDescription("");
-    setTtlHours("24");
+    setTtlValue("24");
     setSourceType("api");
     setEndpoint("");
     setResultsPath("");
@@ -693,7 +700,7 @@ function CreateDatabaseDialog({
         name: displayName,
         description: description || undefined,
         source: buildSourceConfig(),
-        cache: { ttl_hours: ttlHours !== "" && Number.isFinite(Number(ttlHours)) ? Number(ttlHours) : 24 },
+        cache: ttlCachePayload(ttlValue, ttlUnitCreate),
         field_mapping: Object.keys(fieldMapping).length > 0 ? fieldMapping : undefined,
       };
 
@@ -801,16 +808,30 @@ function CreateDatabaseDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="db-ttl">Cache TTL (hours)</Label>
-              <Input
-                id="db-ttl"
-                type="number"
-                min="0"
-                value={ttlHours}
-                onChange={(e) => setTtlHours(e.target.value)}
-                className="w-24"
-                data-testid="input-db-ttl"
-              />
+              <Label htmlFor="db-ttl">Cache TTL</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="db-ttl"
+                  type="number"
+                  min="0"
+                  value={ttlValue}
+                  onChange={(e) => setTtlValue(e.target.value)}
+                  className="w-24"
+                  data-testid="input-db-ttl"
+                />
+                <Select
+                  value={ttlUnitCreate}
+                  onValueChange={(v) => setTtlUnitCreate(v as TtlUiUnit)}
+                >
+                  <SelectTrigger className="w-[110px]" data-testid="select-db-ttl-unit">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="hours">Hours</SelectItem>
+                    <SelectItem value="minutes">Minutes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
         )}
@@ -1429,7 +1450,9 @@ function DatabaseConfigEditor({
   );
   const [tokenEnvVar, setTokenEnvVar] = useState(config.source.api?.auth?.token_env_var || "");
   const [authPrefix, setAuthPrefix] = useState(config.source.api?.auth?.prefix || "Bearer");
-  const [ttlHours, setTtlHours] = useState(String(config.cache?.ttl_hours ?? 24));
+  const initialTtlUi = ttlUiFromCache(config.cache);
+  const [ttlValue, setTtlValue] = useState(initialTtlUi.value);
+  const [ttlUnit, setTtlUnit] = useState<TtlUiUnit>(initialTtlUi.unit);
   const [filterByLocale, setFilterByLocale] = useState(config.filter_by_locale !== false);
   const [params, setParams] = useState<KeyValuePair[]>(() => {
     const p = config.source.api?.params;
@@ -1564,7 +1587,11 @@ function DatabaseConfigEditor({
       config.source.remote?.results_path ||
       "";
     if (resultsPath !== origResultsPath) return true;
-    if (String(config.cache?.ttl_hours ?? 24) !== ttlHours) return true;
+    if (
+      resolveCacheTtlMinutes(config.cache) !==
+      resolveCacheTtlMinutes(ttlCachePayload(ttlValue, ttlUnit))
+    )
+      return true;
     if (sourceType === "api") {
       if (endpoint !== (config.source.api?.endpoint || "")) return true;
       if (tokenEnvVar !== (config.source.api?.auth?.token_env_var || "")) return true;
@@ -1662,7 +1689,7 @@ function DatabaseConfigEditor({
         name: config.name,
         description: config.description || undefined,
         source: buildSourceConfig(),
-        cache: { ttl_hours: ttlHours !== "" && Number.isFinite(Number(ttlHours)) ? Number(ttlHours) : 24 },
+        cache: ttlCachePayload(ttlValue, ttlUnit),
         field_mapping: config.field_mapping || undefined,
         ...(filterByLocale ? {} : { filter_by_locale: false }),
       };
@@ -1749,13 +1776,18 @@ function DatabaseConfigEditor({
         </div>
         <div className="space-y-2">
           <div className="flex items-center gap-1.5">
-            <Label htmlFor="edit-ttl">Cache TTL (hours)</Label>
+            <Label htmlFor="edit-ttl">Cache TTL</Label>
             <Popover>
               <PopoverTrigger asChild>
                 <Info className="h-3.5 w-3.5 text-muted-foreground cursor-pointer" />
               </PopoverTrigger>
               <PopoverContent side="right" className="w-64 text-xs p-3">
-                The entire database will be re-fetched every <strong>{ttlHours || "24"} hour{Number(ttlHours) === 1 ? "" : "s"}</strong> to keep the data up to date. Set to <strong>0</strong> to disable automatic refresh.
+                The entire database will be re-fetched every{" "}
+                <strong>
+                  {ttlValue || (ttlUnit === "hours" ? "24" : "1440")} {ttlUnit}
+                </strong>{" "}
+                to keep the data up to date. Set to <strong>0</strong> to always
+                refetch on read (no useful cache).
               </PopoverContent>
             </Popover>
           </div>
@@ -1764,11 +1796,20 @@ function DatabaseConfigEditor({
               id="edit-ttl"
               type="number"
               min="0"
-              value={ttlHours}
-              onChange={(e) => setTtlHours(e.target.value)}
+              value={ttlValue}
+              onChange={(e) => setTtlValue(e.target.value)}
               className="w-24"
               data-testid="input-edit-ttl"
             />
+            <Select value={ttlUnit} onValueChange={(v) => setTtlUnit(v as TtlUiUnit)}>
+              <SelectTrigger className="w-[110px]" data-testid="select-edit-ttl-unit">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="hours">Hours</SelectItem>
+                <SelectItem value="minutes">Minutes</SelectItem>
+              </SelectContent>
+            </Select>
             {sourceType === "api" && webhookData && (
               webhookFullUrl ? (
                 <div className="flex items-center gap-1.5 flex-1 min-w-0 rounded-md bg-muted/50 border px-2 py-1.5 text-xs">
@@ -2656,6 +2697,7 @@ function FieldMappingEditor({
         lockImageType={
           !!(hintDialogField && editorHints[hintDialogField]?.cache_images)
         }
+        allowLiveRequest={false}
         existingItems={hintPreviewData?.items}
         existingItemsLoading={hintPreviewLoading}
         onClose={() => setHintDialogField(null)}
@@ -4758,7 +4800,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  TTL: {config?.cache?.ttl_hours ?? 24}h
+                  TTL: {resolveCacheTtlMinutes(config?.cache)}m
                 </p>
               </CardContent>
             </Card>
