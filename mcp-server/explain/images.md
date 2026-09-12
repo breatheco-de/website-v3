@@ -74,6 +74,23 @@ Staff can replace an existing gallery asset via Media Gallery → card menu → 
 
 ## Agents (MCP)
 
+### `list_media`
+
+Paginated gallery inventory matching Media Gallery browse filters/sorts. Requires `content_view`.
+
+| Param | Default | Notes |
+|---|---|---|
+| `q` | — | Search id, alt, tags, AI `requested_by` |
+| `tags` | — | OR match; unknown tags warn and typically yield empty results |
+| `doctype` | `all` | `all` \| `image` \| `video` \| `pdf` |
+| `origin` | `all` | `all` \| `ai` \| `uploaded` (non-AI, includes import/legacy) |
+| `include_derived` | `false` | Include `parentId` crops when true |
+| `sort` | `newest` | `newest` \| `oldest` \| `name` \| `usage` (stored count may be stale) |
+| `page` / `page_size` | `1` / `50` | Max `page_size` 100; pages past the end return empty `items` |
+
+Slim rows only — use `get_or_set_media_to_gallery` with `media_id` for full entry. Missing/corrupt registry fails; valid empty gallery returns `total: 0`. When exactly one item matches, `next_actions` suggests that detail lookup.
+
+
 Tool: **`get_or_set_media_to_gallery`** (formerly `get_or_set_image_to_gallery`). Pass **exactly one** of `media_id`, `url`, `prompt`, or `bytes_base64`.
 
 | Source | Cap | Behavior |
