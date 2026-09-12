@@ -88,22 +88,35 @@ describe("authorHasActiveClaimOnEntry / refreshClaimsForEntry", () => {
       url: "/es/inicio",
     });
 
-    await cache.claimIssue(enId, "alice", { type: "mcp", name: "alice" }, "x".repeat(80));
+    const mcpActor = { type: "mcp" as const, role: "copy_editor", name: "alice" };
+    await cache.claimIssue(enId, "alice", mcpActor, "x".repeat(80));
 
     const en = cache.authorHasActiveClaimOnEntry({
       author: "alice",
       contentType: "page",
       slug: "home",
       locale: "en",
+      actor: mcpActor,
     });
     expect(en.has_active_claim).toBe(true);
     expect(en.claim_issue_ids).toContain(enId);
+
+    // Username alone is ui:{user}; MCP claim is mcp:{user}:{role} — different identity.
+    expect(
+      cache.authorHasActiveClaimOnEntry({
+        author: "alice",
+        contentType: "page",
+        slug: "home",
+        locale: "en",
+      }).has_active_claim,
+    ).toBe(false);
 
     const es = cache.authorHasActiveClaimOnEntry({
       author: "alice",
       contentType: "page",
       slug: "home",
       locale: "es",
+      actor: mcpActor,
     });
     expect(es.has_active_claim).toBe(false);
     expect(es.claim_issue_ids).toEqual([]);
@@ -119,7 +132,8 @@ describe("authorHasActiveClaimOnEntry / refreshClaimsForEntry", () => {
       locale: "en",
       url: "/en/home",
     });
-    await cache.claimIssue(issueId, "alice", { type: "mcp", name: "alice" }, "x".repeat(80));
+    const mcpActor = { type: "mcp" as const, role: "copy_editor", name: "alice" };
+    await cache.claimIssue(issueId, "alice", mcpActor, "x".repeat(80));
 
     expect(
       cache.authorHasActiveClaimOnEntry({
@@ -127,6 +141,7 @@ describe("authorHasActiveClaimOnEntry / refreshClaimsForEntry", () => {
         contentType: "page",
         slug: "home",
         locale: "en",
+        actor: mcpActor,
       }).has_active_claim,
     ).toBe(false);
 
@@ -137,6 +152,7 @@ describe("authorHasActiveClaimOnEntry / refreshClaimsForEntry", () => {
         contentType: "page",
         slug: "home",
         locale: "en",
+        actor: mcpActor,
         nowMs: past,
       }).has_active_claim,
     ).toBe(false);
@@ -152,12 +168,8 @@ describe("authorHasActiveClaimOnEntry / refreshClaimsForEntry", () => {
       locale: "en",
       url: "/en/blog/post",
     });
-    const claimed = await cache.claimIssue(
-      issueId,
-      "alice",
-      { type: "mcp", name: "alice" },
-      "x".repeat(80),
-    );
+    const mcpActor = { type: "mcp" as const, role: "copy_editor", name: "alice" };
+    const claimed = await cache.claimIssue(issueId, "alice", mcpActor, "x".repeat(80));
     expect(claimed.ok).toBe(true);
     if (!claimed.ok) return;
     const before = claimed.claim.expiresAt;
@@ -168,6 +180,7 @@ describe("authorHasActiveClaimOnEntry / refreshClaimsForEntry", () => {
       contentType: "blog",
       slug: "post",
       locale: "en",
+      actor: mcpActor,
       nowMs: t0,
     });
     expect(refreshed.refreshed).toBe(1);

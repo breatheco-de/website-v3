@@ -281,8 +281,10 @@ describe("validation cache claims", () => {
     const cache = new ValidationCacheService(root);
     const { issueId } = seedIssue(cache, root);
 
-    await cache.claimIssue(issueId, "agent-a");
+    await cache.claimIssue(issueId, "agent-a", { type: "mcp", role: "copy_editor" });
+    // Missing/UI actor is treated as staff override; an MCP peer without force must be denied.
     const denied = await cache.updateIssue(issueId, "release", "agent-b", {
+      actor: { type: "mcp", role: "seo_specialist" },
       report: "Staff override not allowed for agent-b without force — this should fail ownership.",
     });
     expect(denied.ok).toBe(false);
@@ -385,21 +387,38 @@ describe("validation cache claims", () => {
     const cache = new ValidationCacheService(root);
     const { issueId } = seedIssue(cache, root);
 
-    const mcpActor = { type: "mcp" as const, client: "Cursor", model: "gpt-4" };
+    // Same username+role may refresh; model/client are observability and may change.
+    const mcpActor = {
+      type: "mcp" as const,
+      role: "copy_editor",
+      client: "Cursor",
+      model: "openai/gpt-4",
+    };
     await cache.claimIssue(issueId, "jane", mcpActor);
     expect(cache.getActiveClaim(issueId)?.actor).toEqual(mcpActor);
 
-    const uiActor = { type: "ui" as const };
-    await cache.claimIssue(issueId, "jane", uiActor);
-    expect(cache.getActiveClaim(issueId)?.actor).toEqual(uiActor);
+    const refreshedActor = {
+      type: "mcp" as const,
+      role: "copy_editor",
+      client: "Cursor",
+      model: "claude/sonnet-4.5",
+    };
+    const refresh = await cache.claimIssue(issueId, "jane", refreshedActor);
+    expect(refresh.ok).toBe(true);
+    expect(cache.getActiveClaim(issueId)?.actor).toEqual(refreshedActor);
 
-    await cache.completeIssue(issueId, "jane", mcpActor);
+    // UI is a different identity — cannot take over an MCP role claim.
+    const uiTakeover = await cache.claimIssue(issueId, "jane", { type: "ui" });
+    expect(uiTakeover.ok).toBe(false);
+    if (!uiTakeover.ok) expect(uiTakeover.code).toBe("issue_already_claimed");
+
+    await cache.completeIssue(issueId, "jane", refreshedActor);
     const completion = cache.getCompletion(issueId);
-    expect(completion?.actor).toEqual(mcpActor);
+    expect(completion?.actor).toEqual(refreshedActor);
 
     const listed = listCacheIssuesFromStore(cache, { entryKey: "page/home/en", includeCompleted: true });
     expect(listed.issues[0]?.claimed).toBeUndefined();
-    expect(listed.issues[0]?.completed?.actor).toEqual(mcpActor);
+    expect(listed.issues[0]?.completed?.actor).toEqual(refreshedActor);
   });
 
   it("stores report on claim and complete; re-claim preserves report", async () => {
@@ -408,16 +427,17 @@ describe("validation cache claims", () => {
     const cache = new ValidationCacheService(root);
     const { issueId } = seedIssue(cache, root);
 
+    const mcpActor = { type: "mcp" as const, role: "copy_editor", client: "Cursor" };
     const claimReport = "Will fix missing sitemap entry by updating meta redirects.";
-    await cache.claimIssue(issueId, "jane", { type: "mcp", client: "Cursor" }, claimReport);
+    await cache.claimIssue(issueId, "jane", mcpActor, claimReport);
     expect(cache.getActiveClaim(issueId)?.report).toBe(claimReport);
 
-    const refresh = await cache.claimIssue(issueId, "jane");
+    const refresh = await cache.claimIssue(issueId, "jane", mcpActor);
     expect(refresh.ok).toBe(true);
     expect(cache.getActiveClaim(issueId)?.report).toBe(claimReport);
 
     const completeReport = "Added /en/home to meta.redirects via update_fields on pages/home/en.yml.";
-    await cache.completeIssue(issueId, "jane", { type: "mcp", client: "Cursor" }, completeReport);
+    await cache.completeIssue(issueId, "jane", mcpActor, completeReport);
     expect(cache.getCompletion(issueId)?.report).toBe(completeReport);
 
     const listed = listCacheIssuesFromStore(cache, { entryKey: "page/home/en", includeCompleted: true });
