@@ -5,6 +5,19 @@
 window_days: 6
 
 entries:
+  - date: "2026-09-12"
+    summary: "New list_media MCP tool — paginated gallery inventory with Media Gallery filters/sorts"
+    agent_impact:
+      - "list_media (content_view) lists slim gallery rows with q/tags/doctype/origin/include_derived/sort/page. Reconnect MCP so tools/list refreshes."
+      - "Unknown tags warn via available_tags; usage sort may be stale; single match suggests get_or_set_media_to_gallery for full entry."
+      - "Missing/corrupt image-registry.json fails; empty gallery returns total:0. Does not write YAML."
+    paths:
+      - mcp-server/tools/media.ts
+      - mcp-server/lib/list-media.ts
+      - mcp-server/lib/list-media-handler.ts
+      - shared/mcp-tool-catalog.ts
+      - mcp-server/explain/images.md
+    tools_changed: true
   - date: "2026-09-11"
     summary: "Session-bound MCP identity — required agent_session_id + model on start"
     agent_impact:

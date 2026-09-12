@@ -20,10 +20,10 @@ import { resolveSiteContext } from "../lib/content.js";
 import { getTokenUsername } from "../lib/oauth.js";
 import { buildLoopbackHeaders } from "../lib/loopback.js";
 import { requiredAgentSessionIdField } from "../lib/page-tool-helpers.js";
-import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
+import { SITE_PARAM_DESC, MULTI_SITE_TOOL_BLURB, siteFailResult } from "../lib/entry-helpers.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
 import { AI_IMAGE_GC_GRACE_MS, normalizePromptAlt } from "../../shared/ai-image-gc.js";
-import type { ImageEntry } from "../../shared/schema.js";
+import type { ImageEntry, ImageRegistry } from "../../shared/schema.js";
 import {
   buildRegistrySrcToIdMap,
   resolveRegistryReference,
@@ -35,6 +35,7 @@ import {
   defaultAltForDoctype,
 } from "../../shared/media-doctype.js";
 import { isPrivateDestination } from "../../shared/ssrf.js";
+import { handleListMedia } from "../lib/list-media-handler.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
@@ -139,6 +140,7 @@ function loadRegistryImages(
     return null;
   }
 }
+
 
 /** Registry id for a gallery URL: matches entry.src (incl. full URLs) or source_url. */
 export function findGalleryImageByUrl(
@@ -1058,6 +1060,7 @@ export async function handleGetOrSetMediaToGallery(
   );
 }
 
+
 export function registerMediaTools(
   mcp: McpServer,
   mcpToken?: string,
@@ -1125,6 +1128,63 @@ export function registerMediaTools(
           agent_session_id: raw.agent_session_id,
         },
         { mcpToken, grants },
+      ),
+  );
+
+  mcp.tool(
+    "list_media",
+    "Paginated media-gallery inventory from image-registry.json (Media Gallery browse parity). " +
+      "Filter with q (id/alt/tags/AI requester), tags (OR), doctype, origin (all|ai|uploaded), include_derived (default false). " +
+      "Sort: newest (default)|oldest|name|usage (stored usage_count may be stale). " +
+      "Returns slim rows — use get_or_set_media_to_gallery with media_id for full entry. " +
+      "Requires content_view. " +
+      MULTI_SITE_TOOL_BLURB,
+    {
+      q: z.string().optional().describe("Case-insensitive search over id, alt, tags, and AI requested_by name/id"),
+      tags: z
+        .array(z.string())
+        .optional()
+        .describe("Tag filters (OR). Entry must include at least one. Unknown tags warn and typically yield empty results."),
+      doctype: z
+        .enum(["all", "image", "video", "pdf"])
+        .optional()
+        .describe("Media type filter (default all)"),
+      origin: z
+        .enum(["all", "ai", "uploaded"])
+        .optional()
+        .describe("Origin filter (default all). uploaded = non-AI (includes import/legacy)"),
+      include_derived: z
+        .boolean()
+        .optional()
+        .describe("When true, include crop/variant rows with parentId (default false)"),
+      sort: z
+        .enum(["newest", "oldest", "name", "usage"])
+        .optional()
+        .describe("Sort order (default newest)"),
+      page: z.number().int().min(1).optional().describe("1-based page (default 1)"),
+      page_size: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe("Page size (default 50, max 100)"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async (raw) =>
+      handleListMedia(
+        {
+          q: raw.q,
+          tags: raw.tags,
+          doctype: raw.doctype,
+          origin: raw.origin,
+          include_derived: raw.include_derived,
+          sort: raw.sort,
+          page: raw.page,
+          page_size: raw.page_size,
+          site: raw.site,
+        },
+        { mcpToken: mcpToken, grants: grants },
       ),
   );
 }

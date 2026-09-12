@@ -75,6 +75,7 @@ export const TOOL_GATES: Record<string, ToolGate> = {
     kind: "anyCap",
     caps: ["media_upload", "content_view"],
   },
+  list_media: { kind: "anyCap", caps: ["content_view"] },
 
   create_variant: { kind: "anyCap", caps: ["content_create_variant"] },
   delete_variant: { kind: "anyCap", caps: ["content_delete_variant"] },
