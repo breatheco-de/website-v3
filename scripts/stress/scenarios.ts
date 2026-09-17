@@ -524,27 +524,36 @@ export const SCENARIOS: Scenario[] = [
     class: "docs",
   },
   {
+    id: "explain_site_proposals_index",
+    tool: "explain_site",
+    about: "Proposals hub index — omit subtopic; returns pick_subtopic menu.",
+    buildArgs: (ctx) => withSite(ctx, { topic: "proposals" }),
+    reps: 1,
+    class: "docs",
+  },
+  {
     id: "explain_site_review_situations",
     tool: "explain_site",
-    about: "Architecture docs: topic=review-situations (edits catalog + ideas default-on idea_opportunity_harm).",
-    buildArgs: (ctx) => withSite(ctx, { topic: "review-situations" }),
+    about:
+      "Proposals hub: topic=proposals subtopic=situations (edits catalog + ideas default-on idea_opportunity_harm).",
+    buildArgs: (ctx) => withSite(ctx, { topic: "proposals", subtopic: "situations" }),
     reps: 1,
     class: "docs",
   },
   {
     id: "explain_site_internal_links_proposals",
     tool: "explain_site",
-    about: "Architecture docs: topic=internal-links-proposals (hub link author/reviewer guide).",
-    buildArgs: (ctx) => withSite(ctx, { topic: "internal-links-proposals" }),
+    about: "Proposals hub: subtopic=internal-links (hub link author/reviewer guide).",
+    buildArgs: (ctx) => withSite(ctx, { topic: "proposals", subtopic: "internal-links" }),
     reps: 1,
     class: "docs",
   },
   {
     id: "explain_site_serp_title_description_proposals",
     tool: "explain_site",
-    about:
-      "Architecture docs: topic=serp-title-description-proposals (SERP title/description author/reviewer guide).",
-    buildArgs: (ctx) => withSite(ctx, { topic: "serp-title-description-proposals" }),
+    about: "Proposals hub: subtopic=serp-title-description (SERP title/description guide).",
+    buildArgs: (ctx) =>
+      withSite(ctx, { topic: "proposals", subtopic: "serp-title-description" }),
     reps: 1,
     class: "docs",
   },
@@ -552,8 +561,17 @@ export const SCENARIOS: Scenario[] = [
     id: "explain_site_funnel_classification_proposals",
     tool: "explain_site",
     about:
-      "Architecture docs: topic=funnel-classification-proposals (funnel stage/products author/reviewer guide; persona → product → stage).",
-    buildArgs: (ctx) => withSite(ctx, { topic: "funnel-classification-proposals" }),
+      "Proposals hub: subtopic=funnel-classification (persona → product → stage).",
+    buildArgs: (ctx) =>
+      withSite(ctx, { topic: "proposals", subtopic: "funnel-classification" }),
+    reps: 1,
+    class: "docs",
+  },
+  {
+    id: "explain_site_translations_proposals",
+    tool: "explain_site",
+    about: "Proposals hub: subtopic=translations (locale draft→promote playbook).",
+    buildArgs: (ctx) => withSite(ctx, { topic: "proposals", subtopic: "translations" }),
     reps: 1,
     class: "docs",
   },

@@ -94,13 +94,23 @@ Proposals are a shared work item, not a chat. Prefer one open proposal per draft
 - **Reject** only when the idea must not ship (bad / not implementable / illegal-or-policy / harmful / duplicate weaker / target missing). Pass `confirm_reject`, `reject_kind`, and `close_note` (min 80). Prefer **add_blocker** for in-scope polish; author **`revise_entries`** (idle or self-claim; foreign claim blocks) then `resolve_blocker` — revise does not clear blockers.
 - Only the **active claimant** (human+role) may `resolve_blocker`. Do not resolve to overturn a disagreement — escalate or leave open; reviewers `reopen_blocker`.
 - Open blockers block **apply** and idea **accept** (reject/withdraw/close still OK). Cleared blockers ≠ ship — re-preview, then four-eyes `apply` / `accept`. For `promote_on_apply`, confirm ending experiments when asked (`confirm_end_experiment`).
-- **Idea follow-through:** after accept, file edits with `implements_proposal_id` (required when that idea reserved the page). At most one open implements child. Pickup stalled work via `list_proposals({ stalled: true })` or `proposal_stats.stalled_ideas`. Refuse codes: `explain_site` topics **`proposals`** and **`reading-proposals`**.
+- **Idea follow-through:** after accept, file edits with `implements_proposal_id` (required when that idea reserved the page). At most one open implements child. Pickup stalled work via `list_proposals({ stalled: true })` or `proposal_stats.stalled_ideas`. Refuse codes: `explain_site` `topic: "proposals"` (subtopics `overview` / `reading`).
 - **Escalated hold:** when `escalated: true`, a Platform Steward paused agent work (staff UI only). Do **not** call `update_proposal` — every action fails with `code: escalated` until they release. Read `escalated_note`. Overlapping create may warn `escalated_sibling` but still succeeds. After release the note may remain as history (mutations allowed again).
 - Optional `supersedes_proposal_id` on `propose_change` when replacing a rejected/withdrawn proposal (never required). Withdraw needs a short note.
 - Four-eyes = different **username+role** (or staff UI), not merely a different model under the same role.
 - **`list_proposals(proposal_id)`** on an open/partial proposal may include **`discovery_path`**: optional research menu (`think` + `tool` items). Use it to deepen judgment before apply/reject/add_blocker/adjacent notes. It is **not** `next_actions` and skip does **not** block decide actions. Items with `available: false` need a human to enable access, then refresh MCP.
 
 **Worked example:** Blake adds a blocker on CTA product; Alex revises soft entries (or fixes the draft), resolves with a note; Casey (different role or UI) previews again then applies.
+
+### 2c. Locale translation: draft write, then promote proposal
+
+`translate_entry` always writes a **non-public variant** (default `draft`) — never live `{locale}.yml`. Polish with write tools on that variant. When ready to go public:
+
+- File **`propose_change`** with `variant`, `promote_on_apply: true`, and prefer `review_situations: ["locale_translation"]`.
+- Summary: intent + **Translated from {src} → {tgt}** (no pasted body). Soft-only proposals without promote are **not** this pack — keep polishing with write tools.
+- Reviewer scores fidelity to source locale (facts/slug/shell), not punchier-than-live English. Playbook: `explain_site` `topic: "proposals"` `subtopic: "translations"`.
+
+**Worked example:** Translator runs `translate_entry` → `draft.es.yml`, fixes wording with `update_fields` on `variant: draft`, then proposes promote with `locale_translation`; Proposal Reviewer applies.
 
 ### 3. Cluster SEO only on live (or draft-before-live)
 

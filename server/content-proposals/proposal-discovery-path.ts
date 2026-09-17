@@ -111,6 +111,27 @@ const IDEA_EXPLAIN_TOOL = {
   ],
 } as const;
 
+const TRANSLATION_EXPLAIN_TOOL = {
+  id: "translation_playbook",
+  tool: "explain_site",
+  why: "Load the locale translation draft→promote scorecard before apply.",
+  look_for: [
+    "Fidelity → Completeness → Slug → Shell → promote honesty",
+    "draft vs source locale — not punchier copy vs live English",
+    "apply promotes the variant — does not AI-translate",
+  ],
+} as const;
+
+const LIST_VARIANTS_TOOL = {
+  id: "variant_layers",
+  tool: "list_variants",
+  why: "Confirm which non-public layers exist before promoting a translated draft.",
+  look_for: [
+    "named variant on the proposal matches a real draft layer",
+    "allocation / traffic on that variant before go-live",
+  ],
+} as const;
+
 const IDEA_ENTRY_SEO_TOOL = {
   id: "related_seo",
   tool: "get_entry_seo",
@@ -210,6 +231,8 @@ export function proposalDiscoveryToolNames(): string[] {
     SEO_RESEARCH_SERP_TOOL.tool,
     SEO_RESEARCH_IDEAS_TOOL.tool,
     IDEA_EXPLAIN_TOOL.tool,
+    TRANSLATION_EXPLAIN_TOOL.tool,
+    LIST_VARIANTS_TOOL.tool,
     IDEA_ENTRY_SEO_TOOL.tool,
     IDEA_CLUSTER_ENTRIES_TOOL.tool,
     IDEA_ORGANIC_TOOL.tool,
@@ -432,6 +455,8 @@ export function buildEditsDiscoveryToolItems(opts: {
   includeProductAudienceTools?: boolean;
   /** SERP title/description situations — optional research serp + ideas (≤2). */
   includeSeoResearchTools?: boolean;
+  /** locale_translation — playbook + list_variants. */
+  includeTranslationTools?: boolean;
 }): { items: DiscoveryPathToolItem[]; anyCapped: boolean } {
   const {
     allowed,
@@ -442,9 +467,19 @@ export function buildEditsDiscoveryToolItems(opts: {
     activityEntry = null,
     includeProductAudienceTools = false,
     includeSeoResearchTools = false,
+    includeTranslationTools = false,
   } = opts;
 
   const activityHint = activityArgsHint(activityEntry ?? (entry as ProposalDiscoveryEntry | null));
+  const contentHint =
+    entry?.contentType && entry.slug
+      ? {
+          contentType: entry.contentType,
+          slug: entry.slug,
+          ...(entry.locale ? { locale: entry.locale } : {}),
+          ...(entry.variant?.trim() ? { variant: entry.variant.trim() } : {}),
+        }
+      : undefined;
 
   const core = CORE_EDITS_TOOLS.map((t) => {
     if (t.id === "recent_writes") {
@@ -458,16 +493,14 @@ export function buildEditsDiscoveryToolItems(opts: {
         : [...t.look_for];
       return toToolItem({ ...t, look_for }, allowed, activityHint);
     }
-    if (t.id === "preview_content" && opts.contentLookFor?.length) {
-      return toToolItem(
-        {
-          ...t,
-          look_for: [...opts.contentLookFor, ...t.look_for],
-        },
-        allowed,
-      );
+    if (t.id === "preview_content") {
+      const look_for =
+        opts.contentLookFor?.length
+          ? [...opts.contentLookFor, ...t.look_for]
+          : [...t.look_for];
+      return toToolItem({ ...t, look_for }, allowed, contentHint);
     }
-    return toToolItem(t, allowed);
+    return toToolItem(t, allowed, contentHint);
   });
 
   let items: DiscoveryPathToolItem[];
@@ -477,6 +510,24 @@ export function buildEditsDiscoveryToolItems(opts: {
     items = recent ? [recent, ...rest] : [...core];
   } else {
     items = [...core];
+  }
+
+  if (includeTranslationTools) {
+    items.unshift(
+      toToolItem(TRANSLATION_EXPLAIN_TOOL, allowed, {
+        topic: "proposals",
+        subtopic: "translations",
+      }),
+    );
+    if (entry?.contentType && entry.slug) {
+      items.push(
+        toToolItem(LIST_VARIANTS_TOOL, allowed, {
+          contentType: entry.contentType,
+          slug: entry.slug,
+          ...(entry.locale ? { locale: entry.locale } : {}),
+        }),
+      );
+    }
   }
 
   if (includeProductAudienceTools) {
@@ -542,7 +593,10 @@ export function buildIdeaDiscoveryToolItems(opts: {
 }): { items: DiscoveryPathToolItem[]; anyCapped: boolean } {
   const { allowed, related } = opts;
   const items: DiscoveryPathToolItem[] = [
-    toToolItem(IDEA_EXPLAIN_TOOL, allowed, { topic: "idea-opportunity-harm-proposals" }),
+    toToolItem(IDEA_EXPLAIN_TOOL, allowed, {
+      topic: "proposals",
+      subtopic: "idea-opportunity-harm",
+    }),
   ];
 
   const first = related?.find((r) => r.contentType?.trim() && r.slug?.trim()) ?? null;
@@ -743,6 +797,7 @@ export function buildProposalDiscoveryPath(
     const situations = (reviewContext?.review_situations ?? []) as ReviewSituationId[];
     const funnelClassification =
       situations.includes("funnel_classification") || hasFunnelOp;
+    const localeTranslation = situations.includes("locale_translation");
     const contentLookFor = discoveryContentLookForForSituations(situations);
     const pending = pendingEntries(proposal);
     const gateWriteCount = pending.reduce(
@@ -777,6 +832,7 @@ export function buildProposalDiscoveryPath(
       contentLookFor,
       includeProductAudienceTools: funnelClassification,
       includeSeoResearchTools,
+      includeTranslationTools: localeTranslation,
     });
     tools = built.items;
     if (built.anyCapped) {

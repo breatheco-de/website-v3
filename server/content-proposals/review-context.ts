@@ -12,6 +12,7 @@ import {
   TITLE_DESCRIPTION_STAFF_NOTE,
   INTERNAL_LINKS_STAFF_NOTE,
   FUNNEL_CLASSIFICATION_STAFF_NOTE,
+  LOCALE_TRANSLATION_STAFF_NOTE,
   IDEA_OPPORTUNITY_HARM_STAFF_NOTE,
   worseDamageClass,
   isSellingContentType,
@@ -318,18 +319,22 @@ export function classifyProposalReview(opts: ClassifyProposalReviewOpts): Review
       mergedSit.situations.includes("funnel_classification") &&
       !mergedSit.situations.includes("body_copy_edit") &&
       !mergedSit.situations.includes("internal_links");
+    const translationOnly =
+      mergedSit.situations.includes("locale_translation") &&
+      !mergedSit.situations.includes("body_copy_edit") &&
+      !mergedSit.situations.includes("internal_links");
 
     if (hasSerp) {
       checklists.add("title_description_ctr");
       if (!serpOnly) {
-        if (!linkOnly && !funnelOnly) checklists.add("verify_copy");
+        if (!linkOnly && !funnelOnly && !translationOnly) checklists.add("verify_copy");
         warnings.push({
           code: MIXED_SERP_AND_BODY,
           message:
             "This proposal mixes search title/description with other field updates. Prefer separate proposals next time; for now run both the title/description harm scorecard and body packs. Create still succeeds. Per-situation ship: drop failing SERP ops via revise_entries before apply.",
         });
       }
-    } else if (!linkOnly && !funnelOnly) {
+    } else if (!linkOnly && !funnelOnly && !translationOnly) {
       checklists.add("verify_copy");
     }
 
@@ -449,6 +454,7 @@ export function classifyProposalReview(opts: ClassifyProposalReviewOpts): Review
   const hasTitleDescChecklist = orderedIds.some((t) => t.id === "title_description_ctr");
   const hasInternalLinksChecklist = orderedIds.some((t) => t.id === "internal_links");
   const hasFunnelChecklist = orderedIds.some((t) => t.id === "funnel_persona_product_stage");
+  const hasLocaleTranslationChecklist = orderedIds.some((t) => t.id === "locale_translation");
   if (hasTitleDescChecklist && !block_apply) {
     summaryParts.push(TITLE_DESCRIPTION_STAFF_NOTE);
   }
@@ -458,12 +464,16 @@ export function classifyProposalReview(opts: ClassifyProposalReviewOpts): Review
   if (hasFunnelChecklist && !block_apply) {
     summaryParts.push(FUNNEL_CLASSIFICATION_STAFF_NOTE);
   }
+  if (hasLocaleTranslationChecklist && !block_apply) {
+    summaryParts.push(LOCALE_TRANSLATION_STAFF_NOTE);
+  }
   for (const note of staffNotesForSituations(liveSituations)) {
     if (
       !block_apply &&
       note !== TITLE_DESCRIPTION_STAFF_NOTE &&
       note !== INTERNAL_LINKS_STAFF_NOTE &&
       note !== FUNNEL_CLASSIFICATION_STAFF_NOTE &&
+      note !== LOCALE_TRANSLATION_STAFF_NOTE &&
       note !== IDEA_OPPORTUNITY_HARM_STAFF_NOTE &&
       !summaryParts.includes(note)
     ) {
@@ -484,6 +494,9 @@ export function classifyProposalReview(opts: ClassifyProposalReviewOpts): Review
   }
   if (hasFunnelChecklist && !block_apply) {
     staffSituation = `${staffSituation} ${FUNNEL_CLASSIFICATION_STAFF_NOTE}`;
+  }
+  if (hasLocaleTranslationChecklist && !block_apply) {
+    staffSituation = `${staffSituation} ${LOCALE_TRANSLATION_STAFF_NOTE}`;
   }
   if (liveSituations.length && !block_apply) {
     staffSituation = `${staffSituation} Review situations: ${liveSituations.join(", ")}.`;

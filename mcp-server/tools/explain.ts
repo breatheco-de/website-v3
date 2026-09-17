@@ -9,11 +9,20 @@ import { denyUnlessContentView, getActiveRoleId } from "../lib/auth.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
 import { buildConnectorTeachFields } from "../lib/role-connector-guide.js";
 import { listProductRows } from "../../server/product/product-io.js";
+import { actionRequired, fail, ok } from "../lib/respond.js";
+import {
+  EXPLAIN_TOPIC_ALIASES,
+  PROPOSALS_INDEX_HUB,
+  getProposalsSubtopic,
+  listProposalsSubtopicsPublic,
+  resolveExplainTopicAlias,
+} from "../lib/explain-proposals.js";
 
 // Use cwd so this resolves correctly both under tsx (mcp-server/…) and the
 // production bundle (dist/mcp-server.js).
 const EXPLAIN_DIR = path.join(process.cwd(), "mcp-server", "explain");
 
+/** Advertised topics only (legacy *-proposals ids are aliases, not listed). */
 const VALID_TOPICS = [
   "overview",
   "content_system",
@@ -32,12 +41,6 @@ const VALID_TOPICS = [
   "lead-forms",
   "redirects",
   "proposals",
-  "reading-proposals",
-  "review-situations",
-  "internal-links-proposals",
-  "serp-title-description-proposals",
-  "funnel-classification-proposals",
-  "idea-opportunity-harm-proposals",
   "analytics",
 ] as const;
 type Topic = (typeof VALID_TOPICS)[number];
@@ -70,22 +73,13 @@ const TOPIC_DESC: Record<string, string> = {
   redirects:
     "CMS 301/302: two stores, first-match, test_redirect (read_redirects) + update_redirect (edit_redirects), before_from custom-only",
   proposals:
-    "Entry change proposals and issue handoff notes; four MCP tools incl. get_entry_activity; four-eyes apply; list_proposals is stats-first; idea accept locks accepted_entry; implements_proposal_id follow-up; stalled / stalled_ideas; optional review_situations",
-  "reading-proposals":
-    "review_context damage/undo axes, checklist IDs incl. adjacent_findings and internal_links, three disposition lanes, create refuses (incl. implements_*), target_missing apply block, discovery_path",
-  "review-situations":
-    "Catalog of review_situations ids; edits declare/infer; ideas default-on idea_opportunity_harm; per-situation ship on edits",
-  "internal-links-proposals":
-    "Author + reviewer playbook for hub/internal link body packets (review_situations internal_links)",
-  "serp-title-description-proposals":
-    "Author + reviewer playbook for SERP title/description packets (review_situations serp_title_description; checklist title_description_ctr)",
-  "funnel-classification-proposals":
-    "Author + reviewer playbook for funnel.stage/products packets (review_situations funnel_classification; checklist funnel_persona_product_stage; persona → product → stage)",
-  "idea-opportunity-harm-proposals":
-    "Idea brief reviewer playbook — opportunity vs site harm before accept (default-on situation idea_opportunity_harm)",
+    "Entry proposals hub — omit subtopic for index; subtopics: overview, reading, situations, internal-links, serp-title-description, funnel-classification, idea-opportunity-harm, translations",
   analytics:
     "GA4 BigQuery reports via get_analytics_report; vs get_organic_traffic (GSC) and get_product_funnel_analytics (journey)",
 };
+
+/** Topics that support optional subtopic (hubs). */
+const TOPICS_WITH_SUBTOPICS = new Set<string>(["proposals"]);
 
 type TagResolver = (contentPath: string) => string;
 
@@ -440,86 +434,158 @@ export function registerExplainTools(
     "Returns architectural context about this codebase for a given topic. " +
       "Call this tool BEFORE making any structural change to the codebase — it explains how key subsystems work. " +
       "Live catalogs (conversion_events, CRM tags, locales, content types, image presets) are loaded from that site's content folder (sites.yml content_folder, e.g. site_example-com/). " +
-      "Valid topics: 'overview' (start here — summary + list of all topics), 'content_system' (YAML content files, _common.yml merge, safeYamlLoad), " +
-      "'routing' (URL patterns, locale prefixes, /en/ vs /es/, ?cache=false HTML cache bypass), " +
-      "'images' (image registry, UniversalImage, image_id usage), " +
-      "'sections' (SectionRenderer, component registry, how sections are authored), " +
-      "'semantic_search' (Qdrant, local embeddings, vector_search config, keyword fallback), " +
-      "'local_databases' (local YAML private DBs, MCP item CRUD, global index, FAQ database), " +
-      "'component-behaviors' (CTA tracking, conversion_events, CRM tags allowlist), " +
-      "'seo' (meta gates, locale seo:, clustering, GSC/Bing, organic traffic, SEO diagnostics), " +
-      "'funnel' (funnel.stage/products, money pages, list_entries filters, inventory vs journey), " +
-      "'ecommerce' (products, product scope paths, get_product_funnel journey; stage inventory → funnel), " +
-      "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example), " +
-      "'relation-fields' (relation editor, authors CT, listing vs hydrate, delete_entries reassign), " +
-      "'lead-forms' (catalog source.content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling), " +
-      "'redirects' (CMS 301/302, two stores, test_redirect / read_redirects, update_redirect / edit_redirects, first-match), " +
-      "'proposals' (entry proposals + issue notes; propose_change, list_proposals, update_proposal, get_entry_activity; idea accepted_entry + implements follow-up; stalled / stalled_ideas; optional review_situations), " +
-      "'reading-proposals' (review_context axes, checklist IDs incl. adjacent_findings and internal_links, three disposition lanes, create refuses incl. implements_*, target_missing apply block), " +
-      "'review-situations' (catalog of review_situations ids; edits declare/infer; ideas default-on idea_opportunity_harm; per-situation ship), " +
-      "'internal-links-proposals' (hub/internal link author + reviewer playbook), " +
-      "'serp-title-description-proposals' (SERP title/description author + reviewer playbook), " +
-      "'funnel-classification-proposals' (funnel.stage/products author + reviewer playbook; persona → product → stage), " +
-      "'idea-opportunity-harm-proposals' (idea brief opportunity vs site harm before accept), " +
-      "'analytics' (GA4 BigQuery get_analytics_report; vs get_organic_traffic GSC and get_product_funnel_analytics). " +
-      "Requires content_view. " +
-      "Calling an unknown topic returns a clear error listing the valid options. " +
-      "Multi-site: always pass site. If unsure, call list_sites first.",
+      "Valid topics: 'overview' (start here), 'content_system', 'routing', 'images', 'sections', 'semantic_search', " +
+      "'local_databases', 'component-behaviors', 'seo', 'funnel', 'ecommerce'/'product', 'shared-layout', 'relation-fields', " +
+      "'lead-forms', 'redirects', 'proposals' (hub — optional subtopic), 'analytics'. " +
+      "For proposals: omit subtopic for a light index of playbooks; pass subtopic " +
+      "(overview|reading|situations|internal-links|serp-title-description|funnel-classification|idea-opportunity-harm|translations) for a pack. " +
+      "Legacy flat ids (e.g. internal-links-proposals) still resolve with a deprecation warning. " +
+      "Passing subtopic on a topic that has no subtopics fails — omit subtopic and retry. " +
+      "Requires content_view. Multi-site: always pass site. If unsure, call list_sites first.",
     {
       topic: z
         .string()
         .describe(
-          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, seo, funnel, product, ecommerce, shared-layout, relation-fields, lead-forms, redirects, proposals, reading-proposals, review-situations, internal-links-proposals, serp-title-description-proposals, funnel-classification-proposals, idea-opportunity-harm-proposals, analytics.",
+          "Architectural topic. Advertised: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, seo, funnel, product, ecommerce, shared-layout, relation-fields, lead-forms, redirects, proposals, analytics. Legacy proposal playbook ids still resolve as aliases.",
+        ),
+      subtopic: z
+        .string()
+        .optional()
+        .describe(
+          'Optional playbook under a hub topic. For topic "proposals": overview | reading | situations | internal-links | serp-title-description | funnel-classification | idea-opportunity-harm | translations. Omit for the proposals index. Do not pass on topics without subtopics.',
         ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ topic, site }) => {
+    async ({ topic: topicRaw, subtopic: subtopicRaw, site }) => {
       const viewDenied = await denyUnlessContentView(mcpToken, undefined, grants);
       if (viewDenied) return viewDenied;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
-        return siteFailResult(siteResult.error, "explain_site", { topic });
+        return siteFailResult(siteResult.error, "explain_site", { topic: topicRaw });
       }
 
-      if (!(VALID_TOPICS as readonly string[]).includes(topic)) {
-        return {
-          content: [
+      const siteHint = site ? { site } : {};
+      const aliasResolved = resolveExplainTopicAlias(topicRaw.trim());
+      let topic = aliasResolved.topic;
+      let subtopic =
+        typeof subtopicRaw === "string" && subtopicRaw.trim()
+          ? subtopicRaw.trim()
+          : aliasResolved.subtopic;
+      const deprecatedFrom = aliasResolved.deprecated_from;
+
+      const knownAdvertised = (VALID_TOPICS as readonly string[]).includes(topic);
+      const knownAlias = Boolean(EXPLAIN_TOPIC_ALIASES[topicRaw.trim()]);
+      if (!knownAdvertised && !knownAlias) {
+        return fail(`'${topicRaw}' is not a valid topic. Call explain_site with one of the valid topics listed.`, {
+          code: "unknown_topic",
+          valid_topics: VALID_TOPICS.map((t) => ({
+            topic: t,
+            description: TOPIC_DESC[t] ?? t,
+          })),
+        });
+      }
+
+      const warnings: Array<{ code: string; message: string }> = [];
+      if (deprecatedFrom) {
+        warnings.push({
+          code: "explain_topic_deprecated",
+          message:
+            `Topic "${deprecatedFrom}" is deprecated. Prefer topic: "proposals", subtopic: "${aliasResolved.subtopic}". ` +
+            "Reconnect MCP so tools/list shows the shorter topic menu.",
+        });
+      }
+
+      if (subtopic && !TOPICS_WITH_SUBTOPICS.has(topic)) {
+        return fail(
+          `Topic "${topic}" has no subtopics. Omit subtopic and call again with topic only — do not invent subtopic names.`,
+          {
+            code: "topic_has_no_subtopics",
+            topic,
+            subtopic,
+            hint: "Retry with the same topic and no subtopic argument.",
+          },
+        );
+      }
+
+      if (topic === "proposals") {
+        const subtopics = listProposalsSubtopicsPublic();
+        if (!subtopic) {
+          return actionRequired(
             {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  error: "unknown_topic",
-                  message: `'${topic}' is not a valid topic. Call explain_site with one of the valid topics listed below.`,
-                  valid_topics: VALID_TOPICS.map((t) => ({
-                    topic: t,
-                    description: TOPIC_DESC[t] ?? t,
-                  })),
-                },
-                null,
-                2,
-              ),
+              success: true,
+              action_required: "pick_subtopic",
+              code: "pick_subtopic",
+              topic: "proposals",
+              message:
+                "Proposals hub index — pick a subtopic for the playbook you need (translations, internal-links, situations, …).",
+              hub: PROPOSALS_INDEX_HUB,
+              subtopics,
+              ...(warnings.length ? { warnings } : {}),
             },
-          ],
-          isError: true,
-        };
+            subtopics.map((s) => ({
+              tool: "explain_site",
+              reason: s.description,
+              args_hint: { topic: "proposals", subtopic: s.id, ...siteHint },
+              priority: s.id === "overview" || s.id === "translations" ? "recommended" : "optional",
+            })),
+          );
+        }
+
+        const def = getProposalsSubtopic(subtopic);
+        if (!def) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "pick_subtopic",
+              code: "unknown_subtopic",
+              topic: "proposals",
+              message: `Unknown proposals subtopic "${subtopic}". Pick one of the valid ids below.`,
+              valid_subtopics: subtopics,
+              ...(warnings.length ? { warnings } : {}),
+            },
+            subtopics.map((s) => ({
+              tool: "explain_site",
+              reason: s.description,
+              args_hint: { topic: "proposals", subtopic: s.id, ...siteHint },
+              priority: "required" as const,
+            })),
+          );
+        }
+
+        const filePath = path.join(EXPLAIN_DIR, `${def.fileStem}.md`);
+        if (!fs.existsSync(filePath)) {
+          return fail(`explain file not found for proposals subtopic '${subtopic}' at ${filePath}`, {
+            code: "explain_file_missing",
+          });
+        }
+        const raw = fs.readFileSync(filePath, "utf-8");
+        const resolved = resolveDynamicTags(raw, siteResult.contentPath);
+        return ok(
+          {
+            topic: "proposals",
+            subtopic: def.id,
+            markdown: resolved,
+          },
+          {
+            warnings,
+            next_actions: [],
+          },
+        );
       }
 
       const fileTopic = topic === "ecommerce" ? "product" : (topic as Topic);
       const filePath = path.join(EXPLAIN_DIR, `${fileTopic}.md`);
       if (!fs.existsSync(filePath)) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `explain file not found for topic '${topic}' at ${filePath}`,
-            },
-          ],
-          isError: true,
-        };
+        return fail(`explain file not found for topic '${topic}' at ${filePath}`, {
+          code: "explain_file_missing",
+        });
       }
 
       const raw = fs.readFileSync(filePath, "utf-8");
       const resolved = resolveDynamicTags(raw, siteResult.contentPath);
+      if (warnings.length) {
+        return ok({ topic, markdown: resolved }, { warnings, next_actions: [] });
+      }
       return { content: [{ type: "text", text: resolved }] };
     },
   );

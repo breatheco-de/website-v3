@@ -6,6 +6,28 @@ window_days: 6
 
 entries:
   - date: "2026-09-17"
+    summary: "locale_translation review situation + proposals explain hub/subtopic"
+    agent_impact:
+      - "New review_situations id locale_translation (checklist locale_translation). Prefer declare on propose_change with variant + promote_on_apply. Soft-only polish without promote is not this pack."
+      - "Empty declaration + promote + variant + summary translation cues → infer locale_translation (warning locale_translation_undeclared). Declared without promote+variant → soft situation_ops_mismatch."
+      - "explain_site topic proposals is a hub: omit subtopic for index; pass subtopic (overview|reading|situations|internal-links|serp-title-description|funnel-classification|idea-opportunity-harm|translations). Legacy flat *-proposals ids still resolve with deprecation warning."
+      - "Conventions v27: §2c locale translation draft→promote. Reconnect MCP / re-bootstrap_agent."
+    tools_changed: true
+    paths:
+      - mcp-server/lib/explain-proposals.ts
+      - mcp-server/tools/explain.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/proposals-translations.md
+      - mcp-server/explain/review-situations.md
+      - mcp-server/explain/proposals.md
+      - mcp-server/explain/overview.md
+      - mcp-server/agent-conventions.md
+      - server/content-proposals/review-situations.ts
+      - server/content-proposals/proposal-review-rules.ts
+      - server/content-proposals/review-context.ts
+      - server/content-proposals/proposal-discovery-path.ts
+
+  - date: "2026-09-17"
     summary: "translate_entry always writes a non-public variant — never live YAML"
     agent_impact:
       - "translate_entry never merges into live {locale}.yml. Pass variant (default draft) or create_variant:true for a new named layer; url_slug is allowed on the variant (checked at promote)."

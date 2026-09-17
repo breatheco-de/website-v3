@@ -4,7 +4,7 @@ When you open a single open/partial proposal via `list_proposals(proposal_id)`, 
 
 List rows may include a **`review_context_snapshot`** (filed-at-create or last shape-change hint). Prefer live `review_context` for decisions.
 
-**Situations = checklists.** One `damage_class` badge (worst case); many `active_checklists` / think items can stack on the same proposal. On **edits**, author-declared **`review_situations`** (optional) plus inferred packs drive which checklists fire — see **`explain` topic `review-situations`**. On **ideas**, classify always injects **`idea_opportunity_harm`** (filed list empty; no retag) — see **`idea-opportunity-harm-proposals`**. Staff may store a decide-time **`decision_debug`** snapshot — it is **stripped from MCP** payloads (staff UI only); do not invent or require it.
+**Situations = checklists.** One `damage_class` badge (worst case); many `active_checklists` / think items can stack on the same proposal. On **edits**, author-declared **`review_situations`** (optional) plus inferred packs drive which checklists fire — see **`explain_site` `topic: "proposals"` `subtopic: "situations"`**. On **ideas**, classify always injects **`idea_opportunity_harm`** (filed list empty; no retag) — see **`subtopic: "idea-opportunity-harm"`**. Staff may store a decide-time **`decision_debug`** snapshot — it is **stripped from MCP** payloads (staff UI only); do not invent or require it.
 
 **Role split:** proposers optimize opportunity (CTR / query fit) via create skills; reviewers use checklists to stop **harm** (invented claims, query drops, false scope, unjustified new URLs) — not to rewrite for punchier copy.
 

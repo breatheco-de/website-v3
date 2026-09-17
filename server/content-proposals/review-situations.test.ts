@@ -142,4 +142,74 @@ describe("review-situations", () => {
     expect(refreshed.situations).toContain("body_copy_edit");
     expect(refreshed.situations).not.toContain("funnel_classification");
   });
+
+  it("infers locale_translation from promote + variant + summary cues", () => {
+    const ids = inferSituationsFromOps(
+      [{ status: "pending", variant: "draft", ops: [] }],
+      {
+        promoteOnApply: true,
+        summary: "Translated from en → es. Promote draft.es — facts match source.",
+      },
+    );
+    expect(ids).toEqual(["locale_translation"]);
+    expect(ids).not.toContain("promote_draft");
+  });
+
+  it("promote-only without translation cues stays promote_draft", () => {
+    const ids = inferSituationsFromOps(
+      [{ status: "pending", variant: "draft", ops: [] }],
+      {
+        promoteOnApply: true,
+        summary: "Promote this draft to live after editorial QA on the CTA.",
+      },
+    );
+    expect(ids).toEqual(["promote_draft"]);
+  });
+
+  it("soft-only (no promote) does not infer locale_translation", () => {
+    const ids = inferSituationsFromOps(
+      [{ status: "pending", variant: "draft", ops: [{ field_path: "content" }] }],
+      { summary: "Translated from en → es polish on the draft variant." },
+    );
+    expect(ids).not.toContain("locale_translation");
+    expect(ids).toContain("body_copy_edit");
+  });
+
+  it("mismatch when locale_translation declared without promote+variant", () => {
+    const merged = mergeSituations(
+      ["locale_translation"],
+      ["body_copy_edit"],
+      [{ status: "pending", ops: [{ field_path: "content" }] }],
+    );
+    expect(merged.warnings.some((w) => w.code === "situation_ops_mismatch")).toBe(true);
+    expect(merged.situations).toEqual(
+      expect.arrayContaining(["locale_translation", "body_copy_edit"]),
+    );
+  });
+
+  it("undeclared warning when inferring locale_translation", () => {
+    const inferred = inferSituationsFromOps(
+      [{ status: "pending", variant: "draft", ops: [] }],
+      {
+        promoteOnApply: true,
+        summary: "Translation en → es ready to promote.",
+      },
+    );
+    const merged = mergeSituations([], inferred, [
+      { status: "pending", variant: "draft", ops: [] },
+    ], { promoteOnApply: true });
+    expect(merged.situations).toContain("locale_translation");
+    expect(merged.warnings.some((w) => w.code === "locale_translation_undeclared")).toBe(true);
+  });
+
+  it("checklist ids for locale_translation", () => {
+    expect(checklistIdsForSituations(["locale_translation"])).toEqual(["locale_translation"]);
+  });
+
+  it("parses locale_translation id", () => {
+    expect(parseReviewSituationIds(["locale_translation"])).toEqual({
+      ok: true,
+      ids: ["locale_translation"],
+    });
+  });
 });

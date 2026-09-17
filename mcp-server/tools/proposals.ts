@@ -174,11 +174,12 @@ export function registerProposalTools(
       "Do not use notes for new-spoke pitches — use kind idea. " +
       "Optional related_entries for idea context (slug need not exist yet). " +
       "Edits: optional implements_proposal_id to link an accepted idea; required when that idea reserved the same type+slug+locale. " +
-      "Edits: optional review_situations[] (catalog ids — see explain_site topic review-situations). Empty → reviewer infers from ops. " +
-      "Ideas: review_situations not accepted (default-on idea_opportunity_harm on classify — see topic idea-opportunity-harm-proposals). " +
-      "Hub/internal links → prefer review_situations:[\"internal_links\"] and explain topic internal-links-proposals. " +
-      "SERP title/description → prefer review_situations:[\"serp_title_description\"] and explain topic serp-title-description-proposals. " +
-      "Funnel stage/products → prefer review_situations:[\"funnel_classification\"] and explain topic funnel-classification-proposals (persona → product → stage). " +
+      "Edits: optional review_situations[] (catalog ids — explain_site topic proposals subtopic situations). Empty → reviewer infers from ops. " +
+      "Ideas: review_situations not accepted (default-on idea_opportunity_harm on classify — topic proposals subtopic idea-opportunity-harm). " +
+      "Hub/internal links → prefer review_situations:[\"internal_links\"] (subtopic internal-links). " +
+      "SERP title/description → prefer review_situations:[\"serp_title_description\"] (subtopic serp-title-description). " +
+      "Funnel stage/products → prefer review_situations:[\"funnel_classification\"] (subtopic funnel-classification; persona → product → stage). " +
+      "Locale translation go-live → prefer review_situations:[\"locale_translation\"] with variant + promote_on_apply (subtopic translations). Soft-only polish without promote is not this pack. " +
       "Edits refuse entry_not_found (missing live+draft), mixed_risk_bundle (mixed selling/new-public/other), competing_entry_edits (second open edits on same type+slug+locale), implements_required / idea_already_in_progress. " +
       "Live-missing + named draft exists is allowed (new_public_content). Ideas refuse mixed_risk_bundle on related_entries classes. " +
       "Mutating MCP requires a role connector, agent_session start with exact model (provider/model), and agent_session_id on mutates. " +
@@ -234,11 +235,12 @@ export function registerProposalTools(
             "selling_figures",
             "new_public_content",
             "promote_draft",
+            "locale_translation",
           ]),
         )
         .optional()
         .describe(
-          "Edits only. Optional catalog ids for how the reviewer should score this packet. Empty → infer from ops. Multi allowed; each pack reviewed independently (per-situation ship). See explain_site topic review-situations.",
+          "Edits only. Optional catalog ids for how the reviewer should score this packet. Empty → infer from ops. Multi allowed; each pack reviewed independently (per-situation ship). Locale translation go-live → prefer locale_translation with variant + promote_on_apply (explain_site topic proposals subtopic translations). See explain_site topic proposals subtopic situations.",
         ),
       agent_session_id: z.string().describe("Required. From agent_session start — attach_variant later in the same session."),
       promote_on_apply: z
@@ -1097,6 +1099,7 @@ export function registerProposalTools(
             "selling_figures",
             "new_public_content",
             "promote_draft",
+            "locale_translation",
           ]),
         )
         .optional()

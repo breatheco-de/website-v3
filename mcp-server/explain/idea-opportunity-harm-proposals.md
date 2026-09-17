@@ -2,7 +2,7 @@
 
 Default-on review situation for every `kind: idea` proposal. Situation id: `idea_opportunity_harm`. Checklist id: same. Catalog index: `explain_site` topic `review-situations`.
 
-**MCP:** Authors do **not** declare `review_situations` on ideas (create refuses non-empty). Classify always injects this pack. `set_review_situations` stays edits-only.
+**MCP:** Authors do **not** declare `review_situations` on ideas (create refuses non-empty). Classify always injects this pack. `set_review_situations` stays edits-only. Hub: `explain_site` `topic: "proposals"` `subtopic: "idea-opportunity-harm"`.
 
 **Role split:** Authors optimize opportunity. Reviewers stop harm — they do not rewrite the brief to make it punchier. Accept greenlights a brief only (no YAML). Brand / selling-figure ship gates run on the later **edits** proposal that implements the idea.
 

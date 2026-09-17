@@ -627,6 +627,7 @@ export const STAFF_REVIEW_SITUATION_LABELS: Record<string, string> = {
   selling_figures: "Selling-page figures",
   new_public_content: "New public content",
   promote_draft: "Promote draft",
+  locale_translation: "Locale translation",
   idea_opportunity_harm: "Idea opportunity vs harm",
 };
 
@@ -671,6 +672,12 @@ export const STAFF_REVIEW_SITUATION_OPTIONS: Array<{
     id: "promote_draft",
     label: "Promote draft",
     when_to_use: "Go-live a named draft with empty or minimal field updates.",
+  },
+  {
+    id: "locale_translation",
+    label: "Locale translation",
+    when_to_use:
+      "Promote a translated locale variant — fidelity to source before go-live (not soft-only polish).",
   },
 ];
 

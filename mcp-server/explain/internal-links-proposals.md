@@ -2,7 +2,7 @@
 
 How 4Geeks authors file hub-visibility body edits, and how Proposal Reviewer applies them.
 
-**MCP:** Declare `review_situations: ["internal_links"]` on `propose_change` (edits). Catalog index: `explain_site` topic `review-situations`.
+**MCP:** Declare `review_situations: ["internal_links"]` on `propose_change` (edits). Catalog index: `explain_site` `topic: "proposals"` `subtopic: "situations"`.
 
 Site: `4geeks.com`  
 Audience: Copy Editor, SEO Specialist, Proposal Reviewer  

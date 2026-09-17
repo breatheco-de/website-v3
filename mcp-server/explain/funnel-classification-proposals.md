@@ -2,7 +2,7 @@
 
 How to file and approve `funnel.stage` / `funnel.products` edits.
 
-**MCP:** Declare `review_situations: ["funnel_classification"]` on `propose_change` (edits). Checklist id: `funnel_persona_product_stage`. Catalog index: `explain_site` topic `review-situations`.
+**MCP:** Declare `review_situations: ["funnel_classification"]` on `propose_change` (edits). Checklist id: `funnel_persona_product_stage`. Catalog index: `explain_site` `topic: "proposals"` `subtopic: "situations"`.
 
 Fields: `funnel.stage`, `funnel.products` (on `_common.yml`; locale-agnostic)  
 Roles: content / SEO / product-aware authors file; Proposal Reviewer applies, blocks, or rejects  

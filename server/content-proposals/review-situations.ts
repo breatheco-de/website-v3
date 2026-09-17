@@ -17,6 +17,7 @@ export const REVIEW_SITUATION_IDS = [
   "selling_figures",
   "new_public_content",
   "promote_draft",
+  "locale_translation",
   "idea_opportunity_harm",
 ] as const;
 
@@ -31,7 +32,10 @@ export type ReviewSituationDef = {
   id: ReviewSituationId;
   label: string;
   when_to_use: string;
+  /** Hub topic for explain_site (usually "proposals"). */
   explain_topic: string;
+  /** Optional playbook under explain hub (e.g. proposals + translations). */
+  explain_subtopic?: string;
   checklist_ids: ChecklistId[];
   staff_note: string;
   /** Extra discovery look_for lines for get_entry_content when this situation is active. */
@@ -45,13 +49,20 @@ export const SITUATION_INFERRED_BODY = "situation_inferred_body";
 const INTERNAL_LINK_INTENT_RE =
   /\b(internal\s*links?|hub\s*links?|pillar|cluster\s*visibility|inbound\s*links?|linking\s*gaps?)\b/i;
 
+/** Summary/title cues that a promote packet is a locale translation (infer fallback). */
+const TRANSLATION_INTENT_RE =
+  /\b(translat(e|ion|ed|ing)|locale\s+variant|from\s+[a-z]{2}\s*(→|->|to)\s*[a-z]{2}|en\s*(→|->)\s*es|es\s*(→|->)\s*en)\b/i;
+
+export const SITUATION_LOCALE_TRANSLATION_UNDECLARED = "locale_translation_undeclared";
+
 export const REVIEW_SITUATION_CATALOG: Record<ReviewSituationId, ReviewSituationDef> = {
   internal_links: {
     id: "internal_links",
     label: "Hub / internal links",
     when_to_use:
       "Body edits whose point is adding same-locale hub or cluster links without rewriting facts or SERP fields.",
-    explain_topic: "internal-links-proposals",
+    explain_topic: "proposals",
+    explain_subtopic: "internal-links",
     checklist_ids: ["internal_links"],
     staff_note:
       "Also check hub links — facts and locale targets intact, not punchier prose.",
@@ -70,7 +81,8 @@ export const REVIEW_SITUATION_CATALOG: Record<ReviewSituationId, ReviewSituation
     label: "Search title / description",
     when_to_use:
       "Changes to search title or meta description on a live page — honest vs live, not punchier-copy coaching.",
-    explain_topic: "serp-title-description-proposals",
+    explain_topic: "proposals",
+    explain_subtopic: "serp-title-description",
     checklist_ids: ["title_description_ctr"],
     staff_note:
       "Also check search title/description — honest and not worse than live.",
@@ -84,7 +96,8 @@ export const REVIEW_SITUATION_CATALOG: Record<ReviewSituationId, ReviewSituation
     label: "Funnel stage / products",
     when_to_use:
       "Changes to funnel.stage or funnel.products — match buyer persona → product → stage, not whether the article feels broad.",
-    explain_topic: "funnel-classification-proposals",
+    explain_topic: "proposals",
+    explain_subtopic: "funnel-classification",
     checklist_ids: ["funnel_persona_product_stage"],
     staff_note:
       "Also check funnel — who the buyer is, which product owns them, then how ready they are (not whether the article feels broad).",
@@ -103,7 +116,8 @@ export const REVIEW_SITUATION_CATALOG: Record<ReviewSituationId, ReviewSituation
     label: "Body / field edit",
     when_to_use:
       "General copy or field updates on an existing page that are not link-only or SERP-only packs.",
-    explain_topic: "review-situations",
+    explain_topic: "proposals",
+    explain_subtopic: "situations",
     checklist_ids: ["verify_copy"],
     staff_note: "Check proposed fields against live — catch breakage and invented claims.",
     discovery_content_look_for: [
@@ -119,7 +133,8 @@ export const REVIEW_SITUATION_CATALOG: Record<ReviewSituationId, ReviewSituation
     label: "Selling-page figures",
     when_to_use:
       "Edits on a program or landing page where hire rates, salaries, prices, or outcome claims may move.",
-    explain_topic: "review-situations",
+    explain_topic: "proposals",
+    explain_subtopic: "situations",
     checklist_ids: ["selling_page_figures"],
     staff_note:
       "This page sells — verify every outcome figure against an approved source before apply.",
@@ -136,7 +151,8 @@ export const REVIEW_SITUATION_CATALOG: Record<ReviewSituationId, ReviewSituation
     label: "New public content",
     when_to_use:
       "New or draft-backed public page — judge angle, facts, and funnel, not only whether apply is easy.",
-    explain_topic: "review-situations",
+    explain_topic: "proposals",
+    explain_subtopic: "situations",
     checklist_ids: ["new_content_brand"],
     staff_note:
       "New public content — clear the brand gate (angle, facts, real program CTA).",
@@ -154,7 +170,8 @@ export const REVIEW_SITUATION_CATALOG: Record<ReviewSituationId, ReviewSituation
     label: "Promote draft",
     when_to_use:
       "Go-live / promote a named draft with empty or minimal field updates — why this draft should become live.",
-    explain_topic: "review-situations",
+    explain_topic: "proposals",
+    explain_subtopic: "situations",
     checklist_ids: ["verify_copy", "disposition"],
     staff_note: "Promote writes the draft to live — confirm the draft is the intended public version.",
     discovery_content_look_for: [
@@ -165,12 +182,33 @@ export const REVIEW_SITUATION_CATALOG: Record<ReviewSituationId, ReviewSituation
       "Promote this draft to live. Summary explains why the draft should become public.",
     ],
   },
+  locale_translation: {
+    id: "locale_translation",
+    label: "Locale translation",
+    when_to_use:
+      "Promote a translated locale variant (optional field ops) — fidelity to source locale before go-live, not soft-only polish without promote.",
+    explain_topic: "proposals",
+    explain_subtopic: "translations",
+    checklist_ids: ["locale_translation"],
+    staff_note:
+      "Also check locale translation — draft matches source meaning and facts before go-live, not punchier copy vs live.",
+    discovery_content_look_for: [
+      "draft (locale + variant) vs source locale meaning and facts — same years, employers, sources",
+      "required fields ready on the variant; url_slug locale-fitting",
+      "shell still from template.{locale}.yml unless detached intentionally",
+      "apply promotes the variant — does not AI-translate or invent sibling locales",
+    ],
+    author_summary_hints: [
+      "Translated from en → es. Promote draft.{locale} — facts match source; slug locale-fitting. review_situations:[locale_translation] + promote_on_apply.",
+    ],
+  },
   idea_opportunity_harm: {
     id: "idea_opportunity_harm",
     label: "Idea opportunity vs harm",
     when_to_use:
       "Every idea brief — score whether the opportunity is real and whether accepting would harm the site. Default-on; not author-declared.",
-    explain_topic: "idea-opportunity-harm-proposals",
+    explain_topic: "proposals",
+    explain_subtopic: "idea-opportunity-harm",
     checklist_ids: ["idea_opportunity_harm"],
     staff_note:
       "Brief to greenlight or decline — accepting does not publish. Score whether the opportunity is real and whether accepting would harm the site.",
@@ -228,6 +266,8 @@ export function parseReviewSituationIds(
 export type OpsEntryForSituation = {
   status?: string | null;
   contentType?: string;
+  /** Named non-public layer (required for promote_on_apply / locale_translation shape). */
+  variant?: string | null;
   ops?: Array<{ field_path?: string } | null> | null;
   updates?: Array<{ field_path?: string } | null> | null;
 };
@@ -279,6 +319,22 @@ function isPromoteOnly(entries: OpsEntryForSituation[], promoteOnApply?: boolean
   return !hasAnyPendingOps(entries);
 }
 
+function hasNamedVariant(entries: OpsEntryForSituation[]): boolean {
+  return entries.some((e) => typeof e.variant === "string" && e.variant.trim().length > 0);
+}
+
+/** promote_on_apply + named variant — soft-only (no promote) is never locale_translation. */
+export function isLocaleTranslationShape(
+  entries: OpsEntryForSituation[],
+  promoteOnApply?: boolean,
+): boolean {
+  return Boolean(promoteOnApply) && hasNamedVariant(entries);
+}
+
+function hasTranslationIntent(title?: string | null, summary?: string | null): boolean {
+  return TRANSLATION_INTENT_RE.test(`${title ?? ""} ${summary ?? ""}`);
+}
+
 /** Which situations still “own” at least one remaining pending field path. */
 export function situationsRelevantToOps(
   ids: ReviewSituationId[],
@@ -291,6 +347,7 @@ export function situationsRelevantToOps(
   const hasFunnel = paths.some(isFunnelFieldPath);
   const hasOther = paths.some(isNonFunnelOtherPath);
   const promoteOnly = isPromoteOnly(entries, opts?.promoteOnApply);
+  const translationShape = isLocaleTranslationShape(entries, opts?.promoteOnApply);
   const damage = opts?.damageClass ?? null;
 
   return ids.filter((id) => {
@@ -309,6 +366,8 @@ export function situationsRelevantToOps(
         return damage === "new_public_content" || paths.length > 0;
       case "promote_draft":
         return promoteOnly || (opts?.promoteOnApply === true && paths.length === 0);
+      case "locale_translation":
+        return translationShape;
       case "idea_opportunity_harm":
         return false;
       default:
@@ -325,8 +384,8 @@ export type InferSituationsOpts = {
 };
 
 /**
- * Infer situations from pending ops (+ optional summary keywords for internal_links).
- * Empty/unknown → body_copy_edit (or promote_draft when promote-only).
+ * Infer situations from pending ops (+ optional summary keywords for internal_links /
+ * locale_translation). Empty/unknown → body_copy_edit (or promote_draft when promote-only).
  */
 export function inferSituationsFromOps(
   entries: OpsEntryForSituation[],
@@ -335,17 +394,28 @@ export function inferSituationsFromOps(
   const paths = pendingFieldPaths(entries);
   const text = `${opts.title ?? ""} ${opts.summary ?? ""}`;
   const linkIntent = INTERNAL_LINK_INTENT_RE.test(text);
+  const translationShape = isLocaleTranslationShape(entries, opts.promoteOnApply);
+  const translationIntent = hasTranslationIntent(opts.title, opts.summary);
   const out = new Set<ReviewSituationId>();
-
-  if (isPromoteOnly(entries, opts.promoteOnApply)) {
-    out.add("promote_draft");
-    return [...out];
-  }
 
   const hasSerp = paths.some(isTitleDescriptionFieldPath);
   const hasBody = paths.some(isBodyFieldPath);
   const hasFunnel = paths.some(isFunnelFieldPath);
   const hasOther = paths.some(isNonFunnelOtherPath);
+
+  if (translationShape && translationIntent) {
+    out.add("locale_translation");
+    if (hasSerp) out.add("serp_title_description");
+    if (hasFunnel) out.add("funnel_classification");
+    if (opts.damageClass === "selling_page") out.add("selling_figures");
+    if (opts.damageClass === "new_public_content") out.add("new_public_content");
+    return [...out];
+  }
+
+  if (isPromoteOnly(entries, opts.promoteOnApply)) {
+    out.add("promote_draft");
+    return [...out];
+  }
 
   if (hasSerp) out.add("serp_title_description");
   if (hasFunnel) out.add("funnel_classification");
@@ -386,13 +456,19 @@ export function mergeSituations(
 
   if (!declared.length) {
     const situations = inferred.length ? inferred : (["body_copy_edit"] as ReviewSituationId[]);
-    if (situations.length === 1 && situations[0] === "body_copy_edit" && !inferred.includes("body_copy_edit")) {
+    if (situations.includes("locale_translation")) {
+      warnings.push({
+        code: SITUATION_LOCALE_TRANSLATION_UNDECLARED,
+        message:
+          "Inferred locale_translation from promote_on_apply + variant + summary translation cues. Prefer declaring review_situations:[\"locale_translation\"] on propose_change so the scorecard is explicit.",
+      });
+    } else if (situations.length === 1 && situations[0] === "body_copy_edit" && !inferred.includes("body_copy_edit")) {
       warnings.push({
         code: SITUATION_INFERRED_BODY,
         message:
           "No review_situations filed and ops did not match a specific pack — inferred as general body/field edit. Retag with set_review_situations if wrong.",
       });
-    } else if (!declared.length) {
+    } else {
       warnings.push({
         code: SITUATION_INFERRED_BODY,
         message: `No review_situations filed — inferred: ${situations.join(", ")}. Authors may declare via propose_change or set_review_situations.`,
@@ -411,7 +487,7 @@ export function mergeSituations(
     inferSituationsFromOps(entries, {
       promoteOnApply: opts?.promoteOnApply,
       damageClass: opts?.damageClass,
-      // do not use link keywords for mismatch — ops shape only
+      // do not use link/translation keywords for mismatch — ops shape only
       summary: "",
       title: "",
     }),
@@ -425,6 +501,9 @@ export function mergeSituations(
     if (d === "serp_title_description") return !pathsSuggestSerp(entries);
     if (d === "funnel_classification") return !pathsSuggestFunnel(entries);
     if (d === "promote_draft") return !isPromoteOnly(entries, opts?.promoteOnApply);
+    if (d === "locale_translation") {
+      return !isLocaleTranslationShape(entries, opts?.promoteOnApply);
+    }
     if (d === "selling_figures") return opts?.damageClass !== "selling_page" && !hasAnyPendingOps(entries);
     if (d === "new_public_content") {
       return opts?.damageClass !== "new_public_content" && !hasAnyPendingOps(entries);
@@ -440,6 +519,17 @@ export function mergeSituations(
       message:
         `Declared review_situations [${declared.join(", ")}] and pending ops imply [${inferred.join(", ")}]. ` +
         `Using union [${situations.join(", ")}]. Prefer aligning the label or splitting packets. Create still succeeds.`,
+    });
+  }
+
+  if (
+    undeclaredExtras.includes("locale_translation") &&
+    !declared.includes("locale_translation")
+  ) {
+    warnings.push({
+      code: SITUATION_LOCALE_TRANSLATION_UNDECLARED,
+      message:
+        "Pending ops/summary imply locale_translation but it was not declared. Prefer review_situations:[\"locale_translation\"] with variant + promote_on_apply.",
     });
   }
 
@@ -531,6 +621,7 @@ export function catalogPublicIndex(): Array<{
   label: string;
   when_to_use: string;
   explain_topic: string;
+  explain_subtopic?: string;
 }> {
   return REVIEW_SITUATION_IDS.map((id) => {
     const d = REVIEW_SITUATION_CATALOG[id];
@@ -539,6 +630,7 @@ export function catalogPublicIndex(): Array<{
       label: d.label,
       when_to_use: d.when_to_use,
       explain_topic: d.explain_topic,
+      ...(d.explain_subtopic ? { explain_subtopic: d.explain_subtopic } : {}),
     };
   });
 }

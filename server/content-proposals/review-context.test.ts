@@ -701,4 +701,50 @@ describe("classifyProposalReview", () => {
     expect(ctx.active_checklists).not.toContain("title_description_ctr");
     expect(ctx.active_checklists).toContain("verify_copy");
   });
+
+  it("declared locale_translation promote packet → locale_translation checklist without verify_copy", () => {
+    const ctx = classifyProposalReview({
+      proposal: baseProposal({
+        kind: "edits",
+        promote_on_apply: true,
+        review_mode: "draft_backed",
+        review_situations: ["locale_translation"],
+        summary:
+          "Translated from en → es. Promote draft.es for how-much — facts match source; slug locale-fitting.",
+        entries: [
+          {
+            id: 1,
+            proposal_id: "p1",
+            entry_key: "blog/how-much",
+            locale: "es",
+            variant: "draft",
+            variant_fingerprint: "x",
+            status: "pending",
+            ops: [],
+            baseline_context: { values: {} },
+            last_error: null,
+            applied_at: null,
+            applied_by: null,
+            contentType: "blog",
+            slug: "how-much",
+          },
+        ],
+      }),
+      lookups: [
+        {
+          contentType: "blog",
+          slug: "how-much",
+          locale: "es",
+          variant: "draft",
+          existence: "exists",
+          draftExists: true,
+        },
+      ],
+    });
+    expect(ctx.review_situations).toContain("locale_translation");
+    expect(ctx.active_checklists).toContain("locale_translation");
+    expect(ctx.active_checklists).not.toContain("verify_copy");
+    expect(ctx.staff_summary.situation_description).toMatch(/locale translation/i);
+    expect(ctx.agent_preview.think_items.some((t) => t.id === "locale_translation")).toBe(true);
+  });
 });

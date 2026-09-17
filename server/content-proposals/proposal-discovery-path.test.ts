@@ -211,6 +211,13 @@ describe("buildProposalDiscoveryPath", () => {
     const tools = discovery_path!.items.filter((i) => i.kind === "tool");
     expect(tools.map((t) => (t.kind === "tool" ? t.tool : ""))).toEqual(["explain_site"]);
     expect(tools.every((t) => t.kind === "tool" && t.available)).toBe(true);
+    const explain = tools[0];
+    if (explain?.kind === "tool") {
+      expect(explain.args_hint).toMatchObject({
+        topic: "proposals",
+        subtopic: "idea-opportunity-harm",
+      });
+    }
     expect(warnings).toEqual([]);
   });
 
@@ -585,6 +592,64 @@ describe("buildProposalDiscoveryPath", () => {
     expect(preview?.kind).toBe("tool");
     if (preview?.kind === "tool") {
       expect(preview.look_for.some((l) => /persona/i.test(l))).toBe(true);
+    }
+  });
+
+  it("locale_translation adds playbook + list_variants and variant on preview args_hint", () => {
+    const { discovery_path } = buildProposalDiscoveryPath({
+      proposal: {
+        id: "t1",
+        status: "open",
+        kind: "edits",
+        title: "Translate blog",
+        summary: "Translated from en → es. Promote draft.",
+        open_blocker_count: 0,
+        entries: [
+          {
+            contentType: "blog",
+            slug: "how-much",
+            locale: "es",
+            variant: "draft",
+            status: "pending",
+          },
+        ],
+      },
+      allowedTools: catalog,
+      reviewContext: {
+        damage_class: "existing_content",
+        review_situations: ["locale_translation"],
+        agent_preview: {
+          think_items: [
+            {
+              id: "locale_translation",
+              title: "Locale draft vs source before promote",
+              why: "Fidelity",
+              look_for: ["Fidelity / Completeness"],
+            },
+          ],
+        },
+      },
+    });
+    const tools = discovery_path!.items.filter((i) => i.kind === "tool");
+    const ids = tools.map((t) => (t.kind === "tool" ? t.id : ""));
+    expect(ids[0]).toBe("translation_playbook");
+    expect(ids).toContain("variant_layers");
+    const playbook = tools.find((t) => t.kind === "tool" && t.id === "translation_playbook");
+    if (playbook?.kind === "tool") {
+      expect(playbook.args_hint).toMatchObject({
+        topic: "proposals",
+        subtopic: "translations",
+      });
+    }
+    const preview = tools.find((t) => t.kind === "tool" && t.id === "preview_content");
+    if (preview?.kind === "tool") {
+      expect(preview.args_hint).toMatchObject({
+        contentType: "blog",
+        slug: "how-much",
+        locale: "es",
+        variant: "draft",
+      });
+      expect(preview.look_for.some((l) => /source locale/i.test(l))).toBe(true);
     }
   });
 });

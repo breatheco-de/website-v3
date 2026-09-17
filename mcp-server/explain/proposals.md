@@ -17,9 +17,9 @@ Agentic swarm role connectors may write **drafts** freely, may write **live** on
 
 **KPI strip ↔ `list_proposals`:** Unscoped calls return **live** Ideas/Edits/Notes × Open/Done/Rej via `proposal_stats.by_kind_status` (same as the staff strip big numbers; open includes partial; withdrawn omitted; empty site → all nine buckets as `0`). Sparkline history is **opt-in only** (`kpi_history: true`) — never attached by default. Event Webhooks are **not** proposal stats and never appear on this tool. Filtered (scoped) calls still return **site-wide** `by_kind_status` (warning `proposal_stats_site_wide`); do not treat those counts as the size of the filtered page.
 
-See also **`explain` topic `reading-proposals`**: damage/undo axes, checklist IDs, create refuses, apply block when target missing.
+See also **`explain_site` `topic: "proposals"` `subtopic: "reading"`**: damage/undo axes, checklist IDs, create refuses, apply block when target missing.
 
-**Review situations:** optional `review_situations` on **edits** (`explain` topics **`review-situations`**, **`internal-links-proposals`**, **`serp-title-description-proposals`**, **`funnel-classification-proposals`**). Empty → infer from ops. Ideas always get default-on **`idea_opportunity_harm`** (topic **`idea-opportunity-harm-proposals`**) — do not pass `review_situations` on ideas.
+**Review situations:** optional `review_situations` on **edits** — hub `topic: "proposals"` with subtopics **`situations`**, **`internal-links`**, **`serp-title-description`**, **`funnel-classification`**, **`translations`**. Empty → infer from ops. Ideas always get default-on **`idea_opportunity_harm`** (`subtopic: "idea-opportunity-harm"`) — do not pass `review_situations` on ideas.
 
 | `update_proposal` | `proposals_create` and/or `proposals_review` (actions filtered) | See action allowlists below. |
 | `get_entry_activity` | same as list | Read recent writes (14 days). Use before `confirm_recent_activity`. |
@@ -68,7 +68,7 @@ After **`revise_entries`**, trust Proposed changes / ops over an older summary i
 
 ## Ideas
 
-- **Live review:** default-on situation `idea_opportunity_harm` + checklist `idea_opportunity_harm` (Goal → Evidence → Fit → Brand → dilution) stacked with `idea_accept` (lock/`next_step`). Playbook: `explain_site` topic **`idea-opportunity-harm-proposals`**. Incomplete brief → `add_blocker`; wrong vehicle → close/refile edits. Discovery tools optional.
+- **Live review:** default-on situation `idea_opportunity_harm` + checklist `idea_opportunity_harm` (Goal → Evidence → Fit → Brand → dilution) stacked with `idea_accept` (lock/`next_step`). Playbook: `explain_site` `topic: "proposals"` `subtopic: "idea-opportunity-harm"`. Incomplete brief → `add_blocker`; wrong vehicle → close/refile edits. Discovery tools optional.
 - **accept:** four-eyes (human+role); open blockers block; `next_step` min 20; **`accepted_entry`** `{ contentType, slug, locale }` required (locks that page+locale); → `finished` + `accepted`. **No YAML.** Refuse if another accepted idea already holds that entry (`accepted_entry_taken`).
 - **close** park: `wont_fix` \| `tracked_elsewhere` \| `other` (not four-eyes). Do not use close for “yes.”
 - Optional `related_entries`: context only; targets may not exist yet (prefills accept UI when present).

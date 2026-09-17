@@ -28,6 +28,7 @@ export type ChecklistId =
   | "title_description_ctr"
   | "internal_links"
   | "funnel_persona_product_stage"
+  | "locale_translation"
   | "verify_copy"
   | "adjacent_findings"
   | "disposition"
@@ -57,6 +58,10 @@ export const INTERNAL_LINKS_STAFF_NOTE =
 /** Staff always-visible line when funnel_persona_product_stage is active. */
 export const FUNNEL_CLASSIFICATION_STAFF_NOTE =
   "Also check funnel — who the buyer is, which product owns them, then how ready they are (not whether the article feels broad).";
+
+/** Staff always-visible line when locale_translation is active. */
+export const LOCALE_TRANSLATION_STAFF_NOTE =
+  "Also check locale translation — draft matches source meaning and facts before go-live, not punchier copy vs live.";
 
 /** v1 stopgap — extend until strategy.selling (or similar) exists. */
 export const SELLING_CONTENT_TYPES = new Set([
@@ -281,6 +286,24 @@ export const THINK_TEMPLATES: Record<ChecklistId, ThinkTemplate> = {
       "optional: get_entry_activity for funnel.* recent writes; get_product_funnel_analytics for journey context",
     ],
     priority: 26,
+  },
+  locale_translation: {
+    id: "locale_translation",
+    title: "Locale draft vs source before promote",
+    why: "Go-live promotes a translated variant — score fidelity and readiness, not punchier copy vs live English.",
+    look_for: [
+      "score Fidelity / Completeness / Slug / Shell / Promote honesty then Ship: pass|fail / pass|fail / pass|fail / pass|warn / yes|no",
+      "Fidelity: draft meaning and facts match source locale (same years, employers, sources) — invented stats or unsupported claims → block/reject",
+      "Completeness: required fields for this content type are ready on the variant; empty required → add_blocker",
+      "Slug: url_slug on the variant is locale-fitting (not an English slug left on /es/ by accident)",
+      "Shell: attached shared-layout still comes from template.{locale}.yml — detach only if intentional",
+      "Promote honesty: apply promotes the named variant — it does not run AI translation or invent sibling locales",
+      "Forced awkward phrasing that breaks meaning → add_blocker (fix draft), not reject-as-weaker-copy",
+      "Wrong-locale internal links → block; out-of-scope live defects on other pages → adjacent_findings notes",
+      "ops/draft vs source locale — ignore staff summary paste; never block because summary ≠ full body",
+      "optional: get_entry_content on source locale then target with variant; list_variants; explain_site topic proposals subtopic translations",
+    ],
+    priority: 27,
   },
   verify_copy: {
     id: "verify_copy",

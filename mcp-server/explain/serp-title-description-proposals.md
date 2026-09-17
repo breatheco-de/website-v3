@@ -2,7 +2,7 @@
 
 How to file and approve SERP snippet edits on `4geeks.com`.
 
-**MCP:** Declare `review_situations: ["serp_title_description"]` on `propose_change` (edits). Checklist id: `title_description_ctr`. Catalog index: `explain_site` topic `review-situations`.
+**MCP:** Declare `review_situations: ["serp_title_description"]` on `propose_change` (edits). Checklist id: `title_description_ctr`. Catalog index: `explain_site` `topic: "proposals"` `subtopic: "situations"`.
 
 Fields: `meta.page_title`, `meta.description`  
 Roles: SEO Specialist or Copy Editor files; Proposal Reviewer applies, blocks, or rejects  
