@@ -429,7 +429,7 @@ export async function runSeoResearch(opts: {
         outcome: "cache_hit",
         credits_spent: 0,
         budget: snap() as unknown as Record<string, unknown>,
-        data: { query, ...entry },
+        data: { ...entry, query },
         warnings: [
           { code: "seo_research_cache_hit", message: "Returned fresh SERP from cache (no credits spent)." },
         ],
@@ -475,7 +475,7 @@ export async function runSeoResearch(opts: {
       credits_spent: OPENRUSH_INSPECT_SERP_CREDITS,
       credits_note: inspected.credits_note,
       budget: budget as unknown as Record<string, unknown>,
-      data: { query, ...inspected.entry },
+      data: { ...inspected.entry, query },
       warnings: [],
       side_effects: [
         { kind: "seo_research_serp_cache", summary: `Upserted SERP cache for "${query}".` },

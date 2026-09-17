@@ -8012,7 +8012,10 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         try {
           const parsed = safeLoad(fs.readFileSync(versioningPath, "utf-8"));
           if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            versioningData = parsed as typeof versioningData;
+            versioningData = parsed as Record<
+              string,
+              { variants?: Array<{ slug: string; allocation: number }> }
+            >;
           }
         } catch {
           versioningData = null;
