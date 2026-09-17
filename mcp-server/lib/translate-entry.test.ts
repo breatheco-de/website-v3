@@ -6,6 +6,10 @@ import {
   filterAllowedFields,
   buildTranslateLocaleData,
   listLiveLocaleFiles,
+  validateTranslateVariantSlug,
+  readVariantAllocation,
+  variantAllowsTranslateMerge,
+  TRANSLATE_DEFAULT_VARIANT,
 } from "./translate-entry";
 
 const authorsConfig = {
@@ -105,7 +109,7 @@ describe("buildTranslateLocaleData attached_fields", () => {
     expect(built.code).toBe("shared_layout_sections_must_be_empty");
   });
 
-  it("merges live refresh and preserves legacy sections + unrelated keys", () => {
+  it("merges into existing variant and preserves legacy sections + unrelated keys", () => {
     const built = buildTranslateLocaleData({
       mode: "attached_fields",
       localeUrlSlug: "ada",
@@ -119,7 +123,7 @@ describe("buildTranslateLocaleData attached_fields", () => {
         sections: [{ type: "breadcrumb", id: "b1" }],
         meta: { description: "keep-me" },
       },
-      writeAsDraft: false,
+      writeAsDraft: true,
       mergeIntoExisting: true,
     });
     expect(built.ok).toBe(true);
@@ -176,7 +180,7 @@ describe("buildTranslateLocaleData detached_sections", () => {
         title: "Old",
         sections: [{ type: "hero", version: "v1.0" }],
       },
-      writeAsDraft: false,
+      writeAsDraft: true,
       mergeIntoExisting: true,
     });
     expect(built.ok).toBe(true);
@@ -185,7 +189,7 @@ describe("buildTranslateLocaleData detached_sections", () => {
     expect(built.localeData.sections).toEqual([{ type: "hero", version: "v1.0" }]);
   });
 
-  it("rejects clearing sections on non-empty detached live", () => {
+  it("rejects clearing sections on non-empty detached variant", () => {
     const built = buildTranslateLocaleData({
       mode: "detached_sections",
       localeUrlSlug: "p",
@@ -196,7 +200,7 @@ describe("buildTranslateLocaleData detached_sections", () => {
         localeUrlSlug: "p",
         sections: [{ type: "hero" }],
       },
-      writeAsDraft: false,
+      writeAsDraft: true,
       mergeIntoExisting: true,
     });
     expect(built.ok).toBe(false);
@@ -242,5 +246,43 @@ describe("blogConfig filter smoke", () => {
       blogConfig,
     );
     expect(Object.keys(allowed).sort()).toEqual(["content", "description", "title"]);
+  });
+});
+
+describe("validateTranslateVariantSlug", () => {
+  it("defaults-compatible draft is ok", () => {
+    expect(validateTranslateVariantSlug(TRANSLATE_DEFAULT_VARIANT)).toEqual({
+      ok: true,
+      variant: "draft",
+    });
+  });
+
+  it("rejects live, reserved, and invalid format", () => {
+    expect(validateTranslateVariantSlug("live").ok).toBe(false);
+    expect(validateTranslateVariantSlug("template").ok).toBe(false);
+    expect(validateTranslateVariantSlug("single").ok).toBe(false);
+    expect(validateTranslateVariantSlug("Bad_Name").ok).toBe(false);
+  });
+
+  it("accepts kebab-case custom names", () => {
+    expect(validateTranslateVariantSlug("es-copy")).toEqual({ ok: true, variant: "es-copy" });
+  });
+});
+
+describe("readVariantAllocation / variantAllowsTranslateMerge", () => {
+  it("treats missing registration as merge-allowed", () => {
+    expect(readVariantAllocation(null, "es", "draft")).toBeNull();
+    expect(variantAllowsTranslateMerge(null)).toBe(true);
+    expect(variantAllowsTranslateMerge(0)).toBe(true);
+    expect(variantAllowsTranslateMerge(25)).toBe(false);
+  });
+
+  it("reads allocation for locale+variant", () => {
+    const data = {
+      es: { variants: [{ slug: "draft", allocation: 0 }, { slug: "ab", allocation: 40 }] },
+    };
+    expect(readVariantAllocation(data, "es", "draft")).toBe(0);
+    expect(readVariantAllocation(data, "es", "ab")).toBe(40);
+    expect(readVariantAllocation(data, "en", "draft")).toBeNull();
   });
 });

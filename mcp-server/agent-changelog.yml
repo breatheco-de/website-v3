@@ -6,6 +6,19 @@ window_days: 6
 
 entries:
   - date: "2026-09-17"
+    summary: "translate_entry always writes a non-public variant — never live YAML"
+    agent_impact:
+      - "translate_entry never merges into live {locale}.yml. Pass variant (default draft) or create_variant:true for a new named layer; url_slug is allowed on the variant (checked at promote)."
+      - "Merge refused when that variant has traffic > 0% (variant_has_traffic). Missing custom variant without create_variant → variant_missing. Rejects variant names live/template/single."
+      - "Go live via promote_variant / publish_draft or propose_change promote_on_apply. Reconnect MCP for updated tool schema."
+    tools_changed: true
+    paths:
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/translate-entry.ts
+      - mcp-server/explain/content_system.md
+      - mcp-server/README.md
+
+  - date: "2026-09-17"
     summary: "Idea review situation idea_opportunity_harm — opportunity vs site harm before accept"
     agent_impact:
       - "Open ideas always get review_situations:[idea_opportunity_harm] + checklist idea_opportunity_harm (Goal→Evidence→Fit→Brand→dilution) stacked with idea_accept. Do not pass review_situations on ideas."

@@ -51,7 +51,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `update_proposal` | Lifecycle `action`: claim, release, withdraw, apply, close (acknowledge alias), reject, set_no_auto_retry, blockers…. Caps: `content_edit_text` or `seo_edit`; four-eyes on apply/reject (not close) |
 | `update_entry_attributes` | Multi-entry safe attrs bulk: `meta.*` + `funnel.*` (same `updates[]` across `slugs[]`, max 50; not sections) |
 | `add_section` / `remove_section` / `reorder_sections` / `replace_entry_sections` | Section topology |
-| `translate_entry` | Translate locale fields (attached) or sections (detached/classic); draft-first for new locales |
+| `translate_entry` | Write translation onto a non-public variant (default `draft`); never live `{locale}.yml` |
 | `set_entry_attachment` | Detach/reattach shared-layout shell ownership (`confirm` required to execute) |
 | `run_entry_diagnostics` | One slug → sync `completed` + paginated `open_issues[]` (open work queue); 2+/unscoped → async job (poll `get_diagnostics_job`); cached when fresh |
 | `get_diagnostics_job` | Poll multi-slug / unscoped async jobs; `open_issues_offset` / `open_issues_limit` page the open work queue; `issue_status` filters open/claimed/completed/all |

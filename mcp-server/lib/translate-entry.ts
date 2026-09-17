@@ -8,6 +8,76 @@ import { isEmptyLocaleContent } from "../../shared/isEmptyLocaleContent.js";
 
 export type TranslateMode = "attached_fields" | "detached_sections";
 
+/** Default layer when `variant` is omitted on translate_entry (same as DEFAULT_DRAFT_VARIANT). */
+export const TRANSLATE_DEFAULT_VARIANT = "draft";
+
+const VARIANT_SLUG_RE = /^[a-z0-9-]+$/;
+
+/** Reserved / confusing variant names for translate_entry (mirror versioning + live layer). */
+const TRANSLATE_FORBIDDEN_VARIANTS = new Set(["live", "template", "single"]);
+
+/**
+ * Validate translate_entry variant name. Rejects reserved template/single, confusing `live`,
+ * and non kebab-case slugs (versioning API).
+ */
+export function validateTranslateVariantSlug(
+  raw: string,
+): { ok: true; variant: string } | { ok: false; code: string; message: string } {
+  const variant = raw.trim();
+  if (!variant) {
+    return {
+      ok: false,
+      code: "invalid_variant",
+      message: "variant must be a non-empty kebab-case slug (e.g. draft, es-copy).",
+    };
+  }
+  if (TRANSLATE_FORBIDDEN_VARIANTS.has(variant)) {
+    return {
+      ok: false,
+      code: "invalid_variant",
+      message:
+        variant === "live"
+          ? 'variant "live" is not allowed (live content is the bare {locale}.yml file, not a variant). Pick draft or another kebab-case name.'
+          : `variant "${variant}" is reserved. Pick draft or another kebab-case name.`,
+    };
+  }
+  if (!VARIANT_SLUG_RE.test(variant)) {
+    return {
+      ok: false,
+      code: "invalid_variant",
+      message: `variant must match ${VARIANT_SLUG_RE} (lowercase letters, digits, hyphens). Got "${variant}".`,
+    };
+  }
+  return { ok: true, variant };
+}
+
+export type VersioningLocaleBlock = {
+  variants?: Array<{ slug: string; allocation: number }>;
+};
+
+/**
+ * Allocation for a locale+variant from versioning.yml data.
+ * `null` = unregistered (treat as 0% for merge allowance).
+ */
+export function readVariantAllocation(
+  versioning: Record<string, VersioningLocaleBlock> | null | undefined,
+  locale: string,
+  variantSlug: string,
+): number | null {
+  if (!versioning || typeof versioning !== "object") return null;
+  const block = versioning[locale];
+  const variants = Array.isArray(block?.variants) ? block.variants : [];
+  const row = variants.find((v) => v && typeof v.slug === "string" && v.slug === variantSlug);
+  if (!row) return null;
+  const n = typeof row.allocation === "number" ? row.allocation : Number(row.allocation);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** True when merge into an existing variant file is allowed (0% or unregistered). */
+export function variantAllowsTranslateMerge(allocation: number | null): boolean {
+  return allocation === null || allocation === 0;
+}
+
 export function resolveTranslateMode(opts: {
   sharedLayout: boolean;
   detached: boolean;
@@ -65,9 +135,9 @@ export type BuildLocaleResult =
   | { ok: false; code: string; message: string };
 
 /**
- * Build target locale YAML for translate_entry.
- * - New file / draft write: construct from payload (sections [] for attached).
- * - Live refresh: merge fields/meta into existing; preserve unrelated keys and sections unless detached sections replace.
+ * Build target locale YAML for translate_entry (always a non-public variant file).
+ * - New variant file: construct from payload (sections [] for attached).
+ * - Existing variant: merge fields/meta; preserve unrelated keys and sections unless detached sections replace.
  */
 export function buildTranslateLocaleData(opts: {
   mode: TranslateMode;
@@ -77,9 +147,9 @@ export function buildTranslateLocaleData(opts: {
   meta?: Record<string, unknown>;
   sections?: Record<string, unknown>[];
   allowedFields: Record<string, unknown>;
-  /** Existing file contents when merging into live or updating existing draft. */
+  /** Existing variant file contents when merging. */
   existing: Record<string, unknown> | null;
-  /** True when writing a brand-new draft (no live file, or after empty→draft convert with empty target). */
+  /** True when writing a brand-new variant file (no prior layer, or after empty→draft convert). */
   writeAsDraft: boolean;
   /** True when target path already exists and we should merge rather than replace. */
   mergeIntoExisting: boolean;
