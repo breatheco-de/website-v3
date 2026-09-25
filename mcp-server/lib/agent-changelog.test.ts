@@ -116,6 +116,11 @@ describe("buildBootstrapPayload", () => {
     expect(payload.skill.path).toBe("mcp-server/agent-conventions.md");
     expect(payload.skill.version).toMatch(new RegExp(`^${CONVENTIONS_VERSION}\\+`));
     expect(payload.skill.content).toMatch(/force_variant/);
+    expect(payload.skill.content).not.toContain("\\`");
+    expect(payload.skill.content).toMatch(/^## 2\. Reading a response$/m);
+    expect(payload.skill.content).toMatch(/^## 3\. Gates: who may say yes$/m);
+    expect(payload.skill.content).toMatch(/^## 7\. Proposals/m);
+    expect(payload.skill.content).not.toMatch(/How to update this file/);
     expect(payload.skill.version).toBe(resolveSkillVersion(payload.skill.content!));
     expect(payload.skill.branding.mode).toBe("generic");
     expect(payload.session_guidance.some((s) => /known_skill_version/i.test(s))).toBe(true);

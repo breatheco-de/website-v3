@@ -1,208 +1,222 @@
 ---
 name: website-mcp-conventions
 description: >-
-  Standing conventions for how an agent should talk to the human while using the
-  Website MCP server to make changes to {{BRAND_TITLE}} (domain {{SITE_DOMAIN}}).
-  This is a living list that grows as the human corrects or refines how they
-  want these conversations to go. Always check these conventions before and
-  after any Website MCP write (add_section, update_fields,
-  replace_entry_sections, create_entry, publish_draft, promote_variant, delete_variant,
-  translate_entry, etc.) — both for how to report the result and for any
-  other standing preference recorded here.
+  Standing instructions for any agent using the Website MCP server for
+  {{BRAND_TITLE}} ({{SITE_DOMAIN}}) from any MCP host. The server teaches
+  through its responses; this skill is how to read them, when to stop and ask
+  a person, how proposals work between roles, and how to report to the human.
+  Apply it on every Website MCP call, and re-check it before and after every
+  write (update_fields, add_section, replace_entry_sections, translate_entry,
+  propose_change, update_proposal, publish_draft, promote_variant, etc.).
 ---
 
-# Website MCP — conversation conventions
+# Website MCP — agent conventions
 
-This document is a running log of how the human wants agents to communicate
-while doing CMS work through the Website MCP server for {{BRAND_TITLE}}. It starts
-small and is meant to be edited in place as new conventions come up —
-when the human corrects something or asks for a new habit, add it below
-as its own numbered convention rather than starting a new document.
+The server already knows the rules. Every response says what happened, what did **not** happen, and what to call next. Your job is to read those payloads carefully and follow them. This skill covers only what a payload cannot do for you: how to read it, when to stop and ask a person, how roles work together through proposals, and how to talk to the human.
 
-For MCP **protocol** (sessions, reports, envelopes, multi-site), follow the
-technical playbook from `bootstrap_agent` — this file is conversation
-conventions only.
+- **Protocol** (identity, session order, envelopes): `playbook` from `bootstrap_agent`.
+- **Depth** (architecture, proposals, SEO, layouts): `explain_site` topics — open the topic a payload names.
+- **Recent changes:** `entries[].agent_impact` from `bootstrap_agent`.
+- **This skill vs a live payload:** if they disagree, trust the payload (it reflects the running code) and mention the mismatch to the human.
 
-## How to update this file
+## 1. Start of run
 
-- Add new conventions as new numbered entries under "Conventions." Keep
-  each one short and concrete (a rule + a one-line example), not prose.
-- If a new instruction changes or replaces an old one, edit that entry
-  in place rather than leaving both — this file should always reflect
-  current behavior, not a history of changes.
-- Don't remove the worked examples when editing; update them so they
-  stay accurate.
-- Bump `CONVENTIONS_VERSION` in `mcp-server/lib/mcp-playbook.ts` when
-  you change this file so agents re-fetch `skill.content` on bootstrap.
+1. Call `bootstrap_agent` once (pass `site` when several sites exist). On later calls pass `include_skill_content: false` or `known_skill_version`.
+2. Know who you are: read `primary_blocker`, `role_description`, and `allowed_tools` (`bootstrap_agent` / `get_current_user`). Many hosts drop the server's role instructions — do not assume you saw them.
+   - `role_connector_required` → no writes on this connection. Give the human `connector_guide.role_connectors`; stay read-only.
+   - `mcp_write_disabled` → propose-only. Follow `mcp_write_guide.course_of_action`.
+3. `agent_session` `start` with your exact `provider/model` (e.g. `claude/sonnet-4.5`). Pass `agent_session_id` on every write. `session_conflict` → `resume: true` if it is your run, else `force_new: true` + report.
+4. Several sites → pass `site` (the domain the human named) on **every** call. Never assume the first site.
+5. A tool you need is not in your list → do not imitate it with other tools. Tell the human: your role lacks it, or the connector must be refreshed/reconnected (tool lists never update mid-chat).
 
-## Conventions
+## 2. Reading a response
 
-### 0. Mutate education vs optional discovery
+Structured fields first; `message` prose last.
 
-After writes, trust structured \`warnings\` / \`side_effects\` / \`next_actions\` (real tool names only). When a response includes \`discovery_path\`, treat it as optional context to improve judgment before the next consequential step — not required calls, and not a substitute for \`next_actions\`.
+| You see | It means | Do this |
+|---|---|---|
+| `action_required` | A gate — someone must decide | §3 |
+| `success: false`, no `action_required` | Hard failure | Change the inputs (read `code`, `details`, `property_path`). Never resend the same call. |
+| `next_actions` · `required` | Needed for correctness | Do it before telling the human you are done |
+| `next_actions` · `recommended` | Normal next step | Do it, or say why you skipped |
+| `next_actions` · `optional` | Judgment | Your call |
+| `warnings[]` | What did **not** / will not happen | Read every `code`; relay the ones that change what the human believes (§5b) |
+| `side_effects[]` | What else changed (files, bound sections, other pages, drafts) | Relay wide blast radius |
+| `discovery_path` | Optional research before a big step | `think` items first; `available: false` → ask a human for access. Never a gate; skipping is allowed |
 
-### 1. Always link to a page you modified, and flag drafts
+- Only call tools a payload names or your tool list contains. Never invent tools, args, topics, or subtopics.
+- `args_hint` is a starting point: fill real values; never send placeholders (`provider/model`, `…`).
+- Lists return summaries on purpose. Fetch detail (`proposal_id`, `slugs`, `fields`) only for what you will act on; page instead of dumping.
+- After a write, finish its `required` follow-ups (e.g. one-slug `run_entry_diagnostics` with `freshness: "hard"` after go-live).
 
-Whenever you tell the human you changed a page through the Website MCP,
-give them the URL as a clickable markdown link — never just the slug or
-the raw content path (e.g. not `scholarship/miami-tech-works`).
+## 3. Gates: who may say yes
 
-- Build the link from the page's public locale prefix + slug, e.g.
-  `https://{{SITE_DOMAIN}}/en/scholarship/miami-tech-works`.
-- **If the write was to a draft or non-live variant** (you passed a
-  `variant` param, e.g. `variant: "draft"`, or the entry has no live
-  locale yet), append `?force_variant=draft` (or the matching variant
-  slug) as a query param so the link actually previews that variant
-  instead of the live page — otherwise the link either 404s or shows
-  stale live content.
-- If the change was scoped to a specific section (e.g. via
-  `section_id`), you can add the section's anchor too, e.g.
-  `#how-to-apply`, after the variant query param.
+A gate is the server asking for a decision. Passing a `confirm_*` flag is you answering it — answer only what you are entitled to answer.
 
-**Worked example:** after editing the `how-to-apply` section on the
-`miami-tech-works` scholarship draft (no live locale yet, written to
-`variant: "draft"`), report it as:
+- **You may confirm** when the human already asked for exactly this in the chat (they asked you to edit the live page → `confirm_live_edit: true`). Unsure → write a draft `variant` instead.
+- **Ask the human (or your orchestrator / reviewer) first**, showing the payload facts:
+  - new taxonomy values — categories, URL params, tags (`confirm_new_values`; show `observed_values`)
+  - overwriting newer work (`confirm_overwrite_newer_live`, `confirm_source_changed`, `confirm_base_unknown`; show `conflicting_fields` / `live_changes_since_base`)
+  - deleting, or changing many pages at once (`confirm_delete`, `confirm_affected_entries`, `confirm_template_*`; show the count)
+  - ending an experiment (`confirm_end_experiment`), rejecting a proposal (`confirm_reject`), spending research budget past a warning (`confirm_seo_research_budget`)
+- **Never confirm a gate you do not understand.** Open the `explain_site` topic from `next_actions` first.
+- **Stop and tell the human** (no workaround): `escalated`, `issue_coding_agent_only`, `proposal_deleted`, `withdraw_disabled`, `role_connector_required`, `mcp_write_disabled`.
+
+## 4. Never invent
+
+Do not make up anything the site will publish or rely on: keyword volume/difficulty, rankings, prices, dates, product facts, testimonials, CRM tags, conversion events, image URLs. Use the MCP (catalogs in `explain_site`, `get_or_refresh_seo_research`, `list_media`, `get_product`), a source the human gave you, or ask. No reliable source → leave it out and say so.
+
+## 5. Talking to the human
+
+### 5a. Link every page you changed
+
+Clickable link, never just a slug or file path.
+
+- Use the path from `urls[locale]` on `get_entry_content` / `list_entries` and prefix `https://{{SITE_DOMAIN}}`. URL patterns differ per content type — do not build paths by hand.
+- Draft / non-live variant → append `?force_variant=<variant>` so the link previews it. Section edit → add `#section_id` after it.
+
+**Worked example:** after editing the `how-to-apply` section on the `miami-tech-works` scholarship draft:
 
 > Saved: [Miami Tech Works — How to apply](https://{{SITE_DOMAIN}}/en/scholarship/miami-tech-works?force_variant=draft#how-to-apply)
 
-If the page were already live and you edited the live locale directly
-(no `variant` param, `confirm_live_edit: true`), the link would omit
-`?force_variant=draft` entirely.
+A live edit (no `variant`) omits `?force_variant=`.
 
-### 2. Agentic roles: drafts free; live needs claim; publish via proposal
+### 5b. Say what did not happen
 
-On an agentic swarm role connector (`/mcp/role/…`), write policy is enforced:
+When a warning changes the picture, say it plainly: "saved as a draft — not live yet", "this field changes every language", "Spanish was not updated", "waiting for another role to apply". Explain codes; do not just quote them.
 
-- **Identity:** On a role connector, call `agent_session` start with exact `model` (`provider/model`, e.g. `claude/sonnet-4.5`). Pass `agent_session_id` on every mutate — unscoped writes are blocked. **Production** plain `/mcp` hard-denies mutates with `role_connector_required` + `connector_guide` (one connection per `/mcp/role/<id>` for a swarm) — use Private → MCP Server → Connection. **Non-production** plain `/mcp` may mutate freestyle when MCP write is on. When **MCP write** is off (Security → Users), honor `mcp_write_disabled` / `mcp_write_guide.course_of_action` (propose-only until an admin enables write).
-- **Draft / variant writes** (any locale): allowed with your edit caps — no issue claim required.
-- **Live writes** (omit `variant`): allowed only while you hold an **active claim** on a validation issue for that **content type + slug + locale** as the **same human+role**. Successful live writes refresh the claim TTL (~30m).
-- **Publish / promote / demote / create_entry**: denied — open an **edits** `propose_change` (field updates and/or `promote_on_apply`). For a brief before work exists, use `propose_change` with `kind:"idea"` (accept ≠ apply; no YAML). Idea **accept** requires `accepted_entry` `{ contentType, slug, locale }` plus `next_step` (locks that page+locale for follow-up). Notes are wall reminders only (close with a reason; no YAML) — do not use notes for new-spoke pitches.
-- **Stuck on a claimed issue:** `update_issue` **release** with a report (what you tried). Do **not** invent a notes proposal for that handoff — the issue stays in the open queue / can reopen for the next agent.
+### 5c. Reports: why + highlights
 
-When caps forbid a write (any connector), call `propose_change` (prefer **edits**, or **idea** for a brief) instead of pasting JSON in chat.
+Writes and issue `complete`: `why` (goal in plain English) + `highlights` for big changes (links added, sections changed). Claim / note / summarize: `report` (min 80). Plain values, no JSON/YAML dumps, no "automated MCP" filler. One `agent_session` `summarize` at the end.
 
-- **Edits `summary`:** intent + why only (min 80). Do **not** restate `updates[]` values — ops own those; list triage uses title + `field_paths`. Go-live with empty updates: why the draft should become live. Notes/idea summaries stay the handoff or brief payload.
+### 5d. Do not leave work in chat
 
-**Worked example:** missing `content_edit_text` on a blog CTA → `propose_change` with that entry’s `updates[]`, then tell the human **Proposal Reviewer** or **Publisher** (or staff UI) must `update_proposal` with `action: "apply"`.
+Blocked by permissions → `propose_change`, not JSON pasted in chat. Out-of-scope defects you notice → a notes proposal (§7d adjacent findings), not only a chat mention.
 
-### 2b. Proposal collaboration (claim vs blocker vs approve)
+## 6. Write policy
 
-Proposals are a shared work item, not a chat. Prefer one open proposal per draft variant (`proposal_exists` → join it).
+Everybody can use proposals. **Agent (swarm) roles are forced to** — they never publish or edit live on their own:
 
-- **1.0 — the draft is the change:** `propose_change` writes `updates[]` into a 0% draft right away (yours, or `draft` / `draft-p{id6}` it creates); apply only promotes it. Live is unchanged until apply. Page-level fields (`funnel`, `meta.robots`, `authors`, …) change every language — say so to the human. Editing someone else's proposal draft makes you a co-author (you cannot approve it). `context_stale` / attention `needs_author` = live moved under the draft: the author runs `revise_entries`. Undo an applied proposal with `update_proposal` `action: "revert"` (files a new proposal; four-eyes). Pre-1.0 proposals return `legacy_version` → re-file.
+- Drafts / variants: free with your edit permissions.
+- Live: only while you hold an active **issue** claim for the same content type + slug + locale (same human + role). Live writes refresh it (~30 min). Stuck → `update_issue` `release` with what you tried (not a notes proposal).
+- Publish / promote / demote / `create_entry`: never directly → an **edits** proposal (`promote_on_apply` to go live). Brief before work exists → `kind: "idea"`.
 
-- **Claim** only when you will edit the draft / soft updates (same human+role; staff UI may take over). **add_blocker** when the **proposed** change is wrong or invents claims (what’s wrong, what fixed looks like, why — min 80 chars; no tool shopping lists). Do not claim only to approve.
-- **Adjacent findings:** after optional page research, park out-of-scope live defects as **notes** (name the page; link an issue only if one already exists; join existing notes). Same-entry ops-not-touched → notes, not apply-blocker. Other entry → notes only. Do not leave findings only in chat. Lack `proposals_create` (Proposal Reviewer) → hand the list to a create-capable role; do not convert park items into blockers. Nothing to park → no empty notes.
-- **Reject** only when the idea must not ship (bad / not implementable / illegal-or-policy / harmful / duplicate weaker / target missing). Pass `confirm_reject`, `reject_kind`, and `close_note` (min 80). Prefer **add_blocker** for in-scope polish; author **`revise_entries`** (idle or self-claim; foreign claim blocks) then `resolve_blocker` — revise does not clear blockers.
-- Only the **active claimant** (human+role) may `resolve_blocker`. Do not resolve to overturn a disagreement — escalate or leave open; reviewers `reopen_blocker`.
-- Open blockers block **apply** and idea **accept** (reject/withdraw/close still OK). Cleared blockers ≠ ship — re-preview, then four-eyes `apply` / `accept`. For `promote_on_apply`, confirm ending experiments when asked (`confirm_end_experiment`).
-- **Idea follow-through:** after accept, file edits with `implements_proposal_id` (required when that idea reserved the page). At most one open implements child. Pickup stalled work via `list_proposals({ stalled: true })` or `proposal_stats.stalled_ideas`. Refuse codes: `explain_site` `topic: "proposals"` (subtopics `overview` / `reading`).
-- **New pages and new languages:** what the edits must contain depends on `layout_owner` — see §2d (decision table + "can a proposal create it?"). The slug is required; the folder need not exist. Do **not** call `create_entry` (not on specialist connectors) and do **not** pass a `variant` — the proposal creates the folder and its draft.
+**Human-assigned roles** (e.g. Platform Steward, custom roles) may write directly within their permissions when MCP write is on, and may also propose. MCP write off → propose-only for anyone.
 
-**Worked example (new attached post, `layout_owner: shared_template`):**
+An **issue claim** (unlocks agent live writes on that page) and a **proposal claim** ("I am working this proposal") are different things.
 
-1. Idea: `propose_change` with `kind: "idea"` and `related_entries: [{ contentType: "blog", slug: "what-is-grok", locale: "en" }]`.
-2. Accept (a different role): `update_proposal` `action: "accept"` with that same `accepted_entry` and `next_step`. No YAML yet.
-3. Edits: `propose_change` with `implements_proposal_id`, `review_situations: ["new_public_content"]`, and `entries[]` of field `updates[]` only — **no** `variant`. Required live fields must be in the ops (blog: title, description, body/`content`, category).
-   The proposal writes `{slug}/_common.yml` and the unpublished draft now (visitors do not see it).
-4. Apply (a different role): `update_proposal` `action: "apply"`. A new URL-param value (for example category) also needs `confirm_new_values: true` after principal approval. Apply publishes `{locale}.yml` with `sections: []` and does not touch `template.{locale}.yml`.
+## 7. Proposals — how roles work together
 
-- **Worked example (new page, `layout_owner: entry`):** same idea → accept (warning `accepted_entry_needs_layout`) → edits flow, with the whole layout as one update. Example `entries[0]`: `{ contentType: "downloadable", slug: "ai-engineering-interview-kit", locale: "en", updates: [{ field_path: "meta.page_title", value: "…" }, { field_path: "sections", value: [{ type: "hero", version: "1.0", … }] }] }`.
-- A new **language** on an existing page folder never needs an idea (§2d says what it must contain).
-- **Escalated hold:** when `escalated: true`, a Platform Steward paused agent work (staff UI only). Do **not** call `update_proposal` — every action fails with `code: escalated` until they release. Read `escalated_note`. Overlapping create may warn `escalated_sibling` but still succeeds. After release the note may remain as history (mutations allowed again).
-- Optional `supersedes_proposal_id` on `propose_change` when replacing a rejected/withdrawn proposal (never required). Withdraw needs a short note; site Rules may require matching proposer username, allow any create author, or disable MCP withdraw (`withdraw_disabled` — ask staff). Staff UI follows a separate staff setting.
-- Four-eyes = different **username+role** (or staff UI), not merely a different model under the same role.
-- **`list_proposals(proposal_id)`** on an open/partial proposal may include **`discovery_path`**: optional research menu (`think` + `tool` items). Use it to deepen judgment before apply/reject/add_blocker/adjacent notes. It is **not** `next_actions` and skip does **not** block decide actions. Items with `available: false` need a human to enable access, then refresh MCP.
+A proposal is how work passes between roles: one role proposes, a **different** role decides. Staff act in the Proposals UI (take over claims, escalate, review outcomes). Every open proposal carries a server-built review layer — `review_context` — that says what kind of risk it is and what to check. Read it; never review from the summary alone.
 
-**Worked example:** Blake adds a blocker on CTA product; Alex revises soft entries (or fixes the draft), resolves with a note; Casey (different role or UI) previews again then applies.
+### 7a. Seats
 
-### 2c. Locale translation: draft write, then promote proposal
+| Seat | Agent roles | `update_proposal` actions |
+|---|---|---|
+| Author | Swarm Orchestrator, Copy Editor, SEO Specialist, Layout Editor, Translator, Media Editor | `propose_change`; claim, release, withdraw, attach_variant, revise_entries, set_review_situations, set_no_auto_retry, revert |
+| Reviewer | Proposal Reviewer | claim, release, apply, reject, accept, close, blockers — cannot create, withdraw, or edit pages |
+| Both | Publisher | everything |
 
-`translate_entry` always writes a **non-public variant** (default `draft`) — never live `{locale}.yml`. Polish with write tools on that variant. When ready to go public:
+- **Four-eyes:** apply / reject / accept need a different username + role than the proposer **and** any co-author (editing someone's proposal draft makes you a co-author). Close is not four-eyes. A different model under the same role is not a different person.
+- An action refused for your caps is a seat problem, not something to retry — hand off to the right seat.
+- `escalated: true` → a steward paused it. Do not call `update_proposal`; read `escalated_note`.
 
-- File **`propose_change`** with `variant`, `promote_on_apply: true`, and prefer `review_situations: ["locale_translation"]`.
-- Summary: intent + **Translated from {src} → {tgt}** (no pasted body). Soft-only proposals without promote are **not** this pack — keep polishing with write tools.
-- Reviewer scores fidelity to source locale (facts/slug/shell), not punchier-than-live English. Playbook: `explain_site` `topic: "proposals"` `subtopic: "translations"`.
+### 7b. Three kinds
 
-**Worked example:** Translator runs `translate_entry` → `draft.es.yml`, fixes wording with `update_fields` on `variant: draft`, then proposes promote with `locale_translation`; Proposal Reviewer applies.
+| Kind | Filed with | What happens |
+|---|---|---|
+| `edits` | `entries[]` and/or `promote_on_apply` | Writes a 0%-traffic draft **now**; apply only promotes it. Live is unchanged until apply. |
+| `idea` | `kind: "idea"` | A brief. Accept reserves a page + locale; writes no YAML. |
+| `notes` | neither | Visible backlog / handoff. Close with a reason; writes no YAML. Never for new-page pitches (use `idea`). |
 
-### 2d. Layout owner: what a draft contains
+### 7c. As an author
 
-Every entry has one `layout_owner` (on `get_entry_content`, proposal entries, `review_context.entries[]`, and section errors). `get_content_type_info` / `list_entries` show only the **type default** — a detached entry of a shared-layout type reports `entry`. `layout_owner` wins over `body_model`. Database-backed is **not** a layout concept (see the creatability table).
+1. **Look before filing.** `list_proposals` (`query`, `issue_id`) for open work on the same page. `proposal_exists`, `competing_entry_edits`, `join_existing_*` → join it (`revise_entries`), do not duplicate. Recent writes on the page → `get_entry_activity`; pass `confirm_recent_activity` only if your change is clearly distinct.
+2. **One risk per proposal.** Do not mix outcome figures, new pages, and other edits (`mixed_risk_bundle`). Keep SERP title/description separate from body edits (`mixed_serp_and_body`).
+3. **Declare `review_situations`** so reviewers get the right checklist: `internal_links`, `serp_title_description`, `funnel_classification`, `body_copy_edit`, `selling_figures`, `new_public_content`, `promote_draft`, `locale_translation`. `situation_ops_mismatch` → retag with `set_review_situations`. Catalog: `explain_site` `topic: "proposals"` `subtopic: "situations"`.
+4. **Summary** (min 80) = intent + why. Never paste values — ops carry them. Go-live with no updates: why this draft should go live. Optional `rationale` = deeper reasoning; `situation_note` = what live looks like now.
+5. **After filing:** read `side_effects.drafts_written`; give the human the draft preview link (§5a). Page-level fields (`funnel.*`, `meta.robots`, `authors`, …) change every language — say so.
+6. **Follow your attention bucket** (`list_proposals` with `proposer_username` / `agent_session_id`):
+   - `blocked` → fix with `revise_entries` (idle or self-claimed only), then the active claimant `resolve_blocker`s. Revise does not clear blockers; never resolve to win a disagreement.
+   - `needs_author` / `context_stale` → live moved under your draft; `revise_entries`.
+   - Undo something already applied → `revert` (files a new proposal; four-eyes).
+7. **New pages and new languages:** no `create_entry`, no `variant` — the proposal creates the folder and draft. What the edits must contain → §7g.
 
-| Row | Examples | Draft contains | Section ops | New language | Apply writes | Reviewers check |
-|---|---|---|---|---|---|---|
-| `layout_owner: shared_template` | attached blog post, attached database-backed entry | fields only | none — `attached_sections_refused` (layout lives in `template.{locale}.yml`) | field edits only | `{locale}.yml` fields with `sections: []` (file entries) or field overrides (database-backed); template untouched | fields and claims |
-| `layout_owner: entry` | downloadable, landing, program page, any detached entry | fields + the full layout | one full `{ field_path: "sections", value: [...] }`, or `sections[i].x` on an existing locale | must send full translated `sections` (else `sections_required`, `details.new_locale`) | the whole page | layout, components, siblings, CTAs (`layout_structure`); section edits on existing pages go stale if live changes (`merge_preview.status: has_sections` → `context_stale`) |
-| `is_shared_template: true` | slug `template` of a shared-layout type | the shared layout itself | full `sections` or `sections[i].x` | must send full `sections` | `template.{locale}.yml` → every attached entry in that language (`affected_entries`; apply needs `confirm_affected_entries: N`); detached entries unaffected | blast radius (`template_blast_radius`): sample entries, new `entry.*` template placeholders filled (`template_placeholders_unfilled`), all languages covered (`template_locales_incomplete`) |
+### 7d. As a reviewer
 
-Every full `sections` array is registry-checked for shape only (`invalid_sections` + `property_path`; read `get_component_schema` first). Images, links, and ecommerce scope are still the reviewer's job. Publishing an empty `entry` page fails with `empty_page`. If an entry is reattached (`entry` → `shared_template`) while a proposal with sections is open: review warning `layout_owner_changed`, and apply returns `context_stale` (`details.reason: "layout_owner_changed"`) → needs_author.
+Open `list_proposals(proposal_id)` before any decision — list rows are summaries without ops. Read `review_context` in this order:
 
-**Can a proposal create a new entry?** (independent of `layout_owner`)
+1. **Can it be decided at all:** `block_apply`, and warnings like `target_missing`, `situation_changed`, `recent_entry_writes`, `layout_owner_changed`.
+2. **Risk:** `damage_class` — what public impact: `none` → `existing_metadata` → `existing_content` → `selling_page` (adds or changes hire rates, salaries, tuition, or prices on **any** page) → `new_public_content`. `undo_cost` + `undo_cost_reason` — how hard apply is to reverse (high: shared template, first publish of a language, page-level fields, sections).
+3. **What to check:** `active_checklists` — score every checklist that fired. Playbooks: `explain_site` `topic: "proposals"` (`subtopic: "reading"` lists every checklist and its playbook).
+4. **Optional research:** `agent_preview.think_items` → `discovery_path`. When `get_entry_activity` is listed first, check it before apply.
+5. **The actual change:** `author_diff`, `sections_summary`, `merge_preview`, `affected_entries`. `update_proposal` with `dry_run: true` shows the apply result without writing.
 
-| Type | Create via proposal |
-|---|---|
-| file-based `shared_template` type | yes — idea → accept → field edits, no variant |
-| file-based `entry` type | yes — idea → accept (`accepted_entry_needs_layout`) → edits with one full `sections` update |
-| database-backed type | no — accept warns `accepted_entry_not_creatable`; a human creates the row first |
-| detached entry | n/a — it already exists |
+Your job is to stop harm — invented claims, lost query fit, false scope, unjustified new URLs, wrong layout — not to rewrite for punchier copy. Pick one lane:
 
-**Change the layout of every entry of a type:** target slug `template`, one entry per language, `all_or_nothing: true`; apply with `confirm_affected_entries` (the count). Detached entries need their own edits (or a reattach). A type without a shared layout has no template — edit each entry separately.
+| Lane | When | Effect |
+|---|---|---|
+| `add_blocker` | The proposed change is wrong, invents a claim, or the summary's scope is false. Say what is wrong, what fixed looks like, why (min 80). No tool shopping lists | Blocks apply |
+| notes (adjacent findings) | A live defect the ops do not touch, or a problem on another page. Name the page; link an issue only if one exists; join existing notes. Nothing to park → no empty notes | Does not block |
+| `reject` | Must never ship: bad, not implementable, illegal/policy, harmful, weaker duplicate, target missing. `confirm_reject` + `reject_kind` + `close_note` (min 80). Not for polish | Closes it |
+| `apply` | Every fired checklist passes | Four-eyes; confirm gates per §3 |
 
-### 3. Cluster SEO only on live (or draft-before-live)
+- One failing checklist does not sink the rest: blocker on those ops; the author drops or fixes them; apply is all-at-once.
+- Cleared blockers ≠ approved — re-read, then apply.
+- Queue: default `sort=attention` ranks for your seat (reviewer: `escalated` → `awaiting_rereview` → `no_feedback` → `blocked`). `needs_review: true` = edits waiting for a reviewer.
+- No `proposals_create` (Proposal Reviewer): hand park items to a role that has it; never turn them into blockers.
 
-Do not write `seo.*` on A/B experiment variants, and do not write draft SEO once any live locale exists. Promote over live keeps live `seo:` — edit the live locale after promote if clustering must change.
+### 7e. Ideas
 
-**Worked example:** after promoting `variant: "b"`, call `update_fields` without `variant` to set `seo.pillar_path`, not another write on `b`.
+- Always scored opportunity vs harm: **Goal → Evidence → Fit → Brand → dilution**. Authors put goal, evidence, and a kill line in `summary` / `rationale`. Incomplete brief → `add_blocker`; wrong vehicle → close and refile as edits.
+- At most one demand label: `anticipated_demand` (lasting queries after a launch), `existing_demand` (compete for current search), `fast_decay_news` (announcement only — expect reject), `broken_url` (call `get_runtime_issues` first; only if you have it).
+- New-URL ideas need `idea_funnel` `{ stage, products }` before accept.
+- **Accept** (four-eyes): `accepted_entry` `{ contentType, slug, locale }` + `next_step` (min 20). Reserves that page; writes nothing. `accepted_entry_needs_layout` → follow-up must send full `sections`; `accepted_entry_not_creatable` → a human creates the database row first.
+- **Follow-through:** edits with `implements_proposal_id` (one open at a time). Pick up stalled ideas with `list_proposals({ stalled: true })`.
+- **Close** parks (`wont_fix`, `tracked_elsewhere`, `other`) — never use close for "yes".
 
-### 4. Diagnostics `open_issues` is an open work queue
+**Worked example (new attached blog post, `layout_owner: shared_template`):**
 
-Treat `run_entry_diagnostics` / `get_diagnostics_job` `open_issues[]` as **actionable open work** (default), not a full validation dump. Soft-completed and other-author claims are excluded unless you pass `issue_status: "completed" | "claimed" | "all"`. Prefer one-slug sync (`freshness: "hard"`) before claim/edit; do not treat bulk/unscoped `open_issues[]` as live proof. Skip ids in `claimed_issues` / `completed_issues` (or `status !== "open"` and not `claimed_by_me`).
+1. Author: `propose_change` with `kind: "idea"` and `related_entries: [{ contentType: "blog", slug: "what-is-grok", locale: "en" }]`.
+2. A different role: `update_proposal` `action: "accept"` with the same `accepted_entry` and a `next_step`. No YAML yet.
+3. Author: `propose_change` with `implements_proposal_id`, `review_situations: ["new_public_content"]`, and field `updates[]` only (title, description, body/`content`, category) — **no** `variant`. The proposal writes `{slug}/_common.yml` and the unpublished draft now.
+4. A different role: `update_proposal` `action: "apply"`. A new category also needs `confirm_new_values: true` after the human approves.
 
-**Coding-agent-only issues:** Catalog codes with `coding_agent_only: true` are excluded from default `open_issues` and refuse `update_issue` claim (`action_required: issue_coding_agent_only`). They need a Cursor coding agent or staff (filesystem / content repo). Do not claim them. Visible under `issue_status: "all"` and staff Diagnostics.
+### 7f. Translations
 
-**Worked example:** after edits, call `run_entry_diagnostics` with `slugs: [slug]`, `freshness: "hard"`, then claim from `open_issues[]` — not from a stale unscoped page.
+`translate_entry` always writes a non-public variant (default `draft`) — never live. Polish there with write tools, then `propose_change` with `variant`, `promote_on_apply: true`, `review_situations: ["locale_translation"]`. Summary: intent + "Translated from {src} → {tgt}" (no pasted body). Reviewers score fidelity to the source, not punchier copy. Playbook: `explain_site` `topic: "proposals"` `subtopic: "translations"`.
 
-### 5. Mutate reports: why + highlights (not process padding)
+### 7g. Layout owner: what a draft contains
 
-On field mutates and issue `complete`, pass `why` (goal/ticket in plain English) and `highlights` for big deltas (links added, section changes). Do not pad with “automatic MCP/bot” boilerplate. Server fills simple field values for staff; full diffs live on GitHub after push.
+`layout_owner` is on `get_entry_content`, proposal entries, `review_context.entries[]`, and section errors. `get_content_type_info` / `list_entries` show only the type default (a detached entry reports `entry`). `layout_owner` wins over `body_model`.
 
-### 6. Claim only with a valid fix path — no invented keyword metrics
+| `layout_owner` | Examples | Draft contains | New language | Apply writes |
+|---|---|---|---|---|
+| `shared_template` | attached blog post, attached database-backed entry | fields only (sections → `attached_sections_refused`) | field edits only | `{locale}.yml` fields with `sections: []` (or field overrides for database-backed); template untouched |
+| `entry` | landing, downloadable, program page, any detached entry | fields + the full layout: one `{ field_path: "sections", value: [...] }`, or `sections[i].x` on an existing locale | full translated `sections` (else `sections_required`, `details.new_locale`) | the whole page |
+| `is_shared_template: true` | slug `template` of a shared-layout type | the shared layout itself | full `sections` | `template.{locale}.yml` → every attached entry in that language (`confirm_affected_entries: N`); detached entries unaffected |
 
-Claim an issue only when you already have a **valid fix path you can execute** with MCP (or a cited offline source). Do not invent facts (search volume, difficulty, rankings).
+Every full `sections` array is shape-checked against the component registry (`invalid_sections` + `property_path`) — read `get_component_schema` first. Images, links, and product scope are still on you. Publishing an empty `entry` page fails with `empty_page`. Database-backed types cannot be created by proposal (a human creates the row). Recipes (new section-built page, change every entry's layout): `explain_site` `topic: "proposals"` `subtopic: "overview"`.
 
-For `SEO_KEYWORD_RESEARCH_INCOMPLETE`:
-- **SEO research on:** call `get_or_refresh_seo_research` with `action: keyword_metrics` (cache-first). Do **not** write `seo.kw_monthly_volume` / `seo.kw_difficulty` YAML.
-- **SEO research off:** write both `kw_*` only with `seo_research_source: staff_provided` or `external:<tool_name>` from a real source.
-- **No reliable source:** do not claim, or claim→`release` blocked — never guess numbers.
+## 8. Diagnostics and issues
 
-**Worked example:** research configured + keyword set without metrics → `get_or_refresh_seo_research` (`action: keyword_metrics`), then revalidate — not `update_fields` with invented 1300/33.
+- `open_issues[]` from `run_entry_diagnostics` / `get_diagnostics_job` is the open work queue, not a full validation dump. Claim from a fresh one-slug run (`slugs: [slug]`, `freshness: "hard"`), never from a stale bulk page.
+- Skip ids in `claimed_issues` / `completed_issues` (or `status !== "open"` and not `claimed_by_me`).
+- Follow each issue's `suggestion`, `help`, `next_actions`, and `staff_context` (notes from staff). `coding_agent_only: true` → never claim; it needs a coding agent or staff.
+- Claim only with a fix path you can execute via MCP or a cited source. No path → do not claim, or `release` with why.
 
-### 6b. SEO research toolkit (vs measured traffic)
+## 9. SEO habits
 
-- **Measured GSC clicks/impressions:** `get_organic_traffic` (day cache / BigQuery).
-- **Planning research:** `get_or_refresh_seo_research` — `keyword_metrics` | `serp` | `keyword_ideas` | `competitors` | `keyword_gaps`. Cache-first; session + daily budgets; warn % → `confirm_seo_research_budget`; does **not** write `seo.kw_*` YAML.
-- Do not invent volume, difficulty, or SERP features. `keyword_gaps` needs a non-empty `competitors` list (run `competitors` first).
+- Cluster `seo.*` only on live (or a draft before any live locale exists). Never on A/B variants; after promote, edit live (promote keeps live `seo:`).
+- Keyword metrics: research on → `get_or_refresh_seo_research` `action: keyword_metrics`; never write `seo.kw_monthly_volume` / `seo.kw_difficulty`. Research off → write both only with `seo_research_source: staff_provided` or `external:<tool_name>`. No source → do not claim `SEO_KEYWORD_RESEARCH_INCOMPLETE`.
+- Measured clicks = `get_organic_traffic`. Planning = `get_or_refresh_seo_research` (`keyword_metrics` | `serp` | `keyword_ideas` | `competitors` | `keyword_gaps` — gaps needs `competitors` first). Cache-first, with session and daily budgets.
+- Set `seo.refresh_tier` (`fast` | `medium` | `evergreen` = how fast the facts go stale, not traffic) when clustering or classifying a page; revisit when the angle changes (explainer → yearly "best of" is `fast`). Per locale; translate does not copy it; cannot be cleared. Unsure → `get_entry_fields` `fields: ["seo.refresh_tier"]` for `fill_intent`.
 
-### 7. Set `seo.refresh_tier` when clustering / topic nature is known
+## 10. Reader copy must not expose SEO topology
 
-When enabling SEO clustering or classifying a page’s topic, set `seo.refresh_tier` to `fast`, `medium`, or `evergreen` (fact staleness — not traffic decay). Read `get_entry_fields` with `fields: ["seo.refresh_tier"]` (fill_intent) or `explain_site` topic `seo` to pick. Cannot clear — change only by picking another tier. Revisit the tier when the page angle changes (e.g. concept explainer becomes a yearly “best of”). Per locale; translate does not copy.
+Clusters, pillars, spokes, piece counts ("third in our X cluster"), and companion-piece maps are staff packaging. Keep them out of reader-facing body and headings; link by page job instead. YAML `seo.*` and proposal summaries may still say "cluster hub". Teaching what a topic cluster is, when that *is* the article topic, is fine.
 
-**Worked example:** turning clustering on for a “best AI tools 2026” post → `update_fields` with `seo.refresh_tier: "fast"` (after reading fill_intent if unsure).
+- **Bad:** "This is the third piece in our Grok Bot cluster. For the full picture, start with…"
+- **Good:** "New here? Read [what Grok Bot is](…) or [how to set it up](…). This page is only what's new since launch."
 
-### 8. Inspect fields with an explicit list
-
-`get_entry_fields` requires non-empty `fields: string[]`. Omit or pass `[]` once to get `available_fields` names only (`action_required: select_fields`), then retry with the paths you need. Do not expect a full dump of every field value.
-
-**Worked example:** `get_entry_fields` with `fields: ["title", "authors"]` before updating those paths.
-
-### 9. Reader copy must not expose SEO topology
-
-Clusters, pillars, spokes, piece-count (“third in our X cluster”), and companion-piece maps are **staff/SEO packaging**. Do **not** put that architecture into reader-facing body or H2s. Link by **page job** instead (“what it is”, “how to set up”, “what’s new”).
-
-- **Bad:** “This is the third piece in our Grok Bot cluster. For the full picture, start with…”
-- **Good:** “New here? Read [what Grok Bot is](…) or [how to set it up](…). This page is only what’s new since launch.”
-- Teaching “what a topic cluster is” when that *is* the article topic is fine. YAML `cluster_*`, `seo.*`, and proposal summaries may still say “cluster hub.”
-- Reviewers score this as intent on body / new-page / hub-link / translation packs → `add_blocker` (not create refuse, not reject for voice alone).
-
-**Worked example:** hub links stay; rewrite “Recent cluster updates” → “What’s new” and drop “our tools cluster” inventory talk.
+Reviewers treat this as `add_blocker` on body, new-page, link, and translation proposals — not reject for voice alone.

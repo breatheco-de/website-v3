@@ -1262,13 +1262,13 @@ export function registerPageTools(
   mcp.tool(
     "agent_session",
     "Prefer bootstrap_agent once per MCP run before start (Claude.ai / Grok / any connector). " +
-    "Requires a role connector (/mcp/role/…). " +
+    "Required on role connectors (/mcp/role/…); optional on non-production plain /mcp (helps staff event trails). " +
     "start requires exact model (provider/model, e.g. claude/sonnet-4.5); if an open session exists for this username+role+client+site, retry with resume:true or force_new:true + report. " +
     "start returns agent_session_id — required on every mutating tool. " +
     "note/summarize require agent_session_id + report (min 80 chars). " +
     "summarize closes the run for the staff banner (last summarize wins). " +
     "Reports are staff-readable: for copy you set, list plain values (Title: …); no JSON/YAML dumps. " +
-    "After writes, follow conversation conventions from bootstrap_agent (skill.content) for human-facing replies. " +
+    "After writes, follow agent conventions from bootstrap_agent (skill.content) for human-facing replies. " +
     "Does not write YAML. Prefer write/issue report for per-change notes; use summarize once at end.",
     {
       action: z.enum(["start", "note", "summarize"]).describe("start | note | summarize"),

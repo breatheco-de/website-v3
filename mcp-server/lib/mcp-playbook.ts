@@ -1,6 +1,6 @@
 /**
- * Technical MCP playbook + conversation conventions loader for bootstrap_agent.
- * Conventions body is for non-coding agents (Claude.ai, Grok, etc.) — delivered in the tool response.
+ * Technical MCP playbook + agent conventions loader for bootstrap_agent.
+ * Conventions body is for any MCP host — delivered in the tool response.
  */
 
 import fs from "fs";
@@ -8,25 +8,26 @@ import path from "path";
 import { createHash } from "crypto";
 
 /** Bump when the technical playbook markdown below changes. */
-export const PLAYBOOK_VERSION = "8";
+export const PLAYBOOK_VERSION = "9";
 
 /**
  * Explicit conventions seed version. Bump when editing mcp-server/agent-conventions.md
  * so agents re-fetch skill.content (known_skill_version mismatch).
  */
-export const CONVENTIONS_VERSION = "35";
+export const CONVENTIONS_VERSION = "36";
 
 export const CONVENTIONS_PATH = "mcp-server/agent-conventions.md";
 
 export const SKILL_HINT =
-  "Treat skill.content as standing instructions for this connector run. " +
-  "Check before and after Website MCP writes for how to report results to the human. " +
+  "Treat skill.content as standing instructions for this connector run: how to read responses, " +
+  "who may confirm gates, how proposals work between roles, and how to report results to the human. " +
+  "Check it before and after Website MCP writes. " +
   "On later bootstrap_agent calls in the same chat, set include_skill_content: false " +
   "and/or pass known_skill_version from this response.";
 
 export const PLAYBOOK_MARKDOWN = `# Website MCP — technical playbook
 
-For remote chat agents (Claude.ai, Grok, custom connectors). Conversation style belongs in agent-conventions (skill.content); this playbook is protocol only.
+For remote chat agents (Claude.ai, Grok, custom connectors). How to read responses, who may confirm gates, how proposals work between roles, and how to report to the human belong in agent-conventions (skill.content); this playbook is protocol only.
 
 ## Identity (required for writes)
 

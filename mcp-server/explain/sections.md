@@ -87,7 +87,7 @@ This format applies to every `article` section on a page. Call `get_component_va
 
 ## Shared-layout content types
 
-Types with `database.slug` **or** `single_template: true` (e.g. static `blog`) render sections from shared `template.{locale}.yml` (plus optional per-entry overlays when detached; legacy `single.*` still loads). Changes to the shared template affect **all attached** entries. Per-entry YAML **does** exist for static shared-layout types (`_common.yml` + `{locale}.yml`) and holds locale fields such as `title` / `content` — not a full page shell. See `explain_site` topic `shared-layout`. Per entry, `layout_owner` says which applies (`shared_template` = fields only, `entry` = the entry owns its sections, including detached entries); proposal rules per row live in conventions §2d.
+Types with `database.slug` **or** `single_template: true` (e.g. static `blog`) render sections from shared `template.{locale}.yml` (plus optional per-entry overlays when detached; legacy `single.*` still loads). Changes to the shared template affect **all attached** entries. Per-entry YAML **does** exist for static shared-layout types (`_common.yml` + `{locale}.yml`) and holds locale fields such as `title` / `content` — not a full page shell. See `explain_site` topic `shared-layout`. Per entry, `layout_owner` says which applies (`shared_template` = fields only, `entry` = the entry owns its sections, including detached entries); proposal rules per row live in conventions §7g.
 
 ## In-page CTA / link URLs
 
