@@ -1,32 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { EventEmitter } from "events";
 
 const resolveUrlTargets = vi.fn();
-const runDiagnosticsJob = vi.fn();
 const issuesBySlugFromTargets = vi.fn();
 const effectiveValidatorNames = vi.fn();
+const fork = vi.fn();
 
 vi.mock("../../scripts/validation/runDiagnosticsJob", () => ({
   resolveUrlTargets: (...args: unknown[]) => resolveUrlTargets(...args),
-  runDiagnosticsJob: (...args: unknown[]) => runDiagnosticsJob(...args),
   issuesBySlugFromTargets: (...args: unknown[]) => issuesBySlugFromTargets(...args),
   effectiveValidatorNames: (...args: unknown[]) => effectiveValidatorNames(...args),
+  runDiagnosticsJob: vi.fn(() => {
+    throw new Error("runDiagnosticsJob must not run in-process");
+  }),
 }));
 
 vi.mock("child_process", () => ({
-  fork: vi.fn(() => {
-    throw new Error("fork should not be called for one-slug sync");
-  }),
+  fork: (...args: unknown[]) => fork(...args),
 }));
 
 import {
   clearDiagnosticsRuntimeForTests,
   isDiagnosticsRunning,
   markAsyncJobRunningForTests,
-  markSyncInFlightForTests,
   startDiagnosticsJob,
 } from "./diagnosticsJobService";
 
-const contentRoot = "/tmp/diag-sync-test-root";
+const contentRoot = "/tmp/diag-async-test-root";
 const targets = [
   {
     url: "https://example.com/en/page",
@@ -45,10 +45,23 @@ function mockCache() {
   } as any;
 }
 
-describe("startDiagnosticsJob one-slug sync", () => {
+function mockChild() {
+  const child = new EventEmitter() as EventEmitter & {
+    send: ReturnType<typeof vi.fn>;
+    kill: ReturnType<typeof vi.fn>;
+    connected: boolean;
+  };
+  child.send = vi.fn(() => true);
+  child.kill = vi.fn();
+  child.connected = true;
+  return child;
+}
+
+describe("startDiagnosticsJob always async (including one slug)", () => {
   beforeEach(() => {
     clearDiagnosticsRuntimeForTests();
     vi.clearAllMocks();
+    fork.mockImplementation(() => mockChild());
     effectiveValidatorNames.mockReturnValue({
       pageValidators: ["seo-depth"],
       siteWideValidators: [],
@@ -60,15 +73,9 @@ describe("startDiagnosticsJob one-slug sync", () => {
       lastFullRunAtBySlug: { "one-page": "2026-09-03T00:00:00.000Z" },
       cacheMisses: [],
     });
-    runDiagnosticsJob.mockResolvedValue({
-      summary: { errorCount: 0, warningCount: 0 },
-      validatorResults: [],
-      issuesBySlug: { "one-page": [] },
-      resultsPayload: { summary: { errorCount: 0, warningCount: 0 }, issuesBySlug: {} },
-    });
   });
 
-  it("returns completed mode sync for exactly one slug without taking site lock", async () => {
+  it("queues a forked job for exactly one slug (no in-process sync)", async () => {
     const result = await startDiagnosticsJob({
       contentRoot,
       contentRootName: "test",
@@ -79,17 +86,16 @@ describe("startDiagnosticsJob one-slug sync", () => {
       callerId: "agent-a",
     });
 
-    expect(result.status).toBe("completed");
-    if (result.status === "completed") {
-      expect(result.mode).toBe("sync");
-      expect(result.site_job_parallel).toBe(false);
-      expect(result.summary).toEqual({ errorCount: 0, warningCount: 0 });
+    expect(result.status).toBe("queued");
+    if (result.status === "queued" || result.status === "running") {
+      expect(result.job_id).toMatch(/^diag-/);
+      expect(result.scope.slugs).toEqual(["one-page"]);
     }
-    expect(runDiagnosticsJob).toHaveBeenCalledTimes(1);
-    expect(isDiagnosticsRunning(contentRoot)).toBe(false);
+    expect(fork).toHaveBeenCalledTimes(1);
+    expect(isDiagnosticsRunning(contentRoot)).toBe(true);
   });
 
-  it("still syncs when a site async job is running (site_job_parallel)", async () => {
+  it("returns site diagnostics_busy for one slug while async job running", async () => {
     markAsyncJobRunningForTests(contentRoot);
     expect(isDiagnosticsRunning(contentRoot)).toBe(true);
 
@@ -103,49 +109,11 @@ describe("startDiagnosticsJob one-slug sync", () => {
       callerId: "agent-a",
     });
 
-    expect(result.status).toBe("completed");
-    if (result.status === "completed") {
-      expect(result.mode).toBe("sync");
-      expect(result.site_job_parallel).toBe(true);
-    }
-    expect(runDiagnosticsJob).toHaveBeenCalledTimes(1);
-  });
-
-  it("returns diagnostics_sync_busy when same callerId already has a sync in flight", async () => {
-    markSyncInFlightForTests("agent-a", { slug: "other", urlCount: 2 });
-
-    const result = await startDiagnosticsJob({
-      contentRoot,
-      contentRootName: "test",
-      ci: {} as any,
-      cache: mockCache(),
-      slugs: ["one-page"],
-      freshness: "hard",
-      callerId: "agent-a",
-    });
-
     expect(result).toMatchObject({
       status: "busy",
-      code: "diagnostics_sync_busy",
+      code: "diagnostics_busy",
     });
-    expect(runDiagnosticsJob).not.toHaveBeenCalled();
-  });
-
-  it("allows a different callerId while another sync is in flight", async () => {
-    markSyncInFlightForTests("agent-a", { slug: "other", urlCount: 2 });
-
-    const result = await startDiagnosticsJob({
-      contentRoot,
-      contentRootName: "test",
-      ci: {} as any,
-      cache: mockCache(),
-      slugs: ["one-page"],
-      freshness: "hard",
-      callerId: "agent-b",
-    });
-
-    expect(result.status).toBe("completed");
-    expect(runDiagnosticsJob).toHaveBeenCalledTimes(1);
+    expect(fork).not.toHaveBeenCalled();
   });
 
   it("returns site diagnostics_busy for multi-slug while async job running", async () => {
@@ -175,6 +143,6 @@ describe("startDiagnosticsJob one-slug sync", () => {
       status: "busy",
       code: "diagnostics_busy",
     });
-    expect(runDiagnosticsJob).not.toHaveBeenCalled();
+    expect(fork).not.toHaveBeenCalled();
   });
 });

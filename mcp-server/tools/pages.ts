@@ -2621,29 +2621,26 @@ export function registerPageTools(
     },
   );
 
-  // run_entry_diagnostics (cached | sync completed for 1 slug | async job for multi/unscoped)
+  // run_entry_diagnostics (cached | async job — always fork for recompute, including 1 slug)
   mcp.tool(
     "run_entry_diagnostics",
     "Start or read page diagnostics against the unified validation-cache issue store. " +
-    "Exactly one slug: runs entry-local validators in-process and returns status 'completed' (mode sync) with open_issues[] in the same call — do NOT poll get_diagnostics_job. " +
-    "One sync at a time per agent (diagnostics_sync_busy if already running a page sync — retry this tool). " +
-    "May run while a site-wide async job is in flight (site_job_parallel warning — that job may later refresh the cache). " +
-    "Zero or 2+ slugs / unscoped: does NOT wait — returns 'cached', 'needs_confirm' (full-site — re-call with confirm:true), or 'queued'/'running' with job_id. " +
-    "On cached/completed: returns open_issues[] (default 50, errors first, diversified by code) — an open work queue. Soft-completed and other-author claims are excluded unless issue_status is completed, claimed, or all. Bulk/unscoped open_issues[] is still not authoritative for live failures; prefer one-slug sync. Paginate with open_issues_offset/open_issues_limit. " +
+    "Does NOT wait for validators: returns 'cached', 'needs_confirm' (full-site — re-call with confirm:true), or 'queued'/'running' with job_id. " +
+    "When queued/running (any scope including exactly one slug): wait retry_after_seconds then call get_diagnostics_job — do NOT re-call this tool to poll. " +
+    "On cached: returns open_issues[] (default 50, errors first, diversified by code) — an open work queue. Soft-completed and other-author claims are excluded unless issue_status is completed, claimed, or all. Bulk/unscoped open_issues[] is still not authoritative for live failures; prefer one-slug scoped jobs then poll. Paginate with open_issues_offset/open_issues_limit. " +
     "MCP: categories (e.g. ['seo']) narrow which validators RUN when validators are omitted (staff Diagnostics scope chips are view-only and unchanged). " +
-    "content_view/seo_edit may READ cached or needs_confirm responses; only a metrics-mutating staff cap may start a job or sync recompute. " +
+    "content_view/seo_edit may READ cached or needs_confirm responses; only a metrics-mutating staff cap may start a job. " +
     "Slug-scoped hard/max_age that would recompute do NOT require confirm:true. Full-site / unscoped jobs still need confirm:true. " +
     "Same-scope reuse of an in-flight async job and pure 'cached' responses skip confirm. " +
-    "When queued/running (multi-slug or unscoped): wait retry_after_seconds then call get_diagnostics_job — do NOT re-call this tool to poll. " +
     "freshness 'max_age' (default) recomputes only URLs whose lastFullRunAt is older than max_age_seconds (default 86400); " +
     "'hard' forces a recompute. Optional slugs scopes the run to entry-local validators only (never cross-entry like redirects/seo-duplicates — avoids false all-clear). " +
-    "side_effects: one-slug sync merges entry-local results into validation-cache in-process; multi/unscoped jobs fork a worker. " +
+    "side_effects: recompute jobs always fork a worker (including single-slug) so the public web process is not blocked. " +
     "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap/seo-duplicates; fixing meta does not clear REDIRECT_CONFLICT or DUPLICATE_TITLE; " +
-    "does not change staff Diagnostics HTTP payloads. Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + one slug. " +
+    "does not change staff Diagnostics HTTP payloads. Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + one slug then poll get_diagnostics_job. " +
     "In-app / MCP content writes debounce entry-local validation for 1 minute; redirect-config changes queue redirects separately. " +
     "When get_entry_* returns validation_pending:true, cache may lag until that debounce settles.",
     {
-      slugs: z.array(z.string()).optional().describe("Optional page slugs to scope. Exactly one slug → sync completed. Omit or pass 2+ for async site job."),
+      slugs: z.array(z.string()).optional().describe("Optional page slugs to scope. Any slug count that needs a recompute starts an async job (poll get_diagnostics_job). Omit for site-wide (needs confirm:true)."),
       categories: z
         .array(z.string())
         .optional()
@@ -2750,34 +2747,7 @@ export function registerPageTools(
         const data = await res.json() as Record<string, unknown>;
 
         if (res.status === 409 || data.status === "busy") {
-          const code = String(data.code ?? "diagnostics_busy");
           const retry = Number(data.retry_after_seconds ?? 5);
-          if (code === "diagnostics_sync_busy") {
-            return ok(
-              {
-                status: "busy",
-                code: "diagnostics_sync_busy",
-                retry_after_seconds: retry,
-                message: String(
-                  data.message ??
-                    "You already have a one-page diagnostics run in progress. Wait and retry.",
-                ),
-              },
-              {
-                warnings: [{
-                  code: "diagnostics_sync_busy",
-                  message:
-                    "One page sync at a time per agent. Wait retry_after_seconds then call run_entry_diagnostics again — do not poll get_diagnostics_job.",
-                }],
-                next_actions: [{
-                  tool: "run_entry_diagnostics",
-                  reason: "Retry one-slug diagnostics after your in-flight sync finishes",
-                  args_hint: scopedArgsHint,
-                  priority: "required",
-                }],
-              },
-            );
-          }
           const jobId = String(data.job_id ?? "");
           return ok(
             {
@@ -2859,7 +2829,7 @@ export function registerPageTools(
           );
         }
 
-        if (data.status === "cached" || data.status === "completed") {
+        if (data.status === "cached") {
           const cacheMisses = Array.isArray(data.cacheMisses) ? data.cacheMisses as string[] : [];
           const { queue, warnings: queueWarnings } = await resolveDiagnosticsIssueQueue({
             domain,
@@ -2889,29 +2859,6 @@ export function registerPageTools(
               message:
                 "open_issues[] is a ranked page of the open work queue (default 50). Soft-completed and other-author claims are excluded unless issue_status is completed, claimed, or all. Use open_issues_offset/open_issues_next_offset to page; full set remains in validation-cache / staff Diagnostics.",
             });
-          }
-          if (data.status === "completed" && data.site_job_parallel === true) {
-            queueWarnings.push({
-              code: "diagnostics_site_job_parallel",
-              message:
-                "A site-wide diagnostics job was still running. This page sync updated the cache for this slug; the site job may later refresh the cache — re-run one-slug hard if issues look stale.",
-            });
-          }
-          if (data.status === "completed") {
-            return ok(
-              {
-                status: "completed",
-                mode: "sync",
-                cache_updated: true,
-                ...diagnosticsIssueQueueFields(queue),
-                lastFullRunAtBySlug: data.lastFullRunAtBySlug ?? {},
-                cache_misses: cacheMisses,
-                summary: data.summary,
-                site_job_parallel: data.site_job_parallel === true,
-                message: "One-slug diagnostics completed synchronously. Do not poll get_diagnostics_job.",
-              },
-              { warnings: queueWarnings, next_actions },
-            );
           }
           return ok(
             {
@@ -5635,7 +5582,7 @@ export function registerPageTools(
     "Page-level fields in the draft (funnel, meta.robots/priority/change_frequency, published_at, authors) move to _common.yml (all languages); null on those fields deletes them. " +
     "Rejections: proposal_required (swarm roles), draft_in_proposal (draft under an open proposal — apply that proposal instead), translation_source_changed, " +
     "draft_base_stale / draft_base_unknown (retry with confirm_overwrite_newer_live only after the user agrees). " +
-    "On success, next_actions requires run_entry_diagnostics (hard + one slug — sync completed in that call).",
+    "On success, next_actions requires run_entry_diagnostics (hard + one slug → job_id; poll get_diagnostics_job).",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
       slug: z.string().describe("Page slug"),
@@ -5803,7 +5750,7 @@ export function registerPageTools(
     "Fails when resolved meta.page_title / meta.description are empty, editor.required fields are empty, " +
     "or the promoted detached locale would be empty (EMPTY_LOCALE: no sections and no content). " +
     "This is a destructive operation — the previous live content will be replaced. Confirm with the user before calling. " +
-    "On success, next_actions requires run_entry_diagnostics (hard + one slug — sync completed in that call).",
+    "On success, next_actions requires run_entry_diagnostics (hard + one slug → job_id; poll get_diagnostics_job).",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
       slug: z.string().describe("Page slug"),
@@ -8527,7 +8474,7 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         },
         {
           tool: "run_entry_diagnostics",
-          reason: "Validate before going live (one slug — sync completed in that call)",
+          reason: "Validate before going live (one slug → job_id; poll get_diagnostics_job)",
           args_hint: { slugs: [slug], freshness: "hard", confirm: true, ...siteHint },
           priority: "recommended",
         },

@@ -200,7 +200,7 @@ Every full `sections` array is shape-checked against the component registry (`in
 
 ## 8. Diagnostics and issues
 
-- `open_issues[]` from `run_entry_diagnostics` / `get_diagnostics_job` is the open work queue, not a full validation dump. Claim from a fresh one-slug run (`slugs: [slug]`, `freshness: "hard"`), never from a stale bulk page.
+- `open_issues[]` from `run_entry_diagnostics` / `get_diagnostics_job` is the open work queue, not a full validation dump. Claim from a fresh one-slug run (`slugs: [slug]`, `freshness: "hard"` → poll `get_diagnostics_job`), never from a stale bulk page.
 - Skip ids in `claimed_issues` / `completed_issues` (or `status !== "open"` and not `claimed_by_me`).
 - Follow each issue's `suggestion`, `help`, `next_actions`, and `staff_context` (notes from staff). `coding_agent_only: true` → never claim; it needs a coding agent or staff.
 - Claim only with a fix path you can execute via MCP or a cited source. No path → do not claim, or `release` with why.

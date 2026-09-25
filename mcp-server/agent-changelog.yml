@@ -6,6 +6,23 @@ window_days: 6
 
 entries:
   - date: "2026-09-25"
+    summary: "run_entry_diagnostics always async — one slug returns job_id; poll get_diagnostics_job (no in-process sync)"
+    agent_impact:
+      - "Any recompute (including exactly one slug + hard/stale) returns queued/running with job_id. Poll get_diagnostics_job until completed — do not wait on the start call for open_issues[]."
+      - "Removed mode sync / diagnostics_sync_busy / parallel one-page sync while a site job runs. One diagnostics job per site at a time (diagnostics_busy); reuse exact-scope in-flight job_id when applicable."
+      - "publish_draft / promote_variant next_actions still require hard + one slug, then poll. Cached freshness path unchanged."
+    tools_changed: true
+    paths:
+      - server/services/diagnosticsJobService.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/respond.ts
+      - mcp-server/explain/content_system.md
+      - mcp-server/explain/seo.md
+      - mcp-server/README.md
+      - mcp-server/agent-conventions.md
+      - client/src/pages/DiagnosticsPage.tsx
+
+  - date: "2026-09-25"
     summary: "Agent conventions (skill.content) rewritten: how to read responses, who may confirm gates, and how proposals work between roles"
     agent_impact:
       - "Read structured fields first: action_required (gate) → hard fail (change inputs, never resend) → next_actions by priority → warnings (non-effects to relay) → side_effects → optional discovery_path. The payload wins when it disagrees with the skill. Confirm a gate only when the human already asked for exactly that (e.g. confirm_live_edit); always ask first for new taxonomy values, overwriting newer work, deletes, multi-page/template changes, ending experiments, reject, research budget."

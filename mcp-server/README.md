@@ -26,7 +26,7 @@ Every **mutating** tool success payload is JSON inside `content[0].text` and alw
 
 Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). Gates such as `confirm_live_edit`, `confirm_layout_target`, multi-site `site`, and `confirm_new_values` use `actionRequired` (not bare errors).
 
-**Go-live:** successful `publish_draft` / `promote_variant` include a **required** `next_actions` for `run_entry_diagnostics` (`freshness: "hard"`, one slug) — that call completes sync for a single slug (no poll). Multi-slug / unscoped jobs still use `get_diagnostics_job`. The server does not auto-queue diagnostics on publish.
+**Go-live:** successful `publish_draft` / `promote_variant` include a **required** `next_actions` for `run_entry_diagnostics` (`freshness: "hard"`, one slug) — returns `job_id`; poll `get_diagnostics_job` until completed (including single-slug). The server does not auto-queue diagnostics on publish.
 
 **Shared layout:** use the same tools with `layout_target` (`auto` \| `entry` \| `type_template` \| `type_single`). MCP does **not** auto-fan-out sibling `template.*.yml` files — follow `next_actions`. Live `update_fields` edits that touch exactly one `sections.N` index **do** propagate section bindings (`bound_updates`). Multi-section updates are rejected.
 
@@ -53,8 +53,8 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `add_section` / `remove_section` / `reorder_sections` / `replace_entry_sections` | Section topology |
 | `translate_entry` | Write translation onto a non-public variant (default `draft`); never live `{locale}.yml` |
 | `set_entry_attachment` | Detach/reattach shared-layout shell ownership (`confirm` required to execute) |
-| `run_entry_diagnostics` | One slug → sync `completed` + paginated `open_issues[]` (open work queue); 2+/unscoped → async job (poll `get_diagnostics_job`); cached when fresh |
-| `get_diagnostics_job` | Poll multi-slug / unscoped async jobs; `open_issues_offset` / `open_issues_limit` page the open work queue; `issue_status` filters open/claimed/completed/all |
+| `run_entry_diagnostics` | Any recompute (incl. one slug) → async job + `job_id` (poll `get_diagnostics_job`); cached when fresh; paginated `open_issues[]` on completed/cached |
+| `get_diagnostics_job` | Poll async diagnostics jobs (any slug count); `open_issues_offset` / `open_issues_limit` page the open work queue; `issue_status` filters open/claimed/completed/all |
 | `get_section_bindings` | Binding-group membership |
 | `list_components` / `get_component_schema` / `get_component_variant` / `create_component_section_demo` | Component registry + disposable section demos |
 | `list_databases` / `list_database_items` / `get_database_item` | Private DB discovery + read (all sources; list=summary, get=full; optional `refresh`). Caps: `databases_edit_data` or `databases_manage` |

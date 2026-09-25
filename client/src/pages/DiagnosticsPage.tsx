@@ -1264,16 +1264,11 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       if (data.status === "busy") {
         throw new Error(
           data.message ||
-            (data.code === "diagnostics_sync_busy"
-              ? "You already have a one-page diagnostics run in progress."
-              : "Another diagnostics job is already running for this site."),
+            "Another diagnostics job is already running for this site.",
         );
       }
       if (data.status === "cached") {
         return { kind: "cached" as const, data };
-      }
-      if (data.status === "completed" && data.mode === "sync") {
-        return { kind: "completed" as const, data };
       }
       if (!data.job_id) {
         throw new Error("Missing job_id from diagnostics-jobs");
