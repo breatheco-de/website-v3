@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import fs from "fs";
 import path from "path";
+import v8 from "v8";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -1252,6 +1253,29 @@ async function shutdown(signal: string): Promise<void> {
   process.exit(0);
 }
 
+/** Soft heap guard — clean exit so pm2 can relaunch before a hard OOM. */
+const HEAP_WATCHDOG_INTERVAL_MS = 30_000;
+const HEAP_WATCHDOG_RATIO = 0.85;
+
+function startHeapWatchdog(): void {
+  const timer = setInterval(() => {
+    try {
+      const { heap_size_limit } = v8.getHeapStatistics();
+      const { heapUsed } = process.memoryUsage();
+      if (heap_size_limit > 0 && heapUsed / heap_size_limit > HEAP_WATCHDOG_RATIO) {
+        console.warn(
+          `[MCP] heap watchdog: heapUsed=${Math.round(heapUsed / 1024 / 1024)}MB ` +
+            `limit=${Math.round(heap_size_limit / 1024 / 1024)}MB (>${HEAP_WATCHDOG_RATIO * 100}%) — shutting down`,
+        );
+        void shutdown("MEMORY");
+      }
+    } catch (err) {
+      console.error("[MCP] heap watchdog error:", err);
+    }
+  }, HEAP_WATCHDOG_INTERVAL_MS);
+  timer.unref();
+}
+
 process.on("SIGTERM", () => {
   void shutdown("SIGTERM");
 });
@@ -1266,6 +1290,8 @@ async function startServer(): Promise<void> {
     console.error("[MCP] GCS store init failed —", (err as Error).message);
   }
   warnMcpBucketParity();
+
+  startHeapWatchdog();
 
   app.listen(PORT, "127.0.0.1", () => {
     console.log(`[MCP] Content-pages MCP server running on port ${PORT}`);

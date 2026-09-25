@@ -6,6 +6,23 @@ window_days: 6
 
 entries:
   - date: "2026-09-25"
+    summary: "Prod process supervisor is pm2 under website.service; Sidequest restart signals the worker PID (no systemd path unit)"
+    agent_impact:
+      - "website.service → start-production.sh → pm2-runtime (web + MCP + Sidequest + Qdrant). MCP auto-restarts after crash/OOM; heap watchdog + max_memory_restart 1G + --max-old-space-size=1024 (fixed in ecosystem)."
+      - "Staff Restart Sidequest: SIGTERM to data/sidequest.pid; pm2 relaunches. Removed dependency on website-sidequest / website-sidequest-restart.path. Flag file is audit/debounce only."
+      - "Non-effects unchanged: content saves still succeed while the worker is down (jobs queue); diagnostics/recheck do not restart the engine."
+    tools_changed: false
+    paths:
+      - ecosystem.config.cjs
+      - scripts/start-production.sh
+      - server/jobs/sidequest-restart.ts
+      - server/jobs/sidequest-worker.ts
+      - server/jobs/sidequest-diagnostics.ts
+      - mcp-server/index.ts
+      - mcp-server/explain/content_system.md
+      - docs/vps.md
+
+  - date: "2026-09-25"
     summary: "SEO validators (meta, seo-depth, seo-duplicates) check the filled-in meta visitors see, not raw {{ }} templates; new *_INHERITED_FROM_COMMON warnings"
     agent_impact:
       - "TITLE_TOO_SHORT/LONG, DESCRIPTION_TOO_*, DUPLICATE_TITLE/DESCRIPTION now measure meta after field-mapped {{ entry.* }} / {{ single.* }} + site vars (default values; entry's own region) — same resolveEntryMeta as the live SEO gate. Values still containing {{ }} skip length/duplicate checks (reported only as UNRESOLVED_META_TEMPLATE). Duplicates stay site-wide across languages; suggestion names each {locale}.yml to translate."

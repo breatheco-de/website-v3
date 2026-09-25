@@ -17,6 +17,7 @@ marketing-content/*
 mcp-server/data/
 
 # SQLite database file (local only — back up manually for production)
+# Also covers pm2 home under data/.pm2/ (PM2_HOME in start-production.sh)
 data/
 
 # Conversation screenshots (not marketing content)

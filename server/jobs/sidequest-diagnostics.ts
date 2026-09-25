@@ -4,8 +4,6 @@
 
 import fs from "fs";
 import path from "path";
-import { execFile } from "child_process";
-import { promisify } from "util";
 import Database from "better-sqlite3";
 import {
   getEngineStatus,
@@ -19,8 +17,8 @@ import {
   readSidequestWorkerPid,
   SIDEQUEST_DB_PATH,
   SIDEQUEST_HEARTBEAT_PATH,
+  SIDEQUEST_LOG_PATH,
   SIDEQUEST_PID_PATH,
-  SIDEQUEST_RESTART_FLAG_PATH,
   SIDEQUEST_RESTART_DEBOUNCE_MS,
   type EngineStatusResult,
 } from "./queue";
@@ -32,8 +30,6 @@ import {
 } from "../events/event-store";
 import { getLastAppliedSnapshot } from "./applier";
 import { getSiteContextMap } from "../site-manager";
-
-const execFileAsync = promisify(execFile);
 
 export type SidequestDerivedHealth =
   | "stopped"
@@ -93,8 +89,7 @@ export type SidequestDiagnostics = {
   }>;
   restart: {
     available: boolean;
-    mechanism: "dev-spawn" | "systemd-flag" | "none";
-    pathUnitDetected: boolean;
+    mechanism: "dev-spawn" | "supervisor-signal" | "none";
     pending: boolean;
     lastRequestedAt: string | null;
     lastRequestedBy: string | null;
@@ -225,18 +220,6 @@ async function probeDashboard(): Promise<SidequestDiagnostics["dashboardProbe"]>
   }
 }
 
-async function detectPathUnit(): Promise<boolean> {
-  if (process.env.SIDEQUEST_SYSTEMD_RESTART_ENABLED === "true") return true;
-  try {
-    const { stdout } = await execFileAsync("systemctl", ["is-active", "website-sidequest-restart.path"], {
-      timeout: 2000,
-    });
-    return stdout.trim() === "active";
-  } catch {
-    return false;
-  }
-}
-
 function formatAge(ms: number | null): string {
   if (ms === null) return "";
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
@@ -335,19 +318,14 @@ export async function collectSidequestDiagnostics(site?: string): Promise<Sidequ
 
   const isDev = process.env.NODE_ENV !== "production";
   const flag = readSidequestRestartFlag();
-  const pathUnitDetected = isDev ? false : await detectPathUnit();
-  let flagWritable = false;
-  try {
-    fs.accessSync(path.dirname(SIDEQUEST_RESTART_FLAG_PATH), fs.constants.W_OK);
-    flagWritable = true;
-  } catch {
-    flagWritable = false;
-  }
+  const pidAlive = pid !== null && isProcessAlive(pid);
+  // Prod: signal path works when PID is live; also show button when stopped
+  // (API returns 409 with supervisor hint if no live PID).
+  const restartAvailable = isDev ? true : pidAlive || engineBase.status === "stopped" || pidStat.exists;
 
   const restart: SidequestDiagnostics["restart"] = {
-    available: isDev ? true : flagWritable,
-    mechanism: isDev ? "dev-spawn" : flagWritable ? "systemd-flag" : "none",
-    pathUnitDetected,
+    available: restartAvailable,
+    mechanism: isDev ? "dev-spawn" : "supervisor-signal",
     pending: flag.exists,
     lastRequestedAt: flag.requestedAt ?? null,
     lastRequestedBy: flag.requestedBy ?? null,

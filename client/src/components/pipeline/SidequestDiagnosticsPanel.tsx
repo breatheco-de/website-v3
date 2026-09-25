@@ -150,11 +150,6 @@ export function SidequestDiagnosticsPanel({
                 <dd>{data.heartbeat.payload.currentJob}</dd>
               </div>
             ) : null}
-            {!IS_DEV && data.restart.mechanism === "systemd-flag" && !data.restart.pathUnitDetected ? (
-              <div className="text-amber-400/90 col-span-full">
-                Restart flag works only when website-sidequest-restart.path is enabled on the VPS (see docs/vps.md).
-              </div>
-            ) : null}
           </dl>
         </>
       ) : null}
@@ -279,8 +274,8 @@ export function SidequestDiagnosticsPanel({
             <AlertDialogHeader>
               <AlertDialogTitle>Restart Sidequest?</AlertDialogTitle>
               <AlertDialogDescription>
-                Restarts the background job worker only (index refresh and validation). Content saves keep working.
-                On production this writes a flag file for systemd to pick up.
+                Stops the background job worker (index refresh and validation). The system starts it again within a few
+                seconds. Content saves keep working; queued jobs are not lost.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

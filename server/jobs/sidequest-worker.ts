@@ -1,7 +1,7 @@
 /**
  * Dedicated Sidequest worker process — runs Sidequest.start() so jobs do not
  * share the Express event loop. Start via `npm run sidequest` (dev) or
- * scripts/start-sidequest.sh (prod / systemd).
+ * pm2-runtime (prod / website.service → start-production.sh).
  *
  * Build: esbuild → dist/sidequest-worker.js
  * Liveness: writes data/sidequest.pid + data/sidequest.heartbeat for the web process.
@@ -11,7 +11,9 @@ import "dotenv/config";
 import { registerAllJobs } from "./register";
 import {
   clearSidequestHeartbeat,
+  clearSidequestRestartFlag,
   clearSidequestWorkerPid,
+  resolveForeignSidequestPidConflict,
   startJobQueue,
   stopJobQueue,
   writeSidequestHeartbeat,
@@ -57,6 +59,15 @@ async function gracefulShutdown(signal: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  try {
+    await resolveForeignSidequestPidConflict({
+      log: (msg, meta) => log.warn(meta ?? {}, msg),
+    });
+  } catch (err) {
+    log.error({ err }, "[SidequestWorker] refusing to start — foreign PID conflict");
+    process.exit(1);
+  }
+
   log.info(
     { pid: process.pid },
     "[SidequestWorker] starting — jobs run in this process, not Express",
@@ -64,6 +75,7 @@ async function main(): Promise<void> {
   registerAllJobs();
   await startJobQueue();
   writeSidequestWorkerPid(process.pid);
+  clearSidequestRestartFlag();
   startHeartbeatLoop();
   log.info({ pid: process.pid }, "[SidequestWorker] engine ready (pid + heartbeat written)");
 }

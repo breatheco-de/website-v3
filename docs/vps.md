@@ -140,75 +140,59 @@ Keep `ReadWritePaths=/opt/website-v3` so `persistent/` remains writable.
 `UMask=0002` lets `website-runtime` create group-writable `site_*/.cache` so
 `website-deployer` (in group `website-runtime`) can prune old releases.
 
-**Sidequest (required for background jobs):** Express only enqueues; a separate unit runs the engine.
+### Process supervisor (pm2-runtime)
 
-```bash
-# /etc/systemd/system/website-sidequest.service
-[Unit]
-Description=Website Sidequest job engine
-After=network.target
+`scripts/start-production.sh` ends with `exec npx pm2-runtime start ecosystem.config.cjs`.
+pm2 supervises **web**, **MCP**, **Sidequest**, and **Qdrant** (MCP/Qdrant only if their binaries exist). One `systemctl restart website` relaunches all of them.
 
+Recommended drop-in (root, once):
+
+```ini
+# /etc/systemd/system/website.service.d/supervisor.conf
 [Service]
-Type=simple
-WorkingDirectory=/opt/website-v3/current
-EnvironmentFile=/opt/website-v3/current/.env
-ExecStart=/opt/website-v3/current/scripts/start-sidequest.sh
-UMask=0002
 Restart=always
 RestartSec=5
-# Same writable root as website.service so data/sidequest.sqlite is shared
-ReadWritePaths=/opt/website-v3
-
-[Install]
-WantedBy=multi-user.target
+OOMPolicy=continue
+TimeoutStopSec=60
+MemoryMax=6G
 ```
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now website-sidequest
 sudo systemctl restart website
 curl -fsS http://127.0.0.1:5000/health
-sudo systemctl is-active website-sidequest
-# Optional: cat /opt/website-v3/current/data/sidequest.pid  (web probes this PID)
+# Sidequest PID (web probes this):
+cat /opt/website-v3/current/data/sidequest.pid
 ```
 
-Until the Sidequest unit is enabled, saves still succeed but index/validation jobs queue and never run. `deploy.sh` restarts **both** `website` and `website-sidequest` when each unit exists.
+MCP memory guards (per process, not the unit cage):
 
-### Remote Sidequest restart (staff UI → systemd)
+- pm2 `max_memory_restart: 1G` on the mcp app
+- `--max-old-space-size=1024` (fixed in `ecosystem.config.cjs`)
+- In-process heap watchdog (~85% of heap limit → clean `shutdown("MEMORY")`)
 
-The web process runs as `website-runtime` (no sudo). Webmasters can restart Sidequest from **Agent Pipeline** or the system alert panel; the API touches a flag file only — it never runs `systemctl` from Node.
+`MemoryMax=6G` is a hard ceiling for the **whole** website cgroup (web+mcp+sidequest+qdrant). It does not reserve RAM. Leaves headroom on an ~8G droplet for nginx, OS, and sGTM Docker.
 
-**Security:** The path unit watches **one file** and runs **fixed** commands (no shell, no flag contents in `ExecStart`). Same trust bar as other webmaster actions (Sidequest dashboard, sites.yml). See `docs/vps-deployment.md` for the runtime hardening context.
+### Cutover from legacy Sidequest systemd units
 
-One-time install (root):
-
-```bash
-# /etc/systemd/system/website-sidequest-restart.path
-[Unit]
-Description=Watch for Sidequest restart flag (webmaster API only)
-
-[Path]
-PathModified=/opt/website-v3/current/data/sidequest.restart-requested
-
-[Install]
-WantedBy=multi-user.target
-
-# /etc/systemd/system/website-sidequest-restart.service
-[Unit]
-Description=Restart Sidequest when flag file is touched
-
-[Service]
-Type=oneshot
-ExecStart=/bin/systemctl restart website-sidequest
-ExecStartPost=/bin/rm -f /opt/website-v3/current/data/sidequest.restart-requested
-```
+**Before** deploying a SHA that uses pm2 Sidequest, disable and remove the old units (otherwise two workers can fight):
 
 ```bash
+sudo systemctl disable --now website-sidequest website-sidequest-restart.path 2>/dev/null || true
+sudo rm -f /etc/systemd/system/website-sidequest.service \
+           /etc/systemd/system/website-sidequest-restart.path \
+           /etc/systemd/system/website-sidequest-restart.service
+sudo rm -rf /etc/systemd/system/website-sidequest.service.d
 sudo systemctl daemon-reload
-sudo systemctl enable --now website-sidequest-restart.path
 ```
 
-Optional in release `.env` when the path unit is enabled: `SIDEQUEST_SYSTEMD_RESTART_ENABLED=true` (lets diagnostics report path unit as available).
+Install `supervisor.conf` (above), then deploy. `deploy.sh` only restarts `website` (Sidequest rides with pm2).
+
+**Rollback note:** reverting to a pre-pm2 SHA leaves Sidequest off unless you reinstall the old units — prefer revert-forward on `main`.
+
+### Remote Sidequest restart (staff UI → signal)
+
+The web process runs as `website-runtime` (no sudo). Webmasters restart Sidequest from **Background pipeline** or system alerts: the API sends **SIGTERM** to the PID in `data/sidequest.pid`; pm2 relaunches the worker. The flag file `data/sidequest.restart-requested` is audit/debounce only (not a systemd path-unit bridge).
 
 Staff diagnostics: `GET /api/admin/sidequest/diagnostics`, log tail `GET /api/admin/sidequest/logs` (from `data/logs/sidequest.log`). Worker also writes `data/sidequest.heartbeat` (stale threshold `SIDEQUEST_HEARTBEAT_STALE_MS`, default 120000).
 
@@ -366,10 +350,9 @@ Rate limit APIs/forms/`/mcp`, not a blunt global RPS on all static assets.
 |------|----------|
 | OS | Ubuntu 24.04 |
 | App root | `/opt/website-v3` |
-| Process | `website.service` → `current/scripts/start-production.sh` |
-| Sidequest | `website-sidequest.service` → `current/scripts/start-sidequest.sh` |
+| Process | `website.service` → `start-production.sh` → pm2-runtime (`web`, `mcp`, `sidequest`, `qdrant`) |
 | Reverse proxy | Nginx 80/443 |
-| Health | `http://127.0.0.1:5000/health` (web); Sidequest liveness via `data/sidequest.pid` / `systemctl is-active website-sidequest` |
+| Health | web `:5000/health`; MCP `:3001/health`; Sidequest liveness `data/sidequest.pid` |
 | sGTM | `/opt/sgtm` Docker compose |
 
 IP, hostname, and which DNS records already point here: check DigitalOcean + Cloudflare, not this file.

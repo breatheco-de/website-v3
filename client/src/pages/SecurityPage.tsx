@@ -1476,8 +1476,8 @@ function RolesTab() {
                             <p>
                               Grants <code className="font-mono">sites_manage</code>,{" "}
                               <code className="font-mono">worker_manage</code>, and{" "}
-                              <code className="font-mono">migrations_run</code>. Prod Sidequest restart uses a flag file
-                              + systemd path unit (docs/vps.md). MCP:{" "}
+                              <code className="font-mono">migrations_run</code>. Prod Sidequest restart signals the
+                              worker PID; the process supervisor (pm2) relaunches it (docs/vps.md). MCP:{" "}
                               <code className="font-mono">/mcp/role/platform_ops</code>.
                             </p>
                           </div>

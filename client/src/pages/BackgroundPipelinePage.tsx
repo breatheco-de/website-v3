@@ -782,9 +782,9 @@ function HealthStrip({ data, site }: { data: PipelineStatus; site?: string }) {
         testId="kpi-pipeline-engine"
         education={{
           simple:
-            "Process health for the dedicated Sidequest worker (not the website process). Running means the worker is up. Stuck? means the PID is alive but the heartbeat file is stale — the event loop may be blocked. Stopped: locally start `npm run sidequest` in another terminal; in production use Diagnostics & logs → Check again or Restart Sidequest (platform ops / worker_manage). Prod restart uses a flag file + systemd path unit (docs/vps.md).",
+            "Process health for the dedicated Sidequest worker (not the website process). Running means the worker is up. Stuck? means the PID is alive but the heartbeat file is stale — the event loop may be blocked. Stopped: locally start `npm run sidequest` in another terminal; in production use Diagnostics & logs → Check again or Restart Sidequest (platform ops / worker_manage). Prod restart signals the worker PID; pm2 relaunches it (docs/vps.md).",
           advanced:
-            "Sidequest.js in server/jobs/sidequest-worker.ts; enqueue via server/jobs/queue.ts. Liveness: data/sidequest.pid + data/sidequest.heartbeat (SIDEQUEST_HEARTBEAT_STALE_MS, default 120s). APIs: GET /api/admin/sidequest/diagnostics, POST recheck/restart (worker_manage), GET logs → data/logs/sidequest.log. Dashboard: POST /api/admin/sidequest/open, proxy /admin/sidequest.",
+            "Sidequest.js in server/jobs/sidequest-worker.ts; enqueue via server/jobs/queue.ts. Liveness: data/sidequest.pid + data/sidequest.heartbeat (SIDEQUEST_HEARTBEAT_STALE_MS, default 120s). Prod restart: SIGTERM to worker PID; pm2-runtime under website.service relaunches. APIs: GET /api/admin/sidequest/diagnostics, POST recheck/restart (worker_manage), GET logs → data/logs/sidequest.log. Dashboard: POST /api/admin/sidequest/open, proxy /admin/sidequest.",
         }}
       />
       <HealthKpiCard

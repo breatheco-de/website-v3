@@ -1,7 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import fs from "fs";
-import path from "path";
-import os from "os";
 import {
   buildSidequestSummary,
   deriveSidequestHealth,
@@ -93,20 +91,19 @@ describe("sidequest-diagnostics", () => {
     const status = await getEngineStatus();
     expect(status.status).toBe("stopped");
   });
+
 });
 
-describe("sidequest-restart debounce", () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sq-restart-"));
-
+describe("sidequest-restart", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    clearSidequestWorkerPid();
   });
 
   it("requestSidequestRestart returns 429 when flag is recent", async () => {
     vi.stubEnv("NODE_ENV", "production");
-    const { writeSidequestRestartFlag, readSidequestRestartFlag, SIDEQUEST_RESTART_FLAG_PATH } = await import("./queue");
-    const orig = SIDEQUEST_RESTART_FLAG_PATH;
-    // Use direct write via queue export
+    const { writeSidequestRestartFlag, readSidequestRestartFlag } = await import("./queue");
     writeSidequestRestartFlag("tester");
     const flag = readSidequestRestartFlag();
     expect(flag.exists).toBe(true);
@@ -115,8 +112,82 @@ describe("sidequest-restart debounce", () => {
     const result = await requestSidequestRestart("tester2");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(429);
+  });
 
-    void tmpDir;
-    void orig;
+  it("requestSidequestRestart prod returns 409 when no live PID", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    clearSidequestWorkerPid();
+    // Clear any leftover flag from prior tests so debounce does not 429
+    const { clearSidequestRestartFlag } = await import("./queue");
+    clearSidequestRestartFlag();
+    const { requestSidequestRestart } = await import("./sidequest-restart");
+    const result = await requestSidequestRestart("tester");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(409);
+      expect(result.error).toMatch(/not running/i);
+    }
+  });
+
+  it("requestSidequestRestart prod signals live PID", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NODE_ENV", "production");
+    const { clearSidequestRestartFlag } = await import("./queue");
+    clearSidequestRestartFlag();
+    writeSidequestWorkerPid(process.pid);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(((
+      _pid: number,
+      signal?: NodeJS.Signals | number,
+    ) => {
+      if (signal === 0) return true;
+      return true;
+    }) as typeof process.kill);
+
+    try {
+      const { requestSidequestRestart } = await import("./sidequest-restart");
+      const result = await requestSidequestRestart("tester");
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.mechanism).toBe("supervisor-signal");
+      }
+      expect(killSpy).toHaveBeenCalledWith(process.pid, "SIGTERM");
+      // Advance past SIGKILL backup timer while kill is still mocked
+      await vi.advanceTimersByTimeAsync(31_000);
+    } finally {
+      killSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("resolveForeignSidequestPidConflict", () => {
+  afterEach(() => {
+    clearSidequestWorkerPid();
+    vi.restoreAllMocks();
+  });
+
+  it("ignores stale dead PID", async () => {
+    fs.writeFileSync(SIDEQUEST_PID_PATH, "999999999\n", "utf-8");
+    const { resolveForeignSidequestPidConflict } = await import("./queue");
+    await expect(resolveForeignSidequestPidConflict()).resolves.toBe("none");
+  });
+
+  it("refuses when live PID is not sidequest", async () => {
+    const { spawn } = await import("child_process");
+    const child = spawn("sleep", ["60"], { stdio: "ignore", detached: true });
+    child.unref();
+    const foreignPid = child.pid;
+    expect(foreignPid).toBeTypeOf("number");
+    try {
+      writeSidequestWorkerPid(foreignPid!);
+      const { resolveForeignSidequestPidConflict } = await import("./queue");
+      await expect(resolveForeignSidequestPidConflict()).rejects.toThrow(/Refusing to start/);
+    } finally {
+      try {
+        process.kill(foreignPid!, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
   });
 });

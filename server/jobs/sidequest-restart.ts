@@ -1,5 +1,5 @@
 /**
- * Sidequest restart — dev spawn or prod systemd flag file.
+ * Sidequest restart — dev spawn or prod supervisor signal (pm2 relaunches).
  */
 
 import { spawn } from "child_process";
@@ -16,8 +16,10 @@ import {
 
 const log = child({ module: "sidequest-admin" });
 
+const SIGKILL_AFTER_MS = 30_000;
+
 export type SidequestRestartResult =
-  | { ok: true; mechanism: "dev-spawn" | "systemd-flag"; message: string }
+  | { ok: true; mechanism: "dev-spawn" | "supervisor-signal"; message: string }
   | { ok: false; status: number; error: string };
 
 export async function requestSidequestRestart(requestedBy: string | null): Promise<SidequestRestartResult> {
@@ -55,23 +57,50 @@ export async function requestSidequestRestart(requestedBy: string | null): Promi
     };
   }
 
-  if (engine.status === "running") {
-    log.info(
-      { action: "restart", username: requestedBy, mechanism: "systemd-flag", pid: engine.pid },
-      "Sidequest restart flag written (worker was running)",
-    );
-  } else {
-    log.info(
-      { action: "restart", username: requestedBy, mechanism: "systemd-flag" },
-      "Sidequest restart flag written (worker was stopped)",
-    );
+  const pid = readSidequestWorkerPid();
+  if (pid === null || !isProcessAlive(pid)) {
+    return {
+      ok: false,
+      status: 409,
+      error:
+        "Sidequest worker is not running (no live PID). The process supervisor (pm2) should start it — check website.service / pm2 status, then retry.",
+    };
   }
 
+  // Audit + debounce marker (not a systemd bridge anymore)
   writeSidequestRestartFlag(requestedBy);
+
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch (err) {
+    log.warn({ err, pid }, "Failed to SIGTERM Sidequest worker");
+    return {
+      ok: false,
+      status: 500,
+      error: "Failed to signal Sidequest worker process.",
+    };
+  }
+
+  setTimeout(() => {
+    if (isProcessAlive(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+        log.warn({ pid }, "Sidequest worker still alive after SIGTERM — sent SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+  }, SIGKILL_AFTER_MS).unref();
+
+  log.info(
+    { action: "restart", username: requestedBy, mechanism: "supervisor-signal", pid, wasRunning: engine.status === "running" },
+    "Sidequest supervisor signal sent (pm2 will relaunch)",
+  );
+
   return {
     ok: true,
-    mechanism: "systemd-flag",
+    mechanism: "supervisor-signal",
     message:
-      "Restart signal written. If website-sidequest-restart.path is enabled on the VPS, Sidequest will restart shortly.",
+      "Restart signal sent to the Sidequest worker. The process supervisor (pm2) will relaunch it within a few seconds.",
   };
 }

@@ -24,7 +24,6 @@ export type SidequestDiagnostics = {
   restart: {
     available: boolean;
     mechanism: string;
-    pathUnitDetected: boolean;
     pending: boolean;
   };
   summary: string;

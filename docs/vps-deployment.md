@@ -92,16 +92,16 @@ ReadWritePaths=/opt/website-v3
 This limits what the process can touch on the host while still allowing the app
 to write to its runtime files under `/opt/website-v3`.
 
-### Sidequest remote restart bridge
+### Sidequest remote restart
 
 `website-runtime` cannot run `sudo systemctl`. For in-app **Restart Sidequest**
-(webmaster only), the app writes `current/data/sidequest.restart-requested`.
-A separate root-owned **path unit** (`website-sidequest-restart.path`) runs
-`systemctl restart website-sidequest` when that file is touched.
+(webmaster only), the web process sends **SIGTERM** to the PID in
+`current/data/sidequest.pid`. `pm2-runtime` (under `website.service`) relaunches
+the Sidequest app. The flag file `sidequest.restart-requested` is audit/debounce
+only — there is no path-unit bridge.
 
-This is intentional and narrow: fixed `ExecStart`, single watched path, no
-user-controlled shell. It is **not** general privilege escalation for the web
-process. Install steps are in [vps.md](vps.md) under Sidequest.
+Cutover / supervisor drop-in (`MemoryMax=6G`) is documented in [vps.md](vps.md)
+§5. Legacy `website-sidequest*` units must be removed before the first pm2 deploy.
 
 ## Runtime file ownership
 
@@ -152,15 +152,11 @@ sudo usermod -aG website-runtime website-deployer
 # /etc/systemd/system/website.service.d/umask.conf
 [Service]
 UMask=0002
-
-# /etc/systemd/system/website-sidequest.service.d/umask.conf
-[Service]
-UMask=0002
 ```
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl restart website website-sidequest
+sudo systemctl restart website
 ```
 
 ## Environment file

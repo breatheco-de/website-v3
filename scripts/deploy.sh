@@ -505,14 +505,10 @@ ln -sfn "releases/$RELEASE_NAME" "$CURRENT_LINK"
 
 restart_website() {
   if systemctl cat website.service >/dev/null 2>/dev/null; then
+    # pm2-runtime under website.service supervises web + MCP + Sidequest + Qdrant
     sudo systemctl restart website
   else
     echo "[deploy] website.service not installed — skip restart"
-  fi
-  if systemctl cat website-sidequest.service >/dev/null 2>/dev/null; then
-    sudo systemctl restart website-sidequest
-  else
-    echo "[deploy] website-sidequest.service not installed — skip Sidequest restart (jobs will not run until enabled)"
   fi
 }
 
