@@ -49,7 +49,7 @@ List rows may include a **`review_context_snapshot`** (filed-at-create or last s
 
 | Field | Meaning |
 |---|---|
-| `layout_owner` | `shared_template` = the draft holds fields only (layout comes from `template.{locale}.yml`); `entry` = the draft is the whole page (including detached entries). Per entry; wins over `body_model`. Table: conventions §2d |
+| `layout_owner` | `shared_template` = the draft holds fields only (layout comes from `template.{locale}.yml`); `entry` = the draft is the whole page (including detached entries). Per entry; wins over `body_model`. Table: conventions §7g |
 | `detached: true` | Why a shared-layout type's entry reports `entry` |
 | `is_shared_template: true` | The entry is slug `template` — the draft is the shared layout itself (reaches `affected_entries`) |
 | `layout_owner_at_filing` | Owner stored when the proposal was filed / revised (review lookups). Absent on older rows |

@@ -6,6 +6,21 @@ window_days: 6
 
 entries:
   - date: "2026-09-25"
+    summary: "Agent conventions (skill.content) rewritten: how to read responses, who may confirm gates, and how proposals work between roles"
+    agent_impact:
+      - "Read structured fields first: action_required (gate) → hard fail (change inputs, never resend) → next_actions by priority → warnings (non-effects to relay) → side_effects → optional discovery_path. The payload wins when it disagrees with the skill. Confirm a gate only when the human already asked for exactly that (e.g. confirm_live_edit); always ask first for new taxonomy values, overwriting newer work, deletes, multi-page/template changes, ending experiments, reject, research budget."
+      - "Proposals section (§7): seats (author / Proposal Reviewer / Publisher), everybody may propose but agent swarm roles are forced to; reviewers read review_context in order (block_apply → damage_class/undo_cost → active_checklists → agent_preview/discovery_path → author_diff/merge_preview/dry_run) and pick one lane (add_blocker, adjacent notes, reject, apply). Layout owner table moved from §2d to §7g (explain docs updated)."
+      - "Page links: use the urls[locale] path from get_entry_content / list_entries with the site domain (not hand-built). session_guidance now says why + highlights on writes and report (min 80) on claim / note / summarize; agent_session description: required on role connectors, optional on non-production plain /mcp. CONVENTIONS_VERSION 36, PLAYBOOK_VERSION 9."
+    tools_changed: false
+    paths:
+      - mcp-server/agent-conventions.md
+      - mcp-server/lib/mcp-playbook.ts
+      - mcp-server/lib/agent-changelog.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/tools/explain.ts
+      - mcp-server/explain/proposals.md
+
+  - date: "2026-09-25"
     summary: "Database-backed pages (exercises, how-tos, workshops, lessons) are validated like static pages; diagnostics not-found is a final 404"
     agent_impact:
       - "run_entry_diagnostics now works for database slugs (e.g. bootstrap-exercises): each cached item is a page like a blog entry (template + item fields + field_overrides). Issue file = the entry's {type}/{slug}/{locale}.yml even before it exists (first field override creates it)."

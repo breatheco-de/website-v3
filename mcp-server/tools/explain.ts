@@ -307,7 +307,7 @@ export function registerExplainTools(
   mcp.tool(
     "bootstrap_agent",
     "Call once near the start of any Website MCP content run (Claude.ai, Grok, or any connector), " +
-      "before mutates or agent_session start. Returns: technical playbook, conversation conventions " +
+      "before mutates or agent_session start. Returns: technical playbook, agent conventions (how to read responses, gates, proposals, reporting) " +
       "(skill.content on first call; branded with brand.title + domain when site is passed or only one site is configured), " +
       "and recent agent changelog (last 6 days). " +
       "First call: omit params (or include_skill_content: true); pass site when multi-site so link examples match that brand. " +

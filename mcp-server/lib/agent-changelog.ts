@@ -202,8 +202,8 @@ export function buildBootstrapPayload(opts: BootstrapPayloadOpts = {}): BuildBoo
       skill,
       session_guidance: [
         "Call bootstrap_agent once near the start of an MCP content run (Claude.ai, Grok, or any connector). First call: omit params (or include_skill_content: true); pass site when multi-site to brand conventions.",
-        "Treat skill.content (when present) as standing conversation conventions for this chat; follow them before/after writes when reporting to the human.",
-        "Next: agent_session action start — pass agent_session_id + report (min 80) on mutates; prefer one summarize at end.",
+        "Treat skill.content (when present) as standing agent conventions for this chat (reading responses, gates, proposals, reporting); follow them before/after writes.",
+        "Next: agent_session action start — pass agent_session_id on mutates, with why + highlights on writes and report (min 80) on claim / note / summarize; prefer one summarize at end.",
         "On later bootstrap_agent calls in the same chat: include_skill_content: false and/or known_skill_version matching skill.version (changelog and playbook still returned).",
         "Use entries[].agent_impact for recent deltas; explain_site / get_content_type_info for deep architecture.",
         ...multiSiteGeneric,

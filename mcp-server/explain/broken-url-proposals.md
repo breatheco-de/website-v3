@@ -38,7 +38,7 @@ Then:
 ## Accept vs apply
 
 - **Accept** never writes YAML, never adds a redirect, never publishes.
-- **Apply** on the implementing edits proposal writes the redirect (same outcome as `update_redirect`). When the accept reserved a new slug, that edit is the `creates_entry` packet (see `new_public_content` and conventions §2d): `layout_owner: shared_template` (attached post) → field updates only, apply writes `sections: []` and leaves the shared template untouched; `layout_owner: entry` (landing, program page, downloadable, …) → the edit must carry one full `sections` update and apply publishes that layout. Redirect only after files exist. When the accept reserved an existing page, the edit does not create files — approve only adds the redirect.
+- **Apply** on the implementing edits proposal writes the redirect (same outcome as `update_redirect`). When the accept reserved a new slug, that edit is the `creates_entry` packet (see `new_public_content` and conventions §7g): `layout_owner: shared_template` (attached post) → field updates only, apply writes `sections: []` and leaves the shared template untouched; `layout_owner: entry` (landing, program page, downloadable, …) → the edit must carry one full `sections` update and apply publishes that layout. Redirect only after files exist. When the accept reserved an existing page, the edit does not create files — approve only adds the redirect.
 - Database rows cannot be created via `creates_entry` (accept warns `accepted_entry_not_creatable`); a human creates the row first and the idea can stay accepted. Detached pages already exist, so they are never created this way.
 
 ---
