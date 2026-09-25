@@ -14,6 +14,7 @@ import {
   actionRequired,
   diagnosticsAfterGoLiveNextAction,
   assertCatalogToolNames,
+  overrideMasksSourceWarning,
 } from "../mcp-server/lib/respond";
 
 const CATALOG = new Set(Object.keys(TOOL_GATES));
@@ -131,6 +132,15 @@ describe("respond helpers", () => {
     };
     const names = payload.next_actions.map((a) => a.tool);
     expect(assertCatalogToolNames(names, CATALOG)).toEqual({ ok: true });
+  });
+
+  it("overrideMasksSourceWarning says the source is unchanged and how to follow it again", () => {
+    const w = overrideMasksSourceWarning("title", "db/exercises/overrides.json");
+    expect(w.code).toBe("override_masks_source");
+    expect(w.message).toContain("Source value unchanged");
+    expect(w.message).toContain("db/exercises/overrides.json");
+    expect(w.message).toContain("title");
+    expect(w.message).toMatch(/reset the field to follow the source again/);
   });
 
   it("proposal discovery tool list is catalog-valid", () => {

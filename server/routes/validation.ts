@@ -26,6 +26,7 @@ import {
   listDiagnosticsJobs,
   maybeReloadValidationCache,
   startDiagnosticsJob,
+  DiagnosticsScopeError,
   type DiagnosticsJobRecord,
 } from "../services/diagnosticsJobService";
 import { entryKeyFromContentFile, buildEntryKey } from "../../scripts/validation/shared/entryKey";
@@ -384,6 +385,7 @@ export function registerValidationRoutes(app: Express): void {
           contentFiles: allContentFiles,
           entryKeys,
           markSiteWide: false,
+          skippedContentTypes: context.skippedContentTypes,
         });
         await cache.flush();
       } catch (err) {
@@ -1450,6 +1452,15 @@ export function registerValidationRoutes(app: Express): void {
       }
       return res.json(result);
     } catch (error) {
+      if (error instanceof DiagnosticsScopeError) {
+        log.warn({ code: error.code, ...error.details }, "diagnostics-jobs scope not found");
+        return res.status(404).json({
+          error: "Failed to start diagnostics job",
+          code: error.code,
+          message: error.message,
+          ...error.details,
+        });
+      }
       log.error({ err: error }, "diagnostics-jobs start error:");
       res.status(400).json({
         error: "Failed to start diagnostics job",

@@ -41,6 +41,7 @@ export async function applyValidationRunToCache(
       contentFiles: context.contentFiles,
       entryKeys: options.entryKeys,
       markSiteWide: options.markSiteWide ?? !options.partial,
+      skippedContentTypes: context.skippedContentTypes,
     });
   }
 

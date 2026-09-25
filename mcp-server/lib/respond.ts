@@ -135,6 +135,14 @@ export function actionRequired(
   });
 }
 
+/** Override on a database-sourced field: the source keeps its value but stops reaching the page. */
+export function overrideMasksSourceWarning(field: string, writtenTo: string): McpWarning {
+  return {
+    code: "override_masks_source",
+    message: `Source value unchanged. ${writtenTo} now takes priority over future source updates for ${field}; reset the field to follow the source again.`,
+  };
+}
+
 /** Common variant-isolation warnings for create_variant / edits with variant set. */
 export const VARIANT_WARNINGS: McpWarning[] = [
   {

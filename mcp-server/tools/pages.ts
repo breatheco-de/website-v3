@@ -74,11 +74,12 @@ import {
   isNonEmptyFieldValue,
 } from "../../shared/deprecatedField.js";
 import type { ContentTypeEditorHint } from "../../server/content-types.js";
-import { promoteWarnings, promoteFailureNextActions, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
+import { promoteWarnings, promoteFailureNextActions, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, overrideMasksSourceWarning, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
 import {
   isSignupFieldMapError,
   signupFieldMapActionRequired,
 } from "../lib/signup-field-map-hints.js";
+import { diagnosticsNotFoundResult } from "../lib/diagnostics-not-found.js";
 import {
   ok,
   fail,
@@ -2804,6 +2805,8 @@ export function registerPageTools(
         }
 
         if (!res.ok) {
+          const notFound = diagnosticsNotFoundResult(data, { slugs, site });
+          if (notFound) return notFound;
           return fail(String(data.message ?? data.error ?? `diagnostics-jobs failed (${res.status})`), data);
         }
 
@@ -4792,6 +4795,7 @@ export function registerPageTools(
                   code: "db_override_affects_listings",
                   message: `Wrote ${relPath}. Affects listings, dropdowns, and pages; shared across locales. Does not write field_overrides YAML.`,
                 },
+                overrideMasksSourceWarning(field, relPath),
               ],
               side_effects: [
                 { kind: "wrote_file", summary: relPath },
@@ -4929,6 +4933,9 @@ export function registerPageTools(
                       ? `Variant layer only (${writtenPath}); published ${locale}.yml unchanged until promote.`
                       : `Locale ${locale} only; sibling locales unchanged. Live file only (not _common.yml) except published_at.`,
                   },
+                  ...(storage === "field_overrides"
+                    ? [overrideMasksSourceWarning(field, `field_overrides on ${writtenPath}`)]
+                    : []),
                 ],
             side_effects: [
               {

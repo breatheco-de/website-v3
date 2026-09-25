@@ -17,7 +17,7 @@ function buildUrlFromPattern(
 export const slugConflictsValidator: Validator = {
   name: "slug-conflicts",
   issueCodes: SLUG_CONFLICTS_ISSUE_CODES,
-  description: "Detects URL collisions across all non-database content types",
+  description: "Detects URL collisions across all content types",
   apiExposed: true,
   estimatedDuration: "fast",
   category: "integrity",
@@ -28,20 +28,12 @@ export const slugConflictsValidator: Validator = {
     const warnings: ValidationIssue[] = [];
 
     const configs = getAllConfigs();
-    const nonDbTypes = new Set<string>();
-    const configEntries = Object.entries(configs);
-    configEntries.forEach(([type, config]) => {
-      if (!config.database) {
-        nonDbTypes.add(type);
-      }
-    });
 
     const urlMap = new Map<string, { type: string; slug: string; locale: string; filePath?: string }[]>();
     let totalChecked = 0;
     let conflictsFound = 0;
 
     for (const file of context.contentFiles) {
-      if (!nonDbTypes.has(file.type)) continue;
       if (file.locale === "_common") continue;
       if (file.variant) continue;
 

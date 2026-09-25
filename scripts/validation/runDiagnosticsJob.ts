@@ -277,6 +277,7 @@ export async function runDiagnosticsJob(
         contentFiles: allContentFiles,
         entryKeys: [VALIDATOR_ONLY_ENTRY_KEY],
         markSiteWide: false,
+        skippedContentTypes: context.skippedContentTypes,
       });
     } finally {
       context.contentFiles = allContentFiles;
@@ -311,6 +312,7 @@ export async function runDiagnosticsJob(
         contentFiles: allContentFiles,
         entryKeys,
         markSiteWide: false,
+        skippedContentTypes: context.skippedContentTypes,
       });
     } finally {
       context.contentFiles = allContentFiles;
@@ -339,6 +341,7 @@ export async function runDiagnosticsJob(
     cache.applyValidatorResults(result.validators, {
       contentFiles: allContentFiles,
       markSiteWide: true,
+      skippedContentTypes: context.skippedContentTypes,
     });
 
     const { applyValidationRunToCache } = await import(

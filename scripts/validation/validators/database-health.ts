@@ -57,6 +57,17 @@ export const databaseHealthValidator: Validator = {
 
     const artifacts: Record<string, { errorCount: number; warningCount: number }> = {};
 
+    for (const name of context.skippedDatabases ?? []) {
+      if (scopeDb && name !== scopeDb) continue;
+      warnings.push({
+        type: "warning",
+        code: "DATABASE_PAGES_NOT_CHECKED",
+        message: `Database ${name} has no cached items; its pages were not checked. Their existing issues were kept, not cleared.`,
+        file: `${context.contentRoot}/db/${name}/config.yml`,
+        suggestion: `Refresh the ${name} database cache, then run validation again.`,
+      });
+    }
+
     for (const { name, config } of databases) {
       const { errors: dbErrors, warnings: dbWarnings } = evaluateDatabaseHealth(
         name,

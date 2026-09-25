@@ -191,6 +191,7 @@ async function applySeoDuplicatesRevalidation(args: {
     args.cache.applyValidatorResults(result.validators, {
       contentFiles: context.contentFiles,
       markSiteWide: true,
+      skippedContentTypes: context.skippedContentTypes,
     });
     await args.cache.flush();
     return { ok: true };

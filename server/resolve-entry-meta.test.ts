@@ -64,6 +64,21 @@ describe("resolveEntryMeta", () => {
     expect(meta.page_title).toBe("AI Engineering | 4Geeks Academy");
   });
 
+  it("uses a given singleEntry as-is instead of mapping the page again", () => {
+    const { meta } = resolveEntryMeta({
+      contentType: "landing",
+      slug: "ai-engineering",
+      locale: "en",
+      contentRoot: root,
+      pageData: {
+        hero: { title: "Page hero title" },
+        meta: { page_title: "{{ entry.title }} | 4Geeks" },
+      },
+      singleEntry: { title: "Database item title" },
+    });
+    expect(meta.page_title).toBe("Database item title | 4Geeks");
+  });
+
   it("fills a mapped field with no value as empty text (same as live delivery)", () => {
     const { meta } = resolveEntryMeta({
       contentType: "landing",

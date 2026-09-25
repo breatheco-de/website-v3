@@ -2038,19 +2038,29 @@ export class ContentIndex {
         let singleLocalePath = resolveTemplateLocalePath(path.join(this.contentRoot, folder), locale, {
           fallbackLocale: "en",
         });
-        if (fs.existsSync(singleLocalePath) && path.resolve(singleLocalePath) !== path.resolve(filePath)) {
+        // Database item without an entry folder: the resolved file is the template itself.
+        const fileIsTemplate = path.resolve(singleLocalePath) === path.resolve(filePath);
+        if (fs.existsSync(singleLocalePath) && !fileIsTemplate) {
           const singleLocale = this.safeYamlLoad(fs.readFileSync(singleLocalePath, "utf-8")) as Record<string, unknown> | null;
           if (singleLocale) {
             baseData = Object.keys(baseData).length > 0 ? deepMerge(baseData, singleLocale) : singleLocale;
           }
         }
-        merged = { ...baseData };
-        const dataOnly = true; // attached path only — detached uses classic merge above
-        if (fs.existsSync(commonPath)) {
-          const commonData = this.safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown> | null;
-          if (commonData) merged = applyPerEntryLayer(merged, commonData, undefined, undefined, dataOnly);
+        if (fileIsTemplate) {
+          merged = localeData
+            ? Object.keys(baseData).length > 0
+              ? deepMerge(baseData, localeData)
+              : { ...localeData }
+            : { ...baseData };
+        } else {
+          merged = { ...baseData };
+          const dataOnly = true; // attached path only — detached uses classic merge above
+          if (fs.existsSync(commonPath)) {
+            const commonData = this.safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown> | null;
+            if (commonData) merged = applyPerEntryLayer(merged, commonData, undefined, undefined, dataOnly);
+          }
+          if (localeData) merged = applyPerEntryLayer(merged, localeData, undefined, undefined, dataOnly);
         }
-        if (localeData) merged = applyPerEntryLayer(merged, localeData, undefined, undefined, dataOnly);
       } else {
         if (fs.existsSync(commonPath)) {
           const commonContent = fs.readFileSync(commonPath, "utf-8");

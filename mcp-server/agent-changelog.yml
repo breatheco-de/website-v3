@@ -6,6 +6,26 @@ window_days: 6
 
 entries:
   - date: "2026-09-25"
+    summary: "Database-backed pages (exercises, how-tos, workshops, lessons) are validated like static pages; diagnostics not-found is a final 404"
+    agent_impact:
+      - "run_entry_diagnostics now works for database slugs (e.g. bootstrap-exercises): each cached item is a page like a blog entry (template + item fields + field_overrides). Issue file = the entry's {type}/{slug}/{locale}.yml even before it exists (first field override creates it)."
+      - "Unknown slug/file → fail with code diagnostics_slug_not_found | diagnostics_file_not_found (HTTP 404), warnings (retrying will not help; database_pages_not_checked lists empty_databases) and a list_entries next action. Do not retry the same call."
+      - "A database page's fields = its field_mapping keys (+ slug/locale/image/updated_at aliases); unmapped source columns are not page fields (no UNKNOWN_FIELD_KEY) but {{ entry.* }} can still read them. EMPTY_ENTRY_CONTENT only fires for types that map a content field (authors/workshop no longer flagged). live_request fields are skipped by required-fields, editor-field-types and UNRESOLVED_META_TEMPLATE (fetched on delivery, always empty offline)."
+      - "New DATABASE_PAGES_NOT_CHECKED (database-health): a database had no cached items, its pages were skipped and their existing issues kept (not cleared, not reopened). Override writes on database-backed fields (field_overrides and db overrides.json) add warning override_masks_source: source unchanged, override now wins over future source updates, reset to follow the source again."
+    tools_changed: false
+    paths:
+      - server/entry-layer.ts
+      - server/services/diagnosticsJobService.ts
+      - server/routes/validation.ts
+      - scripts/validation/shared/contentLoader.ts
+      - scripts/validation/validators/database-health.ts
+      - scripts/validation/validators/content-quality.ts
+      - scripts/validation/shared/liveFields.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/diagnostics-not-found.ts
+      - mcp-server/lib/respond.ts
+
+  - date: "2026-09-25"
     summary: "SEO validators (meta, seo-depth, seo-duplicates) check the filled-in meta visitors see, not raw {{ }} templates; new *_INHERITED_FROM_COMMON warnings"
     agent_impact:
       - "TITLE_TOO_SHORT/LONG, DESCRIPTION_TOO_*, DUPLICATE_TITLE/DESCRIPTION now measure meta after field-mapped {{ entry.* }} / {{ single.* }} + site vars (default values; entry's own region) — same resolveEntryMeta as the live SEO gate. Values still containing {{ }} skip length/duplicate checks (reported only as UNRESOLVED_META_TEMPLATE). Duplicates stay site-wide across languages; suggestion names each {locale}.yml to translate."

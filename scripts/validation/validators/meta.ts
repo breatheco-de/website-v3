@@ -14,6 +14,7 @@ import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } f
 import { validateRequiredMeta } from "../../../shared/validateRequiredMeta";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
 import { getResolvedMeta, hasTemplate } from "../shared/resolvedMeta";
+import { templatesOnlyReferenceLiveFields } from "../shared/liveFields";
 import { META_ISSUE_CODES } from "./meta.issueCodes";
 
 const VALID_CHANGE_FREQUENCIES = [
@@ -46,8 +47,14 @@ export const metaValidator: Validator = {
 
       const titleHasTemplate = meta ? hasTemplate(meta.page_title) : false;
       const descHasTemplate = meta ? hasTemplate(meta.description) : false;
+      const titleUnresolved =
+        titleHasTemplate &&
+        !templatesOnlyReferenceLiveFields(meta?.page_title, file.type, context.contentRoot);
+      const descUnresolved =
+        descHasTemplate &&
+        !templatesOnlyReferenceLiveFields(meta?.description, file.type, context.contentRoot);
 
-      if (meta && (titleHasTemplate || descHasTemplate)) {
+      if (meta && (titleUnresolved || descUnresolved)) {
         errors.push({
           type: "error",
           code: "UNRESOLVED_META_TEMPLATE",
