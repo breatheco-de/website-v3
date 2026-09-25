@@ -3,9 +3,9 @@ import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { isEmptyLocaleContent } from "@shared/isEmptyLocaleContent";
 import { isEntryDetached, isSharedLayoutType } from "../../../server/shared-layout-entry";
-import { getContentTypeConfig } from "../../../server/content-types";
 import { isValidAttachedOverlayPatch } from "@shared/sectionLeftovers";
 import { contentIndex } from "../../../server/content-index";
+import { getContentTypeConfig } from "../../../server/content-types";
 import { createPublicUrlResolver } from "../../../server/redirects";
 import {
   collectOutboundPathsFromData,
@@ -46,6 +46,12 @@ function findEmptyFields(obj: unknown, results: string[], currentPath: string = 
   }
 }
 
+/** Only types with a `content` body field can have "empty content". */
+function mapsContentField(contentType: string, contentRoot?: string): boolean {
+  const mapping = getContentTypeConfig(contentType, contentRoot)?.field_mapping;
+  return !!mapping && Object.prototype.hasOwnProperty.call(mapping, "content");
+}
+
 function isAttachedOverlayFile(
   file: { type: string; slug: string; filePath: string },
   contentRoot?: string,
@@ -83,17 +89,18 @@ export const contentQualityValidator: Validator = {
       if (!liveFileSet.has(file)) continue;
       pagesChecked++;
 
-      let parsed: Record<string, unknown> | null = null;
+      // A missing entry file is valid (database item with no overrides yet): check the merged entry only.
+      let parsed: Record<string, unknown> = {};
       try {
         if (fs.existsSync(file.filePath)) {
           const content = fs.readFileSync(file.filePath, "utf-8");
-          parsed = yaml.load(content) as Record<string, unknown>;
+          const loaded = yaml.load(content) as Record<string, unknown> | null;
+          if (!loaded) continue;
+          parsed = loaded;
         }
       } catch {
         continue;
       }
-
-      if (!parsed) continue;
 
       const contentRoot = context.contentRoot;
       const mergedForEmpty = {
@@ -107,7 +114,6 @@ export const contentQualityValidator: Validator = {
       const detached = isEntryDetached(file.type, file.slug, contentRoot);
       const emptyContent = isEmptyLocaleContent(mergedForEmpty);
       const sharedLayout = isSharedLayoutType(file.type, contentRoot);
-      const dbBacked = !!getContentTypeConfig(file.type, contentRoot)?.database?.slug;
       const bodyContent =
         typeof mergedForEmpty.content === "string" ? mergedForEmpty.content.trim() : "";
 
@@ -137,7 +143,7 @@ export const contentQualityValidator: Validator = {
       } else if (
         !detached &&
         sharedLayout &&
-        !dbBacked &&
+        mapsContentField(file.type, contentRoot) &&
         isAttachedOverlayFile(file, contentRoot) &&
         !bodyContent
       ) {
@@ -237,7 +243,7 @@ export const contentQualityValidator: Validator = {
     let missingTranslations = 0;
     const groups = new Map<string, Set<string>>();
     for (const file of context.contentFiles) {
-      const key = `${file.type}:${file.slug}`;
+      const key = `${file.type}:${file.translationGroup ?? file.slug}`;
       const locales = groups.get(key) || new Set<string>();
       locales.add(file.locale);
       groups.set(key, locales);

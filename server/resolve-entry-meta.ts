@@ -20,6 +20,8 @@ export type ResolveEntryMetaOptions = {
   /** Merged page data (common + locale, plus shared-layout template when attached). */
   pageData: Record<string, unknown>;
   contentRoot?: string;
+  /** Already-mapped entry bag (database items). Skips re-applying the field mapping. */
+  singleEntry?: Record<string, unknown>;
 };
 
 export type ResolvedEntryMeta = {
@@ -35,11 +37,12 @@ export function resolveEntryMeta(opts: ResolveEntryMetaOptions): ResolvedEntryMe
 
   const singleEntry =
     finalizeSingleEntryForTemplates(
-      buildSingleEntryFromContent(contentType, pageData, {
-        slug,
-        locale,
-        contentRoot,
-      }) || {},
+      opts.singleEntry ??
+        (buildSingleEntryFromContent(contentType, pageData, {
+          slug,
+          locale,
+          contentRoot,
+        }) || {}),
       { slug, locale },
     ) || {};
 

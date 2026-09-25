@@ -293,6 +293,10 @@ export interface ContentFile {
   version?: number;
   /** Merged entry bag for required-field checks (subset of YAML). */
   entryFields?: Record<string, unknown>;
+  /** Mapped database item the template fills from (database-backed entries). */
+  singleEntry?: Record<string, unknown>;
+  /** Key shared by every language version of this page; defaults to `slug`. */
+  translationGroup?: string;
 }
 
 export interface RedirectEntry {
@@ -322,6 +326,10 @@ export interface ValidationContext {
    *  schema-org.yml) must use this instead of hardcoded folder names. */
   contentRoot?: string;
   scope?: { database?: string };
+  /** Databases with no cached items this run; their pages were not checked. */
+  skippedDatabases?: string[];
+  /** Content types whose pages were not loaded this run (existing issues must be kept). */
+  skippedContentTypes?: string[];
 }
 
 export interface ValidationRunOptions {

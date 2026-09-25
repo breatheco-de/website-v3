@@ -29,6 +29,7 @@ import type {
 } from "../../scripts/validation/diagnosticsIpc";
 import { CROSS_ENTRY_VALIDATOR_NAMES } from "../../scripts/validation/shared/runClass";
 import type { ContentIndex } from "../content-index";
+import { listEntryKeys } from "../entry-layer";
 import type { ValidationCacheService } from "./validationCacheService";
 import { listCacheIssuesFromStore } from "./validationCacheService";
 import { isUrlStaleForFullRun } from "./validationCacheMerge";
@@ -772,6 +773,18 @@ function spawnWorker(contentRoot: string, jobId: string, start: DiagnosticsWorke
   }
 }
 
+/** Requested slugs/file match no page. Not retryable; the route answers 404. */
+export class DiagnosticsScopeError extends Error {
+  constructor(
+    message: string,
+    public code: "diagnostics_slug_not_found" | "diagnostics_file_not_found",
+    public details: Record<string, unknown> = {},
+  ) {
+    super(message);
+    this.name = "DiagnosticsScopeError";
+  }
+}
+
 export async function startDiagnosticsJob(
   req: DiagnosticsJobRequest,
 ): Promise<StartDiagnosticsResult> {
@@ -797,7 +810,11 @@ export async function startDiagnosticsJob(
       req.urls,
     );
     if (targetsProbe.length === 0) {
-      throw new Error(`No YAML-backed pages found for slugs: ${req.slugs.join(", ")}`);
+      throw new DiagnosticsScopeError(
+        `No page found for slugs: ${req.slugs.join(", ")}`,
+        "diagnostics_slug_not_found",
+        { slugs: req.slugs, empty_databases: listEntryKeys(req.ci).emptyDatabases },
+      );
     }
   }
 
@@ -813,7 +830,11 @@ export async function startDiagnosticsJob(
       req.file ?? "",
     );
     if (!isSharedTemplateFile) {
-      throw new Error(`No YAML-backed pages found for file: ${req.file}`);
+      throw new DiagnosticsScopeError(
+        `No page found for file: ${req.file}`,
+        "diagnostics_file_not_found",
+        { file: req.file, empty_databases: listEntryKeys(req.ci).emptyDatabases },
+      );
     }
     validatorOnly = true;
     filePaths = undefined;

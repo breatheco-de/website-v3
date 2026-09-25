@@ -54,6 +54,7 @@ export function getResolvedMeta(
       locale: file.locale,
       pageData: pageDataFor(file),
       contentRoot: resolveContentRoot(context),
+      singleEntry: file.singleEntry,
     });
     result = { ok: true, meta, singleEntry };
   } catch (err) {

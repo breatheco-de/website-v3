@@ -339,6 +339,119 @@ export async function loadMergedSinglePage(
   };
 }
 
+/**
+ * Apply the content type's field mapping and reserved aliases (slug, locale,
+ * image, updated_at) to database items that already went through the
+ * database-level mapping. Pure: no network, no writes.
+ */
+export function mapDatabaseItemsForEntry(
+  items: Record<string, unknown>[],
+  contentType: string,
+  contentRoot: string,
+): Record<string, unknown>[] {
+  const lookupKey = getLookupKey(contentType, contentRoot) || "slug";
+  const fieldMapping = getFieldMapping(contentType, contentRoot);
+  const fullMapping = getFullFieldMapping(contentType, contentRoot);
+
+  if (
+    !fieldMapping &&
+    !fullMapping?.[RESERVED_IMAGE_FIELD] &&
+    !fullMapping?.[RESERVED_SLUG_FIELD] &&
+    !fullMapping?.[RESERVED_UPDATED_AT_FIELD]
+  ) {
+    return items;
+  }
+
+  return items.map((item) => {
+    const mapped: Record<string, unknown> = { ...item };
+    const itemSlug = String(item[lookupKey] ?? item.slug ?? "unknown");
+    if (fieldMapping) {
+      for (const [targetField, sourcePath] of Object.entries(fieldMapping)) {
+        const value = resolveFieldValue(sourcePath, item, targetField, {
+          contentType,
+          slug: itemSlug,
+          fieldPath: targetField,
+        });
+        if (value !== undefined) mapped[targetField] = value;
+      }
+    }
+    const slugMapSource = fullMapping?.[RESERVED_SLUG_FIELD];
+    if (slugMapSource) {
+      const slugValue = resolveFieldValue(slugMapSource, item, RESERVED_SLUG_FIELD, {
+        contentType,
+        slug: itemSlug,
+        fieldPath: RESERVED_SLUG_FIELD,
+      });
+      applySlugAliasToEntry(mapped, slugValue);
+    }
+    const localeMapSource = fullMapping?.[RESERVED_LOCALE_FIELD];
+    if (localeMapSource) {
+      const localeValue = resolveFieldValue(localeMapSource, item, RESERVED_LOCALE_FIELD, {
+        contentType,
+        slug: itemSlug,
+        fieldPath: RESERVED_LOCALE_FIELD,
+      });
+      applyLocaleAliasToEntry(mapped, localeValue);
+    }
+    const imageSource = fullMapping?.[RESERVED_IMAGE_FIELD];
+    if (imageSource) {
+      const imageValue = resolveFieldValue(imageSource, item, RESERVED_IMAGE_FIELD, {
+        contentType,
+        slug: itemSlug,
+        fieldPath: RESERVED_IMAGE_FIELD,
+      });
+      applyImageAliasToEntry(mapped, imageValue);
+    }
+    const updatedAtSource = fullMapping?.[RESERVED_UPDATED_AT_FIELD];
+    if (updatedAtSource) {
+      const updatedAtValue = resolveFieldValue(updatedAtSource, item, RESERVED_UPDATED_AT_FIELD, {
+        contentType,
+        slug: itemSlug,
+        fieldPath: RESERVED_UPDATED_AT_FIELD,
+      });
+      applyUpdatedAtAliasToEntry(mapped, updatedAtValue);
+    }
+    const iso = resolveEntryUpdatedAt({
+      contentType,
+      slug: itemSlug,
+      locale: String(mapped.locale || item.locale || ""),
+      record: mapped,
+      contentRoot,
+      isDb: true,
+    });
+    applyUpdatedAtAliasToEntry(mapped, iso);
+    return mapped;
+  });
+}
+
+/** Item for `slug` in `locale`; falls back to any item with that slug. */
+export function findDatabaseItemForEntry(
+  items: Record<string, unknown>[],
+  contentType: string,
+  slug: string,
+  locale: string,
+  contentRoot: string,
+): Record<string, unknown> | undefined {
+  const lookupKey = getLookupKey(contentType, contentRoot) || "slug";
+  const localeKey = getLocaleKey(contentType, contentRoot);
+  const localeSource = getLocaleSource(contentType, contentRoot);
+
+  if (localeKey) {
+    const normalizedLocale = localeSource
+      ? applyTransformIfNeeded(localeSource, locale)
+      : locale;
+    const exact = items.find((item) => {
+      const itemLocale = String(item[localeKey] || "");
+      const normalizedItemLocale = localeSource
+        ? applyTransformIfNeeded(localeSource, itemLocale)
+        : itemLocale;
+      return item[lookupKey] === slug && normalizedItemLocale === normalizedLocale;
+    });
+    if (exact) return exact;
+  }
+  return items.find((item) => item[lookupKey] === slug);
+}
+
 export async function loadDatabaseSinglePage(
   contentType: string,
   slug: string,
@@ -414,97 +527,12 @@ export async function loadDatabaseSinglePage(
   try {
     const result = await db.fetchItems(dbName);
     const lookupKey = getLookupKey(contentType, resolvedRoot) || "slug";
-    const fieldMapping = getFieldMapping(contentType, resolvedRoot);
-    const fullMapping = getFullFieldMapping(contentType, resolvedRoot);
-
-    let items = result.items as Record<string, unknown>[];
-
-    if (fieldMapping || fullMapping?.[RESERVED_IMAGE_FIELD] || fullMapping?.[RESERVED_SLUG_FIELD] || fullMapping?.[RESERVED_UPDATED_AT_FIELD]) {
-      items = items.map((item) => {
-        const mapped: Record<string, unknown> = { ...item };
-        const itemSlug = String(item[lookupKey] ?? item.slug ?? "unknown");
-        if (fieldMapping) {
-          for (const [targetField, sourcePath] of Object.entries(fieldMapping)) {
-            const value = resolveFieldValue(sourcePath, item, targetField, {
-              contentType,
-              slug: itemSlug,
-              fieldPath: targetField,
-            });
-            if (value !== undefined) mapped[targetField] = value;
-          }
-        }
-        const slugMapSource = fullMapping?.[RESERVED_SLUG_FIELD];
-        if (slugMapSource) {
-          const slugValue = resolveFieldValue(slugMapSource, item, RESERVED_SLUG_FIELD, {
-            contentType,
-            slug: itemSlug,
-            fieldPath: RESERVED_SLUG_FIELD,
-          });
-          applySlugAliasToEntry(mapped, slugValue);
-        }
-        const localeMapSource = fullMapping?.[RESERVED_LOCALE_FIELD];
-        if (localeMapSource) {
-          const localeValue = resolveFieldValue(localeMapSource, item, RESERVED_LOCALE_FIELD, {
-            contentType,
-            slug: itemSlug,
-            fieldPath: RESERVED_LOCALE_FIELD,
-          });
-          applyLocaleAliasToEntry(mapped, localeValue);
-        }
-        const imageSource = fullMapping?.[RESERVED_IMAGE_FIELD];
-        if (imageSource) {
-          const imageValue = resolveFieldValue(imageSource, item, RESERVED_IMAGE_FIELD, {
-            contentType,
-            slug: itemSlug,
-            fieldPath: RESERVED_IMAGE_FIELD,
-          });
-          applyImageAliasToEntry(mapped, imageValue);
-        }
-        const updatedAtSource = fullMapping?.[RESERVED_UPDATED_AT_FIELD];
-        if (updatedAtSource) {
-          const updatedAtValue = resolveFieldValue(updatedAtSource, item, RESERVED_UPDATED_AT_FIELD, {
-            contentType,
-            slug: itemSlug,
-            fieldPath: RESERVED_UPDATED_AT_FIELD,
-          });
-          applyUpdatedAtAliasToEntry(mapped, updatedAtValue);
-        }
-        const iso = resolveEntryUpdatedAt({
-          contentType,
-          slug: itemSlug,
-          locale: String(mapped.locale || item.locale || ""),
-          record: mapped,
-          contentRoot: resolvedRoot,
-          isDb: true,
-        });
-        applyUpdatedAtAliasToEntry(mapped, iso);
-        return mapped;
-      });
-    }
-
-    const localeKey = getLocaleKey(contentType, resolvedRoot);
-    const localeSource = getLocaleSource(contentType, resolvedRoot);
-    let matchItem: Record<string, unknown> | undefined;
-
-    if (localeKey) {
-      const normalizedLocale = localeSource
-        ? applyTransformIfNeeded(localeSource, locale)
-        : locale;
-      matchItem = items.find((item) => {
-        const itemLocale = String(item[localeKey] || "");
-        const normalizedItemLocale = localeSource
-          ? applyTransformIfNeeded(localeSource, itemLocale)
-          : itemLocale;
-        return (
-          item[lookupKey] === slug && normalizedItemLocale === normalizedLocale
-        );
-      });
-      if (!matchItem) {
-        matchItem = items.find((item) => item[lookupKey] === slug);
-      }
-    } else {
-      matchItem = items.find((item) => item[lookupKey] === slug);
-    }
+    const items = mapDatabaseItemsForEntry(
+      result.items as Record<string, unknown>[],
+      contentType,
+      resolvedRoot,
+    );
+    const matchItem = findDatabaseItemForEntry(items, contentType, slug, locale, resolvedRoot);
 
     if (!matchItem) {
       log.info(

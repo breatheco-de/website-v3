@@ -12,7 +12,7 @@ import type {
   ValidatorResult,
   SitemapEntry,
 } from "./shared/types";
-import { loadAllContent } from "./shared/contentLoader";
+import { loadContent } from "./shared/contentLoader";
 import { contentIndex as defaultContentIndex, type ContentIndex } from "../../server/content-index";
 import { getAvailableSchemaKeys } from "./shared/schemaRegistry";
 import { validators, allValidators, getValidator, listValidators, ensureValidatorRegistered } from "./validators";
@@ -104,7 +104,11 @@ export class ValidationService {
     ci?: typeof defaultContentIndex;
     scope?: { database?: string };
   } = {}): Promise<ValidationContext> {
-    const contentFiles = loadAllContent(options.ci);
+    const {
+      files: contentFiles,
+      skippedDatabases,
+      skippedContentTypes,
+    } = loadContent(options.ci);
     const availableSchemas = getAvailableSchemaKeys();
 
     this.sitemapCtx = resolveValidationSitemapCtx({
@@ -135,6 +139,8 @@ export class ValidationService {
       sitemapXml,
       contentRoot: options.contentRoot,
       scope: options.scope,
+      skippedDatabases,
+      skippedContentTypes,
     };
 
     return this.context;

@@ -24,6 +24,7 @@ import {
   type FieldMappingValue,
 } from "@shared/validateEditorFieldTypes";
 import { EDITOR_FIELD_TYPES_ISSUE_CODES } from "./editor-field-types.issueCodes";
+import { isLiveRequestField } from "../shared/liveFields";
 
 function isSharedSingleTemplate(filePath: string): boolean {
   const base = filePath.split(/[/\\]/).pop() || "";
@@ -123,6 +124,7 @@ export const editorFieldTypesValidator: Validator = {
         if (isSkippedMappingSource(source)) continue;
         const hint = editor[key];
         if (!hint?.type) continue;
+        if (hint.type === "live_request" || isLiveRequestField(typeKey, key, context.contentRoot)) continue;
         const value = key.includes(".") ? extractByDotPath(data, key) : data[key];
         const issues = validateEditorFieldValue(key, value, hint);
         for (const issue of issues) {

@@ -23,6 +23,7 @@ import {
 } from "../../../server/shared-layout-entry";
 import { getTrackingSettings } from "../../../server/settings";
 import { REQUIRED_FIELDS_ISSUE_CODES } from "./required-fields.issueCodes";
+import { isLiveRequestField } from "../shared/liveFields";
 
 function trackingOpts(contentRoot?: string): {
   conversionNames: string[];
@@ -122,6 +123,7 @@ export const requiredFieldsValidator: Validator = {
       const entryLabel = `${contentType}/${file.slug}/${file.locale}`;
 
       for (const key of requiredKeys) {
+        if (isLiveRequestField(contentType, key, context.contentRoot)) continue;
         const hint = editor[key];
         const mode = effectiveRequiredMode(hint, requiredOpts);
         if (!mode) continue;

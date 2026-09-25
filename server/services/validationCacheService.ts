@@ -37,6 +37,7 @@ import {
   buildEntryKey,
   entryKeyFromContentFile,
   isLegacySyntheticEntryKey,
+  parseEntryKey,
 } from "../../scripts/validation/shared/entryKey";
 import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
 import { isIssueCodeCodingAgentOnly } from "../../scripts/validation/shared/issueCodeRegistry";
@@ -349,7 +350,22 @@ export type ApplyValidatorResultsOptions = {
   contentFiles: ContentFile[];
   entryKeys?: string[];
   markSiteWide?: boolean;
+  /** Content types whose pages were not loaded this run (empty database cache); their issues are kept as-is. */
+  skippedContentTypes?: string[];
 };
+
+function issueOnlyTargetsSkippedTypes(
+  issue: StoredValidationIssue,
+  skippedTypes: Set<string>,
+): boolean {
+  if (skippedTypes.size === 0) return false;
+  const entryTargets = issue.targets.filter((t) => t.type === "entry");
+  if (entryTargets.length === 0) return false;
+  return entryTargets.every((t) => {
+    const parsed = parseEntryKey(t.entryKey);
+    return parsed != null && skippedTypes.has(parsed.contentType);
+  });
+}
 
 export class ValidationCacheService {
   private issues: Record<string, StoredValidationIssue> = {};
@@ -1126,6 +1142,7 @@ export class ValidationCacheService {
       options.entryKeys && options.entryKeys.length > 0
         ? new Set(options.entryKeys)
         : null;
+    const skippedTypes = new Set(options.skippedContentTypes ?? []);
 
     for (const file of contentFiles) {
       // Shared public URLs: only live (non-variant) rows own byUrl → entryKey.
@@ -1137,7 +1154,7 @@ export class ValidationCacheService {
 
     for (const v of validators) {
       const runClass = getValidatorRunClass(v.name);
-      this.clearValidatorSlice(v.name, runClass, entryKeySet);
+      this.clearValidatorSlice(v.name, runClass, entryKeySet, skippedTypes);
 
       const stampedErrors = v.errors.map((i) => ({
         ...i,
@@ -1188,6 +1205,7 @@ export class ValidationCacheService {
       } else if (isCrossEntryValidator(v.name) || isMediaValidator(v.name)) {
         for (const issue of Object.values(this.issues)) {
           if (issue.validator !== v.name) continue;
+          if (issueOnlyTargetsSkippedTypes(issue, skippedTypes)) continue;
           for (const t of issue.targets) {
             if (t.type !== "entry") continue;
             const prev = this.runMetaByEntry[t.entryKey] ?? {
@@ -1249,10 +1267,12 @@ export class ValidationCacheService {
     validatorName: string,
     runClass: ReturnType<typeof getValidatorRunClass>,
     entryKeySet: Set<string> | null,
+    skippedTypes: Set<string>,
   ): void {
     const toDelete: string[] = [];
     for (const [id, issue] of Object.entries(this.issues)) {
       if (issue.validator !== validatorName) continue;
+      if (issueOnlyTargetsSkippedTypes(issue, skippedTypes)) continue;
 
       if (runClass === "cross-entry" || runClass === "media" || runClass === "database") {
         toDelete.push(id);

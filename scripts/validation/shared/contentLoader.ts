@@ -25,6 +25,7 @@ import {
   listDraftLocales,
 } from "../../../server/draft-entry";
 import { isTemplateVersioningSlug } from "../../../server/shared-layout-entry";
+import { listEntryKeys, loadEntry, type EntryKeyList } from "../../../server/entry-layer";
 import type { ContentFile } from "./types";
 
 type VersioningFile = Record<
@@ -91,25 +92,25 @@ function readVersioningFile(contentDir: string): VersioningFile | null {
   }
 }
 
-function loadLiveContent(index: ContentIndex): ContentFile[] {
-  const entries = index.listAll();
+function loadLiveContent(index: ContentIndex, list: EntryKeyList): ContentFile[] {
   const files: ContentFile[] = [];
 
-  for (const entry of entries) {
-    for (const locale of entry.locales) {
-      if (locale.startsWith("_") || locale.includes(".")) continue;
-
-      const result = index.loadMergedContent(entry.contentType, entry.slug, locale);
-      if (!result.data) continue;
+  for (const key of list.keys) {
+    for (const locale of key.locales) {
+      const result = loadEntry(index, key.contentType, key.slug, locale, list.itemsByType);
+      if (!result) continue;
 
       files.push(
         toContentFile(
           index,
-          entry.contentType,
-          entry.slug,
+          key.contentType,
+          key.slug,
           locale,
-          result.data as Record<string, unknown>,
+          result.data,
           result.filePath,
+          result.singleEntry
+            ? { singleEntry: result.singleEntry, translationGroup: result.translationGroup }
+            : undefined,
         ),
       );
     }
@@ -200,11 +201,28 @@ function loadDraftOnlyContent(index: ContentIndex): ContentFile[] {
   return files;
 }
 
-export function loadAllContent(ci?: typeof defaultContentIndex): ContentFile[] {
+export type LoadedContent = {
+  files: ContentFile[];
+  /** Databases with no cached items; their pages are not in `files`. */
+  skippedDatabases: string[];
+  /** Content types whose pages were not loaded (their database cache is empty). */
+  skippedContentTypes: string[];
+};
+
+export function loadContent(ci?: typeof defaultContentIndex): LoadedContent {
   const index = ci ?? defaultContentIndex;
-  return [
-    ...loadLiveContent(index),
-    ...loadPublishedVariants(index),
-    ...loadDraftOnlyContent(index),
-  ];
+  const list = listEntryKeys(index);
+  return {
+    files: [
+      ...loadLiveContent(index, list),
+      ...loadPublishedVariants(index),
+      ...loadDraftOnlyContent(index),
+    ],
+    skippedDatabases: list.emptyDatabases,
+    skippedContentTypes: list.skippedContentTypes,
+  };
+}
+
+export function loadAllContent(ci?: typeof defaultContentIndex): ContentFile[] {
+  return loadContent(ci).files;
 }

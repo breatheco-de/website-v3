@@ -13,4 +13,7 @@ export const DATABASE_HEALTH_ISSUE_CODES: Record<string, IssueCodeDefinition> = 
   MISSING_CONTENT_ROOT: {
     title: "Missing Content Root",
   },
+  DATABASE_PAGES_NOT_CHECKED: {
+    title: "Database Pages Not Checked",
+  },
 };
