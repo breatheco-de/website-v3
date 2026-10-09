@@ -18,6 +18,7 @@ import { markFileAsModified } from "../sync-state";
 import { runInSaveBatch } from "../events/save-batch-context";
 import { invalidateSeoIndexCache } from "../seo-index";
 import { enqueueJob } from "./queue";
+import { wakeEventDispatcher } from "../events/dispatcher";
 import { child } from "../logger";
 import {
   queueLinkIndexSet,
@@ -117,6 +118,7 @@ export function startJobApplier(): void {
     }
   }
   const tick = () => {
+    wakeEventDispatcher();
     for (const ctx of Array.from(getSiteContextMap().values())) {
       void processPendingAdsResults(ctx.contentRootName).catch((err) =>
         log.warn({ err, site: ctx.contentRootName }, "[Applier] Ads results save failed"),

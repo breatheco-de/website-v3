@@ -2,7 +2,8 @@ import fs from "fs";
 import { getDefaultContentFolder } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
-import { getContentTypeConfig, getLocaleKey, getFieldMapping, getFullFieldMapping, RESERVED_IMAGE_FIELD, RESERVED_SLUG_FIELD, RESERVED_LOCALE_FIELD, applyImageAliasToEntry, applySlugAliasToEntry, applyLocaleAliasToEntry } from "./content-types";
+import { getAllTypes, getContentTypeConfig, getLocaleKey, getFieldMapping, getFullFieldMapping, RESERVED_IMAGE_FIELD, RESERVED_SLUG_FIELD, RESERVED_LOCALE_FIELD, applyImageAliasToEntry, applySlugAliasToEntry, applyLocaleAliasToEntry } from "./content-types";
+import { diffRefreshedDatabaseRows, type RefreshedDatabaseRow } from "./database-refresh-diff";
 import { getValueByPath, resolveFieldValue, isTransformer, compileTransformer, runTransformer } from "./transform";
 import { ExternalImageCacher } from "./external-image-cacher";
 import { resolveBySourceUrl } from "./image-registry";
@@ -793,9 +794,31 @@ export class DatabaseManager {
     return run;
   }
 
+  /** Drop the in-memory item list. The disk copy stays. */
+  forgetFetchedItems(name: string): void {
+    this.memoryCache.delete(name);
+  }
+
+  /**
+   * Re-read a local database from its file. Returns the rows that changed,
+   * an empty list when something changed but no row has a public slug, or
+   * null when nothing changed or this was the first copy. Does not emit.
+   * A remote source is left alone.
+   */
+  async reloadLocalFromDisk(name: string): Promise<RefreshedDatabaseRow[] | null> {
+    const config = this.configs.get(name);
+    if (!config || config.source.type !== "local") return null;
+    const previous = this.getLastGoodItems(name)?.items ?? null;
+    await this.fetchItems(name, true, { skipRefreshEvent: true });
+    if (!previous) return null;
+    const next = this.getLastGoodItems(name)?.items ?? [];
+    return this.changedRefreshRows(name, previous, next);
+  }
+
   async fetchItems(
     name: string,
-    forceRefresh = false
+    forceRefresh = false,
+    opts?: { skipRefreshEvent?: boolean },
   ): Promise<{
     items: Record<string, unknown>[];
     raw_count: number;
@@ -841,6 +864,8 @@ export class DatabaseManager {
         return { ...cached, from_cache: true };
       }
     }
+
+    const previousItems = this.getLastGoodItems(name)?.items ?? null;
 
     let rawItems: unknown[];
 
@@ -920,6 +945,7 @@ export class DatabaseManager {
     });
 
     this.scheduleExternalImages(name, config, items);
+    if (!opts?.skipRefreshEvent) this.noteRefreshDiff(name, previousItems, items);
 
     const vsConfig = (config as DatabaseConfig).vector_search;
     if (vsConfig?.enabled && vsConfig.fields?.length > 0) {
@@ -1233,7 +1259,66 @@ export class DatabaseManager {
   }
 
   /**
-   * One row changed. The event rebuilds the page whose URL contains that slug
+   * A refresh replaced a copy we already had. The first fill does not emit:
+   * there is nothing older to rebuild.
+   */
+  private changedRefreshRows(
+    name: string,
+    previousItems: Record<string, unknown>[] | null,
+    nextItems: Record<string, unknown>[],
+  ): RefreshedDatabaseRow[] | null {
+    if (!previousItems) return null;
+    try {
+      const overrides = this.loadOverridesFile(name);
+      const paramNames = new Set<string>();
+      for (const type of getAllTypes(this.contentRoot)) {
+        const linked = getContentTypeConfig(type, this.contentRoot);
+        if (linked?.database?.slug !== name || !linked.url_pattern) continue;
+        for (const pattern of Object.values(linked.url_pattern)) {
+          for (const match of pattern.matchAll(/:([A-Za-z_]+)/g)) {
+            if (match[1] && match[1] !== "slug") paramNames.add(match[1]);
+          }
+        }
+      }
+      return diffRefreshedDatabaseRows({
+        lookupKey: overrides?.lookup_key || "slug",
+        paramNames: [...paramNames],
+        previous: previousItems,
+        next: nextItems,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private noteRefreshDiff(
+    name: string,
+    previousItems: Record<string, unknown>[] | null,
+    nextItems: Record<string, unknown>[],
+  ): void {
+    const rows = this.changedRefreshRows(name, previousItems, nextItems);
+    if (!rows) return;
+    const contentRoot = this.contentRoot;
+    const changed = rows;
+    void import("./site-manager")
+      .then(async ({ getSiteContextMap }) => {
+        const base = path.basename(contentRoot);
+        const site = Array.from(getSiteContextMap().values()).find(
+          (ctx) =>
+            ctx.contentRoot === contentRoot ||
+            ctx.contentRootName === base ||
+            ctx.contentRoot.endsWith(`/${base}`),
+        );
+        if (!site) return;
+        const { emitDatabaseRefreshed } = await import("./content-events");
+        emitDatabaseRefreshed(site.contentRootName || base, name, changed);
+      })
+      .catch(() => {});
+  }
+
+  /**
+
+  * One row changed. The event rebuilds the page whose URL contains that slug
    * and the pages that read this database.
    */
   private dropHtmlForSlug(dbName: string, slug: string): void {

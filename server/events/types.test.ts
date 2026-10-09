@@ -19,6 +19,13 @@ const DISPATCHER_HANDLED_TYPES = new Set([
   "site_bulk_synced",
   "entry_deleted",
   "entry_locale_unpublished",
+  "theme_changed",
+  "variables_changed",
+  "menu_changed",
+  "tag_manager_changed",
+  "database_row_changed",
+  "database_refreshed",
+  "shared_template_saved",
   "binding_propagation_started",
   "cluster_hub_path_rewrite_started",
 ]);

@@ -42,6 +42,7 @@ const ci = {
   buildUrl: () => "/en/blog/news/post",
   getVariableUsage: (name: string) =>
     name === "brand.title" ? ["site_test/blog/post/en.yml"] : [],
+  getContentTypes: () => [] as string[],
   refresh: vi.fn(),
   listAttachedEntries: () => [],
 };
@@ -120,6 +121,51 @@ describe("scheduleHtmlFromEvent", () => {
       dbName: "testimonials",
     });
     expect(scheduleCachedSlugHtmlRebuild).toHaveBeenCalledWith("site_test", "ada", "/tmp/site_test");
+  });
+
+  it("rebuilds readers once and each refreshed row without dropping the copy", () => {
+    ci.getContentTypes = () => ["lesson"];
+    ci.getContentTypeConfig = (type: string) =>
+      type === "lesson"
+        ? {
+            directory: "lesson",
+            url_pattern: { en: "/en/lesson/:slug" },
+            database: { slug: "lesson_tuples" },
+          }
+        : { directory: "blog" };
+    ci.buildUrl = (_type: string, locale: string, slug: string) => `/${locale}/lesson/${slug}`;
+    scheduleHtmlFromEvent(
+      event("database_refreshed", {
+        payload: {
+          dbName: "lesson_tuples",
+          rows: [{ slug: "html-input", locale: "en", params: {} }],
+        },
+      }),
+      site,
+    );
+    expect(scheduleDatabaseReaderRebuild).toHaveBeenCalledTimes(1);
+    expect(scheduleSavedHtmlPaths).toHaveBeenCalledWith(
+      "site_test",
+      ["/en/lesson/html-input"],
+      "/tmp/site_test",
+      { deleteIfSlow: false },
+    );
+    expect(scheduleCachedSlugHtmlRebuild).not.toHaveBeenCalled();
+    ci.getContentTypes = () => [];
+    ci.getContentTypeConfig = () => ({ directory: "blog" });
+    ci.buildUrl = () => "/en/blog/news/post";
+  });
+
+  it("lets a pull reload a local database instead of rebuilding readers immediately", () => {
+    (ci as { getDatabase: () => { get: (name: string) => { source: { type: string } } } }).getDatabase = () => ({
+      get: () => ({ source: { type: "local" } }),
+    });
+    scheduleHtmlFromEvent(
+      event("site_bulk_synced", { payload: { files: ["site_test/db/testimonials/rows.yml"] } }),
+      site,
+    );
+    expect(scheduleDatabaseReaderRebuild).not.toHaveBeenCalled();
+    delete (ci as { getDatabase?: unknown }).getDatabase;
   });
 
   it("drops and rebuilds hot pages for Tag Manager", () => {

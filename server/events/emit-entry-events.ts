@@ -389,4 +389,17 @@ export function emitDatabaseRowChanged(site: string, dbName: string, slug: strin
   });
 }
 
+export function emitDatabaseRefreshed(
+  site: string,
+  dbName: string,
+  rows: { slug: string; locale?: string; params?: Record<string, string> }[],
+): EmitResult {
+  return emitEvent({
+    site,
+    type: "database_refreshed",
+    attribution: singleAttribution(undefined, { type: "system", source: "database" }),
+    payload: { dbName, rows },
+  });
+}
+
 export type { EntryLocalePart, EntryCommonPart, RegistryPart };

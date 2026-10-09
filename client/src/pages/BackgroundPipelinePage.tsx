@@ -318,6 +318,12 @@ const EVENT_META: Record<string, EventMeta> = {
     icon: IconDatabase,
     iconClass: "text-primary border-primary/40",
   },
+  database_refreshed: {
+    label: "Database Refreshed",
+    description: "A database snapshot changed. Pages that read it rebuild, and so does each row that changed.",
+    icon: IconDatabase,
+    iconClass: "text-primary border-primary/40",
+  },
   shared_template_saved: {
     label: "Shared Template Saved",
     description: "A shared template changed. Pages that use it rebuild.",

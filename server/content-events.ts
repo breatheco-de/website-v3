@@ -15,6 +15,7 @@ export {
   emitMenuChanged,
   emitTagManagerChanged,
   emitDatabaseRowChanged,
+  emitDatabaseRefreshed,
 } from "./events/emit-entry-events";
 
 import { emitEvent } from "./events/event-store";

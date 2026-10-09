@@ -115,7 +115,9 @@ export function scheduleSavedHtmlPaths(
   siteId: string,
   pathnames: string[],
   contentRoot?: string,
+  opts?: { deleteIfSlow?: boolean },
 ): void {
+  const deleteIfSlow = opts?.deleteIfSlow !== false;
   const root = contentRootForSite(siteId, contentRoot);
   for (const pathname of pathnames) {
     const clean = pathname.split("?")[0].split("#")[0] || "/";
@@ -132,7 +134,7 @@ export function scheduleSavedHtmlPaths(
           pathname: parsed.pathname,
           variantKey: parsed.variantKey,
         },
-        { deleteIfSlow: true },
+        { deleteIfSlow },
       );
     }
   }

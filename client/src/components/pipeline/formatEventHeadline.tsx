@@ -126,6 +126,7 @@ const TECHNICAL_LABELS: Record<string, string> = {
   menu_changed: "Menu Changed",
   tag_manager_changed: "Tag Manager Changed",
   database_row_changed: "Database Row Changed",
+  database_refreshed: "Database Refreshed",
   shared_template_saved: "Shared Template Saved",
   seo_index_ready: "Cluster Index Updated",
   content_file_written: "Content Saved",

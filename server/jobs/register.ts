@@ -15,6 +15,7 @@ import { AdsRecheckJob } from "./definitions/ads-recheck";
 import { HtmlPageRebuildJob } from "./definitions/html-page-rebuild";
 import { HtmlDbReaderRebuildJob } from "./definitions/html-db-reader-rebuild";
 import { HtmlContentTypeListingRebuildJob } from "./definitions/html-content-type-listing-rebuild";
+import { LocalDatabaseRefreshJob } from "./definitions/local-database-refresh";
 
 export function registerAllJobs(): void {
   registerJobClass("index_refresh", IndexRefreshJob);
@@ -34,4 +35,5 @@ export function registerAllJobs(): void {
   registerJobClass("html_page_rebuild", HtmlPageRebuildJob);
   registerJobClass("html_db_reader_rebuild", HtmlDbReaderRebuildJob);
   registerJobClass("html_content_type_listing_rebuild", HtmlContentTypeListingRebuildJob);
+  registerJobClass("local_database_refresh", LocalDatabaseRefreshJob);
 }

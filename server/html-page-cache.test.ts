@@ -1,10 +1,16 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { describe, expect, it, beforeEach } from "vitest";
 import {
   buildHtmlCacheKey,
   canonicalHtmlCachePath,
   collectParamPlaceholderNames,
+  dropHtmlCacheMemoryForTests,
   getCachedHtml,
   htmlLooksPersonalized,
+  invalidateHtmlPageCache,
+  setHtmlCacheClockForTests,
   requestBakesQueryParamTemplate,
   resetHtmlPageCacheForTests,
   setCachedHtml,
@@ -213,6 +219,23 @@ describe("html page store", () => {
     expect(htmlLooksPersonalized(`<html><meta name="csrf-token" content="abc">`)).toBe(true);
     setCachedHtml(key, `<html><body>4g_user_id=abc</body></html>`, 200);
     expect(getCachedHtml(key)?.html).toContain("Hello");
+  });
+
+  it("keeps a disk copy after the old 6 hour mark", () => {
+    setHtmlBuildIdForTests("ttlbuild");
+    let now = 1_700_000_000_000;
+    setHtmlCacheClockForTests(() => now);
+    const key = buildHtmlCacheKey("site", "/en/home");
+    setCachedHtml(key, "<html><body>Still here</body></html>", 200);
+    const dir = path.join(os.tmpdir(), `website-v3-html-cache-${process.pid}`, "ttlbuild");
+    const file = path.join(dir, fs.readdirSync(dir)[0]!);
+    const stored = JSON.parse(fs.readFileSync(file, "utf8")) as { expiresAt: number };
+    stored.expiresAt = now - 1;
+    fs.writeFileSync(file, JSON.stringify(stored));
+    dropHtmlCacheMemoryForTests();
+    now += 7 * 60 * 60 * 1000;
+    expect(getCachedHtml(key)?.html).toContain("Still here");
+    invalidateHtmlPageCache();
   });
 
   it("reads html from a disk copy that has no decoded string", () => {

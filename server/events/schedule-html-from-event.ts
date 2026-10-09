@@ -19,6 +19,7 @@ import {
   scheduleSavedHtmlPaths,
 } from "../html-rebuild";
 import { isSharedTemplateBasename } from "../shared-layout-paths";
+import type { RefreshedDatabaseRow } from "../database-refresh-diff";
 import type { ContentEvent } from "./types";
 
 export type HtmlEventSite = {
@@ -31,6 +32,38 @@ function pages(site: HtmlEventSite, paths: string[]): void {
   const unique = [...new Set(paths.filter(Boolean))];
   if (unique.length === 0) return;
   scheduleSavedHtmlPaths(site.contentRootName, unique, site.contentRoot);
+}
+
+function pagesKept(site: HtmlEventSite, paths: string[]): void {
+  const unique = [...new Set(paths.filter(Boolean))];
+  if (unique.length === 0) return;
+  scheduleSavedHtmlPaths(site.contentRootName, unique, site.contentRoot, { deleteIfSlow: false });
+}
+
+function isLocalDatabase(ci: ContentIndex, dbName: string): boolean {
+  try {
+    return ci.getDatabase().get(dbName).source.type === "local";
+  } catch {
+    return false;
+  }
+}
+
+function refreshedRowPaths(ci: ContentIndex, dbName: string, rows: RefreshedDatabaseRow[]): string[] {
+  const paths: string[] = [];
+  for (const contentType of ci.getContentTypes()) {
+    const config = ci.getContentTypeConfig(contentType);
+    if (config?.database?.slug !== dbName || !config.url_pattern) continue;
+    const locales = Object.keys(config.url_pattern).filter((locale) => locale !== "default");
+    for (const row of rows) {
+      if (!row.slug) continue;
+      const useLocales = row.locale ? [row.locale] : locales.length > 0 ? locales : ["en"];
+      for (const locale of useLocales) {
+        const pathname = ci.buildUrl(contentType, locale, row.slug, row.params);
+        if (pathname && pathname !== "/") paths.push(pathname);
+      }
+    }
+  }
+  return paths;
 }
 
 function listing(site: HtmlEventSite, contentType: string): void {
@@ -116,6 +149,7 @@ export function scheduleHtmlFromEvent(event: ContentEvent, site: HtmlEventSite):
       pages(site, [...classified.htmlPaths, ...attachedTemplatePaths(ci, files)]);
       for (const contentType of classified.contentTypes) listing(site, contentType);
       for (const dbName of classified.databaseNames) {
+        if (isLocalDatabase(ci, dbName)) continue;
         scheduleDatabaseReaderRebuild({
           siteId: site.contentRootName,
           contentRoot: site.contentRoot,
@@ -165,6 +199,19 @@ export function scheduleHtmlFromEvent(event: ContentEvent, site: HtmlEventSite):
         });
       }
       if (slug) scheduleCachedSlugHtmlRebuild(site.contentRootName, slug, site.contentRoot);
+      return;
+    }
+    case "database_refreshed": {
+      const dbName = String(event.payload.dbName ?? "");
+      const rows = Array.isArray(event.payload.rows) ? (event.payload.rows as RefreshedDatabaseRow[]) : [];
+      if (dbName) {
+        scheduleDatabaseReaderRebuild({
+          siteId: site.contentRootName,
+          contentRoot: site.contentRoot,
+          dbName,
+        });
+      }
+      pagesKept(site, refreshedRowPaths(ci, dbName, rows));
       return;
     }
     default:

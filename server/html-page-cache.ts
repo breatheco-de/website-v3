@@ -1,7 +1,8 @@
 /**
  * In-memory LRU of anonymous public HTML, keyed by build + site + path + variant.
- * Bodies are stored precompressed (brotli and gzip). A hard TTL of hours is only
- * a safety net; freshness comes from invalidation and background rebuilds.
+ * Bodies are stored precompressed (brotli and gzip). A copy stays until this
+ * build is replaced or something invalidates it. Freshness comes from
+ * invalidation and background rebuilds, not from a clock.
  *
  * nginx in front must forward a response that already has Content-Encoding.
  * The live site answers brotli today from that proxy. ngx_brotli / gzip skip
@@ -17,7 +18,6 @@ import { child } from "./logger";
 
 const log = child({ module: "html-page-cache" });
 
-const HARD_TTL_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_BYTE_BUDGET = 150 * 1024 * 1024;
 /** A save that is still showing the previous HTML after this long is deleted. */
 export const HTML_REBUILD_TOO_SLOW_MS = 8_000;
@@ -74,6 +74,12 @@ export function setHtmlBuildIdForTests(id: string): void {
 
 export function setHtmlCacheClockForTests(fn: () => number): void {
   nowFn = fn;
+}
+
+/** Drop the in-memory copy and keep the file, so a test can reload it. */
+export function dropHtmlCacheMemoryForTests(): void {
+  cache.clear();
+  usedBytes = 0;
 }
 
 export function setHtmlCacheBudgetForTests(bytes: number): void {
@@ -226,10 +232,6 @@ function decorate(entry: Stored): CachedHtmlPage {
   return page;
 }
 
-function isHardExpired(entry: Stored): boolean {
-  return nowFn() > entry.expiresAt;
-}
-
 export function htmlLooksPersonalized(html: string): boolean {
   if (/name=["']csrf/i.test(html)) return true;
   if (/\bnonce=["'][A-Za-z0-9+/=_-]{8,}["']/.test(html)) return true;
@@ -246,11 +248,6 @@ export function getCachedHtml(key: string): CachedHtmlPage | null {
   const entry = cache.get(key);
   if (!entry) {
     rememberDiskMiss(key, inspectHtmlCacheDisk(key));
-    return null;
-  }
-  if (isHardExpired(entry)) {
-    rememberDiskMiss(key, "disk rejected expired");
-    dropKey(key);
     return null;
   }
   if (
@@ -324,7 +321,7 @@ export function setCachedHtml(
   const next: Stored = {
     status,
     storedAt,
-    expiresAt: storedAt + HARD_TTL_MS,
+    expiresAt: Number.MAX_SAFE_INTEGER,
     generation,
     pendingGeneration: generation,
     pendingSince: 0,
@@ -402,7 +399,6 @@ function inspectHtmlCacheDisk(key: string): string {
   if (parsed.buildId !== buildId) return `disk rejected wrong build ${parsed.buildId ?? "unknown"}`;
   if (parsed.key !== key) return "disk rejected key mismatch";
   if (!parsed.gzip || !parsed.br) return "disk rejected unreadable";
-  if (typeof parsed.expiresAt === "number" && nowFn() > parsed.expiresAt) return "disk rejected expired";
   if ((parsed.generation ?? 0) < (generations.get(key) ?? 0)) return "disk rejected older generation";
   return "on disk but not loaded";
 }
@@ -422,7 +418,6 @@ function readDiskEntry(key: string): Stored | null {
     };
     if (parsed.buildId !== buildId || parsed.key !== key) return null;
     if (!parsed.gzip || !parsed.br) return null;
-    if (typeof parsed.expiresAt === "number" && nowFn() > parsed.expiresAt) return null;
     const gzip = Buffer.from(parsed.gzip, "base64");
     const br = Buffer.from(parsed.br, "base64");
     const generation = parsed.generation ?? 0;
@@ -430,7 +425,7 @@ function readDiskEntry(key: string): Stored | null {
     return {
       status: parsed.status ?? 200,
       storedAt: parsed.storedAt ?? nowFn(),
-      expiresAt: parsed.expiresAt ?? nowFn() + HARD_TTL_MS,
+      expiresAt: parsed.expiresAt ?? Number.MAX_SAFE_INTEGER,
       generation,
       pendingGeneration: generation,
       pendingSince: 0,
@@ -482,7 +477,7 @@ function adoptDiskIfNewer(key: string): void {
   const disk = readDiskEntry(key);
   if (!disk) return;
   const memory = cache.get(key);
-  if (memory && disk.generation <= memory.generation && !isHardExpired(memory)) return;
+  if (memory && disk.generation <= memory.generation) return;
   if (memory) dropMemory(key);
   cache.set(key, disk);
   usedBytes += disk.byteLength;
