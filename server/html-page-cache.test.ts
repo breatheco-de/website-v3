@@ -8,6 +8,7 @@ import {
   collectParamPlaceholderNames,
   dropHtmlCacheMemoryForTests,
   getCachedHtml,
+  listStoredHtmlCacheKeys,
   htmlLooksPersonalized,
   invalidateHtmlPageCache,
   setHtmlCacheClockForTests,
@@ -210,6 +211,15 @@ describe("html page store", () => {
   beforeEach(() => {
     setHtmlBuildIdForTests("testbuild");
     resetHtmlPageCacheForTests();
+  });
+
+  it("lists a disk copy after it leaves memory", () => {
+    const key = buildHtmlCacheKey("site", "/en/kept");
+    setCachedHtml(key, "<html><body>Kept</body></html>", 200);
+    dropHtmlCacheMemoryForTests();
+    expect(listStoredHtmlCacheKeys("site")).toContain(key);
+    expect(listStoredHtmlCacheKeys("other")).not.toContain(key);
+    invalidateHtmlPageCache();
   });
 
   it("stores a page and refuses markup that looks per-visitor", () => {

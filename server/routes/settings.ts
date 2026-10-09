@@ -818,7 +818,6 @@ export function registerSettingsRoutes(app: Express): void {
       getVM(res).renameVariable(oldName, sanitized);
 
       getCI(res).refresh();
-      invalidateContentCaches();
 
       res.json({
         success: true,
@@ -1659,6 +1658,7 @@ export function registerSettingsRoutes(app: Express): void {
         });
       }
       const contentRoot = getContentRoot(res);
+      const previousWebContainerId = getOptimizationSettings(contentRoot).tagmanager.web_container_id;
       // Never accept secret from the client — IPN_SECRET is env-only.
       const ipnPatch =
         hasIpn
@@ -1677,7 +1677,10 @@ export function registerSettingsRoutes(app: Express): void {
         contentRoot,
       );
       markFileAsModified("settings.yml", undefined, undefined, contentRoot);
-      if (hasTm) emitTagManagerChanged(getContentRootName(res));
+      const nextWebContainerId = getOptimizationSettings(contentRoot).tagmanager.web_container_id;
+      if (hasTm && (previousWebContainerId ?? "") !== (nextWebContainerId ?? "")) {
+        emitTagManagerChanged(getContentRootName(res));
+      }
       const opt = getOptimizationSettings(contentRoot);
       const secret = resolveIpnSecret();
       res.json({
@@ -3083,7 +3086,7 @@ export function registerSettingsRoutes(app: Express): void {
         }
       }
 
-      emitMenuChanged(getContentRootName(res));
+      emitMenuChanged(getContentRootName(res), name);
       res.json({
         success: true,
         name,
@@ -3170,7 +3173,7 @@ export function registerSettingsRoutes(app: Express): void {
       });
       fs.writeFileSync(filePath, yamlContent, "utf-8");
       markFileAsModified(filePath, authorName, undefined, getContentRoot(res));
-      emitMenuChanged(getContentRootName(res));
+      emitMenuChanged(getContentRootName(res), name, locale);
 
       res.json({
         success: true,

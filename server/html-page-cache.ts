@@ -541,7 +541,7 @@ export function invalidateHtmlPageCacheKey(key: string): void {
 export function invalidateHtmlPageCacheForPath(siteId: string, pathname: string): void {
   const clean = pathname.split("?")[0].split("#")[0] || "/";
   const marker = `::${siteId}::${clean}::`;
-  for (const key of [...cache.keys()]) {
+  for (const key of listStoredHtmlCacheKeys(siteId)) {
     if (key.includes(marker)) dropKey(key);
   }
 }
@@ -567,6 +567,38 @@ export function invalidateHtmlPageCacheForSlug(siteId: string, slug: string): vo
 
 export function listHotHtmlCacheKeys(): string[] {
   return [...cache.keys()];
+}
+
+/**
+ * Memory keys plus disk handoffs for this build. Disk files are read for the
+ * `key` field only. Pass a site id to skip other sites.
+ */
+export function listStoredHtmlCacheKeys(siteId?: string): string[] {
+  const keys = new Set<string>(cache.keys());
+  const dir = path.join(cacheRootDir(), buildId);
+  let names: string[] = [];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    names = [];
+  }
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8")) as { key?: string };
+      if (typeof parsed.key === "string" && parsed.key) keys.add(parsed.key);
+    } catch {
+      /* unreadable handoff */
+    }
+  }
+  const out: string[] = [];
+  for (const key of keys) {
+    const parsed = parseHtmlCacheKey(key);
+    if (!parsed) continue;
+    if (siteId && parsed.siteId !== siteId) continue;
+    out.push(key);
+  }
+  return out;
 }
 
 export function htmlPageCacheSize(): number {
@@ -746,12 +778,19 @@ export function logHtmlRender(fields: {
   log.info(fields, "html-render");
 }
 
+/** Generation stored on disk for this key. The worker uses it so a rewrite is newer. */
+export function htmlDiskGeneration(key: string): number {
+  return readDiskEntry(key)?.generation ?? 0;
+}
+
 /** Sidequest finished writing HTML files. Ask this process to load them into the map it serves. */
-export async function notifyHtmlCacheAdopted(keys: string[]): Promise<void> {
+export async function notifyHtmlCacheAdopted(keys: string[], dropKeys: string[] = []): Promise<void> {
   const unique = [...new Set(keys.filter((key) => typeof key === "string" && key.length > 0))];
-  if (unique.length === 0) return;
+  const drop = [...new Set(dropKeys.filter((key) => typeof key === "string" && key.length > 0))];
+  if (unique.length === 0 && drop.length === 0) return;
   if (process.env.VITEST) {
-    adoptHtmlCacheKeys(unique);
+    for (const key of drop) invalidateHtmlPageCacheKey(key);
+    if (unique.length > 0) adoptHtmlCacheKeys(unique);
     return;
   }
   const secret = process.env.SESSION_SECRET || "";
@@ -769,7 +808,7 @@ export async function notifyHtmlCacheAdopted(keys: string[]): Promise<void> {
         "content-type": "application/json",
         authorization: `Bearer ${secret}`,
       },
-      body: JSON.stringify({ keys: unique }),
+      body: JSON.stringify({ keys: unique, dropKeys: drop }),
       signal: controller.signal,
     });
     if (!res.ok) {

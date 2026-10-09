@@ -16,15 +16,16 @@ import {
   bumpHtmlGeneration,
   buildHtmlCacheKey,
   getHtmlBuildId,
-  invalidateHtmlPageCache,
   invalidateHtmlPageCacheKey,
-  listHotHtmlCacheKeys,
+  listStoredHtmlCacheKeys,
   noteHtmlRebuildPending,
   parseHtmlCacheKey,
   snapshotHotHtmlPages,
 } from "./html-page-cache";
 
 const log = child({ module: "html-rebuild" });
+
+export type HtmlRebuildQueue = "html_rebuild" | "html_rebuild_bulk";
 
 export type HtmlRebuildTarget = {
   siteId: string;
@@ -77,7 +78,7 @@ export function buildHtmlRebuildSite(contentRootInput: string, siteId?: string):
 
 export async function enqueueHtmlRebuild(
   target: HtmlRebuildTarget,
-  opts?: { deleteIfSlow?: boolean },
+  opts?: { deleteIfSlow?: boolean; queue?: HtmlRebuildQueue },
 ): Promise<boolean> {
   const key = buildHtmlCacheKey(target.siteId, target.pathname, target.variantKey);
   const generation = bumpHtmlGeneration(key);
@@ -94,7 +95,7 @@ export async function enqueueHtmlRebuild(
         buildId: getHtmlBuildId(),
       },
       {
-        queue: "html_rebuild",
+        queue: opts?.queue ?? "html_rebuild",
         uniqueKey: `${key}#${generation}`,
         uniqueWhileAlive: true,
       },
@@ -122,8 +123,8 @@ export function scheduleSavedHtmlPaths(
   for (const pathname of pathnames) {
     const clean = pathname.split("?")[0].split("#")[0] || "/";
     const marker = `::${siteId}::${clean}::`;
-    const hot = listHotHtmlCacheKeys().filter((key) => key.includes(marker));
-    const targets = hot.length > 0 ? hot : [buildHtmlCacheKey(siteId, clean, "live")];
+    const stored = listStoredHtmlCacheKeys(siteId).filter((key) => key.includes(marker));
+    const targets = stored.length > 0 ? stored : [buildHtmlCacheKey(siteId, clean, "live")];
     for (const key of targets) {
       const parsed = parseHtmlCacheKey(key);
       if (!parsed) continue;
@@ -142,6 +143,7 @@ export function scheduleSavedHtmlPaths(
 
 let databaseReaderEpoch = 0;
 let listingEpoch = 0;
+let contentTypeEpoch = 0;
 
 /**
  * A database row changed. The worker finds pages that read it, including ones
@@ -206,6 +208,41 @@ export function scheduleContentTypeListingRebuild(opts: {
   });
 }
 
+/**
+ * A content type's public config changed. The worker finds the stored pages,
+ * and when the URL pattern changed, the old and new addresses.
+ */
+export function scheduleContentTypeHtmlRebuild(opts: {
+  siteId: string;
+  contentRoot: string;
+  contentType: string;
+  urlPatternChanged: boolean;
+  previousUrlPattern?: Record<string, string> | string | null;
+}): void {
+  if (!opts.contentType) return;
+  const pages = snapshotHotHtmlPages(opts.siteId);
+  const epoch = ++contentTypeEpoch;
+  void enqueueJob(
+    "html_content_type_rebuild",
+    {
+      siteId: opts.siteId,
+      contentRoot: contentRootForSite(opts.siteId, opts.contentRoot),
+      contentType: opts.contentType,
+      buildId: getHtmlBuildId(),
+      pages,
+      urlPatternChanged: opts.urlPatternChanged,
+      previousUrlPattern: opts.previousUrlPattern ?? null,
+    },
+    {
+      queue: "html_rebuild",
+      uniqueKey: `html-content-type:${opts.siteId}:${opts.contentType}#${epoch}`,
+      uniqueWhileAlive: true,
+    },
+  ).catch((err) => {
+    log.warn({ err, contentType: opts.contentType }, "content type html rebuild enqueue failed");
+  });
+}
+
 /** Keep a cached page whose URL contains this slug and rebuild it like a normal save. */
 export function scheduleCachedSlugHtmlRebuild(
   siteId: string,
@@ -216,7 +253,7 @@ export function scheduleCachedSlugHtmlRebuild(
   if (!clean || clean.length < 2) return;
   const needle = `/${clean}`;
   const root = contentRootForSite(siteId, contentRoot);
-  for (const key of listHotHtmlCacheKeys()) {
+  for (const key of listStoredHtmlCacheKeys(siteId)) {
     const parsed = parseHtmlCacheKey(key);
     if (!parsed || parsed.siteId !== siteId) continue;
     const pathName = parsed.pathname;
@@ -235,34 +272,59 @@ export function scheduleCachedSlugHtmlRebuild(
   }
 }
 
-export function scheduleHotHtmlRebuild(reason: string, contentRoot?: string): void {
-  const keys = listHotHtmlCacheKeys();
-  log.info({ reason, keys: keys.length }, "scheduling hot html rebuild");
+/**
+ * Rebuild stored copies (memory and disk). Each page renders with its own
+ * site folder. Omit siteIds to cover every site. Bulk queue is for a whole
+ * site (theme, Tag Manager container id) so a single-page rebuild can go first.
+ */
+export function scheduleHotHtmlRebuild(
+  reason: string,
+  opts?: { siteIds?: string[]; queue?: HtmlRebuildQueue },
+): void {
+  const queue = opts?.queue ?? "html_rebuild";
+  const only = opts?.siteIds?.length ? new Set(opts.siteIds) : null;
+  const keys = listStoredHtmlCacheKeys();
+  let scheduled = 0;
   for (const key of keys) {
     const parsed = parseHtmlCacheKey(key);
     if (!parsed) continue;
-    void enqueueHtmlRebuild({
-      siteId: parsed.siteId,
-      contentRoot: contentRootForSite(parsed.siteId, contentRoot),
-      pathname: parsed.pathname,
-      variantKey: parsed.variantKey,
-    });
+    if (only && !only.has(parsed.siteId)) continue;
+    scheduled += 1;
+    void enqueueHtmlRebuild(
+      {
+        siteId: parsed.siteId,
+        contentRoot: contentRootForSite(parsed.siteId),
+        pathname: parsed.pathname,
+        variantKey: parsed.variantKey,
+      },
+      { queue },
+    );
+  }
+  log.info({ reason, keys: scheduled, queue, siteIds: opts?.siteIds }, "scheduling stored html rebuild");
+}
+
+/** Stored copies of these paths only. A path with no stored copy is left for the next visit. */
+export function scheduleStoredHtmlPaths(
+  siteId: string,
+  pathnames: string[],
+  contentRoot?: string,
+  opts?: { queue?: HtmlRebuildQueue },
+): void {
+  const wanted = new Set(pathnames.filter(Boolean));
+  if (wanted.size === 0) return;
+  const root = contentRootForSite(siteId, contentRoot);
+  for (const key of listStoredHtmlCacheKeys(siteId)) {
+    const parsed = parseHtmlCacheKey(key);
+    if (!parsed || parsed.siteId !== siteId || !wanted.has(parsed.pathname)) continue;
+    void enqueueHtmlRebuild(
+      {
+        siteId,
+        contentRoot: root,
+        pathname: parsed.pathname,
+        variantKey: parsed.variantKey,
+      },
+      { queue: opts?.queue ?? "html_rebuild" },
+    );
   }
 }
 
-/** GTM (or any baked id) changed: drop copies, then rebuild whatever was hot. */
-export function invalidateHotHtmlAndRebuild(reason: string): void {
-  const keys = listHotHtmlCacheKeys()
-    .map((key) => parseHtmlCacheKey(key))
-    .filter((row): row is NonNullable<typeof row> => !!row);
-  invalidateHtmlPageCache();
-  for (const row of keys) {
-    void enqueueHtmlRebuild({
-      siteId: row.siteId,
-      contentRoot: contentRootForSite(row.siteId),
-      pathname: row.pathname,
-      variantKey: row.variantKey,
-    });
-  }
-  log.info({ reason, keys: keys.length }, "cleared html cache and scheduled rebuild");
-}

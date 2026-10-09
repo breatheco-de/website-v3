@@ -361,12 +361,12 @@ export function emitVariablesChanged(site: string, names?: string[]): EmitResult
   });
 }
 
-export function emitMenuChanged(site: string): EmitResult {
+export function emitMenuChanged(site: string, menuName: string, locale?: string): EmitResult {
   return emitEvent({
     site,
     type: "menu_changed",
     attribution: singleAttribution(undefined, { type: "ui" }),
-    payload: {},
+    payload: locale ? { menuName, locale } : { menuName },
   });
 }
 
@@ -386,6 +386,23 @@ export function emitDatabaseRowChanged(site: string, dbName: string, slug: strin
     resource: { slug },
     attribution: singleAttribution(undefined, { type: "system", source: "database" }),
     payload: { dbName, slug },
+  });
+}
+
+export function emitContentTypeChanged(
+  site: string,
+  contentType: string,
+  opts?: { previousUrlPattern?: Record<string, string> | null },
+): EmitResult {
+  const urlPatternChanged = !!opts && "previousUrlPattern" in opts;
+  return emitEvent({
+    site,
+    type: "content_type_changed",
+    resource: { contentType },
+    attribution: singleAttribution(undefined, { type: "ui" }),
+    payload: urlPatternChanged
+      ? { contentType, urlPatternChanged: true, previousUrlPattern: opts?.previousUrlPattern ?? null }
+      : { contentType, urlPatternChanged: false },
   });
 }
 

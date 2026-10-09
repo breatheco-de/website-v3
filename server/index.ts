@@ -470,12 +470,16 @@ app.use((req, res, next) => {
       res.status(403).json({ ok: false });
       return;
     }
-    const body = req.body as { keys?: unknown } | undefined;
+    const body = req.body as { keys?: unknown; dropKeys?: unknown } | undefined;
     const keys = Array.isArray(body?.keys)
       ? body.keys.filter((key): key is string => typeof key === "string")
       : [];
-    const { adoptHtmlCacheKeys } = await import("./html-page-cache");
-    res.json({ ok: true, adopted: adoptHtmlCacheKeys(keys) });
+    const dropKeys = Array.isArray(body?.dropKeys)
+      ? body.dropKeys.filter((key): key is string => typeof key === "string")
+      : [];
+    const { adoptHtmlCacheKeys, invalidateHtmlPageCacheKey } = await import("./html-page-cache");
+    for (const key of dropKeys) invalidateHtmlPageCacheKey(key);
+    res.json({ ok: true, adopted: adoptHtmlCacheKeys(keys), dropped: dropKeys.length });
   });
 
   // Serve cached anonymous HTML before initial-data resolution / SSR work.

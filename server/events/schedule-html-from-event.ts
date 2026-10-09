@@ -4,6 +4,7 @@
  */
 
 import path from "path";
+import { isLocaleHomeAlias } from "@shared/public-app-routes";
 import type { ContentIndex } from "../content-index";
 import {
   classifyTouchedContentFiles,
@@ -11,13 +12,17 @@ import {
   collectEntryHtmlPaths,
 } from "../content-write-flush";
 import {
-  invalidateHotHtmlAndRebuild,
   scheduleCachedSlugHtmlRebuild,
+  scheduleContentTypeHtmlRebuild,
   scheduleContentTypeListingRebuild,
   scheduleDatabaseReaderRebuild,
   scheduleHotHtmlRebuild,
   scheduleSavedHtmlPaths,
+  scheduleStoredHtmlPaths,
 } from "../html-rebuild";
+import { pathsUsingMenu } from "./menu-html-paths";
+import { canonicalHtmlCachePath, listStoredHtmlCacheKeys, parseHtmlCacheKey } from "../html-page-cache";
+import { sitesInheritingThemeFrom } from "../theme-config";
 import { isSharedTemplateBasename } from "../shared-layout-paths";
 import type { RefreshedDatabaseRow } from "../database-refresh-diff";
 import type { ContentEvent } from "./types";
@@ -28,14 +33,27 @@ export type HtmlEventSite = {
   contentIndex?: ContentIndex;
 };
 
+function storedCopyPaths(site: HtmlEventSite, paths: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of paths) {
+    if (!raw) continue;
+    const clean = canonicalHtmlCachePath(raw, site.contentIndex);
+    if (!clean || seen.has(clean) || isLocaleHomeAlias(clean)) continue;
+    seen.add(clean);
+    out.push(clean);
+  }
+  return out;
+}
+
 function pages(site: HtmlEventSite, paths: string[]): void {
-  const unique = [...new Set(paths.filter(Boolean))];
+  const unique = storedCopyPaths(site, paths);
   if (unique.length === 0) return;
   scheduleSavedHtmlPaths(site.contentRootName, unique, site.contentRoot);
 }
 
 function pagesKept(site: HtmlEventSite, paths: string[]): void {
-  const unique = [...new Set(paths.filter(Boolean))];
+  const unique = storedCopyPaths(site, paths);
   if (unique.length === 0) return;
   scheduleSavedHtmlPaths(site.contentRootName, unique, site.contentRoot, { deleteIfSlow: false });
 }
@@ -159,19 +177,37 @@ export function scheduleHtmlFromEvent(event: ContentEvent, site: HtmlEventSite):
       return;
     }
     case "theme_changed": {
+      const siteIds = new Set<string>([site.contentRootName]);
       if (event.payload.affectsInheritingSites === true) {
-        scheduleHotHtmlRebuild("theme");
-      } else {
-        scheduleHotHtmlRebuild("theme", site.contentRoot);
+        for (const root of sitesInheritingThemeFrom(site.contentRoot)) {
+          const id = path.basename(root);
+          if (id) siteIds.add(id);
+        }
       }
+      scheduleHotHtmlRebuild("theme", { siteIds: [...siteIds], queue: "html_rebuild_bulk" });
       return;
     }
     case "menu_changed": {
-      scheduleHotHtmlRebuild("menu", site.contentRoot);
+      const menuName = typeof event.payload.menuName === "string" ? event.payload.menuName : "";
+      const locale = typeof event.payload.locale === "string" ? event.payload.locale : undefined;
+      if (!menuName) return;
+      const stored: string[] = [];
+      for (const key of listStoredHtmlCacheKeys(site.contentRootName)) {
+        const parsed = parseHtmlCacheKey(key);
+        if (parsed) stored.push(parsed.pathname);
+      }
+      scheduleStoredHtmlPaths(
+        site.contentRootName,
+        pathsUsingMenu(ci, stored, menuName, locale),
+        site.contentRoot,
+      );
       return;
     }
     case "tag_manager_changed": {
-      invalidateHotHtmlAndRebuild("tag-manager");
+      scheduleHotHtmlRebuild("tag-manager", {
+        siteIds: [site.contentRootName],
+        queue: "html_rebuild_bulk",
+      });
       return;
     }
     case "variables_changed": {
@@ -179,13 +215,29 @@ export function scheduleHtmlFromEvent(event: ContentEvent, site: HtmlEventSite):
         ? (event.payload.names as string[])
         : [];
       if (names.length === 0) {
-        scheduleHotHtmlRebuild("variables", site.contentRoot);
+        scheduleHotHtmlRebuild("variables", { siteIds: [site.contentRootName] });
         return;
       }
       const files = names.flatMap((name) => ci.getVariableUsage(name));
       const classified = classifyTouchedContentFiles(ci, files);
       pages(site, [...classified.htmlPaths, ...attachedTemplatePaths(ci, files)]);
       for (const contentType of classified.contentTypes) listing(site, contentType);
+      return;
+    }
+    case "content_type_changed": {
+      const contentType = String(event.resource.contentType || event.payload.contentType || "");
+      if (!contentType) return;
+      const urlPatternChanged = event.payload.urlPatternChanged === true;
+      const previous = event.payload.previousUrlPattern;
+      scheduleContentTypeHtmlRebuild({
+        siteId: site.contentRootName,
+        contentRoot: site.contentRoot,
+        contentType,
+        urlPatternChanged,
+        previousUrlPattern: urlPatternChanged
+          ? ((previous as Record<string, string> | string | null | undefined) ?? null)
+          : null,
+      });
       return;
     }
     case "database_row_changed": {

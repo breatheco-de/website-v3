@@ -920,7 +920,7 @@ export function invalidateContentCaches(contentType?: string, ci: typeof content
   // shared config: rebuild only URLs already cached.
   if (!contentType) {
     void import("../html-rebuild")
-      .then(({ scheduleHotHtmlRebuild }) => scheduleHotHtmlRebuild("content-caches", ci.contentRoot))
+      .then(({ scheduleHotHtmlRebuild }) => scheduleHotHtmlRebuild("content-caches"))
       .catch(() => {});
   }
 }

@@ -3,21 +3,46 @@ import type { ContentEvent } from "./types";
 
 vi.mock("../html-rebuild", () => ({
   scheduleSavedHtmlPaths: vi.fn(),
+  scheduleStoredHtmlPaths: vi.fn(),
   scheduleHotHtmlRebuild: vi.fn(),
+  scheduleContentTypeHtmlRebuild: vi.fn(),
   scheduleContentTypeListingRebuild: vi.fn(),
   scheduleDatabaseReaderRebuild: vi.fn(),
   scheduleCachedSlugHtmlRebuild: vi.fn(),
-  invalidateHotHtmlAndRebuild: vi.fn(),
 }));
 
+vi.mock("../theme-config", () => ({
+  sitesInheritingThemeFrom: vi.fn(() => []),
+}));
+
+vi.mock("../html-page-cache", async () => {
+  const actual = await vi.importActual<typeof import("../html-page-cache")>("../html-page-cache");
+  return {
+    ...actual,
+    listStoredHtmlCacheKeys: vi.fn(() => []),
+    parseHtmlCacheKey: (key: string) => {
+      const parts = String(key).split("::");
+      if (parts.length < 4) return null;
+      return {
+        siteId: parts[1],
+        pathname: parts.slice(2, -1).join("::"),
+        variantKey: parts[parts.length - 1],
+      };
+    },
+  };
+});
+
 import {
-  invalidateHotHtmlAndRebuild,
   scheduleCachedSlugHtmlRebuild,
+  scheduleContentTypeHtmlRebuild,
   scheduleContentTypeListingRebuild,
   scheduleDatabaseReaderRebuild,
   scheduleHotHtmlRebuild,
   scheduleSavedHtmlPaths,
+  scheduleStoredHtmlPaths,
 } from "../html-rebuild";
+import { sitesInheritingThemeFrom } from "../theme-config";
+import { listStoredHtmlCacheKeys } from "../html-page-cache";
 import { scheduleHtmlFromEvent } from "./schedule-html-from-event";
 
 function event(type: ContentEvent["type"], overrides: Partial<ContentEvent> = {}): ContentEvent {
@@ -85,14 +110,48 @@ describe("scheduleHtmlFromEvent", () => {
     expect(scheduleContentTypeListingRebuild).toHaveBeenCalled();
   });
 
-  it("rebuilds every hot page when a theme is inherited", () => {
-    scheduleHtmlFromEvent(event("theme_changed", { payload: { affectsInheritingSites: true } }), site);
-    expect(scheduleHotHtmlRebuild).toHaveBeenCalledWith("theme");
+  it("rebuilds only the stored home url, not locale aliases", () => {
+    ci.getAlternateUrls = () => ({ en: "/en/home" });
+    ci.buildUrl = () => "/en/home";
+    ci.resolveUrl = () => null;
+    scheduleHtmlFromEvent(
+      event("entry_locale_saved", {
+        resource: { contentType: "page", slug: "home", locale: "en", layer: "live" },
+      }),
+      site,
+    );
+    expect(scheduleSavedHtmlPaths).toHaveBeenCalledWith("site_test", ["/en/home"], "/tmp/site_test");
+    ci.getAlternateUrls = () => ({ en: "/en/blog/news/post" });
+    ci.buildUrl = () => "/en/blog/news/post";
+    delete (ci as { resolveUrl?: unknown }).resolveUrl;
   });
 
-  it("rebuilds one site when the theme is not inherited", () => {
+  it("rebuilds the owning site and inheritors on the bulk queue when a theme is inherited", () => {
+    vi.mocked(sitesInheritingThemeFrom).mockReturnValue(["/tmp/site_child"]);
+    scheduleHtmlFromEvent(event("theme_changed", { payload: { affectsInheritingSites: true } }), site);
+    expect(scheduleHotHtmlRebuild).toHaveBeenCalledWith("theme", {
+      siteIds: ["site_test", "site_child"],
+      queue: "html_rebuild_bulk",
+    });
+  });
+
+  it("rebuilds one site on the bulk queue when the theme is not inherited", () => {
     scheduleHtmlFromEvent(event("theme_changed", { payload: { affectsInheritingSites: false } }), site);
-    expect(scheduleHotHtmlRebuild).toHaveBeenCalledWith("theme", "/tmp/site_test");
+    expect(scheduleHotHtmlRebuild).toHaveBeenCalledWith("theme", {
+      siteIds: ["site_test"],
+      queue: "html_rebuild_bulk",
+    });
+    expect(sitesInheritingThemeFrom).not.toHaveBeenCalled();
+  });
+
+  it("rebuilds stored Spanish pages that use the saved menu, not every hot page", () => {
+    vi.mocked(listStoredHtmlCacheKeys).mockReturnValue([
+      "dev::site_test::/es/blog/post::live",
+      "dev::site_test::/en/blog/other::live",
+    ]);
+    scheduleHtmlFromEvent(event("menu_changed", { payload: { menuName: "main-navbar", locale: "es" } }), site);
+    expect(scheduleHotHtmlRebuild).not.toHaveBeenCalled();
+    expect(scheduleStoredHtmlPaths).toHaveBeenCalledWith("site_test", ["/es/blog/post"], "/tmp/site_test");
   });
 
   it("rebuilds pages that use a named variable", () => {
@@ -105,9 +164,9 @@ describe("scheduleHtmlFromEvent", () => {
     expect(scheduleHotHtmlRebuild).not.toHaveBeenCalled();
   });
 
-  it("rebuilds hot pages when variable names are unknown", () => {
+  it("rebuilds stored pages of this site when variable names are unknown", () => {
     scheduleHtmlFromEvent(event("variables_changed"), site);
-    expect(scheduleHotHtmlRebuild).toHaveBeenCalledWith("variables", "/tmp/site_test");
+    expect(scheduleHotHtmlRebuild).toHaveBeenCalledWith("variables", { siteIds: ["site_test"] });
   });
 
   it("rebuilds database readers and the row slug", () => {
@@ -156,6 +215,38 @@ describe("scheduleHtmlFromEvent", () => {
     ci.buildUrl = () => "/en/blog/news/post";
   });
 
+  it("rebuilds the public url when a row path is a folder spelling", () => {
+    ci.resolveUrl = (url: string) =>
+      url === "/es/ubicacion/berlin-germany" || url === "/es/ubicacion/berlin-alemania"
+        ? { contentType: "location", slug: "berlin-germany", patternLocale: "es" }
+        : null;
+    ci.getAlternateUrls = () => ({ es: "/es/ubicacion/berlin-alemania" });
+    ci.getContentTypes = () => ["location"];
+    ci.getContentTypeConfig = () => ({
+      directory: "location",
+      url_pattern: { es: "/es/ubicacion/:slug" },
+      database: { slug: "locations" },
+    });
+    ci.buildUrl = () => "/es/ubicacion/berlin-germany";
+    scheduleHtmlFromEvent(
+      event("database_refreshed", {
+        payload: { dbName: "locations", rows: [{ slug: "berlin-germany", locale: "es", params: {} }] },
+      }),
+      site,
+    );
+    expect(scheduleSavedHtmlPaths).toHaveBeenCalledWith(
+      "site_test",
+      ["/es/ubicacion/berlin-alemania"],
+      "/tmp/site_test",
+      { deleteIfSlow: false },
+    );
+    ci.getContentTypes = () => [];
+    ci.getContentTypeConfig = () => ({ directory: "blog" });
+    ci.getAlternateUrls = () => ({ en: "/en/blog/news/post" });
+    ci.buildUrl = () => "/en/blog/news/post";
+    delete (ci as { resolveUrl?: unknown }).resolveUrl;
+  });
+
   it("lets a pull reload a local database instead of rebuilding readers immediately", () => {
     (ci as { getDatabase: () => { get: (name: string) => { source: { type: string } } } }).getDatabase = () => ({
       get: () => ({ source: { type: "local" } }),
@@ -168,8 +259,46 @@ describe("scheduleHtmlFromEvent", () => {
     delete (ci as { getDatabase?: unknown }).getDatabase;
   });
 
-  it("drops and rebuilds hot pages for Tag Manager", () => {
+  it("enqueues a content type rebuild and keeps the previous URL pattern", () => {
+    scheduleHtmlFromEvent(
+      event("content_type_changed", {
+        resource: { contentType: "blog" },
+        payload: { contentType: "blog", urlPatternChanged: true, previousUrlPattern: { en: "/blog/:slug" } },
+      }),
+      site,
+    );
+    expect(scheduleContentTypeHtmlRebuild).toHaveBeenCalledWith({
+      siteId: "site_test",
+      contentRoot: "/tmp/site_test",
+      contentType: "blog",
+      urlPatternChanged: true,
+      previousUrlPattern: { en: "/blog/:slug" },
+    });
+    expect(scheduleHotHtmlRebuild).not.toHaveBeenCalled();
+  });
+
+  it("enqueues a content type rebuild without a URL change for a mapping save", () => {
+    scheduleHtmlFromEvent(
+      event("content_type_changed", {
+        resource: { contentType: "blog" },
+        payload: { contentType: "blog", urlPatternChanged: false },
+      }),
+      site,
+    );
+    expect(scheduleContentTypeHtmlRebuild).toHaveBeenCalledWith({
+      siteId: "site_test",
+      contentRoot: "/tmp/site_test",
+      contentType: "blog",
+      urlPatternChanged: false,
+      previousUrlPattern: null,
+    });
+  });
+
+  it("rebuilds this site's stored pages on the bulk queue for Tag Manager", () => {
     scheduleHtmlFromEvent(event("tag_manager_changed"), site);
-    expect(invalidateHotHtmlAndRebuild).toHaveBeenCalledWith("tag-manager");
+    expect(scheduleHotHtmlRebuild).toHaveBeenCalledWith("tag-manager", {
+      siteIds: ["site_test"],
+      queue: "html_rebuild_bulk",
+    });
   });
 });

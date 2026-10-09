@@ -7,7 +7,9 @@
  * when the written file(s) change redirects.
  */
 
+import { isLocaleHomeAlias } from "@shared/public-app-routes";
 import type { ContentIndex } from "./content-index";
+import { canonicalHtmlCachePath } from "./html-page-cache";
 import { clearRedirectCache, toPublicUrlPath } from "./redirects";
 import {
   refreshSitemapEntry,
@@ -203,8 +205,12 @@ export function collectEntryHtmlPaths(
   const seen = new Set<string>();
   const add = (raw: string | null | undefined) => {
     if (!raw || typeof raw !== "string") return;
-    const clean = toPublicUrlPath(raw);
-    if (!clean || seen.has(clean)) return;
+    const requested = toPublicUrlPath(raw);
+    if (!requested) return;
+    // Same path the cache stores: folder slug and public slug share one copy.
+    // Locale-home aliases 301 and never get a copy.
+    const clean = canonicalHtmlCachePath(requested, ci);
+    if (!clean || seen.has(clean) || isLocaleHomeAlias(clean)) return;
     seen.add(clean);
     paths.push(clean);
   };
@@ -226,19 +232,6 @@ export function collectEntryHtmlPaths(
       add(ci.buildUrl(contentType, loc, slug));
     } catch {
       /* ignore */
-    }
-  }
-
-  // Home aliases when the canonical path is a locale home
-  for (const p of [...paths]) {
-    if (p === "/en" || p === "/en/" || p === "/en/home") {
-      add("/");
-      add("/en");
-      add("/us");
-    }
-    if (p === "/es" || p === "/es/" || p === "/es/inicio") {
-      add("/es");
-      add("/es/home");
     }
   }
 

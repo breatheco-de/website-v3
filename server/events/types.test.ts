@@ -25,6 +25,7 @@ const DISPATCHER_HANDLED_TYPES = new Set([
   "tag_manager_changed",
   "database_row_changed",
   "database_refreshed",
+  "content_type_changed",
   "shared_template_saved",
   "binding_propagation_started",
   "cluster_hub_path_rewrite_started",

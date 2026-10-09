@@ -14,9 +14,10 @@ import os from "os";
 import crypto from "crypto";
 import { execFileSync } from "child_process";
 import { DuplicatedJobError } from "@sidequest/core";
-import { Sidequest, Job } from "sidequest";
+import { Sidequest, Job, Dispatcher } from "sidequest";
 import { child } from "../logger";
 import { getPackageRoot } from "@shared/paths";
+import { installDispatcherLoopRetry, type DispatcherLoopHost } from "./dispatcher-loop-retry";
 
 const log = child({ module: "job-queue" });
 
@@ -398,6 +399,8 @@ export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<v
     queues: [
       { name: "default", concurrency: 1, priority: 50, state: "active" },
       { name: "html_rebuild", concurrency: 2, priority: 40, state: "active" },
+      // Large sweeps (theme, Tag Manager container id). A page save on html_rebuild is claimed first.
+      { name: "html_rebuild_bulk", concurrency: 1, priority: 10, state: "active" },
     ],
   });
   configured = true;
@@ -416,6 +419,10 @@ export async function startJobQueue(): Promise<void> {
   starting = (async () => {
     try {
       await configureJobQueue();
+      // Sidequest logs the crash and leaves the poll loop dead. Re-arm it before start.
+      installDispatcherLoopRetry(Dispatcher.prototype as unknown as DispatcherLoopHost, (meta, message) =>
+        log.warn(meta, message),
+      );
       // Must pass dashboard here — Sidequest.start spreads config?.dashboard into Dashboard.start.
       // A bare Sidequest.start() after configure() boots the UI at "/" with no auth/basePath.
       const dashboard = buildSidequestDashboardConfig();

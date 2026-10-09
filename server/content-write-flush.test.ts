@@ -16,10 +16,14 @@ vi.mock("./settings", () => ({
   getSupportedLocales: () => ["en", "es"],
   normalizeLocale: (l: string) => l,
 }));
-vi.mock("./html-page-cache", () => ({
-  invalidateHtmlPageCacheForPath: vi.fn(),
-  invalidateHtmlPageCache: vi.fn(),
-}));
+vi.mock("./html-page-cache", async () => {
+  const actual = await vi.importActual<typeof import("./html-page-cache")>("./html-page-cache");
+  return {
+    ...actual,
+    invalidateHtmlPageCacheForPath: vi.fn(),
+    invalidateHtmlPageCache: vi.fn(),
+  };
+});
 vi.mock("./html-rebuild", () => ({
   scheduleSavedHtmlPaths: vi.fn(),
   scheduleHotHtmlRebuild: vi.fn(),
@@ -178,6 +182,20 @@ describe("collectEntryHtmlPaths", () => {
     );
     expect(paths).toContain("/en/outcomes");
     expect(paths).toContain("/es/resultados");
+  });
+
+  it("keeps the stored home copy and skips locale aliases", () => {
+    const paths = collectEntryHtmlPaths(
+      {
+        resolveUrl: () => null,
+        getAlternateUrls: () => ({ en: "/en/home", es: "/es/inicio" }),
+        buildUrl: () => "/en/home",
+      } as any,
+      "page",
+      "home",
+      "en",
+    );
+    expect(paths).toEqual(["/en/home"]);
   });
 });
 
