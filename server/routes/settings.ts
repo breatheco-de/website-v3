@@ -30,6 +30,7 @@ import {
   refreshSitemapEntriesForContentKey,
 } from "../sitemap";
 import { markFileAsModified } from "../sync-state";
+import { emitMenuChanged, emitTagManagerChanged, emitThemeChanged } from "../content-events";
 import { checkThemeWrite, createOwnSiteTheme, loadSiteTheme, resolveSiteTheme, sitesInheritingThemeFrom } from "../theme-config";
 import { scanThemeBackgroundUsage, replaceSectionBackgroundEverywhere } from "../design/theme-usage";
 import { sharedTypesUsingBackground } from "../design/shared-base-palette";
@@ -267,21 +268,13 @@ function getContentRootName(res: Response): string {
   return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
 }
 
-function scheduleHotPublicHtml(contentRoot: string, reason: string): void {
-  void import("../html-rebuild")
-    .then(({ scheduleHotHtmlRebuild }) => scheduleHotHtmlRebuild(reason, contentRoot))
-    .catch(() => {});
-}
-
-/** Theme saves also repaint sites that inherit this theme, each with its own content root. */
-function scheduleThemeHtmlRebuild(contentRoot: string, reason: string): void {
-  if (sitesInheritingThemeFrom(contentRoot).length === 0) {
-    scheduleHotPublicHtml(contentRoot, reason);
-    return;
-  }
-  void import("../html-rebuild")
-    .then(({ scheduleHotHtmlRebuild }) => scheduleHotHtmlRebuild(reason))
-    .catch(() => {});
+/** Theme, menu, and Tag Manager saves emit an event. The dispatcher rebuilds HTML. */
+function emitThemeHtmlEvent(res: Response): void {
+  const contentRoot = getContentRoot(res);
+  emitThemeChanged(
+    getContentRootName(res),
+    sitesInheritingThemeFrom(contentRoot).length > 0,
+  );
 }
 
 /** Path of the site's own theme.json for a write, or null after responding (inheriting sites are refused). */
@@ -350,7 +343,7 @@ export function registerSettingsRoutes(app: Express): void {
       theme.colors = { light: light || {}, dark: dark || {} };
       fs.writeFileSync(themePath, JSON.stringify(theme, null, 2));
       markFileAsModified('theme.json', undefined, undefined, getContentRoot(res));
-      scheduleThemeHtmlRebuild(getContentRoot(res), "theme-colors");
+      emitThemeHtmlEvent(res);
       res.json({ success: true });
     } catch (error) {
       log.error({ err: error }, "Error saving theme colors:");
@@ -442,7 +435,7 @@ export function registerSettingsRoutes(app: Express): void {
       fs.writeFileSync(tmpPath, JSON.stringify(theme, null, 2));
       fs.renameSync(tmpPath, themePath);
       markFileAsModified('theme.json', undefined, undefined, getContentRoot(res));
-      scheduleThemeHtmlRebuild(getContentRoot(res), "theme-palettes");
+      emitThemeHtmlEvent(res);
 
       if (unknownVarWarnings.length > 0) {
         res.json({ ok: true, warnings: unknownVarWarnings });
@@ -466,7 +459,7 @@ export function registerSettingsRoutes(app: Express): void {
         return;
       }
       markFileAsModified("theme.json", auth.author || undefined, undefined, contentRoot);
-      scheduleHotPublicHtml(contentRoot, "theme-own-copy");
+      emitThemeChanged(getContentRootName(res), false);
       res.json({ ok: true, copied_from: result.copiedFrom });
     } catch (error) {
       log.error({ err: error }, "Error creating site theme:");
@@ -1684,11 +1677,7 @@ export function registerSettingsRoutes(app: Express): void {
         contentRoot,
       );
       markFileAsModified("settings.yml", undefined, undefined, contentRoot);
-      if (hasTm) {
-        void import("../html-rebuild")
-          .then(({ invalidateHotHtmlAndRebuild }) => invalidateHotHtmlAndRebuild("gtm"))
-          .catch(() => {});
-      }
+      if (hasTm) emitTagManagerChanged(getContentRootName(res));
       const opt = getOptimizationSettings(contentRoot);
       const secret = resolveIpnSecret();
       res.json({
@@ -3094,7 +3083,7 @@ export function registerSettingsRoutes(app: Express): void {
         }
       }
 
-      scheduleHotPublicHtml(getContentRoot(res), "menu-structure");
+      emitMenuChanged(getContentRootName(res));
       res.json({
         success: true,
         name,
@@ -3181,7 +3170,7 @@ export function registerSettingsRoutes(app: Express): void {
       });
       fs.writeFileSync(filePath, yamlContent, "utf-8");
       markFileAsModified(filePath, authorName, undefined, getContentRoot(res));
-      scheduleHotPublicHtml(getContentRoot(res), "menu-translations");
+      emitMenuChanged(getContentRootName(res));
 
       res.json({
         success: true,

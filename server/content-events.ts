@@ -10,6 +10,11 @@ export {
   emitEntryLocalePromoted,
   emitEntryLocaleUnpublished,
   emitClusterHubPathRewriteStarted,
+  emitThemeChanged,
+  emitVariablesChanged,
+  emitMenuChanged,
+  emitTagManagerChanged,
+  emitDatabaseRowChanged,
 } from "./events/emit-entry-events";
 
 import { emitEvent } from "./events/event-store";

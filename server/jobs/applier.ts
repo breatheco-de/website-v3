@@ -281,6 +281,16 @@ async function applyPendingSnapshots(
           htmlPaths.push(...collectEntryHtmlPaths(ci, boundType, boundSlug, locale));
         }
       }
+      if (htmlPaths.length > 0) {
+        void import("../html-rebuild")
+          .then(({ scheduleSavedHtmlPaths, scheduleContentTypeListingRebuild }) => {
+            scheduleSavedHtmlPaths(site, htmlPaths, contentRoot);
+            for (const contentType of new Set(updatedFiles.map((f) => f.split("/")[0]!).filter(Boolean))) {
+              scheduleContentTypeListingRebuild({ siteId: site, contentRoot, contentType });
+            }
+          })
+          .catch(() => {});
+      }
       flushAfterContentWrites({
         ci,
         contentTypes: updatedFiles.map((f) => f.split("/")[0]!).filter(Boolean),
@@ -289,7 +299,6 @@ async function applyPendingSnapshots(
           return { contentType: t!, slug: s!, locale };
         }),
         siteId: site,
-        htmlPaths,
       });
     }
 

@@ -11,6 +11,7 @@ import {
   diffEntryCommonParts,
   diffEntryLocaleParts,
   parseContentFilePath,
+  parseUnresolvedContentPath,
   siteRedirectsChanged,
   type EntryCommonPart,
   type EntryLocalePart,
@@ -32,6 +33,11 @@ export type EmitFileChangeOpts = {
   simple_changes?: AgentSimpleChange[];
   /** @deprecated unused — legacy types removed */
   dualWriteLegacy?: boolean;
+  /**
+   * When the fixed folder list does not recognize the path, map a content
+   * folder to its type. Return null for folders that are not content types.
+   */
+  resolveFolderType?: (folder: string) => string | null;
 };
 
 export type EmittedFileChange = {
@@ -77,7 +83,11 @@ export function emitEntryEventsFromFileChange(opts: EmitFileChangeOpts): Emitted
   const site = resolveSiteFromPath(norm);
   if (!site) return [];
 
-  const parsed = parseContentFilePath(norm);
+  const parsed = (() => {
+    const known = parseContentFilePath(norm);
+    if (known.scope !== "unknown" || !opts.resolveFolderType) return known;
+    return parseUnresolvedContentPath(norm, opts.resolveFolderType);
+  })();
   const prev = opts.prevRaw ?? "";
   const next = opts.nextRaw;
   const attribution = singleAttribution(opts.author, opts.actor);
@@ -149,6 +159,14 @@ export function emitEntryEventsFromFileChange(opts: EmitFileChangeOpts): Emitted
           ...basePayload(norm, opts),
           parts: [parsed.registryPart] as RegistryPart[],
         },
+      );
+      break;
+    }
+    case "shared_template": {
+      push(
+        "shared_template_saved",
+        { path: norm, contentType: parsed.contentType },
+        { ...basePayload(norm, opts), contentType: parsed.contentType },
       );
       break;
     }
@@ -322,6 +340,52 @@ export function emitEntryLocaleUnpublished(opts: {
     attribution: singleAttribution(opts.author, opts.actor),
     agent_session_id: opts.agent_session_id,
     payload: { path: `${opts.contentType}/${opts.slug}/${opts.locale}` },
+  });
+}
+
+export function emitThemeChanged(site: string, affectsInheritingSites: boolean): EmitResult {
+  return emitEvent({
+    site,
+    type: "theme_changed",
+    attribution: singleAttribution(undefined, { type: "ui" }),
+    payload: { affectsInheritingSites },
+  });
+}
+
+export function emitVariablesChanged(site: string, names?: string[]): EmitResult {
+  return emitEvent({
+    site,
+    type: "variables_changed",
+    attribution: singleAttribution(undefined, { type: "system", source: "variables" }),
+    payload: names?.length ? { names } : {},
+  });
+}
+
+export function emitMenuChanged(site: string): EmitResult {
+  return emitEvent({
+    site,
+    type: "menu_changed",
+    attribution: singleAttribution(undefined, { type: "ui" }),
+    payload: {},
+  });
+}
+
+export function emitTagManagerChanged(site: string): EmitResult {
+  return emitEvent({
+    site,
+    type: "tag_manager_changed",
+    attribution: singleAttribution(undefined, { type: "ui" }),
+    payload: {},
+  });
+}
+
+export function emitDatabaseRowChanged(site: string, dbName: string, slug: string): EmitResult {
+  return emitEvent({
+    site,
+    type: "database_row_changed",
+    resource: { slug },
+    attribution: singleAttribution(undefined, { type: "system", source: "database" }),
+    payload: { dbName, slug },
   });
 }
 

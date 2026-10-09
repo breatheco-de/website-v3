@@ -41,6 +41,7 @@ export type ParsedEntryPath =
       layer: EntryLocaleLayer;
     }
   | { scope: "entry_common"; contentType: string; slug: string }
+  | { scope: "shared_template"; contentType: string }
   | { scope: "site_redirects" }
   | { scope: "registry"; registryPart: RegistryPart }
   | { scope: "unknown" };
@@ -81,6 +82,59 @@ export function parseContentFilePath(filePath: string): ParsedEntryPath {
   if (base === "_common") {
     return { scope: "entry_common", contentType, slug };
   }
+  let locale = base;
+  let layer: EntryLocaleLayer = "live";
+  if (base.startsWith("template.") || base.startsWith("single.")) {
+    const rest = base.startsWith("template.")
+      ? base.slice("template.".length)
+      : base.slice("single.".length);
+    locale = rest.split(".")[0] || locale;
+  } else if (/^[a-z]{2}$/i.test(base)) {
+    locale = base;
+  } else if (base.includes(".")) {
+    const parts = base.split(".");
+    locale = parts[parts.length - 1] || base;
+    layer = "variant";
+  }
+  return { scope: "entry_locale", contentType, slug, locale, layer };
+}
+
+const NON_ENTRY_FOLDERS = new Set(["menus", "db", "component-registry"]);
+
+function isTypeTemplateFile(fileName: string): boolean {
+  const base = fileName.replace(/\.ya?ml$/i, "");
+  return (
+    base.startsWith("template.") ||
+    base.startsWith("single.") ||
+    base === "_common.template" ||
+    base === "_common.single"
+  );
+}
+
+/**
+ * Content types the fixed folder list does not name (how-to, and a type-level
+ * template file). `resolveFolderType` returns null when the folder is not a
+ * content type, so menus and databases stay unknown.
+ */
+export function parseUnresolvedContentPath(
+  filePath: string,
+  resolveFolderType: (folder: string) => string | null,
+): ParsedEntryPath {
+  const norm = normalizePath(filePath);
+  if (norm.includes("/component-registry/")) return { scope: "unknown" };
+  const two = norm.match(/\/([^/]+)\/([^/]+\.ya?ml)$/i);
+  if (two && isTypeTemplateFile(two[2]!)) {
+    const contentType = resolveFolderType(two[1]!);
+    if (contentType) return { scope: "shared_template", contentType };
+  }
+  const m = norm.match(/\/([^/]+)\/([^/]+)\/([^/]+)\.ya?ml$/i);
+  if (!m) return { scope: "unknown" };
+  if (NON_ENTRY_FOLDERS.has(m[1]!.toLowerCase())) return { scope: "unknown" };
+  const contentType = resolveFolderType(m[1]!);
+  if (!contentType) return { scope: "unknown" };
+  const slug = m[2]!;
+  const base = m[3]!.replace(/\.ya?ml$/i, "");
+  if (base === "_common") return { scope: "entry_common", contentType, slug };
   let locale = base;
   let layer: EntryLocaleLayer = "live";
   if (base.startsWith("template.") || base.startsWith("single.")) {

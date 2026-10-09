@@ -17,6 +17,7 @@ import { scheduleOnSaveValidationJob } from "../services/onSaveValidationSchedul
 import { scheduleOgCaptureFromLocaleEvent } from "../entry-preview-lifecycle";
 import { scheduleRedirectsValidation } from "../services/onSaveValidation";
 import { queueLinkIndexRemove, entryKeysFromDeletedPaths } from "../link-index";
+import { scheduleHtmlFromEvent } from "./schedule-html-from-event";
 import { child } from "../logger";
 
 const log = child({ module: "event-dispatcher" });
@@ -112,6 +113,12 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
     log.warn({ site: event.site }, "[Dispatcher] Unknown site");
     return;
   }
+
+  scheduleHtmlFromEvent(event, {
+    contentRootName: ctx.contentRootName,
+    contentRoot: ctx.contentRoot,
+    contentIndex: ctx.contentIndex,
+  });
 
   switch (event.type) {
     case "entry_locale_saved":

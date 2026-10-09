@@ -288,6 +288,42 @@ const EVENT_META: Record<string, EventMeta> = {
     icon: IconPencil,
     iconClass: "text-primary border-primary/40",
   },
+  theme_changed: {
+    label: "Theme Changed",
+    description: "Theme colors or palettes changed. Hot public pages rebuild.",
+    icon: IconActivity,
+    iconClass: "text-primary border-primary/40",
+  },
+  variables_changed: {
+    label: "Variables Changed",
+    description: "A site variable changed. Pages that use it rebuild.",
+    icon: IconActivity,
+    iconClass: "text-primary border-primary/40",
+  },
+  menu_changed: {
+    label: "Menu Changed",
+    description: "Menu structure or translations changed. Hot public pages rebuild.",
+    icon: IconActivity,
+    iconClass: "text-primary border-primary/40",
+  },
+  tag_manager_changed: {
+    label: "Tag Manager Changed",
+    description: "Tag Manager settings changed. Hot public pages are dropped and rebuilt.",
+    icon: IconActivity,
+    iconClass: "text-primary border-primary/40",
+  },
+  database_row_changed: {
+    label: "Database Row Changed",
+    description: "A database row changed. Pages that read that database rebuild.",
+    icon: IconDatabase,
+    iconClass: "text-primary border-primary/40",
+  },
+  shared_template_saved: {
+    label: "Shared Template Saved",
+    description: "A shared template changed. Pages that use it rebuild.",
+    icon: IconPencil,
+    iconClass: "text-primary border-primary/40",
+  },
   seo_index_ready: {
     label: "Cluster Index Updated",
     description:

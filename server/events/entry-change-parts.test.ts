@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   parseContentFilePath,
+  parseUnresolvedContentPath,
   diffEntryLocaleParts,
   diffEntryCommonParts,
   siteRedirectsChanged,
@@ -35,6 +36,21 @@ describe("parseContentFilePath", () => {
 
   it("routes custom-redirects.yml", () => {
     expect(parseContentFilePath("site_test/custom-redirects.yml").scope).toBe("site_redirects");
+  });
+
+  it("resolves a how-to locale and a type template the folder map does not know", () => {
+    const resolve = (folder: string) => (folder === "how-to" ? "how-to" : null);
+    expect(parseUnresolvedContentPath("site_test/how-to/print/en.yml", resolve)).toMatchObject({
+      scope: "entry_locale",
+      contentType: "how-to",
+      slug: "print",
+      locale: "en",
+      layer: "live",
+    });
+    expect(parseUnresolvedContentPath("site_test/how-to/template.en.yml", resolve)).toEqual({
+      scope: "shared_template",
+      contentType: "how-to",
+    });
   });
 
   it("routes registry schema.yml", () => {

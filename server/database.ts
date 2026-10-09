@@ -1233,8 +1233,8 @@ export class DatabaseManager {
   }
 
   /**
-   * One row changed. The shared flush keeps the page whose URL contains that
-   * slug and rebuilds pages that read this database.
+   * One row changed. The event rebuilds the page whose URL contains that slug
+   * and the pages that read this database.
    */
   private dropHtmlForSlug(dbName: string, slug: string): void {
     const siteId = path.basename(this.contentRoot);
@@ -1250,13 +1250,13 @@ export class DatabaseManager {
             ctx.contentRoot.endsWith(`/${base}`),
         );
         if (!site?.contentIndex) return;
+        const { emitDatabaseRowChanged } = await import("./content-events");
+        emitDatabaseRowChanged(site.contentRootName || siteId, dbName, slug);
         flushAfterContentWrites({
           ci: site.contentIndex,
           contentTypes: [],
           sitemapEntries: [],
           siteId: site.contentRootName || siteId,
-          databaseNames: dbName ? [dbName] : [],
-          htmlSlugs: slug ? [slug] : [],
         });
       })
       .catch(() => {});

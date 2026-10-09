@@ -2,9 +2,9 @@
  * Shared post-write flush for content edits (single-edit and bulk-meta).
  * Call immediately after one successful edit, or once at end of a bulk batch.
  *
- * Default path is non-blocking: scanFast + coalesced background scanSlow,
- * path-scoped HTML bust (no full HTML cache clear). Pass syncSlow when the
- * written file(s) change redirects.
+ * Default path is non-blocking: scanFast + coalesced background scanSlow.
+ * HTML copies are rebuilt by the event dispatcher, not here. Pass syncSlow
+ * when the written file(s) change redirects.
  */
 
 import type { ContentIndex } from "./content-index";
@@ -38,32 +38,17 @@ export type FlushAfterContentWritesOpts = {
    * content key instead of a single locale row.
    */
   commonMetaTouched?: boolean;
-  /**
-   * Site id for HTML cache keys (contentRootName — same as render-hub-html).
-   * Required for path-scoped HTML bust.
-   */
+  /** Site id kept so existing callers still compile. HTML rebuilds follow the event. */
   siteId?: string;
-  /** Public pathnames to rebuild in the HTML page cache (all hot variants per path). */
-  htmlPaths?: string[];
-  /**
-   * `paths` (default) keeps each saved URL and rebuilds it in the background.
-   * `hot` rebuilds every URL already in memory (menu, theme).
-   */
-  htmlScope?: "paths" | "hot";
   /** When true, run sync slow scan (redirect-critical writes). */
   syncSlow?: boolean;
   /** Relative or absolute paths written — triggers single-entry upsert (no full scan). */
   savedFilePaths?: string[];
   /**
-   * Files from a pull or another batch. Entries rebuild their URL and the pages
-   * that list that type. `db/<name>/…` rebuilds pages that read that database.
-   * A shared template file is not an entry: the caller passes those public paths.
+   * Files from a pull or another batch. Used to discover content types for the
+   * in-memory cache clear. HTML rebuilds follow `site_bulk_synced`.
    */
   touchedFiles?: string[];
-  /** Database slugs whose readers should rebuild, when the caller already knows them. */
-  databaseNames?: string[];
-  /** Row slugs whose cached public URL should rebuild like a normal page save. */
-  htmlSlugs?: string[];
 };
 
 export type ClassifiedContentTouch = {
@@ -121,8 +106,8 @@ export function classifyTouchedContentFiles(
 
 /**
  * Coalesce expensive post-write side effects: redirect cache, CI refresh,
- * content caches, sitemap, path-scoped HTML. Does not mark files modified
- * or enqueue previews.
+ * content caches, sitemap. HTML rebuilds are scheduled by the event
+ * dispatcher. Does not mark files modified or enqueue previews.
  */
 export function flushAfterContentWrites(opts: FlushAfterContentWritesOpts): void {
   const classified = opts.touchedFiles?.length
@@ -149,39 +134,6 @@ export function flushAfterContentWrites(opts: FlushAfterContentWritesOpts): void
     for (const contentType of types) {
       invalidateContentCachesWithoutHtml(contentType, opts.ci);
     }
-  }
-
-  const siteId = opts.siteId;
-  const paths = [...new Set([...(opts.htmlPaths?.filter(Boolean) ?? []), ...classified.htmlPaths])];
-  const databaseNames = [...new Set([...(opts.databaseNames ?? []), ...classified.databaseNames].filter(Boolean))];
-  const htmlSlugs = [...new Set((opts.htmlSlugs ?? []).map((slug) => slug.trim()).filter(Boolean))];
-  const contentRoot = opts.ci.contentRoot;
-  if (siteId && opts.htmlScope === "hot") {
-    void import("./html-rebuild")
-      .then(({ scheduleHotHtmlRebuild }) => {
-        scheduleHotHtmlRebuild("hot", contentRoot);
-      })
-      .catch(() => {});
-  } else if (siteId) {
-    void import("./html-rebuild")
-      .then(({
-        scheduleSavedHtmlPaths,
-        scheduleContentTypeListingRebuild,
-        scheduleDatabaseReaderRebuild,
-        scheduleCachedSlugHtmlRebuild,
-      }) => {
-        if (paths.length > 0) scheduleSavedHtmlPaths(siteId, paths, contentRoot);
-        for (const contentType of types) {
-          scheduleContentTypeListingRebuild({ siteId, contentRoot, contentType });
-        }
-        for (const dbName of databaseNames) {
-          scheduleDatabaseReaderRebuild({ siteId, contentRoot, dbName });
-        }
-        for (const slug of htmlSlugs) {
-          scheduleCachedSlugHtmlRebuild(siteId, slug, contentRoot);
-        }
-      })
-      .catch(() => {});
   }
 
   const locales = getSupportedLocales();

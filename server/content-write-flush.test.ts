@@ -60,7 +60,7 @@ describe("flushAfterContentWrites", () => {
     vi.clearAllMocks();
   });
 
-  it("clears redirects, upserts saved entries by default (no full CI refresh), invalidates without full HTML clear, refreshes locale sitemap", async () => {
+  it("clears redirects, upserts saved entries by default (no full CI refresh), invalidates without full HTML clear, refreshes locale sitemap", () => {
     flushAfterContentWrites({
       ci: ci as any,
       contentTypes: ["page", "page", "blog"],
@@ -70,7 +70,6 @@ describe("flushAfterContentWrites", () => {
       ],
       commonMetaTouched: false,
       siteId: "site_test",
-      htmlPaths: ["/en/home", "/en/blog/post"],
       savedFilePaths: ["site_test/pages/home/en.yml"],
     });
 
@@ -80,28 +79,11 @@ describe("flushAfterContentWrites", () => {
     expect(invalidateContentCachesWithoutHtml).toHaveBeenCalledTimes(2);
     expect(refreshSitemapEntry).toHaveBeenCalledTimes(2);
     expect(refreshSitemapEntriesForContentKey).not.toHaveBeenCalled();
-
-    await vi.waitFor(() => {
-      expect(scheduleSavedHtmlPaths).toHaveBeenCalled();
-    });
-    expect(scheduleSavedHtmlPaths).toHaveBeenCalledWith(
-      "site_test",
-      ["/en/home", "/en/blog/post"],
-      undefined,
-    );
+    expect(scheduleSavedHtmlPaths).not.toHaveBeenCalled();
+    expect(scheduleContentTypeListingRebuild).not.toHaveBeenCalled();
     expect(invalidateHtmlPageCacheForPath).not.toHaveBeenCalled();
     expect(invalidateHtmlPageCache).not.toHaveBeenCalled();
     expect(scheduleHotHtmlRebuild).not.toHaveBeenCalled();
-    expect(scheduleContentTypeListingRebuild).toHaveBeenCalledWith({
-      siteId: "site_test",
-      contentRoot: undefined,
-      contentType: "page",
-    });
-    expect(scheduleContentTypeListingRebuild).toHaveBeenCalledWith({
-      siteId: "site_test",
-      contentRoot: undefined,
-      contentType: "blog",
-    });
   });
 
   it("passes syncSlow true when requested", () => {

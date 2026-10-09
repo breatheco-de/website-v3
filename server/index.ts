@@ -796,6 +796,10 @@ app.use((req, res, next) => {
             actor ?? (author ? { type: "ui" as const } : { type: "system" as const, source: "content-pipeline" });
           emitEntryEventsFromFileChange({
             filePath,
+            resolveFolderType: (folder) => {
+              const type = ctx.contentIndex.normalizeType(folder);
+              return ctx.contentIndex.getContentTypeConfig(type) ? type : null;
+            },
             prevRaw: lastYamlContentByPath.get(filePath),
             nextRaw:
               typeof content === "string"
