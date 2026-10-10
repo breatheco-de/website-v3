@@ -123,6 +123,10 @@ async function runPrebuild(): Promise<void> {
   for (const site of sites) {
     const runtime = buildHtmlRebuildSite(site.contentFolder, site.contentFolder);
     runtimes.set(site.contentFolder, runtime);
+    // The slow index holds redirects. Building it here means refreshCustomRedirects
+    // does not enqueue index_refresh. That enqueue opens the live Sidequest
+    // database and this process never exits, so the deploy never flips traffic.
+    runtime.contentIndex.scanSlow();
     const redirects = createPublicUrlResolver(runtime.contentIndex, { freshRedirects: true });
     const seen = new Set<string>();
     for (const row of getSitemapUrls(toActiveSiteCtx(runtime), true)) {
