@@ -583,7 +583,8 @@ app.use((req, res, next) => {
 
   // Run the fast content-index scan synchronously before the server begins
   // listening so the first request is never blocked by the initial scan.
-  // The slow phase (image/variable/redirect/SEO indexing) runs in the background.
+  // Redirects, images, variables, menus, and SEO are filled by IndexRefreshJob
+  // after databases warm up (see the listen callback).
   for (const ctx of getSiteContextMap().values()) {
     ctx.contentIndex.scanFast();
   }
@@ -634,14 +635,11 @@ app.use((req, res, next) => {
     void import("./jobs/definitions/proposal-maintenance")
       .then(({ scheduleProposalMaintenance }) => scheduleProposalMaintenance())
       .catch((err) => logger.warn({ err }, "failed to schedule proposal maintenance jobs"));
-    for (const ctx of getSiteContextMap().values()) {
-      ctx.contentIndex.startSlowScanAsync();
-    }
     Promise.all([...getSiteContextMap().values()].map((ctx) => ctx.database.warmup()))
       .then(async () => {
         for (const ctx of getSiteContextMap().values()) {
           ctx.contentIndex.scanFast();
-          ctx.contentIndex.startSlowScanAsync();
+          ctx.contentIndex.enqueueIndexRefresh();
         }
         clearSitemapCache();
 
@@ -684,6 +682,9 @@ app.use((req, res, next) => {
       })
       .catch((err) => {
         logger.error({ err, worker: "DatabaseManager" }, "warmup error");
+        for (const ctx of getSiteContextMap().values()) {
+          ctx.contentIndex.enqueueIndexRefresh();
+        }
       })
       .finally(() => {
         warmupComplete = true;
@@ -786,12 +787,10 @@ app.use((req, res, next) => {
             ? filePath
             : path.join(process.cwd(), filePath);
           const fileExists = fs.existsSync(abs);
-          if (fileExists) {
-            try {
-              ctx.contentIndex.upsertEntry(filePath);
-            } catch {
-              /* non-fatal */
-            }
+          try {
+            ctx.contentIndex.upsertEntry(filePath);
+          } catch {
+            /* non-fatal */
           }
           if (!fileExists) {
             break;

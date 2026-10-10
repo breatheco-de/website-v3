@@ -3262,6 +3262,34 @@ function collectEntryKeysInFolder(
   return keys;
 }
 
+/** Drop one folder from the indexes that serve requests, after it is gone from disk. */
+async function upsertRemovedFolder(relFile: string): Promise<void> {
+  const seen = new Set<ContentIndex>();
+  const apply = (ci: ContentIndex) => {
+    if (seen.has(ci)) return;
+    seen.add(ci);
+    try {
+      ci.upsertEntry(relFile);
+    } catch {
+      /* non-fatal */
+    }
+  };
+  let matched = false;
+  try {
+    const { getSiteContextMap } = await import("./site-manager");
+    for (const ctx of getSiteContextMap().values()) {
+      if (!relFile.startsWith(`${ctx.contentRootName}/`)) continue;
+      matched = true;
+      apply(ctx.contentIndex);
+    }
+  } catch {
+    /* non-fatal */
+  }
+  if (!matched && relFile.startsWith(`${contentIndex.contentRootName}/`)) {
+    apply(contentIndex);
+  }
+}
+
 function emitEntryDeletedPipelineEvent(opts: {
   rootName: string;
   type: string;
@@ -3370,6 +3398,7 @@ export async function deleteContentEntry(
         markFileAsModified(`${rootName}/${typeFolder}/${resolvedSlug}/${file}`, author);
       }
       fs.rmSync(folderPath, { recursive: true, force: true });
+      await upsertRemovedFolder(`${rootName}/${typeFolder}/${resolvedSlug}/en.yml`);
       log.info(`[Content] Deleted ${type}/${slug} (all locales removed, folder cleaned up)`);
       try {
         const { removeSlugFromAllDependants } = await import("./utils/sectionAnchors");
@@ -3435,6 +3464,7 @@ export async function deleteContentEntry(
     markFileAsModified(`${rootName}/${typeFolder}/${resolvedSlug}/${file}`, author);
   }
   fs.rmSync(folderPath, { recursive: true, force: true });
+  await upsertRemovedFolder(`${rootName}/${typeFolder}/${resolvedSlug}/en.yml`);
   log.info(`[Content] Deleted ${type}/${slug}`);
   invalidateSitemapEntriesByContentKey(`${type}:${resolvedSlug}`);
   contentIndex.refresh();

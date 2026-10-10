@@ -87,6 +87,35 @@ export function getLastAppliedSnapshot(site: string): { generation: number; appl
   return lastAppliedSnapshot.get(site) ?? null;
 }
 
+/** Generation 0 is a real snapshot (boot, before any write event). Missing or NaN is not. */
+export function snapshotGeneration(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/** A snapshot applies when none has been applied yet, or this generation is newer. */
+export function isNewerSnapshot(generation: number, lastApplied: number | null): boolean {
+  return lastApplied == null || generation > lastApplied;
+}
+
+export type SnapshotDecision = "apply" | "already-applied" | "stale";
+
+/**
+ * A restart drops the in-memory index. The persisted generation can be ahead of a
+ * new snapshot (dev wipes the event log back to 0). That snapshot still has to load
+ * while the slow phase is empty. Once the slow phase is in memory, an older
+ * generation is discarded. A snapshot behind the latest write is always stale.
+ */
+export function decideSnapshot(opts: {
+  generation: number;
+  lastApplied: number | null;
+  slowPhaseReady: boolean;
+  latestWriteGen: number;
+}): SnapshotDecision {
+  if (opts.latestWriteGen > opts.generation) return "stale";
+  if (!opts.slowPhaseReady || isNewerSnapshot(opts.generation, opts.lastApplied)) return "apply";
+  return "already-applied";
+}
+
 function deleteSnapshotFile(snapshotPath: string): void {
   try {
     fs.unlinkSync(snapshotPath);
@@ -149,14 +178,14 @@ async function applyPendingSnapshots(
   contentRoot: string,
 ): Promise<void> {
   const latestWriteGen = getLatestWriteGeneration(site);
-  const lastApplied = getLastAppliedSnapshot(site)?.generation ?? 0;
+  const lastApplied = getLastAppliedSnapshot(site)?.generation ?? null;
 
   const events = listEvents({ site, type: "index_snapshot_ready", limit: 30 });
   const candidates: Array<{ generation: number; snapshotPath: string }> = [];
   for (const event of events) {
     const snapshotPath = event.payload.snapshotPath as string | undefined;
-    const generation = event.payload.generation as number | undefined;
-    if (!snapshotPath || !generation || !fs.existsSync(snapshotPath)) continue;
+    const generation = snapshotGeneration(event.payload.generation);
+    if (!snapshotPath || generation == null || !fs.existsSync(snapshotPath)) continue;
     candidates.push({ generation, snapshotPath });
   }
 
@@ -164,11 +193,17 @@ async function applyPendingSnapshots(
 
   let appliedGeneration = lastApplied;
   for (const { generation, snapshotPath } of candidates) {
-    if (generation <= appliedGeneration) {
+    const decision = decideSnapshot({
+      generation,
+      lastApplied: appliedGeneration,
+      slowPhaseReady: ci.isSlowPhaseReady(),
+      latestWriteGen,
+    });
+    if (decision === "already-applied") {
       deleteSnapshotFile(snapshotPath);
       continue;
     }
-    if (latestWriteGen > generation) {
+    if (decision === "stale") {
       log.debug({ site, generation, latestWriteGen }, "[Applier] dropping stale snapshot");
       deleteSnapshotFile(snapshotPath);
       continue;
@@ -220,10 +255,10 @@ async function applyPendingSnapshots(
 
   const seoEvents = listEvents({ site, type: "seo_index_ready", limit: 10 });
   for (const event of seoEvents) {
-    const generation = event.payload.generation as number | undefined;
-    if (!generation) continue;
-    const lastSeo = getLastAppliedSeoSnapshot(site)?.generation ?? 0;
-    if (generation <= lastSeo) continue;
+    const generation = snapshotGeneration(event.payload.generation);
+    if (generation == null) continue;
+    const lastSeo = getLastAppliedSeoSnapshot(site)?.generation ?? null;
+    if (!isNewerSnapshot(generation, lastSeo)) continue;
     invalidateSeoIndexCache();
     recordLastAppliedSeo(site, generation);
     log.info({ site, generation }, "[Applier] seo index cache invalidated");

@@ -68,7 +68,7 @@ page:
         : null,
     ),
   );
-  ci.refresh({ syncSlow: true });
+  ci.scan();
 });
 
 afterEach(() => {

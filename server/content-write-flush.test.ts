@@ -57,7 +57,10 @@ describe("flushAfterContentWrites", () => {
     upsertEntry: vi.fn(),
     getAlternateUrls: vi.fn(() => ({ en: "/en/home", es: "/es/inicio" })),
     buildUrl: vi.fn(() => "/en/home"),
+    contentRoot: "/tmp/site_test",
     contentRootName: "site_test",
+    getContentTypeConfig: (folder: string) => (folder === "pages" ? { directory: "pages" } : undefined),
+    normalizeType: (folder: string) => folder,
   };
 
   beforeEach(() => {
@@ -90,14 +93,18 @@ describe("flushAfterContentWrites", () => {
     expect(scheduleHotHtmlRebuild).not.toHaveBeenCalled();
   });
 
-  it("passes syncSlow true when requested", () => {
+  it("queues a full index rebuild and upserts pulled folders when syncSlow is set", () => {
     flushAfterContentWrites({
       ci: ci as any,
       contentTypes: ["page"],
       sitemapEntries: [{ contentType: "page", slug: "home", locale: "en" }],
       syncSlow: true,
+      touchedFiles: ["site_test/pages/home/en.yml", "site_test/content-types.yml"],
     });
-    expect(ci.refresh).toHaveBeenCalledWith({ syncSlow: true });
+    expect(ci.refresh).toHaveBeenCalledTimes(1);
+    expect(ci.refresh).toHaveBeenCalledWith();
+    expect(ci.upsertEntry).toHaveBeenCalledWith("site_test/pages/home/en.yml");
+    expect(ci.upsertEntry).toHaveBeenCalledWith("site_test/content-types.yml");
     expect(scheduleHotHtmlRebuild).not.toHaveBeenCalled();
   });
 

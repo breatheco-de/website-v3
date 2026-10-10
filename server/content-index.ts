@@ -166,8 +166,6 @@ export class ContentIndex {
   private slowScanTimer: ReturnType<typeof setTimeout> | null = null;
   private slowScanRunning = false;
   private slowScanQueued = false;
-  private refreshRunning = false;
-  private refreshQueued = false;
   /**
    * When set, image/variable/menu/SEO extractors write into these maps instead of
    * the live ones so scanSlow can swap atomically (same idea as redirectEntries).
@@ -1320,7 +1318,8 @@ export class ContentIndex {
   private ensureInitialized(): void {
     if (!this.initialized) {
       this.scanFast();
-      this.startSlowScanAsync();
+      // Slow maps (redirects, images, variables, menus, SEO) are built on Sidequest.
+      this.enqueueIndexRefresh();
     }
   }
 
@@ -1461,24 +1460,15 @@ export class ContentIndex {
 
   /**
    * Re-read custom-redirects.yml from disk into redirectEntries.
-   * Never leaves the index in a misleading custom-only + ready state: if the slow
-   * phase is not ready yet, runs a full slow rebuild. Once ready, always uses the
-   * cheap custom-only path (even when there are zero content redirects).
+   * If the slow phase is not ready yet, returns the redirects already in memory
+   * and enqueues the Sidequest index job. Once ready, always uses the cheap
+   * custom-only path (even when there are zero content redirects).
    */
   refreshCustomRedirects(): RedirectEntry[] {
     this.ensureInitialized();
 
     if (!this.slowPhaseReady) {
-      this.cancelPendingSlowScan();
-      this.slowScanRunning = true;
-      try {
-        this.scanSlow();
-      } finally {
-        this.slowScanRunning = false;
-        if (this.slowScanQueued) {
-          this.startSlowScanAsync(0);
-        }
-      }
+      this.enqueueIndexRefresh();
       return [...this.redirectEntries];
     }
 
@@ -1498,7 +1488,7 @@ export class ContentIndex {
    *
    * - `custom-redirects.yml` → cheap re-read of that file
    * - page `meta.redirects` → re-extract redirects from that one source file
-   * - unknown / not-ready → non-blocking background slow scan
+   * - unknown / not-ready → enqueue the Sidequest index job (no site parse on this process)
    */
   refreshAfterRedirectWrite(writtenPath?: string): void {
     this.ensureInitialized();
@@ -1508,7 +1498,7 @@ export class ContentIndex {
       return;
     }
     if (!this.refreshRedirectsFromContentSource(source)) {
-      this.startSlowScanAsync(0);
+      this.enqueueIndexRefresh();
     }
   }
 
@@ -1858,37 +1848,44 @@ export class ContentIndex {
   }
 
   /**
-   * Reindex content. Default is non-blocking: scanFast + coalesced background
-   * scanSlow (same as the file-watcher path). Pass `{ syncSlow: true }` when
-   * redirects/index must be correct before the caller returns (GitHub pull,
-   * rename-with-redirect, raw YAML save, explicit refresh-cache).
-   * Does not rebuild public HTML. Callers enqueue the pages that changed.
+   * Ask Sidequest to rebuild the full index. Does not walk or parse the site
+   * on this process. `syncSlow` is accepted so existing callers compile; the
+   * request returns as soon as the job is queued (one live job per site).
+   * Does not rebuild public HTML.
    */
-  refresh(opts?: { syncSlow?: boolean }): void {
-    const syncSlow = opts?.syncSlow === true;
+  refresh(_opts?: { syncSlow?: boolean }): void {
     this.getDatabase().clearMappedMemo();
-
-    if (!syncSlow) {
-      this.scanFast();
-      this.startSlowScanAsync();
-      invalidateStaticListingCache(undefined, this.contentRoot);
-      return;
-    }
-
-    if (this.refreshRunning) {
-      this.refreshQueued = true;
-      return;
-    }
-    this.refreshRunning = true;
-    try {
-      do {
-        this.refreshQueued = false;
-        this.scan();
-      } while (this.refreshQueued);
-    } finally {
-      this.refreshRunning = false;
-    }
+    this.enqueueIndexRefresh();
     invalidateStaticListingCache(undefined, this.contentRoot);
+  }
+
+  /**
+   * Queue IndexRefreshJob for this site. Coalesces with any index_refresh
+   * already waiting or running. No-op under vitest so unit tests do not open
+   * the Sidequest database; callers spy on this method to assert the enqueue.
+   */
+  enqueueIndexRefresh(): void {
+    if (process.env.VITEST) return;
+    const site = this.contentRootName;
+    const contentRoot = this.contentRoot;
+    void import("./jobs/queue")
+      .then(async ({ enqueueJob }) => {
+        let generation = 0;
+        try {
+          const { getLatestWriteGeneration } = await import("./events/event-store");
+          generation = getLatestWriteGeneration(site);
+        } catch (err) {
+          log.warn({ err, site }, "[ContentIndex] write generation unavailable; enqueueing index refresh at 0");
+        }
+        await enqueueJob(
+          "index_refresh",
+          { site, contentRoot, generation },
+          { uniqueKey: `index:${site}`, uniqueWithArgs: false },
+        );
+      })
+      .catch((err) => {
+        log.warn({ err, site }, "[ContentIndex] Failed to enqueue index refresh");
+      });
   }
 
   getStats(): { total: number; byType: Record<string, number> } {
@@ -2724,8 +2721,20 @@ export class ContentIndex {
     return true;
   }
 
+  /** Drop locale-slug keys that already point at this folder and content type. */
+  private forgetLocaleSlugs(contentType: string, folderSlug: string): void {
+    for (const [key, value] of this.localeSlugMap) {
+      const sep = key.lastIndexOf(":");
+      if (sep < 0) continue;
+      if (value === folderSlug && key.slice(sep + 1) === contentType) {
+        this.localeSlugMap.delete(key);
+      }
+    }
+  }
+
   /**
    * Re-index a single entry folder after a save (one-folder fast scan, no site scan).
+   * If the folder is gone, the previous URLs and locale slugs for it are removed.
    */
   upsertEntry(filePath: string): void {
     this.ensureInitialized();
@@ -2749,6 +2758,7 @@ export class ContentIndex {
     const parts = dirRel.split("/");
     if (parts.length < 3) return;
     const contentType = this.normalizeType(parts[parts.length - 2]!);
+    this.forgetLocaleSlugs(contentType, folderName);
     const folderPath = path.join(process.cwd(), dirRel);
     if (!fs.existsSync(folderPath)) return;
 

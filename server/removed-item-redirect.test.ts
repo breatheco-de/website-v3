@@ -37,7 +37,7 @@ function buildIndex() {
         : null,
     ),
   );
-  ci.refresh({ syncSlow: true });
+  ci.scan();
 }
 
 function writeSeoIndex(entries: Record<string, unknown>) {

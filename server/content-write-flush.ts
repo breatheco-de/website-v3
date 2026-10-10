@@ -2,9 +2,10 @@
  * Shared post-write flush for content edits (single-edit and bulk-meta).
  * Call immediately after one successful edit, or once at end of a bulk batch.
  *
- * Default path is non-blocking: scanFast + coalesced background scanSlow.
- * HTML copies are rebuilt by the event dispatcher, not here. Pass syncSlow
- * when the written file(s) change redirects.
+ * Default path updates each saved folder in the URL map and returns.
+ * syncSlow still returns immediately: those folders are upserted, then the
+ * full index rebuild is queued on Sidequest. HTML copies are rebuilt by the
+ * event dispatcher, not here.
  */
 
 import { isLocaleHomeAlias } from "@shared/public-app-routes";
@@ -42,7 +43,7 @@ export type FlushAfterContentWritesOpts = {
   commonMetaTouched?: boolean;
   /** Site id kept so existing callers still compile. HTML rebuilds follow the event. */
   siteId?: string;
-  /** When true, run sync slow scan (redirect-critical writes). */
+  /** When true, upsert touched folders and queue a full index rebuild. Does not block. */
   syncSlow?: boolean;
   /** Relative or absolute paths written — triggers single-entry upsert (no full scan). */
   savedFilePaths?: string[];
@@ -118,16 +119,19 @@ export function flushAfterContentWrites(opts: FlushAfterContentWritesOpts): void
   const types = [...new Set([...opts.contentTypes, ...classified.contentTypes].filter(Boolean))];
   clearRedirectCache();
 
+  const upsertPaths = new Set<string>(opts.savedFilePaths ?? []);
   if (opts.syncSlow === true) {
-    opts.ci.refresh({ syncSlow: true });
-  } else if (opts.savedFilePaths?.length) {
-    for (const fp of opts.savedFilePaths) {
-      try {
-        opts.ci.upsertEntry(fp);
-      } catch {
-        /* non-fatal */
-      }
+    for (const fp of opts.touchedFiles ?? []) upsertPaths.add(fp);
+  }
+  for (const fp of upsertPaths) {
+    try {
+      opts.ci.upsertEntry(fp);
+    } catch {
+      /* non-fatal */
     }
+  }
+  if (opts.syncSlow === true) {
+    opts.ci.refresh();
   }
 
   if (types.length === 0) {
