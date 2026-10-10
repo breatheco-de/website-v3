@@ -40,6 +40,9 @@ if (isDirectRun) {
 async function runPrebuild(): Promise<void> {
   loadDotenv({ quiet: true });
   process.env.NODE_ENV = "production";
+  // Rendering touches the global content index, which would enqueue index_refresh.
+  // That opens the live Sidequest database and this process never exits.
+  process.env.PREBUILD_HTML = "1";
 
   const { requireSiteConfigs } = await import("../server/site-config");
   const { renderHubHtml } = await import("../server/render-hub-html");

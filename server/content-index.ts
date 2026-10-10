@@ -1863,9 +1863,11 @@ export class ContentIndex {
    * Queue IndexRefreshJob for this site. Coalesces with any index_refresh
    * already waiting or running. No-op under vitest so unit tests do not open
    * the Sidequest database; callers spy on this method to assert the enqueue.
+   * No-op during HTML prebuild: that process cannot write the live Sidequest
+   * database, and the open connection keeps the deploy from exiting.
    */
   enqueueIndexRefresh(): void {
-    if (process.env.VITEST) return;
+    if (process.env.VITEST || process.env.PREBUILD_HTML === "1") return;
     const site = this.contentRootName;
     const contentRoot = this.contentRoot;
     void import("./jobs/queue")
