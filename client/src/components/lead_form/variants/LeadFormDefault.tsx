@@ -1895,7 +1895,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       if (effective.success?.url) {
         const successUrl =
           resolveTemplatedUrl(effective.success.url) || effective.success.url;
-        nav.navigate(successUrl);
+        // Submit already awaited the lead request, so a new tab is outside the
+        // tap and mobile browsers block it. Stay in this tab instead.
+        nav.navigate(successUrl, { external: "same-tab" });
       } else {
         setIsSuccess(true);
         setSuccessMessage(effective.success?.message || (locale === "es" 
