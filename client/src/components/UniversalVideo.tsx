@@ -1,4 +1,5 @@
 import React, { useRef, useState, createElement } from "react";
+import { track } from "@/lib/tracking";
 import { Play, VolumeX, X } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
@@ -52,6 +53,123 @@ export function canAutoplayInline(url?: string | null): boolean {
   return isLocalVideo(url) || isYouTubeUrl(url);
 }
 
+/** YouTube starts inline when autoplay is on. Off keeps the thumbnail until click. */
+export function shouldPlayYouTubeInline(opts: {
+  url?: string | null;
+  autoplay?: boolean;
+}): boolean {
+  const { url, autoplay } = opts;
+  if (!url || !autoplay) return false;
+  return isYouTubeUrl(url);
+}
+
+export const VIDEO_PROGRESS_PERCENTS = [10, 25, 50, 75] as const;
+
+/** Percent marks crossed now that have not been sent yet. */
+export function videoProgressMilestones(
+  percent: number,
+  already: ReadonlySet<number>,
+): number[] {
+  return VIDEO_PROGRESS_PERCENTS.filter((mark) => percent >= mark && !already.has(mark));
+}
+
+/**
+ * A file sends a progress mark when playback passes it.
+ * A scrub that jumps ahead skips those marks, the same way YouTube does in Tag Manager.
+ */
+export function fileProgressStep(opts: {
+  lastTime: number | null;
+  currentTime: number;
+  duration: number;
+  elapsedWallSeconds: number;
+  already: ReadonlySet<number>;
+}): { emit: number[]; skip: number[] } {
+  const { lastTime, currentTime, duration, elapsedWallSeconds, already } = opts;
+  if (!duration || !Number.isFinite(duration) || duration <= 0) return { emit: [], skip: [] };
+  if (!Number.isFinite(currentTime) || currentTime < 0) return { emit: [], skip: [] };
+  const baseline = lastTime == null ? 0 : lastTime;
+  const elapsed = lastTime == null ? 0 : elapsedWallSeconds;
+  const crossed = videoProgressMilestones((currentTime / duration) * 100, already);
+  const scrub = currentTime - baseline > elapsed + 0.75;
+  if (scrub) return { emit: [], skip: crossed };
+  return { emit: crossed, skip: [] };
+}
+
+/** A new playthrough: the file looped or the viewer restarted after the end. */
+export function filePlaybackRestarted(opts: {
+  lastTime: number | null;
+  currentTime: number;
+  duration: number;
+  completed: boolean;
+}): boolean {
+  const { lastTime, currentTime, duration, completed } = opts;
+  if (lastTime == null || !duration || !Number.isFinite(duration) || duration <= 0) return false;
+  if (!Number.isFinite(currentTime) || currentTime < 0 || currentTime >= 1) return false;
+  const cameFromEnd = completed || videoReachedEnd(lastTime, duration);
+  return cameFromEnd && lastTime - currentTime > 1;
+}
+
+/** True once playback has reached the end, including a loop that is about to restart. */
+export function videoReachedEnd(currentTime: number, duration: number): boolean {
+  if (!duration || !Number.isFinite(duration) || duration <= 0) return false;
+  if (!Number.isFinite(currentTime) || currentTime < 0) return false;
+  return currentTime >= duration - 0.25 || currentTime / duration >= 0.995;
+}
+
+export type VideoTrackProvider = "youtube" | "file" | "embed";
+
+/** A file with no muted card counts when it starts on its own. YouTube never does. Another embed does not until the click. */
+export function shouldEmitVideoStart(opts: {
+  url?: string | null;
+  overlay_on_muted?: VideoOverlayOnMuted | null;
+}): boolean {
+  const { url, overlay_on_muted } = opts;
+  if (!url || isYouTubeUrl(url)) return false;
+  if (overlay_on_muted != null) return false;
+  return isLocalVideo(url);
+}
+
+export type YouTubeEmbedOptions = {
+  forInline?: boolean;
+  /** YouTube query param. Only the player that should start on its own sets this. */
+  autoplay?: boolean;
+  muted?: boolean;
+  loop?: boolean;
+  restart?: boolean;
+  /** YouTube chrome; false hides the control bar while the muted card is up. */
+  controls?: boolean;
+  /** www.youtube.com + enablejsapi so Tag Manager can hear this player. The site does not push events for it. */
+  counting?: boolean;
+};
+
+export function buildYouTubeEmbedUrl(ytId: string, opts: YouTubeEmbedOptions = {}): string {
+  const {
+    forInline = false,
+    autoplay: embedAutoplay = false,
+    muted: embedMuted = false,
+    loop: embedLoop = false,
+    restart = false,
+    controls = true,
+    counting = false,
+  } = opts;
+  const domain = counting ? "https://www.youtube.com" : "https://www.youtube-nocookie.com";
+  const params = new URLSearchParams({
+    rel: "0",
+    playsinline: forInline || embedMuted ? "1" : "0",
+  });
+  if (embedAutoplay) params.set("autoplay", "1");
+  if (embedMuted) params.set("mute", "1");
+  if (!controls) params.set("controls", "0");
+  if (embedLoop) {
+    params.set("loop", "1");
+    // YouTube requires playlist= itself for loop to work on a single video.
+    params.set("playlist", ytId);
+  }
+  if (restart) params.set("start", "0");
+  if (counting) params.set("enablejsapi", "1");
+  return `${domain}/embed/${ytId}?${params.toString()}`;
+}
+
 export function shouldShowMutedOverlay(opts: {
   url?: string | null;
   autoplay?: boolean;
@@ -97,10 +215,55 @@ const parseRatioValue = (ratio?: string): number => {
   return 16 / 9;
 };
 
-const usesMobileLayout = (): boolean => {
-  if (typeof window === 'undefined') return false;
-  return window.matchMedia('(max-width: 768px)').matches;
-};
+function usesMobileLayout(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(max-width: 768px)").matches;
+}
+
+function fileVideoTitle(fileUrl: string): string {
+  const path = fileUrl.split("?")[0]?.split("#")[0] ?? "";
+  const name = path.split("/").pop() || "";
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}
+
+function videoElementVisible(el?: HTMLVideoElement | null): boolean {
+  if (!el || typeof window === "undefined") return true;
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
+}
+
+declare global {
+  interface Window {
+    YT?: { Player: new (elementId: string) => unknown };
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
+
+let youtubeApiPromise: Promise<void> | null = null;
+
+/** Load the IFrame API so Tag Manager can hear a player created after click. Does not push events. */
+function loadYouTubeIframeApi(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  if (window.YT?.Player) return Promise.resolve();
+  if (youtubeApiPromise) return youtubeApiPromise;
+  youtubeApiPromise = new Promise((resolve) => {
+    const previous = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      previous?.();
+      resolve();
+    };
+    if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+      const script = document.createElement("script");
+      script.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(script);
+    }
+  });
+  return youtubeApiPromise;
+}
 
 export function UniversalVideo({
   url,
@@ -128,6 +291,12 @@ export function UniversalVideo({
   const [modalStartTime, setModalStartTime] = useState(0);
   const autoplayVideoRef = useRef<HTMLVideoElement | null>(null);
   const modalVideoRef = useRef<HTMLVideoElement | null>(null);
+  const videoStartSent = useRef(false);
+  const videoCompleteSent = useRef(false);
+  const videoMilestonesSent = useRef(new Set<number>());
+  const fileLastTimeRef = useRef<number | null>(null);
+  const fileLastWallRef = useRef<number | null>(null);
+  const youtubeHookedRef = useRef(false);
   const [videoId] = useState(() => `video-${Math.random().toString(36).substr(2, 9)}`);
   const aspectRatio = parseRatio(ratio);
   const mobileAspectRatio = mobileRatio ? parseRatio(mobileRatio) : null;
@@ -147,6 +316,105 @@ export function UniversalVideo({
 
   const isYouTube = isYouTubeUrl(url);
   const youtubeId = isYouTube ? extractYouTubeId(url) : null;
+  const trackProvider: VideoTrackProvider = isYouTube
+    ? "youtube"
+    : isLocalVideo(url)
+      ? "file"
+      : "embed";
+
+  const fileEventFields = (el?: HTMLVideoElement | null) => {
+    const title = fileVideoTitle(url);
+    const visible = videoElementVisible(el);
+    const timed = el && Number.isFinite(el.duration)
+      ? {
+          video_duration: Math.round(el.duration),
+          video_current_time: Math.round(el.currentTime),
+        }
+      : {};
+    return {
+      video_url: url,
+      video_provider: "file" as const,
+      video_title: title,
+      visible,
+      ...timed,
+    };
+  };
+
+  const emitVideoStart = (el?: HTMLVideoElement | null) => {
+    if (!url || isYouTubeUrl(url)) return;
+    if (videoStartSent.current) return;
+    videoStartSent.current = true;
+    track("video_start", fileEventFields(el));
+  };
+
+  const reportFileProgress = (el: HTMLVideoElement) => {
+    if (trackProvider !== "file") return;
+    const duration = el.duration;
+    if (!duration || !Number.isFinite(duration)) return;
+    const now = performance.now();
+    if (
+      filePlaybackRestarted({
+        lastTime: fileLastTimeRef.current,
+        currentTime: el.currentTime,
+        duration,
+        completed: videoCompleteSent.current,
+      })
+    ) {
+      resetFilePlay();
+      emitVideoStart(el);
+    }
+    const elapsedWallSeconds =
+      fileLastWallRef.current == null ? 0 : (now - fileLastWallRef.current) / 1000;
+    const step = fileProgressStep({
+      lastTime: fileLastTimeRef.current,
+      currentTime: el.currentTime,
+      duration,
+      elapsedWallSeconds,
+      already: videoMilestonesSent.current,
+    });
+    for (const mark of step.skip) videoMilestonesSent.current.add(mark);
+    const fields = fileEventFields(el);
+    for (const mark of step.emit) {
+      videoMilestonesSent.current.add(mark);
+      track("video_progress", { ...fields, video_percent: mark });
+    }
+    fileLastTimeRef.current = el.currentTime;
+    fileLastWallRef.current = now;
+    if (!videoCompleteSent.current && videoReachedEnd(el.currentTime, duration)) {
+      videoCompleteSent.current = true;
+      track("video_complete", fields);
+    }
+  };
+
+  const bindFileProgress = (el: HTMLVideoElement | null) => {
+    if (!el || trackProvider !== "file") return;
+    el.ontimeupdate = () => reportFileProgress(el);
+    el.onended = () => reportFileProgress(el);
+  };
+
+  const resetFilePlay = () => {
+    videoStartSent.current = false;
+    videoCompleteSent.current = false;
+    videoMilestonesSent.current = new Set();
+    fileLastTimeRef.current = null;
+    fileLastWallRef.current = null;
+  };
+
+  const hookYouTubePlayer = (el: HTMLIFrameElement | null) => {
+    if (!el) {
+      youtubeHookedRef.current = false;
+      return;
+    }
+    if (youtubeHookedRef.current) return;
+    youtubeHookedRef.current = true;
+    void loadYouTubeIframeApi().then(() => {
+      if (!el.isConnected || !window.YT?.Player) {
+        youtubeHookedRef.current = false;
+        return;
+      }
+      new window.YT.Player(el.id);
+    });
+  };
   
   const thumbnailUrl = preview_image_url || (youtubeId ? getYouTubeThumbnail(youtubeId) : null);
 
@@ -157,15 +425,18 @@ export function UniversalVideo({
   }) && !overlayDismissed && !forcePreviewAfterModal;
 
   const handleClick = () => {
+    const opensInline = usesMobileLayout() || !openInModal;
     // Re-open modal after closing an open_modal_on_click session.
     if (openInModal && forcePreviewAfterModal) {
       setModalStartTime(0);
       setModalStartUnmuted(true);
       setIsModalOpen(true);
+      emitVideoStart();
       return;
     }
+    emitVideoStart();
     // Mobile: always inline (existing behavior). Desktop: honor open_modal_on_click.
-    if (usesMobileLayout() || !openInModal) {
+    if (opensInline) {
       setIsPlayingInline(true);
     } else {
       setIsModalOpen(true);
@@ -174,6 +445,7 @@ export function UniversalVideo({
 
   const handleStopInline = () => {
     setIsPlayingInline(false);
+    resetFilePlay();
   };
 
   const handleOverlayClick = () => {
@@ -187,8 +459,15 @@ export function UniversalVideo({
         videoEl.currentTime = 0;
       }
       videoEl.muted = false;
+      const duration = videoEl.duration;
+      const percent =
+        duration && Number.isFinite(duration) ? (videoEl.currentTime / duration) * 100 : 0;
+      for (const mark of VIDEO_PROGRESS_PERCENTS) {
+        if (percent >= mark) videoMilestonesSent.current.add(mark);
+      }
     }
     setOverlayDismissed(true);
+    emitVideoStart(videoEl);
 
     if (shouldOpenModal) {
       if (isLocalVideo(url) && videoEl) {
@@ -206,9 +485,10 @@ export function UniversalVideo({
 
     if (isLocalVideo(url) && videoEl) {
       videoEl.controls = true;
+      bindFileProgress(videoEl);
       void videoEl.play().catch(() => {});
     }
-    // YouTube: remount iframe without mute (user gesture allows sound).
+    // YouTube: remount iframe without mute. Tag Manager hears that player; the site does not push.
   };
 
   const handleModalOpenChange = (open: boolean) => {
@@ -216,6 +496,7 @@ export function UniversalVideo({
     if (!open) {
       setModalStartUnmuted(false);
       setModalStartTime(0);
+      resetFilePlay();
       // After open_modal_on_click, fall back to thumbnail + play so the user can reopen.
       if (openInModal && overlayDismissed) {
         setForcePreviewAfterModal(true);
@@ -237,41 +518,6 @@ export function UniversalVideo({
       if (el.readyState >= 1) seek();
       else el.addEventListener("loadedmetadata", seek, { once: true });
     }
-  };
-
-  const buildYouTubeEmbedUrl = (
-    ytId: string,
-    opts: {
-      forInline?: boolean;
-      muted?: boolean;
-      loop?: boolean;
-      restart?: boolean;
-      /** YouTube chrome; false hides the control bar (e.g. while muted overlay is up). */
-      controls?: boolean;
-    } = {},
-  ): string => {
-    const {
-      forInline = false,
-      muted: embedMuted = false,
-      loop: embedLoop = false,
-      restart = false,
-      controls = true,
-    } = opts;
-    const domain = "https://www.youtube-nocookie.com";
-    const params = new URLSearchParams({
-      autoplay: "1",
-      rel: "0",
-      playsinline: forInline || embedMuted ? "1" : "0",
-    });
-    if (embedMuted) params.set("mute", "1");
-    if (!controls) params.set("controls", "0");
-    if (embedLoop) {
-      params.set("loop", "1");
-      // YouTube requires playlist= itself for loop to work on a single video.
-      params.set("playlist", ytId);
-    }
-    if (restart) params.set("start", "0");
-    return `${domain}/embed/${ytId}?${params.toString()}`;
   };
 
   const renderMutedOverlayCard = () => {
@@ -325,7 +571,9 @@ export function UniversalVideo({
         >
           {isYouTube && youtubeId ? (
             <iframe
-              src={buildYouTubeEmbedUrl(youtubeId, { forInline: true })}
+              id={`${videoId}-yt-inline`}
+              ref={hookYouTubePlayer}
+              src={buildYouTubeEmbedUrl(youtubeId, { forInline: true, counting: true, autoplay: true })}
               title="Video"
               className="absolute inset-0 w-full h-full rounded-lg"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -334,6 +582,11 @@ export function UniversalVideo({
             />
           ) : isLocalVideo(url) ? (
             <video
+              ref={(el) => {
+                if (!el) return;
+                bindFileProgress(el);
+                emitVideoStart(el);
+              }}
               src={url}
               autoPlay
               loop={loop}
@@ -425,9 +678,13 @@ export function UniversalVideo({
     if (isYouTube && youtubeId) {
       return (
         <iframe
+          id={`${videoId}-yt-modal`}
+          ref={hookYouTubePlayer}
           src={buildYouTubeEmbedUrl(youtubeId, {
+            autoplay: true,
             muted: false,
             loop,
+            counting: true,
             restart: overlay_on_muted?.restart_video_on_click === true,
           })}
           title="Video"
@@ -445,6 +702,9 @@ export function UniversalVideo({
           ref={(el) => {
             modalVideoRef.current = el;
             applyModalStartTime(el);
+            if (!el || !isLocalVideo(url)) return;
+            bindFileProgress(el);
+            emitVideoStart(el);
           }}
           key={`modal-${modalStartTime}`}
           src={url}
@@ -477,9 +737,14 @@ export function UniversalVideo({
       overlayDismissed &&
       isLocalVideo(url) &&
       (!openInModal || usesMobileLayout());
-    // YouTube autoplay is always muted until the overlay is dismissed (browser policy).
-    // Without an overlay, stay muted for the whole autoplay session.
-    const youtubeMuted = overlay_on_muted ? !overlayDismissed : true;
+    // No listen card: muted autoplay is the play Tag Manager counts.
+    // With a card: the preview stays on nocookie. After the click, only the
+    // inline player the visitor is watching is hooked.
+    const countsMutedAutoplay = overlay_on_muted == null;
+    const youtubeCountsInline =
+      countsMutedAutoplay ||
+      (overlayDismissed && (!openInModal || usesMobileLayout()));
+    const youtubeMuted = countsMutedAutoplay || !youtubeCountsInline;
 
     return (
       <>
@@ -492,11 +757,17 @@ export function UniversalVideo({
         >
           {isYouTube && youtubeId ? (
             <iframe
+              id={youtubeCountsInline ? `${videoId}-yt-inline` : undefined}
+              ref={(el) => {
+                if (youtubeCountsInline) hookYouTubePlayer(el);
+              }}
               key={overlayDismissed ? "yt-unmuted" : "yt-muted"}
               src={buildYouTubeEmbedUrl(youtubeId, {
                 forInline: true,
+                autoplay,
                 muted: youtubeMuted,
                 loop,
+                counting: youtubeCountsInline,
                 // Hide YT chrome while the muted overlay card is up; restore after click.
                 controls: !showMutedOverlay,
                 restart:
@@ -511,7 +782,12 @@ export function UniversalVideo({
             />
           ) : (
             <video
-              ref={autoplayVideoRef}
+              ref={(el) => {
+                autoplayVideoRef.current = el;
+                if (!el || !isLocalVideo(url) || showMutedOverlay) return;
+                bindFileProgress(el);
+                if (shouldEmitVideoStart({ url, overlay_on_muted })) emitVideoStart(el);
+              }}
               src={url}
               autoPlay
               loop={loop}
@@ -528,10 +804,10 @@ export function UniversalVideo({
   };
 
   const shouldPlayInline = Boolean(
-    autoplay &&
-      canAutoplayInline(url) &&
-      (!isYouTube || youtubeId) &&
-      !forcePreviewAfterModal,
+    !forcePreviewAfterModal &&
+      ((isLocalVideo(url) && autoplay) ||
+        (Boolean(youtubeId) &&
+          shouldPlayYouTubeInline({ url, autoplay }))),
   );
 
   const previewContent = shouldPlayInline ? renderAutoplayInlineVideo() : renderPreview();

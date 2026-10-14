@@ -144,8 +144,26 @@ Site-wide **leads by traffic source** (`get_analytics_report` → `traffic_sourc
 | `page_view`           | Fired on each page navigation      |
 | `experiment_exposure` | A/B test variant assignment        |
 | `cta_click`           | User clicks a call-to-action       |
-| `video_play`          | User plays a video                 |
+| `video_play`          | Reserved. Not sent. YouTube plays are `gtm.video` from Tag Manager; files use the events below. |
+| `video_start`         | A file or other embed started for real. Not the muted card. Not YouTube. |
+| `video_progress`      | File playback crossed 10, 25, 50, or 75 percent. `video_percent` says which. |
+| `video_complete`      | File playback reached the end, once, even if it loops. |
 | `scroll_depth`        | User scrolls to a depth threshold  |
+
+### Video playback
+
+YouTube and files are measured differently. Leave GA4 **Enhanced measurement → Video engagement** on. The site does not push events for YouTube. Do not turn on the Tag Manager option that adds the YouTube JavaScript API to every embed.
+
+- **YouTube without the listen card** follows autoplay. When autoplay is on, a muted player starts on load at `www.youtube.com` with `enablejsapi=1`, and the page hooks it so Tag Manager counts that play (`gtm.video` on load). When autoplay is off, the thumbnail stays until click, and that click opens the same counting player. The site does not push `video_start`. Tag Manager pushes `gtm.video` (shown as YouTube Video). The dataLayer event name stays `gtm.video`; Video Status is `start`, `progress`, or `complete`. A scrub that jumps past a percent does not send that progress mark.
+- **YouTube with the muted card** previews on `youtube-nocookie.com` without `enablejsapi`. Loading the page does not count. The click opens the `youtube.com` player, the page hooks that one, and Tag Manager counts from there.
+- **A file** (`.mp4`, `.webm`, `.mov`, `.ogg`, `.m4v`, or a path starting with `/`) pushes `video_start`, `video_progress`, and `video_complete` through `track()`. The muted card does not push `video_start`. Autoplay without that card does. Each progress percent is sent once per play, when playback passes it. Dragging past a percent does not send it. Closing the player and opening it again, restarting after the end, or a loop sends `video_start`, progress, and `video_complete` again.
+- **Another embed** (Vimeo, or a non-file URL) pushes only `video_start` on the play click.
+
+File events use the same video fields Tag Manager already sends for YouTube: `video_url`, `video_title`, `video_provider` (`file`), `video_duration`, `video_current_time`, `visible`, and on progress `video_percent`. `user_id` is the anonymous browser id added by `track()`, not an email.
+
+In the web GTM container, forward `gtm.video` to the server by Video Status (`start` → `video_start`, `progress` → `video_progress`, `complete` → `video_complete`). Do not also forward a `video_start` from the page for YouTube. Files still need a custom-event trigger and a GA4 event tag for `video_start`, `video_progress`, and `video_complete`.
+
+Check Tag Assistant on a YouTube landing. With a listen card, `gtm.video` is absent on load and appears after the click. Without a card and with autoplay on, `gtm.video` can appear on load. `video_start` from the page does not appear for YouTube.
 
 ---
 

@@ -14,6 +14,9 @@ export const TRACKING_EVENTS = [
   "experiment_exposure",
   "cta_click",
   "video_play",
+  "video_start",
+  "video_progress",
+  "video_complete",
   "scroll_depth",
 ] as const;
 

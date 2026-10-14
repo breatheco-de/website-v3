@@ -326,7 +326,7 @@ export default function HeroCourse({ data }: HeroCourseProps) {
                   <UniversalVideo
                     url={data.video.url}
                     ratio={data.video.ratio || "16:9"}
-                    autoplay={data.video.autoplay !== false}
+                    autoplay={data.video.autoplay === true}
                     muted={data.video.muted !== false}
                     loop={data.video.loop !== false}
                     preview_image_url={data.video.preview_image_url}
