@@ -125,6 +125,8 @@ describe("UniversalVideo muted overlay markup", () => {
     expect(html).toContain("www.youtube.com/embed");
     expect(html).toContain("enablejsapi=1");
     expect(html).toContain("mute=1");
+    expect(html).not.toContain("loop=1");
+    expect(html).not.toContain("playlist=");
     expect(html).not.toContain("youtube-nocookie.com");
     expect(track).not.toHaveBeenCalled();
   });
@@ -152,6 +154,8 @@ describe("UniversalVideo muted overlay markup", () => {
     expect(html).toContain('data-testid="video-muted-overlay"');
     expect(html).toContain("youtube-nocookie.com");
     expect(html).toContain("mute=1");
+    expect(html).not.toContain("loop=1");
+    expect(html).not.toContain("playlist=");
     expect(html).not.toContain("enablejsapi");
     expect(html).not.toContain("www.youtube.com/embed");
     expect(track).not.toHaveBeenCalled();
@@ -196,6 +200,8 @@ describe("YouTube counting embed", () => {
     expect(counting.startsWith("https://www.youtube.com/embed/abc123xyz")).toBe(true);
     expect(counting).toContain("enablejsapi=1");
     expect(counting).toContain("autoplay=1");
+    expect(counting).not.toContain("loop=1");
+    expect(counting).not.toContain("playlist=");
 
     const muted = buildYouTubeEmbedUrl("abc123xyz", {
       muted: true,

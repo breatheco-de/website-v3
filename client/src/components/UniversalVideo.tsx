@@ -134,7 +134,6 @@ export type YouTubeEmbedOptions = {
   /** YouTube query param. Only the player that should start on its own sets this. */
   autoplay?: boolean;
   muted?: boolean;
-  loop?: boolean;
   restart?: boolean;
   /** YouTube chrome; false hides the control bar while the muted card is up. */
   controls?: boolean;
@@ -147,7 +146,6 @@ export function buildYouTubeEmbedUrl(ytId: string, opts: YouTubeEmbedOptions = {
     forInline = false,
     autoplay: embedAutoplay = false,
     muted: embedMuted = false,
-    loop: embedLoop = false,
     restart = false,
     controls = true,
     counting = false,
@@ -160,11 +158,6 @@ export function buildYouTubeEmbedUrl(ytId: string, opts: YouTubeEmbedOptions = {
   if (embedAutoplay) params.set("autoplay", "1");
   if (embedMuted) params.set("mute", "1");
   if (!controls) params.set("controls", "0");
-  if (embedLoop) {
-    params.set("loop", "1");
-    // YouTube requires playlist= itself for loop to work on a single video.
-    params.set("playlist", ytId);
-  }
   if (restart) params.set("start", "0");
   if (counting) params.set("enablejsapi", "1");
   return `${domain}/embed/${ytId}?${params.toString()}`;
@@ -683,7 +676,6 @@ export function UniversalVideo({
           src={buildYouTubeEmbedUrl(youtubeId, {
             autoplay: true,
             muted: false,
-            loop,
             counting: true,
             restart: overlay_on_muted?.restart_video_on_click === true,
           })}
@@ -766,7 +758,6 @@ export function UniversalVideo({
                 forInline: true,
                 autoplay,
                 muted: youtubeMuted,
-                loop,
                 counting: youtubeCountsInline,
                 // Hide YT chrome while the muted overlay card is up; restore after click.
                 controls: !showMutedOverlay,
