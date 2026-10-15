@@ -12,6 +12,7 @@ import { assembleSsrDocument, contentTypesReadyForHtmlCache, isMeaningfulSsrAppH
 import { injectGtmWebContainerId } from "./gtm-web-inject";
 import {
   buildHtmlCacheKey,
+  canonicalHtmlCachePath,
   getCachedHtml,
   setCachedHtml,
 } from "./html-page-cache";
@@ -157,8 +158,13 @@ export async function renderHubHtml(opts: {
   /** When set, skip the memory hit and store this generation (Sidequest rebuild). */
   generation?: number;
 }): Promise<RenderHubHtmlResult | null> {
-  const clean = opts.pathname.split("?")[0].split("#")[0] || "/";
-  if (clean.startsWith("/private/")) return null;
+  const requested = opts.pathname.split("?")[0].split("#")[0] || "/";
+  if (requested.startsWith("/private/")) return null;
+  // Same path a public visit looks up, so a folder name and a locale slug share one copy.
+  const clean = canonicalHtmlCachePath(
+    requested,
+    opts.site.contentIndex as ContentIndex | undefined,
+  );
 
   const variantKey = opts.variantKey && opts.variantKey !== "default" ? opts.variantKey : "live";
   const siteId =
@@ -167,7 +173,7 @@ export async function renderHubHtml(opts: {
 
   if (opts.generation == null) {
     const cached = getCachedHtml(cacheKey);
-    if (cached && !urlBakesStoredPageQuery(opts.pathname, opts.site.contentIndex as ContentIndex | undefined)) {
+    if (cached && !urlBakesStoredPageQuery(clean, opts.site.contentIndex as ContentIndex | undefined)) {
       return { html: cached.html, status: cached.status, fromCache: true };
     }
   }

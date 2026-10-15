@@ -88,7 +88,7 @@ export interface SoftReloadResult {
  *   - re-run the ecommerce scan
  *   - clear the image registry cache (reloads lazily on next access)
  *   - warm up per-site databases and re-run the fast scan so DB-backed URLs
- *     are indexed (mirrors startup ordering)
+ *     are indexed, then queue the full index rebuild on Sidequest
  *
  * Each step is isolated: a failure in one sub-system is captured and reported
  * rather than thrown, so a partial failure is visible and never crashes the
@@ -163,7 +163,6 @@ export async function performSoftReload(): Promise<SoftReloadResult> {
     for (const ctx of getSiteContextMap().values()) {
       try {
         ctx.contentIndex.scanFast();
-        ctx.contentIndex.startSlowScanAsync();
       } catch (e) {
         errors.push(`${ctx.contentRootName} (rescan): ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -171,14 +170,13 @@ export async function performSoftReload(): Promise<SoftReloadResult> {
     if (errors.length) throw new Error(errors.join("; "));
   });
 
-  // Best-effort background slow scan (image/variable/redirect/SEO indexing).
-  // Debounced/coalesced with any startSlowScanAsync from the post-warmup rescan above.
+  // Slow index (redirects, images, variables, menus, SEO) is built on Sidequest.
   try {
     for (const ctx of getSiteContextMap().values()) {
-      ctx.contentIndex.startSlowScanAsync();
+      ctx.contentIndex.enqueueIndexRefresh();
     }
   } catch (err) {
-    log.warn({ err }, "[ServerControl] Failed to kick off background slow scan (non-fatal)");
+    log.warn({ err }, "[ServerControl] Failed to enqueue index refresh (non-fatal)");
   }
 
   const marker = markSoftReload();

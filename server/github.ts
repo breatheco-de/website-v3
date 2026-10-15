@@ -1403,8 +1403,9 @@ export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; con
             siteId: siteCtx.contentRootName,
             syncSlow: true,
             touchedFiles: files,
-            htmlPaths: spread.htmlPaths,
           });
+          const { emitSiteBulkSynced } = await import("./content-events");
+          emitSiteBulkSynced(siteCtx.contentRootName, files);
         } else {
           clearRedirectCache();
         }
@@ -3135,7 +3136,6 @@ async function refreshContentAfterBootstrapPull(
         siteId: siteCtx.contentRootName,
         syncSlow: true,
         touchedFiles: files,
-        htmlPaths: spread.htmlPaths,
       });
       log.info(
         `[GitHub] Refreshed ContentIndex + redirect cache for ${siteCtx.contentRootName} after bootstrap pull of ${pulledCount} file(s)`,

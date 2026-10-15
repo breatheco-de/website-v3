@@ -231,6 +231,8 @@ import {
   resolveStaticEntryUpdatedAt,
   isKnownSeoFieldPath,
 } from "../content-types";
+import { diffPublicContentTypes } from "../jobs/definitions/content-type-html-scope";
+import { emitContentTypeChanged } from "../content-events";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveAllTemplateVars, buildContentDeliveryParamBag } from "../resolve-template-vars";
 import {
@@ -375,6 +377,7 @@ import {
   resolveVariantAssignment,
   resolveAssignedVariantSlug,
   invalidateContentCaches,
+  invalidateContentCachesWithoutHtml,
   createValidationFixRun,
   appendValidationRunLog,
   applyFixerProgress,
@@ -1559,10 +1562,22 @@ export function registerContentRoutes(app: Express): void {
       const authorName =
         auth.author || (requestAuthor && typeof requestAuthor === "string" ? requestAuthor : undefined);
 
-      writeRawContentTypesYml(content, getContentRoot(res), authorName);
-      getCI(res).refresh();
+      const contentRoot = getContentRoot(res);
+      const ci = getCI(res);
+      const siteId = getContentRootName(res);
+      const beforeTypes = structuredClone(getAllConfigs(contentRoot));
+      writeRawContentTypesYml(content, contentRoot, authorName);
+      ci.refresh();
       clearSitemapCache();
-      invalidateContentCaches(undefined, getCI(res));
+      const diffs = diffPublicContentTypes(beforeTypes, getAllConfigs(contentRoot));
+      for (const diff of diffs) {
+        invalidateContentCachesWithoutHtml(diff.type, ci);
+        emitContentTypeChanged(
+          siteId,
+          diff.type,
+          diff.urlPatternChanged ? { previousUrlPattern: diff.previousUrlPattern ?? null } : undefined,
+        );
+      }
 
       res.json({ success: true, path: `${getContentRootName(res)}/content-types.yml` });
     } catch (err) {
@@ -2223,6 +2238,7 @@ export function registerContentRoutes(app: Express): void {
         }
       }
 
+      const beforeEntry = structuredClone(config);
       try {
         updateContentTypeConfig(type, update, getContentRoot(res));
       } catch (err) {
@@ -2234,6 +2250,14 @@ export function registerContentRoutes(app: Express): void {
         throw err;
       }
       getCI(res).invalidateCommonFields(type);
+      const afterEntry = getContentTypeConfig(type, ctRoot(res));
+      for (const diff of diffPublicContentTypes({ [type]: beforeEntry }, { [type]: afterEntry })) {
+        emitContentTypeChanged(
+          getContentRootName(res),
+          diff.type,
+          diff.urlPatternChanged ? { previousUrlPattern: diff.previousUrlPattern ?? null } : undefined,
+        );
+      }
 
       if (body.seo_monitoring !== undefined) {
         try {

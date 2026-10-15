@@ -2415,19 +2415,23 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  // Clear redirect cache (for debug tools) — cheap custom refresh + async slow rescan
+  // Clear redirect cache (for debug tools) — cheap custom refresh, full index on Sidequest
   app.post("/api/debug/clear-redirect-cache", async (req, res) => {
     const auth = await requireCapability(req, res, "edit_redirects");
     if (!auth.authorized) return;
     try {
       const ci = getCI(res);
       ci.refreshCustomRedirects();
-      ci.startSlowScanAsync(0);
+      ci.enqueueIndexRefresh();
     } catch (err) {
       log.warn({ err }, "[Debug] ContentIndex rescan failed during clear-redirect-cache");
     }
     clearRedirectCache();
-    res.json({ success: true, message: "Redirect cache cleared and content index rescanned" });
+    res.json({
+      success: true,
+      message:
+        "Redirect cache cleared. A full content-index rebuild was queued and will apply in a few seconds. This request does not wait for it.",
+    });
   });
 
   app.get("/api/admin/brand-settings", async (req, res) => {

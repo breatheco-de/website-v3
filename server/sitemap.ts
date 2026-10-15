@@ -266,12 +266,6 @@ function shouldIndex(robots?: string, contentRoot?: string): boolean {
   return !robots.toLowerCase().includes("noindex");
 }
 
-/** Page robots only. Used when the HTML warm list ignores the site-wide block. */
-function pageRobotsAllowListing(robots?: string): boolean {
-  if (!robots) return true;
-  return !robots.toLowerCase().includes("noindex");
-}
-
 /**
  * Resolve robots for a DB-mapped item — same defaults as YAML:
  * entry override → field_mapping default → "" (index).
@@ -368,7 +362,7 @@ function buildCanonicalSitemapEntries(
   // Dynamic career program pages
   const programs = getAvailablePrograms(ci);
   for (const program of programs) {
-    if (!shouldIndex(program.meta.robots, contentRoot) && !(ignoreSiteBlock && pageRobotsAllowListing(program.meta.robots))) {
+    if (!ignoreSiteBlock && !shouldIndex(program.meta.robots, contentRoot)) {
       log.info(
         `[Sitemap] Skipping noindex program: ${program.slug} (${program.locale})`,
       );
@@ -390,7 +384,7 @@ function buildCanonicalSitemapEntries(
   // Dynamic location pages
   const locations = getAvailableLocations(ci);
   for (const location of locations) {
-    if (!shouldIndex(location.meta.robots, contentRoot) && !(ignoreSiteBlock && pageRobotsAllowListing(location.meta.robots))) {
+    if (!ignoreSiteBlock && !shouldIndex(location.meta.robots, contentRoot)) {
       log.info(
         `[Sitemap] Skipping noindex location: ${location.slug} (${location.locale})`,
       );
@@ -412,7 +406,7 @@ function buildCanonicalSitemapEntries(
   // Dynamic template pages
   const templatePages = getAvailableTemplatePages(ci, cf);
   for (const page of templatePages) {
-    if (!shouldIndex(page.meta.robots, contentRoot) && !(ignoreSiteBlock && pageRobotsAllowListing(page.meta.robots))) {
+    if (!ignoreSiteBlock && !shouldIndex(page.meta.robots, contentRoot)) {
       log.info(
         `[Sitemap] Skipping noindex template page: ${page.slug} (${page.locale})`,
       );
@@ -454,7 +448,7 @@ function buildCanonicalSitemapEntries(
           continue;
         }
         const robots = resolveDbItemRobots(item, typeName, cf);
-        if (!shouldIndex(robots, contentRoot) && !(ignoreSiteBlock && pageRobotsAllowListing(robots))) {
+        if (!ignoreSiteBlock && !shouldIndex(robots, contentRoot)) {
           log.info(
             `[Sitemap] Skipping noindex ${typeName}: ${String(item.slug || item.id || "")} (${locale})`,
           );
@@ -516,7 +510,7 @@ function buildCanonicalSitemapEntries(
           if (!merged) continue;
 
           const meta = (merged.meta as ContentMeta) || {};
-          if (!shouldIndex(meta.robots, contentRoot) && !(ignoreSiteBlock && pageRobotsAllowListing(meta.robots))) {
+          if (!ignoreSiteBlock && !shouldIndex(meta.robots, contentRoot)) {
             log.info(`[Sitemap] Skipping noindex ${typeName}: ${slug} (${locale})`);
             continue;
           }
@@ -697,6 +691,7 @@ export function getSitemapUrls(ctx?: ActiveSiteCtx, ignoreSiteBlock = false): Ar
   slug?: string;
 }> {
   // The ignored walk is not cached: it must not replace the empty public sitemap.
+  // It also keeps page-level noindex URLs so the HTML warm list can store them.
   const entriesMap = ignoreSiteBlock
     ? buildCanonicalSitemapEntries(ctx, { ignoreSiteBlock: true })
     : getCanonicalEntries(ctx);

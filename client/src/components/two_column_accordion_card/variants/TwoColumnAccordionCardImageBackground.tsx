@@ -47,7 +47,7 @@ const isDirectVideoUrl = (url: string): boolean => {
 export default function TwoColumnAccordionCardImageBackground({ data }: TwoColumnAccordionCardImageBackgroundProps) {
   const { title, description, bullets, footer, image, image_alt, image_object_fit, image_object_position, reverse, video } = data;
   const hasVideo = video?.url && video.url.trim().length > 0;
-  const isAutoplayLocal = hasVideo && isDirectVideoUrl(video.url!) && (video.autoplay ?? true);
+  const isAutoplayLocal = hasVideo && isDirectVideoUrl(video.url!) && video.autoplay === true;
   const [videoReady, setVideoReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const sectionRef = useRef<HTMLElement>(null);
@@ -190,7 +190,7 @@ export default function TwoColumnAccordionCardImageBackground({ data }: TwoColum
                           <UniversalVideo
                             url={video!.url!}
                             ratio={video!.ratio || "16:9"}
-                            autoplay={video!.autoplay ?? true}
+                            autoplay={video!.autoplay === true}
                             loop={video!.loop ?? true}
                             muted={video!.muted ?? true}
                             preview_image_url={image}

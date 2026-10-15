@@ -224,7 +224,7 @@ function AILearningFeatureTabs({ data }: { data: AiLearningFeatureTabsSection })
                     <div data-testid="video-container-feature">
                       <UniversalVideo
                         url={displayedFeature.video?.url || displayedFeature.video_url!}
-                        autoplay={displayedFeature.video?.autoplay ?? (displayedFeature.video?.url || displayedFeature.video_url || '').includes('.mp4')}
+                        autoplay={displayedFeature.video?.autoplay === true}
                         loop={displayedFeature.video?.loop ?? (displayedFeature.video?.url || displayedFeature.video_url || '').includes('.mp4')}
                         muted={displayedFeature.video?.muted ?? (displayedFeature.video?.url || displayedFeature.video_url || '').includes('.mp4')}
                         bordered={displayedFeature.video?.with_shadow_border ?? true}

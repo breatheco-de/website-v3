@@ -31,6 +31,9 @@ export class IndexRefreshJob extends Job {
     const mg = new MediaGallery(contentRootName);
     const database = new DatabaseManager(contentRoot, mg);
     const ci = new ContentIndex(contentRootName, database);
+    // DB-backed URLs come from the on-disk cache. Warm it on this process so the
+    // snapshot does not replace the web index with a map that is missing them.
+    await database.warmup();
     ci.scanFast();
     ci.scanSlow();
 

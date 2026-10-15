@@ -17,6 +17,7 @@ import { scheduleOnSaveValidationJob } from "../services/onSaveValidationSchedul
 import { scheduleOgCaptureFromLocaleEvent } from "../entry-preview-lifecycle";
 import { scheduleRedirectsValidation } from "../services/onSaveValidation";
 import { queueLinkIndexRemove, entryKeysFromDeletedPaths } from "../link-index";
+import { scheduleHtmlFromEvent } from "./schedule-html-from-event";
 import { child } from "../logger";
 
 const log = child({ module: "event-dispatcher" });
@@ -113,6 +114,17 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
     return;
   }
 
+  if (event.type === "database_refreshed" && ctx.contentIndex) {
+    const dbName = String(event.payload.dbName ?? "");
+    if (dbName) ctx.contentIndex.getDatabase().forgetFetchedItems(dbName);
+  }
+
+  scheduleHtmlFromEvent(event, {
+    contentRootName: ctx.contentRootName,
+    contentRoot: ctx.contentRoot,
+    contentIndex: ctx.contentIndex,
+  });
+
   switch (event.type) {
     case "entry_locale_saved":
     case "entry_locale_promoted": {
@@ -149,6 +161,37 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
     }
     case "site_bulk_synced": {
       await enqueueIndexRefresh(event, ctx.contentRoot);
+      const pulledFiles = (event.payload.files as string[] | undefined) ?? [];
+      if (pulledFiles.length > 0 && ctx.contentIndex) {
+        try {
+          const { classifyTouchedContentFiles } = await import("../content-write-flush");
+          const db = ctx.contentIndex.getDatabase();
+          for (const dbName of classifyTouchedContentFiles(ctx.contentIndex, pulledFiles).databaseNames) {
+            let local = false;
+            try {
+              local = db.get(dbName).source.type === "local";
+            } catch {
+              local = false;
+            }
+            if (!local) continue;
+            await enqueueJob(
+              "local_database_refresh",
+              {
+                siteId: ctx.contentRootName,
+                contentRoot: ctx.contentRoot,
+                dbName,
+              },
+              {
+                queue: "html_rebuild",
+                uniqueKey: `local-db:${ctx.contentRootName}:${dbName}#${event.id}`,
+                uniqueWhileAlive: true,
+              },
+            );
+          }
+        } catch (err) {
+          log.warn({ err }, "[Dispatcher] Local database reload after pull failed");
+        }
+      }
       const deletedPaths = (event.payload.deletedPaths as string[] | undefined) ?? [];
       if (deletedPaths.length > 0) {
         const keys = entryKeysFromDeletedPaths(deletedPaths);
@@ -264,6 +307,11 @@ export function startEventDispatcher(): void {
   setDispatcherWake(() => {
     void runDispatchCycle();
   });
+  void runDispatchCycle();
+}
+
+/** Pick up events written by another process, such as a Sidequest job. */
+export function wakeEventDispatcher(): void {
   void runDispatchCycle();
 }
 

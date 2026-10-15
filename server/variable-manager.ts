@@ -8,6 +8,7 @@ import {
   type ResolvedToken,
 } from "./template-parser";
 import { markFileAsModified } from "./sync-state";
+import { emitVariablesChanged } from "./events/emit-entry-events";
 import { child } from "./logger";
 import {
   BUILTIN_CONSENT_KEYS,
@@ -158,7 +159,7 @@ class VariableManager {
     }
     if (changed && fs.existsSync(path.dirname(this.variablesPath))) {
       try {
-        this.save();
+        this.save({ skipEvent: true });
         log.info("[VariableManager] Seeded brand.* defaults into variables.yml");
       } catch (err) {
         log.warn({ err }, "[VariableManager] Could not persist brand.* defaults");
@@ -183,7 +184,7 @@ class VariableManager {
     }
     this.variables[varKey].default = value;
     this.variables[varKey].isReserved = true;
-    this.save();
+    this.save({ names: [varKey] });
   }
 
   private aliasReservedIntoGlobal(): void {
@@ -239,7 +240,7 @@ class VariableManager {
       this.variables[name] = def;
     }
 
-    this.save();
+    this.save({ skipEvent: true });
     log.info("[VariableManager] Migration to conditions format complete");
   }
 
@@ -378,7 +379,7 @@ class VariableManager {
       this.variables[name] = {};
     }
     this.variables[name].default = value;
-    this.save();
+    this.save({ names: [name] });
   }
 
   /** Merge metadata fields into a definition (creates it when missing). Does not save. */
@@ -408,7 +409,7 @@ class VariableManager {
 
   updateMetadata(name: string, patch: VariableMetadataPatch): void {
     this.applyMetadata(name, patch);
-    this.save();
+    this.save({ names: [name] });
   }
 
   addCondition(name: string, condition: VariableCondition): void {
@@ -420,7 +421,7 @@ class VariableManager {
       this.variables[name].conditions = [];
     }
     this.variables[name].conditions!.push(condition);
-    this.save();
+    this.save({ names: [name] });
   }
 
   updateCondition(name: string, index: number, condition: VariableCondition): void {
@@ -430,7 +431,7 @@ class VariableManager {
       throw new Error(`Invalid condition index ${index} for variable ${name}`);
     }
     def.conditions[index] = condition;
-    this.save();
+    this.save({ names: [name] });
   }
 
   deleteCondition(name: string, index: number): void {
@@ -443,7 +444,7 @@ class VariableManager {
     if (def.conditions.length === 0) {
       delete def.conditions;
     }
-    this.save();
+    this.save({ names: [name] });
   }
 
   reorderConditions(name: string, fromIndex: number, toIndex: number): void {
@@ -457,7 +458,7 @@ class VariableManager {
     }
     const [item] = def.conditions.splice(fromIndex, 1);
     def.conditions.splice(toIndex, 0, item);
-    this.save();
+    this.save({ names: [name] });
   }
 
   updateVariable(
@@ -493,7 +494,7 @@ class VariableManager {
       }
     }
 
-    this.save();
+    this.save({ names: [name] });
   }
 
   deleteVariableEntry(
@@ -523,7 +524,7 @@ class VariableManager {
       }
     }
 
-    this.save();
+    this.save({ names: [name] });
     return true;
   }
 
@@ -541,7 +542,7 @@ class VariableManager {
       throw new Error(`Variable "${name}" is reserved and cannot be deleted`);
     }
     delete this.variables[name];
-    this.save();
+    this.save({ names: [name] });
   }
 
   renameVariable(oldName: string, newName: string): void {
@@ -557,7 +558,7 @@ class VariableManager {
     }
     this.variables[newName] = this.variables[oldName];
     delete this.variables[oldName];
-    this.save();
+    this.save({ names: [oldName, newName] });
   }
 
   getLegalSettings(): { legal_terms_url: string; legal_privacy_url: string } {
@@ -610,7 +611,7 @@ class VariableManager {
       ...shape,
       isReserved: true,
     };
-    this.save();
+    this.save({ names: [reservedKey, globalKey] });
   }
 
   /** Cookie banner copy per key → locale → text (empty locale = not set; resolver falls back to defaults). */
@@ -635,7 +636,7 @@ class VariableManager {
     const shape = localesToConsentDefinition(locales, defaultLocale);
     this.variables[`reserved.${key}`] = { ...shape, isReserved: true };
     this.variables[`global.${key}`] = { ...shape, isReserved: true };
-    this.save();
+    this.save({ names: [`reserved.${key}`, `global.${key}`] });
   }
 
   updateLegalSetting(key: "legal_terms_url" | "legal_privacy_url", value: string): void {
@@ -653,10 +654,10 @@ class VariableManager {
     }
     this.variables[globalKey].default = value;
     this.variables[globalKey].isReserved = true;
-    this.save();
+    this.save({ names: [reservedKey, globalKey] });
   }
 
-  private save(): void {
+  private save(opts?: { skipEvent?: boolean; names?: string[] }): void {
     try {
       // Only persist non-aliased entries (no global.* that came from reserved.*)
       const toSave: Record<string, VariableDefinition> = {};
@@ -677,6 +678,9 @@ class VariableManager {
       const stat = fs.statSync(this.variablesPath);
       this.lastModified = stat.mtimeMs;
       markFileAsModified(`${this.contentFolderName}/variables.yml`, undefined, undefined, this.contentRoot);
+      if (!opts?.skipEvent) {
+        emitVariablesChanged(this.contentFolderName, opts?.names);
+      }
       log.info(`[VariableManager] Saved variables.yml for ${this.contentFolderName}`);
     } catch (err) {
       log.error({ err: err }, "[VariableManager] Failed to save variables.yml:");

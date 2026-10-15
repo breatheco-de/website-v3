@@ -82,7 +82,7 @@ import {
 } from "../content-editor";
 import { api } from "../rate-limit/api";
 import { findNewDeprecatedVarRefs, getDeprecatedFieldsForType } from "../deprecated-field-guard";
-import { flushAfterContentWrites, collectEntryHtmlPaths, collectAttachedHtmlPaths, fileMentionsRedirects } from "../content-write-flush";
+import { flushAfterContentWrites, fileMentionsRedirects } from "../content-write-flush";
 import {
   bulkUpdateMeta,
   validateBulkMetaUpdates,
@@ -1403,7 +1403,6 @@ export function registerSectionsRoutes(app: Express): void {
         }
 
         const ci = getCI(res);
-        let htmlPaths = collectEntryHtmlPaths(ci, contentType, slug, normalizeLocale(locale));
         const normalizedLocale = normalizeLocale(locale);
 
         let syncSlow = false;
@@ -1438,7 +1437,6 @@ export function registerSectionsRoutes(app: Express): void {
           try {
             pruneStaleSectionAliases(contentType, locale, getContentRoot(res));
           } catch { /* non-fatal */ }
-          htmlPaths = [...htmlPaths, ...collectAttachedHtmlPaths(ci, contentType)];
         }
 
         flushAfterContentWrites({
@@ -1447,7 +1445,6 @@ export function registerSectionsRoutes(app: Express): void {
           sitemapEntries: [{ contentType, slug, locale }],
           commonMetaTouched: false,
           siteId,
-          htmlPaths,
           syncSlow,
         });
 
@@ -1864,7 +1861,6 @@ export function registerSectionsRoutes(app: Express): void {
           sitemapEntries: [{ contentType, slug, locale: getDefaultLocale() }],
           commonMetaTouched: true,
           siteId: getContentRootName(res),
-          htmlPaths: collectEntryHtmlPaths(ci, contentType, slug),
           syncSlow: false,
         });
         res.json({

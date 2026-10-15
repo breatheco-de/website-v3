@@ -135,7 +135,10 @@ export async function runOffThreadJob(
   }
 
   if (kind === "redirects") {
-    const entries = ci.refreshCustomRedirects().filter((e) => e.type !== "custom");
+    // This process has its own index. The web snapshot is never applied here,
+    // so the slow maps stay empty unless this job builds them.
+    if (!ci.isSlowPhaseReady()) ci.scanSlow();
+    const entries = ci.getRedirects().filter((e) => e.type !== "custom");
     const grouped = new Map<string, { froms: string[]; to: string; type: string }>();
     for (const entry of entries) {
       const to = typeof entry.to === "string" ? entry.to : Object.values(entry.to)[0] ?? "";

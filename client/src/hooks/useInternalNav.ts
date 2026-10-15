@@ -10,6 +10,19 @@ function isInternalHref(href: string): boolean {
   return href.startsWith("/") && !href.startsWith("//");
 }
 
+/** How an external URL leaves this page. `new-tab` is `window.open` and mobile
+ *  browsers block it once the original tap has been followed by an `await`
+ *  (form submit). `same-tab` is a normal navigation and is not a popup. */
+export type ExternalNavigation = "same-tab" | "new-tab";
+
+export function followExternalHref(url: string, mode: ExternalNavigation): void {
+  if (mode === "same-tab") {
+    window.location.assign(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 /** Replace {qs:paramName} and {qs:paramName|fallback} tokens with values from
  *  the current URL's querystring.
  *  - If the named param is present: use its value.
@@ -355,8 +368,14 @@ export function useInternalNav(
    * Programmatic navigation. For `inline#sectionId` URLs, returns the section
    * data from the page context (to render inline) instead of navigating.
    * For all other URL types, handles navigation as a side effect and returns null.
+   *
+   * `external` applies only to off-site URLs. Pass `same-tab` after an async
+   * submit so iOS and Android do not block the redirect as a popup.
    */
-  const navigate = (url: string): Record<string, unknown> | null => {
+  const navigate = (
+    url: string,
+    options?: { external?: ExternalNavigation },
+  ): Record<string, unknown> | null => {
     if (!url || isNonNavigableHref(url)) return null;
 
     const resolved = withUtmParams(prepareHref(url));
@@ -410,7 +429,7 @@ export function useInternalNav(
       return null;
     }
 
-    window.open(resolved, "_blank", "noopener,noreferrer");
+    followExternalHref(resolved, options?.external ?? "new-tab");
     return null;
   };
 

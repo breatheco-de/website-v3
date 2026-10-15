@@ -36,36 +36,19 @@ afterEach(() => {
 });
 
 describe("ContentIndex.refresh serialization", () => {
-  it("coalesces an overlapping syncSlow refresh into one follow-up scan", () => {
-    const root = makeSite();
-    const ci = new ContentIndex(root);
-
-    let scans = 0;
-    const originalScan = (ci as any).scan.bind(ci) as () => void;
-    (ci as any).scan = () => {
-      scans += 1;
-      if (scans === 1) {
-        ci.refresh({ syncSlow: true });
-      }
-      originalScan();
-    };
-
-    ci.refresh({ syncSlow: true });
-    expect(scans).toBe(2);
-  });
-
-  it("async refresh calls scanFast and startSlowScanAsync without sync scan", () => {
+  it("queues an index rebuild and does not scan the site", () => {
     const root = makeSite();
     const ci = new ContentIndex(root);
     const scanFast = vi.spyOn(ci, "scanFast");
-    const startSlow = vi.spyOn(ci, "startSlowScanAsync");
-    const scan = vi.spyOn(ci as any, "scan");
+    const scanSlow = vi.spyOn(ci, "scanSlow");
+    const enqueue = vi.spyOn(ci, "enqueueIndexRefresh");
 
     ci.refresh();
+    ci.refresh({ syncSlow: true });
 
-    expect(scanFast).toHaveBeenCalledTimes(1);
-    expect(startSlow).toHaveBeenCalledTimes(1);
-    expect(scan).not.toHaveBeenCalled();
+    expect(scanFast).not.toHaveBeenCalled();
+    expect(scanSlow).not.toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -117,7 +100,7 @@ describe("ContentIndex indexes meta.redirects for any content type", () => {
     );
 
     const ci = new ContentIndex(root);
-    ci.refresh({ syncSlow: true });
+    ci.scan();
 
     expect(
       ci.getRedirects().some((r) => r.from === "/landing/miami-tech-talent-coalition"),
@@ -204,5 +187,46 @@ describe("ContentIndex.refreshAfterRedirectWrite", () => {
     ci.refreshCustomRedirects();
     expect(scanSlow).not.toHaveBeenCalled();
     expect(ci.getRedirects().map((r) => r.from)).toEqual(["/b"]);
+  });
+
+  it("does not parse the site when the slow index is not ready yet", () => {
+    const root = makeSite();
+    const ci = new ContentIndex(root);
+    ci.scanFast();
+    const scanSlow = vi.spyOn(ci, "scanSlow");
+    const enqueue = vi.spyOn(ci, "enqueueIndexRefresh");
+
+    expect(ci.refreshCustomRedirects()).toEqual([]);
+    expect(scanSlow).not.toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ContentIndex.upsertEntry", () => {
+  it("drops the previous locale slug for that folder", () => {
+    const root = makeSite();
+    const page = path.join(root, "pages", "home", "en.yml");
+    fs.writeFileSync(page, "title: Home\nslug: inicio\n", "utf-8");
+    const ci = new ContentIndex(root);
+    ci.scanFast();
+    expect(ci.resolveBaseSlug("inicio", "page")).toBe("home");
+
+    fs.writeFileSync(page, "title: Home\nslug: casa\n", "utf-8");
+    ci.upsertEntry(page);
+
+    expect(ci.resolveBaseSlug("inicio", "page")).toBe("inicio");
+    expect(ci.resolveBaseSlug("casa", "page")).toBe("home");
+  });
+
+  it("removes the page from the map when the folder is already gone", () => {
+    const root = makeSite();
+    const ci = new ContentIndex(root);
+    ci.scanFast();
+    expect(ci.findBySlug("home", { contentType: "page" })).toHaveLength(1);
+
+    fs.rmSync(path.join(root, "pages", "home"), { recursive: true, force: true });
+    ci.upsertEntry(path.join(root, "pages", "home", "en.yml"));
+
+    expect(ci.findBySlug("home", { contentType: "page" })).toHaveLength(0);
   });
 });

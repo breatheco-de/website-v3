@@ -16,6 +16,9 @@
 # cannot drop the lock while work continues. Abort flag (.deploy-state/<sha>.abort) is
 # checked before npm ci and before flip; post-flip abort is ignored.
 #
+# Before npm ci, restart the live Sidequest worker (pm2 app "sidequest"). It comes
+# back immediately, without the heap it accumulated. The public web process stays up.
+#
 # Never rm -rf the live release (current); same-SHA redeploy → releases/<sha>.rebuild-<pid>.
 # Required env: DEPLOY_SHA (full git commit).
 # Optional: WEBSITE_RUNTIME_B64 (packed _WEBSITE_ secrets; empty → reuse prior .env).
@@ -465,7 +468,36 @@ PY
 
 write_env
 
+# Free the heap Sidequest has accumulated. pm2 relaunches the worker; web stays up.
+# Uses the live release's pm2 — this release has no node_modules until npm ci.
+restart_sidequest_for_install() {
+  local live pm2_home pm2_bin old_pid
+  live="$(live_release_path)"
+  if [[ -z "$live" ]]; then
+    echo "[deploy] no live release — skip Sidequest restart"
+    return 0
+  fi
+  pm2_home="$live/data/.pm2"
+  pm2_bin="$live/node_modules/.bin/pm2"
+  if [[ ! -S "$pm2_home/rpc.sock" || ! -x "$pm2_bin" ]]; then
+    echo "[deploy] Sidequest supervisor not reachable — skip restart before npm ci"
+    return 0
+  fi
+  old_pid=""
+  if [[ -f "$live/data/sidequest.pid" ]]; then
+    old_pid="$(tr -d '[:space:]' < "$live/data/sidequest.pid" || true)"
+  fi
+  echo "[deploy] restarting Sidequest before npm ci (pid ${old_pid:-unknown})"
+  if ! PM2_HOME="$pm2_home" "$pm2_bin" restart sidequest; then
+    echo "[deploy] WARNING: Sidequest restart failed — continuing with npm ci" >&2
+    return 0
+  fi
+  echo "[deploy] Sidequest is back; starting install"
+}
+
 abort_requested && handle_abort
+
+restart_sidequest_for_install
 
 echo "[deploy] building in $RELEASE"
 cd "$RELEASE"
