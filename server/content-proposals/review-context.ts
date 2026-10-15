@@ -50,9 +50,11 @@ import {
 } from "./idea-funnel";
 import { reviewIdeaContentTypes, type IdeaContentTypeStrategy } from "./idea-content-type";
 import {
+  IDEA_SEO_TARGET_METRICS_MISSING_WARN,
   IDEA_SEO_TARGET_MISSING_WARN,
   describeIdeaSeoTarget,
   ideaSeoTargetComplete,
+  ideaSeoTargetHasMetrics,
   seoTargetDiff,
   type IdeaSeoTarget,
 } from "./idea-seo-target";
@@ -847,6 +849,13 @@ export function classifyProposalReview(opts: ClassifyProposalReviewOpts): Review
         code: "idea_seo_target",
         message: `SEO target: ${describeIdeaSeoTarget(proposal.idea_seo_target)}. Reviewer: keyword matches the brief, hub fits the topic, members are real posts, standalone reason is credible.`,
       });
+      if (!ideaSeoTargetHasMetrics(proposal.idea_seo_target)) {
+        warnings.push({
+          code: IDEA_SEO_TARGET_METRICS_MISSING_WARN,
+          message:
+            "idea_seo_target has no kw_monthly_volume and/or kw_difficulty. Accept still works. Reviewer: add_blocker asking the author to copy both numbers from their keyword research into set_idea_seo_target (volume claimed only in the brief text is not enough). Metrics stay on the idea and are not written to the page.",
+        });
+      }
     }
 
     const typeReview = reviewIdeaContentTypes({

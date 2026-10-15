@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { useMcpCloudConnectors } from "@/components/mcp/McpAgentConnectCard";
 import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import {
   McpConnectorUrlList,
@@ -16,7 +16,6 @@ import {
   buildHttpMcpConfigForRoles,
   getMcpServerUrl,
   isLocalOrigin,
-  resolveCloudConnectorUrls,
   type McpRoleConnector,
   type McpSetupTabId,
 } from "@/components/mcp/mcpUrlHelpers";
@@ -284,8 +283,8 @@ function ClaudeAiSetup({ cloudConnectors, localDev }: SetupSnippets) {
             <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">PUBLIC_URL</code> to that origin.
           </li>
           <li>
-            Go to <span className="text-foreground font-medium">Claude.ai → Settings → Connectors</span> and click{" "}
-            <span className="text-foreground font-medium">+</span>.
+            Go to <span className="text-foreground font-medium">Claude.ai → Customize → Connectors</span> and choose{" "}
+            <span className="text-foreground font-medium">Add custom connector</span>.
           </li>
         </>
       }
@@ -315,8 +314,22 @@ function ChatGptSetup({ cloudConnectors, localDev }: SetupSnippets) {
             Deploy the site first if you are on localhost.
           </li>
           <li>
-            In ChatGPT, open <span className="text-foreground font-medium">Settings → Connectors</span> (or Apps /
-            Developer mode, depending on your plan).
+            In ChatGPT, turn on <span className="text-foreground font-medium">Developer mode</span> under{" "}
+            <span className="text-foreground font-medium">Settings → Security and login</span> (workspace plans may need
+            an admin to allow it).
+          </li>
+          <li>
+            Open the{" "}
+            <a
+              href="https://chatgpt.com/plugins"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-foreground font-medium underline underline-offset-2"
+            >
+              Plugins
+            </a>{" "}
+            page, click <span className="text-foreground font-medium">+</span>, then{" "}
+            <span className="text-foreground font-medium">Add custom MCP server</span>.
           </li>
         </>
       }
@@ -481,28 +494,7 @@ export function McpAgentSetupTabs({
   const claudeDesktopConfig = buildClaudeDesktopConfigForRoles(connectors);
   const claudeCodeCli = buildClaudeCodeCliForRoles(connectors);
 
-  const { data } = useQuery<{ siteUrl?: string | null }>({
-    queryKey: ["/api/mcp/tools"],
-    staleTime: 60_000,
-  });
-
-  const { data: siteInfo } = useQuery<{ domain?: string }>({
-    queryKey: ["/api/site/info"],
-    staleTime: 60_000,
-  });
-
-  const cloudConnectors = useMemo(
-    () =>
-      resolveCloudConnectorUrls(
-        {
-          siteUrl: data?.siteUrl,
-          siteDomain: siteInfo?.domain,
-          localDev,
-        },
-        roleIds.map((id) => ({ id, label: roleLabels?.[id] ?? id })),
-      ),
-    [data?.siteUrl, siteInfo?.domain, localDev, roleIds, roleLabels],
-  );
+  const cloudConnectors = useMcpCloudConnectors(roleIds, roleLabels);
 
   const snippets: SetupSnippets = {
     connectors,

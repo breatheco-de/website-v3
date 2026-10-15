@@ -5,6 +5,17 @@
 window_days: 6
 
 entries:
+  - date: "2026-10-15"
+    summary: "idea_seo_target carries keyword volume + difficulty (kw_monthly_volume, kw_difficulty)"
+    agent_impact:
+      - "Ideas: set idea_seo_target.kw_monthly_volume (int >= 0) and kw_difficulty (int 0–100) from your keyword research on create / set_idea_seo_target. Optional in the schema; out-of-range → idea_seo_target_incomplete. set_idea_seo_target replaces the whole target, so resend main_keyword + cluster with them."
+      - "Reviewers: new review warning idea_seo_target_metrics_missing when either number is absent → add_blocker (volume only in the brief text does not count). Accept is not refused for missing metrics."
+      - "Non-effects: metrics stay on the idea and are frozen at accept; the implementing draft's seo block still gets only main_keyword + hub (seo.kw_* on pages still come from get_or_refresh_seo_research or a sourced write)."
+    tools_changed: false
+    paths:
+      - server/content-proposals/idea-seo-target.ts
+      - server/content-proposals/review-context.ts
+      - mcp-server/tools/proposals.ts
   - date: "2026-10-08"
     summary: "New get_leads_breakdown: staff Leads page numbers (channel vs UTM source / medium) for agents"
     agent_impact:

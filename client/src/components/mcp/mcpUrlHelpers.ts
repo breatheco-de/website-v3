@@ -125,6 +125,41 @@ export const MCP_SETUP_TAB_IDS: McpSetupTabId[] = [
   "generic",
 ];
 
+/** Cloud agents whose connector settings page we can open directly. */
+export const MCP_AGENT_CONNECT_TARGETS: Partial<
+  Record<McpSetupTabId, { product: string; pageUrl: string }>
+> = {
+  "claude-ai": { product: "Claude", pageUrl: "https://claude.ai/customize/connectors" },
+  chatgpt: { product: "ChatGPT", pageUrl: "https://chatgpt.com/plugins" },
+  grok: { product: "Grok", pageUrl: "https://grok.com/connectors" },
+};
+
+/** Name shown in the agent's connector list. */
+export function mcpConnectorDisplayName(roleLabel: string): string {
+  return `4Geeks CMS (${roleLabel})`;
+}
+
+/**
+ * Link that opens the agent's connector settings. Claude.ai accepts a prefilled
+ * "Add custom connector" dialog; ChatGPT and Grok only open their connectors page.
+ */
+export function buildAgentConnectUrl(
+  agentId: McpSetupTabId,
+  connector?: { name: string; url: string | null },
+): string | null {
+  const target = MCP_AGENT_CONNECT_TARGETS[agentId];
+  if (!target) return null;
+  if (agentId === "claude-ai" && connector?.url) {
+    const params = new URLSearchParams({
+      modal: "add-custom-connector",
+      connectorName: connector.name,
+      connectorUrl: connector.url,
+    });
+    return `${target.pageUrl}?${params.toString()}`;
+  }
+  return target.pageUrl;
+}
+
 export function resolveCloudConnectorUrl(opts: {
   siteUrl?: string | null;
   siteDomain?: string | null;

@@ -6,6 +6,7 @@ import {
   SEO_TARGET_OVERRIDE_INVALID,
   hasSeoTargetFieldOps,
   ideaDemandLabel,
+  ideaSeoTargetHasMetrics,
   ideaSeoTargetsEqual,
   parseIdeaSeoTarget,
   seoBlockFromTarget,
@@ -77,6 +78,49 @@ describe("validateIdeaSeoTarget", () => {
       ok: true,
     });
     expect(validateIdeaSeoTarget(standalone)).toMatchObject({ ok: true });
+  });
+});
+
+describe("keyword metrics", () => {
+  it("keeps volume and difficulty when valid", () => {
+    const r = validateIdeaSeoTarget({ ...join, kw_monthly_volume: 9900, kw_difficulty: "42" });
+    expect(r).toEqual({ ok: true, target: { ...join, kw_monthly_volume: 9900, kw_difficulty: 42 } });
+    if (r.ok) expect(ideaSeoTargetHasMetrics(r.target)).toBe(true);
+  });
+
+  it("treats missing metrics as not set", () => {
+    const r = validateIdeaSeoTarget({ ...join, kw_monthly_volume: null, kw_difficulty: "" });
+    expect(r).toEqual({ ok: true, target: join });
+    expect(ideaSeoTargetHasMetrics(join)).toBe(false);
+    expect(ideaSeoTargetHasMetrics({ ...join, kw_monthly_volume: 10 })).toBe(false);
+  });
+
+  it("rejects out-of-range or non-integer metrics", () => {
+    for (const bad of [
+      { kw_monthly_volume: -1 },
+      { kw_monthly_volume: 1.5 },
+      { kw_monthly_volume: "lots" },
+      { kw_difficulty: 101 },
+      { kw_difficulty: -3 },
+    ]) {
+      expect(validateIdeaSeoTarget({ ...join, ...bad })).toMatchObject({ ok: false, code: IDEA_SEO_TARGET_INCOMPLETE });
+    }
+  });
+
+  it("drops bad stored metrics instead of losing the target", () => {
+    expect(parseIdeaSeoTarget({ ...join, kw_monthly_volume: 500, kw_difficulty: 400 })).toEqual({
+      ...join,
+      kw_monthly_volume: 500,
+    });
+  });
+
+  it("counts metrics in equality so adding them is not a no-op", () => {
+    expect(ideaSeoTargetsEqual(join, { ...join, kw_difficulty: 30 })).toBe(false);
+    expect(ideaSeoTargetsEqual({ ...join, kw_difficulty: 30 }, { ...join, kw_difficulty: 30 })).toBe(true);
+  });
+
+  it("never seeds metrics into the draft seo block", () => {
+    expect(seoBlockFromTarget({ ...join, kw_monthly_volume: 9900, kw_difficulty: 42 })).toEqual(seoBlockFromTarget(join));
   });
 });
 

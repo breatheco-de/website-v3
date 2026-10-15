@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +11,8 @@ export type IdeaSeoTarget = {
     | { mode: "join"; pillar_path: string }
     | { mode: "hub"; members: Array<{ contentType: string; slug: string }> }
     | { mode: "standalone"; reason: string };
+  kw_monthly_volume?: number;
+  kw_difficulty?: number;
 };
 
 type ClusterMode = IdeaSeoTarget["cluster"]["mode"];
@@ -23,15 +24,50 @@ type SeoOverviewClusters = {
 const REASON_MIN = 40;
 const STANDALONE_LABELS = new Set(["fast_decay_news", "broken_url"]);
 
-export function describeIdeaSeoTarget(t: IdeaSeoTarget): string {
-  const c = t.cluster;
-  const where =
-    c.mode === "join"
-      ? `joins ${c.pillar_path}`
-      : c.mode === "hub"
-        ? `new hub for ${c.members.map((m) => `${m.contentType}/${m.slug}`).join(", ")}`
-        : "no hub (standalone)";
-  return `“${t.main_keyword}” · ${where}`;
+/** "" → undefined (not set); otherwise a whole number within range, or null when invalid. */
+function parseMetricInput(raw: string, max?: number): number | undefined | null {
+  const t = raw.trim().replace(/,/g, "");
+  if (!t) return undefined;
+  if (!/^\d+$/.test(t)) return null;
+  const n = Number(t);
+  return max != null && n > max ? null : n;
+}
+
+function TargetStat({
+  label,
+  value,
+  sub,
+  testId,
+}: {
+  label: string;
+  value: ReactNode | null;
+  sub?: ReactNode;
+  testId: string;
+}) {
+  return (
+    <div className="min-w-0 space-y-0.5" data-testid={testId}>
+      <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
+      {value != null ? (
+        <dd className="text-sm font-medium text-foreground">{value}</dd>
+      ) : (
+        <dd className="text-sm text-status-away">Not set</dd>
+      )}
+      {sub ? <dd className="text-xs text-muted-foreground">{sub}</dd> : null}
+    </div>
+  );
+}
+
+function clusterStat(c: IdeaSeoTarget["cluster"]): { value: ReactNode; sub: ReactNode } {
+  if (c.mode === "join") {
+    return { value: <span className="break-all font-mono font-normal">{c.pillar_path}</span>, sub: "Joins this hub" };
+  }
+  if (c.mode === "hub") {
+    return {
+      value: "This page becomes a hub",
+      sub: `Members: ${c.members.map((m) => `${m.contentType}/${m.slug}`).join(", ")}`,
+    };
+  }
+  return { value: "No cluster", sub: `Why: ${c.reason}` };
 }
 
 function parseMembers(raw: string): Array<{ contentType: string; slug: string }> {
@@ -57,8 +93,10 @@ export function IdeaSeoTargetPanel(props: {
   locale?: string | null;
   pending: boolean;
   onSave: (target: IdeaSeoTarget) => void;
+  /** Rendered inside another card (no own border box). */
+  embedded?: boolean;
 }) {
-  const { target, editable, locked, reviewSituations, locale, pending, onSave } = props;
+  const { target, editable, locked, reviewSituations, locale, pending, onSave, embedded } = props;
   const standaloneAllowed = (reviewSituations ?? []).some((s) => STANDALONE_LABELS.has(s));
 
   const [keyword, setKeyword] = useState("");
@@ -66,11 +104,15 @@ export function IdeaSeoTargetPanel(props: {
   const [pillarPath, setPillarPath] = useState("");
   const [membersRaw, setMembersRaw] = useState("");
   const [reason, setReason] = useState("");
+  const [volumeRaw, setVolumeRaw] = useState("");
+  const [difficultyRaw, setDifficultyRaw] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     if (!target) return;
     setKeyword(target.main_keyword);
+    setVolumeRaw(target.kw_monthly_volume != null ? String(target.kw_monthly_volume) : "");
+    setDifficultyRaw(target.kw_difficulty != null ? String(target.kw_difficulty) : "");
     setMode(target.cluster.mode);
     if (target.cluster.mode === "join") setPillarPath(target.cluster.pillar_path);
     if (target.cluster.mode === "hub")
@@ -89,9 +131,13 @@ export function IdeaSeoTargetPanel(props: {
   }, [overview, locale]);
 
   const members = parseMembers(membersRaw);
+  const volume = parseMetricInput(volumeRaw);
+  const difficulty = parseMetricInput(difficultyRaw, 100);
   const canSave =
     !pending &&
     keyword.trim().length > 0 &&
+    volume !== null &&
+    difficulty !== null &&
     (mode === "join"
       ? pillarPath.trim().length > 0
       : mode === "hub"
@@ -105,33 +151,57 @@ export function IdeaSeoTargetPanel(props: {
         : mode === "hub"
           ? { mode, members }
           : { mode, reason: reason.trim() };
-    onSave({ main_keyword: keyword.trim(), cluster });
+    onSave({
+      main_keyword: keyword.trim(),
+      cluster,
+      ...(volume != null ? { kw_monthly_volume: volume } : {}),
+      ...(difficulty != null ? { kw_difficulty: difficulty } : {}),
+    });
   };
 
   return (
     <div
-      className="space-y-2 rounded-md border border-card-border bg-muted/20 px-3 py-2.5"
+      className={embedded ? "space-y-2" : "space-y-2 rounded-md border border-card-border bg-muted/20 px-3 py-2.5"}
       data-testid="proposal-idea-seo-target"
     >
       <p className="text-xs text-muted-foreground">
         {locked
-          ? "SEO target locked at accept (read-only). It was copied into the new page's draft."
-          : "Which search this new page should win and which topic hub it joins. Locked when the idea is accepted and copied into the new page."}
+          ? "Locked at accept (read-only). The keyword and cluster were copied into the new page's draft."
+          : "The search this new page should win and the cluster (topic hub) it joins. Locked when the idea is accepted; the keyword and cluster are copied into the new page."}
       </p>
       {target ? (
-        <Badge variant="secondary" className="font-normal" data-testid="badge-idea-seo-target">
-          {describeIdeaSeoTarget(target)}
-        </Badge>
+        <div className="space-y-1">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+            <TargetStat
+              label="Keyword"
+              value={<span className="break-words">{target.main_keyword}</span>}
+              testId="meta-idea-seo-keyword"
+            />
+            <TargetStat label="Cluster" testId="meta-idea-seo-cluster" {...clusterStat(target.cluster)} />
+            <TargetStat
+              label="Search volume"
+              value={target.kw_monthly_volume != null ? `${target.kw_monthly_volume.toLocaleString()}/mo` : null}
+              testId="meta-idea-seo-volume"
+            />
+            <TargetStat
+              label="Difficulty"
+              value={target.kw_difficulty != null ? `${target.kw_difficulty}/100` : null}
+              testId="meta-idea-seo-difficulty"
+            />
+          </dl>
+          {target.kw_monthly_volume == null || target.kw_difficulty == null ? (
+            <p className="text-xs text-muted-foreground" data-testid="text-idea-seo-metrics-missing">
+              {locked
+                ? "This idea was accepted without both numbers. Check the evidence in the idea brief."
+                : "Ask the author for both numbers from their keyword research before accepting."}
+            </p>
+          ) : null}
+        </div>
       ) : (
-        <p className="text-xs text-amber-600 dark:text-amber-400" data-testid="text-idea-seo-target-missing">
+        <p className="text-xs text-status-away" data-testid="text-idea-seo-target-missing">
           No SEO target yet. New pages on SEO-tracked types cannot be accepted without one.
         </p>
       )}
-      {target?.cluster.mode === "standalone" ? (
-        <p className="text-xs text-muted-foreground" data-testid="text-idea-seo-standalone-reason">
-          Why no hub: {target.cluster.reason}
-        </p>
-      ) : null}
 
       {editable ? (
         <div className="grid gap-2 sm:grid-cols-3">
@@ -148,8 +218,41 @@ export function IdeaSeoTargetPanel(props: {
             />
           </div>
           <div className="space-y-1">
+            <Label htmlFor="idea-seo-volume" className="text-xs">
+              Monthly searches
+            </Label>
+            <Input
+              id="idea-seo-volume"
+              inputMode="numeric"
+              value={volumeRaw}
+              onChange={(e) => setVolumeRaw(e.target.value)}
+              placeholder="9900"
+              aria-invalid={volume === null}
+              data-testid="input-idea-seo-volume"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="idea-seo-difficulty" className="text-xs">
+              Difficulty (0–100)
+            </Label>
+            <Input
+              id="idea-seo-difficulty"
+              inputMode="numeric"
+              value={difficultyRaw}
+              onChange={(e) => setDifficultyRaw(e.target.value)}
+              placeholder="35"
+              aria-invalid={difficulty === null}
+              data-testid="input-idea-seo-difficulty"
+            />
+          </div>
+          <p className="self-end text-xs text-muted-foreground sm:pb-2">
+            {volume === null || difficulty === null
+              ? "Use whole numbers; difficulty goes up to 100."
+              : "Copy both from keyword research. Don't estimate."}
+          </p>
+          <div className="space-y-1">
             <Label htmlFor="idea-seo-mode" className="text-xs">
-              Topic hub
+              Cluster
             </Label>
             <select
               id="idea-seo-mode"
@@ -256,6 +359,11 @@ export function IdeaSeoTargetPanel(props: {
             (hub), or <code className="font-mono">seo.pillar_path: null</code> (no hub) into{" "}
             <code className="font-mono">draft.{"{locale}"}.yml</code>. First publish copies it to live and{" "}
             <code className="font-mono">seo-index.json</code>.
+          </p>
+          <p>
+            Volume and difficulty are stored as <code className="font-mono">kw_monthly_volume</code> and{" "}
+            <code className="font-mono">kw_difficulty</code> on the idea only. They are not copied into the page;
+            the page&apos;s own numbers come from SEO research.
           </p>
           <p>
             Accept checks the hub is live and in the same language, and that no live page or other accepted idea

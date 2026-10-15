@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/select";
 import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { McpAgentSetupTabs, MCP_AGENT_SETUP_LABELS } from "@/components/mcp/McpAgentSetupTabs";
+import { McpAgentConnectCards } from "@/components/mcp/McpAgentConnectCard";
 import { McpSetupAgentIcon } from "@/components/mcp/McpSetupAgentIcon";
 import { McpSetupRoleMultiSelect } from "@/components/mcp/McpSetupRoleTabs";
 import {
@@ -580,6 +581,11 @@ function ConnectionPanel({
                   onEdit={handleChangeAgent}
                   editTestId="button-change-setup-agent"
                   valueTestId="text-setup-agent-summary"
+                />
+                <McpAgentConnectCards
+                  agentId={setupAgentId}
+                  roleIds={setupRoleIds}
+                  roleLabels={roleLabels}
                 />
               </div>
               <McpAgentSetupTabs

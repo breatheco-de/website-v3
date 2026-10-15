@@ -1,5 +1,5 @@
 {
-  "name": "weblify",
+  "name": "caxton",
   "version": "1.0.0",
   "type": "module",
   "license": "MIT",
@@ -233,5 +233,12 @@
     "@esbuild-kit/core-utils": {
       "esbuild": "^0.28.0"
     }
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "sharp": true,
+    "better-sqlite3": true,
+    "bufferutil": true,
+    "fsevents": true
   }
 }

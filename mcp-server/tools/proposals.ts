@@ -103,6 +103,19 @@ const IDEA_SEO_TARGET_SCHEMA = z.object({
       reason: z.string().describe("Min 40 chars. Only for fast_decay_news / broken_url ideas."),
     }),
   ]),
+  kw_monthly_volume: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe("Monthly searches for main_keyword, copied from your keyword research (never estimated). Reviewers expect it."),
+  kw_difficulty: z
+    .number()
+    .int()
+    .min(0)
+    .max(100)
+    .optional()
+    .describe("Keyword difficulty 0–100 for main_keyword, from the same research. Reviewers expect it. Stays on the idea; not written to the page's seo block."),
 });
 
 const SEO_TARGET_OVERRIDE_SCHEMA = z.object({
@@ -722,7 +735,7 @@ export function registerProposalTools(
       "Ideas: optional one demand label — anticipated_demand (launch → lasting queries; empty volume OK), existing_demand (current search rank/cite; author documents SERP maturity/weight class/asset in brief), fast_decay_news (announcement only → expect reject), broken_url (missing address; call get_runtime_issues first and paste path/count/sources/referrer/queryAttribution; only roles with that tool). " +
       "idea_opportunity_harm is always on for ideas — do not file it. Omit review_situations on ideas that are not those three. " +
       "New-URL ideas: optional idea_funnel { stage, products } (products \"all\" only with stage awareness). Soft warning idea_funnel_missing when omitted; accept refuses until set (set_idea_funnel). " +
-      "New-URL ideas on SEO-monitored types: idea_seo_target { main_keyword, cluster: join|hub|standalone } — soft warning idea_seo_target_missing; accept refuses until set (set_idea_seo_target); locks at accept and seeds the new draft's seo block. Implementing edits whose seo ops differ from the lock need seo_target_override.reason. " +
+      "New-URL ideas on SEO-monitored types: idea_seo_target { main_keyword, cluster: join|hub|standalone, kw_monthly_volume, kw_difficulty } — soft warnings idea_seo_target_missing / idea_seo_target_metrics_missing; accept refuses until set (set_idea_seo_target); locks at accept and seeds the new draft's seo block (keyword + hub only; kw_* stay on the idea). Implementing edits whose seo ops differ from the lock need seo_target_override.reason. " +
       "Hub/internal links → prefer review_situations:[\"internal_links\"] (subtopic internal-links). " +
       "SERP title/description → prefer review_situations:[\"serp_title_description\"] (subtopic serp-title-description). " +
       "Funnel stage/products → prefer review_situations:[\"funnel_classification\"] (subtopic funnel-classification; persona → product → stage). " +
@@ -2046,7 +2059,7 @@ export function registerProposalTools(
           "For set_related_entries (open ideas, proposer): full replacement. contentType must be a content-types.yml key (not a folder name); slug may not exist yet. Empty array clears.",
         ),
       idea_seo_target: IDEA_SEO_TARGET_SCHEMA.optional().describe(
-        "For set_idea_seo_target (open ideas, proposer/staff): main_keyword + cluster (join live same-locale hub | hub with named live members | standalone for fast_decay_news / broken_url, reason min 40). Frozen after accept.",
+        "For set_idea_seo_target (open ideas, proposer/staff): main_keyword + cluster (join live same-locale hub | hub with named live members | standalone for fast_decay_news / broken_url, reason min 40) + kw_monthly_volume and kw_difficulty from your keyword research. Send the whole target (replaces the stored one). Frozen after accept.",
       ),
       seo_target_override: SEO_TARGET_OVERRIDE_SCHEMA.optional().describe(
         "For revise_entries on edits implementing an idea: reason (min 40) when seo.main_keyword / seo.pillar_path differ from the locked target, or when setting seo.pillar_path: null on an idea-born page (news / broken-URL only).",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAgentConnectUrl,
   buildClaudeCodeCli,
   buildClaudeCodeCliForRoles,
   buildHttpMcpConfig,
@@ -64,6 +65,30 @@ describe("mcpUrlHelpers role paths", () => {
         roleId: "metrics_viewer",
       }),
     ).toBe("https://site.example/mcp/role/metrics_viewer");
+  });
+
+  it("buildAgentConnectUrl prefills the Claude.ai add-connector dialog", () => {
+    const href = buildAgentConnectUrl("claude-ai", {
+      name: "4Geeks CMS (Layout Editor)",
+      url: "https://site.example/mcp/role/layout_editor",
+    });
+    const parsed = new URL(href!);
+    expect(parsed.origin + parsed.pathname).toBe("https://claude.ai/customize/connectors");
+    expect(parsed.searchParams.get("modal")).toBe("add-custom-connector");
+    expect(parsed.searchParams.get("connectorName")).toBe("4Geeks CMS (Layout Editor)");
+    expect(parsed.searchParams.get("connectorUrl")).toBe("https://site.example/mcp/role/layout_editor");
+    expect(href).toContain("connectorUrl=https%3A%2F%2Fsite.example%2Fmcp%2Frole%2Flayout_editor");
+  });
+
+  it("buildAgentConnectUrl falls back to the connectors page", () => {
+    expect(buildAgentConnectUrl("claude-ai", { name: "x", url: null })).toBe(
+      "https://claude.ai/customize/connectors",
+    );
+    expect(buildAgentConnectUrl("chatgpt", { name: "x", url: "https://site.example/mcp" })).toBe(
+      "https://chatgpt.com/plugins",
+    );
+    expect(buildAgentConnectUrl("grok")).toBe("https://grok.com/connectors");
+    expect(buildAgentConnectUrl("cursor")).toBeNull();
   });
 
   it("resolveCloudConnectorUrls maps each role", () => {

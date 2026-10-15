@@ -123,7 +123,7 @@ function PersonaReminderBody({
   );
 }
 
-function PersonaReminderPopover({
+export function PersonaReminderPopover({
   productSlug,
   personaId,
   label,

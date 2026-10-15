@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import {
   IconAlertTriangle,
   IconArrowsSort,
   IconBan,
+  IconBug,
   IconCheck,
   IconChevronLeft,
   IconCircleCheck,
@@ -86,9 +87,9 @@ import { ProposalKpiStrip } from "@/components/agents/ProposalKpiStrip";
 import {
   ProposalListCard,
   ProposalListCardSkeleton,
-  ProposalMetaRow,
   ProposalCategoryTags,
 } from "@/components/agents/ProposalListCard";
+import { ProposalDetailMetaCard } from "@/components/agents/ProposalDetailMetaCard";
 import { ProposalFieldDiff } from "@/components/agents/ProposalFieldDiff";
 import {
   ProposalSituationCallout,
@@ -112,12 +113,11 @@ import {
 } from "@/components/agents/ProposalOutcomeReview";
 import { BlockersBadge } from "@/components/agents/BlockersBadge";
 import {
-  IdeaPageTypeStrategy,
+  IdeaTargetEntryCard,
   type IdeaContentTypeStrategyPayload,
-} from "@/components/agents/IdeaPageTypeStrategy";
+} from "@/components/agents/IdeaTargetEntryCard";
 import {
   ProposalKindBadge,
-  ProposalProgressLabel,
   ProposalStatusLabel,
 } from "@/components/agents/ProposalExplainBadges";
 import { EventWebhooksKpiButton } from "@/components/pipeline/EventWebhooksDialog";
@@ -140,7 +140,6 @@ import { proposalStatusUi } from "@/lib/proposalStatusUi";
 import {
   asIssueActor,
   formatProposalRelativeUpdatedAt,
-  proposalAttributionLines,
   proposalEntryProgress,
   shortProposalId,
 } from "@/lib/proposalCardMeta";
@@ -272,6 +271,7 @@ type Proposal = {
   id: string;
   title: string;
   summary: string;
+  rationale?: string | null;
   kind: string;
   status: string;
   category?: string;
@@ -360,6 +360,20 @@ type Proposal = {
   outcome_lesson_note?: string | null;
 };
 
+function suggestedEntriesBesidesReserved(p: Proposal): RelatedEntryRef[] {
+  const related = p.related_entries ?? [];
+  const reserved = p.accepted_entry;
+  if (!reserved) return related;
+  return related.filter(
+    (ref) =>
+      !(
+        ref.contentType === reserved.contentType &&
+        ref.slug === reserved.slug &&
+        (!ref.locale || ref.locale === reserved.locale)
+      ),
+  );
+}
+
 function headers(): Record<string, string> {
   return { "Content-Type": "application/json", ...getSessionHeaders() };
 }
@@ -442,66 +456,80 @@ function DecisionDebugPanel({
 }: {
   debug: NonNullable<Proposal["decision_debug"]>;
 }) {
+  const [open, setOpen] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const think = debug.review_context?.think_items ?? [];
   return (
-    <div
-      className="rounded-md border border-card-border bg-muted/30 px-3 py-2.5 space-y-1.5"
-      data-testid="callout-proposal-decision-debug"
-    >
-      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        Decide debug
-      </p>
-      <p className="text-sm leading-5 text-foreground/90">
-        Debug snapshot of the review checklist at decide time — it does not change the site.
-      </p>
-      <p className="text-xs text-muted-foreground">
-        {debug.action ?? "—"}
-        {debug.source ? ` · ${debug.source}` : ""}
-        {debug.actor?.username ? ` · ${debug.actor.username}` : ""}
-        {debug.review_context?.damage_class
-          ? ` · ${debug.review_context.damage_class}`
-          : ""}
-      </p>
-      <Button
+    <>
+      <button
         type="button"
-        variant="ghost"
-        size="sm"
-        className="h-auto px-0 text-xs text-primary"
-        data-testid="button-proposal-decision-debug-advanced"
-        onClick={() => setAdvanced((v) => !v)}
+        className="inline-flex shrink-0"
+        data-testid="badge-proposal-decision-debug"
+        aria-label="Open decision debugger"
+        onClick={() => setOpen(true)}
       >
-        {advanced ? "Hide advanced" : "Read more (advanced)"}
-      </Button>
-      {advanced ? (
-        <div
-          className="space-y-2 border-t pt-2 text-xs text-muted-foreground"
-          data-testid="panel-proposal-decision-debug-advanced"
+        <Badge variant="outline" className="cursor-pointer gap-1 font-normal hover-elevate">
+          <IconBug className="h-3.5 w-3.5" aria-hidden />
+          Decision Debugger
+        </Badge>
+      </button>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setAdvanced(false);
+        }}
+      >
+        <DialogContent
+          className="max-w-2xl max-h-[85vh] overflow-y-auto"
+          data-testid="dialog-proposal-decision-debug"
         >
-          <p>
-            <span className="font-medium text-foreground">checklists:</span>{" "}
-            {(debug.review_context?.active_checklists ?? []).join(", ") || "—"}
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <IconBug className="h-4 w-4" aria-hidden />
+              Decision Debugger
+            </DialogTitle>
+            <DialogDescription>
+              Debug snapshot of the review checklist at decide time — it does not change the site.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground">
+            {debug.action ?? "—"}
+            {debug.source ? ` · ${debug.source}` : ""}
+            {debug.actor?.username ? ` · ${debug.actor.username}` : ""}
+            {debug.review_context?.damage_class
+              ? ` · ${debug.review_context.damage_class}`
+              : ""}
           </p>
-          {think.length ? (
-            <ul className="list-disc space-y-2 pl-4">
-              {think.map((t) => (
-                <li key={t.id}>
-                  <span className="font-medium text-foreground">{t.title}</span>
-                  <ul className="mt-1 list-disc pl-4">
-                    {t.look_for.map((l) => (
-                      <li key={l}>{l}</li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          <pre className="max-h-56 overflow-auto rounded-md bg-muted/40 p-2 font-mono text-[10px] leading-4">
-            {JSON.stringify(debug, null, 2)}
-          </pre>
-        </div>
-      ) : null}
-    </div>
+          <div
+            className="space-y-2 border-t pt-2 text-xs text-muted-foreground"
+            data-testid="panel-proposal-decision-debug-advanced"
+          >
+            <p>
+              <span className="font-medium text-foreground">checklists:</span>{" "}
+              {(debug.review_context?.active_checklists ?? []).join(", ") || "—"}
+            </p>
+            {think.length ? (
+              <ul className="list-disc space-y-2 pl-4">
+                {think.map((t) => (
+                  <li key={t.id}>
+                    <span className="font-medium text-foreground">{t.title}</span>
+                    <ul className="mt-1 list-disc pl-4">
+                      {t.look_for.map((l) => (
+                        <li key={l}>{l}</li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <pre className="max-h-80 overflow-auto rounded-md bg-muted/40 p-2 font-mono text-[10px] leading-4">
+              {JSON.stringify(debug, null, 2)}
+            </pre>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -628,6 +656,76 @@ function NoAutoRetryBadge({
             <p>New handoffs default to this block when they link an issue. Handoffs with no linked issue are not gated this way.</p>
             <p>Staff can change this without claiming. Agents must claim first, then change the flag.</p>
             <p>Closing or finishing this handoff ends the block for that issue link.</p>
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+const IDEA_PAGE_EXPLAIN = {
+  suggested: {
+    title: "Suggested page",
+    body: "The page the person who filed this idea thinks it is about. It may not exist yet. This is only a suggestion: it does not reserve the page or stop other ideas from aiming at it.",
+    use: "Check it fits the brief before accepting. Accept pre-fills this page as the one to reserve, and you can change it there.",
+    advanced: [
+      "Stored as related_entries. The proposer can replace it (set_related_entries) while the idea is open; it is frozen once the idea is accepted.",
+      "A suggestion with no language matches every language of that page.",
+      "When a reserved page frees up, open ideas that suggest it are listed as waiting so a reviewer can accept the next one. Nothing is accepted automatically.",
+    ],
+  },
+  reserved: {
+    title: "Reserved page",
+    body: "The page and language the reviewer reserved for this idea when they accepted it. While reserved, no other idea can be accepted for it, and edit proposals for that page must be linked to this idea.",
+    use: "File the follow-up edit proposal against this exact page and language. The reservation ends once one of those edits is applied.",
+    advanced: [
+      "Stored as accepted_entry { contentType, slug, locale }. A second accept for the same page is refused (accepted_entry_taken); unlinked edit proposals are refused (implements_required).",
+      "Released when one implementing edit is applied and none are still open or partial. Rejected or withdrawn edits do not release it, and a later revert does not re-reserve it.",
+      "Accepting does not publish or write YAML; the follow-up edit does.",
+    ],
+  },
+} as const;
+
+function IdeaPageInfoButton({ kind }: { kind: keyof typeof IDEA_PAGE_EXPLAIN }) {
+  const [advanced, setAdvanced] = useState(false);
+  const explain = IDEA_PAGE_EXPLAIN[kind];
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+          data-testid={`button-idea-${kind}-page-info`}
+          aria-label={`${explain.title} — what this means`}
+        >
+          <IconInfoCircle className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-80 space-y-3 text-sm"
+        align="start"
+        data-testid={`popover-idea-${kind}-page-info`}
+      >
+        <p className="font-medium text-foreground">{explain.title}</p>
+        <p className="text-muted-foreground leading-5">{explain.body}</p>
+        <p className="text-muted-foreground leading-5">
+          <span className="font-medium text-foreground">How to use it: </span>
+          {explain.use}
+        </p>
+        <button
+          type="button"
+          className="text-xs text-primary hover:underline"
+          data-testid={`button-idea-${kind}-page-advanced`}
+          onClick={() => setAdvanced((v) => !v)}
+        >
+          {advanced ? "Hide advanced" : "Read more (advanced)"}
+        </button>
+        {advanced ? (
+          <div className="space-y-1 border-t pt-2 text-xs text-muted-foreground leading-5">
+            {explain.advanced.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
           </div>
         ) : null}
       </PopoverContent>
@@ -1460,19 +1558,6 @@ export function ProposalDetailPanel({ id }: { id: string }) {
   const needsActivityAck = gateWriteTotal > 0;
   const claimActive =
     p?.claim && new Date(p.claim.expiresAt).getTime() > Date.now() ? p.claim : null;
-  const attribution = p
-    ? proposalAttributionLines({
-        proposerUsername: p.proposer_username,
-        proposerActor: p.proposer_actor,
-        claim: p.claim,
-        status: p.status,
-        closeReason: p.close_reason,
-        closedBy: p.closed_by,
-        reviewer: p.reviewer_action_by,
-        reviewerActor: p.reviewer_action_by_actor,
-        reviewerAt: p.reviewer_action_at,
-      })
-    : null;
   const progress = p && p.kind === "edits" ? proposalEntryProgress(p.entries ?? []) : null;
   // Resolve enabled when any staff holds claim — server enforces claimant match via session author.
   const canResolveUi = Boolean(claimActive);
@@ -1541,46 +1626,6 @@ export function ProposalDetailPanel({ id }: { id: string }) {
       : PROPOSAL_CLOSE_REASON_OPTIONS.find((o) => o.value === p?.close_reason)?.label ??
         (p?.status === "rejected" ? rejectKindLabel(p.close_reason) : p?.close_reason);
 
-  const detailMeta: Array<{ key: string; node: ReactNode }> = [];
-  if (p && attribution) {
-    for (const line of attribution.lines) {
-      detailMeta.push({ key: `attr-${line}`, node: <span>{line}</span> });
-    }
-    if (attribution.expiredLine) {
-      detailMeta.push({
-        key: "expired",
-        node: <span className="text-muted-foreground/70">{attribution.expiredLine}</span>,
-      });
-    }
-    // Terminal proposals already show the closer in the decision banner below.
-    if (attribution.reviewLine && !isTerminal) {
-      detailMeta.push({
-        key: "review",
-        node: (
-          <span title={attribution.reviewLine.title} data-testid="text-proposal-detail-review">
-            {attribution.reviewLine.text}
-          </span>
-        ),
-      });
-    }
-    if (progress) {
-      detailMeta.push({
-        key: "progress",
-        node: <ProposalProgressLabel progress={progress} className="text-xs" />,
-      });
-    }
-    detailMeta.push({
-      key: "updated",
-      node: <span>Updated {formatProposalRelativeUpdatedAt(p.updated_at ?? p.created_at)}</span>,
-    });
-    if (claimActive) {
-      detailMeta.push({
-        key: "claim",
-        node: <span>Claim holds until {new Date(claimActive.expiresAt).toLocaleString()}</span>,
-      });
-    }
-  }
-
   return (
     <div className="space-y-5" data-testid="panel-agents-proposal-detail">
       <Button variant="ghost" asChild className="-ml-2 h-10 gap-1.5 px-3 text-sm text-muted-foreground">
@@ -1614,7 +1659,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
           </div>
         </div>
       ) : null}
-      {p && mode && attribution && ui && (
+      {p && mode && ui && (
         <>
           <Card className={cn("border-l-2", ui.accentClassName)}>
             <div className="flex items-start gap-3 p-5">
@@ -1664,6 +1709,22 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                   />
                 </div>
                 <h2 className="text-xl font-semibold leading-tight tracking-tight">{p.title}</h2>
+                <div
+                  className="flex flex-wrap items-center gap-2"
+                  data-testid="proposal-identity-row"
+                >
+                  <ProposalCategoryTags
+                    category={p.category}
+                    tags={p.tags}
+                    testIdPrefix="proposal-detail"
+                  />
+                  <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+                    <span className="font-mono" data-testid="text-proposal-short-id" title={p.id}>
+                      {shortProposalId(p.id)}
+                    </span>
+                    <McpCopyButton text={p.id} testId="button-copy-proposal-id" />
+                  </span>
+                </div>
                 {p.escalated ? (
                   <div
                     className="rounded-md border border-status-busy/30 bg-status-busy/5 px-3 py-2 text-sm text-foreground"
@@ -1753,22 +1814,6 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     }
                   />
                 ) : null}
-                <div
-                  className="flex flex-wrap items-center gap-2"
-                  data-testid="proposal-identity-row"
-                >
-                  <ProposalCategoryTags
-                    category={p.category}
-                    tags={p.tags}
-                    testIdPrefix="proposal-detail"
-                  />
-                  <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
-                    <span className="font-mono" data-testid="text-proposal-short-id" title={p.id}>
-                      {shortProposalId(p.id)}
-                    </span>
-                    <McpCopyButton text={p.id} testId="button-copy-proposal-id" />
-                  </span>
-                </div>
                 {p.kind === "edits" && p.entries.length > 0 ? (
                   <div
                     className="flex flex-wrap items-center gap-1.5"
@@ -1847,13 +1892,16 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     })}
                   </div>
                 ) : null}
-                {p.kind === "idea" && (p.related_entries?.length ?? 0) > 0 ? (
+                {p.kind === "idea" && suggestedEntriesBesidesReserved(p).length > 0 ? (
                   <div
                     className="flex flex-wrap items-center gap-1.5"
                     data-testid="proposal-idea-related-entries"
                   >
-                    <span className="text-xs text-muted-foreground">Context</span>
-                    {p.related_entries!.map((ref, i) => (
+                    <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+                      {suggestedEntriesBesidesReserved(p).length > 1 ? "Suggested pages" : "Suggested page"}
+                      <IdeaPageInfoButton kind="suggested" />
+                    </span>
+                    {suggestedEntriesBesidesReserved(p).map((ref, i) => (
                       <Badge
                         key={`${ref.contentType}/${ref.slug}/${ref.locale ?? ""}-${i}`}
                         variant="outline"
@@ -1880,70 +1928,40 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     ))}
                   </div>
                 ) : null}
-                {p.kind === "idea" && (data?.content_type_strategies?.length ?? 0) > 0 ? (
-                  <IdeaPageTypeStrategy strategies={data!.content_type_strategies!} />
-                ) : null}
-                {p.kind === "idea" && p.accepted_entry ? (
-                  <div
-                    className="flex flex-wrap items-center gap-1.5"
-                    data-testid="proposal-idea-accepted-entry"
-                  >
-                    <span className="text-xs text-muted-foreground">Locked page</span>
-                    <Badge
-                      variant="secondary"
-                      className="gap-1 font-mono font-normal max-w-full truncate"
-                      data-testid="badge-idea-accepted-entry"
-                    >
-                      {p.accepted_entry.contentType}/{p.accepted_entry.slug}
-                      <span className="text-muted-foreground">· {p.accepted_entry.locale}</span>
-                    </Badge>
-                    {p.accepted_entry_create_mode === "manual" ? (
-                      <p
-                        className="basis-full text-xs text-muted-foreground"
-                        data-testid="text-idea-entry-not-creatable"
-                      >
-                        {ACCEPTED_ENTRY_NOT_CREATABLE_COPY}
-                      </p>
-                    ) : p.accepted_entry_create_mode === "page" ? (
-                      <p
-                        className="basis-full text-xs text-muted-foreground"
-                        data-testid="text-idea-entry-needs-layout"
-                      >
-                        {ACCEPTED_ENTRY_NEEDS_LAYOUT_COPY}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
                 {p.kind === "idea" ? (
-                  <div
-                    className="space-y-2 rounded-md border border-card-border bg-muted/20 px-3 py-2.5"
-                    data-testid="proposal-idea-funnel"
-                  >
-                    <p className="text-xs text-muted-foreground">
-                      {p.status === "finished" && p.close_reason === "accepted"
-                        ? "Funnel locked at accept (read-only)."
-                        : "New page ideas need who/product/stage before greenlight. Accept will not lock a new URL without it."}
-                    </p>
-                    {p.idea_funnel ? (
-                      <Badge
-                        variant="secondary"
-                        className="font-mono font-normal"
-                        data-testid="badge-idea-funnel"
-                      >
-                        {p.idea_funnel.stage}
-                        {" · "}
-                        {p.idea_funnel.products === "all"
-                          ? "all products"
-                          : p.idea_funnel.products
-                              .map((b) => (b.persona ? `${b.product}/${b.persona}` : b.product))
-                              .join(", ")}
-                      </Badge>
-                    ) : (
-                      <p className="text-xs text-amber-600 dark:text-amber-400" data-testid="text-idea-funnel-missing">
-                        No structured funnel yet.
-                      </p>
-                    )}
-                    {p.status === "open" ? (
+                  <IdeaTargetEntryCard
+                    strategies={data?.content_type_strategies ?? []}
+                    acceptedEntry={p.accepted_entry ?? null}
+                    pitchedTypes={Array.from(new Set((p.related_entries ?? []).map((r) => r.contentType)))}
+                    createModeNote={
+                      p.accepted_entry_create_mode === "manual"
+                        ? ACCEPTED_ENTRY_NOT_CREATABLE_COPY
+                        : p.accepted_entry_create_mode === "page"
+                          ? ACCEPTED_ENTRY_NEEDS_LAYOUT_COPY
+                          : null
+                    }
+                    reservedInfo={<IdeaPageInfoButton kind="reserved" />}
+                    keywordsPanel={
+                      <IdeaSeoTargetPanel
+                        embedded
+                        target={p.idea_seo_target}
+                        editable={p.status === "open"}
+                        locked={p.status === "finished" && p.close_reason === "accepted"}
+                        reviewSituations={p.review_situations}
+                        locale={p.accepted_entry?.locale ?? p.related_entries?.[0]?.locale ?? null}
+                        pending={mut.isPending}
+                        onSave={(target) =>
+                          mut.mutate({ action: "set_idea_seo_target", body: { idea_seo_target: target } })
+                        }
+                      />
+                    }
+                    keywordsMissing={
+                      !p.idea_seo_target && !(p.status === "finished" && p.close_reason === "accepted")
+                    }
+                    funnel={p.idea_funnel}
+                    funnelLocked={p.status === "finished" && p.close_reason === "accepted"}
+                    funnelEditor={
+                      p.status === "open" ? (
                       <div className="grid gap-2 sm:grid-cols-3">
                         <div className="space-y-1">
                           <Label htmlFor="idea-funnel-stage" className="text-xs">
@@ -2024,19 +2042,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                           </Button>
                         </div>
                       </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                {p.kind === "idea" ? (
-                  <IdeaSeoTargetPanel
-                    target={p.idea_seo_target}
-                    editable={p.status === "open"}
-                    locked={p.status === "finished" && p.close_reason === "accepted"}
-                    reviewSituations={p.review_situations}
-                    locale={p.accepted_entry?.locale ?? p.related_entries?.[0]?.locale ?? null}
-                    pending={mut.isPending}
-                    onSave={(target) =>
-                      mut.mutate({ action: "set_idea_seo_target", body: { idea_seo_target: target } })
+                      ) : null
                     }
                   />
                 ) : null}
@@ -2119,7 +2125,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     )}
                   </div>
                 ) : null}
-                <ProposalMetaRow items={detailMeta} className="text-xs" />
+                <ProposalDetailMetaCard proposal={p} isTerminal={isTerminal} progress={progress} />
               </div>
             </div>
             {!isTerminal ? (
@@ -2493,6 +2499,16 @@ export function ProposalDetailPanel({ id }: { id: string }) {
               </p>
             ) : null}
             <p className="whitespace-pre-wrap text-sm leading-6">{p.summary}</p>
+            {p.rationale?.trim() ? (
+              <div className="space-y-1 border-t border-card-border pt-3" data-testid="proposal-rationale">
+                <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {p.kind === "idea" ? "Evidence and sources" : "Why"}
+                </h4>
+                <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+                  {p.rationale.trim()}
+                </p>
+              </div>
+            ) : null}
             {p.related_issue_ids.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5 pt-1">
                 <span className="text-xs text-muted-foreground">Linked issues</span>
@@ -3437,7 +3453,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                 <DialogDescription asChild>
                   <div className="space-y-2 text-sm text-muted-foreground">
                     <p>
-                      You’re greenlighting this brief and locking the page (and locale) this work
+                      You’re greenlighting this brief and reserving the page (and locale) this work
                       will use. Accepting finishes the idea — it does not publish or write YAML.
                     </p>
                     <p>Open needs-change notes must be cleared first.</p>

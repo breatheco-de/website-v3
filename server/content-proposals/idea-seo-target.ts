@@ -17,15 +17,23 @@ export type IdeaSeoCluster =
   | { mode: "hub"; members: IdeaSeoHubMember[] }
   | { mode: "standalone"; reason: string };
 
+/**
+ * `kw_*` are the author's planning evidence for main_keyword (same meaning as the page's
+ * seo.kw_* fields). They stay on the idea: never seeded into the draft, because page metrics
+ * come from the SEO research cache or a sourced write.
+ */
 export type IdeaSeoTarget = {
   main_keyword: string;
   cluster: IdeaSeoCluster;
+  kw_monthly_volume?: number;
+  kw_difficulty?: number;
 };
 
 /** Edits proposal: why its seo.* ops differ from the implemented idea's locked target. */
 export type SeoTargetOverride = { reason: string };
 
 export const IDEA_SEO_TARGET_MISSING_WARN = "idea_seo_target_missing";
+export const IDEA_SEO_TARGET_METRICS_MISSING_WARN = "idea_seo_target_metrics_missing";
 export const IDEA_SEO_TARGET_INCOMPLETE = "idea_seo_target_incomplete";
 export const IDEA_SEO_TARGET_REQUIRED = "idea_seo_target_required";
 export const IDEA_SEO_TARGET_FROZEN = "idea_seo_target_frozen";
@@ -98,14 +106,46 @@ function parseCluster(raw: unknown): IdeaSeoCluster | null {
   return null;
 }
 
-/** Lenient read of a stored target (null when unusable). */
+type MetricField = "kw_monthly_volume" | "kw_difficulty";
+
+/** Integer metric; missing/empty → null; anything else unparseable → "invalid". */
+function parseMetric(v: unknown, field: MetricField): number | null | "invalid" {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\d+$/.test(v.trim()) ? Number(v.trim()) : NaN;
+  if (!Number.isInteger(n) || n < 0) return "invalid";
+  if (field === "kw_difficulty" && n > 100) return "invalid";
+  return n;
+}
+
+function withMetrics(
+  base: { main_keyword: string; cluster: IdeaSeoCluster },
+  volume: number | null,
+  difficulty: number | null,
+): IdeaSeoTarget {
+  const out: IdeaSeoTarget = { ...base };
+  if (volume != null) out.kw_monthly_volume = volume;
+  if (difficulty != null) out.kw_difficulty = difficulty;
+  return out;
+}
+
+/** Lenient read of a stored target (null when unusable; bad metrics are dropped). */
 export function parseIdeaSeoTarget(raw: unknown): IdeaSeoTarget | null {
   if (!raw || typeof raw !== "object") return null;
   const rec = raw as Record<string, unknown>;
   const main_keyword = str(rec.main_keyword);
   const cluster = parseCluster(rec.cluster);
   if (!main_keyword || !cluster) return null;
-  return { main_keyword, cluster };
+  const vol = parseMetric(rec.kw_monthly_volume, "kw_monthly_volume");
+  const kd = parseMetric(rec.kw_difficulty, "kw_difficulty");
+  return withMetrics(
+    { main_keyword, cluster },
+    vol === "invalid" ? null : vol,
+    kd === "invalid" ? null : kd,
+  );
+}
+
+export function ideaSeoTargetHasMetrics(t: IdeaSeoTarget | null | undefined): boolean {
+  return t?.kw_monthly_volume != null && t?.kw_difficulty != null;
 }
 
 export type IdeaSeoTargetValidation =
@@ -181,7 +221,23 @@ export function validateIdeaSeoTarget(
       return standaloneNotAllowed(opts.demandLabel);
     }
   }
-  return { ok: true, target: { main_keyword, cluster } };
+  const vol = parseMetric(rec.kw_monthly_volume, "kw_monthly_volume");
+  if (vol === "invalid") {
+    return {
+      ok: false,
+      code: IDEA_SEO_TARGET_INCOMPLETE,
+      error: "idea_seo_target.kw_monthly_volume must be a whole number >= 0 (monthly searches for main_keyword).",
+    };
+  }
+  const kd = parseMetric(rec.kw_difficulty, "kw_difficulty");
+  if (kd === "invalid") {
+    return {
+      ok: false,
+      code: IDEA_SEO_TARGET_INCOMPLETE,
+      error: "idea_seo_target.kw_difficulty must be a whole number from 0 to 100.",
+    };
+  }
+  return { ok: true, target: withMetrics({ main_keyword, cluster }, vol, kd) };
 }
 
 export function standaloneNotAllowed(label: string | null | undefined): {
@@ -207,16 +263,17 @@ export function ideaSeoTargetsEqual(a: IdeaSeoTarget, b: IdeaSeoTarget): boolean
 }
 
 function canonical(t: IdeaSeoTarget): unknown {
+  const m = { v: t.kw_monthly_volume ?? null, d: t.kw_difficulty ?? null };
   if (t.cluster.mode === "hub") {
     const members = [...t.cluster.members]
       .map((m) => `${m.contentType}/${m.slug}`)
       .sort();
-    return { k: t.main_keyword, mode: "hub", members };
+    return { k: t.main_keyword, mode: "hub", members, m };
   }
   if (t.cluster.mode === "join") {
-    return { k: t.main_keyword, mode: "join", p: normalizePath(t.cluster.pillar_path) };
+    return { k: t.main_keyword, mode: "join", p: normalizePath(t.cluster.pillar_path), m };
   }
-  return { k: t.main_keyword, mode: "standalone", r: t.cluster.reason };
+  return { k: t.main_keyword, mode: "standalone", r: t.cluster.reason, m };
 }
 
 export function normalizePath(p: string): string {
@@ -327,14 +384,21 @@ export function parseSeoTargetOverride(raw: unknown): SeoTargetOverride | null {
   return v.ok ? v.override : null;
 }
 
+function describeMetrics(t: IdeaSeoTarget): string {
+  const vol = t.kw_monthly_volume != null ? `${t.kw_monthly_volume}/mo` : "volume not set";
+  const kd = t.kw_difficulty != null ? `KD ${t.kw_difficulty}` : "difficulty not set";
+  return ` (${vol}, ${kd})`;
+}
+
 /** Human one-liner for review surfaces and events. */
 export function describeIdeaSeoTarget(t: IdeaSeoTarget): string {
   const c = t.cluster;
-  if (c.mode === "join") return `"${t.main_keyword}" → joins ${c.pillar_path}`;
+  const kw = `"${t.main_keyword}"${describeMetrics(t)}`;
+  if (c.mode === "join") return `${kw} → joins ${c.pillar_path}`;
   if (c.mode === "hub") {
-    return `"${t.main_keyword}" → new hub with ${c.members.map((m) => `${m.contentType}/${m.slug}`).join(", ")}`;
+    return `${kw} → new hub with ${c.members.map((m) => `${m.contentType}/${m.slug}`).join(", ")}`;
   }
-  return `"${t.main_keyword}" → standalone (${c.reason})`;
+  return `${kw} → standalone (${c.reason})`;
 }
 
 export { IDEA_AUTHOR_SITUATION_IDS };
