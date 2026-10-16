@@ -21,6 +21,15 @@ import type {
   DiagnosticsWorkerOutboundMessage,
   DiagnosticsWorkerStartMessage,
 } from "./diagnosticsIpc";
+import { registerJobClass } from "../../server/jobs/queue";
+import { AiImageGcJob } from "../../server/jobs/definitions/ai-image-gc";
+
+/**
+ * Marks this process as the forked diagnostics worker.
+ * Blocks ContentIndex index_refresh enqueue (web owns that); ai_image_gc is allowed.
+ */
+process.env.DIAGNOSTICS_WORKER = "1";
+registerJobClass("ai_image_gc", AiImageGcJob);
 
 function send(msg: DiagnosticsWorkerOutboundMessage): void {
   if (typeof process.send === "function") {

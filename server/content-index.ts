@@ -1865,9 +1865,16 @@ export class ContentIndex {
    * the Sidequest database; callers spy on this method to assert the enqueue.
    * No-op during HTML prebuild: that process cannot write the live Sidequest
    * database, and the open connection keeps the deploy from exiting.
+   * No-op in the forked diagnostics worker: it only validates; web owns the queue.
    */
   enqueueIndexRefresh(): void {
-    if (process.env.VITEST || process.env.PREBUILD_HTML === "1") return;
+    if (
+      process.env.VITEST ||
+      process.env.PREBUILD_HTML === "1" ||
+      process.env.DIAGNOSTICS_WORKER === "1"
+    ) {
+      return;
+    }
     const site = this.contentRootName;
     const contentRoot = this.contentRoot;
     void import("./jobs/queue")

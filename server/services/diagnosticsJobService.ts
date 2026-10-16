@@ -726,7 +726,7 @@ function forkDiagnosticsChild(): ChildProcess {
   const workerFile = path.join(getPackageRoot(), "scripts/validation/diagnostics-worker.ts");
   return fork(workerFile, [], {
     cwd: getProjectRoot(),
-    env: process.env,
+    env: { ...process.env, DIAGNOSTICS_WORKER: "1" },
     stdio: ["inherit", "inherit", "inherit", "ipc"],
     execArgv: ["--import", "tsx", "--perf-basic-prof-only-functions"],
   });
