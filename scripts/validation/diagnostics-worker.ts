@@ -26,7 +26,8 @@ import { AiImageGcJob } from "../../server/jobs/definitions/ai-image-gc";
 
 /**
  * Marks this process as the forked diagnostics worker.
- * Blocks ContentIndex index_refresh enqueue (web owns that); ai_image_gc is allowed.
+ * Registers ai_image_gc for catch-up enqueue; index_refresh is web-only
+ * (`WEBLIFY_PROCESS=web`).
  */
 process.env.DIAGNOSTICS_WORKER = "1";
 registerJobClass("ai_image_gc", AiImageGcJob);

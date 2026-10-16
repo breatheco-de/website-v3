@@ -19,6 +19,7 @@ apps.push({
   kill_timeout: 10_000,
   env: {
     NODE_ENV: "production",
+    WEBLIFY_PROCESS: "web",
   },
 });
 

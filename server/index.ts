@@ -51,6 +51,9 @@ import { getOptimizationSettings } from "./settings";
 import { BOOT_ID, BOOT_TIME, getLastSoftReload, registerShutdownHandler } from "./server-control";
 import { beginRequest, endRequest, flushTick, noteApi, resolveApiRoute, startTick } from "./process-stats";
 import logger from "./logger";
+
+// Only this process may enqueue ContentIndex index_refresh (see enqueueIndexRefresh).
+process.env.WEBLIFY_PROCESS = "web";
 // Note: gcs.initFromEnv() is called by media.initFromEnv() in routes.ts,
 // which happens before sync-state needs it.
 

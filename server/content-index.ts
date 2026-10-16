@@ -1861,18 +1861,13 @@ export class ContentIndex {
 
   /**
    * Queue IndexRefreshJob for this site. Coalesces with any index_refresh
-   * already waiting or running. No-op under vitest so unit tests do not open
-   * the Sidequest database; callers spy on this method to assert the enqueue.
-   * No-op during HTML prebuild: that process cannot write the live Sidequest
-   * database, and the open connection keeps the deploy from exiting.
-   * No-op in the forked diagnostics worker: it only validates; web owns the queue.
+   * already waiting or running. Only the Express web process enqueues
+   * (`WEBLIFY_PROCESS=web`); MCP, Sidequest, diagnostics, prebuild, and other
+   * entrypoints no-op. Also no-op under vitest so unit tests do not open the
+   * Sidequest database; callers spy on this method to assert the enqueue.
    */
   enqueueIndexRefresh(): void {
-    if (
-      process.env.VITEST ||
-      process.env.PREBUILD_HTML === "1" ||
-      process.env.DIAGNOSTICS_WORKER === "1"
-    ) {
+    if (process.env.VITEST || process.env.WEBLIFY_PROCESS !== "web") {
       return;
     }
     const site = this.contentRootName;
