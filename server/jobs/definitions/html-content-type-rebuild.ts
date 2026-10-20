@@ -18,6 +18,7 @@ import {
 } from "./content-type-html-scope";
 import { child } from "../../logger";
 import { markJobFinished, markJobStarted } from "../heartbeat";
+import { AUDIENCE_LLM_VARIANT } from "../../../shared/llm-html-audience";
 
 const log = child({ module: "job:html-content-type-rebuild" });
 
@@ -91,6 +92,9 @@ export class HtmlContentTypeRebuildJob extends Job {
           generation,
         });
         if (rendered?.status === 200) adopted.push(key);
+        if ((variantKey || "live") === "live") {
+          await renderPage(pathname, AUDIENCE_LLM_VARIANT, generation);
+        }
       };
 
       const wanted = new Set(plan.rebuild);

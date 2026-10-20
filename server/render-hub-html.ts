@@ -14,10 +14,13 @@ import {
   buildHtmlCacheKey,
   canonicalHtmlCachePath,
   getCachedHtml,
+  invalidateHtmlPageCacheKey,
   setCachedHtml,
 } from "./html-page-cache";
 import type { SiteContext } from "./site-manager";
 import { child as loggerChild } from "./logger";
+import { AUDIENCE_LLM_VARIANT, initialDataBranchesForLlm } from "../shared/llm-html-audience";
+import { llmLocationCatalog } from "./llm-location-catalog";
 
 const log = loggerChild({ module: "render-hub-html" });
 
@@ -110,18 +113,20 @@ function takeHtmlCacheMeta(payload: InitialDataPayload | null): { skipCacheWrite
  * The visitor miss path and Sidequest both call this.
  */
 export async function buildAnonymousPageHtml(opts: {
-  render: (url: string, payload: unknown) => Promise<string>;
+  render: (url: string, payload: unknown, options?: { llmAudience?: boolean }) => Promise<string>;
   indexHtml: string;
   initialData: InitialDataPayload | null;
   url: string;
   contentRoot?: string;
   ssrSchemaHtml?: string;
+  llmAudience?: boolean;
 }): Promise<AnonymousPageHtml | null> {
   const meta = takeHtmlCacheMeta(opts.initialData);
-  let appHtml = await opts.render(opts.url, opts.initialData);
+  const renderOptions = opts.llmAudience ? { llmAudience: true } : undefined;
+  let appHtml = await opts.render(opts.url, opts.initialData, renderOptions);
   if (!isMeaningfulSsrAppHtml(appHtml)) {
     log.warn({ url: opts.url, appHtmlLength: appHtml?.length ?? 0 }, "SSR returned empty body, retrying once");
-    appHtml = await opts.render(opts.url, opts.initialData);
+    appHtml = await opts.render(opts.url, opts.initialData, renderOptions);
   }
   if (!isMeaningfulSsrAppHtml(appHtml)) {
     log.warn({ url: opts.url, appHtmlLength: appHtml?.length ?? 0 }, "SSR returned empty body after retry");
@@ -171,7 +176,7 @@ export async function renderHubHtml(opts: {
     opts.site.contentRootName || opts.site.contentRoot || opts.site.domain || "default";
   const cacheKey = buildHtmlCacheKey(siteId, clean, variantKey);
 
-  if (opts.generation == null) {
+  if (opts.generation == null && variantKey !== AUDIENCE_LLM_VARIANT) {
     const cached = getCachedHtml(cacheKey);
     if (cached && !urlBakesStoredPageQuery(clean, opts.site.contentIndex as ContentIndex | undefined)) {
       return { html: cached.html, status: cached.status, fromCache: true };
@@ -204,6 +209,13 @@ export async function renderHubHtml(opts: {
     return { html: "", status, fromCache: false };
   }
 
+  const llmAudience = variantKey === AUDIENCE_LLM_VARIANT;
+  const pageLocale = clean === "/es" || clean.startsWith("/es/") ? "es" : "en";
+  if (llmAudience && !initialDataBranchesForLlm(initialDataPayload, pageLocale, llmLocationCatalog)) {
+    if (opts.writeCache !== false) invalidateHtmlPageCacheKey(cacheKey);
+    return { html: "", status: 204, fromCache: false };
+  }
+
   try {
     const indexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
     const head = await publicPageHead(
@@ -219,6 +231,7 @@ export async function renderHubHtml(opts: {
       url,
       contentRoot: opts.site.contentRoot,
       ssrSchemaHtml: head.schemaHtml || undefined,
+      llmAudience,
     });
     if (!built) return null;
     if (opts.writeCache !== false && !built.skipCacheWrite) {

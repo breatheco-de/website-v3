@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   bucketUserAgent,
   classifyRuntimeHit,
+  isLlmHtmlAudience,
   fingerprintNotFound,
   incrementByHour,
   is4geeksReferrerHost,
@@ -178,6 +179,16 @@ describe("classifyRuntimeHit", () => {
 
   it("tags GPTBot as llm_crawler", () => {
     expect(classifyRuntimeHit("/x", "GPTBot/1.0", undefined).uaBucket).toBe("llm_crawler");
+  });
+
+  it("serves the AI HTML copy to crawlers seen on the VPS, not to search bots", () => {
+    expect(isLlmHtmlAudience("Claude-User")).toBe(true);
+    expect(isLlmHtmlAudience("Mozilla/5.0 compatible; OAI-SearchBot/1.0")).toBe(true);
+    expect(isLlmHtmlAudience("YouBot/1.0")).toBe(true);
+    expect(isLlmHtmlAudience("Googlebot/2.1")).toBe(false);
+    expect(isLlmHtmlAudience("Mozilla/5.0 (compatible; bingbot/2.0)")).toBe(false);
+    expect(isLlmHtmlAudience("Mozilla/5.0 Applebot/0.1")).toBe(false);
+    expect(isLlmHtmlAudience("Mozilla/5.0 Chrome/120.0.0.0")).toBe(false);
   });
 
   it("tags a Google SERP click as human + search_referrer", () => {
