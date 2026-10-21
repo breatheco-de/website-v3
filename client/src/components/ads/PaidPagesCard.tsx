@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type SyntheticEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Info, Loader2, Megaphone, Route } from "lucide-react";
+import { Check, ChevronDown, Copy, Info, Loader2, Megaphone, Route } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
+import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/queryClient";
 import type { AdsIssue } from "@shared/ads-diagnostics-rules";
 import type { AttributionModel } from "@shared/paid-attribution";
@@ -81,6 +82,36 @@ export function useAdsReport(params: {
   });
 }
 
+function InlineCopy({ text, testId }: { text: string; testId?: string }) {
+  const [copied, setCopied] = useState(false);
+  const { toast } = useToast();
+  const copy = (e: SyntheticEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      toast({ title: "Copied to clipboard" });
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-label={`Copy ${text}`}
+      title="Copy"
+      onClick={copy}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") copy(e);
+      }}
+      className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      data-testid={testId}
+    >
+      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+    </span>
+  );
+}
+
 function CampaignAccordion({ group }: { group: AdsCampaignGroup }) {
   const [open, setOpen] = useState(false);
   return (
@@ -88,7 +119,10 @@ function CampaignAccordion({ group }: { group: AdsCampaignGroup }) {
       <CollapsibleTrigger asChild>
         <button type="button" className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left" data-testid={`campaign-group-${group.key}`}>
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-foreground">{group.campaign_name}</p>
+            <div className="flex min-w-0 items-center gap-1">
+              <p className="truncate text-sm font-medium text-foreground">{group.campaign_name}</p>
+              <InlineCopy text={group.campaign_name} testId={`button-copy-campaign-${group.key}`} />
+            </div>
             <p className="text-xs text-muted-foreground">
               {group.platform ? PLATFORM_LABELS[group.platform] ?? group.platform : "Unknown platform"} · {group.pages.length} page(s)
             </p>
@@ -106,10 +140,14 @@ function CampaignAccordion({ group }: { group: AdsCampaignGroup }) {
       </CollapsibleTrigger>
       <CollapsibleContent className="bg-muted/30 px-3 pb-2">
         {group.pages.map((p) => (
-          <div key={p.key} className="flex justify-between py-1 text-xs">
-            <span className="truncate text-foreground">
-              {p.title} <span className="text-muted-foreground">{p.path}</span>
-            </span>
+          <div key={p.key} className="flex items-center justify-between gap-3 py-1 text-xs">
+            <div className="min-w-0">
+              <p className="truncate text-foreground">{p.title}</p>
+              <div className="flex min-w-0 items-center gap-1">
+                <span className="truncate text-muted-foreground">{p.path}</span>
+                <InlineCopy text={p.path} testId={`button-copy-campaign-page-${p.key}`} />
+              </div>
+            </div>
             <span className="tabular-nums text-muted-foreground">{formatNum(p.paid_visits)} visits</span>
           </div>
         ))}
