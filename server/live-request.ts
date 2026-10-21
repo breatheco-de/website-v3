@@ -89,11 +89,53 @@ function buildUrlWithQuery(
   return url.toString();
 }
 
-/** Re-run all CT field_mapping `function:` keys against the entry bag. */
+type SourceItemsDb = {
+  getLastGoodItems(name: string): { items: Record<string, unknown>[] } | null;
+};
+
+/**
+ * Row from the database cache before content-type `function:` mappings overwrote
+ * those keys. The delivery re-run reads `value` from here and `item` from the
+ * entry, which already includes live_request fields.
+ */
+function findPreMappingItem(
+  db: SourceItemsDb | undefined,
+  contentType: string,
+  contentRoot: string | undefined,
+  entry: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const dbName = getContentTypeConfig(contentType, contentRoot)?.database?.slug;
+  if (!db || !dbName) return undefined;
+  const items = db.getLastGoodItems(dbName)?.items;
+  if (!items?.length) return undefined;
+
+  const slug = String(entry.slug ?? entry._slug ?? "");
+  if (!slug) return undefined;
+  const candidates = items.filter((item) => String(item.slug ?? "") === slug);
+  if (candidates.length === 0) return undefined;
+  if (candidates.length === 1) return candidates[0];
+
+  const locale = String(entry.locale ?? entry._locale ?? "");
+  const localePath = getFullFieldMapping(contentType, contentRoot)?.locale;
+  if (locale && typeof localePath === "string" && !localePath.startsWith("function:")) {
+    const exact = candidates.find(
+      (item) => String(getValueByPath(item, localePath) ?? "") === locale,
+    );
+    if (exact) return exact;
+  }
+  return candidates[0];
+}
+
+/**
+ * Re-run CT field_mapping `function:` keys after a live_request.
+ * `sourceItem` is the pre-mapping row: each function receives that field as
+ * `value` and the current entry (with live fields) as `item`.
+ */
 export function reapplyContentTypeFunctions(
   contentType: string,
   entry: Record<string, unknown>,
   contentRoot?: string,
+  sourceItem?: Record<string, unknown> | null,
 ): Record<string, unknown> {
   const full = getFullFieldMapping(contentType, contentRoot);
   const mapping = full || getFieldMapping(contentType, contentRoot) || {};
@@ -106,11 +148,13 @@ export function reapplyContentTypeFunctions(
       : String(raw);
     if (!source.startsWith("function:")) continue;
     try {
-      const value = resolveFieldValue(source, out, key, {
-        contentType,
-        slug,
-        fieldPath: key,
-      });
+      const value = resolveFieldValue(
+        source,
+        out,
+        key,
+        { contentType, slug, fieldPath: key },
+        sourceItem ? { value: sourceItem[key] } : undefined,
+      );
       if (value !== undefined) out[key] = value;
     } catch (err) {
       log.warn(
@@ -124,20 +168,19 @@ export function reapplyContentTypeFunctions(
 
 /**
  * For each editor.type live_request field: GET url, set entry[field] from items_path.
- * Then re-run all CT function: mappings. Mutates a shallow copy.
+ * Functions re-run only after a live_request actually ran, using the pre-mapping
+ * field value as input. A shallow copy is returned.
  */
 export async function resolveLiveRequestsOnEntry(
   contentType: string,
   entry: Record<string, unknown> | null | undefined,
-  opts?: { contentRoot?: string },
+  opts?: { contentRoot?: string; db?: SourceItemsDb },
 ): Promise<Record<string, unknown> | null | undefined> {
   if (!entry || typeof entry !== "object") return entry;
 
   const ct = getContentTypeConfig(contentType, opts?.contentRoot);
   const editor = ct?.editor;
-  if (!editor) {
-    return reapplyContentTypeFunctions(contentType, entry, opts?.contentRoot);
-  }
+  if (!editor) return entry;
 
   let out: Record<string, unknown> = { ...entry };
   let ranLive = false;
@@ -165,8 +208,8 @@ export async function resolveLiveRequestsOnEntry(
     }
   }
 
-  if (ranLive || Object.keys(editor).length > 0) {
-    out = reapplyContentTypeFunctions(contentType, out, opts?.contentRoot);
-  }
-  return out;
+  if (!ranLive) return out;
+
+  const sourceItem = findPreMappingItem(opts?.db, contentType, opts?.contentRoot, out);
+  return reapplyContentTypeFunctions(contentType, out, opts?.contentRoot, sourceItem);
 }

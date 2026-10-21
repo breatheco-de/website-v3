@@ -37,7 +37,7 @@ describe("hydrateEntryForDelivery", () => {
     expect(resolveLiveRequestsOnEntry).toHaveBeenCalledWith(
       "workshop",
       expect.objectContaining({ id: 1, _relations: true }),
-      { contentRoot: "site_4geeks-com" },
+      { contentRoot: "site_4geeks-com", db: undefined },
     );
     expect(result).toEqual(
       expect.objectContaining({ id: 1, _relations: true, _live: true }),

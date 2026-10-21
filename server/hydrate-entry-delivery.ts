@@ -12,7 +12,7 @@ import { resolveLiveRequestsOnEntry } from "./live-request";
 /**
  * Hydrate an entry bag for page/API delivery:
  * 1. `editor.type: relation`
- * 2. `editor.type: live_request` (then re-run CT `function:` mappings)
+ * 2. `editor.type: live_request` (then re-run CT `function:` mappings against the pre-mapping values)
  */
 export async function hydrateEntryForDelivery(
   contentType: string,
@@ -22,6 +22,7 @@ export async function hydrateEntryForDelivery(
   const withRelations = await resolveRelationsOnEntry(contentType, entry, opts);
   const withLive = await resolveLiveRequestsOnEntry(contentType, withRelations, {
     contentRoot: opts.contentRoot,
+    db: opts.db,
   });
   return (withLive && typeof withLive === "object" ? withLive : withRelations) as Record<
     string,
