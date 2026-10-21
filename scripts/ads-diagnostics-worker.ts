@@ -9,6 +9,9 @@ import { writeAdsJobResult } from "../server/ads/diagnostics/jobs";
 import { lightContentIndex } from "../server/ads/diagnostics/light-index";
 import type { AdsWorkerOutboundMessage, AdsWorkerStartMessage } from "../server/ads/diagnostics/fork-service";
 
+/** Parent web may pass WEBLIFY_PROCESS=web; index_refresh enqueue is web-only. */
+delete process.env.WEBLIFY_PROCESS;
+
 function send(msg: AdsWorkerOutboundMessage): void {
   if (typeof process.send === "function") process.send(msg);
   else console.error("[ads-diagnostics-worker] no IPC channel", msg);

@@ -6,6 +6,7 @@ import { buildHtmlRebuildSite } from "../../html-rebuild";
 import { pageReadsDatabase } from "../../content-type-usage";
 import { child } from "../../logger";
 import { markJobFinished, markJobStarted } from "../heartbeat";
+import { AUDIENCE_LLM_VARIANT } from "../../../shared/llm-html-audience";
 
 const log = child({ module: "job:html-db-reader-rebuild" });
 
@@ -60,6 +61,9 @@ export class HtmlDbReaderRebuildJob extends Job {
           generation,
         });
         if (rendered?.status === 200) adopted.push(key);
+        if ((variantKey || "live") === "live") {
+          await renderPage(pathname, AUDIENCE_LLM_VARIANT, generation);
+        }
       };
 
       for (const page of payload.pages || []) {

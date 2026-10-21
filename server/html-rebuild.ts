@@ -22,6 +22,7 @@ import {
   parseHtmlCacheKey,
   snapshotHotHtmlPages,
 } from "./html-page-cache";
+import { AUDIENCE_LLM_VARIANT } from "../shared/llm-html-audience";
 
 const log = child({ module: "html-rebuild" });
 
@@ -125,15 +126,29 @@ export function scheduleSavedHtmlPaths(
     const marker = `::${siteId}::${clean}::`;
     const stored = listStoredHtmlCacheKeys(siteId).filter((key) => key.includes(marker));
     const targets = stored.length > 0 ? stored : [buildHtmlCacheKey(siteId, clean, "live")];
+    let queuedLive = false;
     for (const key of targets) {
       const parsed = parseHtmlCacheKey(key);
-      if (!parsed) continue;
+      // The live job writes audience-llm in the same pass. A stored copy must not open a second job.
+      if (!parsed || parsed.variantKey === AUDIENCE_LLM_VARIANT) continue;
+      if (parsed.variantKey === "live" || parsed.variantKey === "default") queuedLive = true;
       void enqueueHtmlRebuild(
         {
           siteId,
           contentRoot: root,
           pathname: parsed.pathname,
           variantKey: parsed.variantKey,
+        },
+        { deleteIfSlow },
+      );
+    }
+    if (!queuedLive) {
+      void enqueueHtmlRebuild(
+        {
+          siteId,
+          contentRoot: root,
+          pathname: clean,
+          variantKey: "live",
         },
         { deleteIfSlow },
       );

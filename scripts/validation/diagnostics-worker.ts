@@ -21,6 +21,17 @@ import type {
   DiagnosticsWorkerOutboundMessage,
   DiagnosticsWorkerStartMessage,
 } from "./diagnosticsIpc";
+import { registerJobClass } from "../../server/jobs/queue";
+import { AiImageGcJob } from "../../server/jobs/definitions/ai-image-gc";
+
+/**
+ * Marks this process as the forked diagnostics worker.
+ * Registers ai_image_gc for catch-up enqueue; index_refresh is web-only
+ * (`WEBLIFY_PROCESS=web`). Clear any inherited web flag from the parent fork.
+ */
+process.env.DIAGNOSTICS_WORKER = "1";
+delete process.env.WEBLIFY_PROCESS;
+registerJobClass("ai_image_gc", AiImageGcJob);
 
 function send(msg: DiagnosticsWorkerOutboundMessage): void {
   if (typeof process.send === "function") {

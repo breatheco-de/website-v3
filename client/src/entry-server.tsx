@@ -3,6 +3,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { Router } from "wouter";
 import { PassThrough } from "node:stream";
 import App from "./App";
+import { LlmAudienceContext } from "./contexts/LlmAudienceContext";
 import { preloadSectionsFromInitialData } from "./components/sectionRegistry";
 import { preloadPublicPageChunks } from "./lib/preloadPublicPageChunk";
 import { setThemePaint, type ThemePaint } from "@shared/theme-palette";
@@ -97,6 +98,7 @@ function seedQueryClient(
 export async function render(
   url: string,
   initialDataPayload: InitialDataPayload | null,
+  options?: { llmAudience?: boolean },
 ): Promise<string> {
   const themePaint = (initialDataPayload as { themePaint?: ThemePaint } | null)?.themePaint ?? null;
   setThemePaint(themePaint);
@@ -143,9 +145,11 @@ export async function render(
       const { pipe } = renderToPipeableStream(
         // location shim above covers wouter's bare `location.search` snapshot.
         // ssrPath/ssrSearch keep usePathname/useSearch server snapshots aligned.
-        <Router ssrPath={ssrPath} ssrSearch={ssrSearch}>
-          <App ssrQueryClient={ssrQueryClient} />
-        </Router>,
+        <LlmAudienceContext.Provider value={options?.llmAudience === true}>
+          <Router ssrPath={ssrPath} ssrSearch={ssrSearch}>
+            <App ssrQueryClient={ssrQueryClient} />
+          </Router>
+        </LlmAudienceContext.Provider>,
         {
           onAllReady() {
             pipe(passthrough);

@@ -726,7 +726,9 @@ function forkDiagnosticsChild(): ChildProcess {
   const workerFile = path.join(getPackageRoot(), "scripts/validation/diagnostics-worker.ts");
   return fork(workerFile, [], {
     cwd: getProjectRoot(),
-    env: process.env,
+    // Do not inherit WEBLIFY_PROCESS=web — otherwise ContentIndex thinks this
+    // fork may enqueue index_refresh (and hits Unknown job type).
+    env: { ...process.env, DIAGNOSTICS_WORKER: "1", WEBLIFY_PROCESS: "" },
     stdio: ["inherit", "inherit", "inherit", "ipc"],
     execArgv: ["--import", "tsx", "--perf-basic-prof-only-functions"],
   });

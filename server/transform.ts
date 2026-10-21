@@ -105,12 +105,18 @@ export function resolveFieldValue(
   item: Record<string, unknown>,
   targetKey?: string,
   context?: { contentType?: string; slug?: string; fieldPath?: string },
+  /**
+   * Original input for a `function:` mapping. Set on the delivery re-run so the
+   * function sees the pre-mapping value, not the output already stored on `item`.
+   * `value` may be undefined when the source row had no such key.
+   */
+  functionInput?: { value: unknown },
 ): unknown {
   const effectivePath = stripOptionalPrefix(sourcePath);
   if (isTransformer(effectivePath)) {
     const compiled = compileTransformer(effectivePath);
     if (!compiled) return undefined;
-    const rawValue = targetKey ? item[targetKey] : undefined;
+    const rawValue = functionInput ? functionInput.value : targetKey ? item[targetKey] : undefined;
     const resolvedContext = context ?? {
       fieldPath: targetKey ?? effectivePath.slice(0, 40),
     };

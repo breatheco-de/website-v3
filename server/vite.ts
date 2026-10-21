@@ -198,6 +198,13 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
     }
 
     const url = req.originalUrl;
+    const cleanUrl = url.split("?")[0].split("#")[0];
+    if (!cleanUrl.startsWith("/private/") && !isEditDocumentRequest(url) && !shouldBypassHtmlCache(req)) {
+      const site = res.locals.site;
+      const cachePath = canonicalHtmlCachePath(cleanUrl, site?.contentIndex);
+      const { renderAudienceLlmMiss } = await import("./llm-html-request");
+      if (await renderAudienceLlmMiss(req, res, site, cachePath)) return;
+    }
 
     try {
       const clientTemplate = path.resolve(
@@ -438,8 +445,27 @@ export function serveStatic(app: Express) {
     try {
       // Ensure variant key is resolved before MISS populate
       if (!(res.locals as any).htmlVariantKey && !bypassCache) {
-        const { resolveHtmlVariantKey } = await import("./html-variant-key");
-        (res.locals as any).htmlVariantKey = resolveHtmlVariantKey(_req, res);
+        const { prepareLlmHtmlRequest, renderAudienceLlmMiss, sendCachedHtmlPage, LLM_HTML_CACHE_CONTROL } = await import("./llm-html-request");
+        const llmHit = prepareLlmHtmlRequest(_req, res, siteId, cachePath);
+        const baked = urlBakesStoredPageQuery(url, site?.contentIndex);
+        if (llmHit && !baked) {
+          logHtmlRender({ url: cleanUrlForSsr, ms: 0, cache: "HIT" });
+          sendCachedHtmlPage(_req, res, llmHit, LLM_HTML_CACHE_CONTROL);
+          recordPage = false;
+          return;
+        }
+        if ((res.locals as { htmlVariantKey?: string }).htmlVariantKey === "live" && !baked) {
+          const startedLlm = performance.now();
+          if (await renderAudienceLlmMiss(_req, res, site, cachePath)) {
+            logHtmlRender({ url: cleanUrlForSsr, ms: Math.round(performance.now() - startedLlm), cache: "MISS" });
+            recordPage = false;
+            return;
+          }
+        }
+        if (!(res.locals as any).htmlVariantKey) {
+          const { resolveHtmlVariantKey } = await import("./html-variant-key");
+          (res.locals as any).htmlVariantKey = resolveHtmlVariantKey(_req, res);
+        }
       }
       const cacheKey = buildHtmlCacheKey(
         siteId,

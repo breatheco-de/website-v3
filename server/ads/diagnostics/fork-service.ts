@@ -147,7 +147,7 @@ function spawnAdsWorker(site: string, jobId: string, start: AdsWorkerStartMessag
   try {
     proc = fork(workerFile, [], {
       cwd: getProjectRoot(),
-      env: process.env,
+      env: { ...process.env, WEBLIFY_PROCESS: "" },
       stdio: ["inherit", "inherit", "inherit", "ipc"],
       execArgv: ["--import", "tsx"],
     });

@@ -104,6 +104,19 @@ async function runPrebuild(): Promise<void> {
             );
             continue;
           }
+          const { AUDIENCE_LLM_VARIANT } = await import("../shared/llm-html-audience");
+          const llm = await renderHubHtml({
+            site: runtime,
+            pathname: job.pathname,
+            variantKey: AUDIENCE_LLM_VARIANT,
+            writeCache: true,
+          });
+          if (llm && llm.status !== 200 && llm.status !== 204) {
+            log.warn(
+              { pathname: job.pathname, siteId: job.siteId, status: llm.status },
+              `prebuild audience-llm skipped ${job.pathname}: status ${llm.status}`,
+            );
+          }
           wrote += 1;
           if (wrote % 25 === 0) {
             console.log(`[prebuild-html] wrote ${wrote}/${jobs.length}`);

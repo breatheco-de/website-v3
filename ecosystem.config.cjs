@@ -15,10 +15,11 @@ apps.push({
   script: "dist/index.js",
   instances: 1,
   exec_mode: "fork",
-  node_args: "--perf-basic-prof-only-functions",
+  node_args: ["--perf-basic-prof-only-functions", "--max-old-space-size=2048"],
   kill_timeout: 10_000,
   env: {
     NODE_ENV: "production",
+    WEBLIFY_PROCESS: "web",
   },
 });
 

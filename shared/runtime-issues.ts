@@ -88,7 +88,7 @@ const SEARCH_CRAWLER_UA_RE =
   /googlebot|google-inspectiontool|adsbot-google|bingbot|bingpreview|duckduckbot|applebot|yandex(?:bot)?|baiduspider|\bslurp\b/i;
 
 const LLM_CRAWLER_UA_RE =
-  /gptbot|chatgpt-user|claudebot|perplexitybot|google-extended|bytespider|amazonbot|anthropic-ai|claude-web/i;
+  /gptbot|chatgpt-user|oai-searchbot|claudebot|claude-searchbot|claude-user|perplexitybot|perplexity-user|google-extended|bytespider|amazonbot|anthropic-ai|claude-web|youbot|duckassistbot|meta-externalagent|meta-externalfetcher|cohere-ai|ccbot|mistralai|exasearchbot|shapbot|linkupbot/i;
 
 const SOCIAL_PREVIEW_UA_RE =
   /facebookexternalhit|facebot|twitterbot|linkedinbot|slackbot|whatsapp|discordbot/i;
@@ -276,6 +276,14 @@ export function classifyRuntimeHit(
 
 export function bucketUserAgent(ua: string | undefined | null): UaBucket {
   return classifyRuntimeHit("/", ua, undefined).uaBucket;
+}
+
+/** AI crawler HTML copy. Search crawlers stay on the live copy. */
+export function isLlmHtmlAudience(ua: string | undefined | null): boolean {
+  const agent = ua?.trim() ?? "";
+  if (!agent) return false;
+  if (SEARCH_CRAWLER_UA_RE.test(agent)) return false;
+  return LLM_CRAWLER_UA_RE.test(agent);
 }
 
 export function isLikelyBotUa(ua: string | undefined | null): boolean {

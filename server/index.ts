@@ -51,6 +51,9 @@ import { getOptimizationSettings } from "./settings";
 import { BOOT_ID, BOOT_TIME, getLastSoftReload, registerShutdownHandler } from "./server-control";
 import { beginRequest, endRequest, flushTick, noteApi, resolveApiRoute, startTick } from "./process-stats";
 import logger from "./logger";
+
+// Only this process may enqueue ContentIndex index_refresh (see enqueueIndexRefresh).
+process.env.WEBLIFY_PROCESS = "web";
 // Note: gcs.initFromEnv() is called by media.initFromEnv() in routes.ts,
 // which happens before sync-state needs it.
 
@@ -518,9 +521,27 @@ app.use((req, res, next) => {
       const cleanUrl = (req.originalUrl || req.url || "/")
         .split("?")[0]
         .split("#")[0];
-      const variantKey = resolveHtmlVariantKey(req, res);
-      (res.locals as any).htmlVariantKey = variantKey;
       const cachePath = canonicalHtmlCachePath(cleanUrl, site?.contentIndex);
+      const { prepareLlmHtmlRequest, renderAudienceLlmMiss, sendCachedHtmlPage, LLM_HTML_CACHE_CONTROL } = await import("./llm-html-request");
+      const llmHit = prepareLlmHtmlRequest(req, res, siteId, cachePath);
+      const baked = urlBakesStoredPageQuery(req.originalUrl || req.url || "/", site?.contentIndex);
+      if (llmHit && !baked) {
+        logHtmlRender({ url: cleanUrl, ms: 0, cache: "HIT" });
+        sendCachedHtmlPage(req, res, llmHit, LLM_HTML_CACHE_CONTROL);
+        return;
+      }
+      if ((res.locals as { htmlVariantKey?: string }).htmlVariantKey === "live" && !baked) {
+        const startedLlm = performance.now();
+        if (await renderAudienceLlmMiss(req, res, site, cachePath)) {
+          logHtmlRender({ url: cleanUrl, ms: Math.round(performance.now() - startedLlm), cache: "MISS" });
+          return;
+        }
+      }
+      if (!(res.locals as { htmlVariantKey?: string }).htmlVariantKey) {
+        const variantKey = resolveHtmlVariantKey(req, res);
+        (res.locals as any).htmlVariantKey = variantKey;
+      }
+      const variantKey = (res.locals as any).htmlVariantKey || "live";
       const cacheKey = buildHtmlCacheKey(siteId, cachePath, variantKey);
       const started = performance.now();
       const cached = getCachedHtml(cacheKey);

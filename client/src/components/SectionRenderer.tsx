@@ -11,7 +11,10 @@ import type { FunnelBlock } from "@shared/funnel";
 import { useMenuVisualContext } from "@/contexts/MenuVisualContext";
 import { VariableHighlightProvider } from "@/components/editing/VariableHighlight";
 import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
-import { resolveDeep, patchVariableFieldHighlights } from "@/lib/variable-manager";
+import { resolveDeep, patchVariableFieldHighlights, type ResolveOptions, type VariableDefinition } from "@/lib/variable-manager";
+import { useLlmAudience } from "@/contexts/LlmAudienceContext";
+import { describePageSection, llmLocationCatalog } from "@/lib/llmAudienceCatalog";
+import { expandLlmVariablesDeep, type LlmVariableDef } from "@shared/llm-html-audience";
 import { findReplaceableTextRange } from "@/lib/cm-variable-highlight";
 import { SectionContextProvider } from "@/contexts/SectionContext";
 import {
@@ -608,6 +611,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
   >({});
   const previewBreakpoint = editMode?.previewBreakpoint;
   const { session } = useSession();
+  const llmAudience = useLlmAudience();
   const { sectionBackgroundOverlapsMenu, topChromeHeightDesktop, topChromeHeightMobile } = useMenuVisualContext();
   const sessionLocationSlug = session.location?.slug;
   const sessionLocationRegion = session.location?.region;
@@ -687,6 +691,31 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
   }, [contentType, slug, locale, sections, toast]);
 
   const resolvedSections = (() => {
+    const llmLocale = locale || "en";
+    if (llmAudience) {
+      const defs = (varDefinitions || {}) as Record<string, LlmVariableDef>;
+      let metaBag = meta;
+      if (meta && singleEntry) {
+        const { data: resolvedMeta } = resolveDeep(meta, {}, { locale: llmLocale }, { singleEntry });
+        metaBag = resolvedMeta as Record<string, unknown>;
+      }
+      const resolveOptions: ResolveOptions = { singleEntry, meta: metaBag, param };
+      return sections.map((section) => {
+        const audience = describePageSection(section, llmLocale);
+        if (audience.kind === "hidden") return section;
+        if (audience.kind === "labeled" && audience.parts.length === 1) {
+          const part = audience.parts[0];
+          const context = part.kind === "region"
+            ? { region: part.region, locale: llmLocale }
+            : { location: part.slug, region: part.region ?? undefined, locale: llmLocale };
+          return resolveDeep(section, (varDefinitions || {}) as Record<string, VariableDefinition>, context, resolveOptions).data as Section;
+        }
+        const parts = audience.kind === "labeled" ? audience.parts : null;
+        const expanded = expandLlmVariablesDeep(section, defs, llmLocale, parts, llmLocationCatalog);
+        return resolveDeep(expanded, (varDefinitions || {}) as Record<string, VariableDefinition>, { locale: llmLocale }, resolveOptions).data as Section;
+      });
+    }
+
     const hasGlobalDefs = varDefinitions && Object.keys(varDefinitions).length > 0;
     if (!hasGlobalDefs && !singleEntry && !meta && !param) {
       return sections;
@@ -1519,7 +1548,11 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
           const showOn = (rawSection as SectionLayout).showOn;
 
           const isVisible = shouldShowSection(showOn, previewBreakpoint, isEditMode);
-          const isLocationVisible = shouldShowSectionForLocation(rawSection, sessionLocationSlug, sessionLocationRegion, isEditMode);
+          const llmSectionAudience = llmAudience ? describePageSection(rawSection, locale || "en") : null;
+          if (llmSectionAudience?.kind === "hidden") return null;
+          const isLocationVisible = llmAudience
+            ? true
+            : shouldShowSectionForLocation(rawSection, sessionLocationSlug, sessionLocationRegion, isEditMode);
           const visibilityClasses = isEditMode ? '' : getSectionVisibilityClasses(showOn);
 
           if (!renderedContent) return null;
@@ -1617,6 +1650,9 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
                 </>
               )}
               <div style={contentLayerStyles}>
+                {llmSectionAudience?.kind === "labeled" ? (
+                  <p data-region={llmSectionAudience.dataRegion}>{llmSectionAudience.text}</p>
+                ) : null}
                 <SectionRenderErrorBoundary
                   key={`section-err-${index}-${errorBoundaryRemountKeys[index] ?? 0}`}
                   sectionType={sectionType}

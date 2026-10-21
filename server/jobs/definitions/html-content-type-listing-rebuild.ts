@@ -6,6 +6,7 @@ import { getContentTypeListingUsage } from "../../content-type-usage";
 import type { HotHtmlPageSnapshot } from "../../html-page-cache";
 import { child } from "../../logger";
 import { markJobFinished, markJobStarted } from "../heartbeat";
+import { AUDIENCE_LLM_VARIANT } from "../../../shared/llm-html-audience";
 
 const log = child({ module: "job:html-content-type-listing-rebuild" });
 
@@ -51,6 +52,20 @@ export class HtmlContentTypeListingRebuildJob extends Job {
             generation: page.generation + 1,
           });
           if (rendered?.status === 200) adopted.push(key);
+          if (variantKey === "live") {
+            const llmKey = buildHtmlCacheKey(payload.siteId, pathname, AUDIENCE_LLM_VARIANT);
+            if (!seen.has(llmKey)) {
+              seen.add(llmKey);
+              const llm = await renderHubHtml({
+                site,
+                pathname,
+                variantKey: AUDIENCE_LLM_VARIANT,
+                writeCache: true,
+                generation: page.generation + 1,
+              });
+              if (llm?.status === 200) adopted.push(llmKey);
+            }
+          }
         }
       }
       await notifyHtmlCacheAdopted(adopted);
