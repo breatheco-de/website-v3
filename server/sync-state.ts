@@ -240,6 +240,28 @@ export function isProtectedLocalDelete(fileInfo: FileSyncInfo): boolean {
 }
 
 /**
+ * versioning.yml files with a recorded local edit GitHub never received (including files never
+ * pushed). Before the service-author fix these were queued under an author with no GitHub
+ * connection and dropped from the in-memory queue on restart.
+ */
+export function stuckVersioningFiles(
+  files: Record<string, FileSyncInfo>,
+  opts: {
+    shouldTrack: (filePath: string) => boolean;
+    diskSha: (filePath: string) => string | null;
+  },
+): string[] {
+  const out: string[] = [];
+  for (const [filePath, info] of Object.entries(files)) {
+    if (!filePath.endsWith("/versioning.yml") || !opts.shouldTrack(filePath)) continue;
+    const disk = opts.diskSha(filePath);
+    if (disk === null || !info.sha || disk !== info.sha || disk === info.remoteSha) continue;
+    out.push(filePath);
+  }
+  return out.sort();
+}
+
+/**
  * Same-commit restart classification: protect tracked local dirties, pull true stale.
  * `diskSha` returns null when the file is missing on disk.
  */

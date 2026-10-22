@@ -1458,6 +1458,53 @@ export async function syncWithRemote(opts?: {
  * disk snapshot is stale, pull those files. Never advance lastSyncedCommit via
  * rebuildSyncStateFromLocal unless local content actually matches remote.
  */
+/**
+ * Requeue versioning.yml edits that never reached GitHub, under the service account. Files GitHub
+ * changed since the last sync are left alone and listed in the sync log for a person to resolve.
+ */
+export async function requeueStuckVersioningFiles(
+  config: GitHubConfig,
+  opts: { contentRoot?: string; lastSyncedCommit: string; remoteCommit: string },
+): Promise<{ requeued: string[]; skipped: string[] }> {
+  const { loadSyncState, shouldTrackFile, computeFileSha, stuckVersioningFiles } = await import("./sync-state");
+  const { logSync } = await import("./sync-log");
+  const { isAutoCommitEnabled, requeueTrackedLocalDirties } = await import("./auto-commit");
+  const none = { requeued: [] as string[], skipped: [] as string[] };
+  if (!isAutoCommitEnabled()) return none;
+
+  const candidates = stuckVersioningFiles(loadSyncState(opts.contentRoot).files, {
+    shouldTrack: (f) => shouldTrackFile(f, undefined, opts.contentRoot),
+    diskSha: (f) => {
+      const full = path.join(process.cwd(), f);
+      return fs.existsSync(full) ? computeFileSha(fs.readFileSync(full, "utf-8")) : null;
+    },
+  });
+  if (candidates.length === 0) return none;
+
+  let skipped: string[] = [];
+  if (opts.lastSyncedCommit !== opts.remoteCommit) {
+    const check = await remoteOverlapSince(config, opts.lastSyncedCommit, opts.remoteCommit, candidates);
+    if (check.error) {
+      logSync("ERROR", `Not requeueing ${candidates.length} unpushed versioning.yml file(s): ${check.error}`);
+      return { requeued: [], skipped: candidates };
+    }
+    skipped = check.overlap;
+  }
+  const skip = new Set(skipped);
+  const requeued = candidates.filter((f) => !skip.has(f));
+  requeueTrackedLocalDirties(requeued.map((filePath) => ({ filePath, author: "System" })));
+  if (requeued.length) {
+    logSync("RECONCILE", `Requeued ${requeued.length} unpushed versioning.yml file(s) for auto-commit`);
+  }
+  if (skipped.length) {
+    logSync(
+      "RECONCILE",
+      `Left ${skipped.length} unpushed versioning.yml file(s) that GitHub also changed (resolve in Sync): ${skipped.join(", ")}`,
+    );
+  }
+  return { requeued, skipped };
+}
+
 export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; contentRoot?: string }): Promise<void> {
   const { withSyncLogContextAsync } = await import("./sync-log");
   return withSyncLogContextAsync(opts?.contentRoot, async () => {
@@ -1484,6 +1531,13 @@ export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; con
     if (!remoteCommit || !lastSyncedCommit) {
       return;
     }
+
+    // Before the rebuild below can mark them synced.
+    await requeueStuckVersioningFiles(config, {
+      contentRoot: opts?.contentRoot,
+      lastSyncedCommit,
+      remoteCommit,
+    });
 
     const contentFolder = opts?.contentRoot
       ? (path.isAbsolute(opts.contentRoot) ? path.relative(process.cwd(), opts.contentRoot) : opts.contentRoot)
