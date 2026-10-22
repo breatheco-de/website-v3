@@ -33,8 +33,8 @@ Do not add extra auth to "fix" it; use the shared helper and trust it.
 
 # Hard restart takes the dev server down for good
 
-Hard restart triggers a real graceful process exit. The Replit **dev workflow
-has no supervisor that relaunches on graceful exit**, so calling it in dev kills
-the server until a manual workflow restart; the client `useHardRestart` poll
-will hang at "restarting". It only completes in deployment where the platform
+Hard restart triggers a real graceful process exit. Local `npm run dev` **has
+no supervisor that relaunches on graceful exit**, so calling it in dev kills
+the server until you start it again; the client `useHardRestart` poll
+will hang at "restarting". It only completes on the VPS, where pm2-runtime
 relaunches the process. Don't read the resulting connection-refused as a bug.

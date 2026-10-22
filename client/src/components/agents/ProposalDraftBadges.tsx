@@ -76,6 +76,9 @@ export type ProposalV1BadgeData = {
   close_reason?: string | null;
   reverts_proposal_id?: string | null;
   co_authors?: Array<{ username: string }>;
+  applies_after_proposal_id?: string | null;
+  applied_before_proposal_ids?: string[];
+  dependent_overdue_flagged_at?: string | null;
 };
 
 const STALE_CLOSE_AFTER_FLAG_DAYS = 20;
@@ -185,6 +188,52 @@ export function ProposalV1Badges({
           revertsDeleted ? "(Deleted proposal)" : p.reverts_proposal_id.slice(0, 8)
         } was applied. Fields changed again since then were left out.`}
         testId={`badge-proposal-revert${suffix}`}
+        stopLinkNavigation={stopLinkNavigation}
+      />,
+    );
+  }
+  if (open && p.applies_after_proposal_id) {
+    badges.push(
+      <ExplainBadge
+        key="applies-after"
+        label={`Publishes after ${p.applies_after_proposal_id.slice(0, 8)}`}
+        title="Waits for another proposal"
+        body={`This proposal can only be approved after proposal ${p.applies_after_proposal_id.slice(0, 8)} is fully live — for example, a hub link that needs its new page to exist first. Approving that one does not approve this one.`}
+        advanced={[
+          `applies_after_proposal_id ${p.applies_after_proposal_id}. Apply returns predecessor_not_applied until that proposal is finished (partly published does not count).`,
+          "If that proposal is rejected or withdrawn, this one gets a predecessor_closed blocker: unlink it or close this one.",
+        ]}
+        testId={`badge-proposal-applies-after${suffix}`}
+        stopLinkNavigation={stopLinkNavigation}
+      />,
+    );
+  }
+  if (open && p.dependent_overdue_flagged_at) {
+    badges.push(
+      <ExplainBadge
+        key="dependent-overdue"
+        label={`Overdue since ${shortDate(p.dependent_overdue_flagged_at)}`}
+        title="The page it waits on is already live"
+        body="The proposal this one waits on was published more than 48 hours ago, and this one is still not approved — for example, a new page its hub does not link to yet. Review it now. It does not close by itself."
+        advanced={[
+          `dependent_overdue_flagged_at ${p.dependent_overdue_flagged_at}. Set by the daily sweep 48 hours after the predecessor finished. Never escalates or pauses agent work; cleared on apply or close.`,
+        ]}
+        variant="destructive"
+        testId={`badge-proposal-dependent-overdue${suffix}`}
+        stopLinkNavigation={stopLinkNavigation}
+      />,
+    );
+  }
+  if (p.applied_before_proposal_ids?.length) {
+    const n = p.applied_before_proposal_ids.length;
+    badges.push(
+      <ExplainBadge
+        key="applied-before"
+        label={`${n} wait${n === 1 ? "s" : ""} on this`}
+        title="Other proposals publish after this one"
+        body={`${n} proposal${n === 1 ? " is" : "s are"} set to publish after this one. Approving this one does not approve them — approve them right after this one is live.`}
+        advanced={[`applied_before_proposal_ids: ${p.applied_before_proposal_ids.join(", ")}`]}
+        testId={`badge-proposal-applied-before${suffix}`}
         stopLinkNavigation={stopLinkNavigation}
       />,
     );

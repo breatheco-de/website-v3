@@ -29,6 +29,10 @@ beforeAll(async () => {
     Node: window.Node,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // Node 20 has no global navigator; Node 21+ defines a getter-only one.
+  if (typeof globalThis.navigator === "undefined") {
+    Object.assign(globalThis, { navigator: { userAgent: "Node.js" } });
+  }
   ({ createRoot } = await import("react-dom/client"));
   ({ MarkdownRenderer } = await import("./ArticleDefault"));
 });

@@ -688,6 +688,14 @@ export const SCENARIOS: Scenario[] = [
     class: "docs",
   },
   {
+    id: "explain_site_hub_split_proposals",
+    tool: "explain_site",
+    about: "Proposals hub: subtopic=hub-split (split an overloaded hub: new hub idea, chained rewrite, member moves).",
+    buildArgs: (ctx) => withSite(ctx, { topic: "proposals", subtopic: "hub-split" }),
+    reps: 1,
+    class: "docs",
+  },
+  {
     id: "explain_site_serp_title_description_proposals",
     tool: "explain_site",
     about: "Proposals hub: subtopic=serp-title-description (SERP title/description guide).",

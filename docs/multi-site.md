@@ -82,7 +82,7 @@ site-b-content-repo      ← GITHUB_REPO_URL for site B
 
 ### 1. Fork (or copy) the platform repo
 
-Create a new Replit project from the platform repo.  No content files are included.
+Create a new deployment (for example a VPS, see [vps.md](vps.md)) from the platform repo. No content files are included.
 
 ### 2. Create a content-only GitHub repository
 
@@ -91,7 +91,7 @@ You can seed it from an existing folder — see **Seeding a new content repo** b
 
 ### 3. Configure environment variables
 
-Set the following secrets in the new Replit project:
+Set the following environment variables in the new deployment:
 
 | Variable | Value |
 |---|---|

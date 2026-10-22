@@ -1,6 +1,6 @@
 # Cloudflare CDN Setup Guide
 
-This guide explains how to place Cloudflare's free tier in front of the Replit deployment origin to improve LCP and overall performance.
+This guide explains how to place Cloudflare's free tier in front of the origin server (the DigitalOcean droplet) to improve LCP and overall performance.
 
 ## Prerequisites
 
@@ -17,11 +17,10 @@ This guide explains how to place Cloudflare's free tier in front of the Replit d
 3. Cloudflare will scan your existing DNS records. Review and import them.
 4. At your domain registrar, update the nameservers to the two Cloudflare nameservers shown (e.g. `aria.ns.cloudflare.com`).
 
-### 2. Point the DNS A/CNAME Record to the Replit Deployment
+### 2. Point the DNS A Record to the Origin
 
-1. In Cloudflare DNS, find the `A` (or `CNAME`) record for your root domain (`@`) or subdomain (`www`).
-2. Set the value to the IP address or hostname of your Replit deployment.
-   - If Replit provides a `.replit.app` subdomain, use a `CNAME` pointing to that hostname.
+1. In Cloudflare DNS, find the `A` record for your root domain (`@`) or subdomain (`www`).
+2. Set the value to the droplet's public IP address (see [vps.md](vps.md)).
 3. Make sure the **Proxy status** is set to **Proxied** (orange cloud icon). This routes traffic through Cloudflare.
 
 ### 3. Enable Auto Minify

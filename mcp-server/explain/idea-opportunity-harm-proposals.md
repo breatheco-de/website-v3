@@ -11,7 +11,9 @@ Default-on review situation for every `kind: idea` proposal. Situation id: `idea
 **SEO target (SEO-monitored types):** also set `idea_seo_target` `{ main_keyword, cluster: join | hub | standalone }` before accept (`set_idea_seo_target`). Score it: keyword matches the brief's search claim (not a broader head term); join hub is live, same locale, and on-topic (`list_seo_clusters` / `list_seo_cluster_entries`); hub-mode members are real live posts; standalone only for `fast_decay_news` / `broken_url` with a credible reason. Weak fit → `add_blocker` naming the better hub. Freezes at accept; seeded into the new draft. Refusal codes: proposals hub (`explain_site` topic `proposals`, no subtopic).
 
 If this page ships and gets almost no visits for 90 days, what did we break?  
-If the honest answer is “hub links, crawl, freshness SLA, and another thin URL,” do not accept.
+If the honest answer is “crawl, freshness SLA, and another thin URL,” do not accept.
+
+**Hub link at go-live:** every accepted idea gets a link from its hub when the page goes live — that link is how the page gets discovered and indexed fast. A page that does not deserve a hub link does not deserve accept. The implementing author files a second edits proposal on the hub (`review_situations: ["internal_links"]`, `applies_after_proposal_id` = the page's proposal); apply is refused until the page is live. The kill criterion says what happens to that link: if the page is retired, remove it from the hub.
 
 ---
 
@@ -71,7 +73,7 @@ Skip is allowed. Unavailable tools stay listed with `available: false`. **Skip n
 
 ## Harm types (short)
 
-- **Dilution** — new slug with no retrieval evidence; unpaid hub links; dead inventory forever
+- **Dilution** — new slug with no retrieval evidence; dead inventory forever (no kill criterion)
 - **Freshness** — `refresh_tier: fast` without owner + recrawl trigger
 - **Cannibal** — same angle as an existing spoke; unjustified EN+ES doubling
 - **False claims / endorsement** — named third parties without primary sources
@@ -85,7 +87,7 @@ Skip is allowed. Unavailable tools stay listed with `available: false`. **Skip n
 
 ### Fail — marketplace spoke with no query proof
 
-New EN/ES URLs, fast tier, pillar links, no volume/SERP. Reviewer: blocker (evidence, owner, link budget) or close.
+New EN/ES URLs, fast tier, no volume/SERP. Reviewer: blocker (evidence, owner, kill criterion) or close. The pillar link is not the problem — the missing evidence is.
 
 ### Pass — refresh existing news spoke
 
@@ -108,7 +110,8 @@ Cannibal + retrieval split. Notes to merge, not a fourth idea.
 - [ ] Evidence for the job (search proof, or demand label + its proof, or non-search reason in the summary)
 - [ ] Named siblings and why this is not them
 - [ ] One locale unless both have demand
-- [ ] Kill criterion; link budget (default zero hub links)
+- [ ] Kill criterion, including removing the hub link if the page is retired
+- [ ] Hub link plan: which hub links the page at go-live (chained `internal_links` proposal)
 - [ ] If this ships and gets ~0 visits, we have not broken the pillar
 - [ ] Demand label when needed: `anticipated_demand` | `fast_decay_news` | `broken_url`
 

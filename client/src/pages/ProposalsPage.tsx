@@ -132,6 +132,7 @@ import { TextLimitsIssue } from "@/components/TextLimitsIssue";
 import { IdeaSeoTargetPanel, type IdeaSeoTarget } from "@/components/agents/IdeaSeoTargetPanel";
 import { apiFetch, apiRequestWithAuth } from "@/lib/queryClient";
 import { Checkbox } from "@/components/ui/checkbox";
+import { assessSlugLocaleMatch, slugLocaleMismatchHint } from "@shared/slug-locale-heuristic";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { outcomesBackHref } from "@/lib/agents-tab";
 import { useToast } from "@/hooks/use-toast";
@@ -307,12 +308,15 @@ type Proposal = {
   stale_flagged_at?: string | null;
   blocked_flagged_at?: string | null;
   reverts_proposal_id?: string | null;
+  applies_after_proposal_id?: string | null;
+  applied_before_proposal_ids?: string[];
+  dependent_overdue_flagged_at?: string | null;
   co_authors?: Array<{ username: string }>;
   affected_entries?: {
     count: number;
     sample: Array<{ contentType: string; slug: string; locale: string; variant: string | null }>;
   } | null;
-  accepted_entry?: { contentType: string; slug: string; locale: string } | null;
+  accepted_entry?: { contentType: string; slug: string; locale: string; url_slug?: string } | null;
   accepted_entry_create_mode?: "attached" | "page" | "manual" | null;
   accepted_entry_layout_owner?: "shared_template" | "entry" | null;
   idea_funnel?: {
@@ -1352,6 +1356,8 @@ export function ProposalDetailPanel({ id }: { id: string }) {
   const [acceptContentType, setAcceptContentType] = useState("");
   const [acceptSlug, setAcceptSlug] = useState("");
   const [acceptLocale, setAcceptLocale] = useState("");
+  const [acceptUrlSlug, setAcceptUrlSlug] = useState("");
+  const [acceptSlugAck, setAcceptSlugAck] = useState(false);
   const [funnelStage, setFunnelStage] = useState("awareness");
   const [funnelProductsMode, setFunnelProductsMode] = useState<"all" | "named">("all");
   const [funnelProductSlug, setFunnelProductSlug] = useState("");
@@ -1472,6 +1478,17 @@ export function ProposalDetailPanel({ id }: { id: string }) {
           "The number of pages this template change reaches has changed. Reload and confirm again.",
         text_limits_exceeded:
           "Some text is longer than this section allows. Nothing was published — review it and shorten it, or publish anyway.",
+        locale_url_slug_required:
+          "This new language needs its own web address before it goes live. Ask the author to add a slug.",
+        url_slug_required:
+          "This page already exists in another language. Fill in the web address for this language, then accept.",
+        idea_url_slug_conflict:
+          "These edits use a different web address than the idea locked. The author must use the locked address or explain why.",
+        slug_locale_mismatch:
+          "This web address looks like another language. Pick one in this language, or tick “Keep it” if it is a name.",
+        slug_already_owned_by_other_entry:
+          "Another page already uses this web address in this language. Pick a different one.",
+        invalid_locale_slug: "Web addresses use lowercase letters, numbers, and hyphens only.",
         idea_seo_target_required:
           "This new page needs an SEO target (keyword and topic hub) before it can be accepted.",
         idea_seo_target_frozen: "The SEO target locked when the idea was accepted.",
@@ -1662,6 +1679,10 @@ export function ProposalDetailPanel({ id }: { id: string }) {
     acceptLocale.trim().length > 0;
   const acceptNextStepHint =
     acceptNextStep.trim().length > 0 ? minLengthHint(acceptNextStep, ACCEPT_NEXT_STEP_MIN) : null;
+  const acceptAddress = acceptUrlSlug.trim() || acceptSlug.trim();
+  const acceptAddressCheck = acceptAddress ? assessSlugLocaleMatch(acceptAddress, acceptLocale) : null;
+  const acceptAddressHint =
+    acceptAddressCheck && !acceptAddressCheck.ok ? slugLocaleMismatchHint(acceptAddressCheck) : null;
   const blockerHint =
     blockerBody.trim().length > 0 ? minLengthHint(blockerBody, 80) : null;
   const rejectNoteOk = rejectNote.trim().length >= REJECT_NOTE_MIN;
@@ -2118,6 +2139,8 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                       setAcceptContentType(rel?.contentType ?? "");
                       setAcceptSlug(rel?.slug ?? "");
                       setAcceptLocale(rel?.locale ?? "");
+                      setAcceptUrlSlug("");
+                      setAcceptSlugAck(false);
                       setAcceptNextStep("");
                       setAcceptOpen(true);
                     }}
@@ -2361,6 +2384,46 @@ export function ProposalDetailPanel({ id }: { id: string }) {
               >
                 Revert
               </Button>
+            </div>
+          ) : null}
+
+          {p.applies_after_proposal_id || p.applied_before_proposal_ids?.length ? (
+            <div
+              className="space-y-1.5 rounded-md border border-card-border bg-muted/40 px-3 py-2.5 text-sm"
+              data-testid="panel-proposal-chain"
+            >
+              {p.applies_after_proposal_id ? (
+                <p>
+                  Publishes after{" "}
+                  <Link
+                    href={`${AGENTS_PROPOSALS_BASE}/${p.applies_after_proposal_id}`}
+                    className="text-primary underline-offset-2 hover:underline"
+                    data-testid="link-applies-after-proposal"
+                  >
+                    proposal {p.applies_after_proposal_id.slice(0, 8)}
+                  </Link>
+                  . It cannot be approved until that one is fully live.
+                </p>
+              ) : null}
+              {p.applied_before_proposal_ids?.length ? (
+                <p>
+                  {p.applied_before_proposal_ids.length === 1 ? "1 proposal waits" : `${p.applied_before_proposal_ids.length} proposals wait`}{" "}
+                  on this one:{" "}
+                  {p.applied_before_proposal_ids.map((depId, i) => (
+                    <span key={depId}>
+                      {i > 0 ? ", " : ""}
+                      <Link
+                        href={`${AGENTS_PROPOSALS_BASE}/${depId}`}
+                        className="text-primary underline-offset-2 hover:underline"
+                        data-testid={`link-applied-before-proposal-${depId}`}
+                      >
+                        {depId.slice(0, 8)}
+                      </Link>
+                    </span>
+                  ))}
+                  . Approving this one does not approve them — approve them right after it is live.
+                </p>
+              ) : null}
             </div>
           ) : null}
 
@@ -3413,6 +3476,8 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                 setAcceptContentType("");
                 setAcceptSlug("");
                 setAcceptLocale("");
+                setAcceptUrlSlug("");
+                setAcceptSlugAck(false);
               }
             }}
           >
@@ -3424,6 +3489,10 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     <p>
                       You’re greenlighting this brief and reserving the page (and locale) this work
                       will use. Accepting finishes the idea — it does not publish or write YAML.
+                    </p>
+                    <p>
+                      You also pick the web address this language will use. If this page already exists
+                      in another language, it needs its own address word.
                     </p>
                     <p>Open needs-change notes must be cleared first.</p>
                   </div>
@@ -3462,6 +3531,52 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                 </div>
               </div>
               <div className="space-y-1">
+                <Label htmlFor="proposal-accept-url-slug">Web address for this language</Label>
+                <Input
+                  id="proposal-accept-url-slug"
+                  value={acceptUrlSlug}
+                  onChange={(e) => {
+                    setAcceptUrlSlug(e.target.value);
+                    setAcceptSlugAck(false);
+                  }}
+                  placeholder={acceptSlug.trim() || "que-es-grok"}
+                  data-testid="input-accept-url-slug"
+                />
+                <p className="text-xs text-muted-foreground">
+                  The last part of this language&apos;s URL. Required when the page already exists in
+                  another language, so it gets its own address word. Leave empty for a brand-new page to
+                  use the slug above.
+                </p>
+                {acceptAddressHint ? (
+                  <div className="space-y-1" data-testid="text-accept-url-slug-hint">
+                    <p className="text-xs text-status-away">{acceptAddressHint}</p>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Checkbox
+                        checked={acceptSlugAck}
+                        onCheckedChange={(v) => setAcceptSlugAck(v === true)}
+                        data-testid="checkbox-accept-slug-ack"
+                      />
+                      Keep it, it&apos;s a name that works in every language
+                    </label>
+                  </div>
+                ) : null}
+                <Collapsible>
+                  <CollapsibleTrigger className="text-xs text-muted-foreground underline-offset-2 hover:underline">
+                    Read more (advanced)
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-1 text-xs text-muted-foreground space-y-1">
+                    <p>
+                      Stored as <code>accepted_entry.url_slug</code>. The follow-up edit&apos;s draft is
+                      seeded with it as <code>slug:</code> in <code>{"{locale}"}.yml</code>.
+                    </p>
+                    <p>
+                      Slug stays the folder name, the page&apos;s ID in every language. A different
+                      address later needs a written reason on the edit.
+                    </p>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+              <div className="space-y-1">
                 <Label htmlFor="proposal-accept-next-step">Next step</Label>
                 <Textarea
                   id="proposal-accept-next-step"
@@ -3482,7 +3597,13 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                 </Button>
                 <Button
                   type="button"
-                  disabled={mut.isPending || blockersOpen || !acceptNextStepOk || !acceptEntryOk}
+                  disabled={
+                    mut.isPending ||
+                    blockersOpen ||
+                    !acceptNextStepOk ||
+                    !acceptEntryOk ||
+                    (acceptAddressHint !== null && !acceptSlugAck)
+                  }
                   onClick={() => {
                     mut.mutate(
                       {
@@ -3493,6 +3614,8 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                             contentType: acceptContentType.trim(),
                             slug: acceptSlug.trim(),
                             locale: acceptLocale.trim(),
+                            ...(acceptUrlSlug.trim() ? { url_slug: acceptUrlSlug.trim() } : {}),
+                            ...(acceptSlugAck ? { slug_language_ack: true } : {}),
                           },
                         },
                       },
@@ -3503,6 +3626,8 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                           setAcceptContentType("");
                           setAcceptSlug("");
                           setAcceptLocale("");
+                          setAcceptUrlSlug("");
+                          setAcceptSlugAck(false);
                         },
                       },
                     );

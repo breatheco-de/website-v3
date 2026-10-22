@@ -1183,6 +1183,84 @@ describe("pipeline-db runner", () => {
     rmSite(site);
   });
 
+  it("adds applies_after_proposal_id + index and dependent_overdue_flagged_at when upgrading from v36", () => {
+    const site = `${TEST_PREFIX}-v36-applies-after-${Date.now()}`;
+    rmSite(site);
+    fs.mkdirSync(siteDir(site), { recursive: true });
+    const raw = new Database(dbPath(site));
+    raw.exec(`
+      CREATE TABLE pipeline_schema_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO pipeline_schema_version (id, version) VALUES (1, 36);
+      CREATE TABLE content_proposals (
+        id TEXT PRIMARY KEY,
+        site TEXT NOT NULL,
+        status TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        supersedes_proposal_id TEXT,
+        blocked_flagged_at TEXT
+      );
+      INSERT INTO content_proposals (id, site, status, updated_at) VALUES ('p-1', 'site_test', 'open', 1);
+    `);
+    raw.close();
+
+    ensurePipelineDb(site, { skipBackup: true });
+    expect(getPipelineSchemaVersion(site)).toBe(PIPELINE_SCHEMA_VERSION);
+    const db = new Database(dbPath(site), { readonly: true });
+    const row = db
+      .prepare(
+        `SELECT status, applies_after_proposal_id, dependent_overdue_flagged_at FROM content_proposals WHERE id = 'p-1'`,
+      )
+      .get() as Record<string, unknown>;
+    expect(row.status).toBe("open");
+    expect(row.applies_after_proposal_id).toBeNull();
+    expect(row.dependent_overdue_flagged_at).toBeNull();
+    const idx = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_content_proposals_applies_after'`)
+      .get();
+    expect(idx).toBeTruthy();
+    db.close();
+    rmSite(site);
+  });
+
+  it("adds url_slug_override_json when upgrading from v38", () => {
+    const site = `${TEST_PREFIX}-v38-url-slug-override-${Date.now()}`;
+    rmSite(site);
+    fs.mkdirSync(siteDir(site), { recursive: true });
+    const raw = new Database(dbPath(site));
+    raw.exec(`
+      CREATE TABLE pipeline_schema_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO pipeline_schema_version (id, version) VALUES (1, 38);
+      CREATE TABLE content_proposals (
+        id TEXT PRIMARY KEY,
+        site TEXT NOT NULL,
+        status TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        seo_target_override_json TEXT,
+        applies_after_proposal_id TEXT,
+        dependent_overdue_flagged_at TEXT
+      );
+      INSERT INTO content_proposals (id, site, status, updated_at) VALUES ('p-1', 'site_test', 'open', 1);
+    `);
+    raw.close();
+
+    ensurePipelineDb(site, { skipBackup: true });
+    expect(getPipelineSchemaVersion(site)).toBe(PIPELINE_SCHEMA_VERSION);
+    const db = new Database(dbPath(site), { readonly: true });
+    const row = db
+      .prepare(`SELECT status, url_slug_override_json FROM content_proposals WHERE id = 'p-1'`)
+      .get() as Record<string, unknown>;
+    expect(row.status).toBe("open");
+    expect(row.url_slug_override_json).toBeNull();
+    db.close();
+    rmSite(site);
+  });
+
   it("adds data_migration_runs when upgrading from v31-shaped DB", () => {
     const site = `${TEST_PREFIX}-v31-data-migration-runs-${Date.now()}`;
     rmSite(site);

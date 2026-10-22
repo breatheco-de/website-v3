@@ -109,10 +109,7 @@ Variables are listed by category. "Required" means the feature that depends on t
 |---|---|---|---|---|---|
 | `PORT` | No | `5000` | TCP port the Express server listens on. | Core server | None |
 | `NODE_ENV` | No | `development` | Set to `production` to serve compiled static assets, enable secure cookies, and suppress development-only behaviour. | All production hardening | None |
-| `SITE_URL` | No | `http://localhost:5000` (dev) | Canonical base URL with no trailing slash (e.g. `https://www.example.com`). Falls back to `https://<REPLIT_DEV_DOMAIN>` when that variable is set, and to `http://localhost:5000` otherwise. Used for sitemaps, hreflang, canonical meta tags, and GitHub webhook registration. | Sitemap, SEO canonical URLs, GitHub webhook auto-registration | None |
-| `REPLIT_DEV_DOMAIN` | No | — | Set automatically by the Replit platform. Used as a fallback base URL when `SITE_URL` is not set. Has no effect outside the Replit environment. | Dev-environment URL resolution | None (platform-managed) |
-| `REPL_ID` | No | — | Set automatically by the Replit platform when the project runs inside Replit. When present in non-production mode, Vite loads the `@replit/vite-plugin-cartographer` and `@replit/vite-plugin-dev-banner` plugins. Has no effect outside the Replit environment. | Replit-specific dev tooling in Vite | None (platform-managed) |
-
+| `SITE_URL` | No | `http://localhost:5000` (dev) | Canonical base URL with no trailing slash (e.g. `https://www.example.com`). Falls back to `http://localhost:5000` when unset. Used for sitemaps, hreflang, canonical meta tags, and GitHub webhook registration. | Sitemap, SEO canonical URLs, GitHub webhook auto-registration | None |
 ### Weblify CLI / package paths
 
 When you run `npx weblify` (or a globally linked `weblify`), the **engine** and the **site folder** can live in different directories. Leave these unset in a normal monorepo checkout (`npm run dev` / `npm run weblify` from the repo root).

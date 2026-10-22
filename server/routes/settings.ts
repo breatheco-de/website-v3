@@ -2217,7 +2217,6 @@ export function registerSettingsRoutes(app: Express): void {
       const robots = getRobotsSettings(contentRoot);
       function getRobotsBaseUrl(): string {
         if (process.env.SITE_URL) return process.env.SITE_URL.replace(/\/$/, "");
-        if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
         return "http://localhost:5000";
       }
       res.json({
@@ -2247,7 +2246,6 @@ export function registerSettingsRoutes(app: Express): void {
       clearSitemapCache();
       function getRobotsBaseUrl(): string {
         if (process.env.SITE_URL) return process.env.SITE_URL.replace(/\/$/, "");
-        if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
         return "http://localhost:5000";
       }
       res.json({

@@ -131,6 +131,23 @@ export class JsonFileCache implements IDatabaseCache {
   }
 }
 
+/**
+ * Several processes (parallel test workers, scripts, the server) can open a
+ * brand-new cache file at once. Switching it to WAL can fail with SQLITE_BUSY
+ * without honoring busy_timeout, so retry with a short backoff.
+ */
+function enableWal(db: Database.Database): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      if (db.pragma("journal_mode", { simple: true }) !== "wal") db.pragma("journal_mode = WAL");
+      return;
+    } catch (err) {
+      if ((err as { code?: string }).code !== "SQLITE_BUSY" || attempt >= 20) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (attempt + 1));
+    }
+  }
+}
+
 export class SqliteCache implements IDatabaseCache {
   private db: Database.Database;
   private dbPath: string;
@@ -141,7 +158,7 @@ export class SqliteCache implements IDatabaseCache {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     this.db = new Database(dbPath);
     this.db.pragma("busy_timeout = 5000");
-    this.db.pragma("journal_mode = WAL");
+    enableWal(this.db);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS cache_entries (
         db_name TEXT NOT NULL,

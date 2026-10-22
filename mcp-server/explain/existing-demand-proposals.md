@@ -36,7 +36,7 @@ Stop at the first no. Score from **what is already on the brief**.
 | Thinner sibling? | Long-tail / career-switcher preferred when mega-SERP | Third generic URL on the same head term |
 | Kill / honesty | Named kill; filler only if rationale says filler + 90-day kill | Sold as citation lottery against Google/IBM |
 
-Then dilution: if this ships and gets ~0 visits, would we still tax hubs/crawl/inventory? If yes without a kill plan → do not accept.
+Then dilution: if this ships and gets ~0 visits, would we still pay crawl/inventory? If yes without a kill plan → do not accept. Accepted ideas get a hub link at go-live (see `subtopic: "idea-opportunity-harm"`), so a page not worth that link is not worth accepting.
 
 ---
 

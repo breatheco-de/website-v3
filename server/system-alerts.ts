@@ -132,7 +132,7 @@ async function collectTurnstileAlerts(): Promise<SystemAlert[]> {
         code: "turnstile_secret_invalid",
         title: "Turnstile secret key is invalid",
         message:
-          "TURNSTILE_SECRET_KEY was rejected by Cloudflare Siteverify. Check the secret in the Cloudflare Turnstile dashboard and update the env var / Replit Secret.",
+          "TURNSTILE_SECRET_KEY was rejected by Cloudflare Siteverify. Check the secret in the Cloudflare Turnstile dashboard and update the env var / deploy secret.",
         actionHref,
         actionLabel,
       },

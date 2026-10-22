@@ -62,6 +62,16 @@ import { listRequiredEditorFields } from "@shared/validateRequiredFields";
 import { extractParamSlug, validateUrlParamPeerValues } from "../url-param-peers";
 import { ensurePublishedAtOnce } from "../published-at";
 import { isLiveServer } from "../live-server";
+import {
+  checkAcceptedUrlSlug,
+  IDEA_URL_SLUG_CONFLICT,
+  LOCALE_URL_SLUG_REQUIRED,
+  parseUrlSlugOverride,
+  urlPatternUsesSlug,
+  validateLocaleUrlSlugFormat,
+  validateUrlSlugOverride,
+  type UrlSlugOverride,
+} from "../locale-url-slug";
 import { discardSeededAttachedEntry, seedAttachedLocaleFiles } from "./seed-attached-entry";
 import {
   sameAgentIdentity,
@@ -143,6 +153,7 @@ import {
   IDEA_SEO_TARGET_FROZEN,
   IDEA_SEO_TARGET_HUB_GONE,
   IDEA_SEO_TARGET_HUB_MEMBERS_REQUIRED,
+  IDEA_SEO_TARGET_MEMBERS_CLAIMED,
   IDEA_SEO_TARGET_HUB_NOT_LIVE,
   IDEA_SEO_TARGET_KEYWORD_TAKEN,
   IDEA_SEO_TARGET_REQUIRED,
@@ -243,6 +254,10 @@ export type AcceptedEntry = {
   contentType: string;
   slug: string;
   locale: string;
+  /** This language's public address word (its own `slug:`); the folder name stays `slug`. */
+  url_slug?: string;
+  /** Reviewer confirmed an address that looks like another language is intended (a name). */
+  slug_language_ack?: boolean;
 };
 
 export function parseAcceptedEntry(raw: unknown): AcceptedEntry | null {
@@ -252,7 +267,14 @@ export function parseAcceptedEntry(raw: unknown): AcceptedEntry | null {
   const slug = typeof o.slug === "string" ? o.slug.trim() : "";
   const locale = typeof o.locale === "string" ? o.locale.trim() : "";
   if (!contentType || !slug || !locale) return null;
-  return { contentType, slug, locale };
+  const urlSlug = typeof o.url_slug === "string" ? o.url_slug.trim() : "";
+  return {
+    contentType,
+    slug,
+    locale,
+    ...(urlSlug ? { url_slug: urlSlug } : {}),
+    ...(o.slug_language_ack === true ? { slug_language_ack: true } : {}),
+  };
 }
 
 export type AcceptedEntryCreateMode = "attached" | "page" | "manual";
@@ -476,6 +498,8 @@ export type ProposalRecord = {
   idea_seo_target: IdeaSeoTarget | null;
   /** Edits implementing an idea: why seo.* ops differ from the locked target. */
   seo_target_override: SeoTargetOverride | null;
+  /** Edits implementing an idea: why the `slug` op differs from the idea's locked url_slug. */
+  url_slug_override: UrlSlugOverride | null;
   /** Edits that implement an accepted idea (optional unless slug is reserved). */
   implements_proposal_id: string | null;
   /** Computed on read — accepted idea whose locked page is missing and a proposal can create it. */
@@ -518,6 +542,14 @@ export type ProposalRecord = {
   stale_flagged_at: string | null;
   /** Open blockers sat idle BLOCKED_FLAG_DAYS (ISO). Cleared when blockers clear or work resumes. */
   blocked_flagged_at: string | null;
+  /** Order-only chain: apply is refused until this proposal is fully applied (finished). */
+  applies_after_proposal_id: string | null;
+  /** Predecessor applied DEPENDENT_OVERDUE_HOURS ago and this is still open (ISO). Never pauses or closes. */
+  dependent_overdue_flagged_at: string | null;
+  /** Computed on read: proposals whose applies_after_proposal_id is this one. */
+  applied_before_proposal_ids?: string[];
+  /** Computed on read: the applies_after predecessor is finished. */
+  predecessor_applied?: boolean;
   /** v1.0 template proposals: attached entries the change reaches (read-only enrichment). */
   affected_entries?: AffectedEntries | null;
   /** Enriched on read — not persisted. */
@@ -611,6 +643,9 @@ export type ProposalSummary = {
   stale_flagged_at: string | null;
   blocked_flagged_at: string | null;
   reverts_proposal_id: string | null;
+  applies_after_proposal_id: string | null;
+  applied_before_proposal_ids: string[];
+  dependent_overdue_flagged_at: string | null;
   /** Unique field paths across all entry ops (sorted). */
   field_paths: string[];
   entries: ProposalEntrySummary[];
@@ -626,6 +661,7 @@ function attentionForRecord(record: ProposalRecord): ProposalAttention | null {
     author_content_at: record.author_content_at,
     reviewer_action_at: record.reviewer_action_at,
     needs_author: record.stale_since != null,
+    predecessor_applied: record.predecessor_applied === true,
   });
 }
 
@@ -702,6 +738,9 @@ export function toProposalSummary(record: ProposalRecord): ProposalSummary {
     stale_flagged_at: record.stale_flagged_at,
     blocked_flagged_at: record.blocked_flagged_at,
     reverts_proposal_id: record.reverts_proposal_id,
+    applies_after_proposal_id: record.applies_after_proposal_id,
+    applied_before_proposal_ids: record.applied_before_proposal_ids ?? [],
+    dependent_overdue_flagged_at: record.dependent_overdue_flagged_at,
     field_paths,
     entries: record.entries.map((e) => ({
       contentType: e.contentType,
@@ -757,6 +796,7 @@ type ProposalRow = {
   idea_funnel_json?: string | null;
   idea_seo_target_json?: string | null;
   seo_target_override_json?: string | null;
+  url_slug_override_json?: string | null;
   implements_proposal_id?: string | null;
   author_content_at?: number | null;
   reviewer_action_at?: number | null;
@@ -778,6 +818,8 @@ type ProposalRow = {
   stale_since?: string | null;
   stale_flagged_at?: string | null;
   blocked_flagged_at?: string | null;
+  applies_after_proposal_id?: string | null;
+  dependent_overdue_flagged_at?: string | null;
 };
 
 type EntryDbRow = {
@@ -855,10 +897,14 @@ export type CreateProposalInput = {
   idea_seo_target?: unknown;
   /** Edits implementing an idea: reason seo.* ops differ from the locked target. */
   seo_target_override?: unknown;
+  /** Edits implementing an idea: reason the slug op differs from the idea's locked url_slug. */
+  url_slug_override?: unknown;
   /** v1.0 edits: publish every entry or none on apply. */
   all_or_nothing?: boolean;
   /** v1.0: this proposal reverts an applied proposal (prefilled by revert). */
   reverts_proposal_id?: string;
+  /** Order-only chain: apply waits until this proposal is fully applied. */
+  applies_after_proposal_id?: string;
 };
 
 export type SimilarProposal = { id: string; title: string; score: number };
@@ -882,6 +928,7 @@ export type ProposalUpdateAction =
   | "set_idea_funnel"
   | "set_idea_seo_target"
   | "set_related_entries"
+  | "set_applies_after"
   | "escalate"
   | "deescalate"
   | "review_outcome"
@@ -930,6 +977,8 @@ export type ProposalUpdateCaller = {
   related_entries?: unknown;
   /** revise_entries: reason seo.* ops differ from the implemented idea's locked target. */
   seo_target_override?: unknown;
+  /** revise_entries: reason the slug op differs from the implemented idea's locked url_slug. */
+  url_slug_override?: unknown;
   /** escalate: required steward note (min MIN_CLOSE_NOTE). */
   escalated_note?: string;
   /** review_outcome: good | bad | clear. */
@@ -953,6 +1002,8 @@ export type ProposalUpdateCaller = {
   caller_is_mcp?: boolean;
   /** apply (v1.0) of a template proposal: must equal `affected_entries.count`. */
   confirm_affected_entries?: number;
+  /** set_applies_after: predecessor id, or null / "" to unlink. */
+  applies_after_proposal_id?: string | null;
 };
 
 function parseJson<T>(raw: string | null, fallback: T): T {
@@ -1118,6 +1169,7 @@ function mapProposal(
     idea_funnel: parseIdeaFunnel(parseJson(row.idea_funnel_json ?? null, null)),
     idea_seo_target: parseIdeaSeoTarget(parseJson(row.idea_seo_target_json ?? null, null)),
     seo_target_override: parseSeoTargetOverride(parseJson(row.seo_target_override_json ?? null, null)),
+    url_slug_override: parseUrlSlugOverride(parseJson(row.url_slug_override_json ?? null, null)),
     implements_proposal_id: row.implements_proposal_id ?? null,
     author_content_at: row.author_content_at ?? null,
     reviewer_action_at: row.reviewer_action_at ?? null,
@@ -1142,9 +1194,33 @@ function mapProposal(
     stale_since: row.stale_since ?? null,
     stale_flagged_at: row.stale_flagged_at ?? null,
     blocked_flagged_at: row.blocked_flagged_at ?? null,
+    applies_after_proposal_id: row.applies_after_proposal_id ?? null,
+    dependent_overdue_flagged_at: row.dependent_overdue_flagged_at ?? null,
     entries: row.system_version ? entries.map(withCachedView) : entries,
     blockers,
   };
+}
+
+/** Chain view for one record: dependents + whether the predecessor is fully applied. */
+function withChainInfo(db: Database.Database, record: ProposalRecord): ProposalRecord {
+  let dependents: string[] = [];
+  let predecessorApplied = false;
+  try {
+    dependents = (
+      db
+        .prepare(`SELECT id FROM content_proposals WHERE applies_after_proposal_id = ? ORDER BY created_at ASC`)
+        .all(record.id) as Array<{ id: string }>
+    ).map((r) => r.id);
+    if (record.applies_after_proposal_id) {
+      const pred = db
+        .prepare(`SELECT status FROM content_proposals WHERE id = ?`)
+        .get(record.applies_after_proposal_id) as { status: string } | undefined;
+      predecessorApplied = pred?.status === "finished";
+    }
+  } catch {
+    // Pre-v37 DB without the column — no chain.
+  }
+  return { ...record, applied_before_proposal_ids: dependents, predecessor_applied: predecessorApplied };
 }
 
 /** Swap in the cached draft view (no file reads). Detail loads re-verify the key. */
@@ -1288,7 +1364,7 @@ function loadBlockers(db: Database.Database, proposalId: string): ProposalBlocke
 function loadProposal(db: Database.Database, id: string): ProposalRecord | null {
   const row = db.prepare(`SELECT * FROM content_proposals WHERE id = ?`).get(id) as ProposalRow | undefined;
   if (!row) return null;
-  return mapProposal(row, loadEntries(db, id), loadBlockers(db, id));
+  return withChainInfo(db, mapProposal(row, loadEntries(db, id), loadBlockers(db, id)));
 }
 
 export type ProposalDeletion = { deleted_by: string; deleted_at: number };
@@ -1503,6 +1579,9 @@ function emitProposalEvent(
     | "proposal_blocked_flagged"
     | "proposal_closed_abandoned_blocked"
     | "proposal_needs_author"
+    | "proposal_applies_after_set"
+    | "proposal_predecessor_closed"
+    | "proposal_dependent_overdue"
     | "proposal_migrated_v1"
     | "draft_rebuilt"
     | "draft_orphan_cleaned"
@@ -1686,6 +1765,16 @@ export type ProposalServiceDeps = {
   knownContentTypes?: () => string[];
   /** Site variables (variables.yml). Absent (tests) → no figure/fact token checks. */
   variableDefinitions?: () => Record<string, VariableDefinition>;
+  /** Per-language URL facts. Absent (tests) → no address checks at accept or filing. */
+  localeUrlSlug?: LocaleUrlSlugDeps;
+};
+
+export type LocaleUrlSlugDeps = {
+  /** Published languages of the page (`{locale}.yml`, no variants). */
+  liveLocales: (contentType: string, slug: string) => string[];
+  urlPattern: (contentType: string) => Record<string, string> | null;
+  /** Folder slug of the page that already serves `urlSlug` in this language, or null. */
+  ownerOf: (contentType: string, urlSlug: string, locale: string) => string | null;
 };
 
 export type IdeaSeoHubFacts = {
@@ -1696,6 +1785,8 @@ export type IdeaSeoHubFacts = {
   locale: string | null;
   /** true/false when the SEO index knows the page; null when unknown. */
   is_hub: boolean | null;
+  /** Hub entry from the SEO index (null when the index does not know the path). */
+  entry?: { contentType: string; slug: string; locale: string } | null;
 };
 
 export type IdeaSeoTargetDeps = {
@@ -2454,6 +2545,37 @@ export function createProposalService(deps: ProposalServiceDeps) {
     return resolveProposalEntryActivity({ site, ...opts });
   }
 
+  /** True when the page is live in another language but not in this one. */
+  function isNewLanguageOfLivePage(ref: { contentType: string; slug: string; locale: string }): boolean {
+    const facts = deps.localeUrlSlug;
+    if (!facts || isTemplateVersioningSlug(ref.slug)) return false;
+    const live = facts.liveLocales(ref.contentType, ref.slug);
+    return live.length > 0 && !live.includes(ref.locale);
+  }
+
+  function addressUsesSlug(ref: { contentType: string; locale: string }): boolean {
+    const facts = deps.localeUrlSlug;
+    if (!facts) return false;
+    return urlPatternUsesSlug(facts.urlPattern(ref.contentType), ref.locale);
+  }
+
+  /** Idea accept: lock this language's address (own url_slug for a new language). */
+  function gateAcceptedUrlSlug(
+    ae: AcceptedEntry,
+  ): { ok: true } | { ok: false; code: string; error: string; details: Record<string, unknown> } {
+    const facts = deps.localeUrlSlug;
+    if (!facts || isTemplateVersioningSlug(ae.slug) || !addressUsesSlug(ae)) return { ok: true };
+    return checkAcceptedUrlSlug({
+      contentType: ae.contentType,
+      folderSlug: ae.slug,
+      locale: ae.locale,
+      urlSlug: ae.url_slug ?? null,
+      isNewLanguage: isNewLanguageOfLivePage(ae),
+      ack: ae.slug_language_ack === true,
+      ownerOf: (urlSlug) => facts.ownerOf(ae.contentType, urlSlug, ae.locale),
+    });
+  }
+
   function resolveExistence(entry: {
     contentType: string;
     slug: string;
@@ -2704,6 +2826,91 @@ export function createProposalService(deps: ProposalServiceDeps) {
     return { ok: true, idea };
   }
 
+  /** The address the implemented idea locked for exactly this page + language, if any. */
+  function lockedUrlSlugFor(
+    idea: ProposalRecord | null,
+    ref: { contentType: string; slug: string; locale: string },
+  ): string | null {
+    const ae = idea?.accepted_entry;
+    if (!ae?.url_slug) return null;
+    if (ae.contentType !== ref.contentType || ae.slug !== ref.slug || ae.locale !== ref.locale) return null;
+    return ae.url_slug;
+  }
+
+  /**
+   * Edits filing a new language of a page already live in another language: it must end
+   * up with its own `slug` — the idea's locked url_slug (seeded), a slug op, or a slug on
+   * the kept draft. A slug op that differs from the locked one needs url_slug_override.reason.
+   */
+  function checkEditsUrlSlug(
+    idea: ProposalRecord | null,
+    entries: ProposalEntryInput[],
+    overrideRaw: unknown,
+    /** Draft that keeps its body through this write (default: the named variant). */
+    keptVariantOf: (e: ProposalEntryInput) => string | null = (e) => e.variant?.trim() || null,
+  ):
+    | { ok: true; override: UrlSlugOverride | null }
+    | { ok: false; code: string; error: string; details?: Record<string, unknown> } {
+    const ov = validateUrlSlugOverride(overrideRaw);
+    if (!ov.ok) return ov;
+    const facts = deps.localeUrlSlug;
+    if (!facts) return { ok: true, override: ov.override };
+    for (const e of entries) {
+      if (isTemplateVersioningSlug(e.slug) || !addressUsesSlug(e)) continue;
+      const where = `${e.contentType}/${e.slug} (${e.locale})`;
+      const slugOp = (e.updates ?? []).find(
+        (u) => u.field_path === "slug" && u.reset !== true && u.op !== "remove" && u.value != null,
+      );
+      const proposed = typeof slugOp?.value === "string" ? slugOp.value.trim() : null;
+      if (proposed) {
+        const formatErr = validateLocaleUrlSlugFormat(proposed);
+        if (formatErr) {
+          return { ok: false, code: "invalid_locale_slug", error: `${where}: ${formatErr}`, details: { property_path: "slug" } };
+        }
+        const owner = facts.ownerOf(e.contentType, proposed, e.locale);
+        if (owner && owner !== e.slug) {
+          return {
+            ok: false,
+            code: "slug_already_owned_by_other_entry",
+            error: `${where}: "${proposed}" is already the ${e.locale} address of ${e.contentType}/${owner}. Pick another slug.`,
+            details: { property_path: "slug", url_slug: proposed, owner_slug: owner },
+          };
+        }
+      }
+      const locked = lockedUrlSlugFor(idea, e);
+      if (locked) {
+        if (proposed && proposed !== locked && !ov.override) {
+          return {
+            ok: false,
+            code: IDEA_URL_SLUG_CONFLICT,
+            error:
+              `${where}: the accepted idea locked the address "${locked}", but this edit sets slug "${proposed}". ` +
+              "Drop the slug update to use the locked address, or pass url_slug_override.reason (min 40 chars) explaining why it must change.",
+            details: { locked_url_slug: locked, proposed_url_slug: proposed, property_path: "slug" },
+          };
+        }
+        continue;
+      }
+      if (proposed || !isNewLanguageOfLivePage(e)) continue;
+      const keptVariant = keptVariantOf(e);
+      const keptDraftSlug =
+        keptVariant && store?.draftValue
+          ? store.draftValue({ contentType: e.contentType, slug: e.slug, locale: e.locale, variant: keptVariant }, "slug")
+          : undefined;
+      if (typeof keptDraftSlug === "string" && keptDraftSlug.trim()) continue;
+      return {
+        ok: false,
+        code: LOCALE_URL_SLUG_REQUIRED,
+        error:
+          `${where} is a new language of a page that is already live in another language. ` +
+          `Without its own slug its URL reuses "${e.slug}", the address word picked for the other language. ` +
+          `Add { field_path: "slug", value: "<address-in-${e.locale}>" } (same word only when it is a name that works in every language).`,
+        details: { locale: e.locale, current_slug: e.slug, property_path: "slug", suggested_field: "slug" },
+      };
+    }
+    return { ok: true, override: ov.override };
+  }
+
   /**
    * Edits implementing an idea: seo.* ops that differ from the idea's locked
    * keyword/hub need `seo_target_override.reason`; standalone still follows the demand rule.
@@ -2842,6 +3049,256 @@ export function createProposalService(deps: ProposalServiceDeps) {
     };
   }
 
+  type FollowUpWarning = { code: string; message: string; details: Record<string, unknown> };
+
+  /** Validate an applies_after predecessor for `selfId` (null on create). Empty → unlink. */
+  function checkAppliesAfter(
+    db: Database.Database,
+    raw: string | null | undefined,
+    selfId: string | null,
+  ): { ok: true; id: string | null } | { ok: false; code: string; error: string } {
+    const predId = typeof raw === "string" ? raw.trim() : "";
+    if (!predId) return { ok: true, id: null };
+    if (selfId && predId === selfId) {
+      return { ok: false, code: "applies_after_cycle", error: "A proposal cannot wait on itself." };
+    }
+    const pred = loadProposal(db, predId);
+    if (!pred || pred.site !== site) {
+      return {
+        ok: false,
+        code: "applies_after_not_found",
+        error: `applies_after_proposal_id ${predId} was not found on this site.`,
+      };
+    }
+    if (pred.kind !== "edits") {
+      return {
+        ok: false,
+        code: "applies_after_edits_only",
+        error: `applies_after_proposal_id must point at an edits proposal (${predId} is ${pred.kind}).`,
+      };
+    }
+    if (pred.status === "rejected" || pred.status === "withdrawn") {
+      return {
+        ok: false,
+        code: "applies_after_closed",
+        error: `Proposal ${predId} is ${pred.status}; it will never be applied. Link an open or finished proposal instead.`,
+      };
+    }
+    if (selfId) {
+      const seen = new Set<string>([pred.id]);
+      let cur = pred.applies_after_proposal_id;
+      while (cur) {
+        if (cur === selfId) {
+          return {
+            ok: false,
+            code: "applies_after_cycle",
+            error: `Linking ${predId} would create a loop: it already waits (directly or not) on this proposal.`,
+          };
+        }
+        if (seen.has(cur)) break;
+        seen.add(cur);
+        const row = db
+          .prepare(`SELECT applies_after_proposal_id FROM content_proposals WHERE id = ?`)
+          .get(cur) as { applies_after_proposal_id: string | null } | undefined;
+        cur = row?.applies_after_proposal_id ?? null;
+      }
+    }
+    return { ok: true, id: pred.id };
+  }
+
+  /** Apply gate: the applies_after predecessor must be fully applied (partial does not count). */
+  function predecessorGate(
+    db: Database.Database,
+    proposal: ProposalRecord,
+  ): { ok: true } | { ok: false; code: string; error: string; details: Record<string, unknown> } {
+    const predId = proposal.applies_after_proposal_id;
+    if (!predId) return { ok: true };
+    const pred = db
+      .prepare(`SELECT id, title, status FROM content_proposals WHERE id = ?`)
+      .get(predId) as { id: string; title: string; status: ProposalStatus } | undefined;
+    if (pred?.status === "finished") return { ok: true };
+    return {
+      ok: false,
+      code: "predecessor_not_applied",
+      error: pred
+        ? `This proposal publishes after "${pred.title}" (${pred.id}), which is ${pred.status === "partial" ? "only partly published" : pred.status}. Apply that one fully first.`
+        : `This proposal publishes after ${predId}, which no longer exists. Unlink it (set_applies_after with an empty id) or close this proposal.`,
+      details: { applies_after_proposal_id: predId, predecessor_status: pred?.status ?? null },
+    };
+  }
+
+  /** Open dependents of `predId` (applies_after_proposal_id = predId). */
+  function openDependents(db: Database.Database, predId: string): Array<{ id: string; title: string }> {
+    try {
+      return db
+        .prepare(
+          `SELECT id, title FROM content_proposals
+           WHERE site = ? AND applies_after_proposal_id = ? AND status IN ('open','partial')
+           ORDER BY created_at`,
+        )
+        .all(site, predId) as Array<{ id: string; title: string }>;
+    } catch {
+      return [];
+    }
+  }
+
+  /** Predecessor just finished: point at each open dependent (nothing is applied for them). */
+  function dependentsReadyFollowUp(db: Database.Database, predId: string): FollowUpWarning | null {
+    const waiting = openDependents(db, predId);
+    if (!waiting.length) return null;
+    return {
+      code: "dependents_ready",
+      message:
+        `${waiting.length} proposal(s) were waiting on this one and can be applied now: ` +
+        waiting.map((d) => `"${d.title}" (${d.id})`).join(", ") +
+        ". Applying this proposal does not apply them.",
+      details: {
+        dependents: waiting,
+        next_actions: waiting.map((d) => ({
+          tool: "update_proposal",
+          priority: "recommended",
+          reason: `Review and apply "${d.title}" — the proposal it waits on is now live.`,
+          args_hint: { proposal_id: d.id, action: "apply" },
+        })),
+      },
+    };
+  }
+
+  /** Predecessor was rejected/withdrawn: one system blocker on each open dependent. */
+  function blockDependentsOnClose(db: Database.Database, pred: ProposalRecord, now: number): string[] {
+    const waiting = openDependents(db, pred.id);
+    for (const d of waiting) {
+      db.prepare(
+        `INSERT INTO content_proposal_blockers (
+          proposal_id, kind, body, status, author, created_at, agent_session_id, author_actor_json
+        ) VALUES (?,?,?,?,?,?,?,?)`,
+      ).run(
+        d.id,
+        "blocker",
+        `predecessor_closed: the proposal this waits on ("${pred.title}", ${pred.id}) was ${pred.status}, so it will never be applied. ` +
+          "Fixed looks like: unlink it (set_applies_after with an empty id, or link a replacement) or close this proposal. " +
+          "Why: this proposal can only be applied after that one.",
+        "open",
+        "system:applies-after",
+        now,
+        null,
+        JSON.stringify({ type: "system" }),
+      );
+      db.prepare(`UPDATE content_proposals SET updated_at = ? WHERE id = ?`).run(now, d.id);
+      emitProposalEvent(site, "proposal_predecessor_closed", d.id, "system:applies-after", {
+        predecessor_id: pred.id,
+        predecessor_status: pred.status,
+      });
+    }
+    return waiting.map((d) => d.id);
+  }
+
+  function predecessorClosedWarning(dependentIds: string[]): FollowUpWarning {
+    return {
+      code: "predecessor_closed",
+      message:
+        `${dependentIds.length} proposal(s) were waiting on this one; each got a predecessor_closed blocker ` +
+        "(unlink or close them). Closing this proposal did not close them.",
+      details: { dependents: dependentIds },
+    };
+  }
+
+  /**
+   * New page from a join-mode idea: remind the author to link it from its hub with a chained
+   * internal_links proposal. Null when not applicable or a dependent on the hub already exists.
+   */
+  function hubLinkReminder(
+    db: Database.Database,
+    proposal: ProposalRecord,
+    idea: ProposalRecord | null,
+  ): FollowUpWarning | null {
+    const t = idea?.idea_seo_target;
+    const accepted = idea?.accepted_entry;
+    if (!t || t.cluster.mode !== "join" || !accepted || !deps.seoTarget) return null;
+    const pageEntry = proposal.entries.find(
+      (e) =>
+        e.contentType === accepted.contentType && e.slug === accepted.slug && e.locale === accepted.locale,
+    );
+    if (!pageEntry) return null;
+    const hub = deps.seoTarget.resolveHub(t.cluster.pillar_path, accepted.locale);
+    const hubEntry = hub.entry ?? null;
+    if (!hubEntry) return null;
+    const hubKey = makeEntryKey(hubEntry.contentType, hubEntry.slug);
+    const dependentIds = (proposal.applied_before_proposal_ids ?? []).filter(Boolean);
+    for (const depId of dependentIds) {
+      const dep = loadProposal(db, depId);
+      if (!dep || dep.status === "rejected" || dep.status === "withdrawn") continue;
+      if (dep.entries.some((e) => e.entry_key === hubKey && e.locale === hubEntry.locale)) return null;
+    }
+    const pagePath = deps.seoTarget.selfPath(accepted.contentType, accepted.slug, accepted.locale);
+    const blocking = (
+      db
+        .prepare(
+          `SELECT DISTINCT p.id, p.title FROM content_proposals p
+           INNER JOIN content_proposal_entries e ON e.proposal_id = p.id
+           WHERE p.site = ? AND p.kind = 'edits' AND p.status IN ('open','partial')
+             AND e.entry_key = ? AND e.locale = ? AND p.id != ?`,
+        )
+        .all(site, hubKey, hubEntry.locale, proposal.id) as Array<{ id: string; title: string }>
+    );
+    const hubLabel = `${hub.path} (${hubEntry.contentType}/${hubEntry.slug})`;
+    if (blocking.length) {
+      return {
+        code: "hub_has_open_edits",
+        message:
+          `The hub ${hubLabel} already has an open edits proposal, so a hub-link proposal cannot be filed yet ` +
+          `(competing_entry_edits). This page can still go live first. File the internal_links proposal on the hub ` +
+          `when ${blocking.map((b) => `"${b.title}" (${b.id})`).join(", ")} closes.`,
+        details: {
+          hub_path: hub.path,
+          hub_entry: hubEntry,
+          blocking_proposals: blocking,
+          next_actions: blocking.map((b) => ({
+            tool: "list_proposals",
+            priority: "optional",
+            reason: `See the open hub proposal "${b.title}"; file the hub link after it closes.`,
+            args_hint: { proposal_id: b.id },
+          })),
+        },
+      };
+    }
+    return {
+      code: "hub_link_follow_up",
+      message:
+        `Link this new page from its hub ${hubLabel}: file one edits proposal on the hub with ` +
+        `review_situations ["internal_links"] and applies_after_proposal_id "${proposal.id}". ` +
+        "It cannot be applied until this page is live; it does not apply by itself.",
+      details: {
+        hub_path: hub.path,
+        hub_entry: hubEntry,
+        page_path: pagePath,
+        next_actions: [
+          {
+            tool: "propose_change",
+            priority: "recommended",
+            reason: `Hub link: ${hubEntry.slug} → ${accepted.slug} (content only, anchor on an existing phrase).`,
+            args_hint: {
+              title: `Hub links: ${hubEntry.slug} → ${accepted.slug}`,
+              review_situations: ["internal_links"],
+              applies_after_proposal_id: proposal.id,
+              related_entries: [
+                { contentType: accepted.contentType, slug: accepted.slug, locale: accepted.locale },
+              ],
+              entries: [
+                {
+                  contentType: hubEntry.contentType,
+                  slug: hubEntry.slug,
+                  locale: hubEntry.locale,
+                  updates: [{ field_path: "content", value: `<hub body with a link to ${pagePath ?? accepted.slug}>` }],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    };
+  }
+
   /**
    * Hub-mode idea just went live: members join via one cluster-fix edits proposal
    * each (never moved automatically). Flags members already in another hub.
@@ -2849,7 +3306,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
   function hubMemberFollowUp(
     idea: ProposalRecord | null,
     entry: { contentType: string; slug: string; locale: string },
-  ): { code: string; message: string; details: Record<string, unknown> } | null {
+    hubProposalId?: string,
+  ): FollowUpWarning | null {
     const t = idea?.idea_seo_target;
     if (!t || t.cluster.mode !== "hub") return null;
     const hubPath = deps.seoTarget?.selfPath(entry.contentType, entry.slug, entry.locale) ?? null;
@@ -2868,7 +3326,11 @@ export function createProposalService(deps: ProposalServiceDeps) {
         members.map((m) => `${m.contentType}/${m.slug}`).join(", ") +
         (moving.length
           ? `. Already in another hub (moving them leaves that hub): ${moving.map((m) => `${m.contentType}/${m.slug} → ${m.current_pillar_path}`).join(", ")}.`
-          : "."),
+          : ".") +
+        (moving.length
+          ? " In the same proposal, change the member's in-body link back to its old hub so it points at the new hub (MEMBER_MISSING_HUB_LINK otherwise)."
+          : "") +
+        (hubProposalId ? ` Chain each one with applies_after_proposal_id "${hubProposalId}".` : ""),
       details: {
         hub_path: hubPath,
         members,
@@ -2877,10 +3339,13 @@ export function createProposalService(deps: ProposalServiceDeps) {
           priority: "recommended",
           reason:
             `Cluster-fix: ${m.contentType}/${m.slug} (${m.locale}) joins the new hub` +
-            (m.in_other_hub ? ` — currently in hub ${m.current_pillar_path}; moving it leaves that hub` : ""),
+            (m.in_other_hub
+              ? ` — currently in hub ${m.current_pillar_path}; moving it leaves that hub. Also replace its in-body link to ${m.current_pillar_path} with ${hubPath ?? "the new hub"} (content op in this proposal)`
+              : ""),
           args_hint: {
             title: `Join hub: ${m.slug}`,
             category: "content.seo",
+            ...(hubProposalId ? { applies_after_proposal_id: hubProposalId } : {}),
             entries: [
               {
                 contentType: m.contentType,
@@ -2918,6 +3383,33 @@ export function createProposalService(deps: ProposalServiceDeps) {
       return idea;
     }
     return null;
+  }
+
+  /** Accepted hub-mode ideas whose new hub is not live yet that claim any of these members. */
+  function ideasClaimingMembers(
+    db: Database.Database,
+    members: Array<{ contentType: string; slug: string }>,
+    excludeId: string,
+  ): Array<{ id: string; title: string; members: string[] }> {
+    const want = new Set(members.map((m) => `${m.contentType}/${m.slug}`));
+    if (!want.size) return [];
+    const rows = db
+      .prepare(
+        `SELECT id FROM content_proposals
+         WHERE site = ? AND kind = 'idea' AND close_reason = 'accepted'
+           AND idea_seo_target_json IS NOT NULL AND id != ?`,
+      )
+      .all(site, excludeId) as Array<{ id: string }>;
+    const out: Array<{ id: string; title: string; members: string[] }> = [];
+    for (const r of rows) {
+      const idea = loadProposal(db, r.id);
+      const c = idea?.idea_seo_target?.cluster;
+      if (!idea || !c || c.mode !== "hub" || !idea.accepted_entry) continue;
+      if (resolveExistence(idea.accepted_entry).live === "exists") continue;
+      const overlap = c.members.map((m) => `${m.contentType}/${m.slug}`).filter((k) => want.has(k));
+      if (overlap.length) out.push({ id: idea.id, title: idea.title, members: overlap });
+    }
+    return out;
   }
 
   /** Accept gate: target complete, demand rule, hub live + same locale, members valid, keyword free. */
@@ -2974,6 +3466,20 @@ export function createProposalService(deps: ProposalServiceDeps) {
           code: IDEA_SEO_TARGET_HUB_MEMBERS_REQUIRED,
           error: `Hub members must be live, SEO-monitored ${accepted.locale} pages. Not valid: ${bad.join(", ")}.`,
           details: { invalid_members: bad },
+        };
+      }
+    }
+    if (t.cluster.mode === "hub") {
+      const claims = ideasClaimingMembers(db, t.cluster.members, proposal.id);
+      if (claims.length) {
+        return {
+          ok: false,
+          code: IDEA_SEO_TARGET_MEMBERS_CLAIMED,
+          error:
+            `Another accepted idea that is not live yet already moves these pages into its new hub: ` +
+            claims.map((c) => `${c.members.join(", ")} (idea ${c.id})`).join("; ") +
+            `. Join that split or drop those members before accepting.`,
+          details: { claimed_by: claims },
         };
       }
     }
@@ -3418,10 +3924,16 @@ export function createProposalService(deps: ProposalServiceDeps) {
       variableDefinitions: variableDefs(),
       ...(deps.seoTarget ? { ideaSeoTargetMonitored: deps.seoTarget.isMonitored } : {}),
       ...(proposal.kind === "edits" && proposal.implements_proposal_id
-        ? {
-            implementedIdeaSeoTarget:
-              loadProposal(dbFor(site), proposal.implements_proposal_id)?.idea_seo_target ?? null,
-          }
+        ? (() => {
+            const implemented = loadProposal(dbFor(site), proposal.implements_proposal_id);
+            const ae = implemented?.accepted_entry;
+            return {
+              implementedIdeaSeoTarget: implemented?.idea_seo_target ?? null,
+              implementedIdeaUrlSlug: ae?.url_slug
+                ? { contentType: ae.contentType, slug: ae.slug, locale: ae.locale, url_slug: ae.url_slug }
+                : null,
+            };
+          })()
         : {}),
     };
 
@@ -3933,13 +4445,24 @@ export function createProposalService(deps: ProposalServiceDeps) {
           }
           if (e.translated_from_locale?.trim())
             s.recordSource(ref, e.translated_from_locale.trim(), opts.author);
-          const writeOps =
-            reseedSeo && seoSeed
-              ? [
-                  ...Object.entries(seoSeed).map(([k, v]) => ({ field_path: `seo.${k}`, value: v }) as FieldUpdate),
-                  ...e.updates,
-                ]
-              : e.updates;
+          const lockedUrlSlug = !localeLive ? lockedUrlSlugFor(opts.idea ?? null, ref) : null;
+          const slugSeed: FieldUpdate[] =
+            lockedUrlSlug && !e.updates.some((u) => u.field_path === "slug")
+              ? [{ field_path: "slug", value: lockedUrlSlug }]
+              : [];
+          if (slugSeed.length) {
+            warnings.push({
+              code: "idea_url_slug_locked",
+              message: `${where}: the draft uses the address "${lockedUrlSlug}" the accepted idea locked (slug: in ${ref.locale}.yml). The folder name "${ref.slug}" stays the page ID; other languages keep their addresses.`,
+            });
+          }
+          const writeOps = [
+            ...slugSeed,
+            ...(reseedSeo && seoSeed
+              ? Object.entries(seoSeed).map(([k, v]) => ({ field_path: `seo.${k}`, value: v }) as FieldUpdate)
+              : []),
+            ...e.updates,
+          ];
           const wrote = await s.write(ref, writeOps, opts.author);
           if (!wrote.ok) {
             return fail({
@@ -4259,7 +4782,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
     }
     const placeholderGaps = affected ? templatePlaceholderWarnings(work) : [];
     if (caller.dry_run) {
+      const chainGate = predecessorGate(db, proposal);
       const dryWarnings = [
+        ...(chainGate.ok ? [] : [{ code: chainGate.code, message: chainGate.error, details: chainGate.details }]),
         ...failed.map((c) => ({ code: c.code ?? "apply_check_failed", message: `${c.entry_key} (${c.locale}): ${c.error}` })),
         ...checks.flatMap((c) =>
           (c.warnings ?? []).map((w) => ({
@@ -4355,7 +4880,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
         });
       }
       if (!localeWasLive.get(entry.id)) {
-        const followUp = hubMemberFollowUp(implementedIdea, entry);
+        const followUp = hubMemberFollowUp(implementedIdea, entry, id);
         if (followUp) warnings.push(followUp);
       }
     }
@@ -4363,6 +4888,15 @@ export function createProposalService(deps: ProposalServiceDeps) {
     const updated = get(id)!;
     const next = persistRollup(db, updated, { closedBy: caller.username });
     const fresh = get(id)!;
+    if (next === "finished") {
+      if (fresh.dependent_overdue_flagged_at) {
+        db.prepare(`UPDATE content_proposals SET dependent_overdue_flagged_at = NULL WHERE id = ?`).run(id);
+      }
+      const ready = dependentsReadyFollowUp(db, id);
+      if (ready) warnings.push(ready);
+      const reminder = hubLinkReminder(db, fresh, implementedIdea);
+      if (reminder) warnings.push(reminder);
+    }
     emitProposalEvent(site, "proposal_applied_progress", id, caller.username, {
       status: next,
       done: fresh.entries.filter((e) => e.status === "done").length,
@@ -4425,6 +4959,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       const attentionRows = db
         .prepare(
           `SELECT p.id, p.kind, p.status, p.escalated, p.author_content_at, p.reviewer_action_at, p.stale_since,
+                  (SELECT q.status FROM content_proposals q WHERE q.id = p.applies_after_proposal_id) AS pred_status,
                   (SELECT COUNT(*) FROM content_proposal_blockers b
                    WHERE b.proposal_id = p.id AND b.status = 'open') AS open_n,
                   (SELECT COUNT(*) FROM content_proposal_blockers b
@@ -4440,6 +4975,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
         author_content_at: number | null;
         reviewer_action_at: number | null;
         stale_since: string | null;
+        pred_status: string | null;
         open_n: number;
         resolved_n: number;
       }>;
@@ -4452,11 +4988,12 @@ export function createProposalService(deps: ProposalServiceDeps) {
           author_content_at: row.author_content_at,
           reviewer_action_at: row.reviewer_action_at,
           needs_author: row.stale_since != null,
+          predecessor_applied: row.pred_status === "finished",
         });
         if (bucket) by_attention[bucket] += 1;
         if (
           row.kind === "edits" &&
-          (bucket === "awaiting_rereview" || bucket === "no_feedback")
+          (bucket === "awaiting_rereview" || bucket === "no_feedback" || bucket === "predecessor_applied")
         ) {
           needs_review_edits += 1;
         }
@@ -4691,7 +5228,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
         : col(field);
 
     const mapRow = (r: ProposalRow) =>
-      mapProposal(r, loadEntries(db, r.id), loadBlockers(db, r.id));
+      withChainInfo(db, mapProposal(r, loadEntries(db, r.id), loadBlockers(db, r.id)));
 
     const withAttentionMeta = (p: ProposalRecord) => {
       const resolved = resolvedBlockerCount(p.blockers);
@@ -4715,7 +5252,10 @@ export function createProposalService(deps: ProposalServiceDeps) {
       let decorated = records.map(withAttentionMeta);
       if (needsReview) {
         decorated = decorated.filter(
-          (d) => d.attention === "awaiting_rereview" || d.attention === "no_feedback",
+          (d) =>
+            d.attention === "awaiting_rereview" ||
+            d.attention === "no_feedback" ||
+            d.attention === "predecessor_applied",
         );
       }
       if (opts.attention) {
@@ -5260,6 +5800,20 @@ export function createProposalService(deps: ProposalServiceDeps) {
       supersedesId = pred.id;
     }
 
+    let appliesAfterId: string | null = null;
+    if (input.applies_after_proposal_id != null && String(input.applies_after_proposal_id).trim()) {
+      if (kind !== "edits") {
+        return {
+          ok: false,
+          code: "applies_after_edits_only",
+          error: "applies_after_proposal_id is only valid on edits proposals (ideas and notes are never applied).",
+        };
+      }
+      const chain = checkAppliesAfter(db, input.applies_after_proposal_id, null);
+      if (!chain.ok) return { ok: false, code: chain.code, error: chain.error };
+      appliesAfterId = chain.id;
+    }
+
     let ideaFunnelJson: string | null = null;
     if (kind === "idea" && input.idea_funnel != null) {
       const funnelCheck = validateIdeaFunnel(input.idea_funnel);
@@ -5312,6 +5866,19 @@ export function createProposalService(deps: ProposalServiceDeps) {
       };
     }
 
+    let urlSlugOverrideJson: string | null = null;
+    if (kind === "edits") {
+      const slugCheck = checkEditsUrlSlug(implementsIdeaForDrafts, entriesIn, input.url_slug_override);
+      if (!slugCheck.ok) return slugCheck;
+      if (slugCheck.override) urlSlugOverrideJson = JSON.stringify(slugCheck.override);
+    } else if (input.url_slug_override != null) {
+      return {
+        ok: false,
+        code: "url_slug_override_edits_only",
+        error: "url_slug_override is only valid on edits proposals that implement an accepted idea.",
+      };
+    }
+
     const now = Date.now();
     const id = randomUUID();
     const sessionId = input.agent_session_id?.trim() || null;
@@ -5319,7 +5886,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
 
     // v1.0: every edits entry is a draft; updates are written into it now, apply only promotes.
     let draftPlans: V1Plan[] = [];
-    const draftWarnings: Array<{ code: string; message: string }> = [];
+    const draftWarnings: Array<{ code: string; message: string; details?: Record<string, unknown> }> = [];
     if (store && kind === "edits") {
       const prepared = await prepareV1Drafts({
         proposalId: id,
@@ -5343,8 +5910,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
         review_context_snapshot_json, supersedes_proposal_id, replaced_by_proposal_id,
         review_situations_json, implements_proposal_id, idea_funnel_json,
         system_version, all_or_nothing, reverts_proposal_id,
-        idea_seo_target_json, seo_target_override_json
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        idea_seo_target_json, seo_target_override_json, applies_after_proposal_id,
+        url_slug_override_json
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
       id,
       site,
@@ -5379,6 +5947,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
       input.reverts_proposal_id?.trim() || null,
       ideaSeoTargetJson,
       seoOverrideJson,
+      appliesAfterId,
+      urlSlugOverrideJson,
     );
 
     if (supersedesId) {
@@ -5439,7 +6009,12 @@ export function createProposalService(deps: ProposalServiceDeps) {
         : undefined;
     emitProposalEvent(site, "proposal_created", id, proposer.username, {
       ...(supersedesId ? { supersedes_proposal_id: supersedesId } : {}),
+      ...(appliesAfterId ? { applies_after_proposal_id: appliesAfterId } : {}),
     }, proposerEventActor);
+    if (withSnap.kind === "edits") {
+      const reminder = hubLinkReminder(db, withSnap, implementsIdeaForDrafts ?? null);
+      if (reminder) draftWarnings.push(reminder);
+    }
     if (withSnap.kind === "idea" && withSnap.idea_funnel) {
       emitProposalEvent(
         site,
@@ -5836,10 +6411,15 @@ export function createProposalService(deps: ProposalServiceDeps) {
       const released = proposal.system_version
         ? await releaseV1Drafts(id, proposal.entries, caller.username)
         : [];
+      const blockedDependents = blockDependentsOnClose(db, { ...proposal, status: "withdrawn" }, now);
+      const withdrawWarnings = [
+        ...released,
+        ...(blockedDependents.length ? [predecessorClosedWarning(blockedDependents)] : []),
+      ];
       return {
         ok: true,
         proposal: get(id)!,
-        ...(released.length ? { warnings: released } : {}),
+        ...(withdrawWarnings.length ? { warnings: withdrawWarnings } : {}),
       };
     }
 
@@ -5912,10 +6492,15 @@ export function createProposalService(deps: ProposalServiceDeps) {
       const released = proposal.system_version
         ? await releaseV1Drafts(id, proposal.entries, caller.username)
         : [];
+      const blockedDependents = blockDependentsOnClose(db, { ...proposal, status: "rejected" }, now);
+      const rejectWarnings = [
+        ...released,
+        ...(blockedDependents.length ? [predecessorClosedWarning(blockedDependents)] : []),
+      ];
       return {
         ok: true,
         proposal: get(id)!,
-        ...(released.length ? { warnings: released } : {}),
+        ...(rejectWarnings.length ? { warnings: rejectWarnings } : {}),
       };
     }
 
@@ -6002,6 +6587,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
       };
       const taken = entryTaken();
       if (taken) return taken;
+      const urlSlugGate = gateAcceptedUrlSlug(acceptedEntry);
+      if (!urlSlugGate.ok) return { ...urlSlugGate, proposal };
       const acceptEx = resolveExistence({
         contentType: acceptedEntry.contentType,
         slug: acceptedEntry.slug,
@@ -6364,6 +6951,64 @@ export function createProposalService(deps: ProposalServiceDeps) {
       return { ok: true, proposal: get(id)! };
     }
 
+    if (action === "set_applies_after") {
+      if (proposal.kind !== "edits") {
+        return {
+          ok: false,
+          code: "applies_after_edits_only",
+          error: "set_applies_after is for edits proposals only (ideas and notes are never applied).",
+        };
+      }
+      if (proposal.status !== "open" && proposal.status !== "partial") {
+        return { ok: false, code: "closed", error: "Cannot change applies_after on a closed proposal" };
+      }
+      if (
+        !sameAgentIdentity(
+          proposal.proposer_username,
+          asAgentActor(proposal.proposer_actor),
+          caller.username,
+          asAgentActor(caller.actor),
+        ) &&
+        !caller.asStaff
+      ) {
+        return {
+          ok: false,
+          code: "not_proposer",
+          error: "Only the original proposer (or staff) may set applies_after",
+        };
+      }
+      const chain = checkAppliesAfter(db, caller.applies_after_proposal_id ?? null, id);
+      if (!chain.ok) return { ok: false, code: chain.code, error: chain.error };
+      if (chain.id === proposal.applies_after_proposal_id) {
+        return { ok: true, proposal: get(id)! };
+      }
+      db.prepare(
+        `UPDATE content_proposals SET applies_after_proposal_id = ?, dependent_overdue_flagged_at = NULL, updated_at = ? WHERE id = ?`,
+      ).run(chain.id, now, id);
+      emitProposalEvent(
+        site,
+        "proposal_applies_after_set",
+        id,
+        caller.username,
+        { applies_after_proposal_id: chain.id, previous: proposal.applies_after_proposal_id },
+        caller.actor,
+      );
+      return {
+        ok: true,
+        proposal: get(id)!,
+        warnings: [
+          chain.id
+            ? {
+                code: "applies_after_set",
+                message:
+                  `Apply now waits until ${chain.id} is fully applied. Applying that one does not apply this one. ` +
+                  "If this proposal has an open predecessor_closed blocker, resolve it now that the link is fixed.",
+              }
+            : { code: "applies_after_cleared", message: "This proposal no longer waits on another proposal." },
+        ],
+      };
+    }
+
     if (action === "set_review_situations") {
       if (proposal.kind !== "edits" && proposal.kind !== "idea") {
         return {
@@ -6531,6 +7176,27 @@ export function createProposalService(deps: ProposalServiceDeps) {
         reviseOverride.override?.reason,
       );
       if (!reviseOptOut.ok) return reviseOptOut;
+      const reviseResetsCreated = proposal.co_authors.length === 0;
+      const reviseSlug = checkEditsUrlSlug(
+        implementsResolved.idea,
+        entriesIn,
+        caller.url_slug_override !== undefined ? caller.url_slug_override : proposal.url_slug_override,
+        (e) => {
+          const prior = proposal.entries.find(
+            (p) =>
+              p.contentType === e.contentType &&
+              p.slug === e.slug &&
+              p.locale === e.locale &&
+              (p.status === "pending" || p.status === "failed") &&
+              p.variant,
+          );
+          const variant = e.variant?.trim() || prior?.variant || null;
+          if (!variant) return null;
+          if (prior && prior.variant === variant && prior.created_draft && reviseResetsCreated) return null;
+          return variant;
+        },
+      );
+      if (!reviseSlug.ok) return reviseSlug;
       const reviseCreates = new Set<string>();
 
       const classTargets: Array<{
@@ -6856,8 +7522,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
       db.prepare(
         `DELETE FROM content_proposal_entries WHERE proposal_id = ? AND status IN ('pending','failed')`,
       ).run(id);
-      db.prepare(`UPDATE content_proposals SET seo_target_override_json = ? WHERE id = ?`).run(
+      db.prepare(`UPDATE content_proposals SET seo_target_override_json = ?, url_slug_override_json = ? WHERE id = ?`).run(
         reviseOverride.override ? JSON.stringify(reviseOverride.override) : null,
+        reviseSlug.override ? JSON.stringify(reviseSlug.override) : null,
         id,
       );
       for (const plan of revisePlans) {
@@ -7211,6 +7878,12 @@ export function createProposalService(deps: ProposalServiceDeps) {
           error: `Cannot apply while ${proposal.open_blocker_count} open blocker(s) remain`,
           proposal: enrichRecentActivity(proposal),
         };
+      }
+      if (!caller.dry_run) {
+        const chainGate = predecessorGate(db, proposal);
+        if (!chainGate.ok) {
+          return { ...chainGate, proposal: enrichRecentActivity(proposal) };
+        }
       }
 
       const reviewForApply = await classifyLive(proposal);
@@ -7845,6 +8518,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
           stale_since: p.stale_since,
           drafts: released.map((r) => r.code),
         });
+        blockDependentsOnClose(db, { ...p, status: "withdrawn" }, now);
         report.closed.push(id);
       } else if (idle >= STALE_FLAG_DAYS * DAY_MS && !p.stale_flagged_at) {
         db.prepare(`UPDATE content_proposals SET stale_flagged_at = ? WHERE id = ?`).run(new Date(now).toISOString(), id);
@@ -7924,6 +8598,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
           was_partial: p.status === "partial",
           drafts: released.map((r) => r.code),
         });
+        blockDependentsOnClose(db, { ...p, status: "withdrawn" }, now);
         report.closed.push(id);
       } else if (idle >= BLOCKED_FLAG_DAYS * DAY_MS && !flaggedAt) {
         db.prepare(`UPDATE content_proposals SET blocked_flagged_at = ? WHERE id = ?`).run(
@@ -7937,6 +8612,68 @@ export function createProposalService(deps: ProposalServiceDeps) {
         });
         report.flagged.push(id);
       }
+    }
+    return report;
+  }
+
+  /**
+   * Daily: open|partial dependents whose applies_after predecessor finished more than
+   * DEPENDENT_OVERDUE_HOURS ago → dependent_overdue_flagged_at + proposal_dependent_overdue.
+   * Flag only: never escalates (that pauses agents) and never closes (the hub would lose the link).
+   */
+  function dependentOverdueSweep(opts: { author?: string; now?: number } = {}): DependentOverdueSweepReport {
+    const report: DependentOverdueSweepReport = { checked: 0, flagged: [], cleared: [] };
+    const db = dbFor(site);
+    const now = opts.now ?? Date.now();
+    const author = opts.author ?? "system:proposal-dependent-overdue";
+    const thresholdMs = DEPENDENT_OVERDUE_HOURS * 60 * 60 * 1000;
+    let rows: Array<{
+      id: string;
+      status: ProposalStatus;
+      dependent_overdue_flagged_at: string | null;
+      pred_id: string | null;
+      pred_status: ProposalStatus | null;
+      pred_closed_at: number | null;
+      pred_updated_at: number | null;
+    }> = [];
+    try {
+      rows = db
+        .prepare(
+          `SELECT p.id, p.status, p.dependent_overdue_flagged_at,
+                  q.id AS pred_id, q.status AS pred_status, q.closed_at AS pred_closed_at, q.updated_at AS pred_updated_at
+           FROM content_proposals p
+           LEFT JOIN content_proposals q ON q.id = p.applies_after_proposal_id
+           WHERE p.site = ? AND (p.applies_after_proposal_id IS NOT NULL OR p.dependent_overdue_flagged_at IS NOT NULL)`,
+        )
+        .all(site) as typeof rows;
+    } catch {
+      return report;
+    }
+    const clear = db.prepare(`UPDATE content_proposals SET dependent_overdue_flagged_at = NULL WHERE id = ?`);
+    for (const row of rows) {
+      const open = row.status === "open" || row.status === "partial";
+      const predDone = row.pred_status === "finished";
+      if (!open || !predDone) {
+        if (row.dependent_overdue_flagged_at) {
+          clear.run(row.id);
+          report.cleared.push(row.id);
+        }
+        continue;
+      }
+      report.checked++;
+      if (row.dependent_overdue_flagged_at) continue;
+      const appliedAt = row.pred_closed_at ?? row.pred_updated_at ?? now;
+      if (now - appliedAt < thresholdMs) continue;
+      db.prepare(`UPDATE content_proposals SET dependent_overdue_flagged_at = ? WHERE id = ?`).run(
+        new Date(now).toISOString(),
+        row.id,
+      );
+      emitProposalEvent(site, "proposal_dependent_overdue", row.id, author, {
+        predecessor_id: row.pred_id,
+        predecessor_applied_at: new Date(appliedAt).toISOString(),
+        overdue_hours: DEPENDENT_OVERDUE_HOURS,
+      });
+      report.flagged.push(row.id);
     }
     return report;
   }
@@ -8128,6 +8865,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
     migrateLegacy,
     staleSweep,
     blockedSweep,
+    dependentOverdueSweep,
     verifyDraftLinks,
     list,
     stats,
@@ -8172,6 +8910,15 @@ export type BlockedSweepReport = {
   flagged: string[];
   cleared: string[];
   closed: string[];
+};
+
+/** Hours after the predecessor is applied before an open dependent is flagged overdue. */
+export const DEPENDENT_OVERDUE_HOURS = 48;
+
+export type DependentOverdueSweepReport = {
+  checked: number;
+  flagged: string[];
+  cleared: string[];
 };
 
 export type LinkCheckReport = {
@@ -8247,8 +8994,9 @@ export function replaceProposalsFromSnapshot(site: string, proposals: ProposalRe
       reviewer_action_by, reviewer_action_by_actor_json,
       system_version, co_authors_json, all_or_nothing, reverts_proposal_id,
       stale_since, stale_flagged_at, idea_seo_target_json, seo_target_override_json,
-      blocked_flagged_at
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      blocked_flagged_at, applies_after_proposal_id, dependent_overdue_flagged_at,
+      url_slug_override_json
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   const insertEntry = db.prepare(
     `INSERT INTO content_proposal_entries (
@@ -8337,6 +9085,9 @@ export function replaceProposalsFromSnapshot(site: string, proposals: ProposalRe
         p.idea_seo_target ? JSON.stringify(p.idea_seo_target) : null,
         p.seo_target_override ? JSON.stringify(p.seo_target_override) : null,
         p.blocked_flagged_at ?? null,
+        p.applies_after_proposal_id ?? null,
+        p.dependent_overdue_flagged_at ?? null,
+        p.url_slug_override ? JSON.stringify(p.url_slug_override) : null,
       );
       for (const e of p.entries ?? []) {
         insertEntry.run(
@@ -8730,7 +9481,23 @@ export function proposalServiceForSite(ctx: SiteContext) {
       parseContentTypeStrategy(getContentTypeConfig(contentType, ctx.contentRoot)?.strategy),
     knownContentTypes: () => getAllTypes(ctx.contentRoot),
     variableDefinitions: () => ctx.variableManager.getDefinitions(),
+    localeUrlSlug: localeUrlSlugDepsForSite(ctx),
   });
+}
+
+export function localeUrlSlugDepsForSite(ctx: SiteContext): LocaleUrlSlugDeps {
+  const ci = ctx.contentIndex;
+  return {
+    liveLocales: (contentType, slug) => ci.getAvailableLocalesOrVariants(ci.normalizeType(contentType), slug),
+    urlPattern: (contentType) => getContentTypeConfig(contentType, ctx.contentRoot)?.url_pattern ?? null,
+    ownerOf: (contentType, urlSlug, locale) => {
+      const type = ci.normalizeType(contentType);
+      const folder = ci.resolveBaseSlug(urlSlug, type);
+      const live = ci.getAvailableLocalesOrVariants(type, folder);
+      if (!live.includes(locale)) return null;
+      return ci.getLocaleSlug(folder, type, locale) === urlSlug ? folder : null;
+    },
+  };
 }
 
 export function ideaSeoTargetDepsForSite(ctx: SiteContext): IdeaSeoTargetDeps {
@@ -8751,6 +9518,7 @@ export function ideaSeoTargetDepsForSite(ctx: SiteContext): IdeaSeoTargetDeps {
         live: canon.live,
         locale: row?.locale ?? (/^[a-z]{2}$/.test(prefix) ? prefix : null),
         is_hub: row ? row.is_pillar === true : null,
+        entry: row ? { contentType: row.content_type, slug: row.slug, locale: row.locale } : null,
       };
     },
     keywordOwner: (keyword, exclude) => {

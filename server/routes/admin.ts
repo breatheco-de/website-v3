@@ -4301,13 +4301,10 @@ export function registerAdminRoutes(app: Express): void {
       process.env.MCP_SERVER_SECRET ||
       process.env.MCP_API_KEY
     );
-    const replitDevDomain = process.env.REPLIT_DEV_DOMAIN || null;
     const readiness = {
       siteUrlConfigured: !!siteUrl,
       mcpServerSecretConfigured,
       mcpReachable: false,
-      /** Fallback OAuth base when SITE_URL is unset (Replit only). */
-      replitDevDomain,
     };
 
     /** Role → tools/list visibility (same map as production MCP catalog filter). */

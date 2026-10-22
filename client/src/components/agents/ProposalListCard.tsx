@@ -68,6 +68,8 @@ export type ProposalCardData = {
   stale_flagged_at?: string | null;
   blocked_flagged_at?: string | null;
   reverts_proposal_id?: string | null;
+  applies_after_proposal_id?: string | null;
+  dependent_overdue_flagged_at?: string | null;
   created_at: number;
   updated_at?: number;
   review_context_snapshot?: Record<string, unknown> | null;
@@ -364,7 +366,9 @@ export function ProposalListCard({
                     flaggedAt={p.escalated ? null : p.blocked_flagged_at}
                   />
                 ) : null}
-                {p.attention === "awaiting_rereview" || p.attention === "no_feedback" ? (
+                {p.attention === "awaiting_rereview" ||
+                p.attention === "no_feedback" ||
+                p.attention === "predecessor_applied" ? (
                   <AttentionBadge
                     attention={p.attention}
                     resolvedBlockerCount={p.resolved_blocker_count ?? 0}

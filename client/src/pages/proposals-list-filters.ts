@@ -35,6 +35,7 @@ export type ProposalListActorType = "all" | "ui" | "mcp" | "system";
 
 export type ProposalListAttention =
   | "all"
+  | "predecessor_applied"
   | "escalated"
   | "awaiting_rereview"
   | "no_feedback"
@@ -117,6 +118,7 @@ const ACTOR_TYPE_VALUES = new Set<ProposalListActorType>(["all", "ui", "mcp", "s
 
 const ATTENTION_VALUES = new Set<ProposalListAttention>([
   "all",
+  "predecessor_applied",
   "escalated",
   "awaiting_rereview",
   "no_feedback",
@@ -524,6 +526,7 @@ export const PROPOSAL_ATTENTION_OPTIONS: Array<{
   label: string;
 }> = [
   { value: "all", label: "Any attention" },
+  { value: "predecessor_applied", label: "Ready: its page is live" },
   { value: "escalated", label: "Escalated hold" },
   { value: "awaiting_rereview", label: "Ready for re-check" },
   { value: "no_feedback", label: "No feedback yet" },

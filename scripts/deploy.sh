@@ -179,6 +179,34 @@ acquire_lock() {
 
 acquire_lock
 
+# Refuse to build on a Node release with known security holes (Oct 2026: Brotli RCE,
+# TLS hostname bypass). Runs before any release work, so the live site is untouched.
+# Raise these floors when Node ships the next security release.
+require_patched_node() {
+  local version
+  if ! version="$(node -p 'process.versions.node' 2>/dev/null)"; then
+    echo "ERROR: node not found on PATH" >&2
+    exit 1
+  fi
+  if ! node -e '
+    const floors = { 22: [22, 23, 4], 24: [24, 22, 1], 26: [26, 12, 1] };
+    const cur = process.versions.node.split(".").map(Number);
+    const floor = floors[cur[0]];
+    if (!floor) process.exit(1);
+    for (let i = 0; i < 3; i++) {
+      if (cur[i] > floor[i]) process.exit(0);
+      if (cur[i] < floor[i]) process.exit(1);
+    }
+  '; then
+    echo "ERROR: Node $version on this server is unpatched or unsupported." >&2
+    echo "ERROR: Install Node 24.22.1+ (or 22.23.4+ / 26.12.1+), then redeploy. See docs/vps.md (Node runtime)." >&2
+    exit 1
+  fi
+  echo "[deploy] node $version OK"
+}
+
+require_patched_node
+
 echo "[deploy] fetching $DEPLOY_SHA"
 git -C "$APP_ROOT" fetch --prune origin "$DEPLOY_SHA"
 

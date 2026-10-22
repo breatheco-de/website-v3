@@ -27,7 +27,7 @@ Weblify is under active development. The core CMS is production-tested; some ite
 | YAML content model, Git sync, component registry | Shipped |
 | Visual admin UI, SEO, media gallery, multi-site | Shipped |
 | MCP server for AI agents | Shipped |
-| VPS / Replit / generic Node deploy | Shipped |
+| VPS / generic Node deploy | Shipped |
 | Clerk authentication (replacing legacy auth) | In progress |
 | Full decoupling from upstream branding and APIs | In progress |
 | `npx weblify` runtime + create-in-empty-folder | Shipped |
@@ -202,7 +202,6 @@ NODE_ENV=production npm start
 | Target | Notes |
 |---|---|
 | **VPS** | Reference deployment — [docs/vps.md](docs/vps.md) |
-| **Replit** | Works out of the box; Replit Vite plugins load only when `REPL_ID` is set ([`vite.config.ts`](vite.config.ts)) |
 | **Docker** | Bring your own image; same `build` + `start` |
 | **Any Node host** | Railway, Fly.io, a laptop — one process, one port |
 
@@ -218,8 +217,6 @@ NODE_ENV=production npm start
 | Wire up analytics | [docs/gtm-analytics-setup.md](docs/gtm-analytics-setup.md) |
 | Add a new section component | [shared/component-registry/README.md](shared/component-registry/README.md) |
 | Connect an AI agent | [mcp-server/README.md](mcp-server/README.md) |
-| Run on Replit | [replit.md](replit.md) |
-
 ## Roadmap
 
 - [x] YAML content model with Git sync

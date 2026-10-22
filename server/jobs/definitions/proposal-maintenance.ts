@@ -16,7 +16,8 @@ async function reschedule(jobType: string, delayMs = DAY_MS): Promise<void> {
 
 /**
  * Daily (self-rescheduling): stale_since / 10-day flag / 30-day abandoned_stale close, then
- * open blockers / 10-day flag / 30-day abandoned_blocked close.
+ * open blockers / 10-day flag / 30-day abandoned_blocked close, then applies_after dependents
+ * still open DEPENDENT_OVERDUE_HOURS (48) after their predecessor finished (flag only).
  */
 export class ProposalStaleSweepJob extends Job {
   async run(): Promise<{ ok: boolean }> {
@@ -29,6 +30,8 @@ export class ProposalStaleSweepJob extends Job {
         log.info({ site: ctx.contentRootName, ...report }, "[ProposalStaleSweepJob] done");
         const blocked = await svc.blockedSweep();
         log.info({ site: ctx.contentRootName, ...blocked }, "[ProposalStaleSweepJob] blocked sweep done");
+        const overdue = svc.dependentOverdueSweep();
+        log.info({ site: ctx.contentRootName, ...overdue }, "[ProposalStaleSweepJob] dependent overdue sweep done");
       }
     } finally {
       await reschedule("proposal_stale_sweep");

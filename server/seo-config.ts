@@ -57,6 +57,34 @@ function saveSeoConfigObject(
   return file;
 }
 
+/** Hub size / link density thresholds for the seo-cluster-links diagnostics. */
+export type HubLoadThresholds = {
+  /** HUB_THIN_LINK_DENSE: more than this many in-body internal links per 100 words… */
+  thin_links_per_100_words: number;
+  /** …while the hub has fewer than this many members (expand the hub, do not split). */
+  thin_max_members: number;
+  /** HUB_OVERLOADED: at least this many members (look for a sub-hub). */
+  overloaded_min_members: number;
+};
+
+export const DEFAULT_HUB_LOAD_THRESHOLDS: HubLoadThresholds = {
+  thin_links_per_100_words: 3,
+  thin_max_members: 15,
+  overloaded_min_members: 25,
+};
+
+/** `hub_load:` block in seo-config.yml; missing or invalid keys fall back to defaults. */
+export function readHubLoadThresholds(contentRoot?: string): HubLoadThresholds {
+  const raw = loadSeoConfigObject(contentRoot).hub_load;
+  const out = { ...DEFAULT_HUB_LOAD_THRESHOLDS };
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  for (const key of Object.keys(out) as Array<keyof HubLoadThresholds>) {
+    const v = (raw as Record<string, unknown>)[key];
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) out[key] = v;
+  }
+  return out;
+}
+
 /** Read hubId → priority map from seo-config.yml (invalid entries dropped). */
 export function readClusterPriorities(contentRoot?: string): Record<string, ClusterPriority> {
   const raw = loadSeoConfigObject(contentRoot).cluster_priority;

@@ -344,11 +344,11 @@ The MCP server starts automatically alongside the main app via the **MCP Server*
 | `MCP_SERVER_SECRET` | _(none)_ | **Required.** Internal loopback credential used by the MCP server to authenticate its own requests to the main app. Server exits with a FATAL error if neither this nor the legacy `MCP_API_KEY` is set. |
 | `MCP_API_KEY` | _(none)_ | **Legacy alias for `MCP_SERVER_SECRET`.** Supported for backward compatibility — a deprecation warning is emitted at startup. Rename to `MCP_SERVER_SECRET` for new deployments. |
 | `MCP_PORT` | `3001` | Port the MCP server listens on. |
-| `SITE_URL` | auto (`REPLIT_DEV_DOMAIN`) | Public base URL used in OAuth metadata. Automatically resolved from `REPLIT_DEV_DOMAIN` in Replit — only set this manually if deploying outside Replit. |
+| `SITE_URL` | `http://localhost:<MCP_PORT>` | Public base URL used in OAuth metadata. Set it in every deployed environment. |
 | `OAUTH_CLIENT_ID` | _(none)_ | Optional static Client ID for the legacy pre-configured OAuth flow. Not needed when using dynamic registration (Claude.ai default). |
 | `OAUTH_CLIENT_SECRET` | _(none)_ | Optional static Client Secret for the legacy pre-configured OAuth flow. |
 
-Set all secrets in the Replit **Secrets** tab (or `.env` locally). See `.env.example` in the repo root for a complete template.
+Set secrets in `.env` locally; production gets them from the GitHub deploy secrets (see [`docs/vps.md`](../docs/vps.md)). See `.env.example` in the repo root for a complete template.
 
 ## Connect via Claude Desktop
 
@@ -376,22 +376,18 @@ Claude.ai uses **dynamic client registration** (RFC 7591) — it registers itsel
 
 ### 1. Set the public URL secret
 
-In the Replit **Secrets** tab, add:
-
-| Secret | Value |
-|---|---|
-| `PUBLIC_URL` | Your deployed URL, e.g. `https://your-project.replit.app` |
+Set `SITE_URL` in the deployed environment to your public origin, e.g. `https://www.example.com`.
 
 This tells the OAuth metadata endpoint what base URL to advertise to Claude.ai.
 
 ### 2. Deploy the project
 
-Anthropic's cloud must be able to reach your server from the internet. Deploy the Replit project so it gets a public URL (e.g. `https://your-project.replit.app`).
+Anthropic's cloud must be able to reach your server from the internet, so it has to be the deployed site (not localhost).
 
 ### 3. Add the connector in Claude.ai
 
-1. Go to **Claude.ai → Settings → Connectors** and click **+**.
-2. Enter the **Connector URL**: `https://your-project.replit.app/mcp`
+1. Go to **Claude.ai → Customize → Connectors** and choose **Add custom connector**.
+2. Enter the **Connector URL**: `https://www.example.com/mcp`
 3. Claude.ai will automatically register itself with the server (no credentials to enter).
 4. Your browser is redirected to the MCP server's consent page.
 5. Click **Allow**.
@@ -403,15 +399,15 @@ The connector is now available in conversations via the **+** button.
 
 ## Connect via claude.com (Breathecode token header — legacy)
 
-1. Deploy the Replit project so it gets a public URL (e.g. `https://your-project.replit.app`).
-2. In Claude → **Settings → Connectors**, click **+** and enter:
+1. Use the deployed site's public URL (e.g. `https://www.example.com`).
+2. In Claude → **Customize → Connectors**, choose **Add custom connector** and enter:
    - **Name**: Content Pages
-   - **URL**: `https://your-project.replit.app/mcp`
+   - **URL**: `https://www.example.com/mcp`
 3. Click **Advanced settings** and add a custom header:
    - `X-Api-Key: YOUR_BREATHECODE_TOKEN`
 4. Click **Add**. The connector is now available in conversations via the **+** button.
 
-> **Note**: Anthropic's cloud connects to your server from the internet, so the Replit project must be deployed (not just running in dev mode).
+> **Note**: Anthropic's cloud connects to your server from the internet, so the site must be deployed (not just running in dev mode).
 
 ## Example workflow for Claude
 

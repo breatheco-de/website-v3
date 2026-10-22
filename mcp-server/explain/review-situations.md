@@ -22,6 +22,7 @@ Notes do **not** use situations.
 | Id | When to use | Guide (`topic: "proposals"` + subtopic) |
 |---|---|---|
 | `internal_links` | Body adds same-locale hub/cluster links; keep facts; no SERP in the same packet | `internal-links` |
+| `hub_split` | Original hub rewrite after a split: moved subtopic → paragraph linking the new hub; links to moved pages removed. **Declared only** (never inferred); chain with `applies_after_proposal_id` | `hub-split` (+ checklist `hub_split`) |
 | `serp_title_description` | `meta.page_title` / `meta.description` only (or mixed — leave-live SERP then apply body) | `serp-title-description` (+ checklist `title_description_ctr`) |
 | `funnel_classification` | `funnel.stage` / `funnel.products` — persona → product → stage, not topical breadth | `funnel-classification` (+ checklist `funnel_persona_product_stage`) |
 | `body_copy_edit` | General body/field edits that are not link-only, SERP-only, or funnel-only | `situations` + `verify_copy` |
@@ -44,7 +45,8 @@ Legacy / empty filed list on edits → infer (often `body_copy_edit`) with warni
 ## Author tips
 
 - Prefer one situation per packet when possible; SERP rewrite = second proposal (`serp_title_description`).
-- Hub links: `review_situations: ["internal_links"]` + content-only ops + summary that promises no figure/SERP changes.
+- Hub links: `review_situations: ["internal_links"]` + content-only ops + summary that promises no figure/SERP changes. Linking a page that is not live yet → `applies_after_proposal_id` = that page's proposal.
+- Hub split: `review_situations: ["hub_split"]` on the original hub's rewrite, chained after the new hub's proposal. Removing links to moved pages is expected there, not under `internal_links`.
 - Funnel: `review_situations: ["funnel_classification"]` + `funnel.*` only (persona → product → stage; soft batch ≤10).
 - Locale translation: polish with `translate_entry` / `update_fields` on the variant; file `review_situations: ["locale_translation"]` + `promote_on_apply` when ready to go live. Summary: “Translated from en → es …” (no pasted body). Do not reintroduce SEO topology packaging in the target locale.
 - Reader body: never explain our content architecture to visitors (cluster membership, piece-count, companion-piece maps). Link by page job. Reviewers `add_blocker` — create still succeeds.

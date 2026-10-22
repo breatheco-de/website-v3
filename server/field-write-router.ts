@@ -36,6 +36,7 @@ import {
   writeVariantData,
 } from "./versioning/draft-meta";
 import { variantHasTraffic } from "./versioning/variant-traffic";
+import { validateLocaleUrlSlugFormat } from "./locale-url-slug";
 import {
   checkDeprecatedWrites,
   deprecatedErrorInfo,
@@ -578,8 +579,20 @@ async function applyDraftOnly(ctx: {
     seoPayload = seo.payload;
   }
 
+  // This language's own URL slug: the editor refuses `slug` (live renames go through
+  // rename-slug); on a draft it is staged as-is and URL ownership is checked at publish.
+  const slugSets = ctx.localeUpdates.filter((u) => u.field_path === "slug" && !isRemoveUpdate(u) && u.value !== null);
+  for (const u of slugSets) {
+    const formatErr = typeof u.value === "string" ? validateLocaleUrlSlugFormat(u.value.trim()) : "slug must be a string.";
+    if (formatErr) {
+      return { ok: false, error: `slug: ${formatErr}`, code: "invalid_locale_slug", warnings, wrote };
+    }
+  }
+
   // Locale body (sections, title, …) through the editor so its gates and merges run.
-  const localeSets = ctx.localeUpdates.filter((u) => !isRemoveUpdate(u) && u.value !== null);
+  const localeSets = ctx.localeUpdates.filter(
+    (u) => !isRemoveUpdate(u) && u.value !== null && u.field_path !== "slug",
+  );
   const localeRemovals = ctx.localeUpdates.filter((u) => isRemoveUpdate(u) || u.value === null);
   if (localeSets.length > 0) {
     const res = await editContent({
@@ -599,10 +612,16 @@ async function applyDraftOnly(ctx: {
     wrote.push(`locale:${locale}@${variant}`);
   }
 
-  // Page-level fields, funnel and locale removals: direct draft-file patch.
-  if (funnelBlock !== undefined || ctx.commonUpdates.length > 0 || localeRemovals.length > 0) {
+  // Page-level fields, funnel, locale slug and locale removals: direct draft-file patch.
+  if (
+    funnelBlock !== undefined ||
+    ctx.commonUpdates.length > 0 ||
+    localeRemovals.length > 0 ||
+    slugSets.length > 0
+  ) {
     const data = readVariantData(draftPath) ?? {};
     if (funnelBlock !== undefined) data.funnel = funnelBlock;
+    for (const u of slugSets) data.slug = String(u.value).trim();
     for (const u of ctx.commonUpdates) {
       setAtPath(data, u.field_path, isRemoveUpdate(u) ? null : u.value ?? null);
     }

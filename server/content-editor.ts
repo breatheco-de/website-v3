@@ -782,11 +782,21 @@ export async function editContent(request: ContentEditRequest): Promise<{
 
   for (const op of operations) {
     if (op.action === "update_field" && op.path === "slug") {
-      return {
-        success: false,
-        error:
-          "Locale URL slug cannot be changed via update_field. Use POST /api/content/rename-slug instead.",
-      };
+      if (!hasVariant) {
+        return {
+          success: false,
+          error:
+            "Locale URL slug cannot be changed via update_field. Use POST /api/content/rename-slug instead.",
+        };
+      }
+      // Drafts stage this language's own slug; URL ownership is checked at publish.
+      if (typeof op.value !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(op.value.trim())) {
+        return {
+          success: false,
+          error: "Invalid slug format. Use lowercase letters, numbers, and hyphens only.",
+          errorCode: "invalid_locale_slug",
+        };
+      }
     }
     if (
       op.action === "update_field" &&

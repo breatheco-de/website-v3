@@ -10,8 +10,160 @@ import {
   getFullFieldMapping,
 } from "./content-types.js";
 import { RESERVED_PUBLISHED_AT_FIELD } from "./published-at.js";
+import { assessSlugLocaleMatch, SLUG_LOCALE_MISMATCH_CODE } from "@shared/slug-locale-heuristic";
 
 export const LOCALE_URL_SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export const LOCALE_URL_SLUG_REQUIRED = "locale_url_slug_required";
+export const URL_SLUG_REQUIRED = "url_slug_required";
+export const IDEA_URL_SLUG_CONFLICT = "idea_url_slug_conflict";
+export const URL_SLUG_OVERRIDE_INVALID = "url_slug_override_invalid";
+
+/** Min reason length when an edit's slug differs from the idea's locked url_slug. */
+export const URL_SLUG_REASON_MIN = 40;
+
+export type UrlSlugOverride = { reason: string };
+
+export function parseUrlSlugOverride(raw: unknown): UrlSlugOverride | null {
+  if (!raw || typeof raw !== "object") return null;
+  const reason = (raw as { reason?: unknown }).reason;
+  return typeof reason === "string" && reason.trim() ? { reason: reason.trim() } : null;
+}
+
+export function validateUrlSlugOverride(
+  raw: unknown,
+): { ok: true; override: UrlSlugOverride | null } | { ok: false; code: string; error: string } {
+  if (raw == null) return { ok: true, override: null };
+  const parsed = parseUrlSlugOverride(raw);
+  if (!parsed || parsed.reason.length < URL_SLUG_REASON_MIN) {
+    return {
+      ok: false,
+      code: URL_SLUG_OVERRIDE_INVALID,
+      error: `url_slug_override.reason must explain (min ${URL_SLUG_REASON_MIN} characters) why this address differs from the one the idea locked.`,
+    };
+  }
+  return { ok: true, override: parsed };
+}
+
+export type LocaleUrlSlugGateResult =
+  | { ok: true }
+  | { ok: false; code: string; error: string; details: Record<string, unknown> };
+
+/** `locale_url_slugs: { es: "que-es-x" }` from a publish request body (string values only). */
+export function localeUrlSlugsFromBody(body: unknown): Record<string, string> | null {
+  const raw = (body as { locale_url_slugs?: unknown } | null)?.locale_url_slugs;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: Record<string, string> = {};
+  for (const [locale, slug] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof slug === "string" && slug.trim()) out[locale] = slug.trim();
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** True when the type's URL pattern for this locale has a `:slug` segment. */
+export function urlPatternUsesSlug(
+  urlPattern: Record<string, string> | null | undefined,
+  locale: string,
+): boolean {
+  const pattern = urlPattern?.[locale] || urlPattern?.["default"] || `/${locale}/:slug`;
+  return /(^|\/):slug(\/|$)/.test(pattern);
+}
+
+/** The language file's own `slug:` (not `_common.yml`), or null. */
+export function ownLocaleSlug(localeData: Record<string, unknown> | null | undefined): string | null {
+  const raw = localeData?.slug;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
+
+/**
+ * New language on a page that already has another live language: the language file
+ * must carry its own `slug:`. Without one, its URL reuses the folder name, which was
+ * picked for the first language. Same word as the folder is allowed (deliberate keep).
+ */
+export function checkNewLocaleUrlSlug(opts: {
+  draftOwnData: Record<string, unknown> | null | undefined;
+  entryIdentity: string;
+  contentType: string;
+  locale: string;
+  urlPattern: Record<string, string> | null | undefined;
+}): LocaleUrlSlugGateResult {
+  if (!urlPatternUsesSlug(opts.urlPattern, opts.locale)) return { ok: true };
+  if (ownLocaleSlug(opts.draftOwnData)) return { ok: true };
+  return {
+    ok: false,
+    code: LOCALE_URL_SLUG_REQUIRED,
+    error:
+      `${opts.contentType}/${opts.entryIdentity} (${opts.locale}) is a new language of a page that is already live in another language. ` +
+      `Without its own slug its URL reuses "${opts.entryIdentity}", the address word picked for the other language. ` +
+      `Set slug on the ${opts.locale} draft (same word is allowed when it is a name that works in every language).`,
+    details: {
+      locale: opts.locale,
+      current_slug: opts.entryIdentity,
+      suggested_field: "slug",
+      property_path: "slug",
+    },
+  };
+}
+
+/**
+ * Address an idea locks on accept. A new language of an existing page needs its own
+ * `url_slug`; a brand-new page uses the folder name. Both must be well-formed, free,
+ * and (unless acknowledged) not look like another language.
+ */
+export function checkAcceptedUrlSlug(opts: {
+  contentType: string;
+  folderSlug: string;
+  locale: string;
+  urlSlug?: string | null;
+  isNewLanguage: boolean;
+  ack?: boolean;
+  /** Folder slug of the entry (same type) that already uses this URL word, or null. */
+  ownerOf: (urlSlug: string) => string | null;
+}): LocaleUrlSlugGateResult {
+  const where = `${opts.contentType}/${opts.folderSlug} (${opts.locale})`;
+  const explicit = typeof opts.urlSlug === "string" ? opts.urlSlug.trim() : "";
+  if (opts.isNewLanguage && !explicit) {
+    return {
+      ok: false,
+      code: URL_SLUG_REQUIRED,
+      error:
+        `${where} already exists in another language, so "${opts.folderSlug}" is that language's address. ` +
+        `Pass accepted_entry.url_slug: the ${opts.locale} address word this idea locks.`,
+      details: {
+        locale: opts.locale,
+        current_slug: opts.folderSlug,
+        suggested_url_slug_field: "accepted_entry.url_slug",
+      },
+    };
+  }
+  const address = explicit || opts.folderSlug;
+  const formatErr = validateLocaleUrlSlugFormat(address);
+  if (formatErr) {
+    return { ok: false, code: "invalid_locale_slug", error: formatErr, details: { url_slug: address } };
+  }
+  const owner = opts.ownerOf(address);
+  if (owner && owner !== opts.folderSlug) {
+    return {
+      ok: false,
+      code: "slug_already_owned_by_other_entry",
+      error: `"${address}" is already the address of ${opts.contentType}/${owner}. Pick another address word.`,
+      details: { url_slug: address, owner_slug: owner },
+    };
+  }
+  const match = assessSlugLocaleMatch(address, opts.locale);
+  if (!match.ok && opts.ack !== true) {
+    const looksLike = match.inferredOpposite === "en" ? "English" : "Spanish";
+    return {
+      ok: false,
+      code: SLUG_LOCALE_MISMATCH_CODE,
+      error:
+        `"${address}" looks ${looksLike} for a ${opts.locale} page (${match.markers.join(", ")}). ` +
+        "Pick an address in this language, or pass slug_language_ack: true when it is a name that works in every language.",
+      details: { url_slug: address, markers: match.markers, locale: opts.locale },
+    };
+  }
+  return { ok: true };
+}
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 

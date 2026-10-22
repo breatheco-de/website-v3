@@ -85,7 +85,7 @@ const STATIC_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET || "";
 
 if (!SERVER_SECRET) {
   console.error(
-    "[MCP] FATAL: MCP_SERVER_SECRET is not set. Set MCP_SERVER_SECRET in your environment (Secrets tab on Replit, or .env locally) before starting the server.",
+    "[MCP] FATAL: MCP_SERVER_SECRET is not set. Set MCP_SERVER_SECRET in your environment (.env, or the deploy secrets) before starting the server.",
   );
   process.exit(1);
 }
@@ -121,11 +121,7 @@ function isAllowedRedirectUri(clientId: string, redirectUri: string): boolean {
 }
 
 function getBase(): string {
-  const replitDomain = process.env.REPLIT_DEV_DOMAIN;
-  return (
-    process.env.SITE_URL ||
-    (replitDomain ? `https://${replitDomain}` : `http://localhost:${PORT}`)
-  );
+  return process.env.SITE_URL || `http://localhost:${PORT}`;
 }
 
 function parseRoleIdFromResource(resource: string | undefined): string | undefined {
@@ -142,15 +138,14 @@ function parseRoleIdFromResource(resource: string | undefined): string | undefin
 
 /**
  * Public origin used in GitHub staff-login return_to (browser must reach it).
- * Prefer MCP_PUBLIC_URL; otherwise SITE_URL / Replit domain — OAuth is proxied
+ * Prefer MCP_PUBLIC_URL; otherwise SITE_URL — OAuth is proxied
  * through the main app (`/oauth/*`), so localhost MCP_PORT is wrong in prod.
  */
 function getMcpPublicBase(): string {
-  const replitDomain = process.env.REPLIT_DEV_DOMAIN;
   return (
     process.env.MCP_PUBLIC_URL ||
     process.env.SITE_URL ||
-    (replitDomain ? `https://${replitDomain}` : `http://127.0.0.1:${PORT}`)
+    `http://127.0.0.1:${PORT}`
   ).replace(/\/$/, "");
 }
 

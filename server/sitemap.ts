@@ -74,11 +74,6 @@ function getBaseUrl(ctx?: ActiveSiteCtx): string {
     return process.env.SITE_URL.replace(/\/$/, "");
   }
 
-  // Fall back to Replit's domain
-  if (process.env.REPLIT_DEV_DOMAIN) {
-    return `https://${process.env.REPLIT_DEV_DOMAIN}`;
-  }
-
   // Development fallback
   return "http://localhost:5000";
 }

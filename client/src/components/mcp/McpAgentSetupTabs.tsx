@@ -93,8 +93,7 @@ function CursorSetup({ connectors, httpMcpConfig, multi }: SetupSnippets) {
       <p className="text-xs text-muted-foreground">
         Cursor should open the OAuth consent page on first connect. Approve access, then reload MCP if tools do not
         appear. For local use, keep{" "}
-        <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">tsx mcp-server/index.ts</code> running
-        (Replit: start the <span className="text-foreground font-medium">MCP Server</span> workflow).
+        <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">tsx mcp-server/index.ts</code> running.
       </p>
     </div>
   );

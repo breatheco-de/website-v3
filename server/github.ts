@@ -4,7 +4,7 @@
  * 
  * IMPORTANT: This module does NOT use git CLI commands.
  * All operations use GitHub's REST API to work in production environments
- * where git CLI may not be available (e.g., Replit deployments).
+ * where git CLI may not be available.
  */
 
 import * as fs from 'fs';
@@ -1680,9 +1680,6 @@ function getWebhookBaseUrl(): string | null {
   if (process.env.SITE_URL) {
     return process.env.SITE_URL.replace(/\/$/, '');
   }
-  if (process.env.REPLIT_DEV_DOMAIN) {
-    return `https://${process.env.REPLIT_DEV_DOMAIN}`;
-  }
   return null;
 }
 
@@ -1697,7 +1694,7 @@ export function getWebhookSetupSkipReason(baseUrl?: string | null): string | nul
 
   const resolvedBase = baseUrl ?? getWebhookBaseUrl();
   if (!resolvedBase) {
-    return 'No SITE_URL or REPLIT_DEV_DOMAIN set';
+    return 'No SITE_URL set';
   }
 
   const webhookUrl = `${resolvedBase}/api/github/webhook`;

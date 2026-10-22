@@ -148,6 +148,40 @@ _draft:
     expect(draft._draft.based_on.locale).toBe("abc");
   });
 
+  it("stages this language's slug on the draft and leaves live untouched", async () => {
+    const liveBefore = fs.readFileSync(path.join(contentRoot, "blog", "post-a", "en.yml"), "utf-8");
+    const result = await applyFieldUpdates({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      variant: "draft",
+      mode: "draft_only",
+      updates: [{ field_path: "slug", value: "post-a-renamed" }],
+      author: "tester",
+      contentRoot,
+    });
+    expect(result.ok).toBe(true);
+    const draft = yaml.load(
+      fs.readFileSync(path.join(contentRoot, "blog", "post-a", "draft.en.yml"), "utf-8"),
+    ) as Record<string, any>;
+    expect(draft.slug).toBe("post-a-renamed");
+    expect(draft._draft.based_on.locale).toBe("abc");
+    expect(fs.readFileSync(path.join(contentRoot, "blog", "post-a", "en.yml"), "utf-8")).toBe(liveBefore);
+
+    const bad = await applyFieldUpdates({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      variant: "draft",
+      mode: "draft_only",
+      updates: [{ field_path: "slug", value: "Not A Slug" }],
+      author: "tester",
+      contentRoot,
+    });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.code).toBe("invalid_locale_slug");
+  });
+
   it("rejects variants with traffic", async () => {
     fs.writeFileSync(
       path.join(contentRoot, "blog", "post-a", "versioning.yml"),

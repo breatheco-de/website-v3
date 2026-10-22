@@ -363,7 +363,6 @@ export function registerSeoRoutes(app: Express): void {
   app.get("/robots.txt", (req, res) => {
     function getRobotsBaseUrl(): string {
       if (process.env.SITE_URL) return process.env.SITE_URL.replace(/\/$/, "");
-      if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
       return "http://localhost:5000";
     }
     const baseUrl = getRobotsBaseUrl();

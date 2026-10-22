@@ -690,6 +690,94 @@ describe("proposals v1.0 (draft-first)", () => {
       expect(w?.details?.next_actions).toHaveLength(2);
       expect(w?.details?.members?.find((m) => m.slug === "member-two")?.in_other_hub).toBe(true);
       expect(w?.details?.members?.find((m) => m.slug === "member-one")?.in_other_hub).toBe(false);
+      const hints = (w?.details?.next_actions ?? []).map((a) => a.args_hint as Record<string, unknown>);
+      expect(hints.every((h) => h.applies_after_proposal_id === res.proposal.id)).toBe(true);
+      const moved = (w?.details?.next_actions ?? []).find((a) => String(a.reason).includes("member-two"));
+      expect(String(moved?.reason)).toMatch(/in-body link/);
+    });
+
+    it("hub mode: accept refuses members another accepted, unpublished split already claims", async () => {
+      const fake = fakeDraftStore();
+      currentStore = fake.store;
+      const { svc } = makeService({ store: fake.store, extraDeps: deps() });
+      const hubTarget = (kw: string) => ({
+        main_keyword: kw,
+        cluster: { mode: "hub", members: [{ contentType: "blog", slug: "member-one" }] },
+      });
+      const first = await fileIdea(svc, { idea_seo_target: hubTarget("ai engineering") });
+      expect((await accept(svc, first)).ok).toBe(true);
+      const second = await fileIdea(svc, { idea_seo_target: hubTarget("ai engineering jobs") }, "second-hub");
+      const res = await accept(svc, second, "second-hub");
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.code).toBe("idea_seo_target_members_claimed");
+        expect(JSON.stringify((res as { details?: unknown }).details)).toContain(first);
+      }
+    });
+
+    it("join mode: the page's proposal reminds the author to link it from the hub (chained)", async () => {
+      const fake = fakeDraftStore({ "blog/hub-ai-engineering/en": { title: "Hub" } });
+      fake.entries.add("blog/hub-ai-engineering");
+      currentStore = fake.store;
+      hubs[HUB] = { ...hubs[HUB]!, entry: { contentType: "blog", slug: "hub-ai-engineering", locale: "en" } };
+      const { svc } = makeService({ store: fake.store, extraDeps: deps() });
+      const id = await fileIdea(svc, { idea_seo_target: join });
+      expect((await accept(svc, id)).ok).toBe(true);
+      const page = await implement(svc, id);
+      expect(page.ok).toBe(true);
+      if (!page.ok) return;
+      const reminder = page.warnings?.find((w) => w.code === "hub_link_follow_up") as
+        | { details?: { next_actions?: Array<{ args_hint?: Record<string, unknown> }> } }
+        | undefined;
+      const hint = reminder?.details?.next_actions?.[0]?.args_hint;
+      expect(hint?.applies_after_proposal_id).toBe(page.proposal.id);
+      expect(hint?.review_situations).toEqual(["internal_links"]);
+
+      const link = await svc.create(
+        {
+          title: "Hub links: hub → ai-code-review",
+          summary: SUMMARY,
+          review_situations: ["internal_links"],
+          applies_after_proposal_id: page.proposal.id,
+          entries: [entry({ contentType: "blog", slug: "hub-ai-engineering", locale: "en", updates: [{ field_path: "content", value: "x" }] })],
+        },
+        { username: "alice" },
+      );
+      expect(link.ok).toBe(true);
+      liveKeys.add("blog/ai-code-review/en");
+      const applied = await svc.update(page.proposal.id, "apply", { username: "bob" });
+      expect(applied.ok).toBe(true);
+      if (!applied.ok) return;
+      expect(applied.warnings?.some((w) => w.code === "hub_link_follow_up")).toBe(false);
+      expect(applied.warnings?.some((w) => w.code === "dependents_ready")).toBe(true);
+    });
+
+    it("join mode: hub with open edits → hub_has_open_edits instead of a propose_change hint", async () => {
+      const fake = fakeDraftStore({ "blog/hub-ai-engineering/en": { title: "Hub" } });
+      fake.entries.add("blog/hub-ai-engineering");
+      currentStore = fake.store;
+      hubs[HUB] = { ...hubs[HUB]!, entry: { contentType: "blog", slug: "hub-ai-engineering", locale: "en" } };
+      const { svc } = makeService({ store: fake.store, extraDeps: deps() });
+      const busy = await svc.create(
+        {
+          title: "Hub copy fix",
+          summary: SUMMARY,
+          entries: [entry({ contentType: "blog", slug: "hub-ai-engineering", locale: "en" })],
+        },
+        { username: "carol" },
+      );
+      expect(busy.ok).toBe(true);
+      if (!busy.ok) return;
+      const id = await fileIdea(svc, { idea_seo_target: join });
+      expect((await accept(svc, id)).ok).toBe(true);
+      const page = await implement(svc, id);
+      expect(page.ok).toBe(true);
+      if (!page.ok) return;
+      const w = page.warnings?.find((x) => x.code === "hub_has_open_edits") as
+        | { details?: { blocking_proposals?: Array<{ id: string }> } }
+        | undefined;
+      expect(w?.details?.blocking_proposals?.map((b) => b.id)).toEqual([busy.proposal.id]);
+      expect(page.warnings?.some((x) => x.code === "hub_link_follow_up")).toBe(false);
     });
 
     it("agents cannot opt an idea-born page out of clustering unless news/broken-URL + reason", async () => {
@@ -767,6 +855,186 @@ describe("proposals v1.0 (draft-first)", () => {
       if (!res.ok) return;
       const d = fake.drafts.get(`blog/ai-code-review/en/${res.proposal.entries[0]!.variant}`)!;
       expect((d.data.seo as Record<string, unknown>).main_keyword).toBe("anything");
+    });
+  });
+
+  describe("per-language URL slug (accept lock, filing, seed)", () => {
+    const live: Record<string, Record<string, unknown>> = {};
+    let owners: Record<string, string>;
+
+    beforeEach(() => {
+      for (const k of Object.keys(live)) delete live[k];
+      live["blog/hello/en"] = { title: "Hello" };
+      owners = {};
+    });
+
+    const deps = () => ({
+      resolveExistence: (e: { contentType: string; slug: string; locale: string; variant?: string | null }) => ({
+        live: live[`${e.contentType}/${e.slug}/${e.locale}`] ? ("exists" as const) : ("missing" as const),
+        draftExists: false,
+      }),
+      localeUrlSlug: {
+        liveLocales: (ct: string, slug: string) =>
+          Object.keys(live)
+            .filter((k) => k.startsWith(`${ct}/${slug}/`))
+            .map((k) => k.split("/")[2]!),
+        urlPattern: () => ({ en: "/en/blog/:slug", es: "/es/blog/:slug" }),
+        ownerOf: (_ct: string, urlSlug: string, locale: string) => owners[`${locale}:${urlSlug}`] ?? null,
+      },
+    });
+
+    async function fileIdea(svc: ReturnType<typeof makeService>["svc"], slug = "hello") {
+      const idea = await svc.create(
+        {
+          kind: "idea",
+          title: `Spanish version of ${slug}`,
+          summary: SUMMARY,
+          related_entries: [{ contentType: "blog", slug, locale: "es" }],
+          idea_funnel: { stage: "awareness", products: "all" },
+        },
+        { username: "alice" },
+      );
+      if (!idea.ok) throw new Error(`${idea.code}: ${idea.error}`);
+      return idea.proposal.id;
+    }
+    const accept = (
+      svc: ReturnType<typeof makeService>["svc"],
+      id: string,
+      extra: Record<string, unknown> = {},
+      slug = "hello",
+    ) =>
+      svc.update(id, "accept", {
+        username: "bob",
+        next_step: "File the Spanish edits with implements_proposal_id next.",
+        accepted_entry: { contentType: "blog", slug, locale: "es", ...extra },
+      });
+    const implement = (
+      svc: ReturnType<typeof makeService>["svc"],
+      ideaId: string,
+      updates: ProposalEntryInput["updates"] = [{ field_path: "title", value: "Hola" }],
+      extra: Record<string, unknown> = {},
+    ) =>
+      svc.create(
+        {
+          title: "Nueva ES",
+          summary: SUMMARY,
+          implements_proposal_id: ideaId,
+          review_situations: ["new_public_content"],
+          entries: [entry({ locale: "es", updates })],
+          ...extra,
+        },
+        { username: "alice" },
+      );
+
+    it("accept needs url_slug for a new language of a live page, then seeds it into the draft", async () => {
+      const fake = fakeDraftStore(live);
+      const { svc } = makeService({ store: fake.store, extraDeps: deps() });
+      const id = await fileIdea(svc);
+      const refused = await accept(svc, id);
+      expect(refused.ok).toBe(false);
+      if (!refused.ok) expect(refused.code).toBe("url_slug_required");
+      const accepted = await accept(svc, id, { url_slug: "hola-mundo" });
+      expect(accepted.ok).toBe(true);
+      if (accepted.ok) expect(accepted.proposal.accepted_entry?.url_slug).toBe("hola-mundo");
+      const res = await implement(svc, id);
+      expect(res.ok ? "ok" : `${res.code}: ${res.error}`).toBe("ok");
+      if (!res.ok) return;
+      expect(res.warnings?.some((w) => w.code === "idea_url_slug_locked")).toBe(true);
+      const d = fake.drafts.get(`blog/hello/es/${res.proposal.entries[0]!.variant}`)!;
+      expect(d.data.slug).toBe("hola-mundo");
+    });
+
+    it("accept refuses an address another page serves in that language", async () => {
+      const fake = fakeDraftStore(live);
+      const { svc } = makeService({ store: fake.store, extraDeps: deps() });
+      owners["es:hola-mundo"] = "other";
+      const id = await fileIdea(svc);
+      const r = await accept(svc, id, { url_slug: "hola-mundo" });
+      expect(!r.ok && r.code).toBe("slug_already_owned_by_other_entry");
+    });
+
+    it("brand-new page: wrong-language folder name is refused unless acknowledged", async () => {
+      const fake = fakeDraftStore(live);
+      const { svc } = makeService({ store: fake.store, extraDeps: deps() });
+      const id = await fileIdea(svc, "what-is-grok");
+      const r = await accept(svc, id, {}, "what-is-grok");
+      expect(!r.ok && r.code).toBe("slug_locale_mismatch");
+      expect((await accept(svc, id, { slug_language_ack: true }, "what-is-grok")).ok).toBe(true);
+    });
+
+    it("a slug op that differs from the lock needs url_slug_override.reason", async () => {
+      const fake = fakeDraftStore(live);
+      const { svc } = makeService({ store: fake.store, extraDeps: deps() });
+      const id = await fileIdea(svc);
+      expect((await accept(svc, id, { url_slug: "hola-mundo" })).ok).toBe(true);
+      const ops = [
+        { field_path: "title", value: "Hola" },
+        { field_path: "slug", value: "hola-a-todos" },
+      ];
+      const conflict = await implement(svc, id, ops);
+      expect(!conflict.ok && conflict.code).toBe("idea_url_slug_conflict");
+      const ok = await implement(svc, id, ops, {
+        url_slug_override: { reason: "Search research shows 'hola a todos' is the phrase Spanish readers use." },
+      });
+      expect(ok.ok ? "ok" : `${ok.code}: ${ok.error}`).toBe("ok");
+      if (!ok.ok) return;
+      expect(ok.proposal.url_slug_override?.reason).toMatch(/Search research/);
+      const d = fake.drafts.get(`blog/hello/es/${ok.proposal.entries[0]!.variant}`)!;
+      expect(d.data.slug).toBe("hola-a-todos");
+    });
+
+    it("edits with no idea: a new language without a slug is refused at filing", async () => {
+      const fake = fakeDraftStore(live);
+      const { svc } = makeService({ store: fake.store, extraDeps: deps() });
+      const refused = await svc.create(
+        { title: "Nueva ES", summary: SUMMARY, entries: [entry({ locale: "es" })] },
+        { username: "alice" },
+      );
+      expect(!refused.ok && refused.code).toBe("locale_url_slug_required");
+      expect(fake.drafts.size).toBe(0);
+      const ok = await svc.create(
+        {
+          title: "Nueva ES",
+          summary: SUMMARY,
+          entries: [
+            entry({
+              locale: "es",
+              updates: [
+                { field_path: "title", value: "Hola" },
+                { field_path: "slug", value: "hola-mundo" },
+              ],
+            }),
+          ],
+        },
+        { username: "alice" },
+      );
+      expect(ok.ok ? "ok" : `${ok.code}: ${ok.error}`).toBe("ok");
+    });
+
+    it("an idea accepted before url_slug existed follows the no-idea rule", async () => {
+      const fake = fakeDraftStore(live);
+      const { svc } = makeService({ store: fake.store });
+      const id = await fileIdea(svc);
+      expect((await accept(svc, id)).ok).toBe(true);
+      const strict = makeService({ store: fake.store, extraDeps: deps() }).svc;
+      const refused = await implement(strict, id);
+      expect(!refused.ok && refused.code).toBe("locale_url_slug_required");
+      const ok = await implement(strict, id, [
+        { field_path: "title", value: "Hola" },
+        { field_path: "slug", value: "hola-mundo" },
+      ]);
+      expect(ok.ok ? "ok" : `${ok.code}: ${ok.error}`).toBe("ok");
+    });
+
+    it("existing languages are not affected", async () => {
+      live["blog/hello/es"] = { title: "Hola" };
+      const fake = fakeDraftStore(live);
+      const { svc } = makeService({ store: fake.store, extraDeps: deps() });
+      const res = await svc.create(
+        { title: "Title fix", summary: SUMMARY, entries: [entry({ locale: "es" })] },
+        { username: "alice" },
+      );
+      expect(res.ok).toBe(true);
     });
   });
 
@@ -1669,6 +1937,146 @@ describe("proposals v1.0 (draft-first)", () => {
       expect(results).toEqual([
         { id: "nope", status: "not_found", reason: "Proposal not found", drafts_removed: [], drafts_unlinked: [], drafts_kept: [] },
       ]);
+    });
+  });
+
+  describe("applies_after_proposal_id (order-only chains)", () => {
+    const live = () => ({
+      "blog/hello/es": { title: "Old" },
+      "blog/other/es": { title: "O" },
+      "blog/third/es": { title: "T" },
+    });
+    const REJECT_NOTE = "This change would mislead readers about pricing and must not ship on this page at all.";
+
+    async function chain(
+      svc: ReturnType<typeof makeService>["svc"],
+      opts: { predEntries?: ProposalEntryInput[] } = {},
+    ) {
+      const pred = await svc.create(
+        { title: "New page", summary: SUMMARY, entries: opts.predEntries ?? [entry()] },
+        { username: "alice" },
+      );
+      if (!pred.ok) throw new Error(pred.error);
+      const dep = await svc.create(
+        {
+          title: "Hub link",
+          summary: SUMMARY,
+          entries: [entry({ slug: opts.predEntries ? "third" : "other" })],
+          applies_after_proposal_id: pred.proposal.id,
+        },
+        { username: "alice" },
+      );
+      if (!dep.ok) throw new Error(dep.error);
+      return { predId: pred.proposal.id, depId: dep.proposal.id };
+    }
+
+    it("refuses apply until the predecessor is finished, then flags dependents_ready", async () => {
+      const fake = fakeDraftStore(live());
+      const { svc } = makeService({ store: fake.store });
+      const { predId, depId } = await chain(svc);
+      expect(svc.get(predId)!.applied_before_proposal_ids).toEqual([depId]);
+      expect(svc.get(depId)!.applies_after_proposal_id).toBe(predId);
+
+      const early = await svc.update(depId, "apply", { username: "bob" });
+      expect(early.ok).toBe(false);
+      if (!early.ok) expect(early.code).toBe("predecessor_not_applied");
+
+      const first = await svc.update(predId, "apply", { username: "bob" });
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      const ready = first.warnings?.find((w) => w.code === "dependents_ready");
+      expect(ready?.details?.dependents).toEqual([{ id: depId, title: "Hub link" }]);
+      expect(svc.get(depId)!.status).toBe("open");
+      expect(toProposalSummary(svc.get(depId)!).attention).toBe("predecessor_applied");
+      const queue = svc.list({ sort: "attention", attention_perspective: "reviewer" }).proposals.map((p) => p.id);
+      expect(queue[0]).toBe(depId);
+
+      const second = await svc.update(depId, "apply", { username: "bob" });
+      expect(second.ok).toBe(true);
+      if (second.ok) expect(second.proposal.status).toBe("finished");
+    });
+
+    it("partly published predecessor still blocks the dependent", async () => {
+      const fake = fakeDraftStore(live());
+      fake.entries.add("blog/third");
+      const { svc } = makeService({
+        store: fake.store,
+        promote: (e, o) => (!o.dry_run && e.slug === "other" ? { ok: false, code: "promote_failed", error: "nope" } : undefined) as never,
+      });
+      const { predId, depId } = await chain(svc, { predEntries: [entry(), entry({ slug: "other" })] });
+      const first = await svc.update(predId, "apply", { username: "bob" });
+      expect(first.ok).toBe(true);
+      expect(svc.get(predId)!.status).toBe("partial");
+      const res = await svc.update(depId, "apply", { username: "bob" });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.code).toBe("predecessor_not_applied");
+    });
+
+    it("rejecting the predecessor blocks each open dependent; closed predecessors cannot be linked", async () => {
+      const fake = fakeDraftStore(live());
+      const { svc } = makeService({ store: fake.store });
+      const { predId, depId } = await chain(svc);
+      const rej = await svc.update(predId, "reject", {
+        username: "bob",
+        confirm_reject: true,
+        reject_kind: "harmful",
+        close_note: REJECT_NOTE,
+      });
+      expect(rej.ok).toBe(true);
+      if (rej.ok) expect(rej.warnings?.map((w) => w.code)).toContain("predecessor_closed");
+      const dep = svc.get(depId)!;
+      expect(dep.open_blocker_count).toBe(1);
+      expect(dep.blockers[0]!.body).toContain("predecessor_closed");
+
+      const relink = await svc.update(depId, "set_applies_after", { username: "alice", applies_after_proposal_id: predId });
+      expect(relink.ok).toBe(false);
+      if (!relink.ok) expect(relink.code).toBe("applies_after_closed");
+      const unlink = await svc.update(depId, "set_applies_after", { username: "alice", applies_after_proposal_id: "" });
+      expect(unlink.ok).toBe(true);
+      expect(svc.get(depId)!.applies_after_proposal_id).toBeNull();
+    });
+
+    it("set_applies_after refuses cycles and non-proposers", async () => {
+      const fake = fakeDraftStore(live());
+      const { svc } = makeService({ store: fake.store });
+      const { predId, depId } = await chain(svc);
+      const cycle = await svc.update(predId, "set_applies_after", { username: "alice", applies_after_proposal_id: depId });
+      expect(cycle.ok).toBe(false);
+      if (!cycle.ok) expect(cycle.code).toBe("applies_after_cycle");
+      const self = await svc.update(depId, "set_applies_after", { username: "alice", applies_after_proposal_id: depId });
+      expect(self.ok).toBe(false);
+      if (!self.ok) expect(self.code).toBe("applies_after_cycle");
+      const other = await svc.update(depId, "set_applies_after", { username: "mallory", applies_after_proposal_id: "" });
+      expect(other.ok).toBe(false);
+      if (!other.ok) expect(other.code).toBe("not_proposer");
+    });
+
+    it("daily sweep flags a dependent overdue after 48h (no escalation, no close) and clears on apply", async () => {
+      const fake = fakeDraftStore(live());
+      const { svc } = makeService({ store: fake.store });
+      const { predId, depId } = await chain(svc);
+      expect((await svc.update(predId, "apply", { username: "bob" })).ok).toBe(true);
+
+      expect(svc.dependentOverdueSweep({ now: Date.now() + 47 * 3_600_000 }).flagged).toEqual([]);
+      const report = svc.dependentOverdueSweep({ now: Date.now() + 49 * 3_600_000 });
+      expect(report.flagged).toEqual([depId]);
+      const flagged = svc.get(depId)!;
+      expect(flagged.dependent_overdue_flagged_at).toBeTruthy();
+      expect(flagged.escalated).toBe(false);
+      expect(flagged.status).toBe("open");
+      expect(svc.dependentOverdueSweep({ now: Date.now() + 72 * 3_600_000 }).flagged).toEqual([]);
+
+      expect((await svc.update(depId, "apply", { username: "bob" })).ok).toBe(true);
+      expect(svc.get(depId)!.dependent_overdue_flagged_at).toBeNull();
+    });
+
+    it("snapshot export/replace keeps the chain columns", async () => {
+      const fake = fakeDraftStore(live());
+      const { svc } = makeService({ store: fake.store });
+      const { predId, depId } = await chain(svc);
+      const snap = exportAllProposals(SITE);
+      replaceProposalsFromSnapshot(SITE, snap);
+      expect(svc.get(depId)!.applies_after_proposal_id).toBe(predId);
     });
   });
 });

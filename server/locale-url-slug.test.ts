@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   assertCreateRedirectIfRequired,
   assertLocaleUrlAvailable,
+  checkAcceptedUrlSlug,
+  checkNewLocaleUrlSlug,
   entryAgeHours,
   resolveLocaleUrlSlug,
+  urlPatternUsesSlug,
   validateLocaleUrlSlugFormat,
 } from "./locale-url-slug";
 import type { ContentIndex } from "./content-index";
@@ -75,6 +78,116 @@ describe("entryAgeHours", () => {
   it("computes hours from ISO string", () => {
     const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
     expect(entryAgeHours(twoDaysAgo)).toBeGreaterThan(47);
+  });
+});
+
+describe("checkNewLocaleUrlSlug", () => {
+  const base = {
+    entryIdentity: "what-is-manus-ai",
+    contentType: "blog",
+    locale: "es",
+    urlPattern: { es: "/es/blog/:category/:slug" },
+  };
+
+  it("refuses a new language without its own slug", () => {
+    const r = checkNewLocaleUrlSlug({ ...base, draftOwnData: { title: "T" } });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe("locale_url_slug_required");
+    expect(r.details.current_slug).toBe("what-is-manus-ai");
+  });
+
+  it("accepts a localized slug or the same word set explicitly", () => {
+    expect(checkNewLocaleUrlSlug({ ...base, draftOwnData: { slug: "que-es-manus-ia" } }).ok).toBe(true);
+    expect(checkNewLocaleUrlSlug({ ...base, draftOwnData: { slug: "what-is-manus-ai" } }).ok).toBe(true);
+  });
+
+  it("skips types whose URL has no :slug", () => {
+    expect(
+      checkNewLocaleUrlSlug({ ...base, urlPattern: { es: "/es/precios" }, draftOwnData: {} }).ok,
+    ).toBe(true);
+  });
+});
+
+describe("urlPatternUsesSlug", () => {
+  it("reads the locale pattern, then default", () => {
+    expect(urlPatternUsesSlug({ es: "/es/blog/:category/:slug" }, "es")).toBe(true);
+    expect(urlPatternUsesSlug({ default: "/:locale/about" }, "es")).toBe(false);
+    expect(urlPatternUsesSlug(undefined, "es")).toBe(true);
+  });
+});
+
+describe("checkAcceptedUrlSlug", () => {
+  const free = () => null;
+
+  it("requires url_slug for a new language of an existing page", () => {
+    const r = checkAcceptedUrlSlug({
+      contentType: "blog",
+      folderSlug: "what-is-manus-ai",
+      locale: "es",
+      isNewLanguage: true,
+      ownerOf: free,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe("url_slug_required");
+  });
+
+  it("accepts a fitting url_slug for a new language", () => {
+    expect(
+      checkAcceptedUrlSlug({
+        contentType: "blog",
+        folderSlug: "what-is-manus-ai",
+        locale: "es",
+        urlSlug: "que-es-manus-ia",
+        isNewLanguage: true,
+        ownerOf: free,
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("refuses a wrong-language folder name on a brand-new page unless acknowledged", () => {
+    const opts = {
+      contentType: "blog",
+      folderSlug: "what-is-grok",
+      locale: "es",
+      isNewLanguage: false,
+      ownerOf: free,
+    };
+    const r = checkAcceptedUrlSlug(opts);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe("slug_locale_mismatch");
+    expect(r.details.markers).toEqual(["what", "is"]);
+    expect(checkAcceptedUrlSlug({ ...opts, ack: true }).ok).toBe(true);
+  });
+
+  it("refuses an address another page already uses", () => {
+    const r = checkAcceptedUrlSlug({
+      contentType: "blog",
+      folderSlug: "manus-ai",
+      locale: "es",
+      urlSlug: "que-es-manus-ia",
+      isNewLanguage: true,
+      ownerOf: () => "what-is-manus-ai",
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe("slug_already_owned_by_other_entry");
+  });
+
+  it("refuses a malformed address", () => {
+    const r = checkAcceptedUrlSlug({
+      contentType: "blog",
+      folderSlug: "x",
+      locale: "es",
+      urlSlug: "Qué Es",
+      isNewLanguage: true,
+      ownerOf: free,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe("invalid_locale_slug");
   });
 });
 

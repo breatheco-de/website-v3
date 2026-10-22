@@ -9,7 +9,10 @@ vi.mock("../live-entry-seo-gate", () => ({
   assertLiveEntrySeoAndRequiredFields: () => null,
   evaluateLiveEntrySeoAndRequiredFields: () => seoGateMock.result,
 }));
-vi.mock("../locale-url-slug", () => ({ assertLocaleUrlAvailable: () => ({ ok: true }) }));
+vi.mock("../locale-url-slug", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../locale-url-slug")>()),
+  assertLocaleUrlAvailable: () => ({ ok: true }),
+}));
 vi.mock("../routes/_helpers", () => ({ invalidateContentCaches: () => {} }));
 vi.mock("../content-events", () => ({ emitEntryLocalePromoted: () => {} }));
 vi.mock("../sitemap", () => ({ refreshSitemapEntriesForContentKey: () => {} }));
@@ -328,6 +331,37 @@ describe("promoteVariantWithOptionalTeardown", () => {
     write("draft.en.yml", "slug: post-a\ntitle: Draft\nsections: []\n");
     const res = await promote();
     expect(res.ok).toBe(true);
+  });
+
+  it("a new language of a live page needs its own slug (staff included); a chosen slug is written", async () => {
+    write("draft.es.yml", "title: Borrador\nsections: []\n");
+    const es = (extra: Record<string, unknown> = {}) => promote({ locale: "es", ...extra });
+    const refused = await es();
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.code).toBe("locale_url_slug_required");
+      expect(refused.details).toMatchObject({ locale: "es", current_slug: "post-a", property_path: "slug" });
+    }
+    expect(fs.existsSync(path.join(entryDir, "es.yml"))).toBe(false);
+
+    const bad = await es({ localeUrlSlugs: { es: "Mal Slug" } });
+    expect(!bad.ok && bad.code).toBe("invalid_locale_slug");
+
+    const ok = await es({ localeUrlSlugs: { es: "publicacion-a" } });
+    expect(ok.ok).toBe(true);
+    expect(load("es.yml").slug).toBe("publicacion-a");
+    expect(load("es.yml").title).toBe("Borrador");
+  });
+
+  it("keeping the folder word on purpose (explicit slug) publishes and warns when it looks like another language", async () => {
+    fs.renameSync(entryDir, path.join(contentRoot, "blog", "what-is-x"));
+    entryDir = path.join(contentRoot, "blog", "what-is-x");
+    write("draft.es.yml", "slug: what-is-x\ntitle: Borrador\nsections: []\n");
+    const res = await promote({ slug: "what-is-x", locale: "es" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.warnings.find((w) => w.code === "slug_locale_mismatch")?.fields).toEqual(["slug"]);
+    expect(load("es.yml").slug).toBe("what-is-x");
   });
 
   it("dry run writes nothing", async () => {

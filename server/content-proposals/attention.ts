@@ -3,6 +3,7 @@
  */
 
 export const PROPOSAL_ATTENTION_VALUES = [
+  "predecessor_applied",
   "escalated",
   "awaiting_rereview",
   "no_feedback",
@@ -16,18 +17,21 @@ export type AttentionPerspective = "reviewer" | "author";
 
 export const ATTENTION_PERSPECTIVES = ["reviewer", "author"] as const;
 
+/** predecessor_applied first: the page it waits on is already live, so the gap is public. */
 const REVIEWER_RANK: Record<ProposalAttention, number> = {
-  escalated: 0,
-  awaiting_rereview: 1,
-  no_feedback: 2,
-  blocked: 3,
-  needs_author: 4,
+  predecessor_applied: 0,
+  escalated: 1,
+  awaiting_rereview: 2,
+  no_feedback: 3,
+  blocked: 4,
+  needs_author: 5,
 };
 
 const AUTHOR_RANK: Record<ProposalAttention, number> = {
   escalated: 0,
   blocked: 1,
   awaiting_rereview: 2,
+  predecessor_applied: 3,
   no_feedback: 3,
   needs_author: 1,
 };
@@ -94,6 +98,8 @@ export type AttentionDeriveInput = {
   reviewer_action_at?: number | null;
   /** v1.0: live or the translation source moved and the draft could not be rebuilt (stale_since set). */
   needs_author?: boolean;
+  /** applies_after_proposal_id points at a fully applied (finished) proposal. */
+  predecessor_applied?: boolean;
 };
 
 /** Author changed the packet and no later reviewer action has landed. */
@@ -108,8 +114,9 @@ export function isAuthorContentPendingReview(
 
 /**
  * Returns null for finished/rejected/withdrawn (and any non open|partial).
- * Escalated wins, then open blockers. Ready for re-check is a resolved blocker
- * or an author content update with nothing still waiting on the author.
+ * Escalated wins, then open blockers, then stale drafts. A proposal whose applies_after
+ * predecessor is fully applied is predecessor_applied (ready to ship now). Ready for re-check
+ * is a resolved blocker or an author content update with nothing still waiting on the author.
  */
 export function deriveProposalAttention(input: AttentionDeriveInput): ProposalAttention | null {
   if (input.status !== "open" && input.status !== "partial") {
@@ -119,6 +126,7 @@ export function deriveProposalAttention(input: AttentionDeriveInput): ProposalAt
   const open = input.open_blocker_count ?? 0;
   if (open > 0) return "blocked";
   if (input.needs_author) return "needs_author";
+  if (input.predecessor_applied) return "predecessor_applied";
   const resolved =
     input.resolved_blocker_count ?? resolvedBlockerCount(input.blockers);
   if (
@@ -189,6 +197,7 @@ export function compareByAttention(
 
 export function emptyAttentionCounts(): Record<ProposalAttention, number> {
   return {
+    predecessor_applied: 0,
     escalated: 0,
     awaiting_rereview: 0,
     no_feedback: 0,

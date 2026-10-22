@@ -280,10 +280,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const { loadSyncStateFromBucket } = await import("../sync-state");
 
   await loadSyncLog();
-  const { getReplitCheckpoint, refreshGithubCommit } = await import(
+  const { getAppCheckpoint, refreshGithubCommit } = await import(
     "../sync-log"
   );
-  const restartMessage = `Server started (instance=${getInstanceId()}, checkpoint=${getReplitCheckpoint()}, env=${process.env.NODE_ENV || "development"}, pid=${process.pid})`;
+  const restartMessage = `Server started (instance=${getInstanceId()}, checkpoint=${getAppCheckpoint()}, env=${process.env.NODE_ENV || "development"}, pid=${process.pid})`;
   try {
     for (const ctx of Array.from(getSiteContextMap().values())) {
       ctx.syncLog.log("RESTART", restartMessage);
@@ -371,16 +371,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // These write/delete the .local/dev-site-override file on disk.
   // siteResolutionMiddleware reads that file synchronously on every request
   // to determine which site context to use.
-  //
-  // ⚠️  DO NOT switch this to a cookie-based approach.
-  //
-  //   Cookies fail silently in the Replit workspace because the app runs in a
-  //   cross-origin iframe (worf.replit.dev embedded inside replit.com).
-  //   Chrome 115+ blocks third-party cookies in this context — both
-  //   document.cookie writes on the client AND Set-Cookie response headers
-  //   from the server are ignored. SameSite=Lax and SameSite=None; Secure
-  //   were both tested and both fail. The file-based approach is the only
-  //   mechanism that works reliably.
   //
   // The client (devSite.ts) mirrors the value in localStorage so that
   // injectDevSite() can also append ?__site= to TanStack Query API calls

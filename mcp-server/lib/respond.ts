@@ -231,6 +231,23 @@ export function promoteFailureNextActions(opts: {
         },
       ];
     }
+    case "locale_url_slug_required":
+      return [
+        {
+          tool: "update_fields",
+          priority: "required",
+          reason:
+            "New language of a live page: set its own address on the draft (field_path slug, a word in that language; the folder name stays the page ID), then retry.",
+          args_hint: {
+            contentType: opts.contentType,
+            slug: opts.slug,
+            ...(opts.locale ? { locale: opts.locale } : {}),
+            variant: opts.variantSlug,
+            updates: [{ field_path: "slug", value: "<address-in-this-language>" }],
+            ...(opts.site ? { site: opts.site } : {}),
+          },
+        },
+      ];
     case "proposal_required":
       return [
         {

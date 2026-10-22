@@ -6,6 +6,47 @@ window_days: 6
 
 entries:
   - date: "2026-10-22"
+    summary: "Each new language picks its own URL slug: locked at idea accept, enforced at filing, checked at go-live"
+    agent_impact:
+      - "update_proposal accept: accepted_entry.slug is the folder name (page ID in every language). For a new language of a page already live in another language, pass accepted_entry.url_slug (this language's address word, e.g. es que-es-manus-ia) or accept refuses url_slug_required. The address (url_slug, else slug for a brand-new page) must be free in that language (slug_already_owned_by_other_entry) and not look like another language (slug_locale_mismatch; slug_language_ack: true for a name)."
+      - "propose_change / revise_entries: the implemented idea's url_slug is seeded into the new draft as slug: (warning idea_url_slug_locked). A different { field_path: \"slug\" } update needs url_slug_override { reason } (min 40; idea_url_slug_conflict). With no locked address, a new language without a slug update (or slug on the kept draft) refuses locale_url_slug_required. update_fields slug on a variant now stages the address on the draft (live renames still go through slug rename)."
+      - "Go-live: proposal apply, promote_variant, publish_draft, and staff publish refuse locale_url_slug_required when a new language's draft has no own slug (next_action update_fields slug on the variant). Same word as the folder is allowed (deliberate keep). Publishing a slug that looks like another language warns slug_locale_mismatch."
+    tools_changed: false
+    paths:
+      - server/locale-url-slug.ts
+      - server/content-proposals/service.ts
+      - server/content-proposals/review-context.ts
+      - server/field-write-router.ts
+      - server/content-editor.ts
+      - server/versioning/promote-with-teardown.ts
+      - server/routes/versioning.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/respond.ts
+      - mcp-server/explain/proposals.md
+      - mcp-server/explain/proposals-translations.md
+  - date: "2026-10-22"
+    summary: "Hub links at go-live, chained proposals (applies_after_proposal_id), hub split diagnostics + hub_split situation"
+    agent_impact:
+      - "Ideas: the 'default zero new hub links' rule is gone. Accepted pages get a hub → page link at go-live via a second edits proposal on the hub (internal_links, applies_after_proposal_id = the page's proposal). The page's create (and finished apply, when still missing) returns hub_link_follow_up with a propose_change next_action, or hub_has_open_edits when the hub already has open edits (file after it closes; the page may go live first). Kill criterion must say the hub link is removed if the page is retired."
+      - "New edits field applies_after_proposal_id (propose_change arg; update_proposal action set_applies_after, proposer/staff, empty unlinks). Order only: apply refuses predecessor_not_applied until the predecessor is finished (partial does not count); applying the predecessor returns dependents_ready + update_proposal apply next_actions (nothing auto-applied). Refusals: applies_after_cycle | applies_after_closed | applies_after_not_found | applies_after_edits_only. Rejecting/withdrawing/auto-closing a predecessor adds a predecessor_closed blocker to each open dependent. Rows carry applied_before_proposal_ids and dependent_overdue_flagged_at (daily sweep, 48h after the predecessor finished; event proposal_dependent_overdue; never escalates or closes). Attention predecessor_applied sorts first for reviewers and counts in needs_review. Not supersedes_proposal_id."
+      - "Hub split: seo-cluster-links adds HUB_THIN_LINK_DENSE (expand, do not split) and HUB_OVERLOADED (lists split ideas in flight); thresholds in seo-config.yml hub_load. Accept refuses idea_seo_target_members_claimed when another accepted, not-yet-live hub idea claims a member. New declared-only review situation hub_split (checklist hub_split) for the original hub rewrite; idea_seo_hub_members_follow_up next_actions now carry applies_after_proposal_id and ask moved members to update their in-body hub link. Playbook: explain_site topic proposals subtopic hub-split."
+    tools_changed: false
+    paths:
+      - server/content-proposals/service.ts
+      - server/content-proposals/attention.ts
+      - server/content-proposals/proposal-review-rules.ts
+      - server/content-proposals/review-situations.ts
+      - server/content-proposals/hub-split-ideas.ts
+      - server/seo-cluster-link-check.ts
+      - server/seo-config.ts
+      - scripts/validation/validators/seo-cluster-links.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/hub-split-proposals.md
+      - mcp-server/explain/internal-links-proposals.md
+      - mcp-server/explain/idea-opportunity-harm-proposals.md
+      - mcp-server/explain/proposals.md
+  - date: "2026-10-22"
     summary: "Field scope: no phantom page-level ops on proposals; meta.robots/priority/change_frequency are per locale; display_values_change on publish"
     agent_impact:
       - "Proposal drafts (create / revise_entries reset / rebuild) and create_variant from live start from the locale part only: funnel, authors, published_at, detached appear as page-level ops only when you send them. common_fields_all_languages now means a real page-level edit."

@@ -2685,7 +2685,7 @@ function CaptchaTab() {
               </li>
               <li className="flex gap-2">
                 <span className="shrink-0 font-medium text-foreground">5.</span>
-                <span>Add both values as Replit secrets named <code className="font-mono bg-muted rounded px-1 py-0.5 text-xs">TURNSTILE_SITE_KEY</code> and <code className="font-mono bg-muted rounded px-1 py-0.5 text-xs">TURNSTILE_SECRET_KEY</code>.</span>
+                <span>Add both values as environment variables (GitHub deploy secrets or <code className="font-mono bg-muted rounded px-1 py-0.5 text-xs">.env</code>) named <code className="font-mono bg-muted rounded px-1 py-0.5 text-xs">TURNSTILE_SITE_KEY</code> and <code className="font-mono bg-muted rounded px-1 py-0.5 text-xs">TURNSTILE_SECRET_KEY</code>.</span>
               </li>
             </ol>
           </div>
