@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { incrementByHour } from "../../shared/runtime-issues.js";
 import {
   clampRuntimeIssuesLimit,
@@ -35,6 +35,14 @@ function row(
 }
 
 describe("queryRuntimeIssuesForMcp", () => {
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(now);
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+  });
+
   const issues: RuntimeIssueMcpRow[] = [
     row({
       fingerprint: "a",

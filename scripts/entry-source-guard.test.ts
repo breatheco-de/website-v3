@@ -14,7 +14,7 @@ const CREATE = "creatability: new database items are made in the source, not as 
  */
 const ENTRY_SOURCE_ALLOWLIST: Record<string, Allowed> = {
   "server/entry-layer.ts": { count: 5, reason: "the one place that finds a type's database (items, status, listing fetch, delivery refresh)" },
-  "server/database.ts": { count: 5, reason: "defines the database readers" },
+  "server/database.ts": { count: 6, reason: "defines the database readers" },
   "shared/sharedLayoutPaths.ts": { count: 1, reason: "typeUsesSharedTemplate: database types always use a shared template" },
   "server/content-types.ts": { count: 13, reason: "content type registry: getDatabaseName/hasDatabaseSingle definitions + field_mapping reserved keys" },
 
@@ -30,6 +30,8 @@ const ENTRY_SOURCE_ALLOWLIST: Record<string, Allowed> = {
   "server/database-usage.ts": { count: 2, reason: CONFIG },
   "server/convert-content-type-to-static.ts": { count: 2, reason: "one-off conversion of a database type into files" },
   "server/routes/webhooks.ts": { count: 3, reason: "webhook refreshes the database behind a type" },
+  "server/events/schedule-html-from-event.ts": { count: 1, reason: "database refresh event: maps refreshed rows to the page URLs to rebuild" },
+  "server/live-request.ts": { count: 1, reason: "re-runs content type functions against the raw database row (before mapping)" },
   "server/media-gallery.ts": { count: 1, reason: "image usage scan reads database image columns" },
   "server/dynamic-entries.ts": { count: 1, reason: "listing sections that point straight at a database" },
   "server/listing-search.ts": { count: 1, reason: "vector search index is per database" },

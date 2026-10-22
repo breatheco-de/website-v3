@@ -23,4 +23,5 @@ export { AdsRecheckJob } from "./server/jobs/definitions/ads-recheck";
 export { HtmlPageRebuildJob } from "./server/jobs/definitions/html-page-rebuild";
 export { HtmlDbReaderRebuildJob } from "./server/jobs/definitions/html-db-reader-rebuild";
 export { HtmlContentTypeListingRebuildJob } from "./server/jobs/definitions/html-content-type-listing-rebuild";
+export { HtmlContentTypeRebuildJob } from "./server/jobs/definitions/html-content-type-rebuild";
 export { LocalDatabaseRefreshJob } from "./server/jobs/definitions/local-database-refresh";
