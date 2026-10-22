@@ -6,7 +6,8 @@ vi.mock("./single-resolver", () => ({
 vi.mock("./build-single-entry", () => ({
   buildSingleEntryFromContent: () => ({}),
 }));
-vi.mock("./content-types", () => ({
+vi.mock("./content-types", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./content-types")>()),
   finalizeSingleEntryForTemplates: (x: unknown) => x,
   getContentTypeConfig: () => ({
     editor: {
