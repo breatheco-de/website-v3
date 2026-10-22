@@ -8,13 +8,14 @@ import { setAtPath, deleteAtPath, cloneJson } from "@shared/object-path";
 import { clearSiteSqliteCacheForTests, getSiteSqlite } from "../db";
 import { ensurePipelineDb, resetPipelineDbCache } from "../pipeline-db/runner";
 import { setLiveServerForTests } from "../live-server";
-import type { DraftProposalLink } from "../versioning/draft-meta";
+import { hashVariantFileContents, type DraftProposalLink } from "../versioning/draft-meta";
 import type { FieldChange } from "../versioning/draft-base";
 import type { ProposalDraftRef, ProposalDraftStore } from "./draft-store";
 import {
   absorbDraftEdit,
   createProposalService,
   exportAllProposals,
+  isSystemDraftEditor,
   replaceProposalsFromSnapshot,
   toProposalSummary,
   type IdeaSeoHubFacts,
@@ -1536,6 +1537,60 @@ describe("proposals v1.0 (draft-first)", () => {
     const res = await svc.update(created.proposal.id, "apply", { username: "staffer" });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.code).toBe("four_eyes_co_author");
+  });
+
+  it("system draft writes record the fingerprint without adding a co-author", async () => {
+    const fake = fakeDraftStore({ "blog/hello/es": { title: "Old" } });
+    const { svc } = makeService({ store: fake.store });
+    const created = await svc.create({ title: "Title fix", summary: SUMMARY, entries: [entry()] }, { username: "alice" });
+    if (!created.ok) throw new Error(created.error);
+    const tmp = path.join(os.tmpdir(), `v1-system-write-${Date.now()}`, "hello");
+    fs.mkdirSync(tmp, { recursive: true });
+    const file = path.join(tmp, "draft.es.yml");
+    for (const [i, editor] of ["", "unknown", "migration:006", "system:proposal-stale-sweep"].entries()) {
+      fs.writeFileSync(file, `title: Cleaned ${i}\n`);
+      expect(absorbDraftEdit(SITE, created.proposal.id, file, editor), editor).toEqual({ absorbed: true, co_author: false });
+    }
+    const p = svc.get(created.proposal.id)!;
+    expect(p.co_authors).toEqual([]);
+    expect(p.entries[0]!.variant_fingerprint).toBe(hashVariantFileContents("title: Cleaned 3\n"));
+  });
+
+  it("revise_entries still restarts the draft from live when the only co-authors are system writes", async () => {
+    const fake = fakeDraftStore({ "blog/hello/es": { title: "Old", description: "D" } });
+    const { svc } = makeService({ store: fake.store });
+    const created = await svc.create(
+      { title: "One", summary: SUMMARY, entries: [entry({ updates: [{ field_path: "description", value: "New D" }] })] },
+      { username: "alice" },
+    );
+    if (!created.ok) throw new Error(created.error);
+    const setCoAuthors = (names: string[]) =>
+      getSiteSqlite(SITE)
+        .prepare(`UPDATE content_proposals SET co_authors_json = ? WHERE id = ?`)
+        .run(JSON.stringify(names.map((username) => ({ username, at: Date.now() }))), created.proposal.id);
+
+    setCoAuthors(["unknown"]);
+    const reset = await svc.update(created.proposal.id, "revise_entries", { username: "alice", entries: [entry()] });
+    expect(reset.ok).toBe(true);
+    expect(fake.drafts.get("blog/hello/es/draft")!.data).toEqual({ title: "New", description: "D" });
+
+    await svc.update(created.proposal.id, "revise_entries", {
+      username: "alice",
+      entries: [entry({ updates: [{ field_path: "description", value: "Staff D" }] })],
+    });
+    setCoAuthors(["unknown", "staffer"]);
+    const kept = await svc.update(created.proposal.id, "revise_entries", { username: "alice", entries: [entry()] });
+    expect(kept.ok).toBe(true);
+    expect(fake.drafts.get("blog/hello/es/draft")!.data).toMatchObject({ description: "Staff D" });
+  });
+
+  it("isSystemDraftEditor: processes are not people", () => {
+    for (const e of ["", "  ", "unknown", "Unknown", "system", "github-pull", "migration:006", "system:applies-after"]) {
+      expect(isSystemDraftEditor(e), e).toBe(true);
+    }
+    for (const e of ["alice", "aalejo@gmail.com", "agent", "systems-team"]) {
+      expect(isSystemDraftEditor(e), e).toBe(false);
+    }
   });
 
   it("pre-1.0 proposals are read-only (legacy_version) but can still be withdrawn", async () => {

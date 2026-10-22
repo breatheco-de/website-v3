@@ -318,12 +318,7 @@ async function processQueue(): Promise<void> {
           resolveCommitGitHubToken,
           GitHubConnectError,
         } = await import("./github-user-tokens");
-        const isSystemAuthor =
-          !author ||
-          author === "System" ||
-          author === "Unknown" ||
-          author === "github-pull" ||
-          author === "agent";
+        const isSystemAuthor = isServiceCommitAuthor(author);
         try {
           const resolved = await resolveCommitGitHubToken({
             username: isSystemAuthor ? null : author,
@@ -402,6 +397,18 @@ async function processQueue(): Promise<void> {
       }
     }
   }
+}
+
+const SERVICE_COMMIT_AUTHORS = new Set(["system", "unknown", "github-pull", "agent", "api"]);
+
+/**
+ * Authors that are not a person, so they commit with the service token. With GitHub Connect
+ * required, any other author must have a connected GitHub account or the files stay queued.
+ */
+export function isServiceCommitAuthor(author: string | null | undefined): boolean {
+  const a = author?.trim().toLowerCase();
+  if (!a) return true;
+  return SERVICE_COMMIT_AUTHORS.has(a) || a.startsWith("migration:");
 }
 
 function groupByAuthor(changes: Map<string, PendingFileChange>): Map<string, string[]> {

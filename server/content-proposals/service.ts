@@ -2104,10 +2104,29 @@ export function proposalBlockerSummary(
   };
 }
 
+/** A process, not a person (migrations, sweeps, sync pulls, writes with no author). */
+export function isSystemDraftEditor(editor: string | null | undefined): boolean {
+  const e = editor?.trim().toLowerCase() ?? "";
+  return (
+    !e ||
+    e === "unknown" ||
+    e === "system" ||
+    e === "github-pull" ||
+    e.startsWith("migration:") ||
+    e.startsWith("system:")
+  );
+}
+
+/** A person other than the proposer edited the draft directly (system writes do not count). */
+export function hasPersonCoAuthor(coAuthors: ReadonlyArray<{ username: string }>): boolean {
+  return coAuthors.some((c) => !isSystemDraftEditor(c.username));
+}
+
 /**
  * Someone edited a v1.0 proposal's draft outside `revise_entries`: record the new draft
- * fingerprint and, when it is not the proposer, add them as co-author, release the claim
- * and send the proposal back to review. The draft base never changes here.
+ * fingerprint and, when it is a person other than the proposer, add them as co-author,
+ * release the claim and send the proposal back to review. System writes only record the
+ * fingerprint. The draft base never changes here.
  */
 export function absorbDraftEdit(
   site: string,
@@ -2142,7 +2161,8 @@ export function absorbDraftEdit(
       `UPDATE content_proposal_entries SET variant_fingerprint = ? WHERE id = ?`,
     ).run(fingerprint, e.id);
   }
-  const who = editor.trim() || "unknown";
+  if (isSystemDraftEditor(editor)) return { absorbed: true, co_author: false };
+  const who = editor.trim();
   const isProposer = sameUsername(proposal.proposer_username, who);
   if (isProposer) {
     db.prepare(
@@ -7176,7 +7196,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
         reviseOverride.override?.reason,
       );
       if (!reviseOptOut.ok) return reviseOptOut;
-      const reviseResetsCreated = proposal.co_authors.length === 0;
+      const reviseResetsCreated = !hasPersonCoAuthor(proposal.co_authors);
       const reviseSlug = checkEditsUrlSlug(
         implementsResolved.idea,
         entriesIn,
@@ -7257,8 +7277,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
                 store.exists(refOf(pe)),
             );
             const namesOwned = owned && (!hasVariant || e.variant!.trim() === owned.variant);
-            // Revise resets drafts this proposal created (no co-authors) to live, which is empty here.
-            const willReset = namesOwned && owned!.created_draft && proposal.co_authors.length === 0;
+            // Revise resets drafts this proposal created (no person co-authors) to live, which is empty here.
+            const willReset = namesOwned && owned!.created_draft && reviseResetsCreated;
             const keptDraft: ProposalDraftRef | null = willReset
               ? null
               : draftOk
@@ -7497,7 +7517,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
           ideaFunnel: implementsResolved.idea?.idea_funnel ?? null,
           idea: implementsResolved.idea,
           owned,
-          resetCreated: proposal.co_authors.length === 0,
+          resetCreated: reviseResetsCreated,
         });
         if (!prepared.ok) return prepared;
         revisePlans = prepared.plans;
@@ -8805,7 +8825,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       const kept: string[] = [];
       try {
         const released = await releaseV1Drafts(id, snapshot.entries, caller.username, {
-          forDelete: { keepCreated: snapshot.co_authors.length > 0 },
+          forDelete: { keepCreated: hasPersonCoAuthor(snapshot.co_authors) },
         });
         for (const r of released) {
           if (!r.path) continue;

@@ -59,6 +59,9 @@ import {
   type TranslationSourceCheck,
 } from "../versioning/draft-base";
 
+/** Bump when the draft diff logic changes so cached proposal views are rebuilt. */
+const DERIVED_VIEW_VERSION = "v2";
+
 export type ProposalDraftRef = {
   contentType: string;
   slug: string;
@@ -155,7 +158,7 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
       slug,
     );
 
-  function registerVariant(ref: ProposalDraftRef, versioningSlug: string): void {
+  function registerVariant(ref: ProposalDraftRef, versioningSlug: string, author?: string | null): void {
     const vm = ctx.versioningManager;
     const existing = vm.getVersioningForContent(ref.contentType, versioningSlug) || {};
     const localeData = existing[ref.locale]
@@ -164,7 +167,10 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
     if (!localeData.variants.some((v: { slug: string }) => v.slug === ref.variant)) {
       localeData.variants.push({ slug: ref.variant, allocation: 0 });
     }
-    vm.updateVersioning(ref.contentType, versioningSlug, { ...existing, [ref.locale]: localeData });
+    vm.updateVersioning(ref.contentType, versioningSlug, { ...existing, [ref.locale]: localeData }, {
+      author,
+      contentRoot,
+    });
   }
 
   const store: ProposalDraftStore = {
@@ -301,7 +307,7 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
         meta: null,
       });
       const versioningSlug = resolved.ok ? resolved.slug : ref.slug;
-      registerVariant(ref, versioningSlug);
+      registerVariant(ref, versioningSlug, opts.author);
       recordDraftBase(withRoot(ref), { author: opts.author });
       if (opts.newEntry) ctx.contentIndex.refresh();
       return { ok: true };
@@ -411,7 +417,7 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
       if (existing) {
         const { data, isEmpty } = pruneVersioningAfterVariantRemove(existing, ref.locale, ref.variant);
         if (isEmpty) vm.deleteVersioningConfig(ref.contentType, versioningSlug, author, contentRoot);
-        else vm.updateVersioning(ref.contentType, versioningSlug, data);
+        else vm.updateVersioning(ref.contentType, versioningSlug, data, { author, contentRoot });
       }
       if (templateMode) return { entryDeleted: false };
       const dir = entryDir(ref.contentType, ref.slug);
@@ -444,6 +450,7 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
         ? hashFileOrNull(livePathOf({ ...r, locale: meta.translated_from.locale }))
         : null;
       return [
+        DERIVED_VIEW_VERSION,
         hashVariantFileContents(raw),
         meta?.based_on?.locale ?? "-",
         meta?.based_on?.common ?? "-",

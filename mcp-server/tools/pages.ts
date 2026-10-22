@@ -5244,6 +5244,7 @@ export function registerPageTools(
     "List extra versions (drafts/A-B variants) for a page: slug, traffic allocation, locale. " +
     "Live-only pages have no versioning.yml: hasVersioning is false, variants is [], live_locales lists published locales — that is not unpublished. " +
     "versioning.yml is created by create_variant, not by hand; extra versions start at 0% traffic. " +
+    "unregistered_variants lists variant files versioning.yml is missing (no traffic until staff register them). " +
     "Use before create_variant or editing an existing draft. Requires content_view.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
@@ -5276,6 +5277,20 @@ export function registerPageTools(
           .filter(([, isLive]) => isLive)
           .map(([loc]) => loc);
         const hasLiveDefault = data.hasLiveDefault === true;
+        const unregistered_variants =
+          (data.unregisteredVariants as Array<{ locale: string; slug: string; fileName: string }> | undefined) ?? [];
+        const unregisteredWarnings = unregistered_variants.length
+          ? [
+              {
+                code: "unregistered_variant_files",
+                message:
+                  `${unregistered_variants.length} variant file(s) exist but versioning.yml does not list them: ` +
+                  unregistered_variants.map((v) => `${contentType}/${versioningSlug}/${v.fileName}`).join(", ") +
+                  ". They get no traffic and cannot be promoted or allocated until listed. Staff fix: Versions panel → Add to versions (0%), " +
+                  "or the register-unlisted-variants validation fixer. Live content does not change. Do not create a variant with the same slug (409).",
+              },
+            ]
+          : [];
         if (!data.hasVersioningFile || !data.versioning) {
           const unpublished = !hasLiveDefault;
           return ok(
@@ -5290,9 +5305,10 @@ export function registerPageTools(
               hasLiveDefault,
               live_locales,
               variants: [],
+              unregistered_variants,
             },
             {
-              warnings: unpublished
+              warnings: [...unregisteredWarnings, ...(unpublished
                 ? [
                     {
                       code: "unpublished",
@@ -5316,7 +5332,7 @@ export function registerPageTools(
                       code: "zero_traffic_on_create",
                       message: "Extra versions start at 0% traffic. Live YAML is unchanged until promote_variant.",
                     },
-                  ],
+                  ])],
               next_actions: [],
             },
           );
@@ -5334,8 +5350,9 @@ export function registerPageTools(
             hasLiveDefault,
             live_locales,
             variants,
+            unregistered_variants,
           },
-          { warnings: [], next_actions: [] },
+          { warnings: unregisteredWarnings, next_actions: [] },
         );
       } catch (e) {
         return fail(`Failed to list variants: ${(e as Error).message}`);

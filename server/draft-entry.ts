@@ -153,6 +153,45 @@ export function listVariantSlugsForLocale(
   return slugs;
 }
 
+export type UnregisteredVariantFile = { locale: string; slug: string; fileName: string };
+
+/**
+ * Variant files on disk that versioning.yml does not list. They get no traffic and the
+ * Versions panel cannot manage them until registered (at 0%).
+ */
+export function listUnregisteredVariantFiles(
+  contentDir: string,
+  versioning: Record<string, { variants?: Array<{ slug: string }> }> | null | undefined,
+  templateMode = false,
+  locales: string[] = getSupportedLocales(),
+): UnregisteredVariantFile[] {
+  if (!fs.existsSync(contentDir)) return [];
+  const supported = new Set(locales);
+  const out: UnregisteredVariantFile[] = [];
+  let files: string[];
+  try {
+    files = fs.readdirSync(contentDir).sort();
+  } catch {
+    return [];
+  }
+  for (const fileName of files) {
+    if (!fileName.endsWith(".yml") && !fileName.endsWith(".yaml")) continue;
+    let slug: string | undefined;
+    let locale: string | undefined;
+    if (templateMode) {
+      const m = VARIANT_SHELL_BASENAME_RE.exec(fileName);
+      if (m) [slug, locale] = [m[1], m[2]];
+    } else {
+      const m = fileName.replace(/\.ya?ml$/, "").match(/^([a-z0-9-]+)\.([a-z]{2}(?:-[a-z]{2})?)$/);
+      if (m) [slug, locale] = [m[1], m[2]];
+    }
+    if (!slug || !locale || slug === "versioning" || !supported.has(locale)) continue;
+    const listed = versioning?.[locale]?.variants?.some((v) => v.slug === slug);
+    if (!listed) out.push({ locale, slug, fileName });
+  }
+  return out;
+}
+
 /** Count remaining draft/variant files across all locales (entry mode). */
 export function countVariantFiles(contentDir: string, templateMode = false): number {
   if (!fs.existsSync(contentDir)) return 0;

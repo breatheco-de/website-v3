@@ -872,7 +872,7 @@ export async function promoteVariantWithOptionalTeardown(
         deletedSiblings.push(sib);
         cache.clearEntryKey(buildEntryKey(contentType, slug, sib.locale, sib.slug));
       }
-      versioningManager.updateVersioning(contentType, slug, versioningState);
+      versioningManager.updateVersioning(contentType, slug, versioningState, { author, contentRoot });
     }
 
     // Write `_common.yml` first, then the live locale; undo both if anything fails.
@@ -902,7 +902,7 @@ export async function promoteVariantWithOptionalTeardown(
     if (pruned.isEmpty) {
       versioningDeleted = versioningManager.deleteVersioningConfig(contentType, slug, author, contentRoot);
     } else if (afterTeardown[locale]) {
-      versioningManager.updateVersioning(contentType, slug, pruned.data);
+      versioningManager.updateVersioning(contentType, slug, pruned.data, { author, contentRoot });
     }
 
     fs.unlinkSync(variantFilePath);

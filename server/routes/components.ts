@@ -1532,7 +1532,7 @@ export function registerComponentsRoutes(app: Express): void {
             }
           }
         }
-        const { warnings: rawWriteWarnings } = writeVariantFile(fullPath, content, { skipMark: true });
+        const { warnings: rawWriteWarnings } = writeVariantFile(fullPath, content, { skipMark: true, author: authorName });
         if (rawWriteWarnings.length > 0) {
           res.setHeader("X-Content-Warnings", rawWriteWarnings.map((w) => w.code).join(","));
         }

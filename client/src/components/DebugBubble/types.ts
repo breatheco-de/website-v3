@@ -54,6 +54,8 @@ export interface VersioningResponse {
   publishedAt?: string | null;
   /** `{locale: {variant: badge}}` for drafts linked to a proposal. */
   proposalsByVariant?: Record<string, Record<string, VariantProposalLink>>;
+  /** Variant files on disk that versioning.yml does not list (no traffic, not manageable yet). */
+  unregisteredVariants?: Array<{ locale: string; slug: string; fileName: string }>;
 }
 
 export interface VariantProposalLink {

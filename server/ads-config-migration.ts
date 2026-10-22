@@ -125,7 +125,7 @@ async function defaultDeps(): Promise<AdsConfigMigrationDeps> {
       markFileAsModified(file, "migration:004", undefined, contentRoot);
       flushPendingSyncStateWrites(contentRoot);
     },
-    push: (site, files, message) => commitAndPush(message, { files, contentRoot: site }),
+    push: (site, files, message) => commitAndPush(message, { files, contentRoot: site, onlyBlockOnOverlap: true }),
   };
 }
 

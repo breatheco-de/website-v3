@@ -207,7 +207,7 @@ async function defaultDeps(): Promise<BrokenLinksMigrationDeps> {
       markFileAsModified(absPath, MIGRATION_AUTHOR, undefined, contentRoot);
       flushPendingSyncStateWrites(contentRoot);
     },
-    push: (site, files, message) => commitAndPush(message, { files, contentRoot: site }),
+    push: (site, files, message) => commitAndPush(message, { files, contentRoot: site, onlyBlockOnOverlap: true }),
     dbPages: (site) => {
       const out: Array<{ contentType: string; slug: string; locale: string; item: Record<string, unknown> }> = [];
       for (const contentType of site.ci.getContentTypes()) {

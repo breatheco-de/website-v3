@@ -34,7 +34,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { EntryActivityDialog } from "@/components/pipeline/EntryActivityBadge";
 import { Link2, Loader2, Unlink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { getDebugToken } from "@/hooks/useDebugAuth";
+import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { apiFetch } from "@/lib/queryClient";
 import { emitContentUpdated, emitVariantCreated, emitVariantDeleted, emitVariantPromoted } from "@/lib/contentEvents";
 import { TEMPLATE_VERSIONING_SLUG, versioningContentSlug } from "@/lib/sharedLayoutEntry";
@@ -106,6 +106,88 @@ function formatRelativeUpdatedAt(iso: string): { relative: string; absolute: str
     }
   }
   return { relative, absolute };
+}
+
+function UnregisteredVariantsNotice({
+  variants,
+  canRegister,
+  registering,
+  onRegister,
+  onPreview,
+}: {
+  variants: Array<{ locale: string; slug: string; fileName: string }>;
+  canRegister: boolean;
+  registering: string | null;
+  onRegister: (locale: string, slug: string) => void;
+  onPreview: (locale: string, slug: string) => void;
+}) {
+  return (
+    <div
+      className="mx-1 mb-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-foreground space-y-2"
+      data-testid="banner-unregistered-variants"
+    >
+      <p className="text-muted-foreground">
+        {variants.length === 1 ? "This version exists" : "These versions exist"} but{" "}
+        {variants.length === 1 ? "isn't" : "aren't"} in the traffic list, so visitors never see{" "}
+        {variants.length === 1 ? "it" : "them"}. Add {variants.length === 1 ? "it" : "them"} at 0% to manage{" "}
+        {variants.length === 1 ? "it" : "them"} here.
+      </p>
+      <div className="space-y-1">
+        {variants.map((v) => {
+          const key = `${v.locale}:${v.slug}`;
+          return (
+            <div key={key} className="flex items-center justify-between gap-2" data-testid={`row-unregistered-${v.locale}-${v.slug}`}>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4 flex-shrink-0">
+                  {v.locale.toUpperCase()}
+                </Badge>
+                <button
+                  onClick={() => onPreview(v.locale, v.slug)}
+                  className="truncate text-left text-sm text-foreground hover:underline"
+                  title="Preview this version"
+                  data-testid={`button-preview-unregistered-${v.locale}-${v.slug}`}
+                >
+                  {v.slug}
+                </button>
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 leading-4 flex-shrink-0">
+                  Not registered
+                </Badge>
+              </div>
+              {canRegister && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 px-2 text-[11px] flex-shrink-0"
+                  disabled={registering !== null}
+                  onClick={() => onRegister(v.locale, v.slug)}
+                  data-testid={`button-register-variant-${v.locale}-${v.slug}`}
+                >
+                  {registering === key ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                  Add to versions
+                </Button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <details className="text-muted-foreground">
+        <summary className="cursor-pointer hover:text-foreground">Read more (advanced)</summary>
+        <ul className="mt-1 list-disc pl-4 space-y-0.5">
+          <li>
+            Files: {variants.map((v) => (
+              <code key={v.fileName} className="bg-muted px-1 rounded mr-1">{v.fileName}</code>
+            ))}
+          </li>
+          <li>
+            The traffic list is <code className="bg-muted px-1 rounded">versioning.yml</code>. A version file it does not
+            list gets no traffic and cannot be promoted or edited from here.
+          </li>
+          <li>Adding it writes only versioning.yml at 0%. Live content and other versions' traffic do not change.</li>
+          <li>Usually caused by a save that pushed the version file without its versioning.yml entry.</li>
+        </ul>
+      </details>
+    </div>
+  );
 }
 
 function DefaultLiveRowActions({
@@ -235,6 +317,8 @@ export function VersioningView({
   onOpenPageErrors,
 }: VersioningViewProps) {
   const { toast } = useToast();
+  const { hasCapability } = useDebugAuth();
+  const [registeringVariant, setRegisteringVariant] = useState<string | null>(null);
   const entryKey = pageDiagnosticsEntryKey?.trim() || "";
   const [activityOpen, setActivityOpen] = useState(false);
   const activityCountQuery = useQuery({
@@ -480,6 +564,43 @@ export function VersioningView({
     } finally {
       setIsCreatingVersion(false);
     }
+  };
+
+  const handleRegisterVariant = async (locale: string, variantSlug: string) => {
+    const { type, slug } = contentInfo;
+    if (!type || !slug || !versioningWriteSlug) return;
+    setRegisteringVariant(`${locale}:${variantSlug}`);
+    try {
+      const token = getDebugToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Token ${token}`;
+      const res = await fetch(`/api/versioning/${type}/${versioningWriteSlug}/register`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ variantSlug, locale }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: data.error || "Failed to add version", variant: "destructive" });
+        return;
+      }
+      toast({ title: `"${variantSlug}" added at 0% traffic` });
+      if (onVersioningDataUpdate) {
+        const updated = await fetch(`/api/versioning/${type}/${slug}`).then((r) => r.json());
+        onVersioningDataUpdate(updated);
+      }
+    } catch {
+      toast({ title: "Failed to add version", variant: "destructive" });
+    } finally {
+      setRegisteringVariant(null);
+    }
+  };
+
+  const handlePreviewUnregistered = (locale: string, variantSlug: string) => {
+    const { type, slug } = contentInfo;
+    if (!type || !slug) return;
+    persistOpenStateForNavigation();
+    navigate(`/private/preview/${type}/${slug}?variant=${encodeURIComponent(variantSlug)}&locale=${locale}`);
   };
 
   const resetPromoteIssue = () => {
@@ -1044,17 +1165,40 @@ export function VersioningView({
               )}
               <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 min-w-0">
                 {contentInfo.type ? (
-                  <a
-                    href={`/private/type/${contentInfo.type}`}
-                    className="underline underline-offset-2 hover:text-foreground shrink-0"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      navigate(`/private/type/${contentInfo.type}`);
-                    }}
-                    data-testid="link-versioning-content-type"
-                  >
-                    {contentInfo.label}
-                  </a>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="underline underline-offset-2 hover:text-foreground shrink-0"
+                        data-testid="link-versioning-content-type"
+                        aria-label={`Content type: ${contentInfo.label}. Click for details.`}
+                      >
+                        {contentInfo.label}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="start"
+                      className="w-64 text-xs space-y-2 z-[10001]"
+                      data-testid="popover-versioning-content-type"
+                    >
+                      <p className="text-foreground font-medium">Content type: {contentInfo.label}</p>
+                      <p className="text-muted-foreground leading-snug">
+                        Every page belongs to a content type. It decides which fields, sections and
+                        templates this page shares with every other {contentInfo.label} page.
+                      </p>
+                      <a
+                        href={`/private/type/${contentInfo.type}`}
+                        className="inline-flex text-foreground underline underline-offset-2 hover:text-primary"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          navigate(`/private/type/${contentInfo.type}`);
+                        }}
+                        data-testid="link-versioning-content-type-dashboard"
+                      >
+                        Open {contentInfo.label} dashboard
+                      </a>
+                    </PopoverContent>
+                  </Popover>
                 ) : (
                   <span className="shrink-0">{contentInfo.label}</span>
                 )}
@@ -1466,6 +1610,15 @@ export function VersioningView({
                 </ul>
               </details>
             </div>
+          )}
+          {!versioningLoading && (versioningData?.unregisteredVariants?.length ?? 0) > 0 && (
+            <UnregisteredVariantsNotice
+              variants={versioningData!.unregisteredVariants!}
+              canRegister={hasCapability("content_create_variant", contentInfo.type ?? undefined)}
+              registering={registeringVariant}
+              onRegister={handleRegisterVariant}
+              onPreview={handlePreviewUnregistered}
+            />
           )}
           {versioningLoading ? (
             <div className="flex items-center justify-center py-8">
