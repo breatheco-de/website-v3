@@ -6,6 +6,17 @@ window_days: 6
 
 entries:
   - date: "2026-10-22"
+    summary: "Proposal drafts: system writes no longer make a co-author; revise_entries restarts the draft again; no phantom remove op for nested nulls"
+    agent_impact:
+      - "Draft rewrites by migrations, sweeps, sync pulls or with no author (co_authors username unknown / migration:* / system:*) only record the new draft fingerprint: no co-author, no claim release, no back-to-review. revise_entries now restarts a draft the proposal created from today's live unless a person co-authored it, so stray page-level ops (funnel, published_at, authors) left in old drafts disappear on the next revise."
+      - "Proposals stuck on server-added funnel / published_at / meta.* ops or on context_stale reason draft_changed after the 2026-10-22 field-scope migration: the author runs revise_entries with only the ops they intend, then re-checks list_proposals(proposal_id) ops before asking for re-review."
+      - "Proposal ops no longer list a remove for a nested null that live also has (e.g. seo.pillar_path: null, the cluster opt-out). Publish keeps that null, so blockers filed only about that op can be resolved."
+    tools_changed: false
+    paths:
+      - server/content-proposals/service.ts
+      - server/versioning/draft-base.ts
+      - server/routes/components.ts
+  - date: "2026-10-22"
     summary: "list_variants reports variant files versioning.yml is missing; versioning.yml now commits with the variant file"
     agent_impact:
       - "list_variants adds unregistered_variants [{ locale, slug, fileName }] (live-only and versioned payloads) plus warning unregistered_variant_files with the relative paths. Those files get no traffic and cannot be promoted or allocated until listed; staff register them at 0% (Versions panel → Add to versions, or validation fixer register-unlisted-variants). Live content does not change. create_variant with the same slug still 409s."
