@@ -57,14 +57,34 @@ export function listOrganicDayDates(contentFolder?: string): string[] {
     .sort();
 }
 
+const organicDayCache = new Map<string, { mtimeMs: number; file: GscOrganicDayFile }>();
+
+function organicDayCacheKey(date: string, contentFolder?: string): string {
+  return `${contentFolder || getDefaultContentFolder()}\0${date}`;
+}
+
 export function loadOrganicDay(date: string, contentFolder?: string): GscOrganicDayFile | null {
   const p = gscOrganicDayPath(date, contentFolder);
-  if (!fs.existsSync(p)) return null;
+  const key = organicDayCacheKey(date, contentFolder);
+  let mtimeMs: number;
+  try {
+    mtimeMs = fs.statSync(p).mtimeMs;
+  } catch {
+    organicDayCache.delete(key);
+    return null;
+  }
+  const hit = organicDayCache.get(key);
+  if (hit && hit.mtimeMs === mtimeMs) return hit.file;
   try {
     const parsed = JSON.parse(fs.readFileSync(p, "utf-8")) as GscOrganicDayFile;
-    if (!parsed || parsed.date !== date || !Array.isArray(parsed.rows)) return null;
+    if (!parsed || parsed.date !== date || !Array.isArray(parsed.rows)) {
+      organicDayCache.delete(key);
+      return null;
+    }
+    organicDayCache.set(key, { mtimeMs, file: parsed });
     return parsed;
   } catch {
+    organicDayCache.delete(key);
     return null;
   }
 }
@@ -72,13 +92,23 @@ export function loadOrganicDay(date: string, contentFolder?: string): GscOrganic
 export function saveOrganicDay(file: GscOrganicDayFile, contentFolder?: string): void {
   const dir = gscOrganicDaysDir(contentFolder);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(gscOrganicDayPath(file.date, contentFolder), JSON.stringify(file), "utf-8");
+  const filePath = gscOrganicDayPath(file.date, contentFolder);
+  fs.writeFileSync(filePath, JSON.stringify(file), "utf-8");
+  try {
+    organicDayCache.set(organicDayCacheKey(file.date, contentFolder), {
+      mtimeMs: fs.statSync(filePath).mtimeMs,
+      file,
+    });
+  } catch {
+    organicDayCache.delete(organicDayCacheKey(file.date, contentFolder));
+  }
 }
 
 export function pruneOrganicDays(contentFolder?: string, keep = ORGANIC_RETENTION_DAYS): string[] {
   const dates = listOrganicDayDates(contentFolder);
   const drop = dates.slice(0, Math.max(0, dates.length - keep));
   for (const d of drop) {
+    organicDayCache.delete(organicDayCacheKey(d, contentFolder));
     try {
       fs.unlinkSync(gscOrganicDayPath(d, contentFolder));
     } catch {

@@ -363,14 +363,50 @@ export function loadClusterPrioritySnapshot(contentRoot?: string): Record<string
   return readClusterPriorities(contentRoot);
 }
 
+type SeoIndexMemory = {
+  root: string;
+  mtimeMs: number;
+  index: SeoIndex;
+  /** True after seo-config priorities are applied. Disk parses are not. */
+  overlaid: boolean;
+};
+
+let memory: SeoIndexMemory | null = null;
+
+function seoIndexMtime(file: string): number | null {
+  try {
+    if (!fs.existsSync(file)) return null;
+    return fs.statSync(file).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+function rememberSeoIndex(root: string, file: string, index: SeoIndex, overlaid: boolean): void {
+  const mtimeMs = seoIndexMtime(file);
+  if (mtimeMs == null) return;
+  memory = { root, mtimeMs, index, overlaid };
+}
+
+function freshSeoIndex(root: string, file: string): SeoIndex | null {
+  if (!memory || memory.root !== root) return null;
+  const mtimeMs = seoIndexMtime(file);
+  if (mtimeMs == null || mtimeMs !== memory.mtimeMs) return null;
+  return memory.index;
+}
+
 /** Read seo-index.json from disk without rebuild (null if missing/invalid). */
 export function readSeoIndexFile(contentRoot?: string): SeoIndex | null {
   const file = seoIndexPath(contentRoot);
-  if (!fs.existsSync(file)) return null;
+  const root = path.dirname(file);
+  const cached = freshSeoIndex(root, file);
+  if (cached) return cached;
+  if (seoIndexMtime(file) == null) return null;
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf-8")) as SeoIndex;
     if (!parsed || parsed.version !== 1 || typeof parsed.entries !== "object") return null;
     parsed.clusters = parsed.clusters || {};
+    rememberSeoIndex(root, file, parsed, false);
     return parsed;
   } catch {
     return null;
@@ -426,15 +462,36 @@ function recomputeGraph(
   index.generated_at = new Date().toISOString();
 }
 
-let memory: { root: string; index: SeoIndex } | null = null;
-
 export function loadSeoIndex(contentRoot?: string): SeoIndex {
   const file = seoIndexPath(contentRoot);
   const root = path.dirname(file);
-  if (memory && memory.root === root) return memory.index;
-  if (!fs.existsSync(file)) {
+  const mtimeMs = seoIndexMtime(file);
+  if (
+    memory &&
+    memory.root === root &&
+    mtimeMs != null &&
+    memory.mtimeMs === mtimeMs &&
+    memory.overlaid
+  ) {
+    return memory.index;
+  }
+  if (
+    memory &&
+    memory.root === root &&
+    mtimeMs != null &&
+    memory.mtimeMs === mtimeMs &&
+    !memory.overlaid
+  ) {
+    for (const cluster of Object.values(memory.index.clusters || {})) {
+      delete cluster.priority;
+    }
+    applyClusterPriorities(memory.index.clusters, loadClusterPrioritySnapshot(contentRoot));
+    memory.overlaid = true;
+    return memory.index;
+  }
+  if (mtimeMs == null) {
     const rebuilt = rebuildSeoIndex({ contentRoot, reason: "missing" });
-    memory = { root, index: rebuilt };
+    rememberSeoIndex(root, file, rebuilt, true);
     return rebuilt;
   }
   try {
@@ -452,12 +509,12 @@ export function loadSeoIndex(contentRoot?: string): SeoIndex {
       delete cluster.priority;
     }
     applyClusterPriorities(parsed.clusters, loadClusterPrioritySnapshot(contentRoot));
-    memory = { root, index: parsed };
+    memory = { root, mtimeMs, index: parsed, overlaid: true };
     return parsed;
   } catch (err) {
     log.warn({ err, file }, "seo-index unreadable; rebuilding from YAML");
     const rebuilt = rebuildSeoIndex({ contentRoot, reason: "corrupt" });
-    memory = { root, index: rebuilt };
+    rememberSeoIndex(root, file, rebuilt, true);
     return rebuilt;
   }
 }
@@ -485,7 +542,7 @@ export function saveSeoIndex(
   };
   if (!persisted.rebuilt) delete persisted.rebuilt;
   fs.writeFileSync(file, `${JSON.stringify(persisted, null, 2)}\n`, "utf-8");
-  memory = { root: path.dirname(file), index: out };
+  rememberSeoIndex(path.dirname(file), file, out, true);
   if (opts?.mark !== false) {
     markFileAsModified(file, opts?.author, undefined, opts?.contentRoot);
   }

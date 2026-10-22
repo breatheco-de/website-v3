@@ -48,7 +48,7 @@ import {
 } from "./runtime-issues-ignore-store";
 
 const log = child({ module: "runtime-issues" });
-const DEBOUNCE_MS = 5_000;
+const DEBOUNCE_MS = 20_000;
 
 /** Override for vitest — when set, replaces NODE_ENV===production checks. */
 let productionOverrideForTests: boolean | undefined;
@@ -71,6 +71,8 @@ type SiteBucket = {
 const bySite = new Map<string, SiteBucket>();
 /** Site → timer; fires with a fresh JSON snapshot of current in-memory state. */
 const pendingUploadTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** Site → timer; local disk copy follows the same delay as the GCS upload. */
+const pendingLocalTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function localPathForSite(site: string, contentRoot?: string): string {
   if (contentRoot) {
@@ -101,10 +103,23 @@ function saveLocal(site: string): void {
     const file = localPathForSite(site, b.contentRoot);
     const dir = path.dirname(file);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(b.state, null, 2), "utf-8");
+    fs.writeFileSync(file, JSON.stringify(b.state), "utf-8");
   } catch (err) {
     log.error({ err, site }, "failed to save local runtime-issues");
   }
+}
+
+/** Coalesce 404 bursts into one compact rewrite. Shutdown flushes immediately. */
+function scheduleSaveLocal(site: string): void {
+  const existing = pendingLocalTimers.get(site);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(() => {
+    pendingLocalTimers.delete(site);
+    saveLocal(site);
+  }, DEBOUNCE_MS);
+  timer.unref();
+  pendingLocalTimers.set(site, timer);
 }
 
 /**
@@ -137,7 +152,7 @@ function save(site: string): void {
   const b = bySite.get(site);
   if (!b) return;
   b.state = pruneRuntimeIssuesState(b.state);
-  saveLocal(site);
+  scheduleSaveLocal(site);
   saveToBucket(site);
 }
 
@@ -345,8 +360,7 @@ export function listRuntimeIssues(
   b.state = pruneRuntimeIssuesState(b.state);
   // Persist when hard-drop rules newly remove rows (e.g. /.env.production).
   if (Object.keys(b.state.issues).length < before) {
-    saveLocal(site);
-    saveToBucket(site);
+    save(site);
   }
   const issues = Object.values(b.state.issues);
   issues.sort((a, b2) => {
@@ -368,6 +382,10 @@ export async function shutdownRuntimeIssues(): Promise<void> {
   for (const [site, timer] of Array.from(pendingUploadTimers.entries())) {
     clearTimeout(timer);
     pendingUploadTimers.delete(site);
+  }
+  for (const [site, timer] of Array.from(pendingLocalTimers.entries())) {
+    clearTimeout(timer);
+    pendingLocalTimers.delete(site);
   }
   for (const site of Array.from(bySite.keys())) {
     saveLocal(site);
@@ -663,6 +681,8 @@ export async function resetAndUploadRuntimeIssues(
 export function _resetRuntimeIssuesForTests(): void {
   for (const timer of pendingUploadTimers.values()) clearTimeout(timer);
   pendingUploadTimers.clear();
+  for (const timer of pendingLocalTimers.values()) clearTimeout(timer);
+  pendingLocalTimers.clear();
   bySite.clear();
   productionOverrideForTests = undefined;
   _resetRuntimeIssuesIgnoreForTests();

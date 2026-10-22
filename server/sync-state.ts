@@ -744,9 +744,20 @@ export function detectPendingChanges(contentRoot?: string): PendingChange[] {
     const fullPath = path.join(process.cwd(), filePath);
     
     try {
-      const content = fs.readFileSync(fullPath, 'utf-8');
-      const currentSha = computeFileSha(content);
       const storedInfo = state.files[filePath];
+      const stat = fs.statSync(fullPath);
+      // sync-state.json already stores the hash and the mtime from when it was recorded.
+      let currentSha: string;
+      if (
+        storedInfo?.sha &&
+        typeof storedInfo.lastModified === "number" &&
+        storedInfo.lastModified === stat.mtimeMs
+      ) {
+        currentSha = storedInfo.sha;
+      } else {
+        const content = fs.readFileSync(fullPath, "utf-8");
+        currentSha = computeFileSha(content);
+      }
       
       const { contentType, slug } = parseContentPath(filePath, contentRoot);
       
