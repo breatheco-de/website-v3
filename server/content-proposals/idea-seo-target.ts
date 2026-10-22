@@ -43,6 +43,7 @@ export const IDEA_SEO_TARGET_HUB_NOT_LIVE = "idea_seo_target_hub_not_live";
 export const IDEA_SEO_TARGET_HUB_GONE = "idea_seo_target_hub_gone";
 export const IDEA_SEO_TARGET_KEYWORD_TAKEN = "idea_seo_target_keyword_taken";
 export const IDEA_SEO_TARGET_HUB_MEMBERS_REQUIRED = "idea_seo_target_hub_members_required";
+export const IDEA_SEO_TARGET_MEMBERS_CLAIMED = "idea_seo_target_members_claimed";
 export const SEO_TARGET_OVERRIDE_INVALID = "seo_target_override_invalid";
 
 /** Written reasons (standalone, override, opt-out) must carry real justification. */

@@ -6025,6 +6025,39 @@ export function registerPageTools(
               ],
             });
           }
+          if (serverCode === "locale_url_slug_required") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "set_locale_url_slug",
+                code: serverCode,
+                message: errMsg,
+                details: { ...(details ?? {}), property_path: "slug" },
+                warnings: [
+                  {
+                    code: "locale_url_slug_required",
+                    message:
+                      `New language of a live page: without its own slug: in ${locale}.yml the URL reuses the folder name "${slug}" (picked for another language). ` +
+                      "The folder name stays the page ID; other languages' addresses do not change. Same word allowed only for a name that works in every language. Uniqueness is checked at publish.",
+                  },
+                ],
+              },
+              [
+                {
+                  tool: "update_fields",
+                  reason: `Set this language's own address on the draft (field_path slug, a word in ${locale}), then retry promote_variant.`,
+                  priority: "required",
+                  args_hint: {
+                    slug,
+                    locale,
+                    contentType,
+                    variant: variantSlug,
+                    updates: [{ field_path: "slug", value: `<address-in-${locale}>` }],
+                  },
+                },
+              ],
+            );
+          }
           if (serverCode === TEXT_LIMITS_EXCEEDED_CODE) {
             return textLimitsExceededResult(errMsg, data, {
               slug,

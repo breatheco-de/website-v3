@@ -3,15 +3,19 @@
  * Entry-local so slug-scoped diagnostics recheck the page being edited.
  */
 
+import * as path from "path";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { contentIndex } from "../../../server/content-index";
 import { loadSeoIndex, seoEntryId } from "../../../server/seo-index";
 import { isSeoMonitoringEnabled } from "../../../server/seo-monitoring";
+import { readHubLoadThresholds } from "../../../server/seo-config";
+import { listOpenHubSplitIdeas } from "../../../server/content-proposals/hub-split-ideas";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
 import {
   CLUSTER_LINK_ANCHOR_ONLY_HINT,
 } from "../../../server/cluster-hub-links";
 import {
+  checkHubLoad,
   checkHubOutboundLinks,
   checkMemberBackLink,
   HUB_MISSING_MEMBER_LINKS,
@@ -23,7 +27,7 @@ export const seoClusterLinksValidator: Validator = {
   name: "seo-cluster-links",
   issueCodes: SEO_CLUSTER_LINKS_ISSUE_CODES,
   description:
-    "Validates bidirectional SEO cluster links: hub pages link to members; members link back to the hub (anchors / url fields / markdown only)",
+    "Validates bidirectional SEO cluster links: hub pages link to members; members link back to the hub (anchors / url fields / markdown only). Also flags hubs that read like a link list (HUB_THIN_LINK_DENSE) or have enough members to split (HUB_OVERLOADED)",
   apiExposed: true,
   estimatedDuration: "medium",
   category: "seo",
@@ -35,6 +39,8 @@ export const seoClusterLinksValidator: Validator = {
     const contentRoot = context.contentRoot;
     const index = loadSeoIndex(contentRoot);
     const liveFiles = liveFilesForSeo(context);
+    const hubLoad = readHubLoadThresholds(contentRoot);
+    const siteName = contentRoot ? path.basename(contentRoot) : null;
     let hubsChecked = 0;
     let membersChecked = 0;
 
@@ -71,6 +77,29 @@ export const seoClusterLinksValidator: Validator = {
             message: `${issue.message} ${CLUSTER_LINK_ANCHOR_ONLY_HINT}`,
             file: file.filePath,
             suggestion: issue.suggestion,
+            category: "seo",
+            validator: this.name,
+          });
+        }
+        const memberIds = index.clusters[id]?.members ?? [];
+        const memberKeys = memberIds.map((m) => {
+          const e = index.entries[m];
+          return e ? `${e.content_type}/${e.slug}` : m;
+        });
+        const overloaded = memberIds.length >= hubLoad.overloaded_min_members;
+        const load = checkHubLoad({
+          pageData,
+          memberCount: memberIds.length,
+          thresholds: hubLoad,
+          openSplits: overloaded && siteName ? listOpenHubSplitIdeas(siteName, memberKeys) : [],
+        });
+        if (load) {
+          warnings.push({
+            type: "warning",
+            code: load.code,
+            message: load.message,
+            file: file.filePath,
+            suggestion: load.suggestion,
             category: "seo",
             validator: this.name,
           });

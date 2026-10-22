@@ -16,28 +16,8 @@
  * localStorage is NEVER the source of truth for site resolution — that is
  * always the server file.
  *
- * ⚠️  DO NOT REPLACE localStorage WITH COOKIES — EVER.
- * -----------------------------------------------------------------------
- * We spent significant time debugging a cookie-based approach. Here is why
- * cookies do not work in the Replit dev environment:
- *
- *   Replit's workspace embeds the app (worf.replit.dev) in an iframe inside
- *   replit.com. Modern browsers (Chrome 115+, Edge) treat the app's domain
- *   as a THIRD-PARTY origin relative to the top-level page (replit.com).
- *   In this context:
- *
- *   — document.cookie writes on the client are silently discarded.
- *   — Set-Cookie headers from server responses are silently discarded.
- *   — This applies to SameSite=Lax, SameSite=None; Secure, and every other
- *     cookie attribute combination. All were tested. All fail silently.
- *
- *   The symptom: /api/dev/set-site returns {"ok":true}, the server logs the
- *   call, but the cookie is never stored and never sent on the next request.
- *   The site switcher appears to do nothing.
- *
- *   localStorage is NOT subject to third-party cookie restrictions — it is
- *   scoped to the origin (worf.replit.dev) and always accessible from the
- *   app's own JavaScript, regardless of the iframe context.
+ * localStorage (not cookies) keeps this working in embedded/iframe previews,
+ * where browsers silently drop third-party cookies.
  *
  * Write sequence (always in this order):
  *   1. localStorage.setItem(...)   ← synchronous, instant
@@ -57,9 +37,6 @@ const PENDING_DOMAIN_KEY = "__pending_domain_nav";
 /**
  * Returns the active dev-site override domain, or null if none is set.
  * Reads from localStorage. Returns null in production builds.
- *
- * ⚠️  DO NOT read from document.cookie here — cookies are blocked in the
- * Replit iframe context. See the warning block at the top of this file.
  */
 export function getDevSiteOverride(): string | null {
   if (!IS_DEV) return null;

@@ -47,6 +47,7 @@ You have `proposals_create` and (with MCP write) `content_edit_text`. Reviewer d
 ### 1. Write the draft locale
 
 - `translate_entry` → `{variant}.{target_locale}.yml` (default `variant: draft`). Never live YAML.
+- New language of a live page: pass `url_slug` (or `update_fields` `slug` on the variant) — a word in the target language. Without it, filing refuses `locale_url_slug_required` and go-live refuses it too; the folder name stays the page ID.
 - Prefer `create_variant: true` for a new named layer when needed; merge only if that variant has **0%** traffic.
 - Inspect with `get_entry_content` (`locale` + `variant`).
 

@@ -97,6 +97,13 @@ Required shape:
 - `updates[]`: `field_path: content` (or the real section path) + the full new body value the CMS expects
 - Optional `related_entries`: the hub page so the reviewer can open it in one hop
 - If this replaces a rejected packet: `supersedes_proposal_id`
+- If the link points at a page that is not live yet (a new spoke from an idea): `applies_after_proposal_id` = the proposal that publishes that page. Apply is refused (`predecessor_not_applied`) until that proposal is fully applied; it does not apply this one for you.
+
+### 3b. New spoke → link it from the hub
+
+When an idea-born page joins a hub (`idea_seo_target.cluster.mode: "join"`), file the hub link right after the page's edits proposal: one edits proposal on the **hub** with `review_situations: ["internal_links"]`, content ops that add the link to the new page, and `applies_after_proposal_id` = the page's proposal. The page proposal's create response carries this as a `next_actions` item.
+
+If the hub already has an open edits proposal (`competing_entry_edits`), the response warns `hub_has_open_edits` instead: wait until that proposal closes, then file the link. The page can still go live first.
 
 Example summary (authors may reuse this skeleton):
 
@@ -130,7 +137,7 @@ If title/description are also pending: that is mixed SERP + body. Prefer leave-l
 
 1. **Facts.** Live numbers, years, employers, and sources still present in the proposed body.
 2. **Claims.** No new salary, ranking, “mejor”, or headcount the live article does not already support.
-3. **Links.** Each new href exists, correct locale, topical hub/pillar (or an in-cluster sibling), not a broken `/es/blog/:category/...` placeholder.
+3. **Links.** Each new href exists, correct locale, topical hub/pillar (or an in-cluster sibling), not a broken `/es/blog/:category/...` placeholder. A link to the page of this proposal's `applies_after_proposal_id` predecessor counts as existing — apply waits until that page is live.
 4. **Force.** One link per idea is fine. A sales sentence minted only to carry the link → blocker: “put the link on the existing phrase; delete the new pitch.”
 5. **SEO topology.** Body must not expose our content architecture to readers (piece-count-in-cluster, companion-piece inventory, “for the full picture start with…” as a series TOC, H2 “Recent cluster updates”). Packaging ≠ allowable wooden → `add_blocker`. Teaching topic clusters when that *is* the subject is OK. Staff summaries may still say “cluster hub.”
 

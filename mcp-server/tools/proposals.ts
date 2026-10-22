@@ -291,9 +291,75 @@ function ideaSeoTargetFailure(
   });
 }
 
-const APPLY_FOLLOW_UP_CODES = new Set(["idea_seo_hub_members_follow_up", "idea_page_released_waiting_ideas"]);
+const URL_SLUG_OVERRIDE_SCHEMA = z.object({
+  reason: z.string().describe("Min 40 chars: why this edit's slug differs from the address the accepted idea locked."),
+});
 
-/** Apply follow-ups carried in warnings: hub members (propose_change) and ideas waiting on a released page (list_proposals). */
+const URL_SLUG_FILING_CODES = new Set([
+  "locale_url_slug_required",
+  "idea_url_slug_conflict",
+  "url_slug_override_invalid",
+  "invalid_locale_slug",
+  "slug_already_owned_by_other_entry",
+]);
+
+/** Per-language address refusals on edits create / revise_entries. */
+function urlSlugFilingFailure(
+  data: Record<string, unknown>,
+  ctx: { tool: "propose_change" | "update_proposal"; proposal_id?: string; site?: string },
+) {
+  const code = String(data.code ?? "");
+  if (!URL_SLUG_FILING_CODES.has(code)) return null;
+  const details = (data.details ?? {}) as Record<string, unknown>;
+  const conflict = code === "idea_url_slug_conflict" || code === "url_slug_override_invalid";
+  return fail(String(data.error ?? code), {
+    code,
+    details: { ...details, property_path: "slug" },
+    warnings: [
+      {
+        code,
+        message: conflict
+          ? `The accepted idea locked this language's address${typeof details.locked_url_slug === "string" ? ` "${details.locked_url_slug}"` : ""}. Drop the slug update (the draft is seeded with the locked address) or pass url_slug_override { reason } (min 40 chars).`
+          : 'A new language of a live page needs its own address: add { field_path: "slug", value: "<address-in-this-language>" } (free in that language; same word as the folder only for a name).',
+      },
+      {
+        code: "url_slug_non_effects",
+        message:
+          "Nothing was filed. The folder name stays the page ID in every language; other languages' addresses do not change. Uniqueness is checked again at publish.",
+      },
+    ],
+    next_actions: [
+      {
+        tool: ctx.tool,
+        reason: conflict
+          ? "Retry without the slug update, or with url_slug_override.reason."
+          : "Retry with a slug update for this language.",
+        priority: "required",
+        args_hint: {
+          ...(ctx.proposal_id ? { proposal_id: ctx.proposal_id, action: "revise_entries" } : {}),
+          ...(conflict
+            ? { url_slug_override: { reason: "(why the locked address no longer fits — min 40)" } }
+            : { updates_add: [{ field_path: "slug", value: "<address-in-this-language>" }] }),
+          ...(ctx.site ? { site: ctx.site } : {}),
+        },
+      },
+    ],
+  });
+}
+
+const APPLY_FOLLOW_UP_CODES = new Set([
+  "idea_seo_hub_members_follow_up",
+  "idea_page_released_waiting_ideas",
+  "dependents_ready",
+  "hub_link_follow_up",
+  "hub_has_open_edits",
+]);
+
+/**
+ * Follow-ups carried in create/apply warnings: hub members and hub links (propose_change),
+ * dependents ready after their predecessor finished (update_proposal apply), and ideas waiting
+ * on a released page or the open hub proposal blocking a hub link (list_proposals).
+ */
 function followUpActionsFromWarnings(warnings: unknown): Array<{
   tool: string;
   reason: string;
@@ -305,10 +371,12 @@ function followUpActionsFromWarnings(warnings: unknown): Array<{
   for (const w of warnings as Array<{ code?: string; details?: { next_actions?: unknown } }>) {
     if (!w?.code || !APPLY_FOLLOW_UP_CODES.has(w.code) || !Array.isArray(w.details?.next_actions)) continue;
     for (const a of w.details.next_actions as Array<Record<string, unknown>>) {
+      const priority =
+        a.priority === "required" || a.priority === "optional" ? a.priority : "recommended";
       out.push({
         tool: String(a.tool ?? "propose_change"),
         reason: String(a.reason ?? ""),
-        priority: "recommended",
+        priority,
         args_hint: (a.args_hint as Record<string, unknown>) ?? {},
       });
     }
@@ -609,6 +677,7 @@ export const PROPOSAL_AUTHOR_ACTIONS = [
   "set_idea_funnel",
   "set_related_entries",
   "set_idea_seo_target",
+  "set_applies_after",
   "revert",
 ] as const;
 
@@ -631,6 +700,7 @@ export const PROPOSAL_ALL_UPDATE_ACTIONS = [
   "set_idea_funnel",
   "set_related_entries",
   "set_idea_seo_target",
+  "set_applies_after",
   "revert",
 ] as const;
 
@@ -736,11 +806,13 @@ export function registerProposalTools(
       "idea_opportunity_harm is always on for ideas — do not file it. Omit review_situations on ideas that are not those three. " +
       "New-URL ideas: optional idea_funnel { stage, products } (products \"all\" only with stage awareness). Soft warning idea_funnel_missing when omitted; accept refuses until set (set_idea_funnel). " +
       "New-URL ideas on SEO-monitored types: idea_seo_target { main_keyword, cluster: join|hub|standalone, kw_monthly_volume, kw_difficulty } — soft warnings idea_seo_target_missing / idea_seo_target_metrics_missing; accept refuses until set (set_idea_seo_target); locks at accept and seeds the new draft's seo block (keyword + hub only; kw_* stay on the idea). Implementing edits whose seo ops differ from the lock need seo_target_override.reason. " +
-      "Hub/internal links → prefer review_situations:[\"internal_links\"] (subtopic internal-links). " +
+      "New language of a page already live in another language: the draft needs its own slug (this language's address; folder name stays the page ID). An implemented idea's locked accepted_entry.url_slug is seeded (warning idea_url_slug_locked); a different { field_path: \"slug\" } update needs url_slug_override.reason (idea_url_slug_conflict); with no locked address, file a slug update or refuse locale_url_slug_required. " +
+      "Hub/internal links → prefer review_situations:[\"internal_links\"] (subtopic internal-links); a hub link to a new page chains with applies_after_proposal_id = that page's proposal. " +
+      "Original-hub rewrite after a split → review_situations:[\"hub_split\"] + applies_after_proposal_id = the new hub's proposal (subtopic hub-split). " +
       "SERP title/description → prefer review_situations:[\"serp_title_description\"] (subtopic serp-title-description). " +
       "Funnel stage/products → prefer review_situations:[\"funnel_classification\"] (subtopic funnel-classification; persona → product → stage). " +
       "Locale translation go-live → prefer review_situations:[\"locale_translation\"] with variant + promote_on_apply (subtopic translations). Soft-only polish without promote is not this pack. " +
-      "Edits refuse entry_not_found (missing live+draft), mixed_risk_bundle (mixed selling/new-public/other), competing_entry_edits (second open edits on same type+slug+locale), competing_shared_fields (another open proposal stages page-level fields), draft_in_proposal, variant_has_traffic, implements_required / idea_already_in_progress, sections_required (new page/language of a layout_owner entry or template without a full sections update), page_create_no_draft, invalid_sections (registry shape). " +
+      "Edits refuse entry_not_found (missing live+draft), mixed_risk_bundle (mixed selling/new-public/other), competing_entry_edits (second open edits on same type+slug+locale), competing_shared_fields (another open proposal stages page-level fields), draft_in_proposal, variant_has_traffic, implements_required / idea_already_in_progress, sections_required (new page/language of a layout_owner entry or template without a full sections update), page_create_no_draft, invalid_sections (registry shape), locale_url_slug_required / idea_url_slug_conflict (new language address). Apply refuses locale_url_slug_required when the draft still has no own slug. " +
       "Live-missing + named draft exists is allowed (new_public_content). Ideas refuse mixed_risk_bundle on related_entries classes. " +
       "Mutating MCP requires a role connector, agent_session start with exact model (provider/model), and agent_session_id on mutates. " +
       "Four-eyes apply/reject/accept compare human+role (not username alone). Apply/reject need proposals_review (Proposal Reviewer or Publisher).",
@@ -791,6 +863,7 @@ export function registerProposalTools(
         .array(
           z.enum([
             "internal_links",
+            "hub_split",
             "serp_title_description",
             "funnel_classification",
             "body_copy_edit",
@@ -829,6 +902,12 @@ export function registerProposalTools(
         .describe(
           "Edits only: accepted idea this work implements. Required when that idea reserved the same type+slug+locale. At most one open implements per idea.",
         ),
+      applies_after_proposal_id: z
+        .string()
+        .optional()
+        .describe(
+          "Edits only: order-only chain. Apply is refused (predecessor_not_applied) until that edits proposal is fully applied (partial does not count); applying it never applies this one. Use for a hub link to a new page (subtopic internal-links) or a hub split rewrite / member move (subtopic hub-split). If the predecessor is rejected/withdrawn this gets a predecessor_closed blocker. Not supersedes_proposal_id (that links a closed predecessor).",
+        ),
       idea_funnel: z
         .object({
           stage: z.enum(["awareness", "consideration", "decision", "post-enrollment"]),
@@ -853,6 +932,9 @@ export function registerProposalTools(
       ),
       seo_target_override: SEO_TARGET_OVERRIDE_SCHEMA.optional().describe(
         "Edits implementing an idea: required when seo.main_keyword / seo.pillar_path differ from the idea's locked target (reason min 40). Also the reason channel when an agent sets seo.pillar_path: null on an idea-born page (news / broken-URL ideas only).",
+      ),
+      url_slug_override: URL_SLUG_OVERRIDE_SCHEMA.optional().describe(
+        "Edits implementing an idea: required when a slug update differs from the address the idea locked (accepted_entry.url_slug); reason min 40.",
       ),
       entries: z.array(ENTRY_INPUT_SCHEMA).optional(),
       site: z.string().optional().describe(SITE_PARAM_DESC),
@@ -886,15 +968,19 @@ export function registerProposalTools(
             all_or_nothing: args.all_or_nothing,
             supersedes_proposal_id: args.supersedes_proposal_id,
             implements_proposal_id: args.implements_proposal_id,
+            applies_after_proposal_id: args.applies_after_proposal_id,
             idea_funnel: args.idea_funnel,
             idea_seo_target: args.idea_seo_target,
             seo_target_override: args.seo_target_override,
+            url_slug_override: args.url_slug_override,
           }),
         });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
           const seoTarget = ideaSeoTargetFailure(data, { tool: "propose_change", site: args.site });
           if (seoTarget) return seoTarget;
+          const urlSlug = urlSlugFilingFailure(data, { tool: "propose_change", site: args.site });
+          if (urlSlug) return urlSlug;
           if (data.code === "similar_proposals") {
             return actionRequired(
               {
@@ -1359,6 +1445,7 @@ export function registerProposalTools(
                   },
                 ]
               : []),
+            ...followUpActionsFromWarnings(data.warnings),
             {
               tool: "list_proposals",
               reason: "Re-read the stored proposal (author_diff, undo_cost, merge state).",
@@ -1391,9 +1478,10 @@ export function registerProposalTools(
       "reviewer_action_by/_at = latest non-author feedback (not approval), closed_by/close_reason, slim stubs — no ops/values/baselines). " +
       "Filtered calls still return site-wide by_kind_status (warning proposal_stats_site_wide) — not counts for this page. " +
       "stalled:true → accepted ideas with a locked page and no open/partial/finished implements follow-up (legacy accepts without a lock are excluded). " +
-      "needs_review:true → open|partial edits whose attention is awaiting_rereview or no_feedback (author rewrite or cleared blockers, nothing still waiting on the author). Excludes blocked and escalated. Forces that queue even if status/kind differ. " +
-      "Scoped lists default to sort=attention (role-aware: reviewers see rereview before blocked; create-only see blocked first) and open+partial when status is omitted (unless stalled). " +
-      "Pass sort created_at|updated_at for chronology. Filter attention: escalated|awaiting_rereview|no_feedback|blocked|needs_author. " +
+      "needs_review:true → open|partial edits whose attention is predecessor_applied, awaiting_rereview or no_feedback (author rewrite or cleared blockers, nothing still waiting on the author). Excludes blocked and escalated. Forces that queue even if status/kind differ. " +
+      "Scoped lists default to sort=attention (role-aware: reviewers see predecessor_applied first, then rereview before blocked; create-only see blocked first) and open+partial when status is omitted (unless stalled). " +
+      "Pass sort created_at|updated_at for chronology. Filter attention: predecessor_applied|escalated|awaiting_rereview|no_feedback|blocked|needs_author. " +
+      "predecessor_applied = applies_after_proposal_id points at a finished proposal (its page is live; this one should ship now). Rows carry applies_after_proposal_id, applied_before_proposal_ids (dependents) and dependent_overdue_flagged_at (daily sweep: still open 48h after the predecessor finished — flag only, never escalates or closes). " +
       "needs_author = 1.0 draft went stale (live or translation source moved, conflict, or draft missing) — out of the reviewer queue until the author revises; stale_flagged_at set after 10 idle days, closes as abandoned_stale after 30. " +
       "blocked = open blockers. Daily sweep (any kind, open|partial, not escalated): 10 days with no real work → blocked_flagged_at (event proposal_blocked_flagged); 30 → withdrawn close_reason abandoned_blocked (no prior flag required; partial: published entries stay live; drafts the proposal created deleted, pre-existing unlinked). " +
       "Clock = newest open blocker / revise_entries / author-marked fix / reviewer action — claim and release do NOT reset it. Zero open blockers (awaiting_rereview) never auto-closes. " +
@@ -1474,10 +1562,10 @@ export function registerProposalTools(
             "none = closed and not reviewed, excluding system closures (close_reason abandoned_stale | abandoned_blocked | legacy_version). Omit status (or use a closed status) — open/partial never match.",
         ),
       attention: z
-        .enum(["escalated", "awaiting_rereview", "no_feedback", "blocked", "needs_author"])
+        .enum(["predecessor_applied", "escalated", "awaiting_rereview", "no_feedback", "blocked", "needs_author"])
         .optional()
         .describe(
-          "Triage bucket filter. needs_author = stale 1.0 draft waiting on the author (revise_entries); awaiting_rereview = blockers fixed, or the author rewrote the packet / marked a blocker fixed, and nothing is still waiting on the author; " +
+          "Triage bucket filter. predecessor_applied = the applies_after predecessor is fully applied — review and apply now; needs_author = stale 1.0 draft waiting on the author (revise_entries); awaiting_rereview = blockers fixed, or the author rewrote the packet / marked a blocker fixed, and nothing is still waiting on the author; " +
             "no_feedback = never had blockers and no author update since filing; " +
             "blocked = open needs-changes (wins over a later author rewrite); escalated = steward hold.",
         ),
@@ -1491,7 +1579,7 @@ export function registerProposalTools(
         .boolean()
         .optional()
         .describe(
-          "When true, only open or in-progress edits that still need a reviewer: awaiting_rereview or no_feedback. " +
+          "When true, only open or in-progress edits that still need a reviewer: predecessor_applied, awaiting_rereview or no_feedback. " +
             "Waiting on the author and steward holds are excluded. Same queue as the staff Edits “needs review” badge.",
         ),
       limit: z.number().optional().describe("Page size when scoped (default 20, max 200)"),
@@ -1881,15 +1969,17 @@ export function registerProposalTools(
     "update_proposal",
     "Lifecycle for a proposal. Requires proposals_create and/or proposals_review — actions depend on caps. " +
       "proposals_review (Reviewer): claim | release | apply | reject | accept | close | acknowledge | blockers. Approve can change live/draft. " +
-      "proposals_create only (authors): claim | release | withdraw | attach_variant | set_no_auto_retry | revise_entries | set_review_situations | set_idea_funnel | set_related_entries | set_idea_seo_target | revert — cannot apply/reject/accept. " +
+      "proposals_create only (authors): claim | release | withdraw | attach_variant | set_no_auto_retry | revise_entries | set_review_situations | set_idea_funnel | set_related_entries | set_idea_seo_target | set_applies_after | revert — cannot apply/reject/accept. " +
       "set_related_entries (open ideas, proposer): replace related_entries (target page type + slug); unknown content types refuse (unknown_content_type); refused after accept. " +
+      "set_applies_after (open edits, proposer): chain after another edits proposal (empty unlinks). Order only: apply refuses predecessor_not_applied until the predecessor is finished; applying the predecessor returns dependents_ready + one apply next_action per open dependent (nothing auto-applied). Rejecting/withdrawing a predecessor adds a predecessor_closed blocker to each open dependent. " +
       "1.0 edits: apply promotes the proposal's draft(s); dry_run returns merge_preview without writing. Stale drafts rebuild on today's live when fields do not overlap; otherwise context_stale (needs_author). " +
       "revert (finished/partial 1.0 edits): files a new proposal that puts back pre-apply values; live unchanged until that one is approved; revert_conflicts when fields changed again. " +
       "Legacy (pre-1.0) proposals return legacy_version for anything but withdraw/reject/release — re-file. " +
       "Both (Publisher): full set. " +
       "Reject is rare (bad/impossible/illegal/harmful/duplicate/target missing): confirm_reject + reject_kind + close_note (min 80). Prefer add_blocker for polish; then revise_entries (proposer; idle or self-claim). " +
-      "attach_variant: same creating session only. accept (ideas): four-eyes by human+role; blockers block; next_step min 20; accepted_entry {contentType,slug,locale} required (locks the page until an implementing edit is applied with none open; accepted_entry_taken → leave the idea open, accept later); new-URL ideas need idea_funnel first (no YAML); SEO-monitored new pages also need idea_seo_target (hub live + same locale; keyword not held by a live page or another accepted idea). " +
-      "apply of a hub-mode idea's first go-live returns warning idea_seo_hub_members_follow_up + one propose_change next_action per member. " +
+      "attach_variant: same creating session only. accept (ideas): four-eyes by human+role; blockers block; next_step min 20; accepted_entry {contentType,slug,locale} required (locks the page until an implementing edit is applied with none open; accepted_entry_taken → leave the idea open, accept later); slug = folder name (page ID in every language). New language of a page already live in another language: url_slug required (this language's own address word, e.g. es que-es-manus-ia; url_slug_required otherwise). Address (url_slug, else slug) must be free in that language and not look like another language (slug_locale_mismatch; slug_language_ack: true when it is a name). The implementing edit's draft is seeded with url_slug. new-URL ideas need idea_funnel first (no YAML); SEO-monitored new pages also need idea_seo_target (hub live + same locale; keyword not held by a live page or another accepted idea). " +
+      "apply of a hub-mode idea's first go-live returns warning idea_seo_hub_members_follow_up + one propose_change next_action per member (chain each with applies_after_proposal_id; moved members also update their in-body hub link). " +
+      "apply that finishes a join-mode idea's page with no chained hub-link proposal returns hub_link_follow_up (or hub_has_open_edits when the hub already has open edits). " +
       "apply that frees an idea's page returns idea_page_released_waiting_ideas + one list_proposals next_action per open idea waiting on it (nothing auto-accepted). " +
       "close notes/ideas: close_reason + close_note. Withdraw: close_note min 20. Open blockers block apply/accept only (revise does not clear them). Four-eyes = username+role. " +
       "Multi-situation: review each pack independently; drop failing ops via revise_entries then apply (atomic). " +
@@ -1915,6 +2005,7 @@ export function registerProposalTools(
         "set_idea_funnel",
         "set_related_entries",
         "set_idea_seo_target",
+        "set_applies_after",
         "revert",
       ]),
       report: z.string().optional(),
@@ -1976,10 +2067,20 @@ export function registerProposalTools(
           contentType: z.string(),
           slug: z.string(),
           locale: z.string(),
+          url_slug: z
+            .string()
+            .optional()
+            .describe(
+              "This language's own public address word (written as slug: in {locale}.yml). Required when the page is already live in another language.",
+            ),
+          slug_language_ack: z
+            .boolean()
+            .optional()
+            .describe("true when an address that looks like another language is intended (a name that works in every language)."),
         })
         .optional()
         .describe(
-          "For accept: required locked page (contentType, slug, locale). Follow-up edits must implement this idea and match this entry.",
+          "For accept: required locked page (contentType, slug = folder name, locale, url_slug for a new language). Follow-up edits must implement this idea and match this entry.",
         ),
       no_auto_retry: z
         .boolean()
@@ -2010,6 +2111,7 @@ export function registerProposalTools(
         .array(
           z.enum([
             "internal_links",
+            "hub_split",
             "serp_title_description",
             "funnel_classification",
             "body_copy_edit",
@@ -2064,6 +2166,15 @@ export function registerProposalTools(
       seo_target_override: SEO_TARGET_OVERRIDE_SCHEMA.optional().describe(
         "For revise_entries on edits implementing an idea: reason (min 40) when seo.main_keyword / seo.pillar_path differ from the locked target, or when setting seo.pillar_path: null on an idea-born page (news / broken-URL only).",
       ),
+      url_slug_override: URL_SLUG_OVERRIDE_SCHEMA.optional().describe(
+        "For revise_entries on edits implementing an idea: reason (min 40) when a slug update differs from the address the idea locked.",
+      ),
+      applies_after_proposal_id: z
+        .string()
+        .optional()
+        .describe(
+          "For set_applies_after (open edits, proposer/staff): edits proposal this one publishes after; empty string unlinks. Refuses cycles, self, closed (rejected/withdrawn) and non-edits predecessors.",
+        ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async (args) => {
@@ -2077,7 +2188,7 @@ export function registerProposalTools(
           `Action '${args.action}' is not allowed for your proposal caps ` +
             `(create=${hasCreate}, review=${hasReview}). ` +
             (hasReview && !hasCreate
-              ? "Reviewer cannot withdraw, attach_variant, set_no_auto_retry, revise_entries, set_review_situations, set_idea_funnel, set_related_entries, or set_idea_seo_target."
+              ? "Reviewer cannot withdraw, attach_variant, set_no_auto_retry, revise_entries, set_review_situations, set_idea_funnel, set_related_entries, set_idea_seo_target, or set_applies_after."
               : hasCreate && !hasReview
                 ? "Authors cannot apply, reject, accept, close, or manage blockers — use Proposal Reviewer or Publisher."
                 : "Need proposals_create and/or proposals_review."),
@@ -2119,6 +2230,10 @@ export function registerProposalTools(
             related_entries: args.related_entries,
             idea_seo_target: args.idea_seo_target,
             seo_target_override: args.seo_target_override,
+            url_slug_override: args.url_slug_override,
+            ...(args.action === "set_applies_after"
+              ? { applies_after_proposal_id: args.applies_after_proposal_id ?? null }
+              : {}),
           }),
         });
         const data = (await res.json()) as Record<string, unknown>;
@@ -2129,6 +2244,64 @@ export function registerProposalTools(
             site: args.site,
           });
           if (seoTarget) return seoTarget;
+          if (args.action === "revise_entries") {
+            const urlSlug = urlSlugFilingFailure(data, {
+              tool: "update_proposal",
+              proposal_id: args.proposal_id,
+              site: args.site,
+            });
+            if (urlSlug) return urlSlug;
+          }
+          if (data.code === "predecessor_not_applied") {
+            const details = (data.details ?? {}) as { applies_after_proposal_id?: string; predecessor_status?: string | null };
+            return fail(String(data.error ?? "predecessor not applied"), {
+              code: "predecessor_not_applied",
+              details,
+              warnings: [
+                {
+                  code: "nothing_applied",
+                  message:
+                    "Nothing was published. This proposal is chained (applies_after_proposal_id) and waits until its predecessor is fully applied (finished); partial does not count. Applying the predecessor does not apply this one.",
+                },
+              ],
+              next_actions: details.applies_after_proposal_id
+                ? [
+                    {
+                      tool: "list_proposals",
+                      reason: "Open the predecessor: review/apply it first, or ask its author to finish it.",
+                      priority: "required",
+                      args_hint: { proposal_id: details.applies_after_proposal_id, ...(args.site ? { site: args.site } : {}) },
+                    },
+                  ]
+                : [
+                    {
+                      tool: "update_proposal",
+                      reason: "The predecessor no longer exists — the proposer unlinks it (empty applies_after_proposal_id).",
+                      priority: "required",
+                      args_hint: { proposal_id: args.proposal_id, action: "set_applies_after", applies_after_proposal_id: "" },
+                    },
+                  ],
+            });
+          }
+          if (
+            data.code === "applies_after_cycle" ||
+            data.code === "applies_after_closed" ||
+            data.code === "applies_after_not_found" ||
+            data.code === "applies_after_edits_only"
+          ) {
+            return fail(String(data.error ?? data.code), {
+              code: String(data.code),
+              warnings: [{ code: "nothing_saved", message: "applies_after_proposal_id unchanged." }],
+              next_actions: [
+                {
+                  tool: "list_proposals",
+                  reason: "Find the open or finished edits proposal this one must publish after, then retry set_applies_after.",
+                  priority: "recommended",
+                  args_hint: { kind: "edits", ...(args.site ? { site: args.site } : {}) },
+                },
+              ],
+            });
+          }
           if (data.code === "unknown_content_type") {
             const details = (data.details ?? {}) as { unknown?: string[]; valid_types?: string[] };
             return fail(String(data.error ?? "unknown content type"), {
@@ -2370,6 +2543,40 @@ export function registerProposalTools(
                     },
                   ]
                 : [],
+            });
+          }
+          if (
+            args.action === "accept" &&
+            (data.code === "url_slug_required" ||
+              data.code === "slug_locale_mismatch" ||
+              data.code === "slug_already_owned_by_other_entry" ||
+              data.code === "invalid_locale_slug")
+          ) {
+            const d = (data.details ?? {}) as Record<string, unknown>;
+            return fail(String(data.error ?? data.code), {
+              code: String(data.code),
+              details: d,
+              warnings: [
+                "accepted_entry.slug stays the folder name (page ID in every language). url_slug is only this language's public address.",
+                "Nothing was accepted; the idea stays open. Other languages' addresses do not change.",
+              ],
+              next_actions: [
+                {
+                  tool: "update_proposal",
+                  reason:
+                    data.code === "slug_locale_mismatch"
+                      ? "Retry accept with an address in this language, or slug_language_ack: true when it is a name."
+                      : "Retry accept with accepted_entry.url_slug set to a free address in this language.",
+                  priority: "required",
+                  args_hint: {
+                    proposal_id: args.proposal_id,
+                    action: "accept",
+                    next_step: args.next_step,
+                    accepted_entry: { ...(args.accepted_entry ?? {}), url_slug: "<address-in-this-language>" },
+                    site: args.site,
+                  },
+                },
+              ],
             });
           }
           if (data.code === "accepted_entry_required") {

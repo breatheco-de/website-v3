@@ -1,20 +1,5 @@
 // Vite 8 compatibility audit (task-579, 2025-05-29)
 //
-// Plugin compatibility (all verified against Vite 8.0.14):
-//
-//   @replit/vite-plugin-runtime-error-modal  v0.0.6  — Compatible. Its source
-//     already branches on both the Vite ≤4 `.ws` WebSocket channel and the
-//     Vite 5+/8 `.environments.client.hot` channel. No update available on npm
-//     (latest is 0.0.6); the existing version is Vite 8-safe.
-//
-//   @replit/vite-plugin-cartographer         v0.5.5  — Compatible. Uses only
-//     standard plugin hooks (configResolved, transform, transformIndexHtml).
-//     v0.5.5 is the latest published version.
-//
-//   @replit/vite-plugin-dev-banner           v0.1.2  — Compatible. Uses only
-//     configureServer middleware + transformIndexHtml. v0.1.2 is the latest
-//     published version.
-//
 // Server config options confirmed valid in Vite 8:
 //
 //   server.warmup.clientFiles / ssrFiles  — Valid (types line 2451-2459).
@@ -38,7 +23,6 @@ import { defineConfig, type Plugin, searchForWorkspaceRoot } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import fs from "fs";
-import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { getPackageRoot, getProjectRoot } from "./shared/paths";
 import {
   getSiteComponentSchemasPaths,
@@ -160,18 +144,6 @@ export default defineConfig(async () => ({
         ],
       },
     }),
-    runtimeErrorOverlay(),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined
-      ? [
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer(),
-          ),
-          await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
-          ),
-        ]
-      : []),
   ],
   resolve: {
     alias: {
@@ -228,7 +200,7 @@ export default defineConfig(async () => ({
           // One shared Lucide chunk instead of one HTTP request per icon.
           // Per-icon splitting looked good for unused-byte tree-shaking, but a
           // cold load (esp. Shift+reload) fans out dozens of tiny /assets/*.js
-          // requests and trips the Google/Replit edge rate limit (HTTP 429).
+          // requests and trips the CDN edge rate limit (HTTP 429).
           // Tree-shaking still drops icons that nothing imports; this only
           // coalesces the icons that are in the graph into a single download.
           // @radix-ui and react-markdown stay per-importer (same unused-payload

@@ -119,6 +119,21 @@ describe("compareByAttention", () => {
     expect(sorted.map((r) => r.id)).toEqual(["e", "a", "n", "b"]);
   });
 
+  it("reviewer order: predecessor_applied first; blockers and stale drafts still win the bucket", () => {
+    const rows = [
+      { id: "e", updated_at: 1, attention: "escalated" as const },
+      { id: "p", updated_at: 1, attention: "predecessor_applied" as const },
+      { id: "n", updated_at: 1, attention: "no_feedback" as const },
+    ];
+    const sorted = [...rows].sort((x, y) => compareByAttention(x, y, "reviewer", "me", now));
+    expect(sorted.map((r) => r.id)).toEqual(["p", "e", "n"]);
+    const base = { status: "open", escalated: false, open_blocker_count: 0, predecessor_applied: true };
+    expect(deriveProposalAttention(base)).toBe("predecessor_applied");
+    expect(deriveProposalAttention({ ...base, open_blocker_count: 1 })).toBe("blocked");
+    expect(deriveProposalAttention({ ...base, needs_author: true })).toBe("needs_author");
+    expect(deriveProposalAttention({ ...base, status: "finished" })).toBeNull();
+  });
+
   it("author order: blocked before awaiting_rereview", () => {
     const rows = [
       { id: "a", updated_at: 1, attention: "awaiting_rereview" as const },

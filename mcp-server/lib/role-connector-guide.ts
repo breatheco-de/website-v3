@@ -52,11 +52,10 @@ export type McpWriteDisabledGuide = {
 export type PrimaryBlocker = "role_connector_required" | "mcp_write_disabled" | null;
 
 export function getMcpPublicBase(port = process.env.MCP_PORT || "3001"): string {
-  const replitDomain = process.env.REPLIT_DEV_DOMAIN;
   return (
     process.env.MCP_PUBLIC_URL ||
     process.env.SITE_URL ||
-    (replitDomain ? `https://${replitDomain}` : `http://127.0.0.1:${port}`)
+    `http://127.0.0.1:${port}`
   ).replace(/\/$/, "");
 }
 

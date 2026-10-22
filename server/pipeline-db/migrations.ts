@@ -9,7 +9,7 @@ import {
 } from "../events/types";
 import { sameAgentIdentity, type AgentActorLike } from "../../shared/agent-identity";
 
-export const PIPELINE_SCHEMA_VERSION = 36;
+export const PIPELINE_SCHEMA_VERSION = 39;
 
 export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
   {
@@ -731,6 +731,38 @@ export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
         CREATE INDEX IF NOT EXISTS idx_lead_submissions_product_id ON lead_submissions (product_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_lead_submissions_product_slug ON lead_submissions (product_slug, created_at);
       `);
+    },
+  },
+  {
+    version: 37,
+    name: "content_proposals_applies_after",
+    up(db) {
+      if (!tableExists(db, "content_proposals")) return;
+      for (const name of ["applies_after_proposal_id", "dependent_overdue_flagged_at"]) {
+        if (!tableHasColumn(db, "content_proposals", name)) {
+          db.exec(`ALTER TABLE content_proposals ADD COLUMN ${name} TEXT`);
+        }
+      }
+    },
+  },
+  {
+    version: 38,
+    name: "content_proposals_applies_after_index",
+    up(db) {
+      if (!tableHasColumn(db, "content_proposals", "applies_after_proposal_id")) return;
+      db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_content_proposals_applies_after ON content_proposals (applies_after_proposal_id)",
+      );
+    },
+  },
+  {
+    version: 39,
+    name: "content_proposals_url_slug_override",
+    up(db) {
+      if (!tableExists(db, "content_proposals")) return;
+      if (!tableHasColumn(db, "content_proposals", "url_slug_override_json")) {
+        db.exec("ALTER TABLE content_proposals ADD COLUMN url_slug_override_json TEXT");
+      }
     },
   },
 ];

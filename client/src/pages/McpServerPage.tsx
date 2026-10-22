@@ -112,7 +112,6 @@ interface McpReadiness {
   siteUrlConfigured: boolean;
   mcpServerSecretConfigured: boolean;
   mcpReachable: boolean;
-  replitDevDomain?: string | null;
 }
 
 interface McpParam {
@@ -257,12 +256,10 @@ function ConnectionPanel({
   mySetupRoles,
   siteUrlMissing,
   mcpSecretMissing,
-  readiness,
 }: {
   mySetupRoles: McpRoleFilter[];
   siteUrlMissing: boolean;
   mcpSecretMissing: boolean;
-  readiness?: McpReadiness;
 }) {
   const [setupPhase, setSetupPhase] = useState<SetupPhase>("role");
   const [roleChosen, setRoleChosen] = useState(false);
@@ -379,9 +376,6 @@ function ConnectionPanel({
                     </code>
                     . <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">SITE_URL</code>{" "}
                     is only the public URL of this running app for MCP authentication.
-                    {readiness?.replitDevDomain
-                      ? ` Replit can fall back to https://${readiness.replitDevDomain} in the workspace, but production deploys should set SITE_URL explicitly.`
-                      : ""}
                   </p>
                 </AlertDescription>
               </Alert>
@@ -896,7 +890,6 @@ export default function McpServerPage() {
               mySetupRoles={mySetupRoles}
               siteUrlMissing={siteUrlMissing}
               mcpSecretMissing={mcpSecretMissing}
-              readiness={readiness}
             />
           )}
           {activeTab === "tools" && (

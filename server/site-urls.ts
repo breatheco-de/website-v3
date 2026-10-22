@@ -1,10 +1,9 @@
 import path from "path";
 import { getSiteConfigs, type SiteConfig } from "./site-config";
 
-/** Deployment origin (no trailing slash): SITE_URL, Replit dev domain, or localhost. */
+/** Deployment origin (no trailing slash): SITE_URL, or localhost. */
 export function getBaseUrl(): string {
   if (process.env.SITE_URL) return process.env.SITE_URL.replace(/\/$/, "");
-  if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
   return "http://localhost:5000";
 }
 

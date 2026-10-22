@@ -45,11 +45,11 @@ const MAX_LOG_LINES = 500;
 
 export const INSTANCE_ID = crypto.randomBytes(2).toString('hex');
 
-let REPLIT_CHECKPOINT = '?';
+let APP_CHECKPOINT = '?';
 try {
-  REPLIT_CHECKPOINT = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
+  APP_CHECKPOINT = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
 } catch {
-  REPLIT_CHECKPOINT = '?';
+  APP_CHECKPOINT = '?';
 }
 
 let GITHUB_COMMIT: string | null = null;
@@ -409,7 +409,7 @@ export class SyncLog {
     this.logEntries = [];
     this.saveLocal();
     await this.saveToBucket();
-    this.log('RESTART', `Log cleared (instance=${INSTANCE_ID}, checkpoint=${REPLIT_CHECKPOINT})`);
+    this.log('RESTART', `Log cleared (instance=${INSTANCE_ID}, checkpoint=${APP_CHECKPOINT})`);
   }
 
   async clearOlderThan(cutoffMs: number): Promise<void> {
@@ -500,8 +500,8 @@ export function getInstanceId(): string {
   return INSTANCE_ID;
 }
 
-export function getReplitCheckpoint(): string {
-  return REPLIT_CHECKPOINT;
+export function getAppCheckpoint(): string {
+  return APP_CHECKPOINT;
 }
 
 export function getSyncLogEntries(): SyncLogEntry[] {

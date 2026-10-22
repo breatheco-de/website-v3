@@ -43,7 +43,14 @@ import {
 import { attachedOverlayStructureError, isEntryDetached, isSharedLayoutType } from "../shared-layout-entry";
 import { hasAnyLiveLocale, liveLocaleFileName } from "../draft-entry";
 import { validateYamlIdentity } from "../validate-content-identity";
-import { assertLocaleUrlAvailable } from "../locale-url-slug";
+import {
+  assertLocaleUrlAvailable,
+  checkNewLocaleUrlSlug,
+  ownLocaleSlug,
+  validateLocaleUrlSlugFormat,
+} from "../locale-url-slug";
+import { getContentTypeConfig } from "../content-types";
+import { assessSlugLocaleMatch, SLUG_LOCALE_MISMATCH_CODE } from "@shared/slug-locale-heuristic";
 import { ensurePublishedAtOnce } from "../published-at";
 import { clearSsrSchemaCache } from "../ssr-schema";
 import { invalidateContentCaches } from "../routes/_helpers";
@@ -137,6 +144,8 @@ export type PromoteWithTeardownArgs = {
   dryRun?: boolean;
   /** New locale with `seo.pillar_path: null`: why it stays out of every cluster. */
   seoStandaloneReason?: string | null;
+  /** Staff publish: this language's own URL slug chosen at publish time (`{ [locale]: slug }`). */
+  localeUrlSlugs?: Record<string, string> | null;
 };
 
 export type PromoteWarning = { code: string; message: string; fields?: string[] };
@@ -533,8 +542,37 @@ export async function promoteVariantWithOptionalTeardown(
     if (!gate.ok) return { ok: false, code: gate.code, error: gate.error, details: gate.details };
   }
 
+  const rawSlugOverride = args.localeUrlSlugs?.[locale];
+  const slugOverride = typeof rawSlugOverride === "string" ? rawSlugOverride.trim() : "";
+  if (slugOverride) {
+    const formatErr = validateLocaleUrlSlugFormat(slugOverride);
+    if (formatErr) {
+      return {
+        ok: false,
+        code: "invalid_locale_slug",
+        error: `Cannot promote: ${formatErr}`,
+        details: { locale, property_path: "slug" },
+      };
+    }
+  }
+
+  // --- New language of a live page: it needs its own address word, not the folder name by default ---
+  const isNewLanguage = !templateMode && !wasUnpublished && !fs.existsSync(defaultFilePath);
+  if (isNewLanguage) {
+    const draftOwn = safeLoadYaml(rebuiltContent ?? fs.readFileSync(variantFilePath, "utf-8")) ?? {};
+    const gate = checkNewLocaleUrlSlug({
+      draftOwnData: slugOverride ? { ...draftOwn, slug: slugOverride } : draftOwn,
+      entryIdentity: slug,
+      contentType,
+      locale,
+      urlPattern: getContentTypeConfig(contentType, contentRoot)?.url_pattern ?? null,
+    });
+    if (!gate.ok) return { ok: false, code: gate.code, error: gate.error, status: 409, details: gate.details };
+  }
+
   try {
-    const variantContent = stripDraftMetaFromRaw(rebuiltContent ?? fs.readFileSync(variantFilePath, "utf-8"));
+    let variantContent = stripDraftMetaFromRaw(rebuiltContent ?? fs.readFileSync(variantFilePath, "utf-8"));
+    if (slugOverride) variantContent = surgicalSetTopLevelKey(variantContent, "slug", slugOverride);
     const identityErr = validateYamlIdentity(variantContent, {
       contentType,
       contentSlug: slug,
@@ -614,6 +652,20 @@ export async function promoteVariantWithOptionalTeardown(
     }
 
     const liveContent = fs.existsSync(defaultFilePath) ? fs.readFileSync(defaultFilePath, "utf-8") : null;
+
+    const chosenSlug = templateMode ? null : ownLocaleSlug(parsedVariant);
+    const liveOwnSlug = liveContent ? ownLocaleSlug(safeLoadYaml(liveContent)) : null;
+    if (chosenSlug && (isNewLanguage || chosenSlug !== liveOwnSlug)) {
+      const match = assessSlugLocaleMatch(chosenSlug, locale);
+      if (!match.ok) {
+        const looksLike = match.inferredOpposite === "en" ? "English" : "Spanish";
+        warnings.push({
+          code: SLUG_LOCALE_MISMATCH_CODE,
+          message: `The ${locale} address "${chosenSlug}" looks ${looksLike} (${match.markers.join(", ")}). Published anyway; rename it with a redirect if that was not intended.`,
+          fields: ["slug"],
+        });
+      }
+    }
 
     // Component text limits (schema.yml text_limits). Only text that differs
     // from live counts; agents cannot override, staff can confirm.

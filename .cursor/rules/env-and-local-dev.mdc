@@ -1,5 +1,5 @@
 ---
-description: Environment variables, local development setup, and Replit transition
+description: Environment variables, local development setup, and deployment target
 alwaysApply: true
 ---
 
@@ -13,20 +13,19 @@ alwaysApply: true
 
 ## Local Development
 
-`npm run dev` (no Replit). Use `PORT` (default 5000) and `SITE_URL` for canonical URLs when needed. Avoid relying on `REPL_ID` or `REPLIT_DEV_DOMAIN`.
+`npm run dev`. Use `PORT` (default 5000) and `SITE_URL` for canonical URLs when needed. Node 24 (patched: 24.22.1+).
 
-## Replit Configuration
+## Deployment
 
-**vite.config.ts**: Already updated to work locally. Replit plugins (cartographer, dev-banner) are conditionally loaded only when `REPL_ID` is set, so local development works without Replit-specific tooling. Runtime error overlay plugin is always included.
+Production runs on a DigitalOcean VPS via GitHub Actions + `scripts/deploy.sh` ([docs/vps.md](docs/vps.md)). Replit is retired: do not add Replit config, `@replit/*` packages, or `REPLIT_*` / `REPL_ID` fallbacks.
 
 ## Gitignore for Local Development
 
-Since the site is still deployed on Replit, add local-only files to `.gitignore` to prevent conflicts:
+Keep local-only files out of git:
 - `.env` (environment variables with secrets)
 - `.env.local` (local overrides)
-- `.cursor/` (Cursor IDE settings - optional, team may want to share some rules)
 - `*.log` (local log files)
-- `.DS_Store` (already present)
+- `.DS_Store`
 - IDE-specific files (`.vscode/`, `.idea/`) if not shared across team
 
 ## Environment Setup
@@ -35,4 +34,4 @@ Document local setup: `npm install`, `cp .env.example .env`, set `DATABASE_URL` 
 
 ## URL Configuration
 
-Use `SITE_URL` for sitemap, canonical URLs, hreflang, the Lighthouse admin tool (`/api/admin/lighthouse/*`), and instead of relying on `REPLIT_DEV_DOMAIN` for public URLs. Replace hardcoded `replit.app` URLs (e.g. in [SchemaOrg](client/src/components/SchemaOrg.tsx)) with this configurable base URL.
+Use `SITE_URL` for sitemap, canonical URLs, hreflang, MCP OAuth metadata, and the Lighthouse admin tool (`/api/admin/lighthouse/*`). Without it the app falls back to `http://localhost:5000`; never hardcode a deployment hostname.

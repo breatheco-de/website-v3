@@ -163,32 +163,9 @@ export function getVM(res: Response): VariableManager {
 // The active dev site is stored in a plain text file on disk:
 //   .local/dev-site-override
 //
-// ⚠️  DO NOT REPLACE THIS WITH COOKIES — EVER.
-//
-// We tried cookies. They do not work reliably in the Replit dev environment.
-// Here is exactly why:
-//
-//   Replit's workspace embeds the app (worf.replit.dev) inside an iframe on
-//   replit.com. Modern browsers treat the embedded domain as a THIRD-PARTY
-//   context relative to the top-level page (replit.com). This means:
-//
-//   • document.cookie writes from the app are silently ignored by Chrome/Edge
-//     when third-party cookie blocking is active (Chrome 115+).
-//
-//   • Set-Cookie response headers from the server (even with SameSite=None;
-//     Secure) are also blocked — the browser receives the header but does NOT
-//     store the cookie for future requests.
-//
-//   • The result: the server calls /api/dev/set-site, gets {"ok":true}, but
-//     the cookie is never sent on the next request. The site never switches.
-//
-//   We tested SameSite=Lax, SameSite=None; Secure, and server-side Set-Cookie.
-//   All three fail silently in the Replit iframe context.
-//
-// The file-based approach bypasses all of this:
-//   • The file is written by the server (no browser involved).
-//   • The file is read by the server synchronously on every request.
-//   • No cookies, no iframe restrictions, no browser policy issues.
+// The file is written and read by the server (synchronously on every request),
+// so it works without cookies, including in embedded/iframe previews where
+// browsers block third-party cookies.
 //
 // localStorage is used as a CLIENT-SIDE MIRROR only — written in lockstep
 // with the file so injectDevSite() can append ?__site= to API calls. The file
@@ -279,8 +256,8 @@ export function siteResolutionMiddleware(req: Request, res: Response, next: Next
   // There is no override mechanism in production — and there should never be.
   //
   // In DEVELOPMENT the file is the single source of truth. If absent, falls
-  // through to req.hostname (which on Replit dev URLs is the worf.replit.dev
-  // hostname, not a real site domain, so the default site is used instead).
+  // through to req.hostname (localhost is not a real site domain, so the
+  // default site is used instead).
   //
   // Additionally, ?__site=<domain> on individual requests acts as a per-request
   // override so TanStack Query fetches with the injected param resolve to the

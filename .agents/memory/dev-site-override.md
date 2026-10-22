@@ -1,6 +1,6 @@
 ---
 name: Dev-site override architecture
-description: How site switching works in dev mode — file-based server truth + localStorage client mirror. Cookies are blocked in Replit's cross-origin iframe environment.
+description: How site switching works in dev mode — file-based server truth + localStorage client mirror. No cookies (blocked in cross-origin iframe previews).
 ---
 
 # Dev-site override: file-based approach
@@ -8,7 +8,7 @@ description: How site switching works in dev mode — file-based server truth + 
 ## The rule
 Never use cookies for the dev-site override. Use `.local/dev-site-override` (server) + `localStorage.__dev_site` (client) written atomically together.
 
-**Why:** Replit's workspace embeds the app at `worf.replit.dev` inside `replit.com`. Modern browsers block all cookies (both `document.cookie` writes and `Set-Cookie` response headers) for cross-origin iframes — this applies to `SameSite=Lax` AND `SameSite=None; Secure`. No cookie attribute makes cookies reliable in this context.
+**Why:** When the app is previewed inside a cross-origin iframe, modern browsers block all cookies (both `document.cookie` writes and `Set-Cookie` response headers) — `SameSite=Lax` AND `SameSite=None; Secure`. The server-side file works regardless of how the app is embedded.
 
 ## How to apply
 

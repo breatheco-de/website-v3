@@ -7,6 +7,7 @@ export type ProposalsSubtopicId =
   | "reading"
   | "situations"
   | "internal-links"
+  | "hub-split"
   | "serp-title-description"
   | "funnel-classification"
   | "idea-opportunity-harm"
@@ -42,6 +43,11 @@ export const PROPOSALS_SUBTOPICS: readonly ProposalsSubtopicDef[] = [
     id: "internal-links",
     description: "Hub/internal link author + reviewer playbook",
     fileStem: "internal-links-proposals",
+  },
+  {
+    id: "hub-split",
+    description: "Split an overloaded hub: new hub idea, chained rewrite of the original hub, member moves",
+    fileStem: "hub-split-proposals",
   },
   {
     id: "serp-title-description",
@@ -85,6 +91,7 @@ export const EXPLAIN_TOPIC_ALIASES: Record<
   "reading-proposals": { topic: "proposals", subtopic: "reading" },
   "review-situations": { topic: "proposals", subtopic: "situations" },
   "internal-links-proposals": { topic: "proposals", subtopic: "internal-links" },
+  "hub-split-proposals": { topic: "proposals", subtopic: "hub-split" },
   "serp-title-description-proposals": {
     topic: "proposals",
     subtopic: "serp-title-description",

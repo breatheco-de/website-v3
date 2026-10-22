@@ -11,6 +11,7 @@ import {
 
 export const REVIEW_SITUATION_IDS = [
   "internal_links",
+  "hub_split",
   "serp_title_description",
   "funnel_classification",
   "body_copy_edit",
@@ -107,6 +108,26 @@ export const REVIEW_SITUATION_CATALOG: Record<ReviewSituationId, ReviewSituation
       "Add same-locale internal links to the cluster hub. Content field only. Live figures stay as-is. No title or description changes.",
     ],
   },
+  hub_split: {
+    id: "hub_split",
+    label: "Hub split (original hub rewrite)",
+    when_to_use:
+      "Rewrite of the original hub after a split: the moved subtopic becomes a paragraph linking the new hub, and most links to the moved pages are removed. Declared only — never inferred. Chain it with applies_after_proposal_id to the new hub's edits proposal.",
+    explain_topic: "proposals",
+    explain_subtopic: "hub-split",
+    checklist_ids: ["hub_split"],
+    staff_note:
+      "Hub split — removing links to the pages that moved is intended. Check that only those links go, the new hub is linked, and no facts are lost.",
+    discovery_content_look_for: [
+      "list removed hrefs vs the split idea's members — only moved pages may lose their link",
+      "new hub href present, same locale, anchor names the subtopic",
+      "no dropped figures, years, employers, or sources outside the moved section",
+      "applies_after_proposal_id points at the new hub's edits proposal",
+    ],
+    author_summary_hints: [
+      "Hub split: the <subtopic> section now summarizes and links the new hub; links to the moved pages are removed (1–2 kept). Content only. Chained after the new hub's proposal.",
+    ],
+  },
   serp_title_description: {
     id: "serp_title_description",
     label: "Search title / description",
@@ -194,9 +215,11 @@ export const REVIEW_SITUATION_CATALOG: Record<ReviewSituationId, ReviewSituation
       "facts checked against the product",
       "CTA or link to a real program",
       "body/H2 must not expose series inventory, cluster membership, or companion-piece maps to readers",
+      "new language: own slug in that language, matching the idea's locked url_slug (or a credible url_slug_override.reason)",
     ],
     author_summary_hints: [
       "New public page or draft promote path. Angle, facts, and funnel CTA must be defensible.",
+      "New language of a live page: its own slug (the idea's locked url_slug is seeded; a different one needs url_slug_override.reason).",
       "layout_owner shared_template (attached post with no file): field updates only, no variant. Apply creates the post and leaves the shared template alone.",
       "layout_owner entry (landing, downloadable, detached entry): one full sections update for a new page or language, no variant. Apply publishes the whole page from the draft.",
     ],
@@ -253,11 +276,11 @@ export const REVIEW_SITUATION_CATALOG: Record<ReviewSituationId, ReviewSituation
       "90-day goal cite/rank/assist — not fill a cluster hole",
       "evidence follows declared demand label when present; with no label, score the summary (volume only for a search claim)",
       "named siblings / cannibal risk",
-      "kill criterion; link budget; locale doubling",
+      "kill criterion; hub link plan (which hub links the page at go-live, what happens to that link if killed); locale doubling",
       "wrong vehicle (funnel/SERP/links-only) → close and refile as edits",
     ],
     author_summary_hints: [
-      "Pitch a new URL or structural brief with goal, evidence, cannibal check, kill line, and link budget. Accept is greenlight only — no YAML.",
+      "Pitch a new URL or structural brief with goal, evidence, cannibal check, kill line, and hub link plan. Accept is greenlight only — no YAML.",
     ],
   },
   anticipated_demand: {
@@ -499,6 +522,7 @@ export function situationsRelevantToOps(
       case "serp_title_description":
         return hasSerp;
       case "internal_links":
+      case "hub_split":
         return hasBody;
       case "funnel_classification":
         return hasFunnel;
@@ -658,7 +682,7 @@ export function mergeSituations(
   const outcomeFigures =
     Boolean(opts?.outcomeFigures) || opts?.damageClass === "selling_page";
   const declaredNotImplied = declared.filter((d) => {
-    if (d === "internal_links") return !pathsSuggestBody(entries);
+    if (d === "internal_links" || d === "hub_split") return !pathsSuggestBody(entries);
     if (d === "serp_title_description") return !pathsSuggestSerp(entries);
     if (d === "funnel_classification") return !pathsSuggestFunnel(entries);
     if (d === "promote_draft") return !isPromoteOnly(entries, opts?.promoteOnApply);

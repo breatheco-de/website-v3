@@ -50,13 +50,12 @@ The subprocess runner (`navigation-eager-manifest-run.ts`) uses normal static im
 
 - `import.meta.url` inside a Rolldown bundle still reports the **original source file path**, not the `.vite-temp/` bundle path — do NOT rely on it for "am I bundled?" detection.
 - The `node_modules/@shared` symlink (`ln -sfn $(pwd)/shared node_modules/@shared`) fixes `@shared/*` alias resolution during Vite config pre-bundling. It must be created before `vite build` runs in the deployment build command.
-- The deployment build command in `.replit [deployment]` handles both layers:
-  1. `ln -sfn $(pwd)/shared node_modules/@shared` — symlink for `@shared` alias
-  2. `vite build` — config pre-bundling now succeeds (concatenated paths + symlink)
-  3. `esbuild server/index.ts --alias:@shared=./shared` — server bundle with alias
+- The VPS deploy (`scripts/deploy.sh`) handles both layers:
+  1. `ln -sfn $(pwd)/shared node_modules/@shared` (after `npm ci`) — symlink for `@shared` alias
+  2. `npm run build` — config pre-bundling succeeds (concatenated paths + symlink); server bundles alias `@shared` to `./shared`
 
 ## Files involved
 
 - `server/navigation-eager-manifest.ts` — the vite plugin entry; has try/catch + subprocess fallback
 - `server/navigation-eager-manifest-run.ts` — the subprocess runner with real static imports
-- `.replit [deployment].build` — the deployment build command with symlink step
+- `scripts/deploy.sh` — the deployment build with symlink step

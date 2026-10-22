@@ -15,10 +15,10 @@ Related runbooks (kept separate on purpose):
 |-------|--------|
 | App on droplet | Yes (`/opt/website-v3`, atomic releases) |
 | sGTM Docker on droplet | Yes (`/opt/sgtm`, tagging + preview) |
-| Public marketing | Still **Replit** |
+| Public marketing | **Droplet** (Replit retired) |
 | Public metrics / sGTM | Still **Stape** (`metrics.4geeks.com`) |
 | Lab TLS | Let’s Encrypt on **sslip** hostnames only |
-| Prod DNS cutover | Not done — see [§9 Cutover](#9-cutover-pending) |
+| Prod DNS cutover | App done; metrics / sGTM — see [§9 Cutover](#9-cutover-pending) |
 
 Security model: **origin behind Cloudflare** (orange proxy, SSL Full or Full strict), not a site meant to be browsed only by raw IP.
 
@@ -98,7 +98,7 @@ Actions secrets for SSH: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY
 
 ### 4.2 `scripts/deploy.sh`
 
-1. Acquire deploy lock (`/tmp/website-v3-deploy.lock` with **pid + sha**; stale recovery). Order: `mkdir` → write `pid` → clear this SHA’s `.abort` → write `sha` (avoids same-SHA re-entry wiping another run’s abort, and avoids clearing an abort waiters already set after seeing `sha`). Waiters with a newer SHA `touch` abort for the running SHA. Lock is held by this process (not the Actions SSH poll). After a successful deploy, prune `.deploy-state/*.{log,done,abort}` older than 7 days.
+1. Acquire deploy lock, then refuse unpatched Node (see 4.4) before any release work. Lock (`/tmp/website-v3-deploy.lock` with **pid + sha**; stale recovery). Order: `mkdir` → write `pid` → clear this SHA’s `.abort` → write `sha` (avoids same-SHA re-entry wiping another run’s abort, and avoids clearing an abort waiters already set after seeing `sha`). Waiters with a newer SHA `touch` abort for the running SHA. Lock is held by this process (not the Actions SSH poll). After a successful deploy, prune `.deploy-state/*.{log,done,abort}` older than 7 days.
 2. `git archive` → `releases/<sha>/` (if that path is already `current`, builds into `releases/<sha>.rebuild-<pid>` — **never** `rm -rf` the live tree)
 3. Symlinks for `data` / `.cache` / `sites.yml` / … (not `site_*`); create real empty `site_*` dirs
 4. Write `.env`
@@ -121,6 +121,23 @@ sudo systemctl restart website
 ```
 
 Prefer a normal Actions deploy to an older SHA if you also need a fresh `.env` from secrets.
+
+### 4.4 Node runtime
+
+The droplet runs the system Node (`/usr/bin/node`). `deploy.sh` checks it first and stops (before touching the live release) when it is older than the last Node security release: **24.22.1** (or 22.23.4 / 26.12.1). The failed Actions run says `Node <version> on this server is unpatched`. The live site keeps serving the previous release.
+
+To upgrade (as root, Node 24 from NodeSource):
+
+```bash
+node -v && apt-cache policy nodejs        # confirm current version and source
+curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+apt-get install -y nodejs
+node -v                                    # expect v24.22.1 or newer
+```
+
+Then run **Deploy to VPS** again (Actions → Run workflow). Do not just `systemctl restart website`: when the major version changes, the live release's native modules (`better-sqlite3`, `sharp`) were compiled for the old Node and will not load. A fresh deploy runs `npm ci` on the new Node. Also `systemctl restart cpu-capture` (it runs `/usr/bin/node` directly).
+
+When Node ships the next security release, raise the floors in `require_patched_node` in [`scripts/deploy.sh`](../scripts/deploy.sh). CI ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) uses `node-version: "24"`, which already picks up the latest 24.x.
 
 ---
 
@@ -280,7 +297,7 @@ No secret values in this doc.
 ### 7.2 Controls already applied (summary)
 
 - Fail2ban jail `sshd` (journal backend on Ubuntu 24.04).
-- Node / MCP / Qdrant listen on loopback on the VPS (`LISTEN_HOST=127.0.0.1` on droplet; Replit may still need `0.0.0.0`).
+- Node / MCP / Qdrant listen on loopback on the VPS (`LISTEN_HOST=127.0.0.1` on droplet).
 - Turnstile required in production start.
 - Staff `/private` and edit APIs are not anonymous.
 - MCP: `MCP_SERVER_SECRET` is a **loopback** credential (MCP → capability check), not a public API key for browsers.
@@ -310,7 +327,7 @@ Runtime secrets can come from **GitHub Actions** (`_WEBSITE_*` → pack → merg
 1. Never commit `.env`.
 2. Deploy materializes env with restrictive umask (`640`); rotate by changing the secret and redeploying.
 3. Workflow must not print secret values.
-4. Code/runtime secrets vs content-repo token stay out of git; Replit secrets stay on Replit if a parallel env still exists.
+4. Code/runtime secrets vs content-repo token stay out of git.
 5. `sites.yml` is not an app secret but is gitignored in the code repo.
 
 Typical names (not values): `DATABASE_URL`, `SESSION_SECRET`, `SITE_URL`, `PORT`, `LISTEN_HOST`, `TURNSTILE_*`, `MCP_*`, `MCP_TOKEN_ENCRYPTION_KEY`, `GITHUB_*` (content + App Connect), `GCS_*`, `OPENROUTER_API_KEY`, `VITE_BREATHECODE_HOST`, `QDRANT_URL`, `IPN_SECRET`, …
@@ -349,6 +366,7 @@ Rate limit APIs/forms/`/mcp`, not a blunt global RPS on all static assets.
 | Item | Expected |
 |------|----------|
 | OS | Ubuntu 24.04 |
+| Node | 24.22.1+ system install (`/usr/bin/node`); deploy refuses older, see 4.4 |
 | App root | `/opt/website-v3` |
 | Process | `website.service` → `start-production.sh` → pm2-runtime (`web`, `mcp`, `sidequest`, `qdrant`) |
 | Reverse proxy | Nginx 80/443 |
@@ -363,7 +381,7 @@ IP, hostname, and which DNS records already point here: check DigitalOcean + Clo
 
 **Done in lab:** app on droplet, sGTM Docker, Nginx metrics `/gtm/` → 8081, Preview on sslip.
 
-**Public today:** Replit + Stape. Detail: [`sgtm-prod-cutover.md`](sgtm-prod-cutover.md).
+**Public today:** app on the droplet; metrics on Stape until step A is done. Detail: [`sgtm-prod-cutover.md`](sgtm-prod-cutover.md).
 
 ### A — sGTM first (metrics only)
 
@@ -381,15 +399,11 @@ IP, hostname, and which DNS records already point here: check DigitalOcean + Clo
 
 Do **not** advance `PREVIEW_SERVER_URL` while metrics still points at Stape.
 
-### B — App after (4geeks + Florida)
+### B — App (4geeks + Florida) — done
 
-1. Cloudflare: `4geeks.com`, `www`, `fl.4geeksacademy.com` (and anything still on Replit) → same droplet IP.
-2. Certbot for those hostnames (not the sslip cert).
-3. Nginx HTTPS `server_name` for those hosts.
-4. Smoke: sites, `/sgtm`, `/ipn`, GitHub Actions deploy.
-5. Turn off Replit.
+The public sites run on the droplet and Replit is retired. For a new hostname: Cloudflare record → droplet IP, Certbot for that hostname, add it to the Nginx HTTPS `server_name`, then smoke-test the site, `/sgtm`, `/ipn` and a GitHub Actions deploy.
 
-**Order:** A first (easy rollback: metrics CNAME back to Stape). B after metrics is healthy. Same day is fine; two DNS flips.
+Rollback for A: point the metrics CNAME back to Stape.
 
 ---
 

@@ -83,7 +83,7 @@ type Category = (typeof CATEGORIES)[number];
 
 interface SyncInfo {
   instanceId: string;
-  replitCheckpoint: string;
+  appCheckpoint: string;
   githubCommit: string | null;
   repoUrl: string | null;
   env: string;
@@ -768,7 +768,7 @@ export default function SyncLogPage() {
               <span className="flex items-center gap-1.5">
                 <Server className="h-3.5 w-3.5" />
                 <code className="text-xs bg-muted px-1.5 py-0.5 rounded" data-testid="text-instance-id">
-                  {syncInfo.instanceId} · checkpoint {syncInfo.replitCheckpoint}
+                  {syncInfo.instanceId} · checkpoint {syncInfo.appCheckpoint}
                   {syncInfo.githubCommit && (
                     <>
                       {" · "}

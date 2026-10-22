@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-export type AttentionBadgeKind = "awaiting_rereview" | "no_feedback";
+export type AttentionBadgeKind = "awaiting_rereview" | "no_feedback" | "predecessor_applied";
 
 type AttentionBadgeProps = {
   attention: AttentionBadgeKind;
@@ -45,6 +45,16 @@ const COPY: Record<
       "Once someone leaves feedback or the author rewrites after review, this chip is replaced by Ready for re-check or Waiting on author.",
     ],
     variant: "outline",
+  },
+  predecessor_applied: {
+    label: "Ready: its page is live",
+    title: "The proposal this waits on is already published",
+    body: "This proposal was set to publish after another one, and that one is now live. Review and approve it soon — until then, visitors see the first change without this one (for example, a new page its hub does not link to yet).",
+    advanced: [
+      "Derived triage only — not a stored status. Set by applies_after_proposal_id when the predecessor is finished (fully applied). Sorted first in the reviewer queue.",
+      "Approving the first proposal never approves this one. After 48 hours it also shows an Overdue badge; it never closes by itself.",
+    ],
+    variant: "secondary",
   },
 };
 

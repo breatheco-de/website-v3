@@ -232,6 +232,7 @@ export type ClassifyProposalReviewOpts = {
     idea_funnel?: ProposalRecord["idea_funnel"];
     idea_seo_target?: ProposalRecord["idea_seo_target"];
     seo_target_override?: ProposalRecord["seo_target_override"];
+    url_slug_override?: ProposalRecord["url_slug_override"];
     affected_entries?: ProposalRecord["affected_entries"];
     created_at?: ProposalRecord["created_at"];
   };
@@ -241,6 +242,8 @@ export type ClassifyProposalReviewOpts = {
   ideaSeoTargetMonitored?: (contentType: string) => boolean;
   /** Edits implementing an idea: that idea's locked keyword + cluster. */
   implementedIdeaSeoTarget?: IdeaSeoTarget | null;
+  /** Edits implementing an idea: the language address it locked ({ locale, url_slug }). */
+  implementedIdeaUrlSlug?: { contentType: string; slug: string; locale: string; url_slug: string } | null;
   relatedOpen?: RelatedOpenProposal[];
   /** Snapshot from DB for change detection. */
   snapshot?: { damage_class?: string } | null;
@@ -549,6 +552,30 @@ export function classifyProposalReview(opts: ClassifyProposalReviewOpts): Review
           message: `Implements an idea with locked SEO target ${describeIdeaSeoTarget(locked)}; the new page's draft is seeded with it.`,
         });
       }
+    }
+
+    const lockedSlug = opts.implementedIdeaUrlSlug;
+    if (lockedSlug) {
+      const target = toClassify.find(
+        (e) => e.contentType === lockedSlug.contentType && e.slug === lockedSlug.slug && e.locale === lockedSlug.locale,
+      );
+      const slugOp = target?.ops?.find((o) => o.field_path === "slug" && typeof o.value === "string");
+      const proposed = typeof slugOp?.value === "string" ? slugOp.value : null;
+      warnings.push(
+        proposed && proposed !== lockedSlug.url_slug
+          ? {
+              code: "idea_url_slug_override",
+              message:
+                `Locked ${lockedSlug.locale} address: "${lockedSlug.url_slug}". These edits set slug "${proposed}". ` +
+                `Override reason: ${proposal.url_slug_override?.reason ?? "(none)"}. Reviewer: is the reason credible?`,
+            }
+          : {
+              code: "idea_url_slug_locked",
+              message:
+                `Implements an idea that locked the ${lockedSlug.locale} address "${lockedSlug.url_slug}" (slug: in ${lockedSlug.locale}.yml); ` +
+                `the folder name "${lockedSlug.slug}" stays the page ID and other languages keep their addresses.`,
+            },
+      );
     }
 
     for (const e of toClassify) {

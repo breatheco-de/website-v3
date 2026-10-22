@@ -1246,7 +1246,7 @@ export function registerGithubRoutes(app: Express): void {
       const {
         getSyncLogForResponse,
         getInstanceId,
-        getReplitCheckpoint,
+        getAppCheckpoint,
         getGithubCommit,
       } = await import("../sync-log");
       const { getWebhookInfo } = await import("../sync-state");
@@ -1258,7 +1258,7 @@ export function registerGithubRoutes(app: Express): void {
       const repoUrl = (site?.config?.githubRepoUrl || process.env.GITHUB_REPO_URL || "").replace(/\.git$/, "");
       res.json({
         instanceId: getInstanceId(),
-        replitCheckpoint: getReplitCheckpoint(),
+        appCheckpoint: getAppCheckpoint(),
         githubCommit: getGithubCommit(),
         repoUrl: repoUrl || null,
         env: process.env.NODE_ENV || "development",

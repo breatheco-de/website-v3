@@ -32,7 +32,7 @@ import {
 import { markFileAsModified } from "../sync-state";
 import { emitEntryLocalePromoted, emitEntryLocaleUnpublished } from "../content-events";
 import { deepMerge } from "../utils/deepMerge";
-import { assertLocaleUrlAvailable } from "../locale-url-slug";
+import { assertLocaleUrlAvailable, localeUrlSlugsFromBody } from "../locale-url-slug";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager } from "../database";
 import {
@@ -1042,6 +1042,7 @@ export function registerVersioningRoutes(app: Express): void {
         dryRun,
         seoStandaloneReason:
           typeof req.body?.seo_standalone_reason === "string" ? req.body.seo_standalone_reason : null,
+        localeUrlSlugs: localeUrlSlugsFromBody(req.body),
       });
 
     try {
@@ -1158,6 +1159,7 @@ export function registerVersioningRoutes(app: Express): void {
       dryRun: req.body?.dry_run === true,
       seoStandaloneReason:
         typeof req.body?.seo_standalone_reason === "string" ? req.body.seo_standalone_reason : null,
+      localeUrlSlugs: localeUrlSlugsFromBody(req.body),
     });
     if (!result.ok) {
       res.status(result.status ?? 400).json({

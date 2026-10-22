@@ -14,6 +14,11 @@ import {
   DisplayValuesChangeNotice,
   type DisplayValueChange,
 } from "@/components/editing/DisplayValuesChangeNotice";
+import {
+  isValidLocaleUrlSlug,
+  LOCALE_URL_SLUG_REQUIRED_CODE,
+  LocaleUrlSlugPrompt,
+} from "@/components/editing/LocaleUrlSlugPrompt";
 import { TextLimitsIssue } from "@/components/TextLimitsIssue";
 import { deslugify } from "../utils/debugHelpers";
 import { IconRobot, IconArrowLeft, IconGitBranch, IconRefresh, IconPencil, IconCheck, IconX, IconPlayerPlay, IconPlus, IconHistory, IconExternalLink, IconCrown, IconTrash, IconDots, IconCode, IconShare, IconCopy, IconEyeOff } from "@tabler/icons-react";
@@ -328,7 +333,10 @@ export function VersioningView({
     violations?: TextLimitViolation[];
     brokenLinks?: BrokenInternalLink[];
     displayChange?: { locale: string; fields: DisplayValueChange[]; paths?: { common?: string; locale?: string } };
+    urlSlug?: { locale: string; currentSlug: string };
   } | null>(null);
+  const [promoteUrlSlugInput, setPromoteUrlSlugInput] = useState("");
+  const [promoteUrlSlugs, setPromoteUrlSlugs] = useState<Record<string, string>>({});
   const [promoteConfirms, setPromoteConfirms] = useState<{
     overwrite: boolean;
     source: boolean;
@@ -477,13 +485,16 @@ export function VersioningView({
   const resetPromoteIssue = () => {
     setPromoteIssue(null);
     setPromoteConfirms({ overwrite: false, source: false, textLimits: false, displayChange: false });
+    setPromoteUrlSlugInput("");
+    setPromoteUrlSlugs({});
   };
 
-  const promoteConfirmBody = (confirms = promoteConfirms) => ({
+  const promoteConfirmBody = (confirms = promoteConfirms, urlSlugs = promoteUrlSlugs) => ({
     ...(confirms.overwrite ? { confirm_overwrite_newer_live: true } : {}),
     ...(confirms.source ? { confirm_source_changed: true } : {}),
     ...(confirms.textLimits ? { confirm_text_limits: true } : {}),
     ...(confirms.displayChange ? { confirm_display_change: true } : {}),
+    ...(Object.keys(urlSlugs).length ? { locale_url_slugs: urlSlugs } : {}),
   });
 
   /** Keep the dialog open and ask again when the server needs an explicit overwrite confirm. */
@@ -497,9 +508,22 @@ export function VersioningView({
       locale?: string;
       fields?: DisplayValueChange[];
       paths?: { common?: string; locale?: string };
+      current_slug?: string;
     };
   }): boolean => {
     const code = data.code;
+    if (code === LOCALE_URL_SLUG_REQUIRED_CODE) {
+      setPromoteIssue({
+        code,
+        message: data.error || "This new language needs its own web address.",
+        urlSlug: {
+          locale: data.details?.locale ?? data.locale ?? promoteTarget?.locale ?? "",
+          currentSlug: data.details?.current_slug ?? contentInfo.slug ?? "",
+        },
+      });
+      setPromoteUrlSlugInput("");
+      return true;
+    }
     if (code === DISPLAY_VALUES_CHANGE_CODE) {
       setPromoteIssue({
         code,
@@ -549,7 +573,7 @@ export function VersioningView({
     if (linkText) toast({ title: "Check the links on this page", description: linkText });
   };
 
-  const handlePromote = async (confirms = promoteConfirms) => {
+  const handlePromote = async (confirms = promoteConfirms, urlSlugs = promoteUrlSlugs) => {
     if (!promoteTarget || !contentInfo.type || !contentInfo.slug) return;
     setIsPromoting(true);
     try {
@@ -563,7 +587,7 @@ export function VersioningView({
           {
             method: "POST",
             headers,
-            body: JSON.stringify({ variantSlug: promoteTarget.slug, ...promoteConfirmBody(confirms) }),
+            body: JSON.stringify({ variantSlug: promoteTarget.slug, ...promoteConfirmBody(confirms, urlSlugs) }),
           },
         );
         const data = await res.json();
@@ -598,7 +622,7 @@ export function VersioningView({
 
       const res = await fetch(
         `/api/versioning/${contentInfo.type}/${versioningWriteSlug}/${promoteTarget.locale}/promote/${promoteTarget.slug}`,
-        { method: "POST", headers, body: JSON.stringify(promoteConfirmBody(confirms)) }
+        { method: "POST", headers, body: JSON.stringify(promoteConfirmBody(confirms, urlSlugs)) }
       );
       const data = await res.json();
       if (!res.ok) {
@@ -2107,6 +2131,13 @@ export function VersioningView({
               paths={promoteIssue.displayChange.paths}
               className="max-h-72 overflow-y-auto"
             />
+          ) : promoteIssue?.code === LOCALE_URL_SLUG_REQUIRED_CODE && promoteIssue.urlSlug ? (
+            <LocaleUrlSlugPrompt
+              locale={promoteIssue.urlSlug.locale}
+              currentSlug={promoteIssue.urlSlug.currentSlug}
+              value={promoteUrlSlugInput}
+              onChange={setPromoteUrlSlugInput}
+            />
           ) : promoteIssue ? (
             <p
               className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
@@ -2120,6 +2151,13 @@ export function VersioningView({
             <Button
               variant="destructive"
               onClick={() => {
+                if (promoteIssue?.code === LOCALE_URL_SLUG_REQUIRED_CODE && promoteIssue.urlSlug) {
+                  const nextSlugs = { ...promoteUrlSlugs, [promoteIssue.urlSlug.locale]: promoteUrlSlugInput.trim() };
+                  setPromoteUrlSlugs(nextSlugs);
+                  setPromoteIssue(null);
+                  void handlePromote(promoteConfirms, nextSlugs);
+                  return;
+                }
                 if (promoteIssue) {
                   const isTextLimits = promoteIssue.code === TEXT_LIMITS_EXCEEDED_CODE;
                   const isDisplayChange = promoteIssue.code === DISPLAY_VALUES_CHANGE_CODE;
@@ -2138,7 +2176,10 @@ export function VersioningView({
                 }
                 void handlePromote();
               }}
-              disabled={isPromoting}
+              disabled={
+                isPromoting ||
+                (promoteIssue?.code === LOCALE_URL_SLUG_REQUIRED_CODE && !isValidLocaleUrlSlug(promoteUrlSlugInput))
+              }
               className="w-full"
               data-testid="button-confirm-promote"
             >
@@ -2147,7 +2188,9 @@ export function VersioningView({
               ) : (
                 <IconCrown className="h-4 w-4" />
               )}
-              {promoteIssue
+              {promoteIssue?.code === LOCALE_URL_SLUG_REQUIRED_CODE
+                ? "Publish with this address"
+                : promoteIssue
                 ? "Publish anyway"
                 : isDraftEntry
                   ? "Yes, publish now"

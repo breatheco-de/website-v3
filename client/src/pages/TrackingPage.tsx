@@ -1040,7 +1040,7 @@ function IpNormalizationSection() {
       toast({
         title: "Secret generated and copied",
         description:
-          "Paste it as IPN_SECRET on the host (Secret Manager / .env / Replit Secrets), then restart. This UI never saves it.",
+          "Paste it as IPN_SECRET on the host (Secret Manager / .env / deploy secrets), then restart. This UI never saves it.",
       });
     } catch {
       toast({
@@ -1189,7 +1189,7 @@ function IpNormalizationSection() {
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Host env only — never written to <code className="font-mono">settings.yml</code>. Generate a value,
-                    paste it as <code className="font-mono">IPN_SECRET</code> (Secret Manager / .env / Replit Secrets),
+                    paste it as <code className="font-mono">IPN_SECRET</code> (Secret Manager / .env / deploy secrets),
                     restart the app, and set the same value as a Constant in the GTM <em>server</em> container for{" "}
                     <code className="font-mono">{IPN_TOKEN_HEADER}</code>.
                   </p>

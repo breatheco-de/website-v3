@@ -78,6 +78,7 @@ const WRITE_ACTIONS = new Set<ProposalUpdateAction>([
   "set_idea_funnel",
   "set_idea_seo_target",
   "set_related_entries",
+  "set_applies_after",
   "escalate",
   "deescalate",
   "review_outcome",
@@ -105,6 +106,7 @@ const ALL_ACTIONS = new Set<ProposalUpdateAction>([
   "set_idea_funnel",
   "set_idea_seo_target",
   "set_related_entries",
+  "set_applies_after",
   "escalate",
   "deescalate",
   "review_outcome",
@@ -474,6 +476,7 @@ export function registerProposalRoutes(app: Express): void {
         result.code === "mixed_risk_bundle" ||
         result.code === "supersedes_already_replaced" ||
         result.code === "supersedes_not_closed" ||
+        result.code === "applies_after_closed" ||
         result.code === "implements_required" ||
         result.code === "idea_already_in_progress" ||
         result.code === "implements_entry_mismatch" ||
@@ -566,7 +569,12 @@ export function registerProposalRoutes(app: Express): void {
       // Staff UI may retag; MCP authors must be proposer (enforced in service).
       asStaff = actor?.type !== "mcp";
     }
-    if (action === "set_idea_funnel" || action === "set_idea_seo_target" || action === "set_related_entries") {
+    if (
+      action === "set_idea_funnel" ||
+      action === "set_idea_seo_target" ||
+      action === "set_related_entries" ||
+      action === "set_applies_after"
+    ) {
       asStaff = actor?.type !== "mcp";
     }
     if (action === "escalate" || action === "deescalate" || OUTCOME_ACTIONS.has(action)) {
@@ -691,7 +699,14 @@ export function registerProposalRoutes(app: Express): void {
           ? req.body.idea_seo_target
           : undefined,
       seo_target_override: req.body?.seo_target_override ?? undefined,
+      url_slug_override: req.body?.url_slug_override ?? undefined,
       related_entries: Array.isArray(req.body?.related_entries) ? req.body.related_entries : undefined,
+      applies_after_proposal_id:
+        typeof req.body?.applies_after_proposal_id === "string"
+          ? req.body.applies_after_proposal_id
+          : req.body?.applies_after_proposal_id === null
+            ? null
+            : undefined,
       escalated_note:
         typeof req.body?.escalated_note === "string" ? req.body.escalated_note : undefined,
       outcome_review:
@@ -739,7 +754,9 @@ export function registerProposalRoutes(app: Express): void {
                 result.code === "variant_has_traffic" ||
                 result.code === "draft_base_unknown" ||
                 result.code === "confirm_affected_entries" ||
-                result.code === "revert_conflicts"
+                result.code === "revert_conflicts" ||
+                result.code === "predecessor_not_applied" ||
+                result.code === "applies_after_cycle"
               ? 409
               : result.code === "text_limits_exceeded"
                 ? 422
