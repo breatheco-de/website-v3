@@ -6,6 +6,21 @@ window_days: 6
 
 entries:
   - date: "2026-10-22"
+    summary: "list_variants reports variant files versioning.yml is missing; versioning.yml now commits with the variant file"
+    agent_impact:
+      - "list_variants adds unregistered_variants [{ locale, slug, fileName }] (live-only and versioned payloads) plus warning unregistered_variant_files with the relative paths. Those files get no traffic and cannot be promoted or allocated until listed; staff register them at 0% (Versions panel → Add to versions, or validation fixer register-unlisted-variants). Live content does not change. create_variant with the same slug still 409s."
+      - "Since 2026-08-25 most versioning.yml changes (create_variant, traffic, delete, promote) stayed unpushed in production: they were queued under an author with no GitHub connection. They are now queued under the person who made the change, in the same commit as the variant file; already-stuck changes push on the next sync."
+      - "Validator draft-integrity adds warning UNREGISTERED_VARIANT_FILE (fix register-unlisted-variants)."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/pages.ts
+      - server/routes/versioning.ts
+      - server/draft-entry.ts
+      - server/versioning/VersioningManager.ts
+      - server/auto-commit.ts
+      - scripts/validation/validators/draft-integrity.ts
+      - scripts/validation/fixers/draft-integrity.ts
+  - date: "2026-10-22"
     summary: "Every lead form needs one mandatory consent checkbox; publish refuses consent_no_mandatory_checkbox"
     agent_impact:
       - "Rule: General and Marketing are mandatory whenever shown (both → both, validator warning FORM_TWO_REQUIRED_CONSENTS); a custom consent only when neither is shown; otherwise the site Default (consent.fallback) appears as the mandatory one. SMS, Email and WhatsApp never count. explain_site topic lead-forms → Consent checkboxes."

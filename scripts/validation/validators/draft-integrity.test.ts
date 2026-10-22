@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import yaml from "js-yaml";
-import { commonKeysInLocale, isOrphanVersioning, localeKeysInCommon } from "./draft-integrity";
+import { commonKeysInLocale, isOrphanVersioning, localeKeysInCommon, unregisteredVariants } from "./draft-integrity";
 import { planFieldScopeFix } from "../fixers/draft-integrity";
 import type { ScannedEntry } from "../shared/draft-scan";
 
@@ -34,6 +34,25 @@ describe("draft-integrity", () => {
     expect(
       isOrphanVersioning(entry({ versioningPath: empty, variants: [{ variant: "draft", locale: "es", filePath: draft }] })),
     ).toBe(false);
+  });
+
+  it("unregistered variants: files versioning.yml does not list, per locale", () => {
+    const rewrite = write("rewrite.en.yml", { title: "x" });
+    const draftEs = write("draft.es.yml", { title: "y" });
+    const variants = [
+      { variant: "rewrite", locale: "en", filePath: rewrite },
+      { variant: "draft", locale: "es", filePath: draftEs },
+    ];
+    expect(unregisteredVariants(entry({ variants })).map((v) => v.variant)).toEqual(["rewrite", "draft"]);
+
+    const versioningPath = write("versioning.yml", { es: { variants: [{ slug: "draft", allocation: 0 }] } });
+    expect(unregisteredVariants(entry({ versioningPath, variants }))).toEqual([variants[0]]);
+
+    write("versioning.yml", { en: { variants: [{ slug: "draft", allocation: 0 }] } });
+    expect(unregisteredVariants(entry({ versioningPath, variants })).map((v) => `${v.variant}.${v.locale}`)).toEqual([
+      "rewrite.en",
+      "draft.es",
+    ]);
   });
 
   it("only listed per-language keys count as misplaced in _common.yml", () => {

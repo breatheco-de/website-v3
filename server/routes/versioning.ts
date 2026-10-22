@@ -148,6 +148,7 @@ import {
   findSourceDraftVariant,
   usesDraftFirstCreate,
   liveLocaleFileName,
+  listUnregisteredVariantFiles,
 } from "../draft-entry";
 import {
   resolveTemplateLocalePath,
@@ -163,6 +164,7 @@ import {
   variantTrafficErrorMessage,
 } from "../versioning/delete-variant.js";
 import { ensurePublishedAtOnce, readPublishedAt } from "../published-at";
+import { api } from "../rate-limit/api.js";
 import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveSingleVars } from "../single-resolver";
@@ -438,6 +440,12 @@ export function registerVersioningRoutes(app: Express): void {
 
     const attached = shared && !templateMode && !detached;
     const isDraft = !hasLiveDefault && !templateMode;
+    const unregisteredVariants = listUnregisteredVariantFiles(
+      contentDir,
+      versioning,
+      templateMode,
+      availableLocales,
+    );
 
     if (!versioning) {
       res.json({
@@ -455,6 +463,7 @@ export function registerVersioningRoutes(app: Express): void {
         title,
         updatedAt,
         publishedAt,
+        unregisteredVariants,
         proposalsByVariant: {},
       });
       return;
@@ -475,6 +484,7 @@ export function registerVersioningRoutes(app: Express): void {
       title,
       updatedAt,
       publishedAt,
+      unregisteredVariants,
       proposalsByVariant: templateMode
         ? {}
         : await proposalsByVariantFor({
@@ -715,7 +725,10 @@ export function registerVersioningRoutes(app: Express): void {
         }
 
         const updated = { ...existing, [locale]: { variants: newVariants } };
-        versioningManager.updateVersioning(contentType, resolved.slug, updated);
+        versioningManager.updateVersioning(contentType, resolved.slug, updated, {
+          author: auth.author,
+          contentRoot: root,
+        });
         invalidateContentCaches(contentType, ci);
 
         for (const slug of unpublishedSlugs) {
@@ -917,7 +930,12 @@ export function registerVersioningRoutes(app: Express): void {
         localeData.variants.push({ slug: variantSlug, allocation: 0 });
       }
 
-      versioningManager.updateVersioning(contentType, resolved.slug, { ...existing, [locale]: localeData });
+      versioningManager.updateVersioning(
+        contentType,
+        resolved.slug,
+        { ...existing, [locale]: localeData },
+        { author: auth.author, contentRoot: root },
+      );
 
       res.json({
         success: true,
@@ -931,6 +949,83 @@ export function registerVersioningRoutes(app: Express): void {
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }
+  });
+
+  // Register an existing variant file that versioning.yml does not list (at 0% traffic)
+  api.post(app, "/api/versioning/:contentType/:contentSlug/register", { rate: "staffWrite" }, async (req, res) => {
+    const { contentType, contentSlug } = req.params;
+
+    if (!isValidType(contentType)) {
+      res.status(400).json({ error: "Invalid content type", validTypes: getAllFolders() });
+      return;
+    }
+
+    const auth = await requireCapability(req, res, "content_create_variant", contentType);
+    if (!auth.authorized) return;
+
+    const root = getContentRoot(res);
+    const resolved = resolveWritableVersioningSlug(contentType, contentSlug, root);
+    if (!resolved.ok) {
+      res.status(resolved.status).json({ error: resolved.error });
+      return;
+    }
+
+    const { variantSlug, locale } = (req.body ?? {}) as { variantSlug?: string; locale?: string };
+    if (!variantSlug || !locale) {
+      res.status(400).json({ error: "variantSlug and locale are required" });
+      return;
+    }
+    if (!/^[a-z0-9-]+$/.test(variantSlug) || isReservedTemplateVariantSlug(variantSlug)) {
+      res.status(400).json({ error: "Invalid variantSlug" });
+      return;
+    }
+    if (!/^[a-z]{2}(-[A-Z]{2})?$/.test(locale)) {
+      res.status(400).json({ error: "locale must be a valid language code (e.g. en, es, pt-BR)" });
+      return;
+    }
+
+    const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+    const contentDir = path.resolve(versioningManager.getVersioningContentDir(contentType, resolved.slug));
+    const variantFilePath = path.resolve(
+      versioningManager.getVariantFilePath(contentType, resolved.slug, variantSlug, locale),
+    );
+    if (!variantFilePath.startsWith(contentDir + path.sep)) {
+      res.status(400).json({ error: "Invalid file path" });
+      return;
+    }
+    if (!fs.existsSync(variantFilePath)) {
+      res.status(404).json({ error: `Variant file ${path.basename(variantFilePath)} not found` });
+      return;
+    }
+
+    const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
+    if (isVariantRegisteredInVersioning(existing, locale, variantSlug)) {
+      res.status(409).json({
+        code: "already_registered",
+        error: `${variantSlug} is already listed for ${locale} in versioning.yml`,
+      });
+      return;
+    }
+
+    const localeVariants = [...(existing[locale]?.variants || []), { slug: variantSlug, allocation: 0 }];
+    versioningManager.updateVersioning(
+      contentType,
+      resolved.slug,
+      { ...existing, [locale]: { ...existing[locale], variants: localeVariants } },
+      { author: auth.author || "api", contentRoot: root },
+    );
+
+    const versioning = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
+    const availableLocales = getLocaleEntries().map((l: { code: string }) => l.code);
+    res.json({
+      success: true,
+      variantSlug,
+      locale,
+      allocation: 0,
+      versioning,
+      unregisteredVariants: listUnregisteredVariantFiles(contentDir, versioning, resolved.templateMode, availableLocales),
+      versioningFilePath: versioningManager.getVersioningFilePath(contentType, resolved.slug),
+    });
   });
 
   // Publish all draft locales (all-or-nothing): promote variantSlug for every unpublished locale that has it
@@ -1500,7 +1595,10 @@ export function registerVersioningRoutes(app: Express): void {
             root,
           );
         } else {
-          versioningManager.updateVersioning(contentType, resolved.slug, pruned);
+          versioningManager.updateVersioning(contentType, resolved.slug, pruned, {
+            author: auth.author || "api",
+            contentRoot: root,
+          });
         }
       }
 

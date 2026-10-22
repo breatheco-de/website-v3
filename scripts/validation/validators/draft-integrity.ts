@@ -1,5 +1,6 @@
 /**
- * Proposals 1.0 draft integrity: attached draft structure, orphan versioning.yml,
+ * Proposals 1.0 draft integrity: attached draft structure, orphan versioning.yml, variant files
+ * missing from versioning.yml,
  * `_draft` left in published files, stale / source-changed free drafts, unverified
  * proposal links, and field-scope mismatches between `_common.yml` and locale files.
  */
@@ -54,6 +55,12 @@ export function isOrphanVersioning(entry: ScannedEntry): boolean {
   const listed = versioningVariants(load(entry.versioningPath));
   if (listed.length === 0) return true;
   return listed.every((l) => !entry.variants.some((v) => v.variant === l.slug && v.locale === l.locale));
+}
+
+/** Variant files that versioning.yml does not list (no traffic; hidden from the Versions panel). */
+export function unregisteredVariants(entry: ScannedEntry): ScannedEntry["variants"] {
+  const listed = versioningVariants(entry.versioningPath ? load(entry.versioningPath) : null);
+  return entry.variants.filter((v) => !listed.some((l) => l.slug === v.variant && l.locale === v.locale));
 }
 
 /** Locale-scoped keys (explicitly listed, incl. `meta.robots`) sitting in `_common.yml`. Unlisted keys stay page-wide. */
@@ -117,6 +124,16 @@ export const draftIntegrityValidator: Validator = {
           message: `${contentType}/${slug}: versioning.yml lists no existing variant files.`,
           file: entry.versioningPath!,
           fix: { type: "api", label: "Delete orphan versioning.yml", fixerName: "orphan-entry-versioning" },
+        });
+      }
+
+      for (const v of unregisteredVariants(entry)) {
+        warnings.push({
+          type: "warning",
+          code: "UNREGISTERED_VARIANT_FILE",
+          message: `${contentType}/${slug}: variant '${v.variant}' (${v.locale}) is not listed in versioning.yml, so it gets no traffic and is hidden from the Versions panel.`,
+          file: v.filePath,
+          fix: { type: "api", label: "Register at 0% traffic", fixerName: "register-unlisted-variants" },
         });
       }
 

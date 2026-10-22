@@ -473,7 +473,7 @@ async function defaultDeps(): Promise<FieldScopeMigrationDeps> {
       markFileAsModified(absPath, MIGRATION_AUTHOR, undefined, contentRoot);
       flushPendingSyncStateWrites(contentRoot);
     },
-    push: (site, files, message) => commitAndPush(message, { files, contentRoot: site }),
+    push: (site, files, message) => commitAndPush(message, { files, contentRoot: site, onlyBlockOnOverlap: true }),
     openHistory: () => {
       const config = getGitHubConfig();
       if (!config) throw new Error("GitHub not configured (GITHUB_TOKEN / GITHUB_REPO_URL): history is needed to pick the newest value.");

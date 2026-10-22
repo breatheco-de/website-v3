@@ -207,7 +207,7 @@ async function defaultDeps(): Promise<DefaultConsentMigrationDeps> {
       markFileAsModified(file, "migration:006", undefined, contentRoot);
       flushPendingSyncStateWrites(contentRoot);
     },
-    push: (site, files, message) => commitAndPush(message, { files, contentRoot: site }),
+    push: (site, files, message) => commitAndPush(message, { files, contentRoot: site, onlyBlockOnOverlap: true }),
   };
 }
 

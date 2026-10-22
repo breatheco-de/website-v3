@@ -1,6 +1,7 @@
 /**
  * Fixers for draft-integrity issues:
  * - orphan-entry-versioning: delete versioning.yml that lists no existing variant file
+ * - register-unlisted-variants: list variant files versioning.yml is missing, at 0% traffic
  * - draft-meta-in-published: strip `_draft` from `_common.yml` / live locale files
  * - field-scope-mismatch: move per-language keys (incl. `meta.robots`) out of `_common.yml` into
  *   every language file (and draft) that lacks them; move page-wide keys from language files
@@ -9,15 +10,18 @@
  */
 
 import fs from "fs";
+import path from "path";
 import type { Fixer, FixerContext, FixerResult } from "./types";
 import { resolveScanRoot, scanEntries, type ScannedEntry } from "../shared/draft-scan";
 import {
   commonKeysInLocale,
   isOrphanVersioning,
   localeKeysInCommon,
+  unregisteredVariants,
 } from "../validators/draft-integrity";
 import { DRAFT_META_KEY, safeDumpYaml, safeLoadYaml, stripDraftMetaFromRaw } from "../../../server/versioning/draft-meta";
 import { sameValue } from "../../../server/versioning/draft-base";
+import { markFileAsModified } from "../../../server/sync-state";
 import { deleteAtPath, getAtPath, setAtPath } from "@shared/object-path";
 
 type Doc = Record<string, unknown>;
@@ -60,6 +64,41 @@ export const orphanEntryVersioningFixer: Fixer = {
       ok: true,
       message: `${dryRun ? "Would delete" : "Deleted"} ${removed.length} orphan versioning.yml file(s)`,
       details: { dryRun, files: removed },
+    };
+  },
+};
+
+export const registerUnlistedVariantsFixer: Fixer = {
+  name: "register-unlisted-variants",
+  description: "List variant files that versioning.yml is missing at 0% traffic (live content and other traffic unchanged)",
+  async run(ctx) {
+    const dryRun = ctx.dryRun !== false;
+    const registered: string[] = [];
+    const written: string[] = [];
+    const root = contentRootOf(ctx);
+    for (const entry of scanEntries(root)) {
+      const missing = unregisteredVariants(entry);
+      if (!missing.length) continue;
+      const versioningPath = entry.versioningPath ?? path.join(entry.dir, "versioning.yml");
+      const data = (entry.versioningPath ? load(entry.versioningPath) : null) ?? {};
+      for (const v of missing) {
+        const block = (data[v.locale] as { variants?: Array<{ slug: string; allocation: number }> } | undefined) ?? {};
+        const variants = Array.isArray(block.variants) ? block.variants : [];
+        variants.push({ slug: v.variant, allocation: 0 });
+        data[v.locale] = { ...block, variants };
+        registered.push(v.filePath);
+        ctx.onProgress?.({ type: "item", id: v.filePath, status: "ok", message: "registered at 0%" });
+      }
+      written.push(versioningPath);
+      if (!dryRun) {
+        fs.writeFileSync(versioningPath, safeDumpYaml(data), "utf-8");
+        markFileAsModified(versioningPath, "System", undefined, root);
+      }
+    }
+    return {
+      ok: true,
+      message: `${dryRun ? "Would register" : "Registered"} ${registered.length} variant file(s) at 0% in ${written.length} versioning.yml file(s)`,
+      details: { dryRun, variants: registered, files: written },
     };
   },
 };

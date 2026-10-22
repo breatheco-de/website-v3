@@ -20,6 +20,7 @@ import {
   draftMetaInPublishedFixer,
   fieldScopeMismatchFixer,
   orphanEntryVersioningFixer,
+  registerUnlistedVariantsFixer,
 } from "./draft-integrity";
 
 export type { Fixer, FixerContext, FixerResult, ProgressEvent } from "./types";
@@ -36,6 +37,7 @@ const fixers: Fixer[] = [
   bindingCleanupFixer,
   sharedLayoutSinglesFixer,
   orphanEntryVersioningFixer,
+  registerUnlistedVariantsFixer,
   draftMetaInPublishedFixer,
   fieldScopeMismatchFixer,
 ];

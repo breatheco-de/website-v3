@@ -656,11 +656,14 @@ export class VersioningManager {
 
   /**
    * Save updated versioning.yml for a content type and slug.
+   * Pass the person who made the change so versioning.yml commits with their variant file;
+   * the default service author is for background jobs only.
    */
   public updateVersioning(
     contentType: string,
     slug: string,
-    data: VersioningFile
+    data: VersioningFile,
+    opts?: { author?: string | null; contentRoot?: string },
   ): void {
     const configPath = this.getVersioningFilePath(contentType, slug);
     const yamlContent = yaml.dump(data, {
@@ -673,7 +676,7 @@ export class VersioningManager {
     const cacheKey = `${contentType}:${slug}`;
     this.configCache.delete(cacheKey);
     this.contentCache.clear();
-    markFileAsModified(configPath, "system");
+    markFileAsModified(configPath, opts?.author || "System", undefined, opts?.contentRoot ?? this.contentRoot);
     log.info(`[Versioning] Updated versioning.yml for ${contentType}/${slug} — queued for auto-commit (${configPath})`);
   }
 

@@ -820,12 +820,15 @@ export function detectPendingChanges(contentRoot?: string): PendingChange[] {
 export function updateSyncStateAfterCommit(
   commitSha: string,
   committedFiles: string[],
-  contentRoot?: string
+  contentRoot?: string,
+  opts?: { keepLastSyncedCommit?: boolean },
 ): void {
   const state = loadSyncState(contentRoot);
-  
-  state.lastSyncedCommit = commitSha;
-  state.lastSyncedAt = new Date().toISOString();
+
+  if (!opts?.keepLastSyncedCommit) {
+    state.lastSyncedCommit = commitSha;
+    state.lastSyncedAt = new Date().toISOString();
+  }
 
   const committedAt = new Date().toISOString();
   

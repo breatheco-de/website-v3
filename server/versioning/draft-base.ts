@@ -266,6 +266,11 @@ export type AuthorDiff = {
   changes: FieldChange[];
 };
 
+/** Publish deletes top-level and `meta.*` nulls from the locale file; other nested nulls stay. */
+function publishKeepsLocaleNull(fieldPath: string): boolean {
+  return fieldPath.includes(".") && !fieldPath.startsWith("meta.");
+}
+
 /** Draft (locale part + staged page-level fields) vs a base. */
 export function diffDraftAgainst(
   draft: Record<string, unknown>,
@@ -285,6 +290,7 @@ export function diffDraftAgainst(
     const after = draftLive.get(p);
     if (!inDraft || after === null) {
       if (before === undefined) continue;
+      if (inDraft && before === null && publishKeepsLocaleNull(p)) continue;
       changes.push({ field_path: p, before, after: undefined, scope: "locale", removed: true });
       continue;
     }
