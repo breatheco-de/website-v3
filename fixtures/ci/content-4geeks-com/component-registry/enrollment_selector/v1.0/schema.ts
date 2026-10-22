@@ -49,6 +49,11 @@ export const enrollmentSummarySchema = z.object({
   price_amount: z.string(),
   price_period: z.string().optional(),
   price_sub: z.string().optional(),
+  /**
+   * Heading above the unlock list in the summary card (desktop).
+   * A plan's value wins; otherwise the program summary; otherwise "You unlock right now".
+   */
+  unlocks_label: z.string().optional(),
   rows: z.array(summaryRowSchema).default([]),
   cta: ctaButtonSchema,
   trust_note: trustNoteSchema.optional(),
