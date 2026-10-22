@@ -4,6 +4,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    // Many tests call process.chdir(), which worker threads do not support.
+    pool: "forks",
     include: [
       "server/**/*.test.ts",
       "scripts/**/*.test.ts",

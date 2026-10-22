@@ -42,6 +42,7 @@ if (!fs.existsSync(dataDir)) {
 const dbPath = path.join(dataDir, "app.db");
 export const sqlite = new Database(dbPath);
 
+sqlite.pragma("busy_timeout = 5000");
 sqlite.pragma("journal_mode = WAL");
 sqlite.pragma("foreign_keys = ON");
 
@@ -215,9 +216,9 @@ export function getSiteSqlite(contentFolderName: string, copyLegacyIfMissing = f
   const siteDataDir = path.join(dataDir, safeName);
   const siteDbPath = path.join(siteDataDir, "app.db");
   const siteSqlite = new Database(siteDbPath);
+  siteSqlite.pragma("busy_timeout = 5000");
   siteSqlite.pragma("journal_mode = WAL");
   siteSqlite.pragma("foreign_keys = ON");
-  siteSqlite.pragma("busy_timeout = 5000");
   _siteSqliteCache.set(safeName, siteSqlite);
   return siteSqlite;
 }
@@ -258,6 +259,7 @@ export function createSiteDb(contentFolderName: string, copyLegacyIfMissing = fa
   }
 
   const siteSqlite = new Database(siteDbPath);
+  siteSqlite.pragma("busy_timeout = 5000");
   siteSqlite.pragma("journal_mode = WAL");
   siteSqlite.pragma("foreign_keys = ON");
   siteSqlite.exec(CONVERSATION_SCHEMA);

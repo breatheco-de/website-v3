@@ -8,7 +8,7 @@ alwaysApply: true
 ## Pre-commit / pre-push hooks
 
 - **Pre-commit (Husky):** `.husky/pre-commit` runs `scripts/section-spacing/check.ts` on staged section variant files (`client/src/components/*/variants/*.tsx`): no outer vertical padding/margin; exceptions carry `// section-spacing: self-padded` or `overlay`. The same check runs in `prebuild` (blocks build and deploy) and in `npm test`.
-- **Pre-push (Husky):** `.husky/pre-push` runs `npm test` (`vitest run --maxWorkers=1`, same as CI). Wired by `prepare` on `npm install`. Bypass with `git push --no-verify` when needed. This does **not** replace GitHub Deploy gating.
+- **Pre-push (Husky):** `.husky/pre-push` runs `npm test` (`vitest run`, parallel forks, same as CI). Wired by `prepare` on `npm install`. Bypass with `git push --no-verify` when needed. This does **not** replace GitHub Deploy gating.
 - **FAQ (optional pre-commit):** [scripts/pre-commit-faq-check.sh](scripts/pre-commit-faq-check.sh). Install as per comments in the script; separate from Husky.
 
 ## Commit Messages

@@ -505,7 +505,7 @@ export function mergeSeoUpdates(current: SeoBlock, updates: Record<string, unkno
       }
       const parsed = parseSeoResearchMetric(value);
       // Keep raw on parse failure so validateSeoSave can reject with a clear code.
-      next[field] = parsed.ok ? parsed.value : value;
+      (next as Record<string, unknown>)[field] = parsed.ok ? parsed.value : value;
       continue;
     }
     if (value === null) {

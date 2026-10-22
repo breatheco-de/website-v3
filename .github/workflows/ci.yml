@@ -42,5 +42,4 @@ jobs:
           cp -a fixtures/ci/content-4geeks-com site_4geeks-com
 
       - name: Unit tests
-        # Single worker avoids SQLITE_BUSY on shared db-cache.sqlite across Vitest pools.
-        run: npx vitest run --maxWorkers=1
+        run: npm test
