@@ -1044,6 +1044,10 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
   const summaryInsetCls = "rounded-[0.8rem] p-2.5 mb-3 md:p-3.5 md:mb-4";
   const chooseDateLabel = data.choose_date_label ?? "Choose your start date";
   const includedLabel = data.included_label ?? "What's included";
+  const unlocksLabel =
+    [plan?.summary?.unlocks_label, program?.summary?.unlocks_label]
+      .map((label) => label?.trim())
+      .find((label) => label) || "You unlock right now";
 
   if (!program || !activeSummary) return null;
 
@@ -1371,7 +1375,7 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                   style={{ background: "hsl(var(--muted-foreground) / 0.03)" }}
                 >
                   <p className="text-[10px] font-bold tracking-[1.8px] uppercase text-muted-foreground mb-3">
-                    You unlock right now
+                    {unlocksLabel}
                   </p>
                   <UnlocksList unlocks={activeUnlocks} />
                 </div>
