@@ -50,7 +50,11 @@ import {
   registerAgentSession,
 } from "../lib/agent-session-store.js";
 import { getActiveRoleId } from "../lib/auth.js";
-import { isExactAgentModel, normalizeMcpClientName } from "../../shared/agent-identity.js";
+import {
+  isExactAgentModel,
+  isServerAgentSessionId,
+  normalizeMcpClientName,
+} from "../../shared/agent-identity.js";
 import {
   AGENT_HIGHLIGHTS_DESC,
   AGENT_REPORT_ISSUE_COMPLETE_EXAMPLE,
@@ -1319,7 +1323,7 @@ export function registerPageTools(
     "Prefer bootstrap_agent once per MCP run before start (Claude.ai / Grok / any connector). " +
     "Required on role connectors (/mcp/role/…); optional on non-production plain /mcp (helps staff event trails). " +
     "start requires exact model (provider/model, e.g. claude/sonnet-4.5); if an open session exists for this username+role+client+site, retry with resume:true or force_new:true + report. " +
-    "start returns agent_session_id — required on every mutating tool. " +
+    "start returns agent_session_id (server-issued; do not pass one on start — any id you pass is ignored with warning start_ignores_agent_session_id; name a batch with label) — required on every mutating tool. " +
     "note/summarize require agent_session_id + report (min 80 chars). " +
     "summarize closes the run for the staff banner (last summarize wins). " +
     "Reports are staff-readable: for copy you set, list plain values (Title: …); no JSON/YAML dumps. " +
@@ -1329,8 +1333,12 @@ export function registerPageTools(
       action: z.enum(["start", "note", "summarize"]).describe("start | note | summarize"),
       agent_session_id: z
         .string()
-        .describe("Required for note/summarize. From start."),
-      label: z.string().optional().describe("Optional short label on start (e.g. Fix blog SEO batch)"),
+        .optional()
+        .describe("Omit on start. Required for note/summarize: the agent_session_id returned by start."),
+      label: z
+        .string()
+        .optional()
+        .describe("Optional short label on start (e.g. Fix blog SEO batch). Use it to name a batch of work."),
       report: z
         .string()
         .optional()
@@ -1360,7 +1368,7 @@ export function registerPageTools(
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken, {
-            agentSessionId: agent_session_id,
+            agentSessionId: action === "start" ? undefined : agent_session_id,
             ...(model && isExactAgentModel(model) ? { model } : {}),
           }),
           body: JSON.stringify({
@@ -1452,7 +1460,22 @@ export function registerPageTools(
           }
           return fail(String(data.error ?? `agent_session failed (${res.status})`), { code });
         }
-        const sid = String(data.agent_session_id ?? agent_session_id ?? "");
+        const sid =
+          action === "start"
+            ? typeof data.agent_session_id === "string"
+              ? data.agent_session_id.trim()
+              : ""
+            : String(data.agent_session_id ?? agent_session_id ?? "");
+        if (action === "start" && !isServerAgentSessionId(sid)) {
+          return fail("agent_session start did not return a server-issued agent_session_id — retry start", {
+            code: "agent_session_failed",
+          });
+        }
+        const serverWarnings = Array.isArray(data.warnings)
+          ? (data.warnings as Array<{ code?: unknown; message?: unknown }>)
+              .filter((w) => typeof w?.code === "string" && typeof w?.message === "string")
+              .map((w) => ({ code: String(w.code), message: String(w.message) }))
+          : [];
         const sessionModel =
           (typeof data.model === "string" && data.model.trim()) ||
           (model && isExactAgentModel(model) ? model.trim() : "");
@@ -1491,7 +1514,7 @@ export function registerPageTools(
                   : "Session note recorded.",
           },
           {
-            warnings: [],
+            warnings: serverWarnings,
             side_effects: [
               {
                 kind: "pipeline_event",

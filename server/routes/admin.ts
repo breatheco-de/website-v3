@@ -46,7 +46,7 @@ import { databaseManager, DatabaseManager } from "../database";
 import { collectSystemAlerts, recheckDatabaseHealth, recheckDecisionModel } from "../system-alerts";
 import { listEvents, listEventAuthors, clearAllEvents, listAgentSessions, getAgentSessionDetail, emitEvent, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents, findOpenAgentSession, resolveUsableAgentSession } from "../events/event-store";
 import { singleAttribution, EVENT_TYPES, type EventType } from "../events/types";
-import { isExactAgentModel, normalizeMcpClientName, sessionConflictPayload } from "../../shared/agent-identity";
+import { isExactAgentModel, issueAgentSessionId, normalizeMcpClientName, sessionConflictPayload } from "../../shared/agent-identity";
 import { seedDemoPipelineEvents } from "../events/seed-demo";
 import {
   expandKindIdsToTypes,
@@ -1063,9 +1063,7 @@ export function registerAdminRoutes(app: Express): void {
       const model = String(modelRaw).trim();
       const actorWithModel = resolveEventActor(req, { model });
 
-      const agent_session_id =
-        (typeof req.body?.agent_session_id === "string" && req.body.agent_session_id.trim()) ||
-        randomUUID();
+      const { agent_session_id, warnings } = issueAgentSessionId(req.body?.agent_session_id, randomUUID);
       const label =
         typeof req.body?.label === "string" && req.body.label.trim()
           ? req.body.label.trim().slice(0, 200)
@@ -1085,6 +1083,7 @@ export function registerAdminRoutes(app: Express): void {
         model,
         event_id: event.id,
         abandoned_session_id: open && forceNew ? open.agent_session_id : null,
+        warnings,
       });
     }
 

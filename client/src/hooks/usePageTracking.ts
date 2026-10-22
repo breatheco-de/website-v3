@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
+import { installSectionTracking } from "@/lib/section-tracking";
 
 type DataLayerEvent = {
   event: string;
@@ -11,6 +12,8 @@ type DataLayerEvent = {
 export function usePageTracking() {
   const [location] = useLocation();
   const isFirstRender = useRef(true);
+
+  useEffect(() => installSectionTracking(location), [location]);
 
   useEffect(() => {
     if (isFirstRender.current) {

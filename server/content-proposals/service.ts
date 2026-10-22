@@ -76,6 +76,7 @@ import { discardSeededAttachedEntry, seedAttachedLocaleFiles } from "./seed-atta
 import {
   sameAgentIdentity,
   formatAgentActorLine,
+  isServerAgentSessionId,
   isStaffUiActor,
   type AgentActorLike,
 } from "@shared/agent-identity";
@@ -7770,7 +7771,10 @@ export function createProposalService(deps: ProposalServiceDeps) {
           error: "This proposal has no creating session; variant attach is not allowed",
         };
       }
-      if (!session || session !== proposal.created_agent_session_id) {
+      const sameSession = isServerAgentSessionId(session) && session === proposal.created_agent_session_id;
+      const legacySessionSameProposer =
+        !isServerAgentSessionId(proposal.created_agent_session_id) && callerIsProposer(proposal, caller);
+      if (!sameSession && !legacySessionSameProposer) {
         return {
           ok: false,
           code: "session_mismatch",

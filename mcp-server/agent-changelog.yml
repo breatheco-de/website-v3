@@ -6,6 +6,21 @@ window_days: 6
 
 entries:
   - date: "2026-10-22"
+    summary: "agent_session ids are server-issued: start ignores a passed id; invented ids (new, pending, placeholder…) are refused"
+    agent_impact:
+      - "agent_session start: omit agent_session_id. The server always returns a new UUID; an id you pass is ignored with warning start_ignores_agent_session_id. Name a batch of work with label on start, not with a custom id."
+      - "Every mutate, note and summarize refuses an agent_session_id that start did not issue (session_unknown, next_action agent_session start). Ids like new / pending / start / placeholder were shared by several agents, mixing their staff trails; resume and session_conflict never return them."
+      - "attach_variant on an old proposal filed under an invented id works from any session of the same proposer (username + role); proposals filed under a real session id still need that same session."
+    tools_changed: false
+    paths:
+      - shared/agent-identity.ts
+      - server/routes/admin.ts
+      - server/events/event-store.ts
+      - server/content-proposals/service.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/loopback.ts
+      - mcp-server/agent-conventions.md
+  - date: "2026-10-22"
     summary: "Proposal drafts: system writes no longer make a co-author; revise_entries restarts the draft again; no phantom remove op for nested nulls"
     agent_impact:
       - "Draft rewrites by migrations, sweeps, sync pulls or with no author (co_authors username unknown / migration:* / system:*) only record the new draft fingerprint: no co-author, no claim release, no back-to-review. revise_entries now restarts a draft the proposal created from today's live unless a person co-authored it, so stray page-level ops (funnel, published_at, authors) left in old drafts disappear on the next revise."

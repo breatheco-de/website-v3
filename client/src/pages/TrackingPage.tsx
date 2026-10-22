@@ -1442,9 +1442,12 @@ const GENERAL_EVENT_PAYLOADS: Record<string, Record<string, unknown>> = {
   cta_click: {
     event: "cta_click",
     user_id: SAMPLE_USER_ID,
+    section_type: "hero",
+    section_index: 0,
+    section_id: "hero-main",
     label: "Apply Now",
-    section: "hero",
     destination: "/en/apply",
+    page_path: "/en/coding-bootcamp",
   },
   video_play: {
     event: "video_play",
@@ -1489,7 +1492,14 @@ const GENERAL_EVENT_PAYLOADS: Record<string, Record<string, unknown>> = {
     user_id: SAMPLE_USER_ID,
     depth: 50,
     page: "/en/apply",
+    section_type: "features_grid",
+    section_index: 3,
   },
+};
+
+const GENERAL_EVENT_TRIGGERS: Record<string, string> = {
+  cta_click: "Click on a link or button inside a page section (section-tracking.ts)",
+  scroll_depth: "Once per page view at 25, 50, 75 and 90% scrolled (section-tracking.ts)",
 };
 
 interface UsageEntry {
@@ -1627,7 +1637,7 @@ function EventsSection() {
 
   const generalEvents: TrackingEvent[] = TRACKING_EVENTS.map((name) => ({
     name,
-    trigger: "Various interactions",
+    trigger: GENERAL_EVENT_TRIGGERS[name] ?? "Various interactions",
     payload: GENERAL_EVENT_PAYLOADS[name] ?? { event: name, user_id: SAMPLE_USER_ID },
   }));
 

@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => {
   const queueLinkIndexRemove = vi.fn();
   const markEntryDirty = vi.fn();
   const flush = vi.fn().mockResolvedValue(undefined);
+  const clearSiteSitemapCache = vi.fn();
   return {
+    clearSiteSitemapCache,
     enqueueJob,
     scheduleOnSaveValidationJob,
     scheduleOgCaptureFromLocaleEvent,
@@ -39,6 +41,7 @@ vi.mock("../link-index", () => ({
   queueLinkIndexRemove: mocks.queueLinkIndexRemove,
   entryKeysFromDeletedPaths: vi.fn(() => ["page/foo/en"]),
 }));
+vi.mock("../sitemap", () => ({ clearSiteSitemapCache: mocks.clearSiteSitemapCache }));
 vi.mock("../site-manager", () => ({
   getSiteContextMap: () =>
     new Map([
@@ -86,6 +89,7 @@ describe("event dispatcher", () => {
     mocks.queueLinkIndexRemove.mockClear();
     mocks.markEntryDirty.mockClear();
     mocks.flush.mockClear();
+    mocks.clearSiteSitemapCache.mockClear();
   });
 
   it("entry_locale_saved (live) enqueues index, validation, sync flush, and OG capture", async () => {
@@ -155,6 +159,38 @@ describe("event dispatcher", () => {
     expect(seoCall?.[2]).toEqual(expect.objectContaining({ delayMs: 5000 }));
     expect(jobNames()).not.toContain("sync_state_flush");
     expect(mocks.queueLinkIndexRemove).toHaveBeenCalled();
+  });
+
+  it("site_bulk_synced clears the site sitemap cache when files were pulled or deleted", async () => {
+    await dispatchEventForTest(
+      baseEvent("site_bulk_synced", {
+        resource: {},
+        payload: { files: ["site_test/blog/foo/draft.en.yml"], count: 1 },
+      }),
+    );
+    expect(mocks.clearSiteSitemapCache).toHaveBeenCalledWith("site_test", undefined);
+
+    mocks.clearSiteSitemapCache.mockClear();
+    await dispatchEventForTest(
+      baseEvent("site_bulk_synced", { resource: {}, payload: { files: [], count: 0 } }),
+    );
+    expect(mocks.clearSiteSitemapCache).not.toHaveBeenCalled();
+  });
+
+  it("clears the sitemap cache for live content changes only", async () => {
+    await dispatchEventForTest(baseEvent("entry_locale_unpublished"));
+    await dispatchEventForTest(baseEvent("entry_locale_saved"));
+    expect(mocks.clearSiteSitemapCache).toHaveBeenCalledTimes(2);
+
+    mocks.clearSiteSitemapCache.mockClear();
+    await dispatchEventForTest(
+      baseEvent("entry_locale_saved", {
+        resource: { contentType: "page", slug: "home", locale: "en", layer: "variant" },
+        payload: { layer: "variant" },
+      }),
+    );
+    await dispatchEventForTest(baseEvent("entry_redirects_changed"));
+    expect(mocks.clearSiteSitemapCache).not.toHaveBeenCalled();
   });
 
   it("entry_deleted enqueues cleanup", async () => {

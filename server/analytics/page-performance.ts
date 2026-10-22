@@ -78,8 +78,24 @@ function num(v: unknown): number {
   return 0;
 }
 
-export function buildPagePerformanceSql(eventsTable: string): string {
+/** Session channel from the landing URL (click ids) and manual medium / source. */
+export function bqChannelCaseSql(loc: string, medium: string, source: string): string {
   const clickIds = GOOGLE_CLICK_IDS.map((id) => `'${id}='`).join(", ");
+  return `CASE
+          WHEN EXISTS (SELECT 1 FROM UNNEST([${clickIds}]) p WHERE STRPOS(${loc}, p) > 0)
+            OR ${medium} IN ('cpc', 'ppc', 'paid', 'paidsearch', 'paid_search', 'paid_social', 'paidsocial', 'display', 'cpm')
+            THEN 'paid'
+          WHEN ${medium} = 'organic' THEN 'organic'
+          WHEN ${medium} IN ('email', 'e-mail', 'newsletter') THEN 'email'
+          WHEN ${medium} IN ('social', 'social-network', 'sm')
+            OR REGEXP_CONTAINS(${source}, r'facebook|instagram|linkedin|tiktok|twitter|^t\\.co$|youtube') THEN 'social'
+          WHEN ${medium} = 'referral' THEN 'referral'
+          WHEN ${source} IN ('', '(direct)') THEN 'direct'
+          ELSE 'other'
+        END`;
+}
+
+export function buildPagePerformanceSql(eventsTable: string): string {
   return `
     WITH params AS (SELECT @start_date AS start_date, @end_date AS end_date),
     ev AS (
@@ -114,18 +130,7 @@ export function buildPagePerformanceSql(eventsTable: string): string {
     sessions AS (
       SELECT
         REGEXP_REPLACE(REGEXP_EXTRACT(l.first.loc, r'^https?://[^/?#]+([^?#]*)'), r'/+$', '') AS path,
-        CASE
-          WHEN EXISTS (SELECT 1 FROM UNNEST([${clickIds}]) p WHERE STRPOS(l.first.loc, p) > 0)
-            OR l.first.medium IN ('cpc', 'ppc', 'paid', 'paidsearch', 'paid_search', 'paid_social', 'paidsocial', 'display', 'cpm')
-            THEN 'paid'
-          WHEN l.first.medium = 'organic' THEN 'organic'
-          WHEN l.first.medium IN ('email', 'e-mail', 'newsletter') THEN 'email'
-          WHEN l.first.medium IN ('social', 'social-network', 'sm')
-            OR REGEXP_CONTAINS(l.first.source, r'facebook|instagram|linkedin|tiktok|twitter|^t\\.co$|youtube') THEN 'social'
-          WHEN l.first.medium = 'referral' THEN 'referral'
-          WHEN l.first.source IN ('', '(direct)') THEN 'direct'
-          ELSE 'other'
-        END AS channel,
+        ${bqChannelCaseSql("l.first.loc", "l.first.medium", "l.first.source")} AS channel,
         l.first.campaign AS campaign,
         f.engaged, f.lead, f.atc, f.checkout
       FROM landing l JOIN flags f USING (sid)

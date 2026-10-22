@@ -3925,3 +3925,69 @@ describe("blocked inactivity sweep", () => {
     expect(svc.list({ outcome_review: "none" }).proposals.map((p) => p.id)).not.toContain(id);
   });
 });
+
+describe("attach_variant and agent-invented session ids", () => {
+  beforeEach(() => {
+    resetPipelineDbCache();
+    clearSiteSqliteCacheForTests();
+    rmSite();
+    ensurePipelineDb(SITE, { skipBackup: true });
+  });
+
+  afterEach(() => {
+    resetPipelineDbCache();
+    clearSiteSqliteCacheForTests();
+    rmSite();
+  });
+
+  const seo = { type: "mcp" as const, client: "Cursor", role: "seo_specialist", model: "cursor/auto" };
+  const summary = "Patch the CTA title on the Spanish blog before the agent attaches its prepared draft. ".repeat(2);
+
+  async function createWithSession(svc: ReturnType<typeof makeService>, agentSessionId: string, slug: string) {
+    const created = await svc.create(
+      { title: "Attach later", summary, agent_session_id: agentSessionId, entries: [sampleEntry({ slug })] },
+      { username: "alice", actor: seo },
+    );
+    if (!created.ok) throw new Error(created.error);
+    return created.proposal.id;
+  }
+
+  it("legacy invented id: same proposer can attach from a new server-issued session", async () => {
+    const svc = makeService();
+    const id = await createWithSession(svc, "new", "legacy-same");
+    const res = await svc.update(id, "attach_variant", {
+      username: "alice",
+      actor: seo,
+      agent_session_id: "d2b2f51c-9fc3-4f86-93bd-03951f678da2",
+      variant: "agent-fix",
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.proposal.entries[0]!.variant).toBe("agent-fix");
+  });
+
+  it("legacy invented id: another role cannot attach", async () => {
+    const svc = makeService();
+    const id = await createWithSession(svc, "new", "legacy-other");
+    const res = await svc.update(id, "attach_variant", {
+      username: "alice",
+      actor: { ...seo, role: "copy_editor" },
+      agent_session_id: "new",
+      variant: "agent-fix",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("session_mismatch");
+  });
+
+  it("server-issued id: a different session of the same proposer still cannot attach", async () => {
+    const svc = makeService();
+    const id = await createWithSession(svc, "11111111-2222-4333-8444-555555555555", "uuid-strict");
+    const res = await svc.update(id, "attach_variant", {
+      username: "alice",
+      actor: seo,
+      agent_session_id: "d2b2f51c-9fc3-4f86-93bd-03951f678da2",
+      variant: "agent-fix",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("session_mismatch");
+  });
+});

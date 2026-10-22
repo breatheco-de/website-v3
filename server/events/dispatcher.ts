@@ -45,6 +45,30 @@ function isLiveLocaleEvent(event: ContentEvent): boolean {
   return true;
 }
 
+// The sitemap cache lives in the web process; writes from other processes reach it only here.
+function affectsSitemap(event: ContentEvent): boolean {
+  switch (event.type) {
+    case "entry_locale_saved":
+    case "entry_locale_promoted":
+      return isLiveLocaleEvent(event);
+    case "entry_common_saved":
+    case "entry_seo_changed":
+    case "entry_deleted":
+    case "entry_locale_unpublished":
+    case "content_type_changed":
+    case "database_row_changed":
+    case "database_refreshed":
+      return true;
+    case "site_bulk_synced": {
+      const files = (event.payload.files as string[] | undefined) ?? [];
+      const deleted = (event.payload.deletedPaths as string[] | undefined) ?? [];
+      return files.length > 0 || deleted.length > 0;
+    }
+    default:
+      return false;
+  }
+}
+
 async function enqueueIndexRefresh(event: ContentEvent, contentRoot: string): Promise<void> {
   await enqueueJob(
     "index_refresh",
@@ -125,6 +149,15 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
     contentIndex: ctx.contentIndex,
   });
 
+  if (affectsSitemap(event)) {
+    try {
+      const { clearSiteSitemapCache } = await import("../sitemap");
+      clearSiteSitemapCache(ctx.contentRootName, ctx.contentIndex);
+    } catch (err) {
+      log.warn({ err, eventType: event.type }, "[Dispatcher] Sitemap cache clear failed");
+    }
+  }
+
   switch (event.type) {
     case "entry_locale_saved":
     case "entry_locale_promoted": {
@@ -162,6 +195,7 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
     case "site_bulk_synced": {
       await enqueueIndexRefresh(event, ctx.contentRoot);
       const pulledFiles = (event.payload.files as string[] | undefined) ?? [];
+      const deletedPaths = (event.payload.deletedPaths as string[] | undefined) ?? [];
       if (pulledFiles.length > 0 && ctx.contentIndex) {
         try {
           const { classifyTouchedContentFiles } = await import("../content-write-flush");
@@ -192,7 +226,6 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
           log.warn({ err }, "[Dispatcher] Local database reload after pull failed");
         }
       }
-      const deletedPaths = (event.payload.deletedPaths as string[] | undefined) ?? [];
       if (deletedPaths.length > 0) {
         const keys = entryKeysFromDeletedPaths(deletedPaths);
         if (keys.length > 0) {

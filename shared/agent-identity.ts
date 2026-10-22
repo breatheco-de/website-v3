@@ -28,6 +28,40 @@ export const ROLE_CONNECTOR_UI_HINT =
   "Reconnect to a role URL such as /mcp/role/copy_editor (local example: http://localhost:3001/mcp/role/copy_editor). " +
   "Production plain /mcp is read-only (write tools disabled); non-production plain /mcp may write when MCP write is enabled.";
 
+const SERVER_AGENT_SESSION_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Session ids are issued by `agent_session start` (UUID). Agent-invented values
+ * like "new" or "pending" are shared across agents and never identify one run.
+ */
+export function isServerAgentSessionId(id: unknown): id is string {
+  return typeof id === "string" && SERVER_AGENT_SESSION_ID_RE.test(id.trim());
+}
+
+export const START_IGNORES_AGENT_SESSION_ID = "start_ignores_agent_session_id";
+
+/** New session id for `agent_session start`; an id the agent passed is ignored with a warning. */
+export function issueAgentSessionId(
+  passed: unknown,
+  newId: () => string,
+): { agent_session_id: string; warnings: Array<{ code: string; message: string }> } {
+  const passedId = typeof passed === "string" ? passed.trim() : "";
+  return {
+    agent_session_id: newId(),
+    warnings: passedId
+      ? [
+          {
+            code: START_IGNORES_AGENT_SESSION_ID,
+            message:
+              `agent_session_id "${passedId.slice(0, 64)}" was ignored: session ids are issued by start. ` +
+              `Use the returned agent_session_id on every write; to name a batch, pass label on start.`,
+          },
+        ]
+      : [],
+  };
+}
+
 /** Normalize OAuth client name for open-session scope (blank → unknown-client). */
 export function normalizeMcpClientName(client: unknown): string {
   if (typeof client !== "string") return UNKNOWN_MCP_CLIENT;
