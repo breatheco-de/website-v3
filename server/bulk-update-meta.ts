@@ -24,6 +24,9 @@ export const META_LOCALE_KEYS = new Set([
   "og_url",
   "og_locale",
   "canonical_url",
+  "robots",
+  "priority",
+  "change_frequency",
 ]);
 export const ALL_KNOWN_META_KEYS = new Set([...META_COMMON_KEYS, ...META_LOCALE_KEYS]);
 
@@ -172,7 +175,7 @@ export async function bulkUpdateMeta(request: BulkMetaRequest): Promise<{
   }
   if (request.variant && commonMetaTouched) {
     warnings.push(
-      "common_meta_ignores_variant: page-level meta (robots/priority/change_frequency) writes _common.yml and ignores variant.",
+      `common_meta_ignores_variant: page-level meta (${commonOps.map((o) => o.path).join(", ")}) writes _common.yml and ignores variant.`,
     );
   }
 

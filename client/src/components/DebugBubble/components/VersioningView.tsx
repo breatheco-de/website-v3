@@ -9,6 +9,11 @@ import {
   BrokenInternalLinksNotice,
   promoteLinkWarningsText,
 } from "@/components/editing/BrokenInternalLinksNotice";
+import {
+  DISPLAY_VALUES_CHANGE_CODE,
+  DisplayValuesChangeNotice,
+  type DisplayValueChange,
+} from "@/components/editing/DisplayValuesChangeNotice";
 import { TextLimitsIssue } from "@/components/TextLimitsIssue";
 import { deslugify } from "../utils/debugHelpers";
 import { IconRobot, IconArrowLeft, IconGitBranch, IconRefresh, IconPencil, IconCheck, IconX, IconPlayerPlay, IconPlus, IconHistory, IconExternalLink, IconCrown, IconTrash, IconDots, IconCode, IconShare, IconCopy, IconEyeOff } from "@tabler/icons-react";
@@ -322,11 +327,18 @@ export function VersioningView({
     message: string;
     violations?: TextLimitViolation[];
     brokenLinks?: BrokenInternalLink[];
+    displayChange?: { locale: string; fields: DisplayValueChange[]; paths?: { common?: string; locale?: string } };
   } | null>(null);
-  const [promoteConfirms, setPromoteConfirms] = useState<{ overwrite: boolean; source: boolean; textLimits: boolean }>({
+  const [promoteConfirms, setPromoteConfirms] = useState<{
+    overwrite: boolean;
+    source: boolean;
+    textLimits: boolean;
+    displayChange: boolean;
+  }>({
     overwrite: false,
     source: false,
     textLimits: false,
+    displayChange: false,
   });
   const [isPromoting, setIsPromoting] = useState(false);
 
@@ -464,22 +476,42 @@ export function VersioningView({
 
   const resetPromoteIssue = () => {
     setPromoteIssue(null);
-    setPromoteConfirms({ overwrite: false, source: false, textLimits: false });
+    setPromoteConfirms({ overwrite: false, source: false, textLimits: false, displayChange: false });
   };
 
   const promoteConfirmBody = (confirms = promoteConfirms) => ({
     ...(confirms.overwrite ? { confirm_overwrite_newer_live: true } : {}),
     ...(confirms.source ? { confirm_source_changed: true } : {}),
     ...(confirms.textLimits ? { confirm_text_limits: true } : {}),
+    ...(confirms.displayChange ? { confirm_display_change: true } : {}),
   });
 
   /** Keep the dialog open and ask again when the server needs an explicit overwrite confirm. */
   const holdForPromoteConfirm = (data: {
     code?: string;
     error?: string;
-    details?: { violations?: TextLimitViolation[]; broken_internal_links?: BrokenInternalLink[] };
+    locale?: string;
+    details?: {
+      violations?: TextLimitViolation[];
+      broken_internal_links?: BrokenInternalLink[];
+      locale?: string;
+      fields?: DisplayValueChange[];
+      paths?: { common?: string; locale?: string };
+    };
   }): boolean => {
     const code = data.code;
+    if (code === DISPLAY_VALUES_CHANGE_CODE) {
+      setPromoteIssue({
+        code,
+        message: data.error || "Publishing changes what visitors of this language see.",
+        displayChange: {
+          locale: data.details?.locale ?? data.locale ?? promoteTarget?.locale ?? "",
+          fields: Array.isArray(data.details?.fields) ? data.details.fields : [],
+          paths: data.details?.paths,
+        },
+      });
+      return true;
+    }
     if (code === BROKEN_INTERNAL_LINKS_CODE) {
       setPromoteIssue({
         code,
@@ -2068,6 +2100,13 @@ export function VersioningView({
             )
           ) : promoteIssue?.code === TEXT_LIMITS_EXCEEDED_CODE ? (
             <TextLimitsIssue message={promoteIssue.message} violations={promoteIssue.violations ?? []} />
+          ) : promoteIssue?.code === DISPLAY_VALUES_CHANGE_CODE && promoteIssue.displayChange ? (
+            <DisplayValuesChangeNotice
+              locale={promoteIssue.displayChange.locale}
+              fields={promoteIssue.displayChange.fields}
+              paths={promoteIssue.displayChange.paths}
+              className="max-h-72 overflow-y-auto"
+            />
           ) : promoteIssue ? (
             <p
               className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
@@ -2083,12 +2122,14 @@ export function VersioningView({
               onClick={() => {
                 if (promoteIssue) {
                   const isTextLimits = promoteIssue.code === TEXT_LIMITS_EXCEEDED_CODE;
+                  const isDisplayChange = promoteIssue.code === DISPLAY_VALUES_CHANGE_CODE;
                   const next = {
                     overwrite:
                       promoteConfirms.overwrite ||
-                      (!isTextLimits && promoteIssue.code !== "translation_source_changed"),
+                      (!isTextLimits && !isDisplayChange && promoteIssue.code !== "translation_source_changed"),
                     source: promoteConfirms.source || promoteIssue.code === "translation_source_changed",
                     textLimits: promoteConfirms.textLimits || isTextLimits,
+                    displayChange: promoteConfirms.displayChange || isDisplayChange,
                   };
                   setPromoteConfirms(next);
                   setPromoteIssue(null);

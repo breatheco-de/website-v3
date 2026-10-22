@@ -3211,6 +3211,7 @@ export function registerPageTools(
   const META_LOCALE_FIELDS = new Set([
     "page_title", "description", "og_image", "og_type",
     "og_url", "og_locale", "canonical_url",
+    "robots", "priority", "change_frequency",
   ]);
   const ALL_KNOWN_META_FIELDS = new Set([...META_COMMON_FIELDS, ...META_LOCALE_FIELDS]);
 
@@ -3253,8 +3254,8 @@ export function registerPageTools(
     "on=true needs non-empty seo.pillar_path or seo.is_pillar:true after merge; on=false → pillar_path:null + is_pillar:false; " +
     "raw seo.pillar_path:null still opts out (warns). While ORPHAN_PAGE / PARTIALLY_SET_CLUSTER is open, " +
     "becoming a hub (is_pillar) or opting out requires confirm_cluster_resolution: true (joining a hub does not). " +
-    "Page-level fields (fixed system rule, fieldScope: funnel.*, meta.robots|priority|change_frequency, published_at, detached, authors) → _common.yml (all languages; warning); " +
-    "everything else (incl. unknown meta.*) → locale. meta_target is ignored (warning).\n\n" +
+    "Page-level fields (fixed system rule, fieldScope: funnel.*, published_at, detached, authors) → _common.yml (all languages; warning); " +
+    "everything else (incl. meta.robots|priority|change_frequency, which are per language, and unknown meta.*) → locale. meta_target is ignored (warning).\n\n" +
     "Live gate: live writes need meta.page_title + meta.description; editor.required cannot be cleared on live. Drafts exempt.\n" +
     "CIRCULAR TRAP: if both meta.description and body description are empty, set BOTH in this one updates[] call.\n\n" +
     "funnel.stage / funnel.products (and funnel / reset:true) write page _common.yml journey membership. " +
@@ -5658,9 +5659,10 @@ export function registerPageTools(
     "Also fails when resolved meta.page_title / meta.description are empty, when editor.required fields " +
     "(e.g. blog title + description) are empty, or when a detached locale would go live empty (EMPTY_LOCALE: no sections and no content). " +
     "Confirm with the user before calling — this makes the page live. " +
-    "Page-level fields in the draft (funnel, meta.robots/priority/change_frequency, published_at, authors) move to _common.yml (all languages); null on those fields deletes them. " +
+    "Page-level fields in the draft (funnel, published_at, authors, detached) move to _common.yml (all languages); null on those fields deletes them. meta.robots/priority/change_frequency are per language. " +
     "Rejections: proposal_required (swarm roles), draft_in_proposal (draft under an open proposal — apply that proposal instead), translation_source_changed, " +
     "draft_base_stale / draft_base_unknown (retry with confirm_overwrite_newer_live only after the user agrees), " +
+    "display_values_change (a live locale file still holds a legacy page-level copy that publish drops; details.fields before → after; confirm_display_change after the user agrees), " +
     "render_review_required (entry-owned page layout never reviewed or restructured since — run review_page_render on the draft first). " +
     "On success, next_actions requires run_entry_diagnostics (hard + one slug → job_id; poll get_diagnostics_job).",
     {
@@ -5675,6 +5677,10 @@ export function registerPageTools(
         .boolean()
         .optional()
         .describe("Publish translations whose source locale changed after translating (ask the user first)."),
+      confirm_display_change: z
+        .boolean()
+        .optional()
+        .describe("After display_values_change: publish even though a language will show the _common.yml value instead of its legacy locale copy (ask the user first)."),
       report: z
         .string()
         .describe(AGENT_REPORT_MUTATE_DESC),
@@ -5683,7 +5689,7 @@ export function registerPageTools(
         .describe("Required. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, variantSlug, confirm_overwrite_newer_live, confirm_source_changed, report, agent_session_id, site }) => {
+    async ({ contentType, slug, variantSlug, confirm_overwrite_newer_live, confirm_source_changed, confirm_display_change, report, agent_session_id, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
 
@@ -5739,6 +5745,7 @@ export function registerPageTools(
             report: trimmedReport,
             ...(confirm_overwrite_newer_live ? { confirm_overwrite_newer_live: true } : {}),
             ...(confirm_source_changed ? { confirm_source_changed: true } : {}),
+            ...(confirm_display_change ? { confirm_display_change: true } : {}),
           }),
         });
         const data = await res.json() as Record<string, unknown>;
@@ -5856,10 +5863,11 @@ export function registerPageTools(
     "Promote a variant to become the live version for ONE locale: overwrites the default locale file with the variant's content, " +
     "removes the variant from versioning.yml (deletes versioning.yml when it empties), and deletes the variant file. " +
     "A draft seo: block replaces live seo:; drafts without seo: keep live seo:. " +
-    "Page-level fields (funnel, meta.robots/priority/change_frequency, published_at, authors) move to _common.yml (all languages); null on those fields deletes them. " +
+    "Page-level fields (funnel, published_at, authors, detached) move to _common.yml (all languages); null on those fields deletes them. meta.robots/priority/change_frequency are per language. " +
     "If live changed after the draft was created, non-overlapping edits are rebuilt on top of live (warning draft_rebuilt); overlaps fail with draft_base_stale (details.conflicting_fields) — " +
     "retry with confirm_overwrite_newer_live only after the user agrees to discard those live changes. draft_base_unknown = draft has no recorded base (same confirm). " +
     "Other rejections: proposal_required (swarm roles), draft_in_proposal (apply that proposal instead), translation_source_changed (confirm_source_changed), attached_draft_structure, " +
+    "display_values_change (live locale file holds a legacy page-level copy that publish drops; details.fields before → after; confirm_display_change after the user agrees), " +
     "render_review_required (entry-owned layout changed vs live with no matching review_page_render). " +
     "dry_run: true runs every check and returns published_diff without writing. " +
     "For attached shared-layout entries, pass the entry slug (not \"single\") to promote entry drafts from translate_entry " +
@@ -5882,6 +5890,10 @@ export function registerPageTools(
         .boolean()
         .optional()
         .describe("Publish a translation whose source locale changed after translating. Ask the user first."),
+      confirm_display_change: z
+        .boolean()
+        .optional()
+        .describe("After display_values_change: publish even though this language will show the _common.yml value instead of its legacy locale copy. Ask the user first."),
       dry_run: z.boolean().optional().describe("Run every check and return published_diff without writing."),
       seo_standalone_reason: z
         .string()
@@ -5904,6 +5916,7 @@ export function registerPageTools(
       locale,
       confirm_overwrite_newer_live,
       confirm_source_changed,
+      confirm_display_change,
       dry_run,
       seo_standalone_reason,
       report,
@@ -5970,6 +5983,7 @@ export function registerPageTools(
             report: trimmedReport,
             ...(confirm_overwrite_newer_live ? { confirm_overwrite_newer_live: true } : {}),
             ...(confirm_source_changed ? { confirm_source_changed: true } : {}),
+            ...(confirm_display_change ? { confirm_display_change: true } : {}),
             ...(dry_run ? { dry_run: true } : {}),
             ...(seo_standalone_reason ? { seo_standalone_reason } : {}),
           }),

@@ -40,6 +40,7 @@ import { OpenRushFetchControl } from "@/components/seo/OpenRushFetchControl";
 import { SeoIndexReindexControl } from "@/components/seo/SeoIndexReindexControl";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { cn } from "@/lib/utils";
+import { getFillIntentGoalPreset, parseFillIntent, type EditorFillIntent } from "@shared/fillIntent";
 
 type FieldSource = "original" | "db_override" | "ct_override" | "entry_default";
 
@@ -102,6 +103,79 @@ function parseMetricInput(raw: string): number | null {
 
 function isSystemSpecialField(field: string): boolean {
   return field.startsWith("_");
+}
+
+function FieldGuidanceLink({
+  field,
+  intent,
+  note,
+  portalContainer,
+}: {
+  field: string;
+  intent: EditorFillIntent | null;
+  /** Legacy editor description; shown only when there is no fill intent. */
+  note?: string;
+  portalContainer?: HTMLElement | null;
+}) {
+  if (!intent && !note) return null;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="block mt-0.5 font-sans text-[10px] text-primary hover:underline"
+          data-testid={intent ? `button-show-fill-intent-${field}` : `button-show-field-note-${field}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {intent ? "Show intent" : "Show note"}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-80 text-xs space-y-2 font-sans"
+        align="start"
+        container={portalContainer}
+        data-testid={intent ? `popover-fill-intent-${field}` : `popover-field-note-${field}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {intent ? (
+          <FillIntentDetails intent={intent} />
+        ) : (
+          <>
+            <p className="font-medium text-foreground">Note about this field</p>
+            <p className="text-foreground whitespace-pre-wrap leading-relaxed">{note}</p>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function FillIntentDetails({ intent }: { intent: EditorFillIntent }) {
+  const preset = getFillIntentGoalPreset(intent.goal);
+  return (
+    <>
+      <p className="font-medium text-foreground">How to fill this field</p>
+      <div className="space-y-0.5">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Goal</p>
+        <p className="text-foreground">{preset ? preset.title : intent.goal}</p>
+        {preset && <p className="text-muted-foreground">{preset.description}</p>}
+      </div>
+      <div className="space-y-0.5">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Purpose</p>
+        <p className="text-foreground whitespace-pre-wrap leading-relaxed">{intent.purpose}</p>
+      </div>
+      {intent.constraints && intent.constraints.length > 0 && (
+        <div className="space-y-0.5">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Constraints</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-foreground">
+            {intent.constraints.map((c, i) => (
+              <li key={i}>{c}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  );
 }
 
 function FieldsEducationBlock({
@@ -2168,6 +2242,17 @@ export function MappingFieldsTab({
               const localeEmptyNote =
                 row.field === "_locale" && !hasDatabase && (row.effective === undefined || row.effective === "");
               const hreflangsStaticNote = row.field === "_hreflangs" && !hasDatabase;
+              const hint = editorMap[row.field];
+              const fillIntent = parseFillIntent(hint?.fill_intent);
+              const legacyNote = hint?.description?.trim() || undefined;
+              const requiredMode =
+                hint?.required === true
+                  ? "always"
+                  : hint?.required === "attached"
+                    ? entryDetached
+                      ? "detached"
+                      : "attached"
+                    : null;
               const canReset =
                 !row.calculated &&
                 !special &&
@@ -2177,6 +2262,30 @@ export function MappingFieldsTab({
                   <td className="px-3 py-2 font-mono text-xs align-top">
                     <span className="inline-flex items-center gap-1">
                       {row.field}
+                      {(requiredMode === "always" || requiredMode === "attached") && (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] font-sans font-normal border-primary/50 text-primary"
+                          title={
+                            requiredMode === "attached"
+                              ? "Required while this entry uses the shared layout"
+                              : "Required to publish"
+                          }
+                          data-testid={`badge-required-field-${row.field}`}
+                        >
+                          Required
+                        </Badge>
+                      )}
+                      {requiredMode === "detached" && (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] font-sans font-normal"
+                          title="Required only while this entry uses the shared layout"
+                          data-testid={`badge-optional-detached-field-${row.field}`}
+                        >
+                          Optional while detached
+                        </Badge>
+                      )}
                       {special && (
                         <Badge variant="outline" className="text-[9px] font-sans font-normal">
                           system
@@ -2204,6 +2313,12 @@ export function MappingFieldsTab({
                         </Badge>
                       )}
                     </span>
+                    <FieldGuidanceLink
+                      field={row.field}
+                      intent={fillIntent}
+                      note={legacyNote}
+                      portalContainer={portalContainer}
+                    />
                     {row.deprecated && (
                       <p
                         className="text-[10px] text-muted-foreground font-sans mt-0.5 max-w-[200px]"

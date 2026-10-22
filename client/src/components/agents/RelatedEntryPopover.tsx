@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-type RelatedEntryInfo = {
+export type RelatedEntryInfo = {
   title: string | null;
   page_title: string | null;
   description: string | null;
@@ -26,6 +26,27 @@ type RelatedEntryInfo = {
   lastmod?: string | null;
   updated_at?: string | null;
 };
+
+export function relatedEntryQueryKey(contentType: string, slug: string, locale: string) {
+  return ["/api/seo/entry", contentType, slug, locale, "related-entry"] as const;
+}
+
+export async function fetchRelatedEntry(
+  contentType: string,
+  slug: string,
+  locale: string,
+): Promise<RelatedEntryInfo> {
+  const params = new URLSearchParams({ locale: locale || "en" });
+  const res = await fetch(
+    `/api/seo/entry/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}?${params}`,
+    { credentials: "include", headers: getSessionHeaders() },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error || "Failed to load entry");
+  }
+  return res.json();
+}
 
 function formatLastmodAgo(lastmod: string, now = new Date()): string {
   const day = lastmod.split("T")[0];
@@ -79,21 +100,10 @@ export function RelatedEntryPopover({
   const [seoModalTarget, setSeoModalTarget] = useState<ManagedSeoModalTarget | null>(null);
   const { toast } = useToast();
   const { data, isLoading, isError, error } = useQuery<RelatedEntryInfo>({
-    queryKey: ["/api/seo/entry", contentType, slug, locale, "related-entry"],
+    queryKey: relatedEntryQueryKey(contentType, slug, locale),
     enabled: open && !!contentType && !!slug,
     staleTime: 60_000,
-    queryFn: async () => {
-      const params = new URLSearchParams({ locale: locale || "en" });
-      const res = await fetch(
-        `/api/seo/entry/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}?${params}`,
-        { credentials: "include", headers: getSessionHeaders() },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error || "Failed to load entry");
-      }
-      return res.json();
-    },
+    queryFn: () => fetchRelatedEntry(contentType, slug, locale),
   });
 
   const href = primaryHref || data?.path || "";

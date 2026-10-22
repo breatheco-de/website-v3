@@ -411,6 +411,14 @@ export type ProposalOutcomeHistoryEntry = {
 
 export const OUTCOME_REVIEW_HISTORY_MAX = 20;
 
+/** Title/status of a proposal another proposal links to (implements, supersedes, reverts). */
+export type ReferencedProposalSummary = {
+  title: string;
+  summary: string;
+  status: string;
+  kind: string;
+};
+
 export type ProposalRecord = {
   id: string;
   site: string;
@@ -1572,6 +1580,8 @@ export type ApplyEntryPreview = {
   details?: Record<string, unknown>;
   rebuilt?: { kept_live_fields: string[]; author_fields: string[] };
   published_diff?: FieldChange[];
+  /** Non-blocking publish notes for reviewers (e.g. `display_values_change`). */
+  warnings?: Array<{ code: string; message: string; fields?: string[] }>;
 };
 
 export type ProposalServiceDeps = {
@@ -1963,6 +1973,44 @@ async function withOwnDraftWrite<T>(
 
 function sameUsername(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * A data migration rewrote a proposal's draft without changing what the author proposed:
+ * record the new fingerprint so apply does not see an outside edit. No co-author, no review reset.
+ */
+export function recordSystemDraftRewrite(site: string, proposalId: string, filePath: string): number {
+  const db = dbFor(site);
+  const proposal = loadProposal(db, proposalId);
+  if (!proposal || !fs.existsSync(filePath)) return 0;
+  const fingerprint = hashVariantFileContents(fs.readFileSync(filePath, "utf-8"));
+  const base = path.basename(filePath);
+  const dirSlug = path.basename(path.dirname(filePath));
+  let updated = 0;
+  for (const e of proposal.entries) {
+    if (!e.variant || (e.status !== "pending" && e.status !== "failed")) continue;
+    if (!base.endsWith(`${e.variant}.${e.locale}.yml`)) continue;
+    if (!isTemplateVersioningSlug(e.slug) && dirSlug !== e.slug) continue;
+    if (e.variant_fingerprint === fingerprint) continue;
+    db.prepare(`UPDATE content_proposal_entries SET variant_fingerprint = ? WHERE id = ?`).run(fingerprint, e.id);
+    updated++;
+  }
+  return updated;
+}
+
+/** Status and open needs-changes count of a proposal (migration reports). */
+export function proposalBlockerSummary(
+  site: string,
+  proposalId: string,
+): { id: string; title: string; status: string; open_blocker_count: number } | null {
+  const proposal = loadProposal(dbFor(site), proposalId);
+  if (!proposal) return null;
+  return {
+    id: proposal.id,
+    title: proposal.title,
+    status: proposal.status,
+    open_blocker_count: proposal.open_blocker_count,
+  };
 }
 
 /**
@@ -3810,7 +3858,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
               return fail({
                 ok: false,
                 code: "competing_shared_fields",
-                error: `Proposal ${other.id} already changes page-level fields (funnel, robots, authors, …) of ${e.contentType}/${e.slug}. Only one open proposal per page may change them — join ${other.id}.`,
+                error: `Proposal ${other.id} already changes page-level fields (funnel, authors, publish date, …) of ${e.contentType}/${e.slug}. Only one open proposal per page may change them — join ${other.id}.`,
                 duplicate_of: other.id,
                 existing_proposal: other,
               });
@@ -4087,11 +4135,13 @@ export function createProposalService(deps: ProposalServiceDeps) {
         ...(mapped.details ? { details: mapped.details } : {}),
       };
     }
+    const displayWarnings = (dry.warnings ?? []).filter((w) => w.code === "display_values_change");
     return {
       ...out,
       ok: true,
       ...(dry.rebuilt ? { rebuilt: dry.rebuilt } : {}),
       ...(dry.published_diff ? { published_diff: dry.published_diff } : {}),
+      ...(displayWarnings.length ? { warnings: displayWarnings } : {}),
     };
   }
 
@@ -4211,6 +4261,13 @@ export function createProposalService(deps: ProposalServiceDeps) {
     if (caller.dry_run) {
       const dryWarnings = [
         ...failed.map((c) => ({ code: c.code ?? "apply_check_failed", message: `${c.entry_key} (${c.locale}): ${c.error}` })),
+        ...checks.flatMap((c) =>
+          (c.warnings ?? []).map((w) => ({
+            code: w.code,
+            message: `${c.entry_key} (${c.locale}): ${w.message}`,
+            details: { entry_key: c.entry_key, locale: c.locale, fields: w.fields ?? [] },
+          })),
+        ),
         ...placeholderGaps,
       ];
       return {
@@ -4291,7 +4348,11 @@ export function createProposalService(deps: ProposalServiceDeps) {
         });
       }
       for (const w of promoted.warnings ?? []) {
-        warnings.push({ code: w.code, message: `${entry.entry_key} (${entry.locale}): ${w.message}` });
+        warnings.push({
+          code: w.code,
+          message: `${entry.entry_key} (${entry.locale}): ${w.message}`,
+          ...(w.code === "display_values_change" ? { details: { entry_key: entry.entry_key, locale: entry.locale, fields: w.fields ?? [] } } : {}),
+        });
       }
       if (!localeWasLive.get(entry.id)) {
         const followUp = hubMemberFollowUp(implementedIdea, entry);
@@ -7936,7 +7997,10 @@ export function createProposalService(deps: ProposalServiceDeps) {
   }
 
   /** Referenced proposal ids (implements / supersedes / replaced_by / reverts) that no longer exist. */
-  function missingReferencedIds(p: ProposalRecord): string[] {
+  function referencedProposals(p: ProposalRecord): {
+    missing: string[];
+    byId: Record<string, ReferencedProposalSummary>;
+  } {
     const refs = Array.from(
       new Set(
         [
@@ -7947,18 +8011,18 @@ export function createProposalService(deps: ProposalServiceDeps) {
         ].filter((v): v is string => typeof v === "string" && v.length > 0),
       ),
     );
-    if (!refs.length) return [];
+    if (!refs.length) return { missing: [], byId: {} };
     const db = dbFor(site);
-    const found = new Set(
-      (
-        db
-          .prepare(
-            `SELECT id FROM content_proposals WHERE site = ? AND id IN (${refs.map(() => "?").join(",")})`,
-          )
-          .all(site, ...refs) as Array<{ id: string }>
-      ).map((r) => r.id),
-    );
-    return refs.filter((id) => !found.has(id));
+    const rows = db
+      .prepare(
+        `SELECT id, title, summary, status, kind FROM content_proposals WHERE site = ? AND id IN (${refs.map(() => "?").join(",")})`,
+      )
+      .all(site, ...refs) as Array<{ id: string } & ReferencedProposalSummary>;
+    const byId: Record<string, ReferencedProposalSummary> = {};
+    for (const r of rows) {
+      byId[r.id] = { title: r.title, summary: r.summary, status: r.status, kind: r.kind };
+    }
+    return { missing: refs.filter((id) => !byId[id]), byId };
   }
 
   async function deleteProposals(
@@ -8060,7 +8124,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
     get,
     deletion,
     deleteProposals,
-    missingReferencedIds,
+    referencedProposals,
     migrateLegacy,
     staleSweep,
     blockedSweep,

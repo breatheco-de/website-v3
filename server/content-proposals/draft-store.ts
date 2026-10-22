@@ -35,7 +35,6 @@ import {
   readVariantData,
   relFromCwd,
   safeDumpYaml,
-  stripDraftMetaFromRaw,
   writeDraftMeta,
   writeVariantFile,
   type DraftProposalLink,
@@ -46,11 +45,13 @@ import {
   checkTranslationSource,
   commonPathOf,
   draftPathOf,
+  draftSeedFromLiveRaw,
   forgetDraftBase,
   livePathOf,
   rebuildDraftFromBase,
   recordDraftBase,
   recordTranslationSource,
+  scopeOptionsOf,
   type AuthorDiff,
   type DraftBaseCheck,
   type DraftRef,
@@ -289,7 +290,7 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
       }
       const livePath = livePathOf(withRoot(ref));
       const content = fs.existsSync(livePath)
-        ? stripDraftMetaFromRaw(fs.readFileSync(livePath, "utf-8"))
+        ? draftSeedFromLiveRaw(fs.readFileSync(livePath, "utf-8"), scopeOptionsOf(withRoot(ref)))
         : opts.seo && Object.keys(opts.seo).length > 0
           ? safeDumpYaml({ seo: opts.seo })
           : "{}\n";
@@ -329,7 +330,7 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
       const draftPath = draftPathOf(withRoot(ref));
       const livePath = livePathOf(withRoot(ref));
       const content = fs.existsSync(livePath)
-        ? stripDraftMetaFromRaw(fs.readFileSync(livePath, "utf-8"))
+        ? draftSeedFromLiveRaw(fs.readFileSync(livePath, "utf-8"), scopeOptionsOf(withRoot(ref)))
         : "{}\n";
       writeVariantFile(draftPath, content, { author, contentRoot, relPath: relFromCwd(draftPath) });
       recordDraftBase(withRoot(ref), { author });

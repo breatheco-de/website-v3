@@ -848,9 +848,14 @@ export function registerVersioningRoutes(app: Express): void {
 
     try {
       const { stripDraftMetaFromRaw } = await import("../versioning/draft-meta");
-      const { recordDraftBase } = await import("../versioning/draft-base");
+      const { draftSeedFromLiveRaw, recordDraftBase, scopeOptionsOf } = await import("../versioning/draft-base");
       // Never copy another file's `_draft` (base / proposal link / translation source).
-      const sourceContent = stripDraftMetaFromRaw(fs.readFileSync(sourceFilePath, "utf-8"));
+      // From live, page-level keys stay in `_common.yml`; another draft's staged ones are kept.
+      const sourceRaw = fs.readFileSync(sourceFilePath, "utf-8");
+      const sourceContent =
+        sourceFilePath === liveSourcePath
+          ? draftSeedFromLiveRaw(sourceRaw, scopeOptionsOf({ contentType, contentRoot: root }))
+          : stripDraftMetaFromRaw(sourceRaw);
       const attachedEntry =
         !resolved.templateMode &&
         isSharedLayoutType(contentType, root) &&
@@ -1032,6 +1037,7 @@ export function registerVersioningRoutes(app: Express): void {
         callerIsSwarm: isSwarmCaller(req),
         callerIsMcp: typeof req.headers["x-mcp-author"] === "string",
         confirmTextLimits: req.body?.confirm_text_limits === true,
+        confirmDisplayChange: req.body?.confirm_display_change === true,
         findOpenProposalForDraft: (ref) => findOpenProposalLinkForDraft(siteName, ref),
         dryRun,
         seoStandaloneReason:
@@ -1147,6 +1153,7 @@ export function registerVersioningRoutes(app: Express): void {
       callerIsSwarm: isSwarmCaller(req),
       callerIsMcp: typeof req.headers["x-mcp-author"] === "string",
       confirmTextLimits: req.body?.confirm_text_limits === true,
+      confirmDisplayChange: req.body?.confirm_display_change === true,
       findOpenProposalForDraft: (ref) => findOpenProposalLinkForDraft(siteName, ref),
       dryRun: req.body?.dry_run === true,
       seoStandaloneReason:

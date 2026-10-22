@@ -38,16 +38,16 @@ describe("draft-integrity", () => {
 
   it("only listed per-language keys count as misplaced in _common.yml", () => {
     expect(localeKeysInCommon({ slug: "x", title: "T", city: "Miami", funnel: {} })).toEqual(["title"]);
+    expect(localeKeysInCommon({ slug: "x", meta: { robots: "noindex", og_type: "article" } })).toEqual(["meta.robots"]);
     expect(commonKeysInLocale({ title: "T", funnel: { stage: "a" }, meta: { robots: "noindex", page_title: "P" } })).toEqual([
       "funnel",
-      "meta.robots",
     ]);
   });
 
   it("field-scope fix plan keeps what each language shows", () => {
-    const commonPath = write("_common.yml", { slug: "hello", status: "published" });
-    const es = write("es.yml", { title: "Hola", meta: { robots: "index" } });
-    const en = write("en.yml", { title: "Hi", status: "draft", meta: { robots: "index" } });
+    const commonPath = write("_common.yml", { slug: "hello", status: "published", meta: { robots: "noindex" } });
+    const es = write("es.yml", { title: "Hola", authors: ["a"] });
+    const en = write("en.yml", { title: "Hi", status: "draft", authors: ["a"], meta: { robots: "index" } });
     const draft = write("draft.es.yml", { title: "Hola 2" });
     const plan = planFieldScopeFix(
       entry({
@@ -59,12 +59,12 @@ describe("draft-integrity", () => {
         variants: [{ variant: "draft", locale: "es", filePath: draft }],
       }),
     );
-    expect(plan.moved_to_locales).toEqual(["status"]);
-    expect(plan.moved_to_common).toEqual(["meta.robots"]);
-    expect(plan.writes.get(commonPath)).toEqual({ slug: "hello", meta: { robots: "index" } });
-    expect(plan.writes.get(es)).toEqual({ title: "Hola", status: "published" });
-    expect(plan.writes.get(en)).toEqual({ title: "Hi", status: "draft" });
-    expect(plan.writes.get(draft)).toEqual({ title: "Hola 2", status: "published" });
+    expect(plan.moved_to_locales).toEqual(["status", "meta.robots"]);
+    expect(plan.moved_to_common).toEqual(["authors"]);
+    expect(plan.writes.get(commonPath)).toEqual({ slug: "hello", authors: ["a"] });
+    expect(plan.writes.get(es)).toEqual({ title: "Hola", status: "published", meta: { robots: "noindex" } });
+    expect(plan.writes.get(en)).toEqual({ title: "Hi", status: "draft", meta: { robots: "index" } });
+    expect(plan.writes.get(draft)).toEqual({ title: "Hola 2", status: "published", meta: { robots: "noindex" } });
   });
 
   it("leaves differing page-wide values for a person", () => {

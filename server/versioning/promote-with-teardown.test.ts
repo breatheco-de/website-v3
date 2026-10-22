@@ -32,7 +32,11 @@ vi.mock("../text-limits", () => ({
 
 import { resetRegistry } from "../content-types";
 import { markFileAsModified } from "../sync-state";
-import { promoteVariantWithOptionalTeardown, routeSharedFieldsOnPromote } from "./promote-with-teardown";
+import {
+  displayValueChanges,
+  promoteVariantWithOptionalTeardown,
+  routeSharedFieldsOnPromote,
+} from "./promote-with-teardown";
 import { recordDraftBase, createMemoryDraftBaseStore, setDraftBaseStore } from "./draft-base";
 import { writeDraftMeta } from "./draft-meta";
 
@@ -132,21 +136,55 @@ afterEach(() => {
 describe("routeSharedFieldsOnPromote", () => {
   it("moves page-level fields to _common and deletes null markers", () => {
     const routed = routeSharedFieldsOnPromote({
-      draftRaw: "title: T\nfunnel:\n  stage: decision\nmeta:\n  robots: null\n  page_title: P\n",
-      commonRaw: "meta:\n  robots: noindex\nfunnel:\n  stage: awareness\n",
+      draftRaw: "title: T\nfunnel:\n  stage: decision\nauthors: null\nmeta:\n  robots: null\n  page_title: P\n",
+      commonRaw: "authors:\n  - a\nfunnel:\n  stage: awareness\n",
     });
     const common = yaml.load(routed.commonRaw!) as Record<string, any>;
     const locale = yaml.load(routed.localeRaw) as Record<string, any>;
     expect(common.funnel.stage).toBe("decision");
-    expect(common.meta).toBeUndefined();
+    expect(common.authors).toBeUndefined();
     expect(locale.funnel).toBeUndefined();
     expect(locale.meta).toEqual({ page_title: "P" });
     expect(routed.localeRaw).not.toContain("null");
   });
+
+  it("keeps robots in the locale file and drops its null removal marker", () => {
+    const routed = routeSharedFieldsOnPromote({
+      draftRaw: "title: T\nmeta:\n  robots: null\n  priority: 0.4\n",
+      commonRaw: "funnel:\n  stage: awareness\n",
+    });
+    expect(routed.commonChanged).toBe(false);
+    expect(routed.paths).toEqual([]);
+    expect(yaml.load(routed.localeRaw)).toEqual({ title: "T", meta: { priority: 0.4 } });
+  });
+});
+
+describe("displayValueChanges", () => {
+  it("lists legacy page-level copies that publish replaces with _common.yml", () => {
+    const changes = displayValueChanges({
+      liveRaw: "title: T\npublished_at: '2026-01-15'\nfunnel:\n  products:\n    - product: x\n      persona: p\n",
+      commonBeforeRaw: "published_at: ''\nfunnel:\n  stage: awareness\n  products:\n    - x\n",
+      commonAfterRaw: "published_at: ''\nfunnel:\n  stage: awareness\n  products:\n    - x\n",
+    });
+    expect(changes.map((c) => c.field_path)).toEqual(["published_at", "funnel"]);
+    expect(changes[1]!.before).toEqual({ stage: "awareness", products: [{ product: "x", persona: "p" }] });
+    expect(changes[1]!.after).toEqual({ stage: "awareness", products: ["x"] });
+  });
+
+  it("is silent when the legacy copy matches what remains, or there is none", () => {
+    expect(
+      displayValueChanges({
+        liveRaw: "title: T\nauthors:\n  - a\nmeta:\n  robots: noindex\n",
+        commonBeforeRaw: "authors:\n  - a\n",
+        commonAfterRaw: "authors:\n  - a\n",
+      }),
+    ).toEqual([]);
+    expect(displayValueChanges({ liveRaw: "title: T\n", commonBeforeRaw: null, commonAfterRaw: null })).toEqual([]);
+  });
 });
 
 describe("promoteVariantWithOptionalTeardown", () => {
-  it("routes funnel/robots to _common, applies draft seo, strips _draft, deletes the last versioning.yml", async () => {
+  it("routes funnel to _common, applies draft seo, strips _draft, deletes the last versioning.yml", async () => {
     write(
       "draft.en.yml",
       "slug: post-a\ntitle: Draft title\nseo:\n  main_keyword: draft-kw\nfunnel:\n  stage: decision\nmeta:\n  robots: null\nsections: []\n",
@@ -157,7 +195,7 @@ describe("promoteVariantWithOptionalTeardown", () => {
     if (!res.ok) return;
     const common = load("_common.yml");
     expect(common.funnel.stage).toBe("decision");
-    expect(common.meta).toEqual({ priority: 0.5 });
+    expect(common.meta).toEqual({ robots: "noindex", priority: 0.5 });
     const live = read("en.yml");
     expect(live).not.toContain("_draft");
     expect(live).not.toContain("funnel");
@@ -168,7 +206,7 @@ describe("promoteVariantWithOptionalTeardown", () => {
     expect(fs.existsSync(path.join(entryDir, "draft.en.yml"))).toBe(false);
     expect(res.versioningDeleted).toBe(true);
     expect(res.publishedDiff.map((c) => c.field_path)).toEqual(
-      expect.arrayContaining(["funnel", "meta.robots", "seo.main_keyword", "title"]),
+      expect.arrayContaining(["funnel", "seo.main_keyword", "title"]),
     );
     expect(res.preApplySnapshot.live).toContain("Live title");
   });
@@ -194,6 +232,35 @@ describe("promoteVariantWithOptionalTeardown", () => {
     } finally {
       seoGateMock.result = null;
     }
+  });
+
+  it("asks before publishing when the live locale file holds a differing legacy page-level copy", async () => {
+    write("en.yml", "slug: post-a\ntitle: Live title\nfunnel:\n  stage: consideration\nsections: []\n");
+    write("draft.en.yml", "slug: post-a\ntitle: Draft title\nsections: []\n");
+    recordDraftBase({ contentType: "blog", slug: "post-a", locale: "en", variant: "draft", contentRoot });
+
+    const blocked = await promote();
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) {
+      expect(blocked.code).toBe("display_values_change");
+      expect(blocked.details).toMatchObject({
+        locale: "en",
+        fields: [{ field_path: "funnel", before: { stage: "consideration" }, after: { stage: "awareness" } }],
+        paths: { common: "blog/post-a/_common.yml", locale: "blog/post-a/en.yml" },
+      });
+    }
+    expect(load("en.yml").title).toBe("Live title");
+
+    const proposalDry = await promote({ viaProposalApply: true, dryRun: true });
+    expect(proposalDry.ok).toBe(true);
+    if (proposalDry.ok) {
+      expect(proposalDry.warnings.find((w) => w.code === "display_values_change")?.fields).toEqual(["funnel"]);
+    }
+
+    const confirmed = await promote({ confirmDisplayChange: true });
+    expect(confirmed.ok).toBe(true);
+    expect(load("en.yml").funnel).toBeUndefined();
+    expect(load("_common.yml").funnel).toEqual({ stage: "awareness" });
   });
 
   it("keeps live seo when the draft has none", async () => {

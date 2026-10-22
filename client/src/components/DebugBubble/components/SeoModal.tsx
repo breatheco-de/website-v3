@@ -1559,8 +1559,8 @@ export function SeoModal({
               <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
                 <p>
                   <strong>Locations</strong> save automatically to <code className="font-mono">_common.yml</code>.
-                  Robots, priority, and change frequency patch <code className="font-mono">meta.*</code> on the locale
-                  file — no republish required.
+                  Robots, priority, and change frequency apply to this language only and patch{" "}
+                  <code className="font-mono">meta.*</code> on the locale file — no republish required.
                 </p>
                 <Collapsible>
                   <CollapsibleTrigger className="flex items-center gap-1 text-muted-foreground hover:text-foreground">
@@ -1620,7 +1620,8 @@ export function SeoModal({
                       <div>
                         <h4 className="text-sm font-semibold">Crawl &amp; sitemap settings</h4>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Robots directive, sitemap priority, and change frequency for this locale.
+                          Robots directive, sitemap priority, and change frequency for this language only. Other
+                          languages keep their own settings.
                         </p>
                       </div>
                       <Button

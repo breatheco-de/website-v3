@@ -3,6 +3,7 @@ import {
   COMMON_META_KEYS,
   DEFAULT_FIELD_SCOPE,
   FIELD_SCOPE,
+  LOCALE_META_KEYS,
   fieldScope,
   splitByFieldScope,
 } from "./field-scope";
@@ -14,7 +15,7 @@ describe("fieldScope", () => {
 
   it("uses the longest listed prefix for nested paths", () => {
     expect(fieldScope("funnel.stage")).toBe("common");
-    expect(fieldScope("meta.robots")).toBe("common");
+    expect(fieldScope("meta.robots")).toBe("locale");
     expect(fieldScope("seo.main_keyword")).toBe("locale");
     expect(fieldScope("authors.0")).toBe("common");
   });
@@ -32,8 +33,9 @@ describe("fieldScope", () => {
     expect(fieldScope("authors", { urlParams: ["authors"] })).toBe("locale");
   });
 
-  it("derives common meta keys from the table", () => {
-    expect([...COMMON_META_KEYS].sort()).toEqual(["change_frequency", "priority", "robots"]);
+  it("derives meta key sets from the table: search settings are per language", () => {
+    expect([...COMMON_META_KEYS]).toEqual([]);
+    expect([...LOCALE_META_KEYS].sort()).toEqual(["change_frequency", "priority", "robots"]);
   });
 });
 
@@ -45,7 +47,7 @@ describe("splitByFieldScope", () => {
       meta: { robots: "noindex", page_title: "P" },
       funnel: { stage: "awareness" },
     });
-    expect(common).toEqual({ authors: ["a"], meta: { robots: "noindex" }, funnel: { stage: "awareness" } });
-    expect(locale).toEqual({ title: "T", meta: { page_title: "P" } });
+    expect(common).toEqual({ authors: ["a"], funnel: { stage: "awareness" } });
+    expect(locale).toEqual({ title: "T", meta: { robots: "noindex", page_title: "P" } });
   });
 });

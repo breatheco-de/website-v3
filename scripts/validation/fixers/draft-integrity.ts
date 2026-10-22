@@ -2,8 +2,8 @@
  * Fixers for draft-integrity issues:
  * - orphan-entry-versioning: delete versioning.yml that lists no existing variant file
  * - draft-meta-in-published: strip `_draft` from `_common.yml` / live locale files
- * - field-scope-mismatch: move per-language keys out of `_common.yml` into every
- *   language file (and draft) that lacks them; move page-wide keys from language files
+ * - field-scope-mismatch: move per-language keys (incl. `meta.robots`) out of `_common.yml` into
+ *   every language file (and draft) that lacks them; move page-wide keys from language files
  *   to `_common.yml` only when every published language has the same value.
  *   What each language renders never changes (merge order: _common, then locale).
  */
@@ -123,15 +123,16 @@ export function planFieldScopeFix(entry: ScannedEntry): FieldScopeFixPlan {
         plan.needs_review.push({ field: key, reason: "no published language file to move it into" });
         continue;
       }
-      const value = common[key];
+      const value = getAtPath(common, key);
       const targets = [...liveDocs.map((l) => l.filePath), ...entry.variants.map((v) => v.filePath)];
       for (const t of targets) {
         const d = doc(t);
         if (!d || hasPath(d, key)) continue;
-        d[key] = structuredClone(value);
+        setAtPath(d, key, structuredClone(value));
         plan.writes.set(t, d);
       }
-      delete common[key];
+      deleteAtPath(common, key);
+      pruneEmptyMeta(common);
       plan.writes.set(entry.commonPath, common);
       plan.moved_to_locales.push(key);
     }

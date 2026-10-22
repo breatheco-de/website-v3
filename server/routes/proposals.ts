@@ -404,11 +404,13 @@ export function registerProposalRoutes(app: Express): void {
     const review_context = await svc.classifyLive(proposal, { persistIfMissingSnapshot: true });
     const fresh = svc.get(req.params.id) ?? proposal;
     const content_type_strategies = svc.contentTypeStrategiesFor(fresh);
+    const refs = svc.referencedProposals(fresh);
     res.json({
       proposal: fresh,
       review_context,
       ...(content_type_strategies ? { content_type_strategies } : {}),
-      deleted_refs: svc.missingReferencedIds(fresh),
+      deleted_refs: refs.missing,
+      referenced_proposals: refs.byId,
     });
   });
 

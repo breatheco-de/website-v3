@@ -5,6 +5,23 @@
 window_days: 6
 
 entries:
+  - date: "2026-10-22"
+    summary: "Field scope: no phantom page-level ops on proposals; meta.robots/priority/change_frequency are per locale; display_values_change on publish"
+    agent_impact:
+      - "Proposal drafts (create / revise_entries reset / rebuild) and create_variant from live start from the locale part only: funnel, authors, published_at, detached appear as page-level ops only when you send them. common_fields_all_languages now means a real page-level edit."
+      - "meta.robots, meta.priority, meta.change_frequency are per locale ({slug}/{locale}.yml): noindex hides one language; set each locale to hide all. Type defaults stay in {type}/_common.template.yml. Page-level: funnel.*, published_at, detached, authors."
+      - "promote_variant / publish_draft may fail display_values_change (details.fields[] field_path/before/after + paths) when the live locale file still holds a legacy page-level copy that publish drops; retry with confirm_display_change: true after the user agrees. Proposal preview/apply return it as a warning (not gated). Migration 006 (staff run) cleans legacy copies."
+    paths:
+      - shared/field-scope.ts
+      - server/versioning/draft-base.ts
+      - server/content-proposals/draft-store.ts
+      - server/versioning/promote-with-teardown.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/respond.ts
+      - mcp-server/explain/content_system.md
+      - mcp-server/explain/seo.md
+      - mcp-server/explain/proposals.md
+    tools_changed: false
   - date: "2026-10-15"
     summary: "idea_seo_target carries keyword volume + difficulty (kw_monthly_volume, kw_difficulty)"
     agent_impact:

@@ -25,8 +25,10 @@ import {
   checkDraftBase,
   checkTranslationSource,
   diffSnapshots,
+  flattenFields,
   forgetDraftBase,
   rebuildDraftFromBase,
+  sameValue,
   type BaseSnapshot,
   type DraftRef,
   type FieldChange,
@@ -127,6 +129,8 @@ export type PromoteWithTeardownArgs = {
   callerIsMcp?: boolean;
   /** Staff confirmed publishing text over the component text_limits. */
   confirmTextLimits?: boolean;
+  /** Publish even though this language will show a different page-level value (legacy copy in its locale file). */
+  confirmDisplayChange?: boolean;
   /** Open proposal owning this draft (local DB); `_draft.proposal` is checked first. */
   findOpenProposalForDraft?: (ref: DraftRef) => OpenProposalLink | null;
   /** Run every check, write nothing. */
@@ -193,6 +197,50 @@ function valueAt(obj: Record<string, unknown>, p: string): unknown {
   return p.split(".").reduce<unknown>((cur, k) => (isPlainObject(cur) ? cur[k] : undefined), obj);
 }
 
+/** Top-level keys + `meta.*` of the locale part whose value is `null` (removal markers). */
+function localeNullPaths(locale: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  for (const [key, value] of Object.entries(locale)) {
+    if (key === "meta" && isPlainObject(value)) {
+      for (const [sub, v] of Object.entries(value)) if (v === null) out.push(`meta.${sub}`);
+    } else if (value === null) {
+      out.push(key);
+    }
+  }
+  return out;
+}
+
+export const DISPLAY_VALUES_CHANGE_CODE = "display_values_change";
+
+export type DisplayValueChange = { field_path: string; before: unknown; after: unknown };
+
+/**
+ * Page-level fields this language shows from a legacy copy in its own locale file.
+ * Publish never writes page-level keys to the locale file, so afterwards the language
+ * shows `_common.yml` (after this publish) instead — list the values that change.
+ */
+export function displayValueChanges(opts: {
+  liveRaw: string | null;
+  commonBeforeRaw: string | null;
+  commonAfterRaw: string | null;
+  urlParams?: string[];
+}): DisplayValueChange[] {
+  const live = parseOrNull(opts.liveRaw);
+  if (!live) return [];
+  const { common: legacy } = splitByFieldScope(live, { urlParams: opts.urlParams });
+  const commonBefore = parseOrNull(opts.commonBeforeRaw) ?? {};
+  const commonAfter = parseOrNull(opts.commonAfterRaw) ?? {};
+  const out: DisplayValueChange[] = [];
+  for (const [fieldPath, own] of flattenFields(legacy)) {
+    if (own === null) continue;
+    const shared = valueAt(commonBefore, fieldPath);
+    const before = isPlainObject(own) && isPlainObject(shared) ? deepMerge(shared, own) : own;
+    const after = valueAt(commonAfter, fieldPath);
+    if (!sameValue(before, after)) out.push({ field_path: fieldPath, before, after });
+  }
+  return out;
+}
+
 /**
  * Apply the draft's page-level fields to `_common.yml` text and drop them from the
  * locale text. `null` in the draft deletes the key from `_common.yml`; the locale
@@ -204,20 +252,25 @@ export function routeSharedFieldsOnPromote(opts: {
   urlParams?: string[];
 }): { localeRaw: string; commonRaw: string | null; commonChanged: boolean; paths: string[]; draftCommon: Record<string, unknown> } {
   const parsed = safeLoadYaml(opts.draftRaw) ?? {};
-  const { common: draftCommon } = splitByFieldScope(parsed, { urlParams: opts.urlParams });
+  const { common: draftCommon, locale: draftLocale } = splitByFieldScope(parsed, { urlParams: opts.urlParams });
   const paths = commonPathsOf(draftCommon);
-  if (paths.length === 0) {
+  const localeNulls = localeNullPaths(draftLocale);
+  if (paths.length === 0 && localeNulls.length === 0) {
     return { localeRaw: opts.draftRaw, commonRaw: opts.commonRaw, commonChanged: false, paths, draftCommon };
   }
 
-  const nested = paths.some((p) => p.includes("."));
+  const nested = paths.some((p) => p.includes(".")) || localeNulls.length > 0;
   let localeRaw: string;
   if (nested) {
     const localeObj = { ...parsed };
-    for (const p of paths) deleteAtPath(localeObj, p);
+    for (const p of [...paths, ...localeNulls]) deleteAtPath(localeObj, p);
+    if (isPlainObject(localeObj.meta) && Object.keys(localeObj.meta).length === 0) delete localeObj.meta;
     localeRaw = safeDumpYaml(localeObj);
   } else {
     localeRaw = paths.reduce((raw, key) => surgicalRemoveTopLevelKey(raw, key), opts.draftRaw);
+  }
+  if (paths.length === 0) {
+    return { localeRaw, commonRaw: opts.commonRaw, commonChanged: false, paths, draftCommon };
   }
 
   let commonRaw = opts.commonRaw ?? "";
@@ -664,6 +717,33 @@ export async function promoteVariantWithOptionalTeardown(
       if (!gates.ok) {
         return { ok: false, code: gates.code, error: `Cannot promote: ${gates.error}`, details: { funnel: gates.details } };
       }
+    }
+
+    const displayChanges = templateMode
+      ? []
+      : displayValueChanges({
+          liveRaw: liveContent,
+          commonBeforeRaw: commonBefore,
+          commonAfterRaw: routed.commonChanged ? routed.commonRaw : commonBefore,
+          urlParams: urlParamsForContentType(contentType, contentRoot),
+        });
+    if (displayChanges.length > 0) {
+      const fields = displayChanges.map((c) => c.field_path);
+      const message = `Publishing changes what ${locale} visitors see for: ${fields.join(", ")}. These now come from the page-wide settings shared by every language.`;
+      if (!args.viaProposalApply && !args.confirmDisplayChange) {
+        return {
+          ok: false,
+          code: DISPLAY_VALUES_CHANGE_CODE,
+          error: `${message} Confirm to publish anyway.`,
+          status: 409,
+          details: {
+            locale,
+            fields: displayChanges,
+            paths: { common: `${folder}/${slug}/_common.yml`, locale: `${folder}/${slug}/${locale}.yml` },
+          },
+        };
+      }
+      warnings.push({ code: DISPLAY_VALUES_CHANGE_CODE, message, fields });
     }
 
     const { yamlForPromotePreservingLiveSeo } = await import("../seo-write-layer");

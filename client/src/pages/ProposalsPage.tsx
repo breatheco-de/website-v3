@@ -11,7 +11,6 @@ import {
   IconCircleCheck,
   IconCircleX,
   IconCloudDownload,
-  IconCopy,
   IconExternalLink,
   IconFilter,
   IconInbox,
@@ -99,6 +98,8 @@ import {
 } from "@/components/agents/SituationReviewBadge";
 import { EntryActivityBadge } from "@/components/pipeline/EntryActivityBadge";
 import { RelatedEntryPopover } from "@/components/agents/RelatedEntryPopover";
+import { ProposalEntryCard, proposalEntryBlockId } from "@/components/agents/ProposalEntryCard";
+import { ImplementsIdeaCard, type ImplementsIdeaSummary } from "@/components/agents/ImplementsIdeaCard";
 import { entryPreviewHref } from "@/lib/variable-usage-href";
 import { EscalatedBadge } from "@/components/agents/EscalatedBadge";
 import { ProposalV1Badges } from "@/components/agents/ProposalDraftBadges";
@@ -177,6 +178,8 @@ import {
 
 export const AGENTS_PROPOSALS_BASE = "/private/agents/proposals";
 
+const ENTRY_CARDS_COLLAPSED_COUNT = 4;
+
 const REJECT_UNDO_MS = 10_000;
 
 function proposalsListHref(search: string): string {
@@ -209,6 +212,9 @@ type ProposalWarning = {
   details?: {
     placeholders?: Array<{ name: string; missing: number; total: number }>;
     waiting_ideas?: Array<{ id: string; title: string }>;
+    entry_key?: string;
+    locale?: string;
+    fields?: string[];
   };
 };
 
@@ -406,6 +412,50 @@ function TemplatePlaceholderNotice({ proposalId }: { proposalId: string }) {
         <p key={line}>{line}</p>
       ))}
       <p className="text-xs text-muted-foreground">You can still publish; fill those fields later.</p>
+    </div>
+  );
+}
+
+const DISPLAY_FIELD_LABELS: Record<string, string> = {
+  funnel: "funnel",
+  authors: "authors",
+  published_at: "publish date",
+  detached: "template detach",
+};
+
+/** Apply dialog: pages whose language will show the shared value instead of its own old copy (non-blocking). */
+function ApplyDisplayChangeNotice({ proposalId }: { proposalId: string }) {
+  const { data } = useQuery({
+    queryKey: ["/api/admin/proposals", proposalId, "apply-dry-run"],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/admin/proposals/${proposalId}/apply`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ dry_run: true }),
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as { warnings?: ProposalWarning[] };
+    },
+    staleTime: 30_000,
+  });
+  const changes = (data?.warnings ?? []).filter((w) => w.code === "display_values_change");
+  if (!changes.length) return null;
+  return (
+    <div
+      className="space-y-1 rounded-md border border-card-border bg-muted/40 p-3 text-sm text-foreground"
+      data-testid="apply-display-values-change-notice"
+    >
+      {changes.map((w) => {
+        const d = w.details ?? {};
+        const names = (d.fields ?? []).map((f) => DISPLAY_FIELD_LABELS[f] ?? f).join(", ");
+        return (
+          <p key={`${d.entry_key}|${d.locale}`}>
+            {d.entry_key} ({d.locale}): publishing changes what visitors of this language see for {names}. These now
+            come from the page-wide settings shared by every language.
+          </p>
+        );
+      })}
+      <p className="text-xs text-muted-foreground">You can still publish.</p>
     </div>
   );
 }
@@ -1290,7 +1340,6 @@ export function ProposalDetailPanel({ id }: { id: string }) {
   const [textLimitViolations, setTextLimitViolations] = useState<TextLimitViolation[] | null>(null);
   const [, setDetailLocation] = useLocation();
   const [advanced, setAdvanced] = useState(false);
-  const [copiedImplementsId, setCopiedImplementsId] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
   const [applyOpen, setApplyOpen] = useState(false);
   const [activityAck, setActivityAck] = useState(false);
@@ -1347,12 +1396,16 @@ export function ProposalDetailPanel({ id }: { id: string }) {
         review_context?: ReviewContextPayload | null;
         content_type_strategies?: IdeaContentTypeStrategyPayload[];
         deleted_refs?: string[];
+        referenced_proposals?: Record<string, ImplementsIdeaSummary>;
       }>;
     },
   });
   const deletedInfo = (detailError as { deleted?: { by: string; at: string | null } } | null)
     ?.deleted;
   const deletedRefs = new Set(data?.deleted_refs ?? []);
+  const referencedProposals = data?.referenced_proposals ?? {};
+  const [entriesExpandedFor, setEntriesExpandedFor] = useState<string | null>(null);
+  const showAllEntries = entriesExpandedFor === id;
 
   const mut = useMutation({
     mutationFn: async (payload: { action: string; body?: Record<string, unknown> }) => {
@@ -1814,82 +1867,67 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                     }
                   />
                 ) : null}
+                {p.kind === "edits" && p.implements_proposal_id ? (
+                  <ImplementsIdeaCard
+                    ideaId={p.implements_proposal_id}
+                    ideaHref={`${AGENTS_PROPOSALS_BASE}/${p.implements_proposal_id}`}
+                    idea={referencedProposals[p.implements_proposal_id]}
+                    deleted={deletedRefs.has(p.implements_proposal_id)}
+                  />
+                ) : null}
                 {p.kind === "edits" && p.entries.length > 0 ? (
-                  <div
-                    className="flex flex-wrap items-center gap-1.5"
-                    data-testid="proposal-related-entries"
-                  >
-                    <span className="text-xs text-muted-foreground">Related</span>
-                    {p.entries.map((e) => {
-                      const liveKey = buildEntryKey({
-                        contentType: e.contentType,
-                        slug: e.slug,
-                        locale: e.locale,
-                      });
-                      const draftKey = e.variant
-                        ? buildEntryKey({
-                            contentType: e.contentType,
-                            slug: e.slug,
-                            locale: e.locale,
-                            variant: e.variant,
-                          })
-                        : null;
-                      const liveAct = activityByKey.get(liveKey);
-                      const draftAct = draftKey ? activityByKey.get(draftKey) : undefined;
-                      return (
-                        <span
-                          key={e.id}
-                          className="inline-flex max-w-full flex-wrap items-center gap-1"
-                        >
-                          <RelatedEntryPopover
-                            contentType={e.contentType}
-                            slug={e.slug}
-                            locale={e.locale}
-                            variant={e.variant}
+                  <div className="space-y-2">
+                    <div
+                      className="grid gap-2 sm:grid-cols-2"
+                      data-testid="proposal-related-entries"
+                    >
+                      {(showAllEntries
+                        ? p.entries
+                        : p.entries.slice(0, ENTRY_CARDS_COLLAPSED_COUNT)
+                      ).map((e) => {
+                        const liveKey = buildEntryKey({
+                          contentType: e.contentType,
+                          slug: e.slug,
+                          locale: e.locale,
+                        });
+                        const draftKey = e.variant
+                          ? buildEntryKey({
+                              contentType: e.contentType,
+                              slug: e.slug,
+                              locale: e.locale,
+                              variant: e.variant,
+                            })
+                          : null;
+                        return (
+                          <ProposalEntryCard
+                            key={e.id}
+                            entry={e}
+                            liveKey={liveKey}
+                            draftKey={draftKey}
+                            liveActivity={activityByKey.get(liveKey)}
+                            draftActivity={draftKey ? activityByKey.get(draftKey) : undefined}
                             previewHref={previewHref(e)}
-                            testId={`popover-related-entry-${e.id}`}
-                          >
-                            <Badge
-                              variant="outline"
-                              className="gap-1 font-mono font-normal max-w-full truncate"
-                              data-testid={`badge-related-entry-${e.id}`}
-                            >
-                              <IconLink className="h-3 w-3 shrink-0" aria-hidden />
-                              <span className="inline-flex items-center gap-1 truncate">
-                                <span className="truncate">
-                                  {e.contentType}/{e.slug}
-                                </span>
-                                <span
-                                  className="inline-flex shrink-0 text-muted-foreground"
-                                  title={e.locale}
-                                  aria-label={e.locale}
-                                >
-                                  ·{" "}
-                                  <LocaleFlag locale={e.locale} className="w-3.5 h-2.5 rounded-sm" />
-                                </span>
-                                {e.variant ? (
-                                  <span className="text-muted-foreground"> · draft {e.variant}</span>
-                                ) : null}
-                              </span>
-                            </Badge>
-                          </RelatedEntryPopover>
-                          <EntryActivityBadge
-                            entryKey={liveKey}
-                            writeCount={liveAct?.writeCount ?? 0}
-                            windowDays={liveAct?.windowDays ?? ENTRY_ACTIVITY_WINDOW_DAYS}
-                            testIdPrefix={`proposal-activity-live-${e.id}`}
+                            windowDays={ENTRY_ACTIVITY_WINDOW_DAYS}
                           />
-                          {draftKey ? (
-                            <EntryActivityBadge
-                              entryKey={draftKey}
-                              writeCount={draftAct?.writeCount ?? 0}
-                              windowDays={draftAct?.windowDays ?? ENTRY_ACTIVITY_WINDOW_DAYS}
-                              testIdPrefix={`proposal-activity-draft-${e.id}`}
-                            />
-                          ) : null}
-                        </span>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
+                    {p.entries.length > ENTRY_CARDS_COLLAPSED_COUNT ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-primary"
+                        data-testid="button-show-more-entries"
+                        onClick={() => setEntriesExpandedFor(showAllEntries ? null : id)}
+                      >
+                        {showAllEntries
+                          ? "Show fewer pages"
+                          : `Show ${p.entries.length - ENTRY_CARDS_COLLAPSED_COUNT} more ${
+                              p.entries.length - ENTRY_CARDS_COLLAPSED_COUNT === 1 ? "page" : "pages"
+                            }`}
+                      </Button>
+                    ) : null}
                   </div>
                 ) : null}
                 {p.kind === "idea" && suggestedEntriesBesidesReserved(p).length > 0 ? (
@@ -2053,76 +2091,6 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                   >
                     <span className="font-medium text-foreground">Changes the idea's SEO target.</span>{" "}
                     Reason: {p.seo_target_override.reason}
-                  </div>
-                ) : null}
-                {p.kind === "edits" && p.implements_proposal_id ? (
-                  <div
-                    className="flex flex-wrap items-center gap-1.5"
-                    data-testid="proposal-implements-idea"
-                  >
-                    <span className="text-xs text-muted-foreground">Implements idea</span>
-                    {deletedRefs.has(p.implements_proposal_id) ? (
-                      <Badge
-                        variant="outline"
-                        className="font-normal text-muted-foreground"
-                        title={p.implements_proposal_id}
-                        data-testid="badge-implements-proposal-deleted"
-                      >
-                        Deleted proposal
-                      </Badge>
-                    ) : (
-                      <>
-                        <Badge
-                          variant="outline"
-                          className="font-mono font-normal"
-                          title={p.implements_proposal_id}
-                          data-testid="badge-implements-proposal"
-                        >
-                          {p.implements_proposal_id.slice(0, 8)}…
-                        </Badge>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-muted-foreground"
-                          title="Copy idea id"
-                          aria-label="Copy idea id"
-                          data-testid="button-copy-implements-proposal"
-                          onClick={() => {
-                            const ideaId = p.implements_proposal_id!;
-                            void navigator.clipboard.writeText(ideaId).then(
-                              () => {
-                                setCopiedImplementsId(true);
-                                toast({ title: "Copied idea id" });
-                                setTimeout(() => setCopiedImplementsId(false), 2000);
-                              },
-                              () => toast({ title: "Copy failed", variant: "destructive" }),
-                            );
-                          }}
-                        >
-                          {copiedImplementsId ? (
-                            <IconCheck className="h-3.5 w-3.5" aria-hidden />
-                          ) : (
-                            <IconCopy className="h-3.5 w-3.5" aria-hidden />
-                          )}
-                        </Button>
-                        <Button
-                          asChild
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-muted-foreground"
-                        >
-                          <Link
-                            href={`${AGENTS_PROPOSALS_BASE}/${p.implements_proposal_id}`}
-                            title="Open idea"
-                            aria-label="Open idea"
-                            data-testid="link-implements-proposal"
-                          >
-                            <IconExternalLink className="h-3.5 w-3.5" aria-hidden />
-                          </Link>
-                        </Button>
-                      </>
-                    )}
                   </div>
                 ) : null}
                 <ProposalDetailMetaCard proposal={p} isTerminal={isTerminal} progress={progress} />
@@ -2579,7 +2547,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
               {p.entries.map((e) => {
                 const href = previewHref(e);
                 return (
-                  <Card key={e.id}>
+                  <Card key={e.id} id={proposalEntryBlockId(e.id)} className="scroll-mt-4">
                     <div className="flex flex-wrap items-start justify-between gap-3 border-b border-card-border px-4 py-3">
                       <div className="min-w-0">
                         <p className="flex items-center gap-1.5 truncate text-sm font-medium">
@@ -2948,6 +2916,7 @@ export function ProposalDetailPanel({ id }: { id: string }) {
                       </label>
                     ) : null}
                     {p.affected_entries && applyOpen ? <TemplatePlaceholderNotice proposalId={p.id} /> : null}
+                    {applyOpen ? <ApplyDisplayChangeNotice proposalId={p.id} /> : null}
                     {needsActivityAck ? (
                       <div
                         className="space-y-2 rounded-md border border-card-border bg-muted/40 p-3"

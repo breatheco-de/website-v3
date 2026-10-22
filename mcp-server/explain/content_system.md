@@ -63,14 +63,17 @@ When a page is loaded the system performs a deep merge: `_common.yml` fields are
 
 | Scope | Fields | File |
 |---|---|---|
-| `common` (whole page, every locale) | `funnel.*`, `meta.robots`, `meta.priority`, `meta.change_frequency`, `published_at`, `detached`, `authors` | `{slug}/_common.yml` |
-| `locale` (default) | everything else — `title`, `description`, `content`, `image`, `seo.*`, other `meta.*`, `tags`, `status`, URL pattern params (e.g. `category`), … | `{slug}/{locale}.yml` (or the draft) |
+| `common` (whole page, every locale) | `funnel.*`, `published_at`, `detached`, `authors` | `{slug}/_common.yml` |
+| `locale` (default) | everything else — `title`, `description`, `content`, `image`, `seo.*`, all `meta.*` (including `meta.robots`, `meta.priority`, `meta.change_frequency`), `tags`, `status`, URL pattern params (e.g. `category`), … | `{slug}/{locale}.yml` (or the draft) |
+
+Type-wide defaults for `meta.robots` / `meta.priority` / `meta.change_frequency` stay in `{type}/_common.template.yml`; a locale file overrides them for that language only.
 
 Resolution: exact path, then the longest listed prefix, then `locale`. URL pattern params are always `locale`.
 
-- **Writes to a draft** stage `common` fields inside the draft; publish/promote moves them to `_common.yml` (warning `common_fields_all_languages`). Live writes of `common` fields go straight to `_common.yml`.
+- **Writes to a draft** stage `common` fields inside the draft; publish/promote moves them to `_common.yml` (warning `common_fields_all_languages`). Live writes of `common` fields go straight to `_common.yml`. New drafts never copy `common` keys from the live locale file — only fields the author sets are staged.
+- **Publish changes what a locale shows:** when the live locale file still holds a legacy copy of a `common` field that differs from what publish leaves (`_common.yml` or the draft's staged value), promote returns `display_values_change` (`details.fields[]` with `field_path`, `before`, `after`); retry with `confirm_display_change: true` after telling the user.
 - **Removing a field:** `{ field_path, op: "remove" }` (or `value: null`). On a draft the field is stored as `null` until publish (warning `common_field_removal_staged`), then deleted from `_common.yml` in every locale. `null` in a live `_common.yml` is a validation error (`FIELD_SCOPE_NULL_OUTSIDE_DRAFT`).
-- Validator `draft-integrity` warns `FIELD_SCOPE_MISMATCH` when a file holds keys of the other scope; fixer `field-scope-mismatch` moves them (common keys leave locale files only when every live locale agrees).
+- Validator `draft-integrity` reports `FIELD_SCOPE_MISMATCH` when a file holds keys of the other scope (warning until data migration `006_reconcile_field_scope` has run on the site, error after); fixer `field-scope-mismatch` moves them (common keys leave locale files only when every live locale agrees).
 
 ## Draft base (`_draft.based_on`) and translation source
 

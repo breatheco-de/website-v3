@@ -83,7 +83,8 @@ describe("classifyFieldPath", () => {
     expect(classifyFieldPath("funnel.products")).toBe("funnel");
     expect(classifyFieldPath("funnel.stage")).toBe("funnel");
     expect(classifyFieldPath("seo.main_keyword")).toBe("seo");
-    expect(classifyFieldPath("meta.robots")).toBe("common");
+    expect(classifyFieldPath("meta.robots")).toBe("locale");
+    expect(classifyFieldPath("meta.priority")).toBe("locale");
     expect(classifyFieldPath("authors")).toBe("common");
     expect(classifyFieldPath("published_at")).toBe("common");
     expect(classifyFieldPath("meta.page_title")).toBe("locale");
@@ -125,6 +126,7 @@ _draft:
       mode: "draft_only",
       updates: [
         { field_path: "funnel.stage", value: "decision" },
+        { field_path: "published_at", op: "remove" },
         { field_path: "meta.robots", op: "remove" },
         { field_path: "authors", value: ["ana"] },
       ],
@@ -140,7 +142,8 @@ _draft:
     const draftRaw = fs.readFileSync(path.join(contentRoot, "blog", "post-a", "draft.en.yml"), "utf-8");
     const draft = yaml.load(draftRaw) as Record<string, any>;
     expect(draft.funnel.stage).toBe("decision");
-    expect(draft.meta.robots).toBeNull();
+    expect(draft.published_at).toBeNull();
+    expect(draft.meta?.robots).toBeUndefined();
     expect(draft.authors).toEqual(["ana"]);
     expect(draft._draft.based_on.locale).toBe("abc");
   });

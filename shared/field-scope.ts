@@ -10,9 +10,9 @@ export type FieldScope = "common" | "locale";
 
 export const FIELD_SCOPE: Record<string, FieldScope> = {
   funnel: "common",
-  "meta.robots": "common",
-  "meta.priority": "common",
-  "meta.change_frequency": "common",
+  "meta.robots": "locale",
+  "meta.priority": "locale",
+  "meta.change_frequency": "locale",
   published_at: "common",
   detached: "common",
   authors: "common",
@@ -66,6 +66,13 @@ export function isCommonField(fieldPath: string, opts?: FieldScopeOptions): bool
 export const COMMON_META_KEYS: ReadonlySet<string> = new Set(
   Object.entries(FIELD_SCOPE)
     .filter(([p, s]) => s === "common" && p.startsWith("meta."))
+    .map(([p]) => p.slice("meta.".length)),
+);
+
+/** `meta.*` keys explicitly listed as locale-scoped (e.g. `robots`). */
+export const LOCALE_META_KEYS: ReadonlySet<string> = new Set(
+  Object.entries(FIELD_SCOPE)
+    .filter(([p, s]) => s === "locale" && p.startsWith("meta."))
     .map(([p]) => p.slice("meta.".length)),
 );
 

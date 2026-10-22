@@ -722,7 +722,7 @@ export function registerProposalTools(
     "Create a proposal (never writes live YAML). Requires proposals_create. " +
       "Pass entries[] (or promote_on_apply) → kind edits. " +
       "Edits (1.0): updates are written into a 0%-traffic draft now (named variant, or `draft` / `draft-p{id6}` created from today's live); apply only promotes that draft. Live is unchanged until apply. " +
-      "Page-level (common) fields — funnel.*, meta.robots/priority/change_frequency, published_at, detached, authors — publish to {slug}/_common.yml for every locale (warning common_fields_all_languages). Remove a field with {field_path, op:\"remove\"}. " +
+      "Page-level (common) fields — funnel.*, published_at, detached, authors — publish to {slug}/_common.yml for every locale (warning common_fields_all_languages); meta.robots/priority/change_frequency are per locale. Remove a field with {field_path, op:\"remove\"}. " +
       "Check layout_owner (get_content_type_info / get_entry_content): entry → a new page or new language needs one full sections update (registry-checked); shared_template → fields only. " +
       "To change the layout of every attached entry, target slug template (one entry per locale, all_or_nothing: true); apply needs confirm_affected_entries. " +
       "Optional all_or_nothing (publish every entry or none) and per-entry translated_from_locale. " +

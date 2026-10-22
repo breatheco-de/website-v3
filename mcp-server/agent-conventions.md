@@ -137,7 +137,7 @@ A proposal is how work passes between roles: one role proposes, a **different** 
 2. **One risk per proposal.** Do not mix outcome figures, new pages, and other edits (`mixed_risk_bundle`). Keep SERP title/description separate from body edits (`mixed_serp_and_body`).
 3. **Declare `review_situations`** so reviewers get the right checklist: `internal_links`, `serp_title_description`, `funnel_classification`, `body_copy_edit`, `selling_figures`, `new_public_content`, `promote_draft`, `locale_translation`. `situation_ops_mismatch` → retag with `set_review_situations`. Catalog: `explain_site` `topic: "proposals"` `subtopic: "situations"`.
 4. **Summary** (min 80) = intent + why. Never paste values — ops carry them. Go-live with no updates: why this draft should go live. Optional `rationale` = deeper reasoning; `situation_note` = what live looks like now.
-5. **After filing:** read `side_effects.drafts_written`; give the human the draft preview link (§5a). Page-level fields (`funnel.*`, `meta.robots`, `authors`, …) change every language — say so.
+5. **After filing:** read `side_effects.drafts_written`; give the human the draft preview link (§5a). Page-level fields (`funnel.*`, `authors`, `published_at`) change every language — say so. `meta.robots` is per language.
 6. **Follow your attention bucket** (`list_proposals` with `proposer_username` / `agent_session_id`):
    - `blocked` → fix with `revise_entries` (idle or self-claimed only), then the active claimant `resolve_blocker`s. Revise does not clear blockers; never resolve to win a disagreement.
    - `needs_author` / `context_stale` → live moved under your draft; `revise_entries`.

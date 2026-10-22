@@ -261,6 +261,16 @@ export function promoteFailureNextActions(opts: {
           args_hint: { ...base, confirm_source_changed: true },
         },
       ];
+    case "display_values_change":
+      return [
+        {
+          tool: opts.retryTool,
+          priority: "recommended",
+          reason:
+            "The live locale file still holds a legacy copy of a page-level field (details.fields: before → after). Publishing drops it, so this language starts showing the _common.yml value. Tell the user; retry with confirm_display_change: true after they agree, or set the field on the draft first.",
+          args_hint: { ...base, confirm_display_change: true },
+        },
+      ];
     case "attached_draft_structure":
       return [
         {

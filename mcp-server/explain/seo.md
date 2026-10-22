@@ -97,7 +97,7 @@ Warn band → `confirm_seo_research_budget`; 100% → exhausted. Not a substitut
 
 ### Page-level vs locale SEO fields
 
-`meta.robots`, `meta.priority` and `meta.change_frequency` are page-level (`_common.yml`, every locale). `meta.page_title`, `meta.description`, other `meta.*` and `seo.*` are per locale. A proposal that sets `meta.robots` changes indexing for every locale (warning `common_fields_all_languages`). See `explain_site` topic `content_system` → Field scope.
+All `meta.*` (including `meta.robots`, `meta.priority` and `meta.change_frequency`) and `seo.*` are per locale (`{slug}/{locale}.yml`). Setting `meta.robots: noindex` hides only that language; to hide every language, set it in each locale. Type-wide defaults live in `{type}/_common.template.yml`. See `explain_site` topic `content_system` → Field scope.
 
 ## Live SEO meta gates
 

@@ -40,7 +40,7 @@ export const DRAFT_INTEGRITY_ISSUE_CODES: Record<string, IssueCodeDefinition> = 
   FIELD_SCOPE_MISMATCH: {
     title: "Field In The Wrong File",
     suggestion:
-      "Per-language fields (title, description, status, tags…) belong in each language file; page-wide fields (funnel, authors, robots…) belong in _common.yml. Run the field-scope-mismatch fixer; it only moves values when what each language shows stays the same.",
+      "Per-language fields (title, description, robots, priority, change frequency…) belong in each language file; page-wide fields (funnel, authors, publish date) belong in _common.yml. Run the field-scope-mismatch fixer; it only moves values when what each language shows stays the same. A warning until migration 006_reconcile_field_scope has run on this site, an error after.",
   },
   FIELD_SCOPE_NULL_OUTSIDE_DRAFT: {
     title: "Null Field In Published File",

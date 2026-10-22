@@ -12,16 +12,19 @@
 import fs from "fs";
 import path from "path";
 import { isTemplateVersioningSlug, liveTemplateBasename } from "@shared/sharedLayoutPaths";
-import { fieldScope, splitByFieldScope, type FieldScope } from "@shared/field-scope";
+import { fieldScope, splitByFieldScope, type FieldScope, type FieldScopeOptions } from "@shared/field-scope";
 import { cloneJson, deleteAtPath, isPlainObject, setAtPath } from "@shared/object-path";
 import { getFolder } from "../content-types";
 import { getSiteSqlite } from "../db";
+import { urlParamsForContentType } from "../field-scope-config";
 import {
   hashVariantFileContents,
   readDraftMeta,
   readVariantData,
   resolveRoot,
+  safeDumpYaml,
   safeLoadYaml,
+  stripDraftMetaFromRaw,
   variantFilePathFor,
   writeDraftMeta,
   writeVariantData,
@@ -200,6 +203,29 @@ export function currentSnapshot(ref: DraftRef): BaseSnapshot {
   return { live: loadFile(livePathOf(ref)), common: loadFile(commonPathOf(ref)) };
 }
 
+/** Field scope options for this entry (its URL params are always locale). */
+export function scopeOptionsOf(ref: Pick<DraftRef, "contentType" | "contentRoot">): FieldScopeOptions {
+  try {
+    return { urlParams: urlParamsForContentType(ref.contentType, ref.contentRoot) };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Locale file content a draft may start from: page-level keys are dropped, since they
+ * are published from `_common.yml` (copying a legacy locale copy would stage it as an edit).
+ * Returns the raw text untouched when there is nothing to drop.
+ */
+export function draftSeedFromLiveRaw(liveRaw: string, opts?: FieldScopeOptions): string {
+  const raw = stripDraftMetaFromRaw(liveRaw);
+  const data = safeLoadYaml(raw);
+  if (!data) return raw;
+  const { common, locale } = splitByFieldScope(data, opts);
+  if (Object.keys(common).length === 0) return raw;
+  return Object.keys(locale).length ? safeDumpYaml(locale) : "{}\n";
+}
+
 // ── Field-level diff ─────────────────────────────────────────────────────────
 
 /** Split one level deeper for these keys (`meta.page_title`, `seo.main_keyword`). */
@@ -244,15 +270,16 @@ export type AuthorDiff = {
 export function diffDraftAgainst(
   draft: Record<string, unknown>,
   base: BaseSnapshot,
+  opts?: FieldScopeOptions,
 ): FieldChange[] {
-  const { common: draftCommon, locale: draftLocale } = splitByFieldScope(draft);
+  const { common: draftCommon, locale: draftLocale } = splitByFieldScope(draft, opts);
   const changes: FieldChange[] = [];
 
   const baseLive = flattenFields(base.live);
   const draftLive = flattenFields(draftLocale);
   const localePaths = new Set([...baseLive.keys(), ...draftLive.keys()]);
   for (const p of localePaths) {
-    if (fieldScope(p) === "common") continue;
+    if (fieldScope(p, opts) === "common") continue;
     const before = baseLive.get(p);
     const inDraft = draftLive.has(p);
     const after = draftLive.get(p);
@@ -277,7 +304,7 @@ export function diffDraftAgainst(
 }
 
 /** Changes between two snapshots (live changes since base, or what a publish changed). */
-export function diffSnapshots(before: BaseSnapshot, after: BaseSnapshot): FieldChange[] {
+export function diffSnapshots(before: BaseSnapshot, after: BaseSnapshot, opts?: FieldScopeOptions): FieldChange[] {
   const changes: FieldChange[] = [];
   const pairs: Array<[FieldScope, Map<string, unknown>, Map<string, unknown>]> = [
     ["locale", flattenFields(before.live), flattenFields(after.live)],
@@ -285,7 +312,7 @@ export function diffSnapshots(before: BaseSnapshot, after: BaseSnapshot): FieldC
   ];
   for (const [scope, a, b] of pairs) {
     for (const p of new Set([...a.keys(), ...b.keys()])) {
-      if (fieldScope(p) !== scope) continue;
+      if (fieldScope(p, opts) !== scope) continue;
       const va = a.get(p);
       const vb = b.get(p);
       if (sameValue(va, vb)) continue;
@@ -335,6 +362,15 @@ export function recordDraftBase(
   return basedOn;
 }
 
+/** Base copy (live + common when the draft was made) while it still matches `_draft.based_on`. */
+export function baseSnapshotOf(ref: DraftRef, store: DraftBaseStore = activeStore): BaseSnapshot | null {
+  const row = store.get(siteOf(ref), ref);
+  if (!row?.snapshot) return null;
+  const meta = readDraftMeta(draftPathOf(ref));
+  if (meta?.based_on && row.locale_hash !== meta.based_on.locale) return null;
+  return row.snapshot;
+}
+
 export function forgetDraftBase(ref: DraftRef, store: DraftBaseStore = activeStore): void {
   store.delete(siteOf(ref), ref);
 }
@@ -344,9 +380,9 @@ export type DraftBaseCheck =
   | { status: "stale"; changed: Array<"locale" | "common">; based_on: DraftBasedOn }
   | { status: "unknown" };
 
-function draftCarriesCommonFields(draft: Record<string, unknown> | null): boolean {
+function draftCarriesCommonFields(draft: Record<string, unknown> | null, opts?: FieldScopeOptions): boolean {
   if (!draft) return false;
-  return Object.keys(splitByFieldScope(draft).common).length > 0;
+  return Object.keys(splitByFieldScope(draft, opts).common).length > 0;
 }
 
 /** Compare today's live hashes with `_draft.based_on`. `common` counts only if the draft stages page-level fields. */
@@ -358,7 +394,7 @@ export function checkDraftBase(ref: DraftRef): DraftBaseCheck {
   }
   const changed: Array<"locale" | "common"> = [];
   if ((meta.based_on.locale ?? null) !== liveHash) changed.push("locale");
-  if (draftCarriesCommonFields(readVariantData(draftPathOf(ref)))) {
+  if (draftCarriesCommonFields(readVariantData(draftPathOf(ref)), scopeOptionsOf(ref))) {
     if ((meta.based_on.common ?? null) !== hashFile(commonPathOf(ref))) changed.push("common");
   }
   return changed.length ? { status: "stale", changed, based_on: meta.based_on } : { status: "ok" };
@@ -377,7 +413,7 @@ export function authorDiff(ref: DraftRef, opts: { store?: DraftBaseStore } = {})
       ? { live: null, common: currentSnapshot(ref).common }
       : currentSnapshot(ref);
   const approximate = !hasCopy && !(meta?.based_on && meta.based_on.locale === null && !fs.existsSync(livePathOf(ref)));
-  const changes = diffDraftAgainst(draft, base);
+  const changes = diffDraftAgainst(draft, base, scopeOptionsOf(ref));
   if (meta?.translated_from) {
     const source = loadFile(
       livePathOf({ ...ref, locale: meta.translated_from.locale }),
@@ -429,8 +465,9 @@ export function rebuildDraftFromBase(
   }
   const base = row.snapshot;
   const now = currentSnapshot(ref);
-  const authorChanges = diffDraftAgainst(draft, base);
-  const liveChanges = diffSnapshots(base, now);
+  const scopeOpts = scopeOptionsOf(ref);
+  const authorChanges = diffDraftAgainst(draft, base, scopeOpts);
+  const liveChanges = diffSnapshots(base, now, scopeOpts);
   if (authorChanges.some((c) => c.field_path === "sections")) {
     return {
       ok: false,
@@ -453,7 +490,7 @@ export function rebuildDraftFromBase(
     };
   }
 
-  const result: Record<string, unknown> = cloneJson(now.live ?? {});
+  const result: Record<string, unknown> = cloneJson(splitByFieldScope(now.live ?? {}, scopeOpts).locale);
   for (const c of authorChanges) {
     if (c.scope === "common") {
       setAtPath(result, c.field_path, c.removed ? null : cloneJson(c.after));
