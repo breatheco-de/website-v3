@@ -7,6 +7,8 @@
  * - missing conversion_name when a bound form-settings object is present
  *   (absent nested forms, e.g. CTA-only heroes, are allowed)
  * - form fields.*.source.related_field issues (empty/missing/broken/slugs combo)
+ * - forms (and form_overrides that switch event) with no mandatory consent checkbox,
+ *   forms with two (General + Marketing), and a site without a Default consent
  *
  * Settings (conversion events, auth) come from the context's site, not the
  * default site.
@@ -24,7 +26,10 @@ import { validateSignupFormFields } from "../../../shared/authSignupFieldMap";
 import { validateFormFieldSources } from "../../../shared/validateFormFieldSources";
 import { resolveBoundFormSettingsPath } from "../../../shared/wipeOnDuplicate";
 import { getContentTypeConfig } from "../../../server/content-types";
-import { getTrackingSettings, getAuthSettings, getAuthConversionEventConfig } from "../../../server/settings";
+import { getTrackingSettings, getAuthSettings, getAuthConversionEventConfig, getConsentFallback } from "../../../server/settings";
+import { checkFormConsent, formObjectAtPath } from "../../../shared/formConsentCheck";
+import { normalizeConsentFallbackKey } from "../../../shared/consent-settings";
+import type { ConversionEventDefaults } from "../../../shared/resolveFormDefaults";
 import { loadAllFieldEditors } from "../../../server/component-registry";
 import { escapeTemplateVars, unescapeObjectVars } from "../../../shared/templateVars";
 import { getDefaultContentRoot } from "../../../server/site-config";
@@ -85,6 +90,9 @@ export const formsValidator: Validator = {
     const authConversion = getAuthConversionEventConfig(root);
     const signupFieldMap = getAuthSettings(root).signup?.field_map;
     const allFieldEditors = loadAllFieldEditors();
+    const conversionEvents = getTrackingSettings(root).conversion_events as ConversionEventDefaults[];
+    const consentFallback = getConsentFallback(root);
+    let formsRelyingOnDefault = 0;
 
     for (const [entryDir, ct] of Array.from(collectEntryDirs(context, root))) {
       if (!fs.existsSync(entryDir)) continue;
@@ -160,18 +168,33 @@ export const formsValidator: Validator = {
           }
 
           if (formSettingsPath != null) {
-            const formObj = (() => {
-              if (!formSettingsPath) return sec;
-              const parts = formSettingsPath.split(".").filter(Boolean);
-              let current: unknown = sec;
-              for (const part of parts) {
-                if (!current || typeof current !== "object" || Array.isArray(current)) return null;
-                current = (current as Record<string, unknown>)[part];
-              }
-              if (!current || typeof current !== "object" || Array.isArray(current)) return null;
-              return current as Record<string, unknown>;
-            })();
+            const formObj = formObjectAtPath(sec, formSettingsPath);
             const formLabel = formSettingsPath || "form";
+            if (formObj) {
+              for (const v of checkFormConsent(formObj, conversionEvents, consentFallback)) {
+                const where = v.where === "form" ? formLabel : `${formLabel}.${v.where}`;
+                const eventNote = v.conversionName ? ` (conversion event: ${v.conversionName})` : "";
+                if (v.reliesOnDefault) formsRelyingOnDefault++;
+                if (v.required.length === 0) {
+                  errors.push({
+                    type: "error",
+                    code: "FORM_NO_REQUIRED_CONSENT",
+                    message: `sections[${i}].${where} has no mandatory consent checkbox${eventNote}. File: ${relativePath}`,
+                    file: relativePath,
+                    suggestion:
+                      "Turn on the site Default consent in Settings, or turn on General or Marketing for this form or its conversion event. SMS, Email and WhatsApp are always optional. Publishing this page is blocked until fixed.",
+                  });
+                } else if (v.twoRequired) {
+                  warnings.push({
+                    type: "warning",
+                    code: "FORM_TWO_REQUIRED_CONSENTS",
+                    message: `sections[${i}].${where} makes visitors tick two boxes (General and Marketing)${eventNote}. File: ${relativePath}`,
+                    file: relativePath,
+                    suggestion: "Allowed. Turn one of them off if a single mandatory checkbox is enough.",
+                  });
+                }
+              }
+            }
             const signupErr = validateSignupFormFields(formObj, signupFieldMap, formLabel);
             if (signupErr) {
               errors.push({
@@ -185,6 +208,16 @@ export const formsValidator: Validator = {
           }
         }
       }
+    }
+
+    if (!normalizeConsentFallbackKey(consentFallback)) {
+      errors.push({
+        type: "error",
+        code: "SITE_NO_DEFAULT_CONSENT",
+        message: `This site has no Default consent (settings.yml consent.fallback). ${formsRelyingOnDefault} form(s) checked here have no mandatory checkbox of their own and rely on it.`,
+        file: path.relative(process.cwd(), path.join(root, "settings.yml")),
+        suggestion: "Turn on a Default consent (General) in Settings → consent copy.",
+      });
     }
 
     return {

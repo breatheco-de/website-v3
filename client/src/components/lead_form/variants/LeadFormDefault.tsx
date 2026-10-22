@@ -9,7 +9,6 @@ import { localeFromPath } from "@shared/runtime-issues";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import {
   Form,
   FormControl,
@@ -45,7 +44,8 @@ import {
   parseAuthConversionEventConfig,
 } from "@shared/authConversionEvents";
 import { resolveFormDefaults } from "@shared/resolveFormDefaults";
-import { resolveConsentCopy, extraConsentYamlFieldsFromObject, consentKeyFromYamlField, isBlankConsentHtml, parseConsentSettingsResponse, shouldShowFallbackConsent } from "@shared/consent-settings";
+import { isUsVisitor } from "@shared/usVisitor";
+import { resolveConsentCopy, extraConsentYamlFieldsFromObject, consentKeyFromYamlField, isBlankConsentHtml, parseConsentSettingsResponse, resolveConsentRequirement } from "@shared/consent-settings";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import {
   applyLeadFormOverrideOutcome,
@@ -315,7 +315,7 @@ interface LeadFormProps {
 
 interface FormOptions {
   programs: Array<{ slug: string; title: string; bc_slug?: string }>;
-  locations: Array<{ slug: string; name: string; city: string; country: string; region: string }>;
+  locations: Array<{ slug: string; name: string; city: string; country: string; country_code?: string; region: string }>;
   regions: Array<{ slug: string; label: string }>;
 }
 
@@ -344,7 +344,8 @@ interface ConsentSectionProps {
   form: ReturnType<typeof useForm<FormValues>>;
   locale: string;
   formOptions?: FormOptions;
-  sessionLocation: { slug: string; region: string; country?: string } | null;
+  sessionLocation: { slug: string; region: string; country?: string; country_code?: string } | null;
+  geo?: { country_code?: string } | null;
   consentSettings?: Record<string, Record<string, string> | string>;
   fallbackKey?: string | null;
 }
@@ -361,6 +362,10 @@ function ConsentMessage({ html, testId }: { html: string; testId?: string }) {
       data-testid={testId}
     />
   );
+}
+
+function consentRequiredMessage(locale: string): string {
+  return locale === "es" ? "Por favor marca esta casilla para continuar" : "Please check this box to continue";
 }
 
 function FallbackConsentField({
@@ -380,11 +385,7 @@ function FallbackConsentField({
     <FormField
       control={form.control}
       name={fallbackKey}
-      rules={{
-        validate: (value) => value === true || (locale === "es"
-          ? "Por favor marca esta casilla para continuar"
-          : "Please check this box to continue")
-      }}
+      rules={{ validate: (value) => value === true || consentRequiredMessage(locale) }}
       render={({ field, fieldState }) => (
         <FormItem className={className ?? "flex flex-col space-y-2"}>
           <div className="flex flex-row items-start space-x-3">
@@ -416,53 +417,35 @@ function FallbackConsentField({
   );
 }
 
-function ConsentSection({ consent, form, locale, formOptions, sessionLocation, consentSettings, fallbackKey }: ConsentSectionProps) {
+function ConsentSection({ consent, form, locale, formOptions, sessionLocation, geo, consentSettings, fallbackKey }: ConsentSectionProps) {
   const selectedLocationSlug = form.watch("location");
-  
-  const isUSALocation = (): boolean => {
-    if (consent.sms_usa_only === false) return true;
-    
-    if (selectedLocationSlug && formOptions?.locations) {
-      const selectedLoc = formOptions.locations.find(loc => loc.slug === selectedLocationSlug);
-      if (selectedLoc) {
-        return selectedLoc.country === "United States" || 
-               selectedLoc.slug.endsWith("-usa") ||
-               selectedLoc.region === "north-america";
-      }
-    }
-    
-    if (sessionLocation) {
-      if (sessionLocation.country === "United States" || 
-          sessionLocation.country === "US" ||
-          sessionLocation.slug?.endsWith("-usa")) {
-        return true;
-      }
-      if (sessionLocation.region === "north-america") {
-        return true;
-      }
-    }
-    
-    return false;
-  };
+  const selectedLocation = selectedLocationSlug
+    ? formOptions?.locations.find((loc) => loc.slug === selectedLocationSlug)
+    : undefined;
 
-  const showSmsConsent = consent.sms && (!consent.sms_usa_only || isUSALocation());
+  const showSmsConsent =
+    consent.sms && (!consent.sms_usa_only || isUsVisitor({ selectedLocation, sessionLocation, geo }));
 
   const defaultMarketingText = resolveConsentCopy("consent_marketing", consentSettings?.consent_marketing, locale);
   const defaultSmsText = resolveConsentCopy("consent_sms", consentSettings?.consent_sms, locale);
   const defaultEmailText = resolveConsentCopy("consent_email", consentSettings?.consent_email, locale);
   const defaultWhatsappText = resolveConsentCopy("consent_whatsapp", consentSettings?.consent_whatsapp, locale);
-  const showFallback = shouldShowFallbackConsent(consent, fallbackKey);
-  const fallbackCopy = fallbackKey
-    ? resolveConsentCopy(fallbackKey, consentSettings?.[fallbackKey], locale)
+  const requirement = resolveConsentRequirement(consent, fallbackKey, { locale, messages: consentSettings });
+  const requiredRule = (yamlField: string) =>
+    requirement.required.includes(yamlField)
+      ? { validate: (value: unknown) => value === true || consentRequiredMessage(locale) }
+      : undefined;
+  const fallbackCopy = requirement.fallbackKey
+    ? resolveConsentCopy(requirement.fallbackKey, consentSettings?.[requirement.fallbackKey], locale)
     : "";
 
   return (
     <div className="space-y-4">
-      {showFallback && fallbackKey && (
+      {requirement.showFallback && requirement.fallbackKey && (
         <FallbackConsentField
           form={form}
           locale={locale}
-          fallbackKey={fallbackKey}
+          fallbackKey={requirement.fallbackKey}
           html={fallbackCopy}
         />
       )}
@@ -471,11 +454,7 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, c
         <FormField
           control={form.control}
           name="consent_email"
-          rules={{ 
-            validate: (value) => value === true || (locale === "es" 
-              ? "Por favor marca esta casilla para continuar" 
-              : "Please check this box to continue")
-          }}
+          rules={requiredRule("marketing")}
           render={({ field, fieldState }) => (
             <FormItem className="flex flex-col space-y-2">
               <div className="flex flex-row items-start space-x-3">
@@ -597,13 +576,7 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, c
             key={yamlField}
             control={form.control}
             name={`consent_${yamlField}`}
-            rules={{
-              validate: (value) =>
-                value === true ||
-                (locale === "es"
-                  ? "Por favor marca esta casilla para continuar"
-                  : "Please check this box to continue"),
-            }}
+            rules={requiredRule(yamlField)}
             render={({ field, fieldState }) => (
               <FormItem className="flex flex-col space-y-2">
                 <div className="flex flex-row items-start space-x-3">
@@ -2502,39 +2475,19 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                 {emailConfig.helper_text}
               </p>
             )}
-            {showLegalAndConsent && allRequiredFieldsFilled && shouldShowFallbackConsent(consent, consentFallbackKey) && consentFallbackKey && (
-              <FallbackConsentField
-                form={form}
-                locale={locale}
-                fallbackKey={consentFallbackKey}
-                html={resolveConsentCopy(consentFallbackKey, consentSettings?.[consentFallbackKey], locale)}
-                className="flex flex-col space-y-2 mt-3"
-              />
-            )}
-            {showLegalAndConsent && allRequiredFieldsFilled && consent.email && (
-              <FormField
-                control={form.control}
-                name="consent_email"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 mt-3">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        data-testid="checkbox-consent-email"
-                      />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <Label className="text-xs text-muted-foreground cursor-pointer" htmlFor="consent_email">
-                        {locale === "es"
-                          ? "Acepto recibir información por correo electrónico sobre talleres, eventos, cursos y otros materiales de marketing."
-                          : "I agree to receive information via email about workshops, events, courses, and other marketing materials."
-                        }
-                      </Label>
-                    </div>
-                  </FormItem>
-                )}
-              />
+            {showLegalAndConsent && allRequiredFieldsFilled && (
+              <div className="mt-3">
+                <ConsentSection
+                  consent={consent}
+                  form={form}
+                  locale={locale}
+                  formOptions={formOptions}
+                  sessionLocation={sessionLocation}
+                  geo={session.geo}
+                  consentSettings={consentSettings}
+                  fallbackKey={consentFallbackKey}
+                />
+              </div>
             )}
           </form>
         </Form>
@@ -2985,6 +2938,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               locale={locale}
               formOptions={formOptions}
               sessionLocation={sessionLocation}
+              geo={session.geo}
               consentSettings={consentSettings}
               fallbackKey={consentFallbackKey}
             />

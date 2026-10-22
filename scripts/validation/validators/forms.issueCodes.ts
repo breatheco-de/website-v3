@@ -16,4 +16,13 @@ export const FORMS_ISSUE_CODES: Record<string, IssueCodeDefinition> = {
   FORM_SIGNUP_FIELD_MAP: {
     title: "Form Signup Field Map",
   },
+  FORM_NO_REQUIRED_CONSENT: {
+    title: "Form Has No Mandatory Consent Checkbox",
+  },
+  FORM_TWO_REQUIRED_CONSENTS: {
+    title: "Form Has Two Mandatory Consent Checkboxes",
+  },
+  SITE_NO_DEFAULT_CONSENT: {
+    title: "Site Has No Default Consent",
+  },
 };

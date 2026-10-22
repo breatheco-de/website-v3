@@ -13,6 +13,7 @@ import {
   consentKeyFromYamlField,
   consentLabelFromKey,
   parseConsentSettingsResponse,
+  resolveConsentRequirement,
   type ConsentCardValues,
   type ConsentChannelDef,
 } from "@shared/consent-settings";
@@ -134,6 +135,10 @@ export function ConsentCard({
     ({ yamlField }) => isInherited(yamlField) && channelOn(values, yamlField),
   );
   const hasAnyChannel = specificChannels.length > 0 || inheritedChannels.length > 0;
+  const requirement = resolveConsentRequirement(values as Record<string, unknown>, consentFallback, {
+    messages: consentSettings,
+  });
+  const requiredLabels = requirement.required.map((field) => consentLabelFromKey(consentKeyFromYamlField(field)));
 
   const showTermsSpecific = isSpecific("showTerms");
   const showTermsInherited = isInherited("showTerms");
@@ -161,25 +166,43 @@ export function ConsentCard({
       </div>
 
       <p className="text-[11px] text-muted-foreground leading-snug" data-testid="text-consent-how-it-works">
-        Channel switches choose which checkboxes appear on the form. If none are on, the form shows the{" "}
+        Switches choose which checkboxes appear on the form. Visitors must tick General and Marketing; SMS, Email and
+        WhatsApp are optional. If neither General nor Marketing is on, the form adds the{" "}
         <span className="font-medium text-foreground">Default</span> consent from Settings
-        {consentFallback ? (
+        {consentFallback ? <> ({consentLabelFromKey(consentFallback)})</> : <> — none is set on this site</>}.
+      </p>
+      <p
+        className={
+          requirement.required.length === 0
+            ? "flex items-start gap-1 text-[11px] leading-snug text-destructive"
+            : "text-[11px] leading-snug text-foreground"
+        }
+        data-testid="text-consent-required"
+      >
+        {requirement.required.length === 0 ? (
           <>
-            {" "}(<code className="font-mono text-[10px] bg-muted px-1 rounded">reserved.{consentFallback}</code>)
+            <IconAlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+            No mandatory checkbox. Publishing is blocked until you turn on General or Marketing, or set a Default
+            consent in Settings.
           </>
+        ) : requirement.twoRequired ? (
+          <>Visitors must tick two boxes: General and Marketing. Turn one off if one is enough.</>
         ) : (
-          <> — none is set, so no extra checkbox</>
+          <>
+            Visitors must tick: {requiredLabels.join(", ")}
+            {requirement.showFallback ? " (site Default)" : ""}.
+          </>
         )}
-        . Marketing copy lives in{" "}
-        <code className="font-mono text-[10px] bg-muted px-1 rounded">reserved.consent_marketing</code>.
       </p>
       <details className="text-[11px] text-muted-foreground">
         <summary className="cursor-pointer select-none">Read more (advanced)</summary>
         <p className="mt-1 leading-snug">
-          Switches include every Settings consent, including Default (
-          <code className="font-mono text-[10px] bg-muted px-1 rounded">settings.yml</code>
-          {" "}→ <code className="font-mono text-[10px]">consent.fallback</code>
-          ). Turning that switch on shows its checkbox next to the others. If every switch is off, the form still shows the Default checkbox. Form YAML uses{" "}
+          Rule (<code className="font-mono text-[10px] bg-muted px-1 rounded">resolveConsentRequirement</code> in{" "}
+          <code className="font-mono text-[10px] bg-muted px-1 rounded">shared/consent-settings.ts</code>): General and
+          Marketing are mandatory whenever on; a custom consent is mandatory only when neither is on; otherwise the
+          Default (<code className="font-mono text-[10px] bg-muted px-1 rounded">settings.yml</code> →{" "}
+          <code className="font-mono text-[10px]">consent.fallback</code>) appears as the mandatory one. SMS, Email and
+          WhatsApp never count. The validator and the publish gate use the same rule. Form YAML uses{" "}
           <code className="font-mono text-[10px] bg-muted px-1 rounded">consent.marketing</code>,{" "}
           <code className="font-mono text-[10px] bg-muted px-1 rounded">consent.general</code>, etc. (
           <code className="font-mono text-[10px] bg-muted px-1 rounded">shared/consent-settings.ts</code>

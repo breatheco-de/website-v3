@@ -29,6 +29,7 @@ import {
   listLiveLocales,
 } from "./draft-entry";
 import { runInternalLinkGate } from "./internal-link-gate";
+import { runConsentGate } from "./consent-gate";
 import type { BrokenInternalLink, InternalLinkWarning } from "@shared/internalLinkGate";
 import {
   clampSchemaOrgSectionsLeading,
@@ -1570,6 +1571,16 @@ export async function editContent(request: ContentEditRequest): Promise<{
       });
       if (linkGate.blocked) return linkGate.blocked;
       linkWarnings = linkGate.linkWarnings;
+      if (gateIntent === "publish") {
+        const consentGate = runConsentGate({ pageData: mergedForGate, contentRoot });
+        if (consentGate.failure) {
+          return {
+            success: false,
+            error: consentGate.failure.message,
+            errorCode: consentGate.failure.code,
+          };
+        }
+      }
     } else if (hasVariant && !writingSharedTemplate) {
       const commonForGate = ci.loadCommonData(contentType, slug) || {};
       linkWarnings = internalLinkGateForWrite({

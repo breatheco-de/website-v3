@@ -37,16 +37,25 @@ describe("formsValidator (site-scoped)", () => {
   let tmp = "";
   let entryDir = "";
 
-  beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "forms-validator-"));
+  function writeSettings(consent: Record<string, unknown> | undefined) {
     fs.writeFileSync(
       path.join(tmp, "settings.yml"),
       yaml.dump({
         tracking: {
-          conversion_events: [{ name: "site_only_event" }, { name: "request_more_info" }],
+          conversion_events: [
+            { name: "site_only_event" },
+            { name: "request_more_info", consent: { marketing: false, sms: true, whatsapp: true } },
+            { name: "contact_us", consent: { marketing: true } },
+          ],
         },
+        ...(consent ? { consent } : {}),
       }),
     );
+  }
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "forms-validator-"));
+    writeSettings({ fallback: "consent_general" });
     entryDir = path.join(tmp, "pages", "home");
     fs.mkdirSync(entryDir, { recursive: true });
   });
@@ -102,5 +111,58 @@ describe("formsValidator (site-scoped)", () => {
     } finally {
       fs.rmSync(otherSite, { recursive: true, force: true });
     }
+  });
+
+  describe("mandatory consent", () => {
+    const codes = (r: { errors: { code?: string }[]; warnings: { code?: string }[] }, code: string) =>
+      [...r.errors, ...r.warnings].filter((e) => e.code === code);
+
+    it("passes an SMS/WhatsApp-only event when the site has a Default consent", async () => {
+      fs.writeFileSync(path.join(entryDir, "en.yml"), yaml.dump(pageWithForm("request_more_info")));
+      const result = await formsValidator.run(makeContext(tmp, [liveFile()]));
+      expect(codes(result, "FORM_NO_REQUIRED_CONSENT")).toEqual([]);
+      expect(codes(result, "SITE_NO_DEFAULT_CONSENT")).toEqual([]);
+    });
+
+    it("flags the form and the site when there is no Default consent", async () => {
+      writeSettings(undefined);
+      fs.writeFileSync(path.join(entryDir, "en.yml"), yaml.dump(pageWithForm("request_more_info")));
+      const result = await formsValidator.run(makeContext(tmp, [liveFile()]));
+      const none = codes(result, "FORM_NO_REQUIRED_CONSENT");
+      expect(none).toHaveLength(1);
+      expect(none[0].message).toMatch(/request_more_info/);
+      const site = codes(result, "SITE_NO_DEFAULT_CONSENT");
+      expect(site).toHaveLength(1);
+      expect(site[0].message).toMatch(/1 form/);
+    });
+
+    it("Marketing from the event counts as mandatory even without a Default", async () => {
+      writeSettings(undefined);
+      fs.writeFileSync(path.join(entryDir, "en.yml"), yaml.dump(pageWithForm("contact_us")));
+      const result = await formsValidator.run(makeContext(tmp, [liveFile()]));
+      expect(codes(result, "FORM_NO_REQUIRED_CONSENT")).toEqual([]);
+    });
+
+    it("checks form_overrides that switch to another event", async () => {
+      writeSettings(undefined);
+      const page = pageWithForm("contact_us");
+      (page.sections[0].form as Record<string, unknown>).form_overrides = [
+        { conditions: [{ form_field_slug: "program", value: "x" }], conversion_name: "request_more_info" },
+      ];
+      fs.writeFileSync(path.join(entryDir, "en.yml"), yaml.dump(page));
+      const result = await formsValidator.run(makeContext(tmp, [liveFile()]));
+      const none = codes(result, "FORM_NO_REQUIRED_CONSENT");
+      expect(none).toHaveLength(1);
+      expect(none[0].message).toMatch(/form_overrides\[0\]/);
+    });
+
+    it("warns when a form shows both General and Marketing", async () => {
+      const page = pageWithForm("contact_us");
+      (page.sections[0].form as Record<string, unknown>).consent = { general: true };
+      fs.writeFileSync(path.join(entryDir, "en.yml"), yaml.dump(page));
+      const result = await formsValidator.run(makeContext(tmp, [liveFile()]));
+      expect(codes(result, "FORM_TWO_REQUIRED_CONSENTS")).toHaveLength(1);
+      expect(codes(result, "FORM_NO_REQUIRED_CONSENT")).toEqual([]);
+    });
   });
 });
