@@ -417,46 +417,68 @@ async function getTreeSha(config: GitHubConfig, commitSha: string): Promise<stri
 /**
  * Create a new tree with updated files
  */
+/** GitHub answers 502 (server-side timeout) for one tree request with ~1000 changed paths. */
+const TREE_BATCH_SIZE = 200;
+
+/**
+ * Create a tree on top of `baseTreeSha`. Large change sets are built in batches,
+ * each batch based on the previous batch's tree, so the result is one tree (one commit).
+ */
 async function createTree(
   config: GitHubConfig,
   baseTreeSha: string,
   files: Array<{ path: string; blobSha: string | null; mode?: string }>
-): Promise<string | null> {
+): Promise<{ sha: string | null; error?: string }> {
   const url = `https://api.github.com/repos/${config.owner}/${config.repo}/git/trees`;
-  
+
   const tree = files.map(file => ({
     path: file.path,
     mode: file.mode || '100644',
     type: 'blob' as const,
     sha: file.blobSha,
   }));
-  
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${config.token}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-      body: JSON.stringify({
-        base_tree: baseTreeSha,
-        tree,
-      }),
-    });
-    
-    if (!response.ok) {
-      log.error('GitHub API error creating tree:', response.status, await response.text());
-      return null;
+
+  let base = baseTreeSha;
+  for (let i = 0; i < tree.length; i += TREE_BATCH_SIZE) {
+    const batch = tree.slice(i, i + TREE_BATCH_SIZE);
+    const where = tree.length > TREE_BATCH_SIZE ? ` (files ${i + 1}-${i + batch.length} of ${tree.length})` : '';
+    let lastError = '';
+    let sha: string | null = null;
+    for (let attempt = 1; attempt <= 2 && !sha; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${config.token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+          body: JSON.stringify({ base_tree: base, tree: batch }),
+        });
+
+        if (response.ok) {
+          sha = ((await response.json()) as { sha?: string }).sha ?? null;
+          if (!sha) lastError = 'GitHub tree response did not include a SHA';
+          break;
+        }
+        const body = await response.text().catch(() => '');
+        let detail = body.trim().slice(0, 200);
+        try {
+          detail = JSON.parse(body).message || detail;
+        } catch {}
+        lastError = `GitHub API ${response.status}${detail ? `: ${detail}` : ''}`;
+        log.error({ status: response.status, detail, batchStart: i, batchSize: batch.length }, 'GitHub API error creating tree');
+        if (response.status < 500) break;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        log.error({ err: error, batchStart: i }, 'Error creating tree');
+      }
     }
-    
-    const data = await response.json();
-    return data.sha;
-  } catch (error) {
-    log.error({ err: error }, 'Error creating tree:');
-    return null;
+    if (!sha) return { sha: null, error: `${lastError}${where}` };
+    base = sha;
   }
+  return { sha: base };
 }
 
 /**
@@ -832,9 +854,9 @@ export async function commitAndPush(
       }
     }
     
-    const newTreeSha = await createTree(config, baseTreeSha, treeEntries);
+    const { sha: newTreeSha, error: treeError } = await createTree(config, baseTreeSha, treeEntries);
     if (!newTreeSha) {
-      return { success: false, error: "Failed to create tree" };
+      return { success: false, error: `Failed to create tree: ${treeError ?? "unknown error"}` };
     }
     
     const newCommitSha = await createCommitObject(

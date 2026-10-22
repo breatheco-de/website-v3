@@ -876,6 +876,17 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
+  api.get(app, "/api/settings/consent/fallback-impact", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireCapability(req, res, "consent_settings");
+    if (!auth.authorized) return;
+    try {
+      const { countFormsRelyingOnDefault } = await import("../consent-gate");
+      res.json(countFormsRelyingOnDefault(getContentRoot(res)));
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to count forms" });
+    }
+  });
+
   app.put("/api/settings/consent/fallback", (req, res) => {
     try {
       const schema = z.object({

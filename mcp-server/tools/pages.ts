@@ -72,6 +72,8 @@ import {
   isDeprecatedFieldInfo,
 } from "../lib/deprecated-field-mcp.js";
 import { textLimitWarnings, textLimitsExceededResult } from "../lib/text-limits-mcp.js";
+import { consentRequiredResult } from "../lib/consent-gate-mcp.js";
+import { CONSENT_REQUIRED_CODE } from "../../shared/formConsentCheck.js";
 import {
   brokenInternalLinksResult,
   internalLinkWarnings,
@@ -5772,6 +5774,15 @@ export function registerPageTools(
               publish: true,
             });
           }
+          if (serverCode === CONSENT_REQUIRED_CODE) {
+            return consentRequiredResult(errMsg, data, {
+              slug,
+              contentType,
+              locale: typeof data.locale === "string" ? data.locale : undefined,
+              variant: variantSlug,
+              retryTool: "publish_draft",
+            });
+          }
           if (serverCode === THEME_COLORS_CODE) {
             return themeColorsRequiredResult(errMsg, data, {
               slug,
@@ -6074,6 +6085,15 @@ export function registerPageTools(
               locale,
               variant: variantSlug,
               publish: true,
+            });
+          }
+          if (serverCode === CONSENT_REQUIRED_CODE) {
+            return consentRequiredResult(errMsg, data, {
+              slug,
+              contentType,
+              locale,
+              variant: variantSlug,
+              retryTool: "promote_variant",
             });
           }
           if (serverCode === THEME_COLORS_CODE) {

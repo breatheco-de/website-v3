@@ -40,6 +40,16 @@ import {
 } from "@/components/ui/dialog";
 import { RichTextArea } from "@/components/editing/RichTextArea";
 import { Switch } from "@/components/ui/switch";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { ServerTab } from "@/components/settings/ServerTab";
 import { RobotsTab } from "@/components/settings/RobotsTab";
@@ -192,6 +202,7 @@ export default function SettingsPage() {
   } | null>(null);
   const [consentSaving, setConsentSaving] = useState(false);
   const [fallbackSaving, setFallbackSaving] = useState(false);
+  const [fallbackOffConfirm, setFallbackOffConfirm] = useState<{ key: string; forms: number | null } | null>(null);
   const ignoreConsentDialogCloseRef = useRef(false);
 
   function markConsentPopoverInteract() {
@@ -268,6 +279,22 @@ export default function SettingsPage() {
     }
   }
 
+  async function requestConsentFallbackToggle(key: string, on: boolean) {
+    if (on) {
+      await handleConsentFallbackToggle(key, true);
+      return;
+    }
+    let forms: number | null = null;
+    try {
+      const res = await apiRequest("GET", "/api/settings/consent/fallback-impact");
+      const impact = await res.json();
+      if (typeof impact?.forms === "number") forms = impact.forms;
+    } catch {
+      forms = null;
+    }
+    setFallbackOffConfirm({ key, forms });
+  }
+
   async function handleConsentFallbackToggle(key: string, on: boolean) {
     setFallbackSaving(true);
     try {
@@ -280,8 +307,8 @@ export default function SettingsPage() {
       toast({
         title: "Saved",
         description: on
-          ? `${consentLabelFromKey(key)} is the form default when no channels are on.`
-          : "No form default — forms with no channels will not show an extra checkbox.",
+          ? `${consentLabelFromKey(key)} now appears on any form that has no mandatory checkbox of its own.`
+          : "No Default consent. Forms without a mandatory checkbox of their own can't be published until they get one.",
       });
     } catch (err: any) {
       toast({ title: "Failed to save", description: err.message || String(err), variant: "destructive" });
@@ -1112,25 +1139,24 @@ export default function SettingsPage() {
               {consentMessagesOpen && (
                 <CardContent className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    Site-wide checkbox copy for lead forms, stored as <code className="font-mono">reserved.consent_*</code> variables.
-                    Turn on <span className="font-medium text-foreground">Default</span> in a consent&apos;s Edit dialog — that copy is the extra checkbox when a form has no channel switch on. The same consent is also a switch on each form, so you can show it together with Marketing.
-                    Only one can be Default; others stay off until you turn the current one off.
-                    Stored in <code className="font-mono">settings.yml</code> as <code className="font-mono">consent.fallback</code>. Off means no extra checkbox.
-                    <span className="font-medium text-foreground"> Marketing</span> is the copy for the Marketing switch.
-                    The default locale is <code className="font-mono">default</code>; other locales are <code className="font-mono">conditions</code> with <code className="font-mono">query.locale</code>.
-                    Empty builtins show the form&apos;s built-in copy so you can edit from it. Links and formatting use the rich-text editor.
+                    The text of each consent checkbox on lead forms. Every form needs one checkbox visitors must tick: General or Marketing.
+                    The <span className="font-medium text-foreground">Default</span> consent (set in a consent&apos;s Edit dialog) appears on any form that has neither, so it never goes without one.
+                    SMS, Email and WhatsApp are always optional. Only one consent can be Default. General does not record marketing consent in the CRM.
                   </p>
                   <details className="text-xs text-muted-foreground">
                     <summary className="cursor-pointer select-none">Read more (advanced)</summary>
                     <p className="mt-1 leading-snug">
+                      Copy is stored as <code className="font-mono">reserved.consent_*</code> variables (default locale in{" "}
+                      <code className="font-mono">default</code>, others as <code className="font-mono">conditions</code> with{" "}
+                      <code className="font-mono">query.locale</code>); empty builtins use the form&apos;s built-in copy.
                       Default writes <code className="font-mono">consent.fallback</code> in{" "}
                       <code className="font-mono">site_*/settings.yml</code> via{" "}
-                      <code className="font-mono">PUT /api/settings/consent/fallback</code>
-                      {" "}(<code className="font-mono">server/settings.ts</code>).
-                      The form reads it in{" "}
-                      <code className="font-mono">client/src/components/lead_form/variants/LeadFormDefault.tsx</code>
-                      {" "}(<code className="font-mono">shouldShowFallbackConsent</code>).
-                      Default is also a channel switch (<code className="font-mono">consent.general</code> when General is Default), so a form can show it next to Marketing.
+                      <code className="font-mono">PUT /api/settings/consent/fallback</code>.
+                      Rule: <code className="font-mono">resolveConsentRequirement</code> in{" "}
+                      <code className="font-mono">shared/consent-settings.ts</code> — General and Marketing are mandatory when shown,
+                      a custom consent only when neither is, otherwise the Default appears. The forms validator
+                      (<code className="font-mono">FORM_NO_REQUIRED_CONSENT</code>, <code className="font-mono">SITE_NO_DEFAULT_CONSENT</code>)
+                      and the publish gate (<code className="font-mono">server/consent-gate.ts</code>) use the same rule.
                       The General checkbox does not set CRM <code className="font-mono">has_marketing_consent</code>.
                     </p>
                   </details>
@@ -1228,21 +1254,21 @@ export default function SettingsPage() {
                 className="sm:max-w-2xl max-h-[85vh] overflow-y-auto"
                 onPointerDownOutside={(e) => {
                   const target = e.target as HTMLElement;
-                  if (target.closest("[data-radix-popper-content-wrapper]")) {
+                  if (target.closest("[data-radix-popper-content-wrapper]") || target.closest("[role='alertdialog']") || fallbackOffConfirm) {
                     e.preventDefault();
                     markConsentPopoverInteract();
                   }
                 }}
                 onFocusOutside={(e) => {
                   const target = e.target as HTMLElement;
-                  if (target.closest("[data-radix-popper-content-wrapper]")) {
+                  if (target.closest("[data-radix-popper-content-wrapper]") || target.closest("[role='alertdialog']") || fallbackOffConfirm) {
                     e.preventDefault();
                     markConsentPopoverInteract();
                   }
                 }}
                 onInteractOutside={(e) => {
                   const target = e.target as HTMLElement;
-                  if (target.closest("[data-radix-popper-content-wrapper]")) {
+                  if (target.closest("[data-radix-popper-content-wrapper]") || target.closest("[role='alertdialog']") || fallbackOffConfirm) {
                     e.preventDefault();
                     markConsentPopoverInteract();
                   }
@@ -1284,7 +1310,7 @@ export default function SettingsPage() {
                             fallbackSaving
                             || (!!consentFallback && consentFallback !== editingConsentKey)
                           }
-                          onCheckedChange={(on) => handleConsentFallbackToggle(editingConsentKey, on)}
+                          onCheckedChange={(on) => requestConsentFallbackToggle(editingConsentKey, on)}
                           data-testid="switch-consent-fallback"
                         />
                         <Label
@@ -1297,7 +1323,7 @@ export default function SettingsPage() {
                       <p className="text-xs text-muted-foreground">
                         {consentFallback && consentFallback !== editingConsentKey
                           ? `Already set to ${consentLabelFromKey(consentFallback)}. Turn that one off first.`
-                          : "When a form has no channel checkboxes on, show this copy. Off means no extra checkbox."}
+                          : "Shown, as a checkbox visitors must tick, on any form that has no mandatory checkbox of its own (General, Marketing or a custom consent). SMS, Email and WhatsApp don't count."}
                       </p>
                     </div>
                   ) : null}
@@ -1341,6 +1367,38 @@ export default function SettingsPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+
+            <AlertDialog
+              open={!!fallbackOffConfirm}
+              onOpenChange={(open) => {
+                if (!open) setFallbackOffConfirm(null);
+              }}
+            >
+              <AlertDialogContent data-testid="dialog-consent-fallback-off">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Turn off the Default consent?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {fallbackOffConfirm?.forms != null
+                      ? `${fallbackOffConfirm.forms} form(s) on this site have no mandatory checkbox of their own and rely on the Default.`
+                      : "Forms that have no mandatory checkbox of their own rely on the Default."}{" "}
+                    Turning it off removes that checkbox from them right away, and their pages can't be published until each form gets General or Marketing.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel data-testid="button-consent-fallback-off-cancel">Keep it on</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => {
+                      const key = fallbackOffConfirm?.key;
+                      setFallbackOffConfirm(null);
+                      if (key) void handleConsentFallbackToggle(key, false);
+                    }}
+                    data-testid="button-consent-fallback-off-confirm"
+                  >
+                    Turn off
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </TabsContent>
 
           <TabsContent value="server" className="mt-0">

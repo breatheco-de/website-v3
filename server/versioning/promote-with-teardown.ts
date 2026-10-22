@@ -633,6 +633,19 @@ export async function promoteVariantWithOptionalTeardown(
         warnings.push({ code: w.code, message: w.message, fields: w.links.map((l) => l.field_path) });
       }
     }
+    {
+      const { runConsentGate } = await import("../consent-gate");
+      const consentGate = runConsentGate({ pageData: mergedForGate, contentRoot });
+      if (consentGate.failure) {
+        return {
+          ok: false,
+          code: consentGate.failure.code,
+          error: `Cannot promote: ${consentGate.failure.message}`,
+          details: { consent_forms: consentGate.failure.forms, warnings: consentGate.warnings },
+        };
+      }
+      for (const w of consentGate.warnings) warnings.push({ code: w.code, message: w.message, fields: [] });
+    }
     if (!templateMode) {
       const urlCheck = assertLocaleUrlAvailable({
         contentType,

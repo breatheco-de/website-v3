@@ -377,6 +377,7 @@ export function registerFormsRoutes(app: Express): void {
       name: string;
       city: string;
       country: string;
+      country_code?: string;
       region: string;
     }> = [];
 
@@ -403,6 +404,7 @@ export function registerFormsRoutes(app: Express): void {
                 name: campusData.name,
                 city: campusData.city,
                 country: campusData.country,
+                ...(campusData.country_code ? { country_code: campusData.country_code } : {}),
                 region: campusData.region || "other",
               });
             }

@@ -6,6 +6,24 @@ window_days: 6
 
 entries:
   - date: "2026-10-22"
+    summary: "Every lead form needs one mandatory consent checkbox; publish refuses consent_no_mandatory_checkbox"
+    agent_impact:
+      - "Rule: General and Marketing are mandatory whenever shown (both → both, validator warning FORM_TWO_REQUIRED_CONSENTS); a custom consent only when neither is shown; otherwise the site Default (consent.fallback) appears as the mandatory one. SMS, Email and WhatsApp never count. explain_site topic lead-forms → Consent checkboxes."
+      - "publish_draft / promote_variant / staff publish / live replace_all_sections refuse consent_no_mandatory_checkbox (action_required add_mandatory_consent) when a form or a conversion_name-switching form_override has no mandatory checkbox; next_action update_fields sets <form>.consent.general true on the draft. A site without a Default adds warning site_no_default_consent; validator codes FORM_NO_REQUIRED_CONSENT and SITE_NO_DEFAULT_CONSENT are errors."
+      - "sms_usa_only now decides US visitors by country_code (picked location, else detected location, else visitor geo for XX/remote). CRM consent values unchanged."
+    tools_changed: false
+    paths:
+      - shared/consent-settings.ts
+      - shared/formConsentCheck.ts
+      - shared/usVisitor.ts
+      - server/consent-gate.ts
+      - server/versioning/promote-with-teardown.ts
+      - server/content-editor.ts
+      - scripts/validation/validators/forms.ts
+      - mcp-server/lib/consent-gate-mcp.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/lead-forms.md
+  - date: "2026-10-22"
     summary: "Each new language picks its own URL slug: locked at idea accept, enforced at filing, checked at go-live"
     agent_impact:
       - "update_proposal accept: accepted_entry.slug is the folder name (page ID in every language). For a new language of a page already live in another language, pass accepted_entry.url_slug (this language's address word, e.g. es que-es-manus-ia) or accept refuses url_slug_required. The address (url_slug, else slug for a brand-new page) must be free in that language (slug_already_owned_by_other_entry) and not look like another language (slug_locale_mismatch; slug_language_ack: true for a name)."

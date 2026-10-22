@@ -15,6 +15,8 @@ import {
   resolveConsentCopy,
   resolveConsentLocaleText,
   shouldShowFallbackConsent,
+  resolveConsentRequirement,
+  consentFormFieldName,
   slugifyConsentKey,
   stripConsentHtml,
   yamlFieldFromConsentKey,
@@ -226,15 +228,16 @@ describe("builtin consent fallbacks", () => {
 });
 
 describe("shouldShowFallbackConsent", () => {
-  it("is true when a fallback key is set and no channel toggles are on", () => {
+  it("is true when a fallback key is set and no mandatory checkbox is shown", () => {
     expect(shouldShowFallbackConsent({}, "consent_general")).toBe(true);
     expect(shouldShowFallbackConsent({ marketing: false, sms: false }, "consent_general")).toBe(true);
     expect(shouldShowFallbackConsent({ show_terms: true }, "consent_general")).toBe(true);
+    expect(shouldShowFallbackConsent({ sms: true, whatsapp: true }, "consent_general")).toBe(true);
+    expect(shouldShowFallbackConsent({ email: true }, "consent_general")).toBe(true);
   });
 
-  it("is false when any channel is on, even with a fallback key", () => {
+  it("is false when a mandatory checkbox is shown", () => {
     expect(shouldShowFallbackConsent({ marketing: true }, "consent_general")).toBe(false);
-    expect(shouldShowFallbackConsent({ sms: true }, "consent_general")).toBe(false);
     expect(shouldShowFallbackConsent({ terms: true }, "consent_general")).toBe(false);
     expect(shouldShowFallbackConsent({ general: true }, "consent_sms")).toBe(false);
     expect(shouldShowFallbackConsent({ general: true, marketing: true }, "consent_general")).toBe(false);
@@ -244,6 +247,65 @@ describe("shouldShowFallbackConsent", () => {
     expect(shouldShowFallbackConsent({}, null)).toBe(false);
     expect(shouldShowFallbackConsent({}, "")).toBe(false);
     expect(shouldShowFallbackConsent({}, "not-a-consent-key")).toBe(false);
+  });
+});
+
+describe("resolveConsentRequirement", () => {
+  it("requires General when shown, leaving SMS/WhatsApp optional", () => {
+    expect(resolveConsentRequirement({ general: true, sms: true, whatsapp: true }, "consent_general")).toEqual({
+      required: ["general"],
+      showFallback: false,
+      fallbackKey: null,
+      twoRequired: false,
+    });
+  });
+
+  it("requires Marketing when shown", () => {
+    const r = resolveConsentRequirement({ marketing: true, sms: true }, "consent_general");
+    expect(r.required).toEqual(["marketing"]);
+    expect(r.showFallback).toBe(false);
+  });
+
+  it("requires both General and Marketing when both are shown", () => {
+    const r = resolveConsentRequirement({ general: true, marketing: true }, null);
+    expect(r.required).toEqual(["general", "marketing"]);
+    expect(r.twoRequired).toBe(true);
+  });
+
+  it("requires the first custom consent only when neither General nor Marketing is shown", () => {
+    expect(resolveConsentRequirement({ terms: true }, null).required).toEqual(["terms"]);
+    expect(resolveConsentRequirement({ terms: true, marketing: true }, null).required).toEqual(["marketing"]);
+    const messages = { consent_b: { en: "B" }, consent_a: { en: "A" } };
+    expect(resolveConsentRequirement({ a: true, b: true }, null, { messages }).required).toEqual(["b"]);
+  });
+
+  it("ignores custom consents with blank copy when messages are given", () => {
+    const r = resolveConsentRequirement({ terms: true }, "consent_general", {
+      messages: { consent_terms: { en: "" } },
+      locale: "en",
+    });
+    expect(r.required).toEqual(["general"]);
+    expect(r.showFallback).toBe(true);
+  });
+
+  it("shows the Default as the mandatory checkbox when nothing else is mandatory", () => {
+    expect(resolveConsentRequirement({ sms: true, whatsapp: true }, "consent_general")).toEqual({
+      required: ["general"],
+      showFallback: true,
+      fallbackKey: "consent_general",
+      twoRequired: false,
+    });
+  });
+
+  it("returns no mandatory checkbox when the site has no Default", () => {
+    expect(resolveConsentRequirement({ sms: true, whatsapp: true }, null).required).toEqual([]);
+    expect(resolveConsentRequirement({}, undefined).required).toEqual([]);
+  });
+
+  it("maps required fields to form field names", () => {
+    expect(consentFormFieldName("marketing")).toBe("consent_email");
+    expect(consentFormFieldName("general")).toBe("consent_general");
+    expect(consentFormFieldName("terms")).toBe("consent_terms");
   });
 });
 

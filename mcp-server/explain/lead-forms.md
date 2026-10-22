@@ -216,6 +216,23 @@ Every submit (`/api/leads` and `/api/leads/webhook-delivery`) is enriched server
 - Lead counts by channel, source / medium, page, experiment or product: `get_leads_breakdown` (topic `ads` → Leads breakdown).
 - Same-site links with `utm_*` in content YAML raise `INTERNAL_LINK_HAS_UTM` (validator `internal-link-utm`, warning): they restart the GA4 session and overwrite the visitor's real source, so paid visits and leads can be credited to the wrong source. Links to other domains (including the org's other sites) are not flagged.
 
+## Consent checkboxes (mandatory rule)
+
+Every lead form must show at least one checkbox visitors must tick. Effective consent = form `consent` + conversion event `consent` defaults (form wins per key) + site Default (`settings.yml` → `consent.fallback`).
+
+| Shown on the form | Mandatory |
+|---|---|
+| `general` (and/or `marketing`) | General and Marketing are each mandatory whenever shown; both shown → both mandatory (validator warning `FORM_TWO_REQUIRED_CONSENTS`) |
+| neither, custom consent `consent.<field>: true` (with copy) | first custom consent (Settings order) |
+| none of the above | the site Default appears and is mandatory |
+| none + site has no Default | nothing → `FORM_NO_REQUIRED_CONSENT` (error) + publish blocked |
+
+- SMS, Email and WhatsApp are **always optional** and never count. `marketing: true` hides the separate Email / WhatsApp checkboxes (their CRM values follow the Marketing checkbox).
+- `sms_usa_only: true`: SMS shows only for US visitors by two-letter `country_code` — the location the visitor picked, else the detected session location; a location with unknown country (`XX`, e.g. `remote`) falls through to the visitor's geo `country_code`.
+- Publish gate (`publish_draft`, `promote_variant`, staff publish, live `replace_all_sections`): refuses `consent_no_mandatory_checkbox` with `consent_forms[].property_path` and `fix_field_path` (`sections.N.<form>.consent.general`); `form_overrides` that switch `conversion_name` are checked as their own variant. Draft saves never block. A site with no Default adds warning `site_no_default_consent` to every publish; validator raises `SITE_NO_DEFAULT_CONSENT` (error).
+- Non-effects: values sent to the CRM are unchanged (`consent_general` is sent as-is; General does **not** set marketing consent). Enforcement is browser-only (the server accepts leads without consent). Agents cannot change the site Default (staff Settings).
+- Rule: `resolveConsentRequirement` in `shared/consent-settings.ts`; per-form check `shared/formConsentCheck.ts`; gate `server/consent-gate.ts`; validator `scripts/validation/validators/forms.ts`.
+
 ## Paths
 
 - Ledger / enrichment: `server/ads/lead-ledger.ts`, `server/ads/ad-context.ts`, client `client/src/lib/leadAdContext.ts`

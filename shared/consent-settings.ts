@@ -266,15 +266,91 @@ export function normalizeConsentFallbackKey(raw: unknown): string | null {
 }
 
 /**
- * True when the form should show the Settings fallback checkbox:
- * a fallback key is set AND no channel toggles are on.
+ * Which consent checkboxes visitors must tick on one form.
+ *
+ * - General and Marketing are mandatory whenever shown (both when both are shown).
+ * - A custom consent is mandatory only when neither is shown (the first one, in
+ *   Settings order when `messages` is given).
+ * - SMS, Email and WhatsApp are never mandatory.
+ * - The site Default (`consent.fallback`) appears only when none of the above is
+ *   shown, and is then the mandatory one.
+ *
+ * `required` holds YAML fields (`general`, `marketing`, custom field, or the
+ * Default's field). Pass `messages` (Settings consent copy) to drop custom
+ * consents with blank text in `locale`; without it, custom consents count as shown.
  */
+export type ConsentRequirement = {
+  required: string[];
+  showFallback: boolean;
+  fallbackKey: string | null;
+  twoRequired: boolean;
+};
+
+export function resolveConsentRequirement(
+  consent: Record<string, unknown> | null | undefined,
+  fallbackKey: string | null | undefined,
+  opts?: {
+    locale?: string;
+    messages?: Record<string, Record<string, string> | string | undefined>;
+  },
+): ConsentRequirement {
+  const c = consent ?? {};
+  const locale = opts?.locale ?? "en";
+  const messages = opts?.messages;
+  const hasCopy = (settingsKey: string): boolean => {
+    if (!messages) return true;
+    return !isBlankConsentHtml(resolveConsentCopy(settingsKey, messages[settingsKey], locale));
+  };
+
+  const shownExtras = extraConsentYamlFieldsFromObject(c).filter(
+    (field) => c[field] === true && hasCopy(consentKeyFromYamlField(field)),
+  );
+  const general = shownExtras.includes("general");
+  const marketing = !!c.marketing;
+
+  const required: string[] = [];
+  if (general) required.push("general");
+  if (marketing) required.push("marketing");
+  if (required.length === 0) {
+    const customs = shownExtras.filter((f) => f !== "general");
+    if (messages && customs.length > 1) {
+      const order = Object.keys(messages);
+      customs.sort((a, b) => {
+        const ia = order.indexOf(consentKeyFromYamlField(a));
+        const ib = order.indexOf(consentKeyFromYamlField(b));
+        return (ia === -1 ? Infinity : ia) - (ib === -1 ? Infinity : ib);
+      });
+    }
+    if (customs.length > 0) required.push(customs[0]!);
+  }
+
+  const normalizedFallback = normalizeConsentFallbackKey(fallbackKey);
+  let showFallback = false;
+  if (required.length === 0 && normalizedFallback && hasCopy(normalizedFallback)) {
+    showFallback = true;
+    required.push(yamlFieldFromConsentKey(normalizedFallback)!);
+  }
+
+  return {
+    required,
+    showFallback,
+    fallbackKey: showFallback ? normalizedFallback : null,
+    twoRequired: general && marketing,
+  };
+}
+
+/** Form field name for a required YAML field (Marketing is stored as `consent_email`). */
+export function consentFormFieldName(yamlField: string): string {
+  return yamlField === "marketing" ? "consent_email" : `consent_${yamlField}`;
+}
+
+/** True when the form should show the Settings Default checkbox (no mandatory checkbox otherwise). */
 export function shouldShowFallbackConsent(
   consent: Record<string, unknown> | null | undefined,
   fallbackKey: string | null | undefined,
+  opts?: Parameters<typeof resolveConsentRequirement>[2],
 ): boolean {
-  if (!normalizeConsentFallbackKey(fallbackKey)) return false;
-  return !consentObjectHasVisibleChannel(consent);
+  return resolveConsentRequirement(consent, fallbackKey, opts).showFallback;
 }
 
 export type ConsentSettingsApiResponse = {
@@ -318,7 +394,7 @@ export type ConsentChannelDef = {
  * Channel switches for ConsentCard: every Settings consent, including Default
  * (`consent.fallback`). Builtins always appear; custom keys come from `settingsKeys`.
  * `fallbackKey` is unused here — the form still shows that checkbox when no
- * channel is on (`shouldShowFallbackConsent`).
+ * mandatory checkbox is shown (`resolveConsentRequirement`).
  */
 export function consentCardChannels(
   settingsKeys: string[],
