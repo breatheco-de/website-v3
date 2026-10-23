@@ -2061,6 +2061,9 @@ function findOpenProposalForVariant(
 export const PROPOSAL_SYSTEM_VERSION = "1.0";
 
 /** Actions still allowed on a pre-1.0 proposal (cleanup and steward retro only). */
+/** Apply dry_run on a proposal with open blockers: preview ran, real apply still refused. */
+export const PREVIEW_WHILE_BLOCKED_CODE = "preview_while_blocked";
+
 const LEGACY_ALLOWED_ACTIONS = new Set<ProposalUpdateAction>([
   "withdraw",
   "reject",
@@ -4843,7 +4846,17 @@ export function createProposalService(deps: ProposalServiceDeps) {
     const placeholderGaps = affected ? templatePlaceholderWarnings(work) : [];
     if (caller.dry_run) {
       const chainGate = predecessorGate(db, proposal);
+      const openBlockerIds = proposal.blockers.filter((b) => b.status === "open").map((b) => b.id);
       const dryWarnings = [
+        ...(openBlockerIds.length
+          ? [
+              {
+                code: PREVIEW_WHILE_BLOCKED_CODE,
+                message: `Preview only: ${openBlockerIds.length} open blocker(s) (${openBlockerIds.map((b) => `#${b}`).join(", ")}) still prevent apply. A clean preview is not approval — resolve the blocker(s), then apply.`,
+                details: { open_blocker_ids: openBlockerIds },
+              },
+            ]
+          : []),
         ...(chainGate.ok ? [] : [{ code: chainGate.code, message: chainGate.error, details: chainGate.details }]),
         ...failed.map((c) => ({ code: c.code ?? "apply_check_failed", message: `${c.entry_key} (${c.locale}): ${c.error}` })),
         ...checks.flatMap((c) =>
@@ -7958,7 +7971,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
             "Four-eyes: you edited this proposal's draft (co-author), so someone else must review and approve it.",
         };
       }
-      if (proposal.open_blocker_count > 0) {
+      // Only v1.0 previews write nothing; legacy apply has no dry_run path.
+      const previewOnly = Boolean(caller.dry_run && store && proposal.system_version);
+      if (proposal.open_blocker_count > 0 && !previewOnly) {
         return {
           ok: false,
           code: "proposal_blocked",

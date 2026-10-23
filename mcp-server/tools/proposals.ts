@@ -2052,7 +2052,7 @@ export function registerProposalTools(
       "proposals_create only (authors): claim | release | withdraw | attach_variant | set_no_auto_retry | revise_entries | set_review_situations | set_idea_funnel | set_related_entries | set_idea_seo_target | set_applies_after | revert — cannot apply/reject/accept. " +
       "set_related_entries (open ideas, proposer): replace related_entries (target page type + slug); unknown content types refuse (unknown_content_type); refused after accept. " +
       "set_applies_after (open edits, proposer): chain after another edits proposal (empty unlinks). Order only: apply refuses predecessor_not_applied until the predecessor is finished; applying the predecessor returns dependents_ready + one apply next_action per open dependent (nothing auto-applied). Rejecting/withdrawing a predecessor adds a predecessor_closed blocker to each open dependent. " +
-      "1.0 edits: apply promotes the proposal's draft(s); dry_run returns merge_preview without writing. Stale drafts rebuild on today's live when fields do not overlap; otherwise context_stale (needs_author). " +
+      "1.0 edits: apply promotes the proposal's draft(s); dry_run returns merge_preview without writing — it also runs while blockers are open (warning preview_while_blocked + details.open_blocker_ids; real apply still proposal_blocked; a preview is not approval and does not reset the blocked clock). Stale drafts rebuild on today's live when fields do not overlap; otherwise context_stale (needs_author). " +
       "revert (finished/partial 1.0 edits): files a new proposal that puts back pre-apply values; live unchanged until that one is approved; revert_conflicts when fields changed again. " +
       "Legacy (pre-1.0) proposals return legacy_version for anything but withdraw/reject/release — re-file. " +
       "Both (Publisher): full set. " +
@@ -2061,7 +2061,7 @@ export function registerProposalTools(
       "apply of a hub-mode idea's first go-live returns warning idea_seo_hub_members_follow_up + one propose_change next_action per member (chain each with applies_after_proposal_id; moved members also update their in-body hub link). " +
       "apply that finishes a join-mode idea's page with no chained hub-link proposal returns hub_link_follow_up (or hub_has_open_edits when the hub already has open edits). " +
       "apply that frees an idea's page returns idea_page_released_waiting_ideas + one list_proposals next_action per open idea waiting on it (nothing auto-accepted). " +
-      "close notes/ideas: close_reason + close_note. Withdraw: close_note min 20. Open blockers block apply/accept only (revise does not clear them). add_blocker: technical body + plain-English staff_summary (required). Four-eyes = username+role. " +
+      "close notes/ideas: close_reason + close_note. Withdraw: close_note min 20. Open blockers block apply/accept only, not apply dry_run (revise does not clear them). add_blocker: technical body + plain-English staff_summary (required). Four-eyes = username+role. " +
       "Multi-situation: review each pack independently; drop failing ops via revise_entries then apply (atomic). " +
       "Before apply, list_proposals(proposal_id) for live review_context.",
     {
@@ -2118,7 +2118,7 @@ export function registerProposalTools(
       dry_run: z
         .boolean()
         .optional()
-        .describe("For apply (1.0): run every check and return merge_preview per entry; writes nothing."),
+        .describe("For apply (1.0): run every check and return merge_preview per entry; writes nothing. Allowed while blockers are open (warning preview_while_blocked)."),
       all_or_nothing: z
         .boolean()
         .optional()
@@ -2913,6 +2913,26 @@ export function registerProposalTools(
         }> = [];
 
         if (args.action === "apply") next.push(...followUpActionsFromWarnings(data.warnings));
+
+        const blockedPreview =
+          args.action === "apply" && args.dry_run
+            ? warnings.find((w) => w.code === "preview_while_blocked")
+            : undefined;
+        if (blockedPreview) {
+          const ids = ((blockedPreview as { details?: { open_blocker_ids?: number[] } }).details?.open_blocker_ids ?? []);
+          next.push({
+            tool: "update_proposal",
+            reason:
+              "Only if this preview (and the page files, e.g. get_entry_fields stored_in) shows a blocker's 'what fixed looks like' is met: claim, then resolve_blocker with what changed. Then apply (four-eyes). If not met, leave the blocker open.",
+            priority: "recommended",
+            args_hint: {
+              proposal_id: args.proposal_id,
+              action: "resolve_blocker",
+              ...(ids.length ? { blocker_id: ids[0] } : {}),
+              site: args.site,
+            },
+          });
+        }
 
         if (args.action === "reject") {
           next.push({

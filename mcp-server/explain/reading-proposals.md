@@ -103,7 +103,7 @@ If live classify reports `target_missing` (page deleted after a normal edits fil
 
 | Lane | Use | Blocks apply? |
 |---|---|---|
-| **`add_blocker`** | Proposed field is wrong, invents a claim, or summary **why/scope** is false (e.g. “content refresh” with meta-only ops). Send technical `body` + plain-English `staff_summary` (staff read it first; code-style terms rejected) | Yes |
+| **`add_blocker`** | Proposed field is wrong, invents a claim, or summary **why/scope** is false (e.g. “content refresh” with meta-only ops). Send technical `body` + plain-English `staff_summary` (staff read it first; code-style terms rejected). Write the fix condition so anyone can check it from the page files (`get_entry_fields` `stored_in` / `also_in`) or the apply `dry_run`, which runs while blocked | Yes (apply `dry_run` still previews) |
 | **`adjacent_findings` → notes** | Live page is broken in ways the ops do not touch (same entry), or you noticed defects on another entry | No |
 | **`reject`** | The change itself must not ship | Closes the proposal |
 
@@ -133,6 +133,7 @@ If live classify reports `target_missing` (page deleted after a normal edits fil
 
 ## Apply warnings
 
+- `preview_while_blocked` — apply `dry_run` (1.0) with open blockers: the preview ran, `details.open_blocker_ids` still prevent apply. Not approval and not activity (blocked clock unchanged). If the preview and the page files show a blocker's fix condition is met: claim → `resolve_blocker` (resolve note says what changed) → four-eyes apply
 - `template_placeholders_unfilled` — apply `dry_run` and apply of a template proposal: `details { contentType, locale, placeholders: [{ name, missing, total, sample (≤3 slugs) }] }` for new `{{ entry.* }}` placeholders some attached entries cannot fill (those pages render an empty spot). Never blocks; omitted when none are new or all are filled
 
 ## Recent activity (priority on review)

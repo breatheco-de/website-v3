@@ -6,6 +6,20 @@ window_days: 6
 
 entries:
   - date: "2026-10-23"
+    summary: "Apply dry_run previews while blockers are open; get_entry_fields names the file each YAML value comes from"
+    agent_impact:
+      - "update_proposal apply dry_run (1.0) no longer fails proposal_blocked: it returns merge_preview + warning preview_while_blocked (details.open_blocker_ids) and a resolve_blocker next_action. Real apply is still proposal_blocked; legacy proposals stay legacy_version; four-eyes still applies. A clean preview is not approval and does not reset the 10/30-day blocked clock."
+      - "get_entry_fields YAML-backed rows add stored_in (locale_file | draft_file | page_common | type_template | not_set) + stored_in_path, also_in[] for shadowed copies (locale_file + page_common on a page-level field = legacy copy publish drops), and publishes_to: page_common for page-level fields staged in a draft. entry_default means the page's own YAML value, not a type fallback."
+      - "Blocker fix conditions should be checkable from the page files (stored_in / also_in) or the apply dry_run — order: fix → preview → resolve_blocker → four-eyes apply."
+    tools_changed: false
+    paths:
+      - server/content-proposals/service.ts
+      - server/field-overrides.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/proposals.md
+      - mcp-server/explain/reading-proposals.md
+  - date: "2026-10-23"
     summary: "add_blocker requires a plain-English staff_summary next to the technical body"
     agent_impact:
       - "update_proposal add_blocker: pass staff_summary (1-4 plain sentences, 40-700 chars: what visitors/Google would see change, what must happen before approving, who does it). Missing → blocker_staff_summary_required; field/file names, snake_case/camelCase/dotted names, backticks, or words like op/schema/slug/locale/YAML → blocker_staff_summary_not_plain with details.problems. Nothing is saved on either; retry with the same body."

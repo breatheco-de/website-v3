@@ -958,6 +958,10 @@ describe("content proposals", () => {
     expect(applyBlocked.ok).toBe(false);
     if (!applyBlocked.ok) expect(applyBlocked.code).toBe("proposal_blocked");
 
+    const legacyPreview = await svc.update(created.proposal.id, "apply", { username: "casey", dry_run: true });
+    expect(legacyPreview.ok).toBe(false);
+    if (!legacyPreview.ok) expect(legacyPreview.code).toBe("proposal_blocked");
+
     const rejected = await svc.update(created.proposal.id, "reject", {
       username: "casey",
       confirm_reject: true,

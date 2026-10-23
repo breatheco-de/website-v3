@@ -82,8 +82,12 @@ describe("blocker staff summary backfill", () => {
       .mockResolvedValue(PLAIN);
     const res = await backfillSiteBlockerStaffSummaries({ db, site: SITE, dryRun: false, complete, ...quiet });
     expect(res).toEqual({ updated: 2, failed: 0, total: 2 });
-    expect(complete.mock.calls[1]![0]).toContain("Cut it to at most");
-    expect(complete.mock.calls[2]![0]).toContain("Cut it to at most");
+    const shorten1 = complete.mock.calls[1]![0];
+    const shorten2 = complete.mock.calls[2]![0];
+    expect(shorten1).toContain("at most 400 characters");
+    expect(shorten2).toContain("at most 300 characters");
+    expect(shorten1).toContain(tooLong);
+    expect(shorten1).not.toContain("Technical note:");
   });
 
   it("dry run writes nothing", async () => {

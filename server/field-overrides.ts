@@ -57,6 +57,9 @@ import {
   getEntryContentDir,
   hasLiveLocaleFile,
 } from "./draft-entry";
+import { isEntryDetached } from "./shared-layout-entry";
+import { resolveCommonTemplatePath } from "./shared-layout-paths";
+import { isCommonField } from "@shared/field-scope";
 
 export const FIELD_OVERRIDES_KEY = "field_overrides";
 
@@ -153,7 +156,19 @@ export type FieldProvenance = {
   deprecated?: { replaced_by: string | null; reason: string | null };
   /** Deprecated and this entry has no live stored value → writes are rejected. */
   deprecated_locked?: boolean;
+  /** YAML-backed rows: which file the shown value comes from (`not_set` = no file holds it). */
+  stored_in?: FieldStoredIn;
+  /** Repo-relative path of `stored_in` (unset for `not_set`). */
+  stored_in_path?: string;
+  /** Other files holding a copy of the same field (shadowed by `stored_in`). */
+  also_in?: FieldFileCopy[];
+  /** Page-level field staged in a draft/variant file: publish writes it to `_common.yml` (all languages). */
+  publishes_to?: "page_common";
 };
+
+export type FieldStoredIn = "locale_file" | "draft_file" | "page_common" | "type_template" | "not_set";
+
+export type FieldFileCopy = { stored_in: Exclude<FieldStoredIn, "not_set">; path: string };
 
 function contentRootPath(contentRoot?: string): string {
   const raw = contentRoot ?? getDefaultContentRoot();
@@ -956,6 +971,84 @@ function mappingSourceString(
   return source.source;
 }
 
+type StorageLayer = {
+  stored_in: Exclude<FieldStoredIn, "not_set">;
+  path: string;
+  data: Record<string, unknown>;
+};
+
+function readYamlObject(absPath: string): Record<string, unknown> | null {
+  if (!absPath || !fs.existsSync(absPath)) return null;
+  try {
+    const parsed = contentIndex.safeYamlLoad(fs.readFileSync(absPath, "utf-8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Files a YAML entry's field can come from, highest precedence first — same order as
+ * `contentIndex.loadMergedContent`: layer file → page `_common.yml` → type-level template.
+ */
+export function readFieldStorageLayers(opts: {
+  contentType: string;
+  slug: string;
+  contentRoot?: string;
+  layerFilePath: string;
+  isVariantLayer: boolean;
+}): StorageLayer[] {
+  const { contentType, slug, contentRoot } = opts;
+  const out: StorageLayer[] = [];
+  const push = (stored_in: StorageLayer["stored_in"], abs: string) => {
+    const data = readYamlObject(abs);
+    if (data) out.push({ stored_in, path: toRelativePath(abs, contentRoot), data });
+  };
+  push(opts.isVariantLayer ? "draft_file" : "locale_file", opts.layerFilePath);
+  push("page_common", path.join(getEntryContentDir(contentType, slug, contentRoot), "_common.yml"));
+  const typeDir = path.join(contentRootPath(contentRoot), getFolder(contentType, contentRoot));
+  const singleTemplate =
+    !!getContentTypeConfig(contentType, contentRoot)?.single_template &&
+    !isEntryDetached(contentType, slug, contentRoot);
+  if (singleTemplate) push("type_template", path.join(typeDir, "_common.yml"));
+  push("type_template", resolveCommonTemplatePath(typeDir));
+  return out;
+}
+
+function hasFieldPath(data: Record<string, unknown>, fieldPath: string): boolean {
+  let cur: unknown = data;
+  for (const part of fieldPath.split(".")) {
+    if (!cur || typeof cur !== "object" || Array.isArray(cur)) return false;
+    if (!Object.prototype.hasOwnProperty.call(cur, part)) return false;
+    cur = (cur as Record<string, unknown>)[part];
+  }
+  return cur !== undefined;
+}
+
+/** Where a YAML field lives: the winning file plus any shadowed copies. */
+export function resolveFieldStorage(
+  layers: StorageLayer[],
+  fieldPath: string,
+  opts?: { inLayerOverrides?: boolean },
+): Pick<FieldProvenance, "stored_in" | "stored_in_path" | "also_in" | "publishes_to"> {
+  const isLayerFile = (l: StorageLayer) => l.stored_in === "locale_file" || l.stored_in === "draft_file";
+  const hits = layers.filter(
+    (l) => hasFieldPath(l.data, fieldPath) || (opts?.inLayerOverrides === true && isLayerFile(l)),
+  );
+  if (!hits.length) return { stored_in: "not_set" };
+  const [first, ...rest] = hits;
+  return {
+    stored_in: first!.stored_in,
+    stored_in_path: first!.path,
+    ...(rest.length ? { also_in: rest.map((l) => ({ stored_in: l.stored_in, path: l.path })) } : {}),
+    ...(first!.stored_in === "draft_file" && isCommonField(fieldPath) ? { publishes_to: "page_common" as const } : {}),
+  };
+}
+
+const PLAIN_FIELD_PATH = /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/;
+
 /**
  * Build provenance rows for the SEO Fields tab.
  */
@@ -1011,6 +1104,15 @@ export async function buildFieldProvenance(opts: {
   const ctOverrides = readFieldOverrides(contentType, slug, locale, contentRoot, variant);
   const layerKeys = readLayerRootKeys(contentType, slug, locale, contentRoot, variant);
   const hasDatabase = !!config.database?.slug;
+  const storageLayers = hasDatabase
+    ? []
+    : readFieldStorageLayers({
+        contentType,
+        slug,
+        contentRoot,
+        layerFilePath: layer.filePath,
+        isVariantLayer: layer.isVariantLayer,
+      });
   const dbName = config.database?.slug;
 
   let dbOverrides: Record<string, unknown> = {};
@@ -1122,6 +1224,11 @@ export async function buildFieldProvenance(opts: {
     if (hasDatabase || baseline !== undefined) row.baseline = baseline;
     if (hasDb) row.db_value = dbValue;
     if (hasCt) row.ct_value = ctValue;
+    if (!hasDatabase && !calculated && (source === "entry_default" || source === "ct_override")) {
+      const plainSource = sourceRaw?.startsWith("?") ? sourceRaw.slice(1) : sourceRaw;
+      const storagePath = plainSource && PLAIN_FIELD_PATH.test(plainSource) ? plainSource : field;
+      Object.assign(row, resolveFieldStorage(storageLayers, storagePath, { inLayerOverrides: hasCt }));
+    }
     const dep = deprecatedForType[field];
     if (dep) {
       row.deprecated = { replaced_by: dep.replaced_by ?? null, reason: dep.reason ?? null };
@@ -1217,6 +1324,10 @@ export async function buildFieldProvenance(opts: {
     };
     if (hasDatabase && baselineVal !== undefined) {
       row.baseline = baselineVal;
+    }
+    if (!hasDatabase && hasOverlayKey) {
+      row.stored_in = layer.isVariantLayer ? "draft_file" : "locale_file";
+      row.stored_in_path = toRelativePath(layer.filePath, contentRoot);
     }
     fields.push(row);
   }

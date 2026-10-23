@@ -5013,7 +5013,10 @@ export function registerPageTools(
   mcp.tool(
     "get_entry_fields",
     "Inspect mapping fields with effective value and provenance " +
-    "(original | db_override | ct_override | entry_default). " +
+    "(original | db_override | ct_override | entry_default). entry_default = the page's own YAML value (no override), not a type fallback. " +
+    "YAML-backed rows add stored_in (locale_file | draft_file | page_common | type_template | not_set) + stored_in_path = the file the shown value comes from; " +
+    "also_in[] = other files holding a shadowed copy (locale_file + page_common for a page-level field = legacy copy publish drops → display_values_change); " +
+    "publishes_to: page_common = page-level field (funnel, authors, published_at, detached) staged in a draft → applies to all languages on publish. " +
     "Requires non-empty fields: string[] of field paths (e.g. title, seo.refresh_tier). " +
     "Omit fields or pass [] → action_required select_fields with available_fields names only (no values). " +
     "Unknown names reject the whole call (catalog + unknown_fields). " +

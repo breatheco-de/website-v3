@@ -18,17 +18,30 @@ export type BlockerNeedingSummary = {
 };
 
 /** Models overshoot the length they are asked for, so aim well under the hard limit. */
-const TARGET_CHARS = 500;
-const SHORTEN_TARGET_CHARS = 450;
-const MAX_ATTEMPTS = 3;
+const TARGET_CHARS = 450;
+/** Each shorten pass asks for less, so a model that keeps overshooting still lands under the limit. */
+const SHORTEN_TARGETS = [400, 300];
+const MAX_ATTEMPTS = 1 + SHORTEN_TARGETS.length;
 
 const SYSTEM_PROMPT =
   "You rewrite technical review notes for a marketing website's staff. The note was written by an AI reviewer " +
   "for the AI author of a content change. Rewrite it for a staff member who has not read the code and must decide " +
-  "whether to approve. Keep every consequence and the required action; drop field names, file names, warning codes " +
-  `and tool names. Aim for about ${TARGET_CHARS} characters; never exceed ${STAFF_SUMMARY_MAX}. ` +
+  "whether to approve. Start with what would go wrong if staff approved it as is, not with what the change improves. " +
+  "Then say what must happen before approving and who does it. Group details instead of listing every item " +
+  "(say 'several sections' or 'two figures'), and drop background and the parts that already pass review. " +
+  "Drop field names, file names, warning codes and tool names. " +
+  `Aim for about ${TARGET_CHARS} characters in 2-4 sentences; never exceed ${STAFF_SUMMARY_MAX}. ` +
   "Reply with only the rewritten note, no preamble or quotes.\n\nRules: " +
   BLOCKER_STAFF_SUMMARY_HINT;
+
+function shortenPrompt(text: string, target: number): string {
+  return (
+    `This note for staff is ${text.length} characters; the limit is ${STAFF_SUMMARY_MAX}. ` +
+    `Rewrite it in at most ${target} characters and 2-3 sentences. Keep what goes wrong if approved as is, ` +
+    "what must happen before approving, and who does it; merge or drop everything else.\n\n" +
+    text
+  );
+}
 
 export function selectBlockersMissingStaffSummary(db: Database.Database, site: string): BlockerNeedingSummary[] {
   return db
@@ -59,13 +72,10 @@ export async function rewriteBlockerForStaff(
   let check = checkStaffSummary(text);
 
   for (let attempt = 2; !check.ok && attempt <= MAX_ATTEMPTS; attempt++) {
-    const tooLong = text.trim().length > STAFF_SUMMARY_MAX;
-    const shorten = tooLong
-      ? `\n\nCut it to at most ${SHORTEN_TARGET_CHARS} characters in 2-3 sentences: keep what changes for visitors, ` +
-        "what must happen before approving, and who does it; drop background and the parts that already pass review."
-      : "";
-    const retry =
-      `${base}\n\nYour previous rewrite was rejected:\n${text}\n\nProblems to fix:\n- ${check.problems.join("\n- ")}${shorten}`;
+    const onlyTooLong = check.problems.every((p) => p.startsWith("too long"));
+    const retry = onlyTooLong
+      ? shortenPrompt(text, SHORTEN_TARGETS[attempt - 2]!)
+      : `${base}\n\nYour previous rewrite was rejected:\n${text}\n\nProblems to fix:\n- ${check.problems.join("\n- ")}`;
     text = cleanReply(await complete(retry, SYSTEM_PROMPT));
     check = checkStaffSummary(text);
   }

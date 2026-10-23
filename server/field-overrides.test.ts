@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   flattenFieldOverridesInFile,
   normalizeStringSelectForRoot,
+  readFieldStorageLayers,
   resetStaticMappedField,
+  resolveFieldStorage,
   resolveMappedFieldsLayerPath,
   writeMappedFields,
 } from "./field-overrides";
@@ -327,5 +329,67 @@ field_overrides:
     expect(raw).not.toContain("field_overrides:");
     expect(raw).toMatch(/^category: trends$/m);
     expect(raw).toContain("faq_entries:");
+  });
+});
+
+describe("resolveFieldStorage", () => {
+  const entryDir = () => path.join(contentRoot, "blog", "post-a");
+  // macOS tmp is a symlink, so the path may be cwd- or content-root-relative.
+  const rel = (name: string) =>
+    expect.stringMatching(new RegExp(`(^|/)blog/post-a/${name.replace(/\./g, "\\.")}$`));
+  const layersFor = (layerFile = "en.yml", isVariantLayer = false) =>
+    readFieldStorageLayers({
+      contentType: "blog",
+      slug: "post-a",
+      contentRoot,
+      layerFilePath: path.join(entryDir(), layerFile),
+      isVariantLayer,
+    });
+
+  it("authors only in the page _common.yml → page_common, no shadowed copy", () => {
+    fs.writeFileSync(path.join(entryDir(), "_common.yml"), "authors:\n  - 4geeks-academy\n", "utf-8");
+    expect(resolveFieldStorage(layersFor(), "authors")).toEqual({
+      stored_in: "page_common",
+      stored_in_path: rel("_common.yml"),
+    });
+  });
+
+  it("authors in both en.yml and _common.yml → language file wins, _common.yml listed in also_in", () => {
+    fs.writeFileSync(path.join(entryDir(), "_common.yml"), "authors:\n  - 4geeks-academy\n", "utf-8");
+    fs.appendFileSync(path.join(entryDir(), "en.yml"), "authors:\n  - someone\n", "utf-8");
+    expect(resolveFieldStorage(layersFor(), "authors")).toEqual({
+      stored_in: "locale_file",
+      stored_in_path: rel("en.yml"),
+      also_in: [{ stored_in: "page_common", path: rel("_common.yml") }],
+    });
+  });
+
+  it("value only in the type template → type_template", () => {
+    fs.writeFileSync(path.join(contentRoot, "blog", "_common.template.yml"), "published_at: null\nlayout_tag: x\n", "utf-8");
+    const out = resolveFieldStorage(layersFor(), "layout_tag");
+    expect(out.stored_in).toBe("type_template");
+    expect(out.stored_in_path).toMatch(/(^|\/)blog\/_common\.template\.yml$/);
+  });
+
+  it("no file holds the value → not_set", () => {
+    expect(resolveFieldStorage(layersFor(), "authors")).toEqual({ stored_in: "not_set" });
+  });
+
+  it("draft staging new authors → draft_file and publishes to the page _common.yml", () => {
+    fs.writeFileSync(path.join(entryDir(), "_common.yml"), "authors:\n  - 4geeks-academy\n", "utf-8");
+    fs.writeFileSync(path.join(entryDir(), "draft.en.yml"), "slug: post-a\nauthors:\n  - new-author\nsections: []\n", "utf-8");
+    expect(resolveFieldStorage(layersFor("draft.en.yml", true), "authors")).toEqual({
+      stored_in: "draft_file",
+      stored_in_path: rel("draft.en.yml"),
+      also_in: [{ stored_in: "page_common", path: rel("_common.yml") }],
+      publishes_to: "page_common",
+    });
+  });
+
+  it("a per-language field staged in a draft does not publish to _common.yml", () => {
+    fs.writeFileSync(path.join(entryDir(), "draft.en.yml"), "slug: post-a\ntitle: Draft title\nsections: []\n", "utf-8");
+    const out = resolveFieldStorage(layersFor("draft.en.yml", true), "title");
+    expect(out.stored_in).toBe("draft_file");
+    expect(out.publishes_to).toBeUndefined();
   });
 });
