@@ -5,7 +5,7 @@
  */
 
 import type Database from "better-sqlite3";
-import { BLOCKER_STAFF_SUMMARY_HINT, checkStaffSummary } from "./blocker-staff-summary";
+import { BLOCKER_STAFF_SUMMARY_HINT, STAFF_SUMMARY_MAX, checkStaffSummary } from "./blocker-staff-summary";
 
 type Log = (...args: unknown[]) => void;
 export type CompleteFn = (prompt: string, systemPrompt: string) => Promise<string>;
@@ -17,11 +17,17 @@ export type BlockerNeedingSummary = {
   body: string;
 };
 
+/** Models overshoot the length they are asked for, so aim well under the hard limit. */
+const TARGET_CHARS = 500;
+const SHORTEN_TARGET_CHARS = 450;
+const MAX_ATTEMPTS = 3;
+
 const SYSTEM_PROMPT =
   "You rewrite technical review notes for a marketing website's staff. The note was written by an AI reviewer " +
   "for the AI author of a content change. Rewrite it for a staff member who has not read the code and must decide " +
   "whether to approve. Keep every consequence and the required action; drop field names, file names, warning codes " +
-  "and tool names. Reply with only the rewritten note, no preamble or quotes.\n\nRules: " +
+  `and tool names. Aim for about ${TARGET_CHARS} characters; never exceed ${STAFF_SUMMARY_MAX}. ` +
+  "Reply with only the rewritten note, no preamble or quotes.\n\nRules: " +
   BLOCKER_STAFF_SUMMARY_HINT;
 
 export function selectBlockersMissingStaffSummary(db: Database.Database, site: string): BlockerNeedingSummary[] {
@@ -51,12 +57,18 @@ export async function rewriteBlockerForStaff(
   const base = `Proposal: ${blocker.proposal_title}\n\nTechnical note:\n${blocker.body}`;
   let text = cleanReply(await complete(base, SYSTEM_PROMPT));
   let check = checkStaffSummary(text);
-  if (check.ok) return { ok: true, text };
 
-  const retry =
-    `${base}\n\nYour previous rewrite was rejected:\n${text}\n\nProblems to fix:\n- ${check.problems.join("\n- ")}`;
-  text = cleanReply(await complete(retry, SYSTEM_PROMPT));
-  check = checkStaffSummary(text);
+  for (let attempt = 2; !check.ok && attempt <= MAX_ATTEMPTS; attempt++) {
+    const tooLong = text.trim().length > STAFF_SUMMARY_MAX;
+    const shorten = tooLong
+      ? `\n\nCut it to at most ${SHORTEN_TARGET_CHARS} characters in 2-3 sentences: keep what changes for visitors, ` +
+        "what must happen before approving, and who does it; drop background and the parts that already pass review."
+      : "";
+    const retry =
+      `${base}\n\nYour previous rewrite was rejected:\n${text}\n\nProblems to fix:\n- ${check.problems.join("\n- ")}${shorten}`;
+    text = cleanReply(await complete(retry, SYSTEM_PROMPT));
+    check = checkStaffSummary(text);
+  }
   return check.ok ? { ok: true, text } : { ok: false, problems: check.problems, text };
 }
 
