@@ -57,7 +57,7 @@ describe("blocker staff summary backfill", () => {
     expect(second).toEqual({ updated: 0, failed: 0, total: 0 });
   });
 
-  it("retries once with the problems, then counts a second code-style reply as a failure", async () => {
+  it("retries with the problems, then counts a blocker as failed after three code-style replies", async () => {
     const db = makeDb();
     const complete = vi
       .fn<(prompt: string, system: string) => Promise<string>>()
@@ -67,8 +67,23 @@ describe("blocker staff summary backfill", () => {
     const res = await backfillSiteBlockerStaffSummaries({ db, site: SITE, dryRun: false, complete, ...quiet });
     expect(res).toEqual({ updated: 1, failed: 1, total: 2 });
     expect(complete.mock.calls[1]![0]).toContain('"published_at"');
+    expect(complete).toHaveBeenCalledTimes(5);
     const left = selectBlockersMissingStaffSummary(db, SITE).map((r) => r.id);
     expect(left).toEqual([3]);
+  });
+
+  it("asks for a shorter rewrite when the reply is over the limit", async () => {
+    const db = makeDb();
+    const tooLong = `${PLAIN} `.repeat(6).trim();
+    const complete = vi
+      .fn<(prompt: string, system: string) => Promise<string>>()
+      .mockResolvedValueOnce(tooLong)
+      .mockResolvedValueOnce(tooLong)
+      .mockResolvedValue(PLAIN);
+    const res = await backfillSiteBlockerStaffSummaries({ db, site: SITE, dryRun: false, complete, ...quiet });
+    expect(res).toEqual({ updated: 2, failed: 0, total: 2 });
+    expect(complete.mock.calls[1]![0]).toContain("Cut it to at most");
+    expect(complete.mock.calls[2]![0]).toContain("Cut it to at most");
   });
 
   it("dry run writes nothing", async () => {
