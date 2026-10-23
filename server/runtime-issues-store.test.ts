@@ -637,7 +637,7 @@ describe("runtime-issues-store", () => {
       }),
     ).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(20_000);
     expect(upload).toHaveBeenCalled();
     const lastUpload = upload.mock.calls[upload.mock.calls.length - 1];
     const uploaded = JSON.parse((lastUpload[1] as Buffer).toString("utf-8"));

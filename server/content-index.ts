@@ -140,6 +140,16 @@ export interface SeoEntry {
   file: string;
 }
 
+type ByUrlEntry = {
+  contentType: string;
+  slug: string;
+  entry: ContentEntry;
+  params: Record<string, string>;
+  patternLocale: string;
+  /** Missing means database, so older snapshots keep the previous resolve behavior. */
+  source?: "yaml" | "database";
+};
+
 export interface CommonFieldInfo {
   common: string[];
   partial: { key: string; count: number; total: number }[];
@@ -158,7 +168,9 @@ export class ContentIndex {
   private menuUsage: Map<string, { contentType: string; slug: string; source: string; position: "top" | "bottom" }[]> = new Map();
   private seoIndex: Map<string, SeoEntry> = new Map();
   private clusterIndex: Map<string, string[]> = new Map();
-  private byUrl: Map<string, { contentType: string; slug: string; entry: ContentEntry; params: Record<string, string>; patternLocale: string }> = new Map();
+  private byUrl: Map<string, ByUrlEntry> = new Map();
+  /** `${contentType}:${slug}` → locale → public path. Built with `byUrl` at scan time. */
+  private alternateByKey: Map<string, Record<string, string>> = new Map();
   private dbIndexedTypes: Set<string> = new Set();
   private initialized = false;
   private slowPhaseReady = false;
@@ -305,6 +317,7 @@ export class ContentIndex {
     this.localeSlugMap = new Map();
     this.commonFieldsCache = new Map();
     this.byUrl = new Map();
+    this.alternateByKey = new Map();
     this.dbIndexedTypes = new Set();
 
     for (const contentType of contentTypes) {
@@ -406,7 +419,11 @@ export class ContentIndex {
             const url = resolveUrlPatternWithMapping(pattern, item, locale, fieldMapping, defaults);
             if (!url) continue;
             const params = this.extractUrlParams(pattern, url) || {};
-            this.byUrl.set(url, { contentType, slug: itemSlug, entry: templateEntry, params, patternLocale: localeKey });
+            this.rememberPublicUrl(
+              url,
+              { contentType, slug: itemSlug, entry: templateEntry, params, patternLocale: localeKey, source: "database" },
+              locale,
+            );
           }
         }
         this.dbIndexedTypes.add(contentType);
@@ -414,7 +431,11 @@ export class ContentIndex {
     }
 
     this.initialized = true;
-    log.info(`[ContentIndex] Fast scan: ${this.entries.length} YAML entries, ${this.byUrl.size} DB-backed URLs in lookup (image/variable/redirect/SEO deferred to background)`);
+    for (const entry of this.entries) {
+      this.indexYamlEntryUrls(entry);
+    }
+    this.attachHreflangAlternates();
+    log.info(`[ContentIndex] Fast scan: ${this.entries.length} YAML entries, ${this.byUrl.size} public URLs in lookup (image/variable/redirect/SEO deferred to background)`);
   }
 
   /**
@@ -860,6 +881,119 @@ export class ContentIndex {
    * - DB: `_hreflangs` locale→slug map on the mapped item (lookup by current URL slug)
    * By default skips empty detached locales (public). Pass includeEmptyLocales for admin.
    */
+  /**
+   * Record one public URL. YAML does not replace a database URL already stored
+   * at the same path. `publicLocale` is the en/es key callers look up.
+   */
+  private rememberPublicUrl(url: string, value: ByUrlEntry, publicLocale: string): void {
+    if (!url) return;
+    const prev = this.byUrl.get(url);
+    if (prev && prev.source !== "yaml" && value.source === "yaml") return;
+    this.byUrl.set(url, value);
+    const key = `${value.contentType}:${value.slug}`;
+    const urls = this.alternateByKey.get(key) ?? {};
+    urls[publicLocale] = url;
+    this.alternateByKey.set(key, urls);
+  }
+
+  private forgetYamlUrls(contentType: string, slug: string): void {
+    const key = `${contentType}:${slug}`;
+    for (const [url, val] of [...this.byUrl]) {
+      if (val.source === "yaml" && val.contentType === contentType && val.slug === slug) {
+        this.byUrl.delete(url);
+      }
+    }
+    const urls = this.alternateByKey.get(key);
+    if (!urls) return;
+    for (const [locale, url] of Object.entries(urls)) {
+      const row = this.byUrl.get(url);
+      if (!row) delete urls[locale];
+    }
+    if (Object.keys(urls).length === 0) this.alternateByKey.delete(key);
+  }
+
+  private localeSlugFromFile(entry: ContentEntry, locale: string): string {
+    const basePath = path.join(process.cwd(), entry.directory);
+    for (const candidate of [`${locale}.yml`, `${locale}.yaml`]) {
+      const filePath = path.join(basePath, candidate);
+      if (!fs.existsSync(filePath)) continue;
+      try {
+        const raw = fs.readFileSync(filePath, "utf-8");
+        const m = raw.match(/^slug:\s+["']?([^\s"'\n#]+)["']?/m);
+        if (m) return m[1].trim();
+      } catch {
+        /* fall through to the folder slug */
+      }
+      break;
+    }
+    return entry.slug;
+  }
+
+  /** Build this entry's public URLs once. Extra pattern params (category) are read here, not per request. */
+  private indexYamlEntryUrls(entry: ContentEntry): void {
+    const config = this.contentTypeConfigs[entry.contentType];
+    if (!config?.url_pattern) return;
+    this.forgetYamlUrls(entry.contentType, entry.slug);
+    for (const locale of entry.locales) {
+      try {
+        const localeSlug = this.localeSlugFromFile(entry, locale);
+        const params = this.resolveUrlPatternParamsForEntry(entry.contentType, entry.slug, locale) || {};
+        const url = this.buildUrl(entry.contentType, locale, localeSlug, params);
+        this.rememberPublicUrl(
+          url,
+          {
+            contentType: entry.contentType,
+            slug: entry.slug,
+            entry,
+            params,
+            patternLocale: locale,
+            source: "yaml",
+          },
+          locale,
+        );
+      } catch {
+        /* one bad entry must not drop the rest of the index */
+      }
+    }
+  }
+
+  /** Point each database slug at the public URLs of its hreflang siblings. */
+  private attachHreflangAlternates(): void {
+    const types = new Set<string>(this.dbIndexedTypes);
+    for (const val of this.byUrl.values()) {
+      if (val.source !== "yaml") types.add(val.contentType);
+    }
+    for (const contentType of types) {
+      if (!getHreflangsSource(contentType, this.contentRoot)) continue;
+      const typeItems = loadItemsForType(this, contentType);
+      if (!typeItems) continue;
+      for (const item of typeItems.items) {
+        const itemSlug = String(item.slug ?? "");
+        if (!itemSlug) continue;
+        const map = resolveHreflangsFromRecord(item, contentType, this.contentRoot);
+        if (!map) continue;
+        const urls: Record<string, string> = {};
+        for (const [locale, localeSlug] of Object.entries(map)) {
+          const url = this.alternateByKey.get(`${contentType}:${localeSlug}`)?.[locale];
+          if (url) urls[locale] = url;
+        }
+        if (Object.keys(urls).length > 0) {
+          this.alternateByKey.set(`${contentType}:${itemSlug}`, urls);
+        }
+      }
+    }
+  }
+
+  private indexedAlternateUrls(slug: string, contentType: string): Record<string, string> | null {
+    const direct = this.alternateByKey.get(`${contentType}:${slug}`);
+    if (direct && Object.keys(direct).length > 0) return { ...direct };
+    const baseSlug = this.resolveBaseSlug(slug, contentType);
+    if (baseSlug === slug) return null;
+    const viaBase = this.alternateByKey.get(`${contentType}:${baseSlug}`);
+    if (viaBase && Object.keys(viaBase).length > 0) return { ...viaBase };
+    return null;
+  }
+
   getAlternateUrls(
     slug: string,
     contentType: string,
@@ -867,8 +1001,14 @@ export class ContentIndex {
   ): Record<string, string> {
     this.ensureInitialized();
     const normalized = this.normalizeType(contentType);
-    const config = this.contentTypeConfigs[normalized];
     const includeEmpty = options?.includeEmptyLocales === true;
+    const indexed = this.indexedAlternateUrls(slug, normalized);
+    if (indexed) {
+      const baseSlug = this.resolveBaseSlug(slug, normalized);
+      return includeEmpty
+        ? indexed
+        : this.filterEmptyDetachedAlternateUrls(baseSlug, normalized, indexed);
+    }
 
     const dbUrls = getHreflangsSource(normalized, this.contentRoot)
       ? this.getAlternateUrlsFromDatabase(slug, normalized)
@@ -1736,10 +1876,17 @@ export class ContentIndex {
     this.ensureInitialized();
     const cleanUrl = url.split("?")[0].split("#")[0];
 
-    // For DB-backed content types: use exact URL index (prevents duplicate URLs and false positives)
-    const dbMatch = this.byUrl.get(cleanUrl);
-    if (dbMatch) {
-      return { contentType: dbMatch.contentType, slug: dbMatch.slug, entry: dbMatch.entry, fromDatabase: true, params: dbMatch.params, patternLocale: dbMatch.patternLocale };
+    // Exact public URL from the scan. YAML hits are not database pages.
+    const indexed = this.byUrl.get(cleanUrl);
+    if (indexed) {
+      return {
+        contentType: indexed.contentType,
+        slug: indexed.slug,
+        entry: indexed.entry,
+        fromDatabase: indexed.source === "yaml" ? undefined : true,
+        params: indexed.params,
+        patternLocale: indexed.patternLocale,
+      };
     }
 
     for (const [contentType, config] of Object.entries(this.contentTypeConfigs)) {
@@ -2657,6 +2804,8 @@ export class ContentIndex {
     for (const [k, v] of this.byPath) byPath[k] = structuredClone(v);
     const byUrl: Record<string, unknown> = {};
     for (const [k, v] of this.byUrl) byUrl[k] = structuredClone(v);
+    const alternateByKey: Record<string, Record<string, string>> = {};
+    for (const [k, v] of this.alternateByKey) alternateByKey[k] = { ...v };
     const localeSlugMap: Record<string, string> = {};
     for (const [k, v] of this.localeSlugMap) localeSlugMap[k] = v;
     const imageUsage: Record<string, string[]> = {};
@@ -2674,6 +2823,7 @@ export class ContentIndex {
       bySlug,
       byPath,
       byUrl,
+      alternateByKey,
       localeSlugMap,
       imageUsage,
       variableUsage,
@@ -2696,12 +2846,24 @@ export class ContentIndex {
     this.entries = structuredClone(snapshot.entries);
     this.bySlug = new Map(Object.entries(snapshot.bySlug));
     this.byPath = new Map(Object.entries(snapshot.byPath));
+    this.initialized = true;
     this.byUrl = new Map(
-      Object.entries(snapshot.byUrl) as [
-        string,
-        { contentType: string; slug: string; entry: ContentEntry; params: Record<string, string>; patternLocale: string },
-      ][],
+      Object.entries(snapshot.byUrl) as [string, ByUrlEntry][],
     );
+    if (snapshot.alternateByKey) {
+      this.alternateByKey = new Map(
+        Object.entries(snapshot.alternateByKey).map(([key, urls]) => [key, { ...urls }]),
+      );
+    } else {
+      this.alternateByKey = new Map();
+      for (const [url, val] of this.byUrl) {
+        const locale = val.patternLocale === "default" ? "en" : val.patternLocale;
+        const key = `${val.contentType}:${val.slug}`;
+        const urls = this.alternateByKey.get(key) ?? {};
+        urls[locale] = url;
+        this.alternateByKey.set(key, urls);
+      }
+    }
     this.localeSlugMap = new Map(Object.entries(snapshot.localeSlugMap));
     this.imageUsage = new Map(
       Object.entries(snapshot.imageUsage).map(([k, v]) => [k, new Set(v)]),
@@ -2720,7 +2882,6 @@ export class ContentIndex {
     );
     this.redirectEntries = structuredClone(snapshot.redirectEntries);
     this.slowPhaseReady = snapshot.slowPhaseReady;
-    this.initialized = true;
     this.clearLiveRedirectCache();
     return true;
   }
@@ -2756,7 +2917,10 @@ export class ContentIndex {
     }
     this.byPath.delete(dirRel);
     for (const [url, val] of [...this.byUrl]) {
-      if (val.entry?.directory === dirRel) this.byUrl.delete(url);
+      if (val.entry?.directory === dirRel) {
+        this.byUrl.delete(url);
+        this.alternateByKey.delete(`${val.contentType}:${val.slug}`);
+      }
     }
 
     const parts = dirRel.split("/");
@@ -2807,22 +2971,7 @@ export class ContentIndex {
     this.bySlug.set(slug, existing);
     this.byPath.set(dirRel, entry);
 
-    // Rebuild URL index for this entry
-    const config = this.contentTypeConfigs[contentType];
-    if (config?.url_pattern) {
-      for (const locale of locales) {
-        try {
-          const url = this.buildUrl(contentType, locale, slug);
-          this.byUrl.set(url, {
-            contentType,
-            slug,
-            entry,
-            params: {},
-            patternLocale: locale,
-          });
-        } catch {}
-      }
-    }
+    this.indexYamlEntryUrls(entry);
   }
 }
 
