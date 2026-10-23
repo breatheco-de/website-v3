@@ -23,6 +23,14 @@ export const FUNNEL_STAGE_LABEL: Record<FunnelStage, string> = {
   "post-enrollment": "Post-enrollment",
 };
 
+/** Who the page is for and what page stats measure it on. */
+export const FUNNEL_STAGE_DESCRIPTION: Record<FunnelStage, string> = {
+  awareness: "New, broad audience. Judged on how many visitors move on to another step.",
+  consideration: "People comparing options. Judged on how many later reach a decision page.",
+  decision: "Ready to apply or buy. Judged on leads submitted on this page.",
+  "post-enrollment": "Current students. Judged on clicks to the learning platform and other tasks.",
+};
+
 export const FUNNEL_STAGE_ICON: Record<FunnelStage, ComponentType<{ className?: string }>> = {
   awareness: IconSpeakerphone,
   consideration: IconTarget,

@@ -1,20 +1,23 @@
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { IconBrandGoogle, IconBrandMeta, IconSpeakerphone } from "@tabler/icons-react";
+import { IconBrandGoogle, IconBrandMeta, IconSpeakerphone, IconTarget } from "@tabler/icons-react";
 import { SettingsShell, type SettingsSecondaryTab } from "@/components/settings/SettingsShell";
 import { MetaAdsTab } from "@/components/settings/MetaAdsTab";
 import { GoogleAdsTab } from "@/components/settings/GoogleAdsTab";
+import { StageTargetsTab } from "@/components/settings/StageTargetsTab";
 
-type AdsTab = "meta" | "google";
+type AdsTab = "meta" | "google" | "targets";
 
 const ADS_TABS: SettingsSecondaryTab<AdsTab>[] = [
   { id: "meta", href: "/private/settings/ads/meta", label: "Meta", Icon: IconBrandMeta },
   { id: "google", href: "/private/settings/ads/google", label: "Google Ads", Icon: IconBrandGoogle },
+  { id: "targets", href: "/private/settings/ads/targets", label: "Targets", Icon: IconTarget },
 ];
 
 function resolveAdsTab(pathname: string): AdsTab | null {
   if (pathname === "/private/settings/ads/meta") return "meta";
   if (pathname === "/private/settings/ads/google") return "google";
+  if (pathname === "/private/settings/ads/targets") return "targets";
   return null;
 }
 
@@ -62,6 +65,7 @@ export default function AdsSettingsPage() {
       <div role="tabpanel">
         {activeTab === "meta" && <MetaAdsTab />}
         {activeTab === "google" && <GoogleAdsTab />}
+        {activeTab === "targets" && <StageTargetsTab />}
       </div>
     </SettingsShell>
   );

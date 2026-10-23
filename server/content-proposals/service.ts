@@ -2422,6 +2422,7 @@ export type OpenProposalForEntry = {
   proposer_kind: "agent" | "staff";
   proposer_role?: string;
   created_at: number;
+  updated_at: number;
 };
 
 /** Open/partial proposals on any locale/variant of one page (single query, for the Versions panel). */
@@ -2435,7 +2436,7 @@ export function listOpenProposalsForEntry(
   const rows = db
     .prepare(
       `SELECT p.id, p.title, p.status, p.proposer_username, p.proposer_actor_json, p.created_at,
-              e.locale, e.variant
+              p.updated_at, e.locale, e.variant
        FROM content_proposals p
        INNER JOIN content_proposal_entries e ON e.proposal_id = p.id
        WHERE p.site = ? AND p.status IN ('open','partial') AND e.entry_key = ?
@@ -2448,6 +2449,7 @@ export function listOpenProposalsForEntry(
     proposer_username: string;
     proposer_actor_json: string;
     created_at: number;
+    updated_at: number;
     locale: string;
     variant: string | null;
   }>;
@@ -2464,6 +2466,7 @@ export function listOpenProposalsForEntry(
       proposer_kind: actor.type === "mcp" ? "agent" : "staff",
       ...(role ? { proposer_role: role } : {}),
       created_at: r.created_at,
+      updated_at: r.updated_at,
     };
   });
 }

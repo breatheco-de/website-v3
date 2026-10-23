@@ -42,6 +42,11 @@ export interface PagePerformanceFile {
   generated_at: string;
   window_days: number;
   pages: Record<string, InsightPagePerformance>;
+  /**
+   * Outcome rate per landing session, keyed `ch|channel|contentType|stage` and
+   * `ch|channel|*|metric` (metric = conversions | engaged_sessions). Read by the page stats drawer.
+   */
+  channel_baselines?: Record<string, { sessions: number; outcome: number; rate: number }>;
 }
 
 export interface ChannelRow {
@@ -162,20 +167,22 @@ function outcomeOf(row: ChannelRow, metric: "conversions" | "engaged_sessions"):
  * Rows whose path is not in the index (other pages, unknown URLs) still
  * feed the channel baselines only when they map to a layout.
  */
-export function computeLayoutPerformance(
-  rows: ChannelRow[],
-  index: LayoutPathIndex,
-  opts: { windowDays: number; now?: Date; k?: number } = { windowDays: PERFORMANCE_WINDOW_DAYS },
-): Record<string, InsightPagePerformance> {
-  const k = opts.k ?? PERFORMANCE_K;
-  type Mapped = ChannelRow & { key: string; contentType: string; stage?: string; metric: "conversions" | "engaged_sessions" };
-  const mapped: Mapped[] = [];
+type MappedRow = ChannelRow & { key: string; contentType: string; stage?: string; metric: "conversions" | "engaged_sessions" };
+
+function mapRows(rows: ChannelRow[], index: LayoutPathIndex): MappedRow[] {
+  const mapped: MappedRow[] = [];
   for (const r of rows) {
     const hit = index.get(normalizeAnalyticsPath(r.path) || r.path);
     if (!hit) continue;
     mapped.push({ ...r, ...hit, metric: outcomeMetricForStage(hit.stage) });
   }
+  return mapped;
+}
 
+function buildBaselines(mapped: MappedRow[]): {
+  baseline: Map<string, { s: number; o: number }>;
+  campaignLayouts: Map<string, Set<string>>;
+} {
   const baseline = new Map<string, { s: number; o: number }>();
   const campaignLayouts = new Map<string, Set<string>>();
   const bump = (key: string, s: number, o: number) => {
@@ -195,6 +202,30 @@ export function computeLayoutPerformance(
       campaignLayouts.set(r.campaign, set);
     }
   }
+  return { baseline, campaignLayouts };
+}
+
+/** Channel baseline rates (no campaign keys) for the page stats drawer's per-channel view. Pure. */
+export function computeChannelBaselines(
+  rows: ChannelRow[],
+  index: LayoutPathIndex,
+): NonNullable<PagePerformanceFile["channel_baselines"]> {
+  const out: NonNullable<PagePerformanceFile["channel_baselines"]> = {};
+  for (const [key, b] of buildBaselines(mapRows(rows, index)).baseline) {
+    if (!key.startsWith("ch|") || b.s <= 0) continue;
+    out[key] = { sessions: b.s, outcome: b.o, rate: Math.round((b.o / b.s) * 10000) / 10000 };
+  }
+  return out;
+}
+
+export function computeLayoutPerformance(
+  rows: ChannelRow[],
+  index: LayoutPathIndex,
+  opts: { windowDays: number; now?: Date; k?: number } = { windowDays: PERFORMANCE_WINDOW_DAYS },
+): Record<string, InsightPagePerformance> {
+  const k = opts.k ?? PERFORMANCE_K;
+  const mapped = mapRows(rows, index);
+  const { baseline, campaignLayouts } = buildBaselines(mapped);
   const rate = (key: string): number | null => {
     const b = baseline.get(key);
     return b && b.s > 0 ? b.o / b.s : null;
@@ -302,6 +333,7 @@ export async function runPagePerformanceJob(opts: {
       generated_at: new Date().toISOString(),
       window_days: PERFORMANCE_WINDOW_DAYS,
       pages,
+      channel_baselines: computeChannelBaselines(rows, index),
     };
     const p = filePath(opts.contentFolder);
     fs.mkdirSync(path.dirname(p), { recursive: true });

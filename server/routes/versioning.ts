@@ -292,6 +292,8 @@ export type VariantProposalBadge = {
   status?: string;
   proposer_username?: string;
   proposer_kind?: "agent" | "staff";
+  /** Epoch ms of the proposal's last change. */
+  updated_at?: number;
 };
 
 /** `{locale: {variant: badge}}` — `_draft.proposal` first, then the local proposals DB. */
@@ -330,6 +332,7 @@ async function proposalsByVariantFor(opts: {
               status: hit.status,
               proposer_username: hit.proposer_username,
               proposer_kind: hit.proposer_kind,
+              updated_at: hit.updated_at,
             }
           : {}),
       };

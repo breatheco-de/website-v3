@@ -67,6 +67,8 @@ export interface VariantProposalLink {
   status?: string;
   proposer_username?: string;
   proposer_kind?: "agent" | "staff";
+  /** Epoch ms of the proposal's last change. */
+  updated_at?: number;
 }
 
 export interface ContentInfo {

@@ -111,6 +111,19 @@ export type TrafficFacts = {
   scroll: Array<{ depth: number; sessions: number }>;
   /** First day each new event was seen anywhere on the site in the window; null = not yet. */
   tracking_since: { cta_click: string | null; scroll_depth: string | null };
+  /** Prior-period channel rows (same shape; `prior_sessions` unused). */
+  prior_channels: ChannelRow[];
+  /** Same-stage pages in the current window (benchmark medians); includes this page. */
+  peers: PeerRow[];
+};
+
+export type PeerRow = {
+  path: string;
+  sessions: number;
+  engaged: number;
+  moved_forward: number;
+  reached_decision: number;
+  task_sessions: number;
 };
 
 export type LeadBreakdownRow = { key: string; count: number };
@@ -118,6 +131,8 @@ export type LeadBreakdownRow = { key: string; count: number };
 export type LeadBlock = {
   count: number;
   prior_count: number;
+  /** Leads the ledger counts as paid (same rule as the Leads page). */
+  paid_count: number;
   by_form: LeadBreakdownRow[];
   by_channel: LeadBreakdownRow[];
   by_campaign: LeadBreakdownRow[];
@@ -233,6 +248,8 @@ export type PaidFacts = {
   issues: PaidIssueRow[];
   low_sample: boolean;
   min_paid_visits_for_rates: number;
+  /** Median stage cost metric over other same-stage pages (null when the stage has no ads-report denominator). */
+  stage_cost_benchmark: { cost: Money | null; pages: number } | null;
 };
 
 export type LinksFacts = {
@@ -258,6 +275,23 @@ export type ObjectiveFunnelStep = {
   loss_from_previous: number | null;
   loss_cause: string | null;
 };
+
+/** Drops below this share are not called out as the biggest drop. */
+export const FUNNEL_BIG_DROP_MIN = 0.3;
+
+/**
+ * Index of the step with the largest loss from the step before it, or -1. Impressions → clicks
+ * is skipped: that drop is the click-through rate, and 95%+ there is normal.
+ */
+export function biggestFunnelDrop(funnel: ObjectiveFunnelStep[]): number {
+  let best = -1;
+  for (let i = 1; i < funnel.length; i++) {
+    const loss = funnel[i]!.loss_from_previous;
+    if (loss === null || loss < FUNNEL_BIG_DROP_MIN || funnel[i - 1]!.id === "impressions") continue;
+    if (best === -1 || loss > funnel[best]!.loss_from_previous!) best = i;
+  }
+  return best;
+}
 
 export type ObjectiveDriver = {
   label: string;

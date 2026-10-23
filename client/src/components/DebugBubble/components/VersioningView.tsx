@@ -21,7 +21,7 @@ import {
 } from "@/components/editing/LocaleUrlSlugPrompt";
 import { TextLimitsIssue } from "@/components/TextLimitsIssue";
 import { deslugify } from "../utils/debugHelpers";
-import { IconRobot, IconArrowLeft, IconGitBranch, IconRefresh, IconPencil, IconCheck, IconX, IconPlayerPlay, IconPlus, IconHistory, IconExternalLink, IconCrown, IconTrash, IconDots, IconCode, IconShare, IconCopy, IconEyeOff } from "@tabler/icons-react";
+import { IconChartBar, IconRobot, IconArrowLeft, IconGitBranch, IconRefresh, IconPencil, IconCheck, IconX, IconPlayerPlay, IconPlus, IconHistory, IconExternalLink, IconCrown, IconTrash, IconDots, IconCode, IconShare, IconCopy, IconEyeOff } from "@tabler/icons-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ import { STORAGE_KEY, OPEN_STORAGE_KEY } from "../types";
 import { PageHealthIndicators } from "./PageHealthIndicators";
 import { LayoutApprovalControl } from "./LayoutApprovalControl";
 import { VariantProposalBadge } from "./VariantProposalBadge";
+import { LocaleFlag } from "./LocaleFlag";
 import type { PageErrorsTab } from "./PageErrorsModal";
 
 interface VersioningViewProps {
@@ -69,6 +70,8 @@ interface VersioningViewProps {
   pageDiagnosticsUrl?: string | null;
   pageDiagnosticsEntryKey?: string | null;
   onOpenPageErrors?: (tab: PageErrorsTab) => void;
+  /** Opens the page stats drawer; undefined hides the button (no metrics_view). */
+  onOpenPageStats?: () => void;
 }
 
 function formatAbsoluteDate(iso: string): string | null {
@@ -138,7 +141,8 @@ function UnregisteredVariantsNotice({
           return (
             <div key={key} className="flex items-center justify-between gap-2" data-testid={`row-unregistered-${v.locale}-${v.slug}`}>
               <div className="flex items-center gap-1.5 min-w-0">
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4 flex-shrink-0">
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4 flex-shrink-0 gap-1">
+                  <LocaleFlag locale={v.locale} className="w-3.5 h-2.5 rounded-sm" />
                   {v.locale.toUpperCase()}
                 </Badge>
                 <button
@@ -170,22 +174,6 @@ function UnregisteredVariantsNotice({
           );
         })}
       </div>
-      <details className="text-muted-foreground">
-        <summary className="cursor-pointer hover:text-foreground">Read more (advanced)</summary>
-        <ul className="mt-1 list-disc pl-4 space-y-0.5">
-          <li>
-            Files: {variants.map((v) => (
-              <code key={v.fileName} className="bg-muted px-1 rounded mr-1">{v.fileName}</code>
-            ))}
-          </li>
-          <li>
-            The traffic list is <code className="bg-muted px-1 rounded">versioning.yml</code>. A version file it does not
-            list gets no traffic and cannot be promoted or edited from here.
-          </li>
-          <li>Adding it writes only versioning.yml at 0%. Live content and other versions' traffic do not change.</li>
-          <li>Usually caused by a save that pushed the version file without its versioning.yml entry.</li>
-        </ul>
-      </details>
     </div>
   );
 }
@@ -315,6 +303,7 @@ export function VersioningView({
   pageDiagnosticsUrl,
   pageDiagnosticsEntryKey,
   onOpenPageErrors,
+  onOpenPageStats,
 }: VersioningViewProps) {
   const { toast } = useToast();
   const { hasCapability } = useDebugAuth();
@@ -1323,6 +1312,19 @@ export function VersioningView({
                     </Badge>
                   </Button>
                 ) : null}
+                {onOpenPageStats && pageDiagnosticsUrl ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0"
+                    onClick={onOpenPageStats}
+                    data-testid="button-open-page-stats"
+                    title="Page stats: objective, traffic, leads, search and ads for this page"
+                    aria-label="Open page stats"
+                  >
+                    <IconChartBar className="h-3.5 w-3.5" />
+                  </Button>
+                ) : null}
               </div>
             </div>
           )}
@@ -1635,7 +1637,8 @@ export function VersioningView({
                         <span className="text-xs text-muted-foreground">
                           {isTemplateVersioning ? "Live template for" : "Live version for"}
                         </span>
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4">
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4 gap-1">
+                          <LocaleFlag locale={locale} className="w-3.5 h-2.5 rounded-sm" />
                           {locale.toUpperCase()}
                         </Badge>
                         <span className="text-xs text-muted-foreground">locale</span>
@@ -1759,7 +1762,8 @@ export function VersioningView({
                             ? "Template variants for"
                             : "Traffic allocation for"}
                       </span>
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4">
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4 gap-1">
+                        <LocaleFlag locale={locale} className="w-3.5 h-2.5 rounded-sm" />
                         {locale.toUpperCase()}
                       </Badge>
                       <span className="text-xs text-muted-foreground">locale</span>

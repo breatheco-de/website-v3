@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconBrush, IconThumbDown, IconThumbUp } from "@tabler/icons-react";
+import { IconThumbDown, IconThumbDownFilled, IconThumbUp, IconThumbUpFilled } from "@tabler/icons-react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -89,10 +89,14 @@ export function LayoutApprovalControl({ contentType, slug }: { contentType: stri
         >
           {query.isLoading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : state === "rejected" ? (
+            <IconThumbDownFilled className="h-3.5 w-3.5 text-status-busy" />
+          ) : state === "approved" ? (
+            <IconThumbUpFilled className="h-3.5 w-3.5 text-status-online" />
           ) : (
-            <IconBrush
+            <IconThumbUp
               className={`h-3.5 w-3.5 ${
-                approved ? "text-status-online" : state === "stale" ? "text-status-away" : "text-muted-foreground"
+                approved ? "text-status-online" : state === "stale" ? "text-status-away" : ""
               }`}
             />
           )}

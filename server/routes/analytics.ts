@@ -17,6 +17,14 @@ import {
 
 const log = child({ module: "routes/analytics" });
 
+const pageStatsSchema = z.object({
+  path: z.string().trim().min(1).max(500),
+  scope: z.enum(["url", "entry"]).default("url"),
+  refresh: z.enum(["0", "1"]).optional(),
+});
+
+type SiteLocals = { contentRoot?: string; contentRootName?: string; contentIndex?: import("../content-index").ContentIndex };
+
 const reportSchema = z.object({
   report: z.enum(ANALYTICS_REPORTS as unknown as [AnalyticsReportName, ...AnalyticsReportName[]]),
   days: z.coerce.number().int().min(1).max(90).optional(),
@@ -97,5 +105,44 @@ export function registerAnalyticsRoutes(app: Express): void {
       log.error({ err }, "[AnalyticsRoutes] GET /api/analytics/report");
       res.status(500).json({ error: "Internal server error" });
     }
+  });
+
+  api.get(app, "/api/analytics/page-stats", { rate: "publicRead" }, async (req, res) => {
+    const { requireCapability } = await import("./_helpers");
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+    const parsed = pageStatsSchema.safeParse({ path: req.query.path, scope: req.query.scope, refresh: req.query.refresh });
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() });
+    }
+    const site = res.locals.site as SiteLocals | undefined;
+    const { getDefaultContentFolder } = await import("../site-config");
+    const { contentIndex } = await import("../content-index");
+    const { getPageStats, PageStatsNotFoundError } = await import("../analytics/page-stats");
+    try {
+      const report = await getPageStats({
+        site: site?.contentRootName ?? getDefaultContentFolder(),
+        contentRoot: site?.contentRoot,
+        ci: site?.contentIndex ?? contentIndex,
+        path: parsed.data.path,
+        scope: parsed.data.scope,
+        refresh: parsed.data.refresh === "1",
+      });
+      res.json(report);
+    } catch (err) {
+      if (err instanceof PageStatsNotFoundError) return res.status(400).json({ error: err.message });
+      log.error({ err }, "[AnalyticsRoutes] GET /api/analytics/page-stats");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  api.get(app, "/api/analytics/page-stats/benchmarks", { rate: "publicRead" }, async (req, res) => {
+    const { requireAnyCapability } = await import("./_helpers");
+    const auth = await requireAnyCapability(req, res, ["metrics_view", "seo_settings", "ads_settings"]);
+    if (!auth.authorized) return;
+    const site = res.locals.site as SiteLocals | undefined;
+    const { getDefaultContentFolder } = await import("../site-config");
+    const { readStageBenchmarks } = await import("../analytics/page-stats/benchmarks");
+    res.json(readStageBenchmarks(site?.contentRootName ?? getDefaultContentFolder()));
   });
 }

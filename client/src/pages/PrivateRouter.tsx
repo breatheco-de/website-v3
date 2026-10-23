@@ -168,6 +168,7 @@ export default function PrivateRouter() {
           <Route path="/private/settings/seo" component={SeoGeoSettingsPage} />
           <Route path="/private/settings/ads/meta" component={AdsSettingsPage} />
           <Route path="/private/settings/ads/google" component={AdsSettingsPage} />
+          <Route path="/private/settings/ads/targets" component={AdsSettingsPage} />
           <Route path="/private/settings/ads" component={AdsSettingsPage} />
           <Route path="/private/settings/locales" component={SettingsPage} />
           <Route path="/private/settings/migrations" component={SettingsPage} />
