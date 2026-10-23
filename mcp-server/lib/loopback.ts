@@ -135,11 +135,12 @@ export async function assertMutatingAgentIdentity(
       },
     ]);
   }
+  const sidPreview = sid.slice(0, 64);
   if (!isServerAgentSessionId(sid)) {
     return actionRequired(
       sessionUnknownPayload(
         toolName,
-        `agent_session_id "${sid.slice(0, 64)}" was not issued by agent_session start. ` +
+        `agent_session_id "${sidPreview}" was not issued by agent_session start. ` +
           `Call agent_session start (without an id) and pass the agent_session_id it returns.`,
       ),
       [
