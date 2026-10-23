@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { formatProposalMarkdown, splitInlineNumberedList } from "./proposal-markdown";
+import type { Root } from "mdast";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+import {
+  formatProposalMarkdown,
+  isSitePath,
+  remarkSitePaths,
+  splitInlineNumberedList,
+  splitSitePaths,
+} from "./proposal-markdown";
 
 describe("splitInlineNumberedList", () => {
   it("turns inline (1) (2) markers into a numbered list under the lead sentence", () => {
@@ -43,5 +53,58 @@ describe("formatProposalMarkdown", () => {
 
   it("trims and splits inline lists before adding breaks", () => {
     expect(formatProposalMarkdown("  Lead. (1) A. (2) B.  ")).toBe("Lead.\n\n1. A.  \n2. B.");
+  });
+});
+
+describe("splitSitePaths", () => {
+  it("pulls a site path out of prose without trailing punctuation", () => {
+    expect(splitSitePaths("the address /blog/ai-tools/grok-bot-use-cases still returns 404.")).toEqual([
+      { kind: "text", value: "the address " },
+      { kind: "path", value: "/blog/ai-tools/grok-bot-use-cases" },
+      { kind: "text", value: " still returns 404." },
+    ]);
+    expect(splitSitePaths("(see /en/blog/x).")).toEqual([
+      { kind: "text", value: "(see " },
+      { kind: "path", value: "/en/blog/x" },
+      { kind: "text", value: ")." },
+    ]);
+  });
+
+  it("ignores slashes inside words, dates and full URLs", () => {
+    for (const text of ["EN/ES copy", "and/or", "2026/10/22", "https://4geeks.com/blog/x", "site_4geeks-com/blog/x.yml"]) {
+      expect(splitSitePaths(text)).toEqual([{ kind: "text", value: text }]);
+    }
+  });
+});
+
+describe("isSitePath", () => {
+  it("accepts site-relative paths only", () => {
+    expect(isSitePath("/blog/x")).toBe(true);
+    expect(isSitePath("/es/cursos?ref=a")).toBe(true);
+    expect(isSitePath("//cdn.example.com/x")).toBe(false);
+    expect(isSitePath("https://4geeks.com/x")).toBe(false);
+    expect(isSitePath("/")).toBe(false);
+  });
+});
+
+describe("remarkSitePaths", () => {
+  const linkUrls = (md: string) => {
+    const processor = unified().use(remarkParse).use(remarkGfm).use(remarkSitePaths);
+    const tree = processor.runSync(processor.parse(md)) as Root;
+    const urls: string[] = [];
+    const walk = (node: { type: string; url?: string; children?: unknown[] }) => {
+      if (node.type === "link" && node.url) urls.push(node.url);
+      (node.children as (typeof node)[] | undefined)?.forEach(walk);
+    };
+    walk(tree);
+    return urls;
+  };
+
+  it("links bare paths and inline-code paths, leaving existing links alone", () => {
+    expect(linkUrls("Bare /blog/a, code `/blog/b`, link [/blog/c](/blog/c), file `server/x.ts`.")).toEqual([
+      "/blog/a",
+      "/blog/b",
+      "/blog/c",
+    ]);
   });
 });

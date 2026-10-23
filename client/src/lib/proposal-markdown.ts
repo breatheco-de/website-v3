@@ -1,4 +1,11 @@
+import type { InlineCode, Link, Parent, Root, Text } from "mdast";
+import { SKIP, visit } from "unist-util-visit";
+
 const INLINE_ITEM = /\s*\((\d{1,2})\)\s+/g;
+const SITE_PATH_BODY = String.raw`\/[A-Za-z0-9][\w.~%-]*(?:\/[\w.~%-]+)*\/?(?:[?#][\w=&%.~\/-]*)?`;
+/** A site path must start the text or follow whitespace/opening punctuation, so `a/b` and URLs are left alone. */
+const SITE_PATH_IN_TEXT = new RegExp(String.raw`(^|[\s(\[{"'“‘])(${SITE_PATH_BODY})`, "g");
+const SITE_PATH_EXACT = new RegExp(String.raw`^${SITE_PATH_BODY}$`);
 const MARKDOWN_LIST_LINE = /^\s*(?:\d+[.)]|[-*+])\s/m;
 
 /**
@@ -30,4 +37,54 @@ export function splitInlineNumberedList(text: string): string {
  */
 export function formatProposalMarkdown(text: string): string {
   return splitInlineNumberedList(text.trim()).replace(/([^\n])\n(?!\n)/g, "$1  \n");
+}
+
+/** Site-relative href (`/blog/x`), not protocol-relative (`//cdn…`). */
+export function isSitePath(value: string): boolean {
+  return SITE_PATH_EXACT.test(value);
+}
+
+export type SitePathPart = { kind: "text" | "path"; value: string };
+
+/** Split plain text into text and site-path parts (`see /blog/x.` → text, `/blog/x`, `.`). */
+export function splitSitePaths(text: string): SitePathPart[] {
+  const parts: SitePathPart[] = [];
+  let last = 0;
+  for (const match of Array.from(text.matchAll(SITE_PATH_IN_TEXT))) {
+    const path = match[2].replace(/\.+$/, "");
+    const start = match.index! + match[1].length;
+    if (start > last) parts.push({ kind: "text", value: text.slice(last, start) });
+    parts.push({ kind: "path", value: path });
+    last = start + path.length;
+  }
+  if (last < text.length) parts.push({ kind: "text", value: text.slice(last) });
+  return parts;
+}
+
+/** Remark plugin: turn bare site paths in text and `inline code` into links (existing links untouched). */
+export function remarkSitePaths() {
+  return (tree: Root) => {
+    visit(tree, (node, index, parent: Parent | undefined) => {
+      if (!parent || index === undefined || parent.type === "link" || parent.type === "linkReference") return;
+
+      if (node.type === "inlineCode") {
+        const code = node as InlineCode;
+        if (!isSitePath(code.value)) return;
+        const link: Link = { type: "link", url: code.value, children: [code] };
+        parent.children[index] = link;
+        return SKIP;
+      }
+
+      if (node.type !== "text") return;
+      const parts = splitSitePaths((node as Text).value);
+      if (!parts.some((p) => p.kind === "path")) return;
+      const replacement = parts.map((p): Text | Link =>
+        p.kind === "path"
+          ? { type: "link", url: p.value, children: [{ type: "text", value: p.value }] }
+          : { type: "text", value: p.value },
+      );
+      parent.children.splice(index, 1, ...replacement);
+      return [SKIP, index + replacement.length];
+    });
+  };
 }

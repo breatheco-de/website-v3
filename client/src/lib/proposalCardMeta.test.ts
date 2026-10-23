@@ -11,7 +11,7 @@ import { PROPOSAL_STATUS_UI, proposalStatusUi } from "./proposalStatusUi";
 describe("proposalCardMeta", () => {
   it("maps category to staff labels", () => {
     expect(proposalCategoryLabel("content.seo")).toBe("SEO");
-    expect(proposalCategoryLabel("content.field")).toBe("Field");
+    expect(proposalCategoryLabel("content.field")).toBe("Page content");
     expect(proposalCategoryLabel("other")).toBe("other");
   });
 

@@ -1261,6 +1261,49 @@ describe("pipeline-db runner", () => {
     rmSite(site);
   });
 
+  it("adds content_proposal_blockers.staff_summary when upgrading from v39", () => {
+    const site = `${TEST_PREFIX}-v39-blocker-staff-summary-${Date.now()}`;
+    rmSite(site);
+    fs.mkdirSync(siteDir(site), { recursive: true });
+    const raw = new Database(dbPath(site));
+    raw.exec(`
+      CREATE TABLE pipeline_schema_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO pipeline_schema_version (id, version) VALUES (1, 39);
+      CREATE TABLE content_proposal_blockers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        proposal_id TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'blocker',
+        body TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        author TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        resolved_at INTEGER,
+        resolved_by TEXT,
+        resolve_note TEXT,
+        agent_session_id TEXT,
+        author_actor_json TEXT,
+        resolved_by_actor_json TEXT
+      );
+      INSERT INTO content_proposal_blockers (proposal_id, body, author, created_at)
+        VALUES ('p-1', 'old technical blocker', 'agent', 1);
+    `);
+    raw.close();
+
+    ensurePipelineDb(site, { skipBackup: true });
+    expect(getPipelineSchemaVersion(site)).toBe(PIPELINE_SCHEMA_VERSION);
+    const db = new Database(dbPath(site), { readonly: true });
+    const row = db
+      .prepare(`SELECT body, staff_summary FROM content_proposal_blockers WHERE proposal_id = 'p-1'`)
+      .get() as Record<string, unknown>;
+    expect(row.body).toBe("old technical blocker");
+    expect(row.staff_summary).toBeNull();
+    db.close();
+    rmSite(site);
+  });
+
   it("adds data_migration_runs when upgrading from v31-shaped DB", () => {
     const site = `${TEST_PREFIX}-v31-data-migration-runs-${Date.now()}`;
     rmSite(site);

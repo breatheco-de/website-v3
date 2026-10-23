@@ -266,6 +266,7 @@ function plainSectionIssue(details?: { property_path?: string; message?: string 
 type BlockerRow = {
   id: number;
   body: string;
+  staff_summary?: string | null;
   status: string;
   author: string;
   created_at: number;
@@ -1400,9 +1401,6 @@ export function ProposalDetailPanel({
   const [acceptLocale, setAcceptLocale] = useState("");
   const [acceptUrlSlug, setAcceptUrlSlug] = useState("");
   const [acceptSlugAck, setAcceptSlugAck] = useState(false);
-  const [funnelStage, setFunnelStage] = useState("awareness");
-  const [funnelProductsMode, setFunnelProductsMode] = useState<"all" | "named">("all");
-  const [funnelProductSlug, setFunnelProductSlug] = useState("");
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectPending, setRejectPending] = useState(false);
   const [rejectKind, setRejectKind] = useState<ProposalRejectKindValue>("bad_idea");
@@ -1604,19 +1602,6 @@ export function ProposalDetailPanel({
   });
   const mutRef = useRef(mut);
   mutRef.current = mut;
-
-  const pLoaded = data?.proposal;
-  useEffect(() => {
-    if (!pLoaded?.idea_funnel) return;
-    setFunnelStage(pLoaded.idea_funnel.stage);
-    if (pLoaded.idea_funnel.products === "all") {
-      setFunnelProductsMode("all");
-      setFunnelProductSlug("");
-    } else {
-      setFunnelProductsMode("named");
-      setFunnelProductSlug(pLoaded.idea_funnel.products[0]?.product ?? "");
-    }
-  }, [pLoaded?.id, pLoaded?.idea_funnel]);
 
   const clearPendingReject = () => {
     if (rejectTimerRef.current) {
@@ -1924,6 +1909,7 @@ export function ProposalDetailPanel({
                 >
                   <ProposalCategoryTags
                     category={p.category}
+                    kind={p.kind}
                     tags={p.tags}
                     testIdPrefix="proposal-detail"
                   />
@@ -2147,89 +2133,10 @@ export function ProposalDetailPanel({
                     }
                     funnel={p.idea_funnel}
                     funnelLocked={p.status === "finished" && p.close_reason === "accepted"}
-                    funnelEditor={
-                      p.status === "open" ? (
-                      <div className="grid gap-2 @xl:grid-cols-3">
-                        <div className="space-y-1">
-                          <Label htmlFor="idea-funnel-stage" className="text-xs">
-                            Stage
-                          </Label>
-                          <select
-                            id="idea-funnel-stage"
-                            className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                            value={funnelStage}
-                            onChange={(e) => {
-                              const next = e.target.value;
-                              setFunnelStage(next);
-                              if (next !== "awareness") setFunnelProductsMode("named");
-                            }}
-                            data-testid="select-idea-funnel-stage"
-                          >
-                            <option value="awareness">awareness</option>
-                            <option value="consideration">consideration</option>
-                            <option value="decision">decision</option>
-                            <option value="post-enrollment">post-enrollment</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label htmlFor="idea-funnel-products-mode" className="text-xs">
-                            Products
-                          </Label>
-                          <select
-                            id="idea-funnel-products-mode"
-                            className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                            value={funnelProductsMode}
-                            onChange={(e) =>
-                              setFunnelProductsMode(e.target.value === "all" ? "all" : "named")
-                            }
-                            disabled={funnelStage !== "awareness"}
-                            data-testid="select-idea-funnel-products-mode"
-                          >
-                            <option value="all">all (awareness only)</option>
-                            <option value="named">named product</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label htmlFor="idea-funnel-product" className="text-xs">
-                            Product slug
-                          </Label>
-                          <Input
-                            id="idea-funnel-product"
-                            value={funnelProductSlug}
-                            onChange={(e) => setFunnelProductSlug(e.target.value)}
-                            placeholder="full-stack"
-                            disabled={funnelProductsMode === "all"}
-                            data-testid="input-idea-funnel-product"
-                          />
-                        </div>
-                        <div className="@xl:col-span-3">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            disabled={
-                              mut.isPending ||
-                              (funnelProductsMode === "named" && !funnelProductSlug.trim())
-                            }
-                            onClick={() => {
-                              const products =
-                                funnelProductsMode === "all"
-                                  ? "all"
-                                  : [{ product: funnelProductSlug.trim() }];
-                              mut.mutate({
-                                action: "set_idea_funnel",
-                                body: {
-                                  idea_funnel: { stage: funnelStage, products },
-                                },
-                              });
-                            }}
-                            data-testid="button-save-idea-funnel"
-                          >
-                            Save funnel
-                          </Button>
-                        </div>
-                      </div>
-                      ) : null
+                    funnelEditable={p.status === "open"}
+                    funnelPending={mut.isPending}
+                    onFunnelSave={(idea_funnel) =>
+                      mut.mutate({ action: "set_idea_funnel", body: { idea_funnel } })
                     }
                   />
                 ) : null}
@@ -2943,8 +2850,35 @@ export function ProposalDetailPanel({
                         ·
                       </span>
                       <span>{formatProposalRelativeUpdatedAt(b.created_at)}</span>
+                      {!b.staff_summary?.trim() ? (
+                        <>
+                          <span aria-hidden className="text-muted-foreground/40">
+                            ·
+                          </span>
+                          <span data-testid={`text-blocker-agent-only-${b.id}`}>Written for agents</span>
+                        </>
+                      ) : null}
                     </div>
-                    <ProposalMarkdown text={b.body} />
+                    {b.staff_summary?.trim() ? (
+                      <>
+                        <ProposalMarkdown text={b.staff_summary} />
+                        {b.body.trim() !== b.staff_summary.trim() ? (
+                          <Collapsible>
+                            <CollapsibleTrigger
+                              className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                              data-testid={`button-blocker-technical-${b.id}`}
+                            >
+                              Technical details (for the agent)
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="mt-2 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                              <ProposalMarkdown text={b.body} />
+                            </CollapsibleContent>
+                          </Collapsible>
+                        ) : null}
+                      </>
+                    ) : (
+                      <ProposalMarkdown text={b.body} />
+                    )}
                     {b.resolved_by ? (
                       <p className="text-xs text-muted-foreground">
                         Resolved by {formatIssueActorLine(b.resolved_by, asIssueActor(b.resolved_by_actor))}
@@ -3002,9 +2936,8 @@ export function ProposalDetailPanel({
                   className="space-y-2 border-t border-card-border pt-3"
                 >
                   <p className="text-xs text-muted-foreground">
-                    Add needs-change note: a one-line verdict, then a numbered list with one item per
-                    problem — what’s wrong, what fixed looks like, and why (min 80 characters).
-                    Markdown works. No tool lists.
+                    Say what’s wrong and what needs to change before this can be approved. Write it so a
+                    teammate who hasn’t seen the code understands it (min 80 characters).
                   </p>
                   <Textarea
                     ref={addBlockerInputRef}

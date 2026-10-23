@@ -1,15 +1,28 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { IconChevronDown, IconPackage, IconUser } from "@tabler/icons-react";
-import { AlertTriangle, Filter, Hash } from "lucide-react";
-import { PersonaReminderPopover } from "@/components/DebugBubble/components/FunnelTab";
+import { AlertTriangle, Check, ChevronDown, Filter, Hash } from "lucide-react";
+import {
+  FunnelProductsPicker,
+  PersonaReminderPopover,
+  type FunnelBinding,
+  type ProductOption,
+} from "@/components/DebugBubble/components/FunnelTab";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import { badgeVariants } from "@/components/ui/badge";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { ToggleButtonBarList, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 import {
+  FUNNEL_STAGE_DESCRIPTION,
   FUNNEL_STAGE_ICON,
   FUNNEL_STAGE_ICON_TONE,
   FUNNEL_STAGE_LABEL,
@@ -196,18 +209,120 @@ function AudienceCards({ bindings }: { bindings: Array<{ product: string; person
   );
 }
 
+type FunnelDraft = { stage: string; mode: "all" | "list"; bindings: FunnelBinding[] };
+
+function draftFromFunnel(funnel: IdeaFunnel | null | undefined): FunnelDraft {
+  if (!funnel) return { stage: "", mode: "list", bindings: [] };
+  return funnel.products === "all"
+    ? { stage: funnel.stage, mode: "all", bindings: [] }
+    : { stage: funnel.stage, mode: "list", bindings: funnel.products };
+}
+
+function sameProducts(a: IdeaFunnel["products"], b: IdeaFunnel["products"]): boolean {
+  if (a === "all" || b === "all") return a === b;
+  const key = (x: FunnelBinding) => `${x.product}\0${x.persona ?? ""}`;
+  return JSON.stringify(a.map(key).sort()) === JSON.stringify(b.map(key).sort());
+}
+
+function StageBadge({ stage, editable }: { stage: FunnelStage; editable?: boolean }) {
+  const StageIcon = FUNNEL_STAGE_ICON[stage];
+  const taper = FUNNEL_STAGE_TAPER[stage];
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm font-medium",
+        FUNNEL_STAGE_TONE[taper],
+      )}
+    >
+      <StageIcon className={cn("h-4 w-4 shrink-0", FUNNEL_STAGE_ICON_TONE[taper])} />
+      {FUNNEL_STAGE_LABEL[stage]}
+      {editable ? <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden /> : null}
+    </span>
+  );
+}
+
+function StageDropdown({ stage, onChange }: { stage: string; onChange: (stage: FunnelStage) => void }) {
+  const current = isFunnelStage(stage) ? stage : null;
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex rounded-md hover-elevate"
+          aria-label="Change funnel stage"
+          data-testid="button-idea-funnel-stage"
+        >
+          {current ? (
+            <StageBadge stage={current} editable />
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-dashed px-2 py-1 text-sm text-status-away">
+              Pick a stage
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
+            </span>
+          )}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-72" data-testid="menu-idea-funnel-stage">
+        {FUNNEL_STAGES.map((s) => {
+          const StageIcon = FUNNEL_STAGE_ICON[s];
+          const taper = FUNNEL_STAGE_TAPER[s];
+          return (
+            <DropdownMenuItem
+              key={s}
+              className="items-start gap-2"
+              onSelect={() => onChange(s)}
+              data-testid={`option-idea-funnel-stage-${s}`}
+            >
+              <StageIcon className={cn("mt-0.5 h-4 w-4 shrink-0", FUNNEL_STAGE_ICON_TONE[taper])} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">{FUNNEL_STAGE_LABEL[s]}</p>
+                <p className="text-[11px] leading-snug text-muted-foreground">{FUNNEL_STAGE_DESCRIPTION[s]}</p>
+              </div>
+              {s === current ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function FunnelSummary({
   funnel,
   locked,
-  editor,
+  editable,
+  pending,
+  onSave,
 }: {
   funnel: IdeaFunnel | null | undefined;
   locked: boolean;
-  editor?: ReactNode;
+  editable: boolean;
+  pending: boolean;
+  onSave?: (funnel: IdeaFunnel) => void;
 }) {
   const stage = funnel && isFunnelStage(funnel.stage) ? funnel.stage : null;
-  const StageIcon = stage ? FUNNEL_STAGE_ICON[stage] : null;
-  const taper = stage ? FUNNEL_STAGE_TAPER[stage] : null;
+  const [draft, setDraft] = useState<FunnelDraft>(() => draftFromFunnel(funnel));
+
+  useEffect(() => {
+    setDraft(draftFromFunnel(funnel));
+  }, [funnel]);
+
+  const { data: productMap } = useQuery<{ products: ProductOption[] }>({
+    queryKey: ["/api/ecommerce/product-map"],
+    enabled: editable,
+    staleTime: 5 * 60 * 1000,
+  });
+  const productOptions = (productMap?.products ?? []).filter((p) => p.actively_selling !== false);
+
+  const draftProducts: IdeaFunnel["products"] = draft.mode === "all" ? "all" : draft.bindings;
+  const dirty = !funnel || funnel.stage !== draft.stage || !sameProducts(funnel.products, draftProducts);
+  const touched = funnel ? dirty : draft.stage !== "" || draft.bindings.length > 0 || draft.mode !== "list";
+  const valid =
+    isFunnelStage(draft.stage) &&
+    (draft.mode === "all" ? draft.stage === "awareness" : draft.bindings.length > 0);
+
+  const setStage = (next: FunnelStage) =>
+    setDraft((d) => ({ ...d, stage: next, mode: next !== "awareness" && d.mode === "all" ? "list" : d.mode }));
 
   return (
     <div className="space-y-3" data-testid="proposal-idea-funnel">
@@ -219,16 +334,13 @@ function FunnelSummary({
       <dl className="grid gap-x-6 gap-y-3 @xl:grid-cols-3">
         <div className="min-w-0 space-y-1" data-testid="meta-idea-funnel-stage">
           <dt className={FIELD_LABEL}>Stage</dt>
-          {stage && StageIcon && taper ? (
-            <dd
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm font-medium",
-                FUNNEL_STAGE_TONE[taper],
-              )}
-              data-testid="text-idea-funnel-stage"
-            >
-              <StageIcon className={cn("h-4 w-4 shrink-0", FUNNEL_STAGE_ICON_TONE[taper])} />
-              {FUNNEL_STAGE_LABEL[stage]}
+          {editable ? (
+            <dd data-testid="text-idea-funnel-stage">
+              <StageDropdown stage={draft.stage} onChange={setStage} />
+            </dd>
+          ) : stage ? (
+            <dd className="inline-flex" data-testid="text-idea-funnel-stage">
+              <StageBadge stage={stage} />
             </dd>
           ) : funnel ? (
             <dd className="text-sm text-foreground" data-testid="text-idea-funnel-stage">
@@ -242,7 +354,33 @@ function FunnelSummary({
         </div>
         <div className="min-w-0 space-y-1 @xl:col-span-2" data-testid="meta-idea-funnel-audience">
           <dt className={FIELD_LABEL}>Audience</dt>
-          {!funnel ? (
+          {editable ? (
+            <dd className="space-y-1.5">
+              <FunnelProductsPicker
+                productsMode={draft.mode}
+                onProductsModeChange={(mode) =>
+                  setDraft((d) => ({ ...d, mode: mode === "all" ? "all" : "list" }))
+                }
+                modes={[
+                  {
+                    value: "all",
+                    label: "All",
+                    disabled: draft.stage !== "awareness",
+                    title: draft.stage !== "awareness" ? "Only for Awareness pages" : undefined,
+                  },
+                  { value: "list", label: "Specific" },
+                ]}
+                selectedBindings={draft.bindings}
+                onSelectedBindingsChange={(bindings) => setDraft((d) => ({ ...d, bindings }))}
+                productOptions={productOptions}
+              />
+              <p className="text-xs text-muted-foreground">
+                {draft.mode === "all"
+                  ? "Everyone, across all products. Only allowed for Awareness pages."
+                  : "Pick the product and persona this page speaks to."}
+              </p>
+            </dd>
+          ) : !funnel ? (
             <dd className="text-sm text-muted-foreground">Not set</dd>
           ) : funnel.products === "all" ? (
             <dd className="text-sm text-foreground">Everyone · all products</dd>
@@ -258,7 +396,47 @@ function FunnelSummary({
           New pages need a stage and products. Accept won&apos;t reserve a new page without them.
         </p>
       ) : null}
-      {editor ? <div className="border-t border-card-border pt-3">{editor}</div> : null}
+      {editable && touched ? (
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={!dirty || !valid || pending}
+            onClick={() => {
+              if (!isFunnelStage(draft.stage)) return;
+              onSave?.({ stage: draft.stage, products: draftProducts });
+            }}
+            data-testid="button-save-idea-funnel"
+          >
+            Save funnel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={pending}
+            onClick={() => setDraft(draftFromFunnel(funnel))}
+            data-testid="button-cancel-idea-funnel"
+          >
+            Cancel
+          </Button>
+          {dirty ? (
+            <p
+              className="inline-flex items-center gap-1 text-xs text-status-away"
+              role="status"
+              data-testid="text-idea-funnel-unsaved"
+            >
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              {valid
+                ? "Unsaved changes. Save the funnel to keep them."
+                : !isFunnelStage(draft.stage)
+                  ? "Unsaved changes. Pick a stage to save."
+                  : "Unsaved changes. Add at least one product to save."}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -277,7 +455,9 @@ export function IdeaTargetEntryCard({
   keywordsMissing,
   funnel,
   funnelLocked,
-  funnelEditor,
+  funnelEditable = false,
+  funnelPending = false,
+  onFunnelSave,
 }: {
   strategies: IdeaContentTypeStrategyPayload[];
   acceptedEntry: TargetEntry | null;
@@ -289,7 +469,10 @@ export function IdeaTargetEntryCard({
   keywordsMissing: boolean;
   funnel: IdeaFunnel | null | undefined;
   funnelLocked: boolean;
-  funnelEditor?: ReactNode;
+  /** Open ideas: stage dropdown + product picker inline. */
+  funnelEditable?: boolean;
+  funnelPending?: boolean;
+  onFunnelSave?: (funnel: IdeaFunnel) => void;
 }) {
   const funnelMissing = !funnel && !funnelLocked;
   const [tab, setTab] = useState<"keywords" | "funnel">(
@@ -400,7 +583,13 @@ export function IdeaTargetEntryCard({
           {keywordsPanel}
         </TabsContent>
         <TabsContent value="funnel" className="mt-0 pt-3">
-          <FunnelSummary funnel={funnel} locked={funnelLocked} editor={funnelEditor} />
+          <FunnelSummary
+            funnel={funnel}
+            locked={funnelLocked}
+            editable={funnelEditable}
+            pending={funnelPending}
+            onSave={onFunnelSave}
+          />
         </TabsContent>
       </Tabs>
     </div>

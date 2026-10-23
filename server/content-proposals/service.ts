@@ -36,6 +36,7 @@ import {
   type SectionIssue,
 } from "./attached-entry-gate";
 import { validateSectionsForProposal } from "./section-proposal-check";
+import { checkStaffSummary } from "./blocker-staff-summary";
 import { TEXT_LIMITS_EXCEEDED_CODE } from "@shared/component-text-limits";
 import { summarizeSectionsChange, type SectionsSummary } from "./sections-summary";
 import { scanTemplatePlaceholdersOnSite, type TemplatePlaceholderGap } from "./template-placeholder-scan";
@@ -409,6 +410,8 @@ export type ProposalBlocker = {
   proposal_id: string;
   kind: "blocker";
   body: string;
+  /** Plain-English version for staff; null on blockers filed before it existed. */
+  staff_summary: string | null;
   status: BlockerStatus;
   author: string;
   created_at: number;
@@ -850,6 +853,7 @@ type BlockerDbRow = {
   proposal_id: string;
   kind: string;
   body: string;
+  staff_summary?: string | null;
   status: BlockerStatus;
   author: string;
   created_at: number;
@@ -946,6 +950,8 @@ export type ProposalUpdateCaller = {
   /** Provenance for claim (and any future actor-storing actions). */
   actor?: EventActor;
   body?: string;
+  /** add_blocker: plain-English version for staff. Required from MCP; staff UI notes reuse `body`. */
+  staff_summary?: string;
   blocker_id?: number;
   resolve_note?: string;
   variant?: string;
@@ -1067,6 +1073,7 @@ function mapBlocker(row: BlockerDbRow): ProposalBlocker {
     proposal_id: row.proposal_id,
     kind: "blocker",
     body: row.body,
+    staff_summary: row.staff_summary ?? null,
     status: row.status,
     author: row.author,
     created_at: row.created_at,
@@ -3221,14 +3228,16 @@ export function createProposalService(deps: ProposalServiceDeps) {
     for (const d of waiting) {
       db.prepare(
         `INSERT INTO content_proposal_blockers (
-          proposal_id, kind, body, status, author, created_at, agent_session_id, author_actor_json
-        ) VALUES (?,?,?,?,?,?,?,?)`,
+          proposal_id, kind, body, staff_summary, status, author, created_at, agent_session_id, author_actor_json
+        ) VALUES (?,?,?,?,?,?,?,?,?)`,
       ).run(
         d.id,
         "blocker",
         `predecessor_closed: the proposal this waits on ("${pred.title}", ${pred.id}) was ${pred.status}, so it will never be applied. ` +
           "Fixed looks like: unlink it (set_applies_after with an empty id, or link a replacement) or close this proposal. " +
           "Why: this proposal can only be applied after that one.",
+        `The proposal this one waits on ("${pred.title}") was ${pred.status === "rejected" ? "rejected" : "withdrawn"}, ` +
+          "so this one can't go live as planned. Unlink it or close this proposal.",
         "open",
         "system:applies-after",
         now,
@@ -7682,14 +7691,38 @@ export function createProposalService(deps: ProposalServiceDeps) {
           error: `blocker body required (min ${MIN_BLOCKER_BODY} characters): what's wrong, what fixed looks like, and why`,
         };
       }
+      const fromAgent = caller.actor?.type === "mcp" || caller.caller_is_mcp === true;
+      let staffSummary = (caller.staff_summary || "").trim();
+      if (fromAgent) {
+        if (!staffSummary) {
+          return {
+            ok: false,
+            code: "blocker_staff_summary_required",
+            error:
+              "staff_summary required: a plain-English version of this blocker for staff (what visitors or Google would see change, what must happen before approving, who does it). body stays the technical version for the author.",
+          };
+        }
+        const check = checkStaffSummary(staffSummary);
+        if (!check.ok) {
+          return {
+            ok: false,
+            code: "blocker_staff_summary_not_plain",
+            error: `staff_summary reads like code. Rewrite it for a staff member who has not read the code: ${check.problems.join("; ")}. Keep the technical detail in body.`,
+            details: { problems: check.problems },
+          };
+        }
+      } else if (!staffSummary) {
+        staffSummary = body;
+      }
       db.prepare(
         `INSERT INTO content_proposal_blockers (
-          proposal_id, kind, body, status, author, created_at, agent_session_id, author_actor_json
-        ) VALUES (?,?,?,?,?,?,?,?)`,
+          proposal_id, kind, body, staff_summary, status, author, created_at, agent_session_id, author_actor_json
+        ) VALUES (?,?,?,?,?,?,?,?,?)`,
       ).run(
         id,
         "blocker",
         body,
+        staffSummary,
         "open",
         caller.username,
         now,
@@ -9061,9 +9094,9 @@ export function replaceProposalsFromSnapshot(site: string, proposals: ProposalRe
   );
   const insertBlocker = db.prepare(
     `INSERT INTO content_proposal_blockers (
-      id, proposal_id, kind, body, status, author, created_at, resolved_at, resolved_by,
+      id, proposal_id, kind, body, staff_summary, status, author, created_at, resolved_at, resolved_by,
       resolve_note, agent_session_id, author_actor_json, resolved_by_actor_json
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
 
   const run = db.transaction((rows: ProposalRecord[]) => {
@@ -9169,6 +9202,7 @@ export function replaceProposalsFromSnapshot(site: string, proposals: ProposalRe
           p.id,
           b.kind || "blocker",
           b.body,
+          b.staff_summary ?? null,
           b.status,
           b.author,
           b.created_at,

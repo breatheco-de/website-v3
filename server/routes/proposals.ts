@@ -655,6 +655,7 @@ export function registerProposalRoutes(app: Express): void {
             ? req.headers["x-agent-session-id"]
             : undefined,
       body: typeof req.body?.body === "string" ? req.body.body : undefined,
+      staff_summary: typeof req.body?.staff_summary === "string" ? req.body.staff_summary : undefined,
       blocker_id:
         typeof req.body?.blocker_id === "number"
           ? req.body.blocker_id

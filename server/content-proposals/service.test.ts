@@ -22,6 +22,9 @@ import {
 
 const SITE = `site_proposal-test-${Date.now()}`;
 
+const STAFF_SUMMARY =
+  "The button at the top of the Spanish post still names the old bootcamp, so readers land on the wrong program. The author needs to rename it before this is approved.";
+
 function rmSite(): void {
   const dir = path.join("data", SITE.replace(/\//g, "-"));
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
@@ -1471,6 +1474,7 @@ describe("content proposals", () => {
         "Needs clearer acceptance criteria for which locales ship first and why ES is out of scope. ".repeat(
           2,
         ),
+      staff_summary: STAFF_SUMMARY,
     });
     expect(blocked.ok).toBe(true);
 
@@ -2500,6 +2504,7 @@ describe("content proposals", () => {
       username: "blake",
       actor: author,
       body,
+      staff_summary: STAFF_SUMMARY,
     });
     expect(added.ok).toBe(true);
     if (!added.ok) return;
@@ -2551,6 +2556,66 @@ describe("content proposals", () => {
     expect(uiBlocker?.author_actor).toEqual({ type: "ui" });
   });
 
+  it("requires a plain-English staff_summary from agents and reuses the body for staff notes", async () => {
+    const svc = makeService();
+    const created = await svc.create(
+      {
+        title: "Staff summary blocker",
+        summary: "Patch the CTA title on the Spanish blog so the product name is explicit. ".repeat(2),
+        entries: [sampleEntry()],
+      },
+      { username: "alice" },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const id = created.proposal.id;
+    const agent = { type: "mcp" as const, role: "proposal_reviewer" };
+    const body =
+      "CTA op on `sections[0].data.cta.title` still names the old bootcamp; display_values_change fires on apply, so leads misroute.";
+
+    const missing = await svc.update(id, "add_blocker", { username: "blake", actor: agent, body });
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.code).toBe("blocker_staff_summary_required");
+
+    const codey = await svc.update(id, "add_blocker", {
+      username: "blake",
+      actor: agent,
+      body,
+      staff_summary: "The op on cta.title still names the old bootcamp, see display_values_change.",
+    });
+    expect(codey.ok).toBe(false);
+    if (!codey.ok) {
+      expect(codey.code).toBe("blocker_staff_summary_not_plain");
+      const problems = (codey.details as { problems: string[] }).problems.join(" ");
+      expect(problems).toContain('"cta.title"');
+      expect(problems).toContain('"display_values_change"');
+      expect(problems).toContain('"op"');
+    }
+
+    const ok = await svc.update(id, "add_blocker", {
+      username: "blake",
+      actor: agent,
+      body,
+      staff_summary: STAFF_SUMMARY,
+    });
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    expect(ok.proposal.blockers[0]!.body).toBe(body);
+    expect(ok.proposal.blockers[0]!.staff_summary).toBe(STAFF_SUMMARY);
+
+    const staffNote =
+      "The button at the top still sends people to the old bootcamp page. Point it at AI Flex before approving.";
+    const staff = await svc.update(id, "add_blocker", {
+      username: "casey",
+      actor: { type: "ui" },
+      body: staffNote,
+    });
+    expect(staff.ok).toBe(true);
+    if (!staff.ok) return;
+    const uiBlocker = staff.proposal.blockers.find((b) => b.author === "casey");
+    expect(uiBlocker?.staff_summary).toBe(staffNote);
+  });
+
   it("stamps reviewer_action_by on non-author add/resolve/reopen and never for the author", async () => {
     const svc = makeService();
     const summary =
@@ -2567,7 +2632,12 @@ describe("content proposals", () => {
     if (!created.ok) return;
     const id = created.proposal.id;
 
-    const selfAdd = await svc.update(id, "add_blocker", { username: "alice", actor: authorActor, body });
+    const selfAdd = await svc.update(id, "add_blocker", {
+      username: "alice",
+      actor: authorActor,
+      body,
+      staff_summary: STAFF_SUMMARY,
+    });
     expect(selfAdd.ok).toBe(true);
     if (!selfAdd.ok) return;
     expect(selfAdd.proposal.reviewer_action_at).toBeNull();

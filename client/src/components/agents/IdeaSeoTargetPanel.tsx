@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -107,22 +108,32 @@ export function IdeaSeoTargetPanel(props: {
   const [volumeRaw, setVolumeRaw] = useState("");
   const [difficultyRaw, setDifficultyRaw] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [editing, setEditing] = useState(false);
+
+  const resetForm = () => {
+    setKeyword(target?.main_keyword ?? "");
+    setVolumeRaw(target?.kw_monthly_volume != null ? String(target.kw_monthly_volume) : "");
+    setDifficultyRaw(target?.kw_difficulty != null ? String(target.kw_difficulty) : "");
+    setMode(target?.cluster.mode ?? "join");
+    setPillarPath(target?.cluster.mode === "join" ? target.cluster.pillar_path : "");
+    setMembersRaw(
+      target?.cluster.mode === "hub"
+        ? target.cluster.members.map((m) => `${m.contentType}/${m.slug}`).join("\n")
+        : "",
+    );
+    setReason(target?.cluster.mode === "standalone" ? target.cluster.reason : "");
+  };
 
   useEffect(() => {
-    if (!target) return;
-    setKeyword(target.main_keyword);
-    setVolumeRaw(target.kw_monthly_volume != null ? String(target.kw_monthly_volume) : "");
-    setDifficultyRaw(target.kw_difficulty != null ? String(target.kw_difficulty) : "");
-    setMode(target.cluster.mode);
-    if (target.cluster.mode === "join") setPillarPath(target.cluster.pillar_path);
-    if (target.cluster.mode === "hub")
-      setMembersRaw(target.cluster.members.map((m) => `${m.contentType}/${m.slug}`).join("\n"));
-    if (target.cluster.mode === "standalone") setReason(target.cluster.reason);
+    resetForm();
+    setEditing(false);
   }, [target]);
+
+  const showForm = editable && editing;
 
   const { data: overview } = useQuery<SeoOverviewClusters>({
     queryKey: ["/api/seo/overview"],
-    enabled: editable,
+    enabled: showForm,
   });
   const hubs = useMemo(() => {
     const all = overview?.clusters ?? [];
@@ -164,12 +175,28 @@ export function IdeaSeoTargetPanel(props: {
       className={embedded ? "space-y-2" : "space-y-2 rounded-md border border-card-border bg-muted/20 px-3 py-2.5"}
       data-testid="proposal-idea-seo-target"
     >
-      <p className="text-xs text-muted-foreground">
-        {locked
-          ? "Locked at accept (read-only). The keyword and cluster were copied into the new page's draft."
-          : "The search this new page should win and the cluster (topic hub) it joins. Locked when the idea is accepted; the keyword and cluster are copied into the new page."}
-      </p>
-      {target ? (
+      <div className="flex items-start gap-2">
+        <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+          {locked
+            ? "Locked at accept (read-only). The keyword and cluster were copied into the new page's draft."
+            : "The search this new page should win and the cluster (topic hub) it joins. Locked when the idea is accepted; the keyword and cluster are copied into the new page."}
+        </p>
+        {editable && !editing && target ? (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 shrink-0 text-muted-foreground"
+            onClick={() => setEditing(true)}
+            aria-label="Edit SEO target"
+            title="Edit SEO target"
+            data-testid="button-edit-idea-seo-target"
+          >
+            <Pencil className="h-3.5 w-3.5" aria-hidden />
+          </Button>
+        ) : null}
+      </div>
+      {showForm ? null : target ? (
         <div className="space-y-1">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 @xl:grid-cols-4">
             <TargetStat
@@ -198,12 +225,26 @@ export function IdeaSeoTargetPanel(props: {
           ) : null}
         </div>
       ) : (
-        <p className="text-xs text-status-away" data-testid="text-idea-seo-target-missing">
-          No SEO target yet. New pages on SEO-tracked types cannot be accepted without one.
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-status-away" data-testid="text-idea-seo-target-missing">
+            No SEO target yet. New pages on SEO-tracked types cannot be accepted without one.
+          </p>
+          {editable ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => setEditing(true)}
+              data-testid="button-add-idea-seo-target"
+            >
+              <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+              Add SEO target
+            </Button>
+          ) : null}
+        </div>
       )}
 
-      {editable ? (
+      {showForm ? (
         <div className="grid gap-2 @xl:grid-cols-3">
           <div className="space-y-1 @xl:col-span-3">
             <Label htmlFor="idea-seo-keyword" className="text-xs">
@@ -328,7 +369,7 @@ export function IdeaSeoTargetPanel(props: {
               </>
             )}
           </div>
-          <div className="@xl:col-span-3">
+          <div className="flex gap-2 @xl:col-span-3">
             <Button
               type="button"
               size="sm"
@@ -338,6 +379,19 @@ export function IdeaSeoTargetPanel(props: {
               data-testid="button-save-idea-seo-target"
             >
               Save SEO target
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              onClick={() => {
+                resetForm();
+                setEditing(false);
+              }}
+              data-testid="button-cancel-idea-seo-target"
+            >
+              Cancel
             </Button>
           </div>
         </div>

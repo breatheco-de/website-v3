@@ -103,7 +103,7 @@ If live classify reports `target_missing` (page deleted after a normal edits fil
 
 | Lane | Use | Blocks apply? |
 |---|---|---|
-| **`add_blocker`** | Proposed field is wrong, invents a claim, or summary **why/scope** is false (e.g. “content refresh” with meta-only ops) | Yes |
+| **`add_blocker`** | Proposed field is wrong, invents a claim, or summary **why/scope** is false (e.g. “content refresh” with meta-only ops). Send technical `body` + plain-English `staff_summary` (staff read it first; code-style terms rejected) | Yes |
 | **`adjacent_findings` → notes** | Live page is broken in ways the ops do not touch (same entry), or you noticed defects on another entry | No |
 | **`reject`** | The change itself must not ship | Closes the proposal |
 

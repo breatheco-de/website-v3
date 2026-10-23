@@ -21,6 +21,7 @@ import {
   buildProposalDiscoveryPath,
   resolveStrategyForContentType,
 } from "../lib/proposal-discovery-path.js";
+import { BLOCKER_STAFF_SUMMARY_HINT } from "../../server/content-proposals/blocker-staff-summary.js";
 
 function stripDecisionDebugFromProposal(proposal: unknown): unknown {
   if (!proposal || typeof proposal !== "object") return proposal;
@@ -843,6 +844,7 @@ async function requireUpdateCap(mcpToken: string | undefined, grants: CatalogGra
 }
 
 const BLOCKER_BODY_HINT =
+  "Technical version for the agent that fixes the draft (staff read staff_summary first). " +
   "Markdown, min 80 chars. Start with a one-sentence verdict, then a blank line, then a numbered list " +
   "with one item per problem: what's wrong, what fixed looks like, why it matters. " +
   "Wrap field paths, slugs and URLs in `backticks`. No headings or tables. " +
@@ -2059,7 +2061,7 @@ export function registerProposalTools(
       "apply of a hub-mode idea's first go-live returns warning idea_seo_hub_members_follow_up + one propose_change next_action per member (chain each with applies_after_proposal_id; moved members also update their in-body hub link). " +
       "apply that finishes a join-mode idea's page with no chained hub-link proposal returns hub_link_follow_up (or hub_has_open_edits when the hub already has open edits). " +
       "apply that frees an idea's page returns idea_page_released_waiting_ideas + one list_proposals next_action per open idea waiting on it (nothing auto-accepted). " +
-      "close notes/ideas: close_reason + close_note. Withdraw: close_note min 20. Open blockers block apply/accept only (revise does not clear them). Four-eyes = username+role. " +
+      "close notes/ideas: close_reason + close_note. Withdraw: close_note min 20. Open blockers block apply/accept only (revise does not clear them). add_blocker: technical body + plain-English staff_summary (required). Four-eyes = username+role. " +
       "Multi-situation: review each pack independently; drop failing ops via revise_entries then apply (atomic). " +
       "Before apply, list_proposals(proposal_id) for live review_context.",
     {
@@ -2089,6 +2091,10 @@ export function registerProposalTools(
       report: z.string().optional(),
       agent_session_id: z.string().describe("Required. From agent_session start."),
       body: z.string().optional().describe(`For add_blocker: ${BLOCKER_BODY_HINT}`),
+      staff_summary: z
+        .string()
+        .optional()
+        .describe(`Required for add_blocker (blocker_staff_summary_required otherwise). ${BLOCKER_STAFF_SUMMARY_HINT}`),
       blocker_id: z.number().optional().describe("For resolve_blocker / reopen_blocker"),
       resolve_note: z.string().optional().describe("For resolve_blocker: what changed (min 20 chars)"),
       variant: z.string().optional().describe("For attach_variant"),
@@ -2284,6 +2290,7 @@ export function registerProposalTools(
             report: args.report,
             agent_session_id: args.agent_session_id,
             body: args.body,
+            staff_summary: args.staff_summary,
             blocker_id: args.blocker_id,
             resolve_note: args.resolve_note,
             variant: args.variant,
@@ -2329,6 +2336,29 @@ export function registerProposalTools(
               site: args.site,
             });
             if (urlSlug) return urlSlug;
+          }
+          if (data.code === "blocker_staff_summary_required" || data.code === "blocker_staff_summary_not_plain") {
+            return fail(String(data.error ?? data.code), {
+              code: String(data.code),
+              details: data.details,
+              warnings: [
+                { code: "nothing_saved", message: "No blocker was added; the proposal is unchanged." },
+              ],
+              next_actions: [
+                {
+                  tool: "update_proposal",
+                  reason:
+                    "Retry add_blocker with the same technical body and a staff_summary rewritten in plain English (fix every item in details.problems).",
+                  priority: "required",
+                  args_hint: {
+                    proposal_id: args.proposal_id,
+                    action: "add_blocker",
+                    body: "(unchanged)",
+                    staff_summary: "(plain English for staff)",
+                  },
+                },
+              ],
+            });
           }
           if (data.code === "predecessor_not_applied") {
             const details = (data.details ?? {}) as { applies_after_proposal_id?: string; predecessor_status?: string | null };
@@ -2445,6 +2475,8 @@ export function registerProposalTools(
                     proposal_id: args.proposal_id,
                     action: "add_blocker",
                     body: "(Markdown: one-line verdict, blank line, numbered list — one item per problem: wrong / fix / why; min 80)",
+                    staff_summary:
+                      "(Plain English for staff, 1-4 sentences: what visitors/Google would see change, what must happen before approving, who does it; no field/file names or codes)",
                     site: args.site,
                   },
                 },

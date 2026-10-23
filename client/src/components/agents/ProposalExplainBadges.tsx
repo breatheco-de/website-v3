@@ -2,6 +2,7 @@ import { useState, type ComponentType, type MouseEvent, type ReactNode } from "r
 import { IconBulb, IconNote, IconPencil } from "@tabler/icons-react";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { proposalCategoryLabel } from "@/lib/proposalCardMeta";
 import { cn } from "@/lib/utils";
 
 function stopCardNav(e: MouseEvent) {
@@ -177,6 +178,112 @@ function proposalKindExplain(kind: string): {
       </>
     ),
   };
+}
+
+export function proposalCategoryExplain(category: string): {
+  label: string;
+  title: string;
+  body: string;
+  advanced: string[];
+} {
+  const label = proposalCategoryLabel(category);
+  if (category === "content.seo") {
+    return {
+      label,
+      title: "Changes how the page shows up in search",
+      body: "This proposal edits search details like the page title and description shown in Google and link previews, not the visible page content. The category is a label; it does not change what Approve does.",
+      advanced: [
+        "Stored as category content.seo.",
+        "Set automatically when any suggested update touches a meta.* or seo.* field, unless the proposer chose a category.",
+        "Reviewed as a metadata change (risk class existing_metadata). Mixing risk classes in one proposal is rejected on create.",
+      ],
+    };
+  }
+  if (category === "content.field") {
+    return {
+      label,
+      title: "Changes the page content",
+      body: "This proposal edits what visitors see on the page, such as headings, copy or section settings. It does not touch the search title or description. The category is a label; it does not change what Approve does.",
+      advanced: [
+        "Stored as category content.field.",
+        "Default when no suggested update touches a meta.* or seo.* field, unless the proposer chose a category.",
+        "Reviewed as a content change (risk class existing_content). Mixing risk classes in one proposal is rejected on create.",
+      ],
+    };
+  }
+  return {
+    label,
+    title: label || "Unknown category",
+    body: "This category is not one of the usual proposal categories. It is a label only; it does not change what Approve does.",
+    advanced: [],
+  };
+}
+
+export function ProposalCategoryBadge({
+  category,
+  stopLinkNavigation = false,
+  testIdSuffix = "",
+  badgeTestId,
+}: {
+  category: string;
+  stopLinkNavigation?: boolean;
+  testIdSuffix?: string;
+  badgeTestId?: string;
+}) {
+  const [advanced, setAdvanced] = useState(false);
+  const explain = proposalCategoryExplain(category);
+  const onTriggerClick = stopLinkNavigation ? stopCardNav : undefined;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex shrink-0"
+          data-testid={`badge-proposal-category${testIdSuffix}`}
+          aria-label={`Category: ${explain.label} — what this means`}
+          onClick={onTriggerClick}
+        >
+          <Badge
+            variant="outline"
+            className="cursor-pointer gap-1 font-normal hover-elevate"
+            data-testid={badgeTestId}
+          >
+            <span className="text-muted-foreground">Category:</span>
+            {explain.label}
+          </Badge>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-80 space-y-3 text-sm"
+        align="start"
+        data-testid={`popover-proposal-category${testIdSuffix}`}
+        onClick={onTriggerClick}
+      >
+        <p className="font-medium text-foreground">{explain.title}</p>
+        <p className="text-muted-foreground leading-5">{explain.body}</p>
+        {explain.advanced.length > 0 ? (
+          <>
+            <button
+              type="button"
+              className="text-xs text-primary hover:underline"
+              data-testid={`button-proposal-category-advanced${testIdSuffix}`}
+              onClick={() => setAdvanced((v) => !v)}
+            >
+              {advanced ? "Hide advanced" : "Read more (advanced)"}
+            </button>
+            {advanced ? (
+              <div className="space-y-1 border-t pt-2 text-xs text-muted-foreground leading-5">
+                {explain.advanced.map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export function proposalProgressExplain(progress: {

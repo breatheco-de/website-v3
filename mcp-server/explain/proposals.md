@@ -142,6 +142,7 @@ New edits proposals carry `system_version: "1.0"`. Legacy rows (`system_version`
 
 - **One open proposal per variant** → `proposal_exists`.
 - **Claim** = working it (human+role; staff UI may take over). **add_blocker** = feedback for polish.
+- **add_blocker needs two texts:** `body` = technical version for the author (field paths, codes, files in backticks); `staff_summary` = 1–4 plain sentences staff read first (what visitors/Google would see change, what must happen before approving, who does it). `staff_summary` with field/file names, snake/camel/dotted names, backticks, or words like op/schema/slug/locale → `blocker_staff_summary_not_plain` + `details.problems`; missing → `blocker_staff_summary_required`. Nothing saved on either. Example — body: "`authors` + `published_at` only in `en.yml`; apply warns `display_values_change`…"; staff_summary: "Approving this would remove the author name and publish date from the live English post. Copy them into the settings both languages share first."
 - **Reject** = rare terminal: bad / not implementable / illegal-or-policy / harmful / duplicate weaker / target missing. Requires `confirm_reject`, `reject_kind`, and `close_note` (min 80). Do **not** reject for polish.
 - **revise_entries** (authors): replace pending/failed entries (1.0: rewrites the draft); idle or self-claim only; foreign claim blocks; open blockers stay open until `resolve_blocker`. Clears `stale_since`.
 - **Open blockers block apply and idea accept** — reject/withdraw/close still work.

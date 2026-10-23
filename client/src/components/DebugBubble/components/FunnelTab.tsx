@@ -12,7 +12,7 @@ import {
   IconSpeakerphone,
   IconTarget,
 } from "@tabler/icons-react";
-import { AlertTriangle, Check, ChevronDown, ExternalLink, Info, Pencil, Plus } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ExternalLink, Info, Pencil, Plus, Trash2 } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -45,7 +45,7 @@ import type { SeoModalSavedDetail } from "@/components/editing/seoModalSaved";
 import { notifySeoModalSaved } from "@/components/editing/seoModalSaved";
 import type { ContentInfo } from "../types";
 
-type ProductOption = {
+export type ProductOption = {
   content_slug: string;
   name: string;
   actively_selling?: boolean;
@@ -207,7 +207,7 @@ export function PersonaReminderPopover({
   );
 }
 
-type FunnelBinding = { product: string; persona?: string };
+export type FunnelBinding = { product: string; persona?: string };
 
 type FunnelApiResponse = {
   funnel: FunnelBlock;
@@ -288,29 +288,35 @@ export type FunnelFieldsFormProps = {
   footer?: ReactNode;
 };
 
-export function FunnelFieldsForm({
-  stage,
-  onStageChange,
-  stageEditing,
-  onStageEditingChange,
+export type FunnelProductsModeOption = {
+  value: FunnelProductsMode;
+  label: string;
+  disabled?: boolean;
+  title?: string;
+};
+
+export function FunnelProductsPicker({
   productsMode,
   onProductsModeChange,
+  modes,
   selectedBindings,
   onSelectedBindingsChange,
   productOptions,
   portalContainer,
-  productsModeOptions,
-  education,
-  hideStoreMembership,
-  storeMembership,
-  warnings,
   isProgram,
   contentSlug,
-  relativePathHint,
-  footer,
-}: FunnelFieldsFormProps) {
-  const productModes = productsModeOptions ?? PRODUCT_MODES;
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+}: {
+  productsMode: FunnelProductsMode;
+  onProductsModeChange: (mode: FunnelProductsMode) => void;
+  modes?: FunnelProductsModeOption[];
+  selectedBindings: FunnelBinding[];
+  onSelectedBindingsChange: (bindings: FunnelBinding[]) => void;
+  productOptions: ProductOption[];
+  portalContainer?: HTMLElement | null;
+  isProgram?: boolean;
+  contentSlug?: string;
+}) {
+  const productModes: FunnelProductsModeOption[] = modes ?? PRODUCT_MODES;
   const [addProductOpen, setAddProductOpen] = useState(false);
   const [addProductKey, setAddProductKey] = useState(0);
   const [pendingProduct, setPendingProduct] = useState<string | null>(null);
@@ -420,139 +426,7 @@ export function FunnelFieldsForm({
   };
 
   return (
-    <div className="space-y-4 py-2" data-testid="funnel-tab-content">
-      {education ?? (
-        <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm text-muted-foreground">
-          <p className="text-foreground font-medium flex items-center gap-1.5">
-            <Info className="h-4 w-4 shrink-0" />
-            How funnel fields work
-          </p>
-          <p>
-            <strong>Stage</strong> is why this URL exists in the buyer journey.{" "}
-            <strong>Products</strong> are product+persona bindings (or{" "}
-            <code className="text-xs bg-muted px-1 rounded">all</code> for every active product with
-            no persona). When a product has an audience, landings must pick a persona; the program
-            catalog page may omit persona for itself. Tracking and Store journeys read{" "}
-            <code className="text-xs bg-muted px-1 rounded">_common.yml</code>.
-          </p>
-          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-            <CollapsibleTrigger className="flex items-center gap-1 text-xs text-foreground hover:text-foreground/80">
-              <ChevronDown
-                className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
-              />
-              Read more (advanced)
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2 text-xs space-y-1 font-mono">
-              <p>{relativePathHint ?? `{type}/{slug}/_common.yml`}</p>
-              <p>shared/funnel.ts · shared/resolveProductScope.ts</p>
-              <p>GET /api/ecommerce/funnel/:slug · GET /api/seo/overview</p>
-            </CollapsibleContent>
-          </Collapsible>
-        </div>
-      )}
-
-      {isProgram && (
-        <p className="text-xs text-muted-foreground rounded-md border px-3 py-2">
-          Program pages always include this slug in effective products, even when{" "}
-          <code className="text-[10px]">funnel.products</code> is empty. Persona is optional on this
-          catalog page; other pages that bind this product must pick a persona once audience exists.
-        </p>
-      )}
-
-      {(warnings ?? []).map((w) => (
-        <div
-          key={w.code}
-          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs flex gap-2"
-          data-testid={`funnel-warning-${w.code}`}
-        >
-          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
-          <span>
-            {w.message}
-            {w.ids?.length ? ` (${w.ids.join(", ")})` : ""}
-          </span>
-        </div>
-      ))}
-
       <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <Label>Stage</Label>
-          {stage && !stageEditing && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0"
-              onClick={() => onStageEditingChange(true)}
-              aria-label="Change funnel stage"
-              data-testid="button-edit-funnel-stage"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-          )}
-        </div>
-        <div
-          className={cn(
-            "grid gap-2",
-            stage && !stageEditing ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2",
-          )}
-          role="group"
-          aria-label="Funnel stage"
-          data-testid="funnel-stage-bar"
-        >
-          {STAGE_OPTIONS.filter((option) => stageEditing || !stage || stage === option.value).map(
-            (option) => {
-              const selected = stage === option.value;
-              const StageIcon = option.icon;
-              const taper = FUNNEL_STAGE_TAPER[option.value];
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => {
-                    if (selected) {
-                      onStageChange("");
-                      onStageEditingChange(true);
-                      return;
-                    }
-                    onStageChange(option.value);
-                    onStageEditingChange(false);
-                  }}
-                  className={cn(
-                    "text-left rounded-md border p-3 transition-colors hover-elevate",
-                    FUNNEL_STAGE_TONE[taper],
-                    selected && "ring-2 ring-offset-1 ring-offset-background",
-                    selected && FUNNEL_STAGE_SELECTED_RING[taper],
-                  )}
-                  data-testid={`button-funnel-stage-${option.value}`}
-                >
-                  <div className="flex items-start gap-2">
-                    <StageIcon
-                      className={cn(
-                        "h-4 w-4 shrink-0 mt-0.5",
-                        FUNNEL_STAGE_ICON_TONE[taper],
-                      )}
-                    />
-                    <div className="min-w-0">
-                      <span className="text-sm font-medium">{option.label}</span>
-                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
-                        {option.description}
-                      </p>
-                    </div>
-                  </div>
-                </button>
-              );
-            },
-          )}
-        </div>
-        {!stage && (
-          <p className="text-[11px] text-muted-foreground">
-            No stage selected — shows as Unknown in diagnostics.
-          </p>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <Label>Products</Label>
         <div
           className="flex rounded-md border overflow-hidden"
           role="group"
@@ -570,6 +444,8 @@ export function FunnelFieldsForm({
                 i > 0 && "border-l",
                 productsMode === mode.value && "toggle-elevated bg-muted",
               )}
+              disabled={mode.disabled}
+              title={mode.title}
               onClick={() => onProductsModeChange(mode.value)}
               data-testid={`button-funnel-products-mode-${mode.value}`}
             >
@@ -584,20 +460,27 @@ export function FunnelFieldsForm({
                 const product = productBySlug.get(b.product);
                 const personaLabel =
                   product?.personas?.find((p) => p.id === b.persona)?.label || b.persona;
+                const tagLabel = `${product?.name || b.product}${personaLabel ? ` · ${personaLabel}` : ""}`;
                 return (
-                  <button
+                  <Badge
                     key={bindingKey(b)}
-                    type="button"
-                    onClick={() => removeBinding(b)}
-                    className="inline-flex"
+                    variant="default"
+                    className="gap-1 pr-1"
                     data-testid={`funnel-product-${b.product}${b.persona ? `-${b.persona}` : ""}`}
                   >
-                    <Badge variant="default" className="gap-1">
-                      <Check className="h-3 w-3" />
-                      {product?.name || b.product}
-                      {personaLabel ? ` · ${personaLabel}` : ""}
-                    </Badge>
-                  </button>
+                    <Check className="h-3 w-3" />
+                    {tagLabel}
+                    <button
+                      type="button"
+                      onClick={() => removeBinding(b)}
+                      className="ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-sm opacity-80 hover:bg-primary-foreground/20 hover:opacity-100"
+                      aria-label={`Remove ${tagLabel}`}
+                      title="Remove"
+                      data-testid={`button-funnel-product-remove-${b.product}${b.persona ? `-${b.persona}` : ""}`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </Badge>
                 );
               })}
               <Popover open={addProductOpen} onOpenChange={setAddProductOpen} modal={false}>
@@ -759,6 +642,179 @@ export function FunnelFieldsForm({
             )}
           </div>
         )}
+      </div>
+  );
+}
+
+export function FunnelFieldsForm({
+  stage,
+  onStageChange,
+  stageEditing,
+  onStageEditingChange,
+  productsMode,
+  onProductsModeChange,
+  selectedBindings,
+  onSelectedBindingsChange,
+  productOptions,
+  portalContainer,
+  productsModeOptions,
+  education,
+  hideStoreMembership,
+  storeMembership,
+  warnings,
+  isProgram,
+  contentSlug,
+  relativePathHint,
+  footer,
+}: FunnelFieldsFormProps) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const productBySlug = new Map(productOptions.map((p) => [p.content_slug, p]));
+
+  return (
+    <div className="space-y-4 py-2" data-testid="funnel-tab-content">
+      {education ?? (
+        <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm text-muted-foreground">
+          <p className="text-foreground font-medium flex items-center gap-1.5">
+            <Info className="h-4 w-4 shrink-0" />
+            How funnel fields work
+          </p>
+          <p>
+            <strong>Stage</strong> is why this URL exists in the buyer journey.{" "}
+            <strong>Products</strong> are product+persona bindings (or{" "}
+            <code className="text-xs bg-muted px-1 rounded">all</code> for every active product with
+            no persona). When a product has an audience, landings must pick a persona; the program
+            catalog page may omit persona for itself. Tracking and Store journeys read{" "}
+            <code className="text-xs bg-muted px-1 rounded">_common.yml</code>.
+          </p>
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+            <CollapsibleTrigger className="flex items-center gap-1 text-xs text-foreground hover:text-foreground/80">
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
+              />
+              Read more (advanced)
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2 text-xs space-y-1 font-mono">
+              <p>{relativePathHint ?? `{type}/{slug}/_common.yml`}</p>
+              <p>shared/funnel.ts · shared/resolveProductScope.ts</p>
+              <p>GET /api/ecommerce/funnel/:slug · GET /api/seo/overview</p>
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
+      )}
+
+      {isProgram && (
+        <p className="text-xs text-muted-foreground rounded-md border px-3 py-2">
+          Program pages always include this slug in effective products, even when{" "}
+          <code className="text-[10px]">funnel.products</code> is empty. Persona is optional on this
+          catalog page; other pages that bind this product must pick a persona once audience exists.
+        </p>
+      )}
+
+      {(warnings ?? []).map((w) => (
+        <div
+          key={w.code}
+          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs flex gap-2"
+          data-testid={`funnel-warning-${w.code}`}
+        >
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+          <span>
+            {w.message}
+            {w.ids?.length ? ` (${w.ids.join(", ")})` : ""}
+          </span>
+        </div>
+      ))}
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <Label>Stage</Label>
+          {stage && !stageEditing && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={() => onStageEditingChange(true)}
+              aria-label="Change funnel stage"
+              data-testid="button-edit-funnel-stage"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+        <div
+          className={cn(
+            "grid gap-2",
+            stage && !stageEditing ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2",
+          )}
+          role="group"
+          aria-label="Funnel stage"
+          data-testid="funnel-stage-bar"
+        >
+          {STAGE_OPTIONS.filter((option) => stageEditing || !stage || stage === option.value).map(
+            (option) => {
+              const selected = stage === option.value;
+              const StageIcon = option.icon;
+              const taper = FUNNEL_STAGE_TAPER[option.value];
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    if (selected) {
+                      onStageChange("");
+                      onStageEditingChange(true);
+                      return;
+                    }
+                    onStageChange(option.value);
+                    onStageEditingChange(false);
+                  }}
+                  className={cn(
+                    "text-left rounded-md border p-3 transition-colors hover-elevate",
+                    FUNNEL_STAGE_TONE[taper],
+                    selected && "ring-2 ring-offset-1 ring-offset-background",
+                    selected && FUNNEL_STAGE_SELECTED_RING[taper],
+                  )}
+                  data-testid={`button-funnel-stage-${option.value}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <StageIcon
+                      className={cn(
+                        "h-4 w-4 shrink-0 mt-0.5",
+                        FUNNEL_STAGE_ICON_TONE[taper],
+                      )}
+                    />
+                    <div className="min-w-0">
+                      <span className="text-sm font-medium">{option.label}</span>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+                        {option.description}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              );
+            },
+          )}
+        </div>
+        {!stage && (
+          <p className="text-[11px] text-muted-foreground">
+            No stage selected — shows as Unknown in diagnostics.
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label>Products</Label>
+        <FunnelProductsPicker
+          productsMode={productsMode}
+          onProductsModeChange={onProductsModeChange}
+          modes={productsModeOptions}
+          selectedBindings={selectedBindings}
+          onSelectedBindingsChange={onSelectedBindingsChange}
+          productOptions={productOptions}
+          portalContainer={portalContainer}
+          isProgram={isProgram}
+          contentSlug={contentSlug}
+        />
       </div>
 
       {!hideStoreMembership && storeMembership && storeMembership.length > 0 && (
@@ -974,7 +1030,7 @@ export function FunnelTab({
       productOptions={productOptions}
       portalContainer={portalContainer}
       isProgram={isProgram}
-      contentSlug={contentInfo.slug}
+      contentSlug={contentInfo.slug ?? undefined}
       warnings={data?.warnings}
       storeMembership={data?.storeMembership}
       relativePathHint={data?.relativePath}
