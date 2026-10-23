@@ -649,6 +649,71 @@ export function attachedIdeaEditsAction(
   };
 }
 
+export type UnrequestedProposalLike = {
+  id?: string;
+  status?: string;
+  entries?: Array<{
+    contentType?: string;
+    slug?: string;
+    locale?: string;
+    status?: string;
+    requested_ops?: Array<{ field_path: string }>;
+    unrequested_fields?: string[];
+  }>;
+};
+
+/** Open entries whose draft changes fields the author never sent → warning + revise next_action. */
+export function unrequestedFieldsFollowUp(
+  proposals: UnrequestedProposalLike[],
+  proposalId: string,
+  site?: string,
+): {
+  warnings: Array<{ code: string; message: string }>;
+  next_actions: Array<{ tool: string; reason: string; priority: "recommended"; args_hint: Record<string, unknown> }>;
+} | null {
+  const p = proposals.find((x) => x.id === proposalId);
+  if (!p || (p.status !== "open" && p.status !== "partial")) return null;
+  const hits = (p.entries ?? []).filter(
+    (e) => (!e.status || e.status === "pending" || e.status === "failed") && e.unrequested_fields?.length,
+  );
+  if (!hits.length) return null;
+  const lines = hits.map(
+    (e) =>
+      `${e.contentType}/${e.slug} (${e.locale}): ${e.unrequested_fields!.join(", ")} ` +
+      `(requested: ${(e.requested_ops ?? []).map((o) => o.field_path).join(", ") || "none"})`,
+  );
+  return {
+    warnings: [
+      {
+        code: "draft_has_unrequested_fields",
+        message:
+          `The draft changes fields its author did not send, and apply would publish them: ${lines.join("; ")}. ` +
+          "Usual causes: an old draft seeded with page-level copies, a migration rewrite, or a co-author edit. " +
+          "Author: revise_entries with only the ops you intend — a draft this proposal created restarts from today's live (unless a person co-authored it). " +
+          "Reviewer: judge these fields like any other op; if they are unintended, add a blocker asking the author to revise.",
+      },
+    ],
+    next_actions: [
+      {
+        tool: "update_proposal",
+        reason: "Author: drop the unrequested fields by revising with only the intended ops (restarts the draft from today's live).",
+        priority: "recommended",
+        args_hint: {
+          proposal_id: proposalId,
+          action: "revise_entries",
+          entries: hits.map((e) => ({
+            contentType: e.contentType,
+            slug: e.slug,
+            locale: e.locale,
+            updates: "<only the ops you intend>",
+          })),
+          ...(site ? { site } : {}),
+        },
+      },
+    ],
+  };
+}
+
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 
 /** Reviewer-only decide toolkit (no withdraw / attach / set_no_auto_retry). */
@@ -778,7 +843,9 @@ async function requireUpdateCap(mcpToken: string | undefined, grants: CatalogGra
 }
 
 const BLOCKER_BODY_HINT =
-  "Plain text min 80 chars: (1) what's wrong, (2) what fixed looks like, (3) why it matters. " +
+  "Markdown, min 80 chars. Start with a one-sentence verdict, then a blank line, then a numbered list " +
+  "with one item per problem: what's wrong, what fixed looks like, why it matters. " +
+  "Wrap field paths, slugs and URLs in `backticks`. No headings or tables. " +
   "For funnel.stage/products blockers: cite which cascade step fails (persona / product / stage) and the correct binding. " +
   "Do not list MCP tools.";
 
@@ -821,12 +888,14 @@ export function registerProposalTools(
       summary: z
         .string()
         .describe(
-          "Min 80 chars. Edits (entries/promote): intent + why only — do not paste proposed field values (ops own those; list triage uses title + field_paths). Go-live with empty updates: why this draft should become live. Notes: steps tried + recommended next. Idea: pitch + desired outcome.",
+          "Min 80 chars. Edits (entries/promote): intent + why only — do not paste proposed field values (ops own those; list triage uses title + field_paths). Go-live with empty updates: why this draft should become live. Notes: steps tried + recommended next. Idea: pitch + desired outcome; when the page is built around an existing file (PDF lead magnet, video, image), name its gallery media_id and public src URL here or in rationale. Markdown renders for staff (bare URLs become links).",
         ),
       rationale: z
         .string()
         .optional()
-        .describe("Optional deeper reasoning beyond summary. Do not paste proposed field values here."),
+        .describe(
+          "Optional deeper reasoning beyond summary (Markdown). Do not paste proposed field values here. Ideas: existing file the page depends on → media_id + public src URL.",
+        ),
       category: z.enum(["content.field", "content.seo"]).optional(),
       kind: z
         .enum(["notes", "idea"])
@@ -1866,9 +1935,18 @@ export function registerProposalTools(
           }
         }
 
+        const proposalId = args.proposal_id?.trim();
+        const unrequestedNext = proposalId
+          ? unrequestedFieldsFollowUp(
+              proposals as Array<UnrequestedProposalLike>,
+              proposalId,
+              args.site,
+            )
+          : null;
+        if (unrequestedNext) warnings.push(...unrequestedNext.warnings);
+
         let discovery_path: ReturnType<typeof buildProposalDiscoveryPath>["discovery_path"] = null;
         const review_context = data.review_context ?? null;
-        const proposalId = args.proposal_id?.trim();
         if (proposalId) {
           const match = (proposals as Array<{
             id?: string;
@@ -1955,7 +2033,7 @@ export function registerProposalTools(
             status_bias_applied: Boolean(data.status_bias_applied),
             discovery_path,
             ...(review_context ? { review_context } : {}),
-            next_actions: attachedNext,
+            next_actions: [...attachedNext, ...(unrequestedNext?.next_actions ?? [])],
           },
           { warnings },
         );
@@ -2366,7 +2444,7 @@ export function registerProposalTools(
                   args_hint: {
                     proposal_id: args.proposal_id,
                     action: "add_blocker",
-                    body: "(what's wrong, what fixed looks like, why — min 80)",
+                    body: "(Markdown: one-line verdict, blank line, numbered list — one item per problem: wrong / fix / why; min 80)",
                     site: args.site,
                   },
                 },

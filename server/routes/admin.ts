@@ -779,10 +779,26 @@ export function registerAdminRoutes(app: Express): void {
     const { ENTRY_ACTIVITY_WINDOW_DAYS } = await import("@shared/event-log-filters");
     const { countEntryActivityWrites } = await import("../seo-cluster-metrics");
     const counts = countEntryActivityWrites({ site });
+    let openProposals: import("../content-proposals").PendingProposalForPage[] = [];
+    const slash = entry.indexOf("/");
+    if (slash > 0 && slash < entry.length - 1) {
+      try {
+        const { listPendingProposalsForPage } = await import("../content-proposals");
+        openProposals = listPendingProposalsForPage(
+          site,
+          entry.slice(0, slash),
+          entry.slice(slash + 1),
+          getContentRoot(res),
+        );
+      } catch {
+        /* proposals DB unavailable: the button falls back to the write count */
+      }
+    }
     res.json({
       entryKey: entry,
       writeCount: counts.get(entry) ?? 0,
       windowDays: ENTRY_ACTIVITY_WINDOW_DAYS,
+      openProposals,
     });
   });
 

@@ -365,6 +365,8 @@ export type ProposalEntryRow = {
   /** v1.0: what the author sent (`ops_json`); `ops` is the view of the draft. */
   requested_ops?: FieldUpdate[];
   ops_match_request?: boolean;
+  /** v1.0: draft fields that change although the author did not send them (stale seed, migration, co-author). */
+  unrequested_fields?: string[];
   /** v1.0: the draft file no longer exists; no ops view. */
   draft_missing?: boolean;
   /** v1.0: what the apply published, field by field (revert source). */
@@ -1264,6 +1266,7 @@ export function entryViewFromDiff(
   | "author_diff_approximate"
   | "requested_ops"
   | "ops_match_request"
+  | "unrequested_fields"
   | "sections_summary"
 > {
   const ops: FieldUpdate[] = changes.map((c) =>
@@ -1278,15 +1281,34 @@ export function entryViewFromDiff(
     Object.freeze(values);
   }
   const sectionsChange = changes.find((c) => c.field_path === "sections");
+  const unrequested = unrequestedFields(requested, changes);
   return {
     ops,
     baseline_context: { values },
     author_diff: changes,
     author_diff_approximate: approximate,
     requested_ops: requested,
-    ops_match_request: requestedMatchesView(requested, changes),
+    ops_match_request: unrequested.length === 0 && requestedMatchesView(requested, changes),
+    ...(unrequested.length ? { unrequested_fields: unrequested } : {}),
     ...(sectionsChange ? { sections_summary: summarizeSectionsChange(sectionsChange.before, sectionsChange.after) } : {}),
   };
+}
+
+/** Stamped by the editor on every content change, so never part of what the author sends. */
+const SYSTEM_STAMPED_FIELDS = new Set(["updated_at", "_updated_at"]);
+
+/** Draft fields that change although no requested op covers them (empty request = whole-draft go-live). */
+function unrequestedFields(requested: FieldUpdate[], changes: FieldChange[]): string[] {
+  if (requested.length === 0) return [];
+  return changes
+    .map((c) => c.field_path)
+    .filter(
+      (p) =>
+        !SYSTEM_STAMPED_FIELDS.has(p) &&
+        !requested.some(
+          (op) => op.field_path === p || op.field_path.startsWith(`${p}.`) || p.startsWith(`${op.field_path}.`),
+        ),
+    );
 }
 
 function valueUnder(value: unknown, rest: string): unknown {
@@ -2423,6 +2445,7 @@ export type OpenProposalForEntry = {
   proposer_role?: string;
   created_at: number;
   updated_at: number;
+  open_blocker_count: number;
 };
 
 /** Open/partial proposals on any locale/variant of one page (single query, for the Versions panel). */
@@ -2436,7 +2459,9 @@ export function listOpenProposalsForEntry(
   const rows = db
     .prepare(
       `SELECT p.id, p.title, p.status, p.proposer_username, p.proposer_actor_json, p.created_at,
-              p.updated_at, e.locale, e.variant
+              p.updated_at, e.locale, e.variant,
+              (SELECT COUNT(*) FROM content_proposal_blockers b
+               WHERE b.proposal_id = p.id AND b.status = 'open') AS open_n
        FROM content_proposals p
        INNER JOIN content_proposal_entries e ON e.proposal_id = p.id
        WHERE p.site = ? AND p.status IN ('open','partial') AND e.entry_key = ?
@@ -2452,6 +2477,7 @@ export function listOpenProposalsForEntry(
     updated_at: number;
     locale: string;
     variant: string | null;
+    open_n: number;
   }>;
   return rows.map((r) => {
     const actor = parseJson<Record<string, unknown>>(r.proposer_actor_json, {});
@@ -2467,6 +2493,7 @@ export function listOpenProposalsForEntry(
       ...(role ? { proposer_role: role } : {}),
       created_at: r.created_at,
       updated_at: r.updated_at,
+      open_blocker_count: Number(r.open_n) || 0,
     };
   });
 }

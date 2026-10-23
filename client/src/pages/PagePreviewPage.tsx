@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearch } from "wouter";
-import { RefreshCw } from "lucide-react";
+import { useLocation, useSearch } from "wouter";
+import { Moon, RefreshCw, Sun } from "lucide-react";
 import { SectionRenderer } from "@/components/SectionRenderer";
 import { getDebugToken } from "@/hooks/useDebugAuth";
 import { measurePage, type PageMeasurements } from "@/lib/pageMeasurements";
@@ -43,9 +43,25 @@ function waitForImages(root: HTMLElement, timeoutMs = 8000): Promise<void> {
  */
 export default function PagePreviewPage() {
   const search = useSearch();
+  const [location, navigate] = useLocation();
   const params = useMemo(() => new URLSearchParams(search), [search]);
   const isCapture = params.get("capture") === "1";
   const theme = params.get("theme") === "light" ? "light" : "dark";
+  const dataQuery = useMemo(() => {
+    const qs = new URLSearchParams(params);
+    qs.delete("capture");
+    qs.delete("theme");
+    qs.delete("_");
+    return qs.toString();
+  }, [params]);
+
+  const toggleTheme = () => {
+    const qs = new URLSearchParams(params);
+    if (theme === "dark") qs.set("theme", "light");
+    else qs.delete("theme");
+    const next = qs.toString();
+    navigate(next ? `${location}?${next}` : location, { replace: true });
+  };
   const [data, setData] = useState<PagePreviewPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [measurements, setMeasurements] = useState<PageMeasurements | null>(null);
@@ -63,15 +79,11 @@ export default function PagePreviewPage() {
   }, [theme]);
 
   useEffect(() => {
-    const qs = new URLSearchParams(params);
-    qs.delete("capture");
-    qs.delete("theme");
-    qs.delete("_");
     const token = getDebugToken();
     setData(null);
     setError(null);
     setMeasurements(null);
-    fetch(`/api/page-preview/data?${qs}`, {
+    fetch(`/api/page-preview/data?${dataQuery}`, {
       credentials: "include",
       headers: token ? { Authorization: `Token ${token}` } : {},
     })
@@ -82,7 +94,7 @@ export default function PagePreviewPage() {
         if (body.title) document.title = `Preview — ${body.title}`;
       })
       .catch((e: Error) => setError(e.message));
-  }, [params]);
+  }, [dataQuery]);
 
   useEffect(() => {
     if (!data || !rootRef.current) return;
@@ -128,11 +140,23 @@ export default function PagePreviewPage() {
       data-testid="page-preview"
     >
       {!isCapture && (
-        <div className="sticky top-0 z-50 border-b border-border bg-background/90 px-4 py-2 text-xs text-muted-foreground backdrop-blur">
-          {data.source === "demo"
-            ? "Throwaway page preview — not saved content. The link expires on redeploy."
-            : `Page preview of ${contentType}/${slug} (${data.locale}${params.get("variant") ? `, draft ${params.get("variant")}` : ", live"}) — header and footer hidden.`}
-          {measurements && measurements.findings.length > 0 && ` · ${measurements.findings.length} layout findings`}
+        <div className="sticky top-0 z-50 flex items-center justify-between gap-3 border-b border-border bg-background/90 px-4 py-2 text-xs text-muted-foreground backdrop-blur">
+          <span>
+            {data.source === "demo"
+              ? "Throwaway page preview — not saved content. The link expires on redeploy."
+              : `Page preview of ${contentType}/${slug} (${data.locale}${params.get("variant") ? `, draft ${params.get("variant")}` : ", live"}) — header and footer hidden.`}
+            {measurements && measurements.findings.length > 0 && ` · ${measurements.findings.length} layout findings`}
+          </span>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-foreground hover:bg-muted"
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            data-testid="button-preview-theme-toggle"
+          >
+            {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            {theme === "dark" ? "Light" : "Dark"}
+          </button>
         </div>
       )}
       <SectionRenderer

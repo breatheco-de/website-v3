@@ -2,7 +2,8 @@ import fs from "fs";
 import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
-import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
+import { escapeObjectVars, unescapeYamlDump, CorruptedTemplateValueError } from "@shared/templateVars";
+import { dumpContentYaml, loadContentYamlObject } from "./content-yaml";
 import { typeUsesSharedTemplate } from "@shared/sharedLayoutPaths";
 import { entryBagFieldPathFromVarName, getLegacySingleVarWriteError } from "@shared/entryTemplateVars";
 import { getConsentKeyError } from "@shared/consentLegacyKeys";
@@ -51,11 +52,7 @@ function getDefaultContentRootName(): string {
   }
 }
 
-function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
-  const { escaped, map } = escapeObjectVars(obj);
-  const dumped = yaml.dump(escaped, opts);
-  return unescapeYamlDump(dumped, map);
-}
+const safeYamlDump = (obj: unknown, opts?: yaml.DumpOptions): string => dumpContentYaml(obj, opts);
 import type { EditOperation } from "@shared/schema";
 import { normalizeLocale, getSupportedLocales, getDefaultLocale } from "./settings";
 import { markFileAsModified } from "./sync-state";
@@ -300,14 +297,14 @@ function applyPublishedAtAfterDuplicate(
     const localePath = path.join(contentRoot, getFolder(type, contentRoot), slug, `${loc}.yml`);
     if (!fs.existsSync(localePath)) continue;
     try {
-      const data = (yaml.load(fs.readFileSync(localePath, "utf-8")) as Record<string, unknown>) || {};
+      const data = loadContentYamlObject(fs.readFileSync(localePath, "utf-8")) ?? {};
       const ovr = data[FIELD_OVERRIDES_KEY];
       if (ovr && typeof ovr === "object" && !Array.isArray(ovr) && RESERVED_PUBLISHED_AT_FIELD in (ovr as object)) {
         const nextOvr = { ...(ovr as Record<string, unknown>) };
         delete nextOvr[RESERVED_PUBLISHED_AT_FIELD];
         if (Object.keys(nextOvr).length === 0) delete data[FIELD_OVERRIDES_KEY];
         else data[FIELD_OVERRIDES_KEY] = nextOvr;
-        fs.writeFileSync(localePath, yaml.dump(data, { lineWidth: 120, noRefs: true, sortKeys: false }), "utf-8");
+        fs.writeFileSync(localePath, dumpContentYaml(data, { lineWidth: 120, noRefs: true, sortKeys: false }, localePath), "utf-8");
         markFileAsModified(localePath, author, undefined, contentRoot);
       }
     } catch {
@@ -1671,6 +1668,9 @@ export async function editContent(request: ContentEditRequest): Promise<{
     };
   } catch (error) {
     log.error({ err: error }, "Content edit error:");
+    if (error instanceof CorruptedTemplateValueError) {
+      return { success: false, error: error.message, errorCode: error.code };
+    }
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 }
@@ -2097,7 +2097,7 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
     let entryData: Record<string, unknown> = {};
     if (fs.existsSync(perEntryPath)) {
       const raw = fs.readFileSync(perEntryPath, "utf-8");
-      entryData = (yaml.load(raw) as Record<string, unknown>) || {};
+      entryData = loadContentYamlObject(raw) ?? {};
     }
 
     const previousEntryData = cloneYamlData(entryData);
@@ -2722,7 +2722,7 @@ export function editCommonContent(request: CommonEditRequest): {
     }
 
     const raw = fs.readFileSync(commonPath, "utf-8");
-    const commonData = (yaml.load(raw) as Record<string, unknown>) || {};
+    const commonData = loadContentYamlObject(raw) ?? {};
 
     for (const op of operations) {
       if (op.action !== "update_field") {

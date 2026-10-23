@@ -13,7 +13,8 @@ import {
   schemaOrgInsertIndex,
   clampSchemaOrgSectionsLeading,
 } from "@shared/schema-org-sections";
-import { escapeObjectVars, unescapeYamlDump, escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
+import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
+import { dumpContentYaml } from "./content-yaml";
 import { getContentTypeConfig, getDirectory } from "./content-types";
 import { getDefaultContentRoot } from "./site-config";
 import { markFileAsModified } from "./sync-state";
@@ -173,15 +174,13 @@ export function formatSchemaOrgCompanionGateError(opts: {
 }
 
 function dumpYaml(data: unknown): string {
-  const { escaped, map } = escapeObjectVars(data);
-  const dumped = yaml.dump(escaped, {
+  const out = dumpContentYaml(data, {
     lineWidth: 120,
     noRefs: true,
     sortKeys: false,
     quotingType: '"',
     forceQuotes: false,
   });
-  const out = unescapeYamlDump(dumped, map);
   return out.endsWith("\n") ? out : `${out}\n`;
 }
 

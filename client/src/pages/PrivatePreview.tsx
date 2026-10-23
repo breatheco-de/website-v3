@@ -1,6 +1,6 @@
 import { useState, useEffect, lazy, Suspense, useMemo } from "react";
 import { Loader2 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useSearch, useLocation } from "wouter";
 import { SectionRenderer } from "@/components/SectionRenderer";
 import { apiFetch } from "@/lib/queryClient";
@@ -26,6 +26,9 @@ import { isPreviewListingSharedTemplate, isSharedLayoutType } from "@/lib/shared
 import { staff404PreviewHref } from "@/lib/staff404";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
+const ProposalReviewDrawer = lazy(() =>
+  import("@/components/agents/ProposalReviewDrawer").then((m) => ({ default: m.ProposalReviewDrawer })),
+);
 
 type ContentData = CareerProgram | LandingPage | LocationPage | TemplatePage;
 
@@ -80,6 +83,7 @@ export default function PrivatePreview() {
   const searchString = useSearch();
   const searchParams = new URLSearchParams(searchString);
   const [, navigate] = useLocation();
+  const queryClient = useQueryClient();
   
   const contentType = params.contentType!;
   const slug = params.slug;
@@ -494,6 +498,23 @@ export default function PrivatePreview() {
         />
       </div>
       {rawEditor}
+      {variant && slug ? (
+        <Suspense fallback={null}>
+          <ProposalReviewDrawer
+            key={`${normalizedType}:${slug}:${locale}:${variant}`}
+            contentType={normalizedType}
+            slug={slug}
+            locale={locale}
+            variant={variant}
+            proposalParam={searchParams.get("proposal")}
+            navigate={navigate}
+            onReloadPreview={() => {
+              refetch();
+              void queryClient.invalidateQueries({ queryKey: ["/api/versioning", normalizedType, slug] });
+            }}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

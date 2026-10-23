@@ -49,15 +49,13 @@ export type ValidateRequiredFieldsOpts = ListRequiredEditorFieldsOpts & {
   crmTags?: string[];
 };
 
-const TEMPLATE_RE = /\{\{[\s\S]*?\}\}/;
+const TEMPLATE_RE = /\{\{[\s\S]*?\}\}/g;
 
+/** Empty, or only unresolved placeholders (`{{ entry.content }}`); tokens inside real text count as text. */
 export function isEmptyRequiredValue(value: unknown): boolean {
   if (value === undefined || value === null) return true;
   if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return true;
-    if (TEMPLATE_RE.test(trimmed)) return true;
-    return false;
+    return value.replace(TEMPLATE_RE, "").trim() === "";
   }
   if (typeof value === "number" || typeof value === "boolean") return false;
   if (Array.isArray(value)) return value.length === 0;

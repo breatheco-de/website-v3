@@ -171,7 +171,7 @@ export function IdeaSeoTargetPanel(props: {
       </p>
       {target ? (
         <div className="space-y-1">
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 @xl:grid-cols-4">
             <TargetStat
               label="Keyword"
               value={<span className="break-words">{target.main_keyword}</span>}
@@ -204,8 +204,8 @@ export function IdeaSeoTargetPanel(props: {
       )}
 
       {editable ? (
-        <div className="grid gap-2 sm:grid-cols-3">
-          <div className="space-y-1 sm:col-span-3">
+        <div className="grid gap-2 @xl:grid-cols-3">
+          <div className="space-y-1 @xl:col-span-3">
             <Label htmlFor="idea-seo-keyword" className="text-xs">
               Main keyword
             </Label>
@@ -245,7 +245,7 @@ export function IdeaSeoTargetPanel(props: {
               data-testid="input-idea-seo-difficulty"
             />
           </div>
-          <p className="self-end text-xs text-muted-foreground sm:pb-2">
+          <p className="self-end text-xs text-muted-foreground @xl:pb-2">
             {volume === null || difficulty === null
               ? "Use whole numbers; difficulty goes up to 100."
               : "Copy both from keyword research. Don't estimate."}
@@ -268,7 +268,7 @@ export function IdeaSeoTargetPanel(props: {
               </option>
             </select>
           </div>
-          <div className="space-y-1 sm:col-span-2">
+          <div className="space-y-1 @xl:col-span-2">
             {mode === "join" ? (
               <>
                 <Label htmlFor="idea-seo-hub" className="text-xs">
@@ -328,7 +328,7 @@ export function IdeaSeoTargetPanel(props: {
               </>
             )}
           </div>
-          <div className="sm:col-span-3">
+          <div className="@xl:col-span-3">
             <Button
               type="button"
               size="sm"

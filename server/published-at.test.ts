@@ -89,6 +89,25 @@ describe("published-at helper", () => {
     const r = setPublishedAt("blog", "post-a", "", undefined, contentRoot);
     expect(r.success).toBe(false);
   });
+
+  it("setPublishedAt keeps unquoted {{ }} placeholders in _common.yml", () => {
+    const commonPath = path.join(contentRoot, "blog", "post-a", "_common.yml");
+    fs.writeFileSync(commonPath, "title: Post A\nimage: {{ entry.hero | /fallback.webp }}\n", "utf-8");
+    expect(setPublishedAt("blog", "post-a", "2026-03-03T00:00:00.000Z", undefined, contentRoot).success).toBe(true);
+    const written = fs.readFileSync(commonPath, "utf-8");
+    expect(written).toContain("image: {{ entry.hero | /fallback.webp }}");
+    expect(written).not.toContain("[object Object]");
+  });
+
+  it("setPublishedAt blocks the write when _common.yml already has a destroyed placeholder", () => {
+    const commonPath = path.join(contentRoot, "blog", "post-a", "_common.yml");
+    const before = "title: Post A\nimage:\n  '[object Object]': null\n";
+    fs.writeFileSync(commonPath, before, "utf-8");
+    const r = setPublishedAt("blog", "post-a", "2026-03-03T00:00:00.000Z", undefined, contentRoot);
+    expect(r.success).toBe(false);
+    expect(r.error).toMatch(/Save blocked/);
+    expect(fs.readFileSync(commonPath, "utf-8")).toBe(before);
+  });
 });
 
 describe("writeFieldOverrides published_at for static", () => {

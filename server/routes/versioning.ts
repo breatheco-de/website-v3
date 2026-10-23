@@ -83,10 +83,9 @@ import { validateYamlIdentity } from "../validate-content-identity";
 import { bindingManager } from "../bindings";
 import {
   escapeTemplateVars,
-  escapeObjectVars,
   unescapeObjectVars,
-  unescapeYamlDump,
 } from "@shared/templateVars";
+import { dumpContentYaml } from "../content-yaml";
 import {
   getVersioningManager,
   readUserId,
@@ -915,10 +914,7 @@ export function registerVersioningRoutes(app: Express): void {
             const siblingLive = getCI(res).safeYamlLoad(fs.readFileSync(sibling.filePath, "utf-8")) as Record<string, unknown> | null;
             if (siblingLive?.layout) mirrored.layout = siblingLive.layout;
           } catch { /* ignore */ }
-          const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
-          const { escaped, map } = escapeObjectVars(mirrored);
-          const dumped = yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
-          fs.writeFileSync(siblingVariantPath, unescapeYamlDump(dumped, map), "utf-8");
+          fs.writeFileSync(siblingVariantPath, dumpContentYaml(mirrored, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }, siblingVariantPath), "utf-8");
           markFileAsModified(`${folder}/${variantTemplateBasename(variantSlug, sibling.locale)}`, auth.author || "api", undefined, root);
           createdSiblings.push(sibling.locale);
         }

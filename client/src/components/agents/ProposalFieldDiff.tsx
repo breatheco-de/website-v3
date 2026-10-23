@@ -216,7 +216,7 @@ export function ProposalFieldDiff({
         className={capped ? "overflow-auto" : undefined}
         style={capped ? { maxHeight } : undefined}
       >
-        <div ref={contentRef} className="grid sm:grid-cols-2">
+        <div ref={contentRef} className="grid @xl:grid-cols-2">
           <div className="space-y-1 px-3 py-3">
             <p className="sticky top-0 z-[1] bg-card text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               Current
@@ -229,7 +229,7 @@ export function ProposalFieldDiff({
               plainText={before}
             />
           </div>
-          <div className="space-y-1 border-card-border px-3 py-3 sm:border-l">
+          <div className="space-y-1 border-card-border px-3 py-3 @xl:border-l">
             <p className="sticky top-0 z-[1] bg-card text-[10px] font-medium uppercase tracking-wide text-primary">
               Proposed
             </p>

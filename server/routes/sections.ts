@@ -99,10 +99,9 @@ import { bindingHolderId, checkBindingLeaseConflicts } from "../binding-lease-gu
 import { emitBindingPropagationStarted } from "../content-events";
 import {
   escapeTemplateVars,
-  escapeObjectVars,
   unescapeObjectVars,
-  unescapeYamlDump,
 } from "@shared/templateVars";
+import { dumpContentYaml } from "../content-yaml";
 import {
   getVersioningManager,
   readUserId,
@@ -418,10 +417,7 @@ export function registerSectionsRoutes(app: Express): void {
             if (templateSections[patchIdx]) {
               templateSections[patchIdx] = { ...templateSections[patchIdx], section_id: sectionId };
               templateData.sections = templateSections;
-              const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
-              const { escaped, map } = escapeObjectVars(templateData);
-              const dumped = yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
-              fs.writeFileSync(templateFile, unescapeYamlDump(dumped, map), "utf-8");
+              fs.writeFileSync(templateFile, dumpContentYaml(templateData, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }, templateFile), "utf-8");
               markFileAsModified(templateFile, authorName);
             }
           }
@@ -436,10 +432,7 @@ export function registerSectionsRoutes(app: Express): void {
         }
       }
 
-      const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
-      const { escaped, map } = escapeObjectVars(entryData);
-      const dumped = yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
-      fs.writeFileSync(entryFilePath, unescapeYamlDump(dumped, map), "utf-8");
+      fs.writeFileSync(entryFilePath, dumpContentYaml(entryData, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }, entryFilePath), "utf-8");
       markFileAsModified(entryFilePath, authorName);
 
       res.json({ success: true });
@@ -500,10 +493,7 @@ export function registerSectionsRoutes(app: Express): void {
         (s) => !(sectionMatchesId(s, sectionId) && s._remove === true),
       );
 
-      const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
-      const { escaped, map } = escapeObjectVars(entryData);
-      const dumped = yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
-      fs.writeFileSync(entryFilePath, unescapeYamlDump(dumped, map), "utf-8");
+      fs.writeFileSync(entryFilePath, dumpContentYaml(entryData, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }, entryFilePath), "utf-8");
       markFileAsModified(entryFilePath, authorName);
 
       res.json({ success: true });
@@ -565,10 +555,7 @@ export function registerSectionsRoutes(app: Express): void {
         (s) => !(sectionMatchesId(s, sectionId) && !s._remove),
       );
 
-      const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
-      const { escaped, map } = escapeObjectVars(entryData);
-      const dumped = yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
-      fs.writeFileSync(entryFilePath, unescapeYamlDump(dumped, map), "utf-8");
+      fs.writeFileSync(entryFilePath, dumpContentYaml(entryData, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }, entryFilePath), "utf-8");
       markFileAsModified(entryFilePath, authorName);
 
       res.json({ success: true });
@@ -692,10 +679,7 @@ export function registerSectionsRoutes(app: Express): void {
         getDeprecatedFieldsForType(contentType, getContentRoot(res)),
       );
 
-      const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
-      const { escaped, map } = escapeObjectVars(entryData);
-      const dumped = yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
-      fs.writeFileSync(entryFilePath, unescapeYamlDump(dumped, map), "utf-8");
+      fs.writeFileSync(entryFilePath, dumpContentYaml(entryData, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }, entryFilePath), "utf-8");
       markFileAsModified(entryFilePath, authorName);
 
       // Update dependants index: only record anchors to template section IDs (not per-entry IDs)
@@ -828,10 +812,7 @@ export function registerSectionsRoutes(app: Express): void {
       }
 
       templateData.sections = templateSections;
-      const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
-      const { escaped, map } = escapeObjectVars(templateData);
-      const dumped = yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
-      fs.writeFileSync(templateFile, unescapeYamlDump(dumped, map), "utf-8");
+      fs.writeFileSync(templateFile, dumpContentYaml(templateData, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }, templateFile), "utf-8");
       markFileAsModified(templateFile, authorName);
 
       // Record alias: deletedId → predecessorId (null means it was the first section)
@@ -847,13 +828,8 @@ export function registerSectionsRoutes(app: Express): void {
             fanOutStructuralOpsToSiblings,
             cleanSectionIdFromEntryOverlays,
           } = await import("../shared-layout-sync");
-          const dumpYaml = (d: unknown) => {
-            const { escaped: e2, map: m2 } = escapeObjectVars(d);
-            return unescapeYamlDump(
-              yaml.dump(e2, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }),
-              m2,
-            );
-          };
+          const dumpYaml = (d: unknown) =>
+            dumpContentYaml(d, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
           const fan = fanOutStructuralOpsToSiblings({
             templateDir,
             sourceLocale: locale,
@@ -986,10 +962,7 @@ export function registerSectionsRoutes(app: Express): void {
           if (templateSections[patchIdx]) {
             templateSections[patchIdx] = { ...templateSections[patchIdx], section_id: sectionId };
             templateData.sections = templateSections;
-            const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
-            const { escaped, map } = escapeObjectVars(templateData);
-            const dumped = yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
-            fs.writeFileSync(templateFile, unescapeYamlDump(dumped, map), "utf-8");
+            fs.writeFileSync(templateFile, dumpContentYaml(templateData, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }, templateFile), "utf-8");
             markFileAsModified(templateFile, authorName);
           }
         }
@@ -1027,10 +1000,7 @@ export function registerSectionsRoutes(app: Express): void {
         `sections[${sectionIndex}]`,
       );
 
-      const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
-      const { escaped, map } = escapeObjectVars(entryData);
-      const dumped = yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
-      fs.writeFileSync(entryFilePath, unescapeYamlDump(dumped, map), "utf-8");
+      fs.writeFileSync(entryFilePath, dumpContentYaml(entryData, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }, entryFilePath), "utf-8");
       markFileAsModified(entryFilePath, authorName);
 
       res.json({

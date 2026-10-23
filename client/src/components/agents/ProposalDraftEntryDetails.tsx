@@ -21,6 +21,7 @@ export type DraftEntryV1 = {
   author_diff_approximate?: boolean;
   requested_ops?: Array<{ field_path: string; value?: unknown; op?: "set" | "remove" }>;
   ops_match_request?: boolean;
+  unrequested_fields?: string[];
   draft_missing?: boolean;
   base_status?: "ok" | "stale" | "unknown";
   merge_preview?: {
@@ -189,6 +190,19 @@ export function ProposalDraftEntryDetails({ entry }: { entry: DraftEntryV1 }) {
       })}
       {entry.ops_match_request === false && entry.requested_ops?.length ? (
         <div className="rounded-md border border-border">
+          {entry.unrequested_fields?.length ? (
+            <p
+              className="flex items-start gap-1.5 border-b border-border px-3 py-2 text-xs text-foreground"
+              data-testid={`text-proposal-entry-unrequested-${entry.id}`}
+            >
+              <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+              <span>
+                Publishing would also change fields the author did not ask for:{" "}
+                <span className="font-mono">{entry.unrequested_fields.join(", ")}</span>. If they are not
+                intended, ask the author to revise; that restarts the draft from today's live page.
+              </span>
+            </p>
+          ) : null}
           <button
             type="button"
             className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs text-muted-foreground hover:text-foreground"

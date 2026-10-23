@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch } from "wouter";
 import { ENTRY_ACTIVITY_WINDOW_DAYS } from "@shared/event-log-filters";
@@ -36,16 +36,18 @@ import { Link2, Loader2, Unlink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { apiFetch } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 import { emitContentUpdated, emitVariantCreated, emitVariantDeleted, emitVariantPromoted } from "@/lib/contentEvents";
 import { TEMPLATE_VERSIONING_SLUG, versioningContentSlug } from "@/lib/sharedLayoutEntry";
 import { isReservedContentSlug } from "@shared/safe-href";
 import { getFolderFromType, useContentTypes } from "@/hooks/useContentTypes";
 import { FolderRestoreDialog, type FolderRestoreResult, type FolderRestoreTarget } from "./FolderRestoreDialog";
-import type { MenuView, ContentInfo, VersioningResponse } from "../types";
+import type { MenuView, ContentInfo, VersioningResponse, PendingProposalForPage } from "../types";
 import { STORAGE_KEY, OPEN_STORAGE_KEY } from "../types";
 import { PageHealthIndicators } from "./PageHealthIndicators";
 import { LayoutApprovalControl } from "./LayoutApprovalControl";
 import { VariantProposalBadge } from "./VariantProposalBadge";
+import { PendingProposalsDialog } from "./PendingProposalsDialog";
 import { LocaleFlag } from "./LocaleFlag";
 import type { PageErrorsTab } from "./PageErrorsModal";
 
@@ -310,18 +312,34 @@ export function VersioningView({
   const [registeringVariant, setRegisteringVariant] = useState<string | null>(null);
   const entryKey = pageDiagnosticsEntryKey?.trim() || "";
   const [activityOpen, setActivityOpen] = useState(false);
+  const [proposalsChooserOpen, setProposalsChooserOpen] = useState(false);
   const activityCountQuery = useQuery({
     queryKey: ["/api/admin/entry-activity-count", entryKey, ENTRY_ACTIVITY_WINDOW_DAYS],
     enabled: Boolean(entryKey),
+    refetchInterval: 60_000,
     queryFn: async () => {
       const params = new URLSearchParams({ entry: entryKey });
       const res = await apiFetch(`/api/admin/entry-activity-count?${params}`);
       if (!res.ok) throw new Error("Failed to load write count");
-      return (await res.json()) as { writeCount: number; windowDays: number };
+      return (await res.json()) as {
+        writeCount: number;
+        windowDays: number;
+        openProposals?: PendingProposalForPage[];
+      };
     },
   });
   const writeCount = activityCountQuery.data?.writeCount ?? 0;
   const windowDays = activityCountQuery.data?.windowDays ?? ENTRY_ACTIVITY_WINDOW_DAYS;
+  const openProposals = activityCountQuery.data?.openProposals ?? [];
+  const pendingCount = openProposals.length;
+  const hasAgentProposal = openProposals.some((p) => p.proposer_kind === "agent");
+  const [robotDancing, setRobotDancing] = useState(false);
+  const prevPendingRef = useRef(0);
+  useEffect(() => {
+    if (pendingCount > prevPendingRef.current && hasAgentProposal) setRobotDancing(true);
+    prevPendingRef.current = pendingCount;
+  }, [pendingCount, hasAgentProposal]);
+  const writesLabel = `${writeCount} write${writeCount === 1 ? "" : "s"} in the last ${windowDays} days`;
   // Keep the control visible in read mode while diagnostics (entryKey) or write count load.
   const writeCountLoading =
     !entryKey
@@ -329,6 +347,11 @@ export function VersioningView({
       : activityCountQuery.data === undefined &&
         (activityCountQuery.isPending || activityCountQuery.isFetching);
   const showActivityButton = Boolean(entryKey) || pageDiagnosticsLoading;
+  const activityLabel = writeCountLoading
+    ? `Loading writes in the last ${windowDays} days`
+    : pendingCount > 0
+      ? `${pendingCount} proposal${pendingCount === 1 ? "" : "s"} waiting for review · ${writesLabel}`
+      : writesLabel;
   const locales = versioningData?.versioning ? Object.keys(versioningData.versioning) : [];
   const dialogLocales = locales.length > 0 ? locales : (versioningData?.availableLocales ?? ["en"]);
 
@@ -386,6 +409,10 @@ export function VersioningView({
 
   const searchString = useSearch();
   const activeVariant = new URLSearchParams(searchString).get("variant") ?? null;
+  const pathLocale = pathname.split("/")[1] ?? "";
+  const activeLocale =
+    new URLSearchParams(searchString).get("locale") ??
+    (dialogLocales.includes(pathLocale) ? pathLocale : null);
 
   const [editingLocale, setEditingLocale] = useState<string | null>(null);
   const [tempAllocations, setTempAllocations] = useState<Record<string, number>>({});
@@ -1286,29 +1313,37 @@ export function VersioningView({
                     className="h-7 gap-1 px-1.5 text-xs"
                     onClick={() => {
                       if (!entryKey) return;
-                      setActivityOpen(true);
+                      if (pendingCount > 0) setProposalsChooserOpen(true);
+                      else setActivityOpen(true);
                     }}
                     disabled={!entryKey && writeCountLoading}
                     data-testid="button-open-versioning-activity"
-                    title={
-                      writeCountLoading
-                        ? `Activity · loading writes in the last ${windowDays} days`
-                        : `Activity · ${writeCount} write${writeCount === 1 ? "" : "s"} in the last ${windowDays} days`
-                    }
-                    aria-label={
-                      writeCountLoading
-                        ? `Loading writes in the last ${windowDays} days`
-                        : `${writeCount} write${writeCount === 1 ? "" : "s"} in the last ${windowDays} days`
-                    }
+                    data-pending-proposals={pendingCount || undefined}
+                    title={`Activity · ${activityLabel}`}
+                    aria-label={activityLabel}
                     aria-busy={writeCountLoading || undefined}
                   >
-                    <IconRobot className="h-3.5 w-3.5" />
+                    <span
+                      className={cn(
+                        "inline-flex",
+                        robotDancing && "animate-robot-dance motion-reduce:animate-none",
+                      )}
+                      onAnimationEnd={() => setRobotDancing(false)}
+                      data-testid="icon-versioning-activity-robot"
+                    >
+                      <IconRobot className="h-3.5 w-3.5" />
+                    </span>
                     <Badge
                       variant="secondary"
-                      className="h-5 min-w-5 px-1.5 text-[10px] font-normal tabular-nums bg-muted text-muted-foreground border border-border shadow-none"
+                      className={cn(
+                        "h-5 min-w-5 px-1.5 text-[10px] tabular-nums border shadow-none",
+                        pendingCount > 0
+                          ? "bg-status-away/15 text-status-away border-status-away/40 font-medium"
+                          : "bg-muted text-muted-foreground border-border font-normal",
+                      )}
                       data-testid="badge-versioning-activity-count"
                     >
-                      {writeCountLoading ? "…" : writeCount}
+                      {writeCountLoading ? "…" : pendingCount > 0 ? pendingCount : writeCount}
                     </Badge>
                   </Button>
                 ) : null}
@@ -1338,6 +1373,17 @@ export function VersioningView({
           onOpenChange={setActivityOpen}
           testIdPrefix="versioning-activity"
           pageUrl={pageDiagnosticsUrl ?? undefined}
+        />
+      ) : null}
+
+      {pendingCount > 0 ? (
+        <PendingProposalsDialog
+          open={proposalsChooserOpen}
+          onOpenChange={setProposalsChooserOpen}
+          proposals={openProposals}
+          page={{ type: contentInfo.type, slug: contentInfo.slug, locale: activeLocale }}
+          navigate={navigate}
+          onSeePastSaves={() => setActivityOpen(true)}
         />
       ) : null}
 

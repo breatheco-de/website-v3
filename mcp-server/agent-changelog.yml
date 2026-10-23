@@ -5,6 +5,48 @@
 window_days: 6
 
 entries:
+  - date: "2026-10-23"
+    summary: "Saves that would write a destroyed {{ }} placeholder ({\"[object Object]\": null}) are blocked; nothing is written"
+    agent_impact:
+      - "Any content write (update_fields, section edits, detach, publish stamps, MCP file writes) fails with errorCode corrupted_template_value when the data carries a \"[object Object]\" key. The message names the file and key paths (e.g. sections.1.updated_at); the file on disk and GitHub is unchanged. Do not retry or work around it: report the file and paths to staff, the dev team must restore the placeholder from git history."
+      - "New validator corrupted-template-values (issue code CORRUPTED_TEMPLATE_VALUE, coding_agent_only) lists files that still carry the broken value; MCP agents must not claim it."
+    tools_changed: false
+    paths:
+      - server/content-yaml.ts
+      - shared/templateVars.ts
+      - scripts/validation/validators/corrupted-template-values.ts
+  - date: "2026-10-23"
+    summary: "Proposals flag draft fields the author did not send; required-field gate no longer calls text with site tokens empty"
+    agent_impact:
+      - "list_proposals(proposal_id): entries carry unrequested_fields (draft fields that would publish with no requested op covering them; updated_at excluded) and ops_match_request is false when any exist. Warning draft_has_unrequested_fields + update_proposal revise_entries next_action. Author: revise with only the intended ops (restarts a draft this proposal created from today's live). Reviewer: judge them as ops; unintended → blocker asking the author to revise."
+      - "Apply / promote no longer fail seo_gate 'Field content is required ... cannot be empty' when the text uses site tokens such as {{ global.price_ai_engineering | $399 }}. Only a value that is nothing but placeholders (e.g. {{ entry.content }}) counts as empty."
+    tools_changed: false
+    paths:
+      - server/content-proposals/service.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/proposals.md
+      - shared/validateRequiredFields.ts
+  - date: "2026-10-23"
+    summary: "Ideas built around an existing file name its media_id + src; proposal summary and rationale render as Markdown"
+    agent_impact:
+      - "propose_change kind idea: when the page hands out or is built on an existing file (PDF lead magnet, video, image), put its gallery media_id and public src URL in summary or rationale. Reviewers add_blocker when it is missing (idea-opportunity-harm disposition + author checklist)."
+      - "Staff see proposal summary and rationale rendered as Markdown on the proposal page: bare URLs become links, lists and `code` render, single line breaks are kept."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/idea-opportunity-harm-proposals.md
+      - mcp-server/explain/proposals.md
+      - client/src/components/agents/ProposalMarkdown.tsx
+  - date: "2026-10-23"
+    summary: "add_blocker body is Markdown: one-line verdict, blank line, numbered list with one item per problem"
+    agent_impact:
+      - "update_proposal add_blocker body: write a one-sentence verdict, a blank line, then a Markdown numbered list (1. 2. …) with one item per problem, each saying what's wrong, what fixed looks like and why it matters. Wrap field paths, slugs and URLs in backticks; no headings or tables. Min 80 chars is unchanged."
+      - "Staff see blocker bodies and resolve notes rendered as Markdown on the proposal page; older bodies written as inline (1) (2) (3) are shown as a list automatically, so do not rewrite existing blockers."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/internal-links-proposals.md
+      - client/src/components/agents/ProposalMarkdown.tsx
   - date: "2026-10-22"
     summary: "agent_session ids are server-issued: start ignores a passed id; invented ids (new, pending, placeholder…) are refused"
     agent_impact:

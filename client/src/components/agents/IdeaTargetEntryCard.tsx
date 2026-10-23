@@ -155,7 +155,7 @@ function AudienceCards({ bindings }: { bindings: Array<{ product: string; person
   const bySlug = new Map((data?.products ?? []).map((p) => [p.content_slug, p]));
 
   return (
-    <div className="grid gap-2 sm:grid-cols-2" data-testid="badge-idea-funnel">
+    <div className="grid gap-2 @xl:grid-cols-2" data-testid="badge-idea-funnel">
       {bindings.map((b) => {
         const product = bySlug.get(b.product);
         const productName = product?.name || b.product;
@@ -216,7 +216,7 @@ function FunnelSummary({
           ? "Funnel locked at accept (read-only). It was copied into the new page."
           : "Where this page sits in the buyer journey and who it is for. Locked when the idea is accepted and copied into the new page."}
       </p>
-      <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-3">
+      <dl className="grid gap-x-6 gap-y-3 @xl:grid-cols-3">
         <div className="min-w-0 space-y-1" data-testid="meta-idea-funnel-stage">
           <dt className={FIELD_LABEL}>Stage</dt>
           {stage && StageIcon && taper ? (
@@ -240,7 +240,7 @@ function FunnelSummary({
             </dd>
           )}
         </div>
-        <div className="min-w-0 space-y-1 sm:col-span-2" data-testid="meta-idea-funnel-audience">
+        <div className="min-w-0 space-y-1 @xl:col-span-2" data-testid="meta-idea-funnel-audience">
           <dt className={FIELD_LABEL}>Audience</dt>
           {!funnel ? (
             <dd className="text-sm text-muted-foreground">Not set</dd>
@@ -310,7 +310,7 @@ export function IdeaTargetEntryCard({
       data-testid="card-idea-target-entry"
     >
       <p className="text-xs font-semibold text-foreground">Target entry</p>
-      <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-3">
+      <dl className="grid gap-x-6 gap-y-3 @xl:grid-cols-3">
         <div className="min-w-0 space-y-1" data-testid="meta-idea-target-type">
           <dt className={FIELD_LABEL}>{shownTypes.length > 1 ? "Types" : "Type"}</dt>
           {shownTypes.length ? (

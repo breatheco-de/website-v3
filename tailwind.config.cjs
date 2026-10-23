@@ -132,14 +132,26 @@ module.exports = {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0" },
         },
+        "robot-dance": {
+          "0%, 100%": { transform: "rotate(0deg) translateY(0)" },
+          "20%": { transform: "rotate(-14deg) translateY(-1px)" },
+          "40%": { transform: "rotate(12deg) translateY(0)" },
+          "60%": { transform: "rotate(-10deg) translateY(-1px)" },
+          "80%": { transform: "rotate(8deg) translateY(0)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         blink: "blink 1s steps(1) infinite",
+        "robot-dance": "robot-dance 0.9s ease-in-out 3",
       },
     },
   },
   safelist: ["group/editimg", "group-hover/editimg:visible"],
-  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
+  plugins: [
+    require("tailwindcss-animate"),
+    require("@tailwindcss/typography"),
+    require("@tailwindcss/container-queries"),
+  ],
 };

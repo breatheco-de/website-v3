@@ -3,7 +3,7 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import * as yaml from "js-yaml";
+import { dumpContentYaml, loadContentYamlObject } from "./content-yaml";
 import { getContentTypeConfig, getFolder } from "./content-types";
 import { getDefaultContentRoot } from "./site-config";
 import { markFileAsModified } from "./sync-state";
@@ -37,7 +37,7 @@ function readCommonAuthors(
   const commonPath = path.join(contentRoot, folder, slug, "_common.yml");
   if (!fs.existsSync(commonPath)) return [];
   try {
-    const data = (yaml.load(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown>) || {};
+    const data = loadContentYamlObject(fs.readFileSync(commonPath, "utf-8")) ?? {};
     const raw = data.authors;
     if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
     if (typeof raw === "string" && raw.trim()) return [raw.trim()];
@@ -58,10 +58,10 @@ function writeCommonAuthors(
   const commonPath = path.join(contentRoot, folder, slug, "_common.yml");
   let data: Record<string, unknown> = {};
   if (fs.existsSync(commonPath)) {
-    data = (yaml.load(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown>) || {};
+    data = loadContentYamlObject(fs.readFileSync(commonPath, "utf-8")) ?? {};
   }
   data.authors = authors;
-  fs.writeFileSync(commonPath, yaml.dump(data, { lineWidth: 120, noRefs: true, sortKeys: false }), "utf-8");
+  fs.writeFileSync(commonPath, dumpContentYaml(data, { lineWidth: 120, noRefs: true, sortKeys: false }, commonPath), "utf-8");
   markFileAsModified(commonPath, author, undefined, contentRoot);
 }
 

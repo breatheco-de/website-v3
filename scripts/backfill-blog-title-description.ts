@@ -12,7 +12,7 @@
  */
 import fs from "fs";
 import path from "path";
-import yaml from "js-yaml";
+import { dumpContentYaml, loadContentYamlObject } from "../server/content-yaml";
 
 const BLOG_ROOT = path.join(process.cwd(), "site_4geeks-com", "blog");
 const SITE_SUFFIX_RE = /\s*\|\s*4Geeks\s*$/i;
@@ -25,16 +25,14 @@ const GENERIC_CTA_TITLE_RE =
 function loadYaml(filePath: string): Record<string, unknown> | null {
   if (!fs.existsSync(filePath)) return null;
   try {
-    const data = yaml.load(fs.readFileSync(filePath, "utf-8"));
-    if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-    return data as Record<string, unknown>;
+    return loadContentYamlObject(fs.readFileSync(filePath, "utf-8"));
   } catch {
     return null;
   }
 }
 
 function dumpYaml(data: Record<string, unknown>): string {
-  return yaml.dump(data, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
+  return dumpContentYaml(data, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
 }
 
 function isNonEmptyString(v: unknown): v is string {

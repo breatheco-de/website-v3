@@ -71,6 +71,20 @@ export interface VariantProposalLink {
   updated_at?: number;
 }
 
+/** Open proposal on this page (or on the shared layout it is attached to), from entry-activity-count. */
+export interface PendingProposalForPage {
+  id: string;
+  title: string;
+  status: string;
+  proposer_username: string;
+  proposer_kind: "agent" | "staff";
+  updated_at: number;
+  open_blocker_count: number;
+  entries: Array<{ locale: string; variant: string | null }>;
+  shared_layout: boolean;
+  affected_count: number | null;
+}
+
 export interface ContentInfo {
   type: string | null;
   slug: string | null;

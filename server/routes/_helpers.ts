@@ -87,10 +87,7 @@ import {
 } from "../content-editor";
 import { bindingManager } from "../bindings";
 import { loadYamlWithTemplateVars } from "../yaml-parse-cache";
-import {
-  escapeObjectVars,
-  unescapeYamlDump,
-} from "@shared/templateVars";
+import { dumpContentYaml } from "../content-yaml";
 import {
   getVersioningManager,
   readUserId,
@@ -908,9 +905,7 @@ export function resolveVariantAssignment(
 }
 
 export function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
-  const { escaped, map } = escapeObjectVars(obj);
-  const dumped = yaml.dump(escaped, opts);
-  return unescapeYamlDump(dumped, map);
+  return dumpContentYaml(obj, opts);
 }
 
 

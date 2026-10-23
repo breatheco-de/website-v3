@@ -53,6 +53,7 @@ import { queryClient } from "@/lib/queryClient";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { LocaleFlag } from "./components/LocaleFlag";
 import { DebugPanelContent } from "./components/DebugPanelContent";
+import { ProposalEditGuardHost } from "./components/ProposalEditGuardHost";
 import { useQuery } from "@tanstack/react-query";
 import {
   STORAGE_KEY,
@@ -2358,6 +2359,11 @@ export function DebugBubble() {
   return (
     <div className="fixed bottom-4 left-4 z-50 flex flex-col gap-2 items-start" data-testid="debug-bubble">
       {proposalDraftPushDialog}
+      <ProposalEditGuardHost
+        contentType={contentInfo.type}
+        slug={contentInfo.slug}
+        proposalsByVariant={versioningData?.proposalsByVariant}
+      />
       {showForkBubble && (
         <div className="relative flex items-center">
           {pageIsSharedLayout && (

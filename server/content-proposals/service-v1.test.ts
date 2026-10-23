@@ -1584,6 +1584,22 @@ describe("proposals v1.0 (draft-first)", () => {
     expect(fake.drafts.get("blog/hello/es/draft")!.data).toMatchObject({ description: "Staff D" });
   });
 
+  it("flags draft fields the author did not send (updated_at is a system stamp)", async () => {
+    const fake = fakeDraftStore({ "blog/hello/es": { title: "Old" } });
+    const { svc } = makeService({ store: fake.store });
+    const created = await svc.create({ title: "Title fix", summary: SUMMARY, entries: [entry()] }, { username: "alice" });
+    if (!created.ok) throw new Error(created.error);
+    const draft = fake.drafts.get("blog/hello/es/draft")!;
+    draft.data = { ...draft.data, updated_at: "2026-10-22T00:00:00Z" };
+    expect(svc.get(created.proposal.id)!.entries[0]).toMatchObject({ ops_match_request: true });
+    expect(svc.get(created.proposal.id)!.entries[0]!.unrequested_fields).toBeUndefined();
+
+    draft.data = { ...draft.data, tags: ["career-support"], funnel: { stage: "awareness", products: "all" } };
+    const e = svc.get(created.proposal.id)!.entries[0]!;
+    expect(e.ops_match_request).toBe(false);
+    expect([...(e.unrequested_fields ?? [])].sort()).toEqual(["funnel", "tags"]);
+  });
+
   it("isSystemDraftEditor: processes are not people", () => {
     for (const e of ["", "  ", "unknown", "Unknown", "system", "github-pull", "migration:006", "system:applies-after"]) {
       expect(isSystemDraftEditor(e), e).toBe(true);

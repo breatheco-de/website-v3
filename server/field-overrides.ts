@@ -9,7 +9,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
-import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
+import { dumpContentYaml } from "./content-yaml";
 import { getLegacySingleVarWriteError } from "@shared/entryTemplateVars";
 import { coerceEditorSelectScalar } from "@shared/editor-field-values";
 import {
@@ -125,8 +125,7 @@ export type WriteMappedFieldsResult = {
 };
 
 function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
-  const { escaped, map } = escapeObjectVars(obj);
-  return unescapeYamlDump(yaml.dump(escaped, opts), map);
+  return dumpContentYaml(obj, opts);
 }
 
 export type FieldOverrideSource =

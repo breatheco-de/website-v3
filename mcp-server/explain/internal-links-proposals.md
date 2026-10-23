@@ -208,8 +208,10 @@ Applied vs live: content-only hub links. Destinations exist in this locale. Live
 
 **Reviewer, blocker body**
 
-```text
-The proposed body adds the hub URL by inventing a closing pitch paragraph the live article does not have. Fixed looks like: wrap the existing “ingeniero de prompts” phrase and delete the new “empieza hoy” sentence. Why it matters: hub links can ship; a new sales claim cannot ride along without review as a separate conversion edit.
+```markdown
+Hub links are fine, but the body adds a sales claim the live article does not have.
+
+1. The proposed body adds the hub URL by inventing a closing pitch paragraph. Fixed looks like: wrap the existing “ingeniero de prompts” phrase and delete the new “empieza hoy” sentence. Why it matters: hub links can ship; a new sales claim cannot ride along without review as a separate conversion edit.
 ```
 
 ---

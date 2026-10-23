@@ -9,7 +9,7 @@
 
 import fs from "fs";
 import path from "path";
-import yaml from "js-yaml";
+import { dumpContentYaml, loadContentYamlObject } from "./content-yaml";
 import {
   DEPRECATED_FIELD_CODE,
   deprecatedFieldMessage,
@@ -61,10 +61,7 @@ export function getDeprecatedFieldsForType(
 function readYamlObject(filePath: string): Record<string, unknown> | null {
   try {
     if (!fs.existsSync(filePath)) return null;
-    const parsed = yaml.load(fs.readFileSync(filePath, "utf-8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
+    return loadContentYamlObject(fs.readFileSync(filePath, "utf-8"));
   } catch {
     return null;
   }
@@ -261,7 +258,7 @@ export function stripDeprecatedFromEntryFolder(
     const gone = stripDeprecatedKeys(data, editor);
     if (gone.length === 0) continue;
     gone.forEach((f) => removed.add(f));
-    fs.writeFileSync(filePath, yaml.dump(data, { lineWidth: 120, noRefs: true, sortKeys: false }), "utf-8");
+    fs.writeFileSync(filePath, dumpContentYaml(data, { lineWidth: 120, noRefs: true, sortKeys: false }, filePath), "utf-8");
   }
   return Array.from(removed);
 }

@@ -59,8 +59,14 @@ describe("validateRequiredFields", () => {
     expect(isEmptyRequiredValue("")).toBe(true);
     expect(isEmptyRequiredValue("  ")).toBe(true);
     expect(isEmptyRequiredValue("{{ single.title }}")).toBe(true);
+    expect(isEmptyRequiredValue(" {{ entry.content }} {{ entry.title }} ")).toBe(true);
     expect(isEmptyRequiredValue("Real title")).toBe(false);
     expect(isEmptyRequiredValue({})).toBe(true);
+  });
+
+  it("text that uses site tokens is not empty", () => {
+    expect(isEmptyRequiredValue("Tuition is {{ global.price_ai_engineering | $399 }} a month.")).toBe(false);
+    expect(isEmptyRequiredValue("{{ global.price | $399 }} per month")).toBe(false);
   });
 
   it("fails when a required field is empty with mode-aware message", () => {

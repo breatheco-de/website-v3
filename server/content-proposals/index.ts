@@ -71,6 +71,11 @@ export {
   isProposalAttention,
 } from "./attention";
 export {
+  groupOpenProposals,
+  listPendingProposalsForPage,
+  type PendingProposalForPage,
+} from "./page-pending";
+export {
   resolveProposalEntryActivity,
   listEntryActivityEvents,
   activityKeysForEntries,

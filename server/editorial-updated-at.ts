@@ -8,7 +8,7 @@
 
 import fs from "fs";
 import path from "path";
-import yaml from "js-yaml";
+import { dumpContentYaml, loadContentYamlObject } from "./content-yaml";
 import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
 import {
   getFolder,
@@ -373,11 +373,11 @@ export function persistUpdatedAtOnYamlFile(
 ): boolean {
   if (!fs.existsSync(filePath)) return false;
   try {
-    const data = (yaml.load(fs.readFileSync(filePath, "utf-8")) as Record<string, unknown>) || {};
+    const data = loadContentYamlObject(fs.readFileSync(filePath, "utf-8")) ?? {};
     setYamlUpdatedAt(data, iso);
     fs.writeFileSync(
       filePath,
-      yaml.dump(data, { lineWidth: -1, noRefs: true, sortKeys: false }),
+      dumpContentYaml(data, { lineWidth: -1, noRefs: true, sortKeys: false }, filePath),
       "utf-8",
     );
     markFileAsModified(filePath, author, undefined, contentRoot);

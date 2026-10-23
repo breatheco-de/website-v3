@@ -10,6 +10,7 @@ import { fingerprintEdits, fingerprintNotes } from "./fingerprint";
 import { discardSeededAttachedEntry, seedAttachedLocaleFiles } from "./seed-attached-entry";
 import {
   createProposalService,
+  listOpenProposalsForEntry,
   listOpenProposalsForVariant,
   parseProposalSort,
   parseProposerActorType,
@@ -1134,6 +1135,28 @@ describe("content proposals", () => {
     const listed = listOpenProposalsForVariant(SITE, "blog", "hello", "es", "agent-fix");
     expect(listed.some((p) => p.id === created.proposal.id)).toBe(true);
     expect(listOpenProposalsForVariant(SITE, "blog", "hello", "es", "other").length).toBe(0);
+  });
+
+  it("listOpenProposalsForEntry reports open blockers per proposal", async () => {
+    const svc = makeService();
+    const created = await svc.create(
+      {
+        title: "Entry list with blocker",
+        summary: "Entry list helper should carry the open blocker count for the robot button. ".repeat(2),
+        entries: [sampleEntry()],
+      },
+      { username: "alice" },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(listOpenProposalsForEntry(SITE, "blog", "hello")[0]?.open_blocker_count).toBe(0);
+    const blocked = await svc.update(created.proposal.id, "add_blocker", {
+      username: "blake",
+      body: "Hero CTA still points at the old bootcamp page; it must point at AI Flex so leads reach the right funnel.",
+    });
+    expect(blocked.ok).toBe(true);
+    const rows = listOpenProposalsForEntry(SITE, "blog", "hello");
+    expect(rows.find((r) => r.id === created.proposal.id)?.open_blocker_count).toBe(1);
   });
 
   it("promote apply requires confirm_end_experiment when siblings have traffic", async () => {

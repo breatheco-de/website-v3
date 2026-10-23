@@ -29,6 +29,7 @@ const RUN_CLASS_BY_NAME: Record<string, ValidatorRunClass> = {
   "unassigned-variables": "cross-entry",
   "variables-metadata": "cross-entry",
   "draft-integrity": "cross-entry",
+  "corrupted-template-values": "cross-entry",
   images: "media",
   "image-tags": "media",
   "image-optimization": "media",
