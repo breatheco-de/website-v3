@@ -35,7 +35,7 @@ export interface VersioningLocale {
   started_at?: string;
 }
 
-/** Site-wide A/B testing readiness (Settings → A/B testing). */
+/** Site-wide A/B testing readiness (Settings → Tracking → A/B testing). */
 export interface AbTestingStatus {
   set_up: boolean;
   latest_check_ok: boolean;

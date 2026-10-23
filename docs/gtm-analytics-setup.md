@@ -167,7 +167,7 @@ Check Tag Assistant on a YouTube landing. With a listen card, `gtm.video` is abs
 
 ### Page tests (A/B versions)
 
-Page tests run only after **Settings → A/B testing → Setup** passes for the site. Until then every visitor sees Default.
+Page tests run only after **Settings → Tracking → A/B testing → Setup** passes for the site. Until then every visitor sees Default.
 
 **What the site sends**
 
@@ -189,7 +189,7 @@ The GA4 client and GA4 tag pass event parameters through. Check that no paramete
 
 **GA4**
 
-- Register event-scoped custom dimensions `experiment_id` and `variant`: from **Settings → A/B testing → Google Analytics** (Create them) or by hand in GA4 Admin → Custom definitions. Without them, GA4 reports can't split by version; the BigQuery export still has the parameters.
+- Register event-scoped custom dimensions `experiment_id` and `variant`: from **Settings → Tracking → A/B testing → Google Analytics** (Create them) or by hand in GA4 Admin → Custom definitions. Without them, GA4 reports can't split by version; the BigQuery export still has the parameters.
 - Per-version Explorations: segment sessions that include `experiment_exposure` with `variant` = `b` (and one for `default`), then compare sessions, engagement and key events.
 - Keep the event and parameter names: `server/ads/paid-detection.ts` reads `experiment_exposure` / `experiment_id` / `variant` from BigQuery for the paid and organic per-version numbers.
 

@@ -4,7 +4,6 @@ import { useLocation } from "wouter";
 import {
   IconArrowLeft,
   IconChartBar,
-  IconFlask,
   IconInfoCircle,
   IconSearch,
   IconSettings,
@@ -46,7 +45,6 @@ const SETTINGS_SECTIONS: {
   { id: "general", label: "General", href: "/private/settings/locales", Icon: IconSettings },
   { id: "seo", label: "SEO/GEO", href: "/private/settings/seo", Icon: IconSearch },
   { id: "ads", label: "Ads", href: "/private/settings/ads", Icon: IconSpeakerphone },
-  { id: "ab-testing", label: "A/B testing", href: "/private/settings/ab-testing", Icon: IconFlask },
   { id: "ai", label: "AI", href: "/private/settings/ai", Icon: IconSparkles },
   {
     id: "tracking",

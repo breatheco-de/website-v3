@@ -25,10 +25,13 @@ import {
   IconTrash,
   IconListDetails,
   IconDatabase,
+  IconFlask,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { SettingsShell, type SettingsSecondaryTab } from "@/components/settings/SettingsShell";
+import { AbTestingPanel } from "@/components/settings/AbTestingPanel";
+import { AB_TESTING_HREF } from "@/lib/settings-tab";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -45,16 +48,18 @@ import { cn } from "@/lib/utils";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { MetricsAccessGate } from "@/components/MetricsAccessGate";
 
-type TrackingTab = "events" | "sgtm" | "ipn" | "ga4";
+type TrackingTab = "events" | "ab-testing" | "sgtm" | "ipn" | "ga4";
 
 const TRACKING_TABS: SettingsSecondaryTab<TrackingTab>[] = [
   { id: "events", href: "/private/tracking", label: "Events", Icon: IconChartBar },
+  { id: "ab-testing", href: AB_TESTING_HREF, label: "A/B testing", Icon: IconFlask },
   { id: "sgtm", href: "/private/tracking/sgtm", label: "sGTM", Icon: IconServer },
   { id: "ipn", href: "/private/tracking/ipn", label: "IP Normalization", Icon: IconShieldLock },
   { id: "ga4", href: "/private/tracking/ga4", label: "GA4", Icon: IconDatabase },
 ];
 
 function resolveTrackingTab(pathname: string): TrackingTab {
+  if (pathname === AB_TESTING_HREF) return "ab-testing";
   if (pathname === "/private/tracking/sgtm") return "sgtm";
   if (pathname === "/private/tracking/ipn") return "ipn";
   if (pathname === "/private/tracking/ga4" || pathname === "/private/tracking/bigquery") return "ga4";
@@ -2058,16 +2063,24 @@ function BigQuerySection() {
 
 
 export default function TrackingPage() {
+  const [pathname] = useLocation();
+  const activeTab = resolveTrackingTab(pathname);
+
+  // A/B testing keeps its own permissions (content access), so staff without metrics access can still reach it.
+  if (activeTab === "ab-testing") return <TrackingPageInner activeTab={activeTab} />;
   return (
     <MetricsAccessGate>
-      <TrackingPageInner />
+      <TrackingPageInner activeTab={activeTab} />
     </MetricsAccessGate>
   );
 }
 
-function TrackingPageInner() {
-  const [pathname] = useLocation();
-  const activeTab = resolveTrackingTab(pathname);
+function TrackingPageInner({ activeTab }: { activeTab: TrackingTab }) {
+  const { hasCapability } = useDebugAuth();
+  const canViewMetrics = hasCapability("metrics_view");
+  const tabs = canViewMetrics
+    ? TRACKING_TABS
+    : TRACKING_TABS.map((tab) => ({ ...tab, disabled: tab.id !== "ab-testing" }));
 
   return (
     <SettingsShell
@@ -2076,16 +2089,18 @@ function TrackingPageInner() {
       title="Tracking"
       titleTestId="text-tracking-title"
       backTestId="button-back-tracking"
-      description="Event catalog, server-side tagging, IP normalization, and Google Analytics for Store journey metrics."
+      description="Event catalog, A/B testing, server-side tagging, IP normalization, and Google Analytics for Store journey metrics."
       secondary={{
         value: activeTab,
-        tabs: TRACKING_TABS,
+        tabs,
         listTestId: "toggle-tracking-view",
         triggerTestId: (id) => `button-view-${id}`,
       }}
     >
         <div role="tabpanel">
-          {activeTab === "sgtm" ? (
+          {activeTab === "ab-testing" ? (
+            <AbTestingPanel />
+          ) : activeTab === "sgtm" ? (
             <div className="space-y-2">
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                 Server-Side Tag Manager

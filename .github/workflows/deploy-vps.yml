@@ -270,7 +270,7 @@ jobs:
                 summary="$(echo "$line" | sed -n 's/.*summary="\(.*\)".*/\1/p')"
                 case "$result" in
                   passed) echo "- ✅ \`$site\`: A/B split check passed. $summary" ;;
-                  failed) echo "- ❌ \`$site\`: A/B split check FAILED. $summary Visitors may be getting the wrong version (Settings → A/B testing → Health)." ;;
+                  failed) echo "- ❌ \`$site\`: A/B split check FAILED. $summary Visitors may be getting the wrong version (Settings → Tracking → A/B testing → Health)." ;;
                   inconclusive) echo "- ⚠️ \`$site\`: A/B split check couldn't run. $summary" ;;
                   *) echo "- ➖ \`$site\`: A/B testing not set up." ;;
                 esac

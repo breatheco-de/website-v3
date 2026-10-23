@@ -6,11 +6,21 @@ window_days: 6
 
 entries:
   - date: "2026-10-23"
+    summary: "A/B testing moved under Settings → Tracking (staff URL /private/tracking/ab-testing)"
+    agent_impact:
+      - "When pointing staff at A/B setup or health, say Settings → Tracking → A/B testing (Setup / Health / Google Analytics cards). list_variants warnings (ab_testing_not_setup, ab_check_failing) and the versioning API setup_url / health_url now use /private/tracking/ab-testing#ab-setup and #ab-health; old /private/settings/ab-testing/* links redirect."
+      - "No change to who can do what: setup and checks still need content_allocate_traffic, the GA4 dimensions card still needs metrics_view. Staff without metrics_view can open the A/B tab but not the other Tracking tabs."
+    tools_changed: false
+    paths:
+      - mcp-server/lib/ab-testing-warnings.ts
+      - server/routes/versioning.ts
+  - date: "2026-10-23"
     summary: "Page tests: list_variants warns about A/B readiness, stickiness and split mismatch; the hidden A/B check page is locked; lead page_variant can be default"
     agent_impact:
       - "list_variants adds started_at (per-locale run date) and warnings: ab_testing_not_setup (visitors only see Default until staff finish Settings → A/B testing → Setup), ab_check_failing (running tests continue; starting/raising traffic blocked), variant_assignment_sticky (visitors keep their first version; a new split only affects new visitors; allocation is staff-only), split_mismatch (locale, source, expected vs observed shares, p, through_date: results unreliable)."
       - "The landing/page ab-check entry (system: ab_check) is a locked system page: edits, deletes, renames, variants and traffic return system_page_locked; it is omitted from list_entries and listings. Do not try to edit or recreate it; only staff Setup does."
       - "Lead page_experiment_id is the visit's first test (contentType:slug:locale@YYYY-MM-DD) and page_variant can be default. get_leads_breakdown gains default rows; leads before the fix used a buggy split."
+      - "New capability ab_testing_settings (Platform Steward only): one-time A/B setup, checks, and GA4 dimensions in the staff UI. Not an MCP tool; content_allocate_traffic alone cannot set up A/B testing. When list_variants returns ab_testing_not_setup, tell staff a Platform Steward must do the setup."
     tools_changed: false
     paths:
       - mcp-server/tools/pages.ts

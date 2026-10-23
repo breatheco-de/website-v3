@@ -621,8 +621,8 @@ export function registerVersioningRoutes(app: Express): void {
               code: "ab_testing_not_setup",
               error:
                 "A/B testing has not been set up yet, so visitors only see the live page. " +
-                "Set it up in Settings → A/B testing before giving a version traffic. You can still lower or stop traffic.",
-              setup_url: "/private/settings/ab-testing/setup",
+                "A Platform Steward sets it up once in Settings → Tracking → A/B testing; until then no version can get traffic. You can still lower or stop traffic.",
+              setup_url: "/private/tracking/ab-testing#ab-setup",
             });
             return;
           }
@@ -632,7 +632,7 @@ export function registerVersioningRoutes(app: Express): void {
               error:
                 "The last A/B check failed. Running tests continue, but you can't start a test or raise traffic until a check passes. " +
                 "You can still lower or stop traffic.",
-              health_url: "/private/settings/ab-testing/health",
+              health_url: "/private/tracking/ab-testing#ab-health",
             });
             return;
           }

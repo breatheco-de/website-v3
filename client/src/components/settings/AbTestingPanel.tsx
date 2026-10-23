@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconActivityHeartbeat,
@@ -7,32 +6,19 @@ import {
   IconBrandGoogleAnalytics,
   IconCircleCheck,
   IconCircleX,
-  IconFlask,
   IconLoader2,
   IconPlayerPlay,
   IconPlugConnected,
   IconTool,
 } from "@tabler/icons-react";
-import { SettingsShell, type SettingsSecondaryTab } from "@/components/settings/SettingsShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { apiFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useDebugAuth } from "@/hooks/useDebugAuth";
+import { AB_TESTING_CARD_IDS } from "@/lib/settings-tab";
 import { cn } from "@/lib/utils";
-
-type AbTab = "setup" | "health" | "analytics";
-
-const AB_TABS: SettingsSecondaryTab<AbTab>[] = [
-  { id: "setup", href: "/private/settings/ab-testing/setup", label: "Setup", Icon: IconTool },
-  { id: "health", href: "/private/settings/ab-testing/health", label: "Health", Icon: IconActivityHeartbeat },
-  { id: "analytics", href: "/private/settings/ab-testing/analytics", label: "Google Analytics", Icon: IconBrandGoogleAnalytics },
-];
-
-function resolveAbTab(pathname: string): AbTab | null {
-  const m = /^\/private\/settings\/ab-testing\/(setup|health|analytics)\/?$/.exec(pathname);
-  return m ? (m[1] as AbTab) : null;
-}
 
 type CheckItem = { ok: boolean; detail?: string };
 type CheckRun = {
@@ -85,6 +71,16 @@ type Ga4Status = {
 };
 
 const STATUS_KEY = ["/api/settings/ab-testing"];
+
+const STEWARD_HINT = "Only a Platform Steward can do this (permission: Manage A/B testing setup).";
+
+function StewardHint({ testId }: { testId: string }) {
+  return (
+    <span className="text-xs text-muted-foreground" data-testid={testId}>
+      {STEWARD_HINT}
+    </span>
+  );
+}
 
 const CHECK_LABELS: Record<string, string> = {
   split: "Split matches the setting",
@@ -165,7 +161,7 @@ function CheckList({ run }: { run: CheckRun }) {
   );
 }
 
-function SetupTab() {
+function SetupCard({ canManage }: { canManage: boolean }) {
   const { data, isLoading } = useAbStatus();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -203,7 +199,7 @@ function SetupTab() {
 
   return (
     <div className="space-y-4">
-      <Card data-testid="panel-ab-setup">
+      <Card id="ab-setup" className="scroll-mt-6" data-testid="panel-ab-setup">
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
           <div className="flex items-center gap-2">
             <IconTool className="h-5 w-5 text-muted-foreground" />
@@ -248,7 +244,7 @@ function SetupTab() {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               onClick={() => setup.mutate()}
-              disabled={!data.can_set_up || data.running || setup.isPending}
+              disabled={!canManage || !data.can_set_up || data.running || setup.isPending}
               data-testid="button-ab-setup"
             >
               {data.running ? (
@@ -261,8 +257,12 @@ function SetupTab() {
                 "Set up A/B testing"
               )}
             </Button>
-            {!data.can_set_up && (
-              <span className="text-xs text-muted-foreground">This site has no landing or page content type to host the check page.</span>
+            {!canManage ? (
+              <StewardHint testId="text-ab-setup-steward-only" />
+            ) : (
+              !data.can_set_up && (
+                <span className="text-xs text-muted-foreground">This site has no landing or page content type to host the check page.</span>
+              )
             )}
           </div>
 
@@ -288,7 +288,7 @@ function SetupTab() {
   );
 }
 
-function HealthTab() {
+function HealthCard({ canManage }: { canManage: boolean }) {
   const { data, isLoading } = useAbStatus();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -319,7 +319,7 @@ function HealthTab() {
 
   return (
     <div className="space-y-4">
-      <Card data-testid="panel-ab-health">
+      <Card id="ab-health" className="scroll-mt-6" data-testid="panel-ab-health">
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
           <div className="flex items-center gap-2">
             <IconActivityHeartbeat className="h-5 w-5 text-muted-foreground" />
@@ -328,7 +328,8 @@ function HealthTab() {
           <Button
             variant="secondary"
             onClick={() => run.mutate()}
-            disabled={!data.check_page || data.running || run.isPending}
+            disabled={!canManage || !data.check_page || data.running || run.isPending}
+            title={canManage ? undefined : STEWARD_HINT}
             data-testid="button-ab-run-check"
           >
             {data.running ? (
@@ -348,7 +349,7 @@ function HealthTab() {
 
           {!data.check_page ? (
             <p className="text-sm text-muted-foreground" data-testid="text-ab-health-not-setup">
-              A/B testing is not set up yet. Start in the Setup tab.
+              A/B testing is not set up yet. Start with Setup above.
             </p>
           ) : !latest ? (
             <p className="text-sm text-muted-foreground">No checks yet.</p>
@@ -419,7 +420,7 @@ function HealthTab() {
   );
 }
 
-function AnalyticsTab() {
+function AnalyticsCard({ canManage }: { canManage: boolean }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data, isLoading, refetch, isFetching } = useQuery<Ga4Status>({
@@ -446,7 +447,7 @@ function AnalyticsTab() {
   });
 
   return (
-    <Card data-testid="panel-ab-analytics">
+    <Card id="ab-analytics" className="scroll-mt-6" data-testid="panel-ab-analytics">
       <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
         <div className="flex items-center gap-2">
           <IconBrandGoogleAnalytics className="h-5 w-5 text-muted-foreground" />
@@ -495,14 +496,17 @@ function AnalyticsTab() {
               <p className="text-sm text-destructive" data-testid="text-ab-ga4-fix">{data.fix}</p>
             )}
 
-            <Button
-              onClick={() => create.mutate()}
-              disabled={create.isPending || data.ok || data.step === "configure_bigquery"}
-              data-testid="button-ab-ga4-create"
-            >
-              {create.isPending && <IconLoader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-              {data.ok ? "Both dimensions exist" : "Create them"}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                onClick={() => create.mutate()}
+                disabled={!canManage || create.isPending || data.ok || data.step === "configure_bigquery"}
+                data-testid="button-ab-ga4-create"
+              >
+                {create.isPending && <IconLoader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                {data.ok ? "Both dimensions exist" : "Create them"}
+              </Button>
+              {!canManage && !data.ok && <StewardHint testId="text-ab-ga4-steward-only" />}
+            </div>
           </div>
         )}
 
@@ -530,49 +534,46 @@ function AnalyticsTab() {
   );
 }
 
-export default function AbTestingSettingsPage() {
-  const [pathname, setLocation] = useLocation();
-  const activeTab = resolveAbTab(pathname);
+export function AbTestingPanel() {
+  const { hasCapability } = useDebugAuth();
+  const canManage = hasCapability("ab_testing_settings");
+  const canViewMetrics = hasCapability("metrics_view") || canManage;
 
   useEffect(() => {
-    if (!activeTab) setLocation("/private/settings/ab-testing/setup", { replace: true });
-  }, [activeTab, setLocation]);
-
-  if (!activeTab) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-muted-foreground text-sm">Redirecting…</div>
-      </div>
-    );
-  }
+    const id = window.location.hash.slice(1);
+    if (!(AB_TESTING_CARD_IDS as readonly string[]).includes(id)) return;
+    const timer = window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: "start" }), 300);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   return (
-    <SettingsShell
-      section="ab-testing"
-      icon={IconFlask}
-      title="A/B testing"
-      titleTestId="text-ab-testing-settings-title"
-      backTestId="button-ab-testing-settings-back"
-      description="Page tests split visitors between versions of a page. Set up once per site; after every deploy we re-check that visitors get the right version."
-      advanced={
-        <>
-          <p>Visitors are split per page and language, and keep their version (cookie 4g_versioning_v2).</p>
-          <p>Staff, bots, and forced previews are never put in a test. Leads credit the first test seen in the visit (cookie 4g_visit_exp, 30 minutes).</p>
-          <p>Each test run has its own id: contentType:slug:locale@start-date.</p>
-        </>
-      }
-      secondary={{
-        value: activeTab,
-        tabs: AB_TABS,
-        listTestId: "ab-testing-settings-tablist",
-        triggerTestId: (id) => `tab-ab-testing-${id}`,
-      }}
-    >
-      <div role="tabpanel">
-        {activeTab === "setup" && <SetupTab />}
-        {activeTab === "health" && <HealthTab />}
-        {activeTab === "analytics" && <AnalyticsTab />}
+    <div className="space-y-2" data-testid="panel-ab-testing">
+      <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">A/B testing</h2>
+      <p className="text-sm text-muted-foreground">
+        Page tests split visitors between versions of a page. Set up once per site; after every deploy we re-check that
+        visitors get the right version.
+      </p>
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer text-foreground font-medium">Read more (advanced)</summary>
+        <ul className="mt-2 list-disc pl-5 space-y-1">
+          <li>
+            Visitors are split per page and language, and keep their version (cookie{" "}
+            <span className="font-mono">4g_versioning_v2</span>).
+          </li>
+          <li>
+            Staff, bots, and forced previews are never put in a test. Leads credit the first test seen in the visit (cookie{" "}
+            <span className="font-mono">4g_visit_exp</span>, 30 minutes).
+          </li>
+          <li>
+            Each test run has its own id: <span className="font-mono">contentType:slug:locale@start-date</span>.
+          </li>
+        </ul>
+      </details>
+      <div className="space-y-4 pt-2">
+        <SetupCard canManage={canManage} />
+        <HealthCard canManage={canManage} />
+        {canViewMetrics && <AnalyticsCard canManage={canManage} />}
       </div>
-    </SettingsShell>
+    </div>
   );
 }

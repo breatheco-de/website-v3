@@ -1,11 +1,15 @@
 /**
- * Settings → A/B testing: setup (hidden check page), health (checks), GA4 dimensions,
+ * Settings → Tracking → A/B testing: setup (hidden check page), health (checks), GA4 dimensions,
  * plus the loopback deploy hook that re-checks every site after a deploy.
  */
 
 import type { Express, Request, Response } from "express";
 import { api } from "../rate-limit/api.js";
-import { requireCapability } from "./_helpers";
+import { requireAnyCapability, requireCapability } from "./_helpers";
+import type { CapabilityName } from "@shared/capabilities";
+
+/** Read the A/B testing page: the people who set it up, or anyone who reads diagnostics. */
+const AB_READ_CAPS: CapabilityName[] = ["ab_testing_settings", "metrics_view"];
 import { getSiteContextMap, type SiteContext } from "../site-manager";
 import {
   checkPageContentType,
@@ -86,7 +90,7 @@ export function registerAbTestingRoutes(app: Express): void {
     "/api/settings/ab-testing",
     { rate: "exempt", reason: "staff settings read, capability-gated" },
     async (req, res) => {
-      const auth = await requireCapability(req, res, "content_view");
+      const auth = await requireAnyCapability(req, res, AB_READ_CAPS);
       if (!auth.authorized) return;
       const site = siteOf(res);
       // Recovery (3b): the check page exists but this server lost its setup record.
@@ -99,7 +103,7 @@ export function registerAbTestingRoutes(app: Express): void {
   );
 
   api.post(app, "/api/settings/ab-testing/setup", { rate: "staffWrite" }, async (req, res) => {
-    const auth = await requireCapability(req, res, "content_allocate_traffic");
+    const auth = await requireCapability(req, res, "ab_testing_settings");
     if (!auth.authorized) return;
     const site = siteOf(res);
     if (!checkPageContentType(site.contentRoot)) {
@@ -120,7 +124,7 @@ export function registerAbTestingRoutes(app: Express): void {
     "/api/settings/ab-testing/setup-result",
     { rate: "exempt", reason: "staff settings read, capability-gated" },
     async (req, res) => {
-      const auth = await requireCapability(req, res, "content_view");
+      const auth = await requireAnyCapability(req, res, AB_READ_CAPS);
       if (!auth.authorized) return;
       const site = siteOf(res);
       res.json({ result: lastSetupResult.get(site.contentRootName) ?? null, running: isAbCheckRunning(site) });
@@ -128,7 +132,7 @@ export function registerAbTestingRoutes(app: Express): void {
   );
 
   api.post(app, "/api/settings/ab-testing/check", { rate: "staffWrite" }, async (req, res) => {
-    const auth = await requireCapability(req, res, "content_allocate_traffic");
+    const auth = await requireCapability(req, res, "ab_testing_settings");
     if (!auth.authorized) return;
     const site = siteOf(res);
     if (!checkPageExists(site)) {
@@ -144,14 +148,14 @@ export function registerAbTestingRoutes(app: Express): void {
     "/api/settings/ab-testing/ga4-dimensions",
     { rate: "exempt", reason: "staff settings read, capability-gated" },
     async (req, res) => {
-      const auth = await requireCapability(req, res, "metrics_view");
+      const auth = await requireAnyCapability(req, res, AB_READ_CAPS);
       if (!auth.authorized) return;
       res.json(await checkGa4Dimensions(siteOf(res).contentRoot));
     },
   );
 
   api.post(app, "/api/settings/ab-testing/ga4-dimensions", { rate: "staffWrite" }, async (req, res) => {
-    const auth = await requireCapability(req, res, "metrics_view");
+    const auth = await requireCapability(req, res, "ab_testing_settings");
     if (!auth.authorized) return;
     const result = await createGa4Dimensions(siteOf(res).contentRoot);
     res.status(result.ok ? 200 : 400).json(result);

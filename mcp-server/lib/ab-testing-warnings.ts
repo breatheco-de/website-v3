@@ -43,14 +43,14 @@ export function abTestingWarnings(input: {
       code: "ab_testing_not_setup",
       message:
         "A/B testing is not set up for this site: visitors only see Default and no version gets traffic. " +
-        "Staff must complete Settings → A/B testing → Setup before any test runs. Allocation stays staff-only.",
+        "A Platform Steward (ab_testing_settings) must complete Settings → Tracking → A/B testing → Setup before any test runs. Allocation stays staff-only.",
     });
   } else if (input.ab_testing && input.ab_testing.latest_check_ok === false) {
     warnings.push({
       code: "ab_check_failing",
       message:
         "The last A/B check failed: running tests continue, but starting or raising traffic is blocked until a check passes " +
-        "(Settings → A/B testing → Health). Lowering or stopping traffic still works (staff-only).",
+        "(Settings → Tracking → A/B testing → Health). Lowering or stopping traffic still works (staff-only).",
     });
   }
 

@@ -39,6 +39,7 @@ import { apiFetch } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { emitContentUpdated, emitVariantCreated, emitVariantDeleted, emitVariantPromoted } from "@/lib/contentEvents";
 import { TEMPLATE_VERSIONING_SLUG, versioningContentSlug } from "@/lib/sharedLayoutEntry";
+import { AB_TESTING_HREF } from "@/lib/settings-tab";
 import { isReservedContentSlug } from "@shared/safe-href";
 import { getFolderFromType, useContentTypes } from "@/hooks/useContentTypes";
 import { FolderRestoreDialog, type FolderRestoreResult, type FolderRestoreTarget } from "./FolderRestoreDialog";
@@ -315,6 +316,7 @@ export function VersioningView({
 }: VersioningViewProps) {
   const { toast } = useToast();
   const { hasCapability } = useDebugAuth();
+  const canManageAbTesting = hasCapability("ab_testing_settings");
   const [registeringVariant, setRegisteringVariant] = useState<string | null>(null);
   const entryKey = pageDiagnosticsEntryKey?.trim() || "";
   const [activityOpen, setActivityOpen] = useState(false);
@@ -1912,25 +1914,37 @@ export function VersioningView({
                   )}
 
                   {abNoticeLocale === locale && !isEditing && (
-                    <AbTestingNotSetUpNotice onClose={() => setAbNoticeLocale(null)} locale={locale} />
+                    <AbTestingNotSetUpNotice
+                      onClose={() => setAbNoticeLocale(null)}
+                      locale={locale}
+                      canSetUp={canManageAbTesting}
+                    />
                   )}
 
                   {isEditing && abNotSetUp && (
                     <AbTrafficNotice tone="warning" testId={`text-ab-not-setup-${locale}`}>
                       A/B testing has not been set up yet, so visitors only see Default. You can lower or stop traffic
                       here, but not raise it.{" "}
-                      <a href="/private/settings/ab-testing/setup" className="underline underline-offset-2">
-                        Set up A/B testing
-                      </a>
+                      {canManageAbTesting ? (
+                        <a href={`${AB_TESTING_HREF}#ab-setup`} className="underline underline-offset-2">
+                          Set up A/B testing
+                        </a>
+                      ) : (
+                        "Ask a Platform Steward to set it up."
+                      )}
                     </AbTrafficNotice>
                   )}
                   {isEditing && abCheckFailing && (
                     <AbTrafficNotice tone="destructive" testId={`text-ab-check-failing-${locale}`}>
                       The last A/B check failed. You can lower or stop tests, but not start or raise them until a check
                       passes.{" "}
-                      <a href="/private/settings/ab-testing/health" className="underline underline-offset-2">
-                        Open A/B testing health
-                      </a>
+                      {canManageAbTesting ? (
+                        <a href={`${AB_TESTING_HREF}#ab-health`} className="underline underline-offset-2">
+                          Open A/B testing health
+                        </a>
+                      ) : (
+                        "A Platform Steward can re-run the check."
+                      )}
                     </AbTrafficNotice>
                   )}
                   {isEditing && !abLowerOnly && (

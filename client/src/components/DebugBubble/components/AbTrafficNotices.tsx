@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { IconAlertTriangle, IconInfoCircle, IconX } from "@tabler/icons-react";
+import { AB_TESTING_HREF } from "@/lib/settings-tab";
 import { cn } from "@/lib/utils";
 import type { SplitHealthLocale } from "../types";
 
@@ -31,7 +32,16 @@ export function AbTrafficNotice({
 }
 
 /** Shown instead of the sliders when A/B testing is not set up and nothing has traffic. */
-export function AbTestingNotSetUpNotice({ locale, onClose }: { locale: string; onClose: () => void }) {
+export function AbTestingNotSetUpNotice({
+  locale,
+  onClose,
+  canSetUp,
+}: {
+  locale: string;
+  onClose: () => void;
+  /** Has Manage A/B testing setup (Platform Steward); others are told who to ask. */
+  canSetUp: boolean;
+}) {
   return (
     <div
       className="mb-2 rounded-md border border-border bg-muted/40 px-2 py-2 text-xs leading-snug text-foreground"
@@ -53,13 +63,19 @@ export function AbTestingNotSetUpNotice({ locale, onClose }: { locale: string; o
         Until it is, every visitor sees Default and versions can't get traffic. Setup runs a quick check that
         visitors get the version they are counted under.
       </p>
-      <a
-        href="/private/settings/ab-testing/setup"
-        className="mt-1.5 inline-block font-medium text-primary underline underline-offset-2"
-        data-testid={`link-ab-setup-${locale}`}
-      >
-        Set up A/B testing
-      </a>
+      {canSetUp ? (
+        <a
+          href={`${AB_TESTING_HREF}#ab-setup`}
+          className="mt-1.5 inline-block font-medium text-primary underline underline-offset-2"
+          data-testid={`link-ab-setup-${locale}`}
+        >
+          Set up A/B testing
+        </a>
+      ) : (
+        <p className="mt-1.5 font-medium" data-testid={`text-ab-ask-steward-${locale}`}>
+          Ask a Platform Steward to set it up.
+        </p>
+      )}
     </div>
   );
 }

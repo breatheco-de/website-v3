@@ -215,7 +215,7 @@ export function isAbCheckPage(contentType: string, slug: string, contentRoot: st
 
 export const SYSTEM_PAGE_LOCKED_CODE = "system_page_locked";
 export const SYSTEM_PAGE_LOCKED_MESSAGE =
-  "This page is used by A/B testing setup and can't be changed. Only Settings → A/B testing → Setup can create or re-create it.";
+  "This page is used by A/B testing setup and can't be changed. Only Settings → Tracking → A/B testing → Setup can create or re-create it.";
 
 /** Lock error for writes that target the hidden check page (null when allowed). */
 export function abCheckPageLock(

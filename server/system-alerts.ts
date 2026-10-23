@@ -484,7 +484,7 @@ export async function collectAbTestingAlerts(
         message:
           `${describeAbCheckRun(conclusive)}${conclusive.deploy_sha ? ` (deploy ${conclusive.deploy_sha.slice(0, 7)})` : ""}. ` +
           "Running tests continue; starting or raising tests is blocked until a check passes.",
-        actionHref: "/private/settings/ab-testing/health",
+        actionHref: "/private/tracking/ab-testing#ab-health",
         actionLabel: "Open A/B testing",
         ...siteField,
       });
@@ -497,8 +497,8 @@ export async function collectAbTestingAlerts(
         title: "A/B check couldn't run",
         message:
           "The A/B check couldn't run (blocked or timed out). The last real result still applies. " +
-          "If this repeats, allow the check in Cloudflare (see the Health tab).",
-        actionHref: "/private/settings/ab-testing/health",
+          "If this repeats, allow the check in Cloudflare (see the Health card under Tracking → A/B testing).",
+        actionHref: "/private/tracking/ab-testing#ab-health",
         actionLabel: "Open A/B testing",
         ...siteField,
       });
