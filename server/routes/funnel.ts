@@ -234,6 +234,14 @@ export function registerFunnelRoutes(app: Express): void {
       if (result.relativePath) {
         markFileAsModified(result.relativePath, auth.author ?? "staff", undefined, contentRoot);
       }
+      if (body.stage !== undefined) {
+        const [{ clearPathStageIndex }, { clearPageStatsCache }] = await Promise.all([
+          import("../analytics/page-stats/resolve"),
+          import("../analytics/page-stats"),
+        ]);
+        clearPathStageIndex();
+        clearPageStatsCache();
+      }
 
       res.json({
         success: true,

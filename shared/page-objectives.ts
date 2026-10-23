@@ -92,6 +92,14 @@ export const FUNNEL_STEP_LABELS: Record<FunnelStepId, string> = {
   task_click: "Task click",
 };
 
+/** Funnel step whose count is the primary metric's numerator. */
+export const OBJECTIVE_FUNNEL_STEP: Record<ObjectiveMetricId, FunnelStepId> = {
+  moved_forward_rate: "moved_forward",
+  reached_decision_rate: "reached_decision",
+  conversion_rate: "lead",
+  task_click_rate: "task_click",
+};
+
 /** Usual cause of the loss between a step and the next one (shown under the funnel chart). */
 export const FUNNEL_LOSS_CAUSES: Partial<Record<FunnelStepId, string>> = {
   impressions: "Ad or search result isn't compelling (CTR).",

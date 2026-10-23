@@ -148,7 +148,7 @@ export function resolvePage(opts: {
     } catch {
       localeUrls = {};
     }
-    stage = indexed?.stage ?? readStage(opts.ci, entry.content_type, entry.slug);
+    stage = readStage(opts.ci, entry.content_type, entry.slug);
     try {
       const listed = opts.ci.findByType(entry.content_type).find((e) => e.slug === entry!.slug);
       entry.title = listed?.title ?? null;
