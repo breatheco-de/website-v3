@@ -21,6 +21,7 @@ import {
   listMcpSites,
 } from "../lib/content.js";
 import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
+import { abTestingWarnings } from "../lib/ab-testing-warnings.js";
 import { notifyMcpContentWrite } from "../lib/content-write-notify.js";
 import { checkCap, denyResponse, denyWriteSuggestPropose, denyUnlessContentView, denyUnlessContentViewOrSeo } from "../lib/auth.js";
 import {
@@ -5271,6 +5272,8 @@ export function registerPageTools(
     "Live-only pages have no versioning.yml: hasVersioning is false, variants is [], live_locales lists published locales — that is not unpublished. " +
     "versioning.yml is created by create_variant, not by hand; extra versions start at 0% traffic. " +
     "unregistered_variants lists variant files versioning.yml is missing (no traffic until staff register them). " +
+    "started_at gives each locale's test run date. Warnings cover page tests: ab_testing_not_setup, ab_check_failing, " +
+    "variant_assignment_sticky (visitors keep their version; allocation is staff-only), split_mismatch (results unreliable). " +
     "Use before create_variant or editing an existing draft. Requires content_view.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
@@ -5363,10 +5366,23 @@ export function registerPageTools(
             },
           );
         }
-        const versioning = data.versioning as Record<string, { variants?: Array<{ slug: string; allocation: number }> }>;
+        const versioning = data.versioning as Record<
+          string,
+          { variants?: Array<{ slug: string; allocation: number }>; started_at?: string }
+        >;
         const variants = Object.entries(versioning).flatMap(([locale, localeData]) =>
           (localeData.variants || []).map(v => ({ locale, slug: v.slug, allocation: v.allocation }))
         );
+        const started_at = Object.fromEntries(
+          Object.entries(versioning)
+            .filter(([, localeData]) => typeof localeData.started_at === "string")
+            .map(([locale, localeData]) => [locale, localeData.started_at as string]),
+        );
+        const abWarnings = abTestingWarnings({
+          versioning,
+          ab_testing: data.ab_testing as { set_up?: boolean; latest_check_ok?: boolean } | undefined,
+          split_health: data.split_health as Parameters<typeof abTestingWarnings>[0]["split_health"],
+        });
         return ok(
           {
             message: `Found ${variants.length} extra version(s).`,
@@ -5376,9 +5392,10 @@ export function registerPageTools(
             hasLiveDefault,
             live_locales,
             variants,
+            ...(Object.keys(started_at).length ? { started_at } : {}),
             unregistered_variants,
           },
-          { warnings: unregisteredWarnings, next_actions: [] },
+          { warnings: [...unregisteredWarnings, ...abWarnings], next_actions: [] },
         );
       } catch (e) {
         return fail(`Failed to list variants: ${(e as Error).message}`);

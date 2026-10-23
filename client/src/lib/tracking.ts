@@ -322,8 +322,66 @@ function pushToDataLayer(data: Record<string, unknown>): void {
   }
   
   window.dataLayer.push(data);
+  refreshVisitExperiment();
   
   console.log("[Tracking] dataLayer.push:", data);
+}
+
+/** First test seen this visit: `experiment_id|variant`, shared across tabs. */
+export const VISIT_EXPERIMENT_COOKIE = "4g_visit_exp";
+/** A visit ends after 30 idle minutes, like a GA4 session. */
+const VISIT_TTL_SECONDS = 30 * 60;
+
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const prefix = `${name}=`;
+  for (const part of document.cookie.split(";")) {
+    const c = part.trim();
+    if (c.startsWith(prefix)) return c.slice(prefix.length);
+  }
+  return null;
+}
+
+function writeVisitCookie(value: string): void {
+  if (typeof document === "undefined") return;
+  const secure = typeof location !== "undefined" && location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${VISIT_EXPERIMENT_COOKIE}=${value}; Max-Age=${VISIT_TTL_SECONDS}; Path=/; SameSite=Lax${secure}`;
+}
+
+/** Page test the visitor saw first this visit (null when none). */
+export function getVisitExperiment(): ServedPageVersion | null {
+  const raw = readCookie(VISIT_EXPERIMENT_COOKIE);
+  if (!raw) return null;
+  let value = raw;
+  try {
+    value = decodeURIComponent(raw);
+  } catch {
+    /* keep raw */
+  }
+  const sep = value.lastIndexOf("|");
+  if (sep <= 0 || sep === value.length - 1) return null;
+  return { experiment_id: value.slice(0, sep), variant: value.slice(sep + 1) };
+}
+
+/** Keep the visit alive: push the cookie's expiry 30 minutes ahead. */
+export function refreshVisitExperiment(): void {
+  const raw = readCookie(VISIT_EXPERIMENT_COOKIE);
+  if (raw) writeVisitCookie(raw);
+}
+
+/** Record the first test of the visit (no-op when one is already recorded). */
+function rememberVisitExperiment(pv: ServedPageVersion): void {
+  if (readCookie(VISIT_EXPERIMENT_COOKIE)) {
+    refreshVisitExperiment();
+    return;
+  }
+  writeVisitCookie(encodeURIComponent(`${pv.experiment_id}|${pv.variant}`));
+}
+
+/** `experiment_id` / `variant` from the visit's first test, for conversion pushes. */
+function visitExperimentFields(): { experiment_id?: string; variant?: string } {
+  const visit = getVisitExperiment();
+  return visit ? { experiment_id: visit.experiment_id, variant: visit.variant } : {};
 }
 
 /**
@@ -352,6 +410,7 @@ export function trackConversion(
   pushToDataLayer({
     event: eventName,
     user_id: getUserIdFromCookie() ?? undefined,
+    ...visitExperimentFields(),
     ...payload,
   });
 
@@ -375,9 +434,9 @@ export function track(
 }
 
 export interface ServedPageVersion {
-  /** `{contentType}:{slug}:{locale}` */
+  /** `{contentType}:{slug}:{locale}` plus `@YYYY-MM-DD` when the test run has a start date. */
   experiment_id: string;
-  /** Version slug served to this visitor. */
+  /** Version slug served to this visitor, or `default` for the live page during a test. */
   variant: string;
 }
 
@@ -390,12 +449,14 @@ export function getCurrentPageVersion(): ServedPageVersion | null {
 }
 
 /**
- * Push `experiment_exposure` once per page view for the version the server served.
- * Pass null on pages without a test so a stale version is not sent with leads.
+ * Push `experiment_exposure` once per page view for the version the server served
+ * (a variant, or `default` for the live page during a test), and remember it as the
+ * visit's first test when none is recorded yet. Pass null on pages without a test.
  */
 export function trackPageVersion(pv: ServedPageVersion | null | undefined): void {
   currentPageVersion = pv ?? null;
   if (!pv || typeof window === "undefined") return;
+  rememberVisitExperiment(pv);
   const key = `${window.location.pathname}|${pv.experiment_id}|${pv.variant}`;
   if (key === lastExposureKey) return;
   lastExposureKey = key;

@@ -49,6 +49,12 @@ import { LayoutApprovalControl } from "./LayoutApprovalControl";
 import { VariantProposalBadge } from "./VariantProposalBadge";
 import { PendingProposalsDialog } from "./PendingProposalsDialog";
 import { LocaleFlag } from "./LocaleFlag";
+import {
+  AbStickyAdvanced,
+  AbTestingNotSetUpNotice,
+  AbTrafficNotice,
+  SplitMismatchNotice,
+} from "./AbTrafficNotices";
 import type { PageErrorsTab } from "./PageErrorsModal";
 
 interface VersioningViewProps {
@@ -415,6 +421,13 @@ export function VersioningView({
     (dialogLocales.includes(pathLocale) ? pathLocale : null);
 
   const [editingLocale, setEditingLocale] = useState<string | null>(null);
+  /** Locale whose pencil was pressed while A/B testing is not set up (notice instead of sliders). */
+  const [abNoticeLocale, setAbNoticeLocale] = useState<string | null>(null);
+  const abStatus = versioningData?.ab_testing;
+  const abNotSetUp = !!abStatus && !abStatus.set_up;
+  const abCheckFailing = !!abStatus && abStatus.set_up && !abStatus.latest_check_ok;
+  /** Traffic can only go down until A/B testing is set up and the latest check passed. */
+  const abLowerOnly = abNotSetUp || abCheckFailing;
   const [tempAllocations, setTempAllocations] = useState<Record<string, number>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [savedLocale, setSavedLocale] = useState<string | null>(null);
@@ -899,6 +912,13 @@ export function VersioningView({
   const openEditAllocations = (locale: string) => {
     const localeData = versioningData?.versioning?.[locale];
     if (!localeData) return;
+    const hasTraffic = localeData.variants.some((v) => (v.allocation ?? 0) > 0);
+    if (abNotSetUp && !hasTraffic) {
+      // Nothing to lower and nothing can be raised: explain instead of showing sliders.
+      setAbNoticeLocale(locale);
+      return;
+    }
+    setAbNoticeLocale(null);
     const allocations: Record<string, number> = {};
     localeData.variants.forEach((v) => {
       allocations[v.slug] = v.allocation;
@@ -1891,6 +1911,39 @@ export function VersioningView({
                     </p>
                   )}
 
+                  {abNoticeLocale === locale && !isEditing && (
+                    <AbTestingNotSetUpNotice onClose={() => setAbNoticeLocale(null)} locale={locale} />
+                  )}
+
+                  {isEditing && abNotSetUp && (
+                    <AbTrafficNotice tone="warning" testId={`text-ab-not-setup-${locale}`}>
+                      A/B testing has not been set up yet, so visitors only see Default. You can lower or stop traffic
+                      here, but not raise it.{" "}
+                      <a href="/private/settings/ab-testing/setup" className="underline underline-offset-2">
+                        Set up A/B testing
+                      </a>
+                    </AbTrafficNotice>
+                  )}
+                  {isEditing && abCheckFailing && (
+                    <AbTrafficNotice tone="destructive" testId={`text-ab-check-failing-${locale}`}>
+                      The last A/B check failed. You can lower or stop tests, but not start or raise them until a check
+                      passes.{" "}
+                      <a href="/private/settings/ab-testing/health" className="underline underline-offset-2">
+                        Open A/B testing health
+                      </a>
+                    </AbTrafficNotice>
+                  )}
+                  {isEditing && !abLowerOnly && (
+                    <AbTrafficNotice tone="warning" testId={`text-ab-sticky-${locale}`}>
+                      Visitors who already saw this page keep their version. The new split only applies to new
+                      visitors.
+                      <AbStickyAdvanced />
+                    </AbTrafficNotice>
+                  )}
+                  {!isEditing && versioningData?.split_health?.[locale]?.status === "mismatch" && (
+                    <SplitMismatchNotice health={versioningData.split_health[locale]} locale={locale} />
+                  )}
+
                   <div className="space-y-2">
                     {/* Synthetic default row — only when published */}
                     {!isDraftEntry && (() => {
@@ -2120,7 +2173,11 @@ export function VersioningView({
                             if (v.slug === variant.slug) return sum;
                             return sum + (tempAllocations[v.slug] ?? (v.allocation ?? 0));
                           }, 0) + (tempAllocations["__default__"] ?? 0);
-                          const maxAllowed = Math.max(0, 100 - othersTotal);
+                          const maxAllowed = Math.min(
+                            Math.max(0, 100 - othersTotal),
+                            // Lower-only while A/B testing is not ready: never above today's traffic.
+                            abLowerOnly ? (variant.allocation ?? 0) : 100,
+                          );
                           return (
                             <div className="mt-1.5 flex items-center gap-2">
                               <Slider

@@ -651,4 +651,30 @@ if [[ -n "$WD" && "$WD" != "$CURRENT_LINK" && "$WD" != "$CURRENT_LINK/" ]]; then
 fi
 
 rm -f "$ABORT_FLAG"
+
+# A/B check: re-verify page tests through the public URL. Never fails the deploy;
+# results land in the log (AB_CHECK lines → Actions summary), the Health tab, and system alerts.
+echo "[deploy] A/B check (sites with A/B testing set up)"
+sleep 20
+AB_JSON="$(curl -sS --max-time 420 -X POST -H 'Content-Type: application/json' \
+  -d "{\"deploy_sha\":\"${DEPLOY_SHA}\"}" \
+  http://127.0.0.1:5000/api/internal/ab-testing/check-all 2>/dev/null || true)"
+if [[ -n "$AB_JSON" ]]; then
+  printf '%s' "$AB_JSON" | node -e '
+    let s = "";
+    process.stdin.on("data", (d) => (s += d));
+    process.stdin.on("end", () => {
+      try {
+        const j = JSON.parse(s);
+        for (const l of j.lines || []) console.log(l);
+        if (j.error) console.log("AB_CHECK site=- result=inconclusive summary=\"" + j.error + "\"");
+      } catch {
+        console.log("AB_CHECK site=- result=inconclusive summary=\"unreadable response\"");
+      }
+    });
+  ' || true
+else
+  echo "AB_CHECK site=- result=inconclusive summary=\"check hook did not respond\""
+fi
+
 echo "[deploy] done $DEPLOY_SHA (current → releases/$RELEASE_NAME)"

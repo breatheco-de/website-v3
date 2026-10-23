@@ -5,6 +5,7 @@ import {
   IconAlertTriangle,
   IconCheck,
   IconCode,
+  IconCopy,
   IconDots,
   IconEye,
   IconInfoCircle,
@@ -464,11 +465,12 @@ function MigrationRow({
             ) : (
               <IconAlertCircle className="h-3.5 w-3.5 text-destructive" />
             )}
-            <span>
+            <span className="flex-1">
               {last.mode === "dry_run" ? "Last dry run" : "Last run"} · {STATUS_LABEL[last.status]} ·{" "}
               {formatWhen(last.finished_at ?? last.started_at)}
               {last.actor ? ` · ${last.actor}` : ""}
             </span>
+            {last.output && <CopyOutputButton text={last.output} filename={filename} />}
           </div>
           <pre
             className={cn(
@@ -481,5 +483,42 @@ function MigrationRow({
         </div>
       )}
     </div>
+  );
+}
+
+function CopyOutputButton({ text, filename }: { text: string; filename: string }) {
+  const { toast } = useToast();
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast({
+        title: "Could not copy output",
+        description: "Allow clipboard access and try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-6 px-2 text-xs"
+      onClick={copy}
+      title="Copy output"
+      data-testid={`button-copy-migration-output-${filename}`}
+    >
+      {copied ? (
+        <IconCheck className="h-3.5 w-3.5 mr-1 text-green-600 dark:text-green-500" />
+      ) : (
+        <IconCopy className="h-3.5 w-3.5 mr-1" />
+      )}
+      {copied ? "Copied" : "Copy"}
+    </Button>
   );
 }

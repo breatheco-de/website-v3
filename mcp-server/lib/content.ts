@@ -492,6 +492,8 @@ export interface VersioningVariant {
 
 export interface VersioningLocale {
   variants: VersioningVariant[];
+  /** YYYY-MM-DD the current test run started. */
+  started_at?: string;
 }
 
 export type VersioningData = Record<string, VersioningLocale>;

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { installSectionTracking } from "@/lib/section-tracking";
+import { refreshVisitExperiment } from "@/lib/tracking";
 
 type DataLayerEvent = {
   event: string;
@@ -29,5 +30,6 @@ export function usePageTracking() {
       pagePath: location,
       pageTitle: document.title,
     });
+    refreshVisitExperiment();
   }, [location]);
 }

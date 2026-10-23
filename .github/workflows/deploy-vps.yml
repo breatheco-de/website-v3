@@ -249,4 +249,32 @@ jobs:
               echo "- ❌ Deploy terminó con código \`$RESULT\` (falló; rollback de \`current\` si correspondía)."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # A/B split check lines from the deploy log (never changes the deploy result).
+          AB_LINES="$(ssh -i "$KEY" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "grep '^AB_CHECK ' /opt/website-v3/.deploy-state/${DEPLOY_SHA}.log 2>/dev/null || true" 2>/dev/null || true)"
+          if [[ -n "$AB_LINES" ]]; then
+            {
+              echo ""
+              echo "## A/B split check"
+              echo ""
+              while IFS= read -r line; do
+                site="$(echo "$line" | sed -n 's/.*site=\([^ ]*\).*/\1/p')"
+                result="$(echo "$line" | sed -n 's/.*result=\([^ ]*\).*/\1/p')"
+                summary="$(echo "$line" | sed -n 's/.*summary="\(.*\)".*/\1/p')"
+                case "$result" in
+                  passed) echo "- ✅ \`$site\`: A/B split check passed. $summary" ;;
+                  failed) echo "- ❌ \`$site\`: A/B split check FAILED. $summary Visitors may be getting the wrong version (Settings → A/B testing → Health)." ;;
+                  inconclusive) echo "- ⚠️ \`$site\`: A/B split check couldn't run. $summary" ;;
+                  *) echo "- ➖ \`$site\`: A/B testing not set up." ;;
+                esac
+              done <<< "$AB_LINES"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "summary: done=$RESULT abort=$ABORT"

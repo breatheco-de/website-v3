@@ -43,7 +43,7 @@ import {
   getCachedHtml,
   getHtmlBuildId,
   htmlCacheDiskReason,
-  htmlDocumentCacheControl,
+  htmlDocumentCacheControlFor,
   logHtmlRender,
   setCachedHtml,
   htmlRenderSkipReason,
@@ -566,7 +566,7 @@ export function serveStatic(app: Express) {
             .status(status)
             .set({
               "Content-Type": "text/html; charset=utf-8",
-              "Cache-Control": htmlDocumentCacheControl(),
+              "Cache-Control": htmlDocumentCacheControlFor(res),
               "X-HTML-Cache": built.fromCache ? "HIT" : "MISS",
             })
             .send(built.html);

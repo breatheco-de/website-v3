@@ -167,6 +167,8 @@ export interface TrackingBigQuerySettings {
   location: string;
   /** Daily export table prefix (GA4 default events_) */
   table_prefix: string;
+  /** GA4 property id when the export dataset is not named analytics_<propertyId>. */
+  ga4_property_id?: string;
 }
 
 export const DEFAULT_TRACKING_BIGQUERY: TrackingBigQuerySettings = {
@@ -216,6 +218,11 @@ export function parseTrackingBigQuerySettings(
         ? o.location.trim()
         : defaults.location,
     table_prefix: prefix.endsWith("_") ? prefix : `${prefix}_`,
+    ...(typeof o.ga4_property_id === "string" && o.ga4_property_id.trim()
+      ? { ga4_property_id: o.ga4_property_id.trim() }
+      : defaults.ga4_property_id
+        ? { ga4_property_id: defaults.ga4_property_id }
+        : {}),
   };
 }
 

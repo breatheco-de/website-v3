@@ -72,6 +72,9 @@ export type OrganicBaselineRow = {
   engaged_sessions: number;
   engagement_ms: number;
   sessions_with_lead: number;
+  /** First page test seen in the session (absent on days synced before per-version organic). */
+  experiment_id?: string | null;
+  variant?: string | null;
 };
 
 export type CookielessRow = { host: string; path: string; page_views: number };
@@ -461,11 +464,12 @@ export function buildPaidLandingSql(eventsTable: string, opts: boolean | PaidLan
       gads_customer_id, gads_campaign_id, gads_ad_group_id, gads_network, gads_match
     UNION ALL
     SELECT
-      'organic', host, landing.page_path, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+      'organic', host, landing.page_path, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+      exposure.experiment_id, exposure.variant,
       COUNT(*), SUM(engaged), SUM(engagement_ms), SUM(leads), COUNTIF(leads > 0), 0, NULL, NULL, NULL, NULL, NULL
     FROM landed
     WHERE NOT is_candidate
-    GROUP BY host, landing.page_path
+    GROUP BY host, landing.page_path, exposure.experiment_id, exposure.variant
     UNION ALL${
       lastClick
         ? `
@@ -524,6 +528,8 @@ export function parsePaidLandingRows(
     } else if (r.kind === "cookieless") {
       cookieless.push({ host, path: p, page_views: num(r.page_views) });
     } else if (r.kind === "organic") {
+      const experimentId = str(r.experiment_id);
+      const variant = str(r.variant);
       organic.push({
         host,
         path: p,
@@ -531,6 +537,8 @@ export function parsePaidLandingRows(
         engaged_sessions: num(r.engaged_sessions),
         engagement_ms: num(r.engagement_ms),
         sessions_with_lead: num(r.sessions_with_lead),
+        ...(experimentId ? { experiment_id: experimentId } : {}),
+        ...(variant ? { variant } : {}),
       });
     } else {
       const clickId = str(r.click_id_type) as ClickIdParam | null;

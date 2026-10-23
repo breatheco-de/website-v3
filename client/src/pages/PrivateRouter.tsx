@@ -23,6 +23,7 @@ const PrivateDatabases = lazy(() => import("@/pages/PrivateDatabases"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const SeoGeoSettingsPage = lazy(() => import("@/pages/SeoGeoSettingsPage"));
 const AdsSettingsPage = lazy(() => import("@/pages/AdsSettingsPage"));
+const AbTestingSettingsPage = lazy(() => import("@/pages/AbTestingSettingsPage"));
 const AIKnowledge = lazy(() => import("@/pages/AIKnowledge"));
 const AIConversations = lazy(() => import("@/pages/AIConversations"));
 const AIKnowledgeBlocks = lazy(() => import("@/pages/AIKnowledgeBlocks"));
@@ -170,6 +171,10 @@ export default function PrivateRouter() {
           <Route path="/private/settings/ads/google" component={AdsSettingsPage} />
           <Route path="/private/settings/ads/targets" component={AdsSettingsPage} />
           <Route path="/private/settings/ads" component={AdsSettingsPage} />
+          <Route path="/private/settings/ab-testing/setup" component={AbTestingSettingsPage} />
+          <Route path="/private/settings/ab-testing/health" component={AbTestingSettingsPage} />
+          <Route path="/private/settings/ab-testing/analytics" component={AbTestingSettingsPage} />
+          <Route path="/private/settings/ab-testing" component={AbTestingSettingsPage} />
           <Route path="/private/settings/locales" component={SettingsPage} />
           <Route path="/private/settings/migrations" component={SettingsPage} />
           <Route path="/private/settings/brand" component={SettingsPage} />

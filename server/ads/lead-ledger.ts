@@ -13,7 +13,8 @@ import { getSiteSqlite } from "../db";
 import { ensurePipelineDb } from "../pipeline-db/runner";
 import { getAdsSettings } from "../settings";
 import { getDefaultContentRoot } from "../site-config";
-import { getVersioningCookie, hashUserId } from "../versioning/cookie-utils";
+import { getVersioningCookie, getVisitExperimentCookie, hashUserId } from "../versioning/cookie-utils";
+import { experimentId as experimentIdFor } from "../versioning/assignment";
 import { extractToken } from "../routes/_helpers";
 import { resolveOwnedStaffSession } from "../staff-session-resolve";
 import { hasTrackingConsentCookie, readAdContext, type AdContext } from "./ad-context";
@@ -170,12 +171,19 @@ function consentStateFrom(req: Request): ConsentState {
   return isGrantedDecision(parsed.decision) ? "granted" : "denied";
 }
 
-function resolvePageVersion(req: Request, body: Record<string, unknown>): { experiment_id: string; variant: string } | null {
-  const experimentId = str(body.page_experiment_id, 300);
+/**
+ * Page test credited for this lead: the first test seen this visit (form body, else the
+ * `4g_visit_exp` cookie). Accepted only when it matches an assignment in the versioning cookie.
+ */
+export function resolvePageVersion(
+  req: Request,
+  body: Record<string, unknown>,
+): { experiment_id: string; variant: string } | null {
+  const experimentId = str(body.page_experiment_id, 300) ?? getVisitExperimentCookie(req)?.experiment_id;
   if (!experimentId) return null;
   const cookie = getVersioningCookie(req);
   const match = cookie?.assignments?.find(
-    (a) => `${a.contentType}:${a.slug}:${a.locale}` === experimentId,
+    (a) => experimentIdFor(a.contentType, a.slug, a.locale, a.run) === experimentId,
   );
   return match ? { experiment_id: experimentId, variant: match.variantSlug } : null;
 }

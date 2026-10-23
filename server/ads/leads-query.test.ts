@@ -147,6 +147,9 @@ describe("leads query (shared helpers)", () => {
   it("labels experiments by page and variant", () => {
     expect(experimentLabel("landing:coding-bootcamp:en", "b")).toBe("coding-bootcamp (en) · b");
     expect(experimentLabel("odd-id", null)).toBe("odd-id · (no variant)");
+    expect(experimentLabel("landing:coding-bootcamp:en@2026-10-23", "default")).toBe(
+      "coding-bootcamp (en, from Oct 23) · default",
+    );
   });
 
   it("builds parameterized SQL (values never interpolated)", () => {

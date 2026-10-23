@@ -31,10 +31,40 @@ export interface VersioningVariant {
 
 export interface VersioningLocale {
   variants: VersioningVariant[];
+  /** YYYY-MM-DD the current test run started. */
+  started_at?: string;
+}
+
+/** Site-wide A/B testing readiness (Settings → A/B testing). */
+export interface AbTestingStatus {
+  set_up: boolean;
+  latest_check_ok: boolean;
+}
+
+export type SplitHealthStatus = "ok" | "mismatch" | "collecting" | "unavailable";
+
+export interface SplitHealthSource {
+  status: SplitHealthStatus;
+  counts: Record<string, number>;
+  total: number;
+  observed_pct: Record<string, number>;
+  p_value: number | null;
+  /** GA4 only: last ads-sync day included. */
+  through_date?: string | null;
+}
+
+export interface SplitHealthLocale {
+  experiment_id: string;
+  expected_pct: Record<string, number>;
+  server: SplitHealthSource;
+  ga4: SplitHealthSource;
+  status: SplitHealthStatus;
 }
 
 export interface VersioningResponse {
   versioning: Record<string, VersioningLocale> | null;
+  ab_testing?: AbTestingStatus;
+  split_health?: Record<string, SplitHealthLocale>;
   hasVersioningFile: boolean;
   filePath: string;
   availableLocales?: string[];

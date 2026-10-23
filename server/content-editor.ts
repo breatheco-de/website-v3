@@ -218,6 +218,7 @@ import {
   isTemplateVersioningSlug,
   rejectAttachedStructuralEdit,
 } from "./shared-layout-entry";
+import { abCheckPageLock } from "./ab-testing/state";
 import {
   isTypeLayoutTarget,
   isSharedTemplateBasename,
@@ -729,6 +730,9 @@ export async function editContent(request: ContentEditRequest): Promise<{
   
   // Normalize locale to prevent es-ES, en-US etc from causing file lookup failures
   const locale = normalizeLocale(rawLocale);
+
+  const lock = abCheckPageLock(contentType, slug, contentRoot ?? ci.contentRoot);
+  if (lock) return { success: false, error: lock.error, errorCode: lock.code };
   
   // Validate that version is not provided without a variant
   const hasVariant = variant !== undefined && variant !== null && variant !== "";
@@ -2699,6 +2703,9 @@ export function editCommonContent(request: CommonEditRequest): {
   const ci = request.ci ?? contentIndex;
   const contentRootName = request.contentRootName;
 
+  const lock = abCheckPageLock(contentType, slug, contentRootName ?? ci.contentRoot);
+  if (lock) return { success: false, error: lock.error, errorCode: lock.code };
+
   const deprecatedGate = checkDeprecatedWrites({
     contentType,
     slug,
@@ -3143,6 +3150,9 @@ export async function renameContentSlug(
   const rootName = input.contentRootName ?? ci.contentRootName ?? getDefaultContentRootName();
   let clusterRewireQueued = false;
 
+  const lock = abCheckPageLock(contentType, input.folderSlug, rootName);
+  if (lock) return { success: false, statusCode: 403, code: lock.code, error: lock.error };
+
   const check = await checkSlugRename(input);
   if (!check.ok) {
     const { ok: _ok, statusCode, code, error, ...details } = check;
@@ -3366,6 +3376,9 @@ export async function deleteContentEntry(
   if (/[/\\]|\.\./.test(slug) || slug.startsWith(".")) {
     return { success: false, statusCode: 400, error: "Invalid slug format" };
   }
+
+  const lock = abCheckPageLock(type, slug, rootName);
+  if (lock) return { success: false, statusCode: 403, code: lock.code, error: lock.error };
 
   try {
     const { isProtectedContentSlug } = await import("./relation-delete");

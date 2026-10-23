@@ -770,6 +770,18 @@ export function htmlDocumentCacheControl(): string {
   return "public, max-age=60, stale-while-revalidate=300";
 }
 
+/**
+ * Cache-Control for a document response. Pages with an active A/B test are
+ * `private`: shared caches (Cloudflare) never store them, while the visitor's own
+ * browser may (back/forward cache keeps working).
+ */
+export function htmlDocumentCacheControlFor(res: { locals?: Record<string, unknown> }): string {
+  if (res.locals?.abTestedPage) {
+    return process.env.NODE_ENV === "production" ? "private, max-age=60" : "private, no-store";
+  }
+  return htmlDocumentCacheControl();
+}
+
 export function logHtmlRender(fields: {
   url: string;
   ms: number;

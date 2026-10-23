@@ -142,7 +142,7 @@ Site-wide **leads by traffic source** (`get_analytics_report` → `traffic_sourc
 | Event Name            | Description                        |
 |-----------------------|------------------------------------|
 | `page_view`           | Fired on each page navigation      |
-| `experiment_exposure` | A/B test variant assignment        |
+| `experiment_exposure` | Page test version this visitor saw (see Page tests below) |
 | `cta_click`           | User clicks a call-to-action       |
 | `video_play`          | Reserved. Not sent. YouTube plays are `gtm.video` from Tag Manager; files use the events below. |
 | `video_start`         | A file or other embed started for real. Not the muted card. Not YouTube. |
@@ -164,6 +164,38 @@ File events use the same video fields Tag Manager already sends for YouTube: `vi
 In the web GTM container, forward `gtm.video` to the server by Video Status (`start` → `video_start`, `progress` → `video_progress`, `complete` → `video_complete`). Do not also forward a `video_start` from the page for YouTube. Files still need a custom-event trigger and a GA4 event tag for `video_start`, `video_progress`, and `video_complete`.
 
 Check Tag Assistant on a YouTube landing. With a listen card, `gtm.video` is absent on load and appears after the click. Without a card and with autoplay on, `gtm.video` can appear on load. `video_start` from the page does not appear for YouTube.
+
+### Page tests (A/B versions)
+
+Page tests run only after **Settings → A/B testing → Setup** passes for the site. Until then every visitor sees Default.
+
+**What the site sends**
+
+- `experiment_exposure` with `experiment_id` and `variant`, once per page and version. Sent for every test participant, including the Default group (`variant: "default"`).
+- `experiment_id` is `contentType:slug:locale@YYYY-MM-DD` (the test run's start date). Tests started before run dates existed have no `@date`. Two tests started the same day on the same page share an id.
+- Before Tag Manager loads, tested pages write `{ experiment_id, variant }` into the dataLayer (no event), so `page_view` and every later event can read them.
+- Conversion pushes (form submissions and other conversions) carry the visit's **first** test: `experiment_id` and `variant` from the `4g_visit_exp` cookie (30 minutes, refreshed on activity, shared across tabs, like a GA4 session). The CRM lead uses the same rule (`page_experiment_id` / `page_variant`).
+- Staff, bots, and forced previews (`?force_variant=`) are never put in a test and send no exposure.
+
+**Web container**
+
+1. Data Layer Variables: `DLV - experiment_id` → `experiment_id`, `DLV - variant` → `variant`.
+2. GA4 event tag `experiment_exposure`, triggered by the custom event `experiment_exposure`, with event parameters `experiment_id` and `variant`.
+3. Add both as shared event parameters on the Google tag (so `page_view` carries them) and as event parameters on conversion tags.
+
+**Server container**
+
+The GA4 client and GA4 tag pass event parameters through. Check that no parameter filter or transformation strips `experiment_id` / `variant`.
+
+**GA4**
+
+- Register event-scoped custom dimensions `experiment_id` and `variant`: from **Settings → A/B testing → Google Analytics** (Create them) or by hand in GA4 Admin → Custom definitions. Without them, GA4 reports can't split by version; the BigQuery export still has the parameters.
+- Per-version Explorations: segment sessions that include `experiment_exposure` with `variant` = `b` (and one for `default`), then compare sessions, engagement and key events.
+- Keep the event and parameter names: `server/ads/paid-detection.ts` reads `experiment_exposure` / `experiment_id` / `variant` from BigQuery for the paid and organic per-version numbers.
+
+**Known gap**
+
+Web GTM loads on first interaction or after 15 s. Visitors who leave sooner are in the server counts but never reach GA4.
 
 ---
 

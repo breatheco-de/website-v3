@@ -17,6 +17,39 @@ export function insertBefore(html: string, marker: string, fragment: string): st
   return html.replace(marker, () => fragment + marker);
 }
 
+const PAGE_VERSION_SCRIPT_RE = /<script id="__AB_PAGE_VERSION__">[\s\S]*?<\/script>\n?/g;
+const GTM_MARKER = "<!-- Google Tag Manager";
+
+/** `_page_version` seeded on the page query, if any. */
+export function pageVersionFromPayload(
+  payload: unknown,
+): { experiment_id: string; variant: string } | null {
+  const queries = (payload as { queries?: Array<{ data?: unknown }> } | null)?.queries;
+  if (!Array.isArray(queries)) return null;
+  for (const q of queries) {
+    const pv = (q?.data as { _page_version?: { experiment_id?: unknown; variant?: unknown } } | undefined)
+      ?._page_version;
+    if (pv && typeof pv.experiment_id === "string" && typeof pv.variant === "string") {
+      return { experiment_id: pv.experiment_id, variant: pv.variant };
+    }
+  }
+  return null;
+}
+
+/**
+ * Write the served page version into the dataLayer before GTM loads, so `page_view`
+ * and every later event can read `experiment_id` / `variant` (no event is pushed).
+ * Replaces any previous copy; removes it when the page has no version.
+ */
+export function injectPageVersionDataLayer(html: string, payload: unknown): string {
+  const stripped = html.replace(PAGE_VERSION_SCRIPT_RE, "");
+  const pv = pageVersionFromPayload(payload);
+  if (!pv) return stripped;
+  const json = JSON.stringify({ experiment_id: pv.experiment_id, variant: pv.variant }).replace(/</g, "\\u003c");
+  const tag = `<script id="__AB_PAGE_VERSION__">window.dataLayer=window.dataLayer||[];window.dataLayer.push(${json});</script>\n`;
+  return stripped.includes(GTM_MARKER) ? insertBefore(stripped, GTM_MARKER, tag) : insertBefore(stripped, "</head>", tag);
+}
+
 /** `<script id="__INITIAL_DATA__">` with `<` escaped so content can never close the tag. */
 export function buildInitialDataScriptTag(payload: unknown): string {
   let body = payload;

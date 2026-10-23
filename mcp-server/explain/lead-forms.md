@@ -204,7 +204,7 @@ Every submit (`/api/leads` and `/api/leads/webhook-delivery`) is enriched server
 | `landing_url` / `conversion_url` | always | First page in this browser / page where the form was sent. |
 | `first_paid_landing_*` / `last_paid_landing_*` | when a paid visit was seen (≤30 days) | URL + ISO time. |
 | `ad_platform` | paid/unclear visits | `meta` \| `google` \| … |
-| `page_experiment_id` / `page_variant` | page has an active version test | Variant from the versioning cookie. |
+| `page_experiment_id` / `page_variant` | visitor saw a page test this visit | First test seen this visit (body, else cookie `4g_visit_exp`: 30 min, cross-tab), accepted only when it matches the visitor's assignment in `4g_versioning_v2`. `page_variant` is a variant slug or `default` (live page during the test). Id format `contentType:slug:locale@YYYY-MM-DD` (run start; no `@date` on tests started before run dates). Leads before the A/B tracking fix used a buggy split (Default's share went to the first variant). |
 | `consent_state` | always | `granted` \| `denied` \| `unset` (tracking banner). |
 | `channel` `first_channel` `channel_landing_path` `referrer_host` | sent by current pages (session `entry_channel`) | Ledger-only: saved on `lead_submissions` (plus `last_organic_channel`, `country`, `traffic_status`), **stripped before the CRM**. Rules → topic `ads` (Lead channel). |
 

@@ -10,6 +10,12 @@ import { applyEntryModulePreload } from "./utils/html-transforms";
 import { buildEntryPreloadTags, getEntryAssets } from "./utils/vite-manifest";
 import { assembleSsrDocument, contentTypesReadyForHtmlCache, isMeaningfulSsrAppHtml } from "./utils/ssr-html";
 import { injectGtmWebContainerId } from "./gtm-web-inject";
+import { injectPageVersionDataLayer } from "./utils/html-inject";
+import { initialDataAssignmentForHtmlKey } from "./html-variant-key";
+
+function llmAudienceKey(variantKey: string): boolean {
+  return variantKey === AUDIENCE_LLM_VARIANT;
+}
 import {
   buildHtmlCacheKey,
   canonicalHtmlCachePath,
@@ -143,6 +149,7 @@ export async function buildAnonymousPageHtml(opts: {
   html = applyEntryModulePreload(html);
   html = injectEntryPreloadTags(html);
   html = injectGtmWebContainerId(html, opts.contentRoot);
+  html = injectPageVersionDataLayer(html, opts.initialData);
   if (opts.contentRoot) html = injectThemeOverrides(html, opts.contentRoot);
   if (!contentTypesReadyForHtmlCache(opts.initialData)) {
     log.warn({ url: opts.url }, "content type list missing; not storing this HTML copy");
@@ -193,6 +200,7 @@ export async function renderHubHtml(opts: {
     opts.site.contentIndex as Parameters<typeof resolveInitialData>[1],
     opts.site.database as Parameters<typeof resolveInitialData>[2],
     opts.site,
+    llmAudienceKey(variantKey) ? undefined : initialDataAssignmentForHtmlKey(opts.site, clean, variantKey),
   ).catch(() => null);
 
   const status = resolvePublicHtmlStatus({

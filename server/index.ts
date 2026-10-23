@@ -494,7 +494,7 @@ app.use((req, res, next) => {
       getCachedHtml,
       isEditDocumentRequest,
       shouldBypassHtmlCache,
-      htmlDocumentCacheControl,
+      htmlDocumentCacheControlFor,
       logHtmlRender,
       pickCachedEncoding,
       rehydrateHtmlPageCache,
@@ -562,7 +562,7 @@ app.use((req, res, next) => {
       }
       res.status(cached.status);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.setHeader("Cache-Control", htmlDocumentCacheControl());
+      res.setHeader("Cache-Control", htmlDocumentCacheControlFor(res));
       res.setHeader("X-HTML-Cache", "HIT");
       res.setHeader("Vary", "Accept-Encoding");
       if (encoding !== "identity") res.setHeader("Content-Encoding", encoding);

@@ -39,7 +39,7 @@ export function pruneVersioningAfterVariantRemove(
     if (updatedVariants.length === 0) {
       delete next[locale];
     } else {
-      next[locale] = { variants: updatedVariants };
+      next[locale] = { ...localeData, variants: updatedVariants };
     }
   }
   const isEmpty = !Object.values(next).some((loc) => (loc?.variants?.length ?? 0) > 0);

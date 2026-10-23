@@ -6,6 +6,19 @@ window_days: 6
 
 entries:
   - date: "2026-10-23"
+    summary: "Page tests: list_variants warns about A/B readiness, stickiness and split mismatch; the hidden A/B check page is locked; lead page_variant can be default"
+    agent_impact:
+      - "list_variants adds started_at (per-locale run date) and warnings: ab_testing_not_setup (visitors only see Default until staff finish Settings → A/B testing → Setup), ab_check_failing (running tests continue; starting/raising traffic blocked), variant_assignment_sticky (visitors keep their first version; a new split only affects new visitors; allocation is staff-only), split_mismatch (locale, source, expected vs observed shares, p, through_date: results unreliable)."
+      - "The landing/page ab-check entry (system: ab_check) is a locked system page: edits, deletes, renames, variants and traffic return system_page_locked; it is omitted from list_entries and listings. Do not try to edit or recreate it; only staff Setup does."
+      - "Lead page_experiment_id is the visit's first test (contentType:slug:locale@YYYY-MM-DD) and page_variant can be default. get_leads_breakdown gains default rows; leads before the fix used a buggy split."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/ab-testing-warnings.ts
+      - mcp-server/explain/lead-forms.md
+      - server/ab-testing/state.ts
+      - server/versioning/split-health.ts
+  - date: "2026-10-23"
     summary: "Apply dry_run previews while blockers are open; get_entry_fields names the file each YAML value comes from"
     agent_impact:
       - "update_proposal apply dry_run (1.0) no longer fails proposal_blocked: it returns merge_preview + warning preview_while_blocked (details.open_blocker_ids) and a resolve_blocker next_action. Real apply is still proposal_blocked; legacy proposals stay legacy_version; four-eyes still applies. A clean preview is not approval and does not reset the 10/30-day blocked clock."

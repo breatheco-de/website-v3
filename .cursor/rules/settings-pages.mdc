@@ -104,7 +104,7 @@ Put each tab’s primary content in a [`Card`](client/src/components/ui/card.tsx
 
 ## Settings area: `SettingsShell` (main bar + section tabs)
 
-The six Settings sections — General, SEO/GEO, Ads, AI, Tracking, Security — all render through [`SettingsShell`](client/src/components/settings/SettingsShell.tsx). Do not hand-build headers on these pages.
+The seven Settings sections — General, SEO/GEO, Ads, A/B testing, AI, Tracking, Security — all render through [`SettingsShell`](client/src/components/settings/SettingsShell.tsx). Do not hand-build headers on these pages.
 
 ```tsx
 <SettingsShell
@@ -190,7 +190,7 @@ Every settings surface that wires an external API, cloud credential, or vendor S
 
 ## Applies to
 
-- Settings area via [`SettingsShell`](client/src/components/settings/SettingsShell.tsx): [`SettingsPage`](client/src/pages/SettingsPage.tsx) (General), [`SeoGeoSettingsPage`](client/src/pages/SeoGeoSettingsPage.tsx) (canonical), [`AdsSettingsPage`](client/src/pages/AdsSettingsPage.tsx), [`AISettingsPage`](client/src/pages/AISettingsPage.tsx), [`TrackingPage`](client/src/pages/TrackingPage.tsx), [`SecurityPage`](client/src/pages/SecurityPage.tsx)
+- Settings area via [`SettingsShell`](client/src/components/settings/SettingsShell.tsx): [`SettingsPage`](client/src/pages/SettingsPage.tsx) (General), [`SeoGeoSettingsPage`](client/src/pages/SeoGeoSettingsPage.tsx) (canonical), [`AdsSettingsPage`](client/src/pages/AdsSettingsPage.tsx), [`AbTestingSettingsPage`](client/src/pages/AbTestingSettingsPage.tsx), [`AISettingsPage`](client/src/pages/AISettingsPage.tsx), [`TrackingPage`](client/src/pages/TrackingPage.tsx), [`SecurityPage`](client/src/pages/SecurityPage.tsx)
 - [`McpServerPage`](client/src/pages/McpServerPage.tsx) — header + top-right tabs (Connection / Tools)
 - [`AgentsOrgChartPage`](client/src/pages/AgentsOrgChartPage.tsx) — page-heading advanced popover exemplar; header + top-right tabs (Org Chart / Proposals)
 - Store admin — [`StoreProductDetailPage`](client/src/pages/StoreProductDetailPage.tsx) (KPI strip exemplar), [`StoreEcommercePage`](client/src/pages/StoreEcommercePage.tsx), [`StoreProductsPage`](client/src/pages/StoreProductsPage.tsx)

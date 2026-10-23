@@ -1,7 +1,7 @@
 export const GENERAL_SETTINGS_TABS = ["locales", "migrations", "brand", "robots", "legal", "server"] as const;
 export type GeneralSettingsTab = (typeof GENERAL_SETTINGS_TABS)[number];
 
-export type SettingsSectionId = "general" | "seo" | "ads" | "ai" | "tracking" | "security";
+export type SettingsSectionId = "general" | "seo" | "ads" | "ab-testing" | "ai" | "tracking" | "security";
 
 function trimTrailingSlash(pathname: string): string {
   return pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
@@ -24,6 +24,7 @@ export function resolveSettingsSection(pathname: string): SettingsSectionId | nu
   const under = (prefix: string) => path === prefix || path.startsWith(`${prefix}/`);
   if (under("/private/settings/seo")) return "seo";
   if (under("/private/settings/ads")) return "ads";
+  if (under("/private/settings/ab-testing")) return "ab-testing";
   if (under("/private/settings/ai")) return "ai";
   if (under("/private/settings")) return "general";
   if (under("/private/tracking")) return "tracking";

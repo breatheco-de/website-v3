@@ -21,14 +21,28 @@ import { getApiPath } from "../shared/api-paths";
 import { toOgLocale } from "../shared/locale";
 import { attachVariableFieldsToSections } from "./database-single-loader";
 import { loadEntryForDelivery } from "./entry-delivery";
-import { typeUsesSharedTemplate } from "./layout-owner";
+import { layoutOwnerForEntry, typeUsesSharedTemplate } from "./layout-owner";
+import { getVersioningManager } from "./versioning/VersioningManager";
+import type { ServedPageVersion } from "./versioning/assign-request";
 import { resolveAllTemplateVars, buildContentDeliveryParamBag } from "./resolve-template-vars";
-import { requestBakesQueryParamTemplate, urlHasContentQuery } from "./html-page-cache";
+import {
+  htmlDocumentCacheControlFor,
+  requestBakesQueryParamTemplate,
+  urlHasContentQuery,
+} from "./html-page-cache";
 import { buildSingleEntryFromContent } from "./build-single-entry";
 import { hydrateEntryForDelivery } from "./hydrate-entry-delivery";
 import { databaseManager, type DatabaseManager } from "./database";
 import { applyEntryModulePreload } from "./utils/html-transforms";
-import { buildInitialDataScriptTag, insertBefore, replaceLiteral } from "./utils/html-inject";
+import {
+  buildInitialDataScriptTag,
+  injectPageVersionDataLayer,
+  insertBefore,
+  replaceLiteral,
+} from "./utils/html-inject";
+import { isLlmHtmlAudience } from "../shared/runtime-issues";
+import { resolveHtmlVariant } from "./html-variant-key";
+import { servedVariantSlug } from "./versioning/assign-request";
 import { applyEntryPreviewOgImage } from "./entry-preview-manager";
 import {
   buildLocaleUnavailablePayload,
@@ -102,11 +116,34 @@ export interface InitialDataPayload {
   skipHtmlCache?: boolean;
 }
 
+/** Page test assignment for this request (from resolveHtmlVariant). */
+export interface InitialDataAssignment {
+  /** Real variant slug to load; null serves the live page (Default group or no test). */
+  variant: string | null;
+  /** Seeded into page data as `_page_version` so the client reports the exposure. */
+  pageVersion: ServedPageVersion | null;
+}
+
 export async function resolvePageQuery(
   url: string,
   ci: ContentIndex = contentIndex,
   dbm: DatabaseManager = databaseManager,
   site?: SiteContext,
+  assignment?: InitialDataAssignment,
+): Promise<SingleQuery | null> {
+  const query = await resolvePageQueryInner(url, ci, dbm, site, assignment?.variant ?? null);
+  if (query && assignment?.pageVersion && query.data && typeof query.data === "object" && !Array.isArray(query.data)) {
+    query.data = { ...(query.data as Record<string, unknown>), _page_version: assignment.pageVersion };
+  }
+  return query;
+}
+
+async function resolvePageQueryInner(
+  url: string,
+  ci: ContentIndex,
+  dbm: DatabaseManager,
+  site: SiteContext | undefined,
+  variant: string | null,
 ): Promise<SingleQuery | null> {
   // Don't seed page data for force_variant requests — the SSR render would use
   // the default-page data while the client needs a different query key for the
@@ -162,7 +199,15 @@ export async function resolvePageQuery(
           locale = resolved.params.locale;
         }
         const normalizedLocale = normalizeLocale(locale);
-        const delivered = await loadEntryForDelivery(ci, contentType, slug, normalizedLocale);
+        const attached =
+          !!variant && layoutOwnerForEntry(contentType, slug, ci.contentRoot) === "shared_template";
+        const delivered = await loadEntryForDelivery(
+          ci,
+          contentType,
+          slug,
+          normalizedLocale,
+          variant ? (attached ? { templateVariant: variant } : { entryVariant: variant }) : {},
+        );
         if (!delivered) return null;
         const pageData = delivered.data;
         const layout = resolveLayout(contentType, pageData, ci.contentRoot);
@@ -244,11 +289,21 @@ export async function resolvePageQuery(
     if (apiPath) {
       const localeOrVariant = locale;
 
-      const result = ci.loadContent({
-        contentType,
-        slug,
-        localeOrVariant,
-      });
+      let variantData: Record<string, unknown> | null = null;
+      if (variant) {
+        const vm = site?.versioningManager ?? getVersioningManager();
+        const loaded = vm.getVariantContent(contentType, slug, variant, locale);
+        // VersioningManager caches the parsed object; never mutate it.
+        if (loaded && typeof loaded === "object") variantData = structuredClone(loaded) as Record<string, unknown>;
+      }
+
+      const result = variantData
+        ? { success: true as const, data: variantData }
+        : ci.loadContent({
+            contentType,
+            slug,
+            localeOrVariant,
+          });
 
       if (!result.success) return null;
 
@@ -772,10 +827,11 @@ export async function resolveInitialData(
   ci: ContentIndex = contentIndex,
   dbm: DatabaseManager = databaseManager,
   site?: SiteContext,
+  assignment?: InitialDataAssignment,
 ): Promise<InitialDataPayload | null> {
   const cleanUrl = url.split("?")[0].split("#")[0];
 
-  const pageQuery = await resolvePageQuery(url, ci, dbm, site);
+  const pageQuery = await resolvePageQuery(url, ci, dbm, site, assignment);
   const parsedUrl = ci.parseContentUrl(cleanUrl);
 
   const variablesQuery: SingleQuery = {
@@ -1041,10 +1097,33 @@ export function initialDataMiddleware(
   const dbm = ((res.locals as any).site?.database ?? databaseManager) as DatabaseManager;
   const site = (res.locals as any).site as SiteContext | undefined;
   // Resolve once per request; SSR catch-all reuses res.locals.initialDataPromise.
-  const locals = res.locals as { initialDataPromise?: Promise<InitialDataPayload | null> };
+  const locals = res.locals as {
+    initialDataPromise?: Promise<InitialDataPayload | null>;
+    htmlVariantKey?: string;
+    abTestedPage?: boolean;
+  };
+  let assignment: InitialDataAssignment | undefined;
+  // AI crawlers keep the key unset so the LLM HTML branch in vite.ts still handles them.
+  if (!locals.initialDataPromise && !isLlmHtmlAudience(req.get?.("user-agent"))) {
+    try {
+      const resolution = resolveHtmlVariant(req, res);
+      locals.htmlVariantKey ??= resolution.key;
+      if (resolution.assignment) {
+        assignment = {
+          variant: servedVariantSlug(resolution.assignment),
+          pageVersion: {
+            experiment_id: resolution.assignment.experimentId,
+            variant: resolution.assignment.variant,
+          },
+        };
+      }
+    } catch {
+      assignment = undefined;
+    }
+  }
   const payloadPromise =
     locals.initialDataPromise ??
-    resolveInitialData(req.originalUrl, ci, dbm, site).catch(() => null);
+    resolveInitialData(req.originalUrl, ci, dbm, site, assignment).catch(() => null);
   locals.initialDataPromise = payloadPromise;
 
   const originalEnd = res.end;
@@ -1059,6 +1138,10 @@ export function initialDataMiddleware(
             let injected = html.includes('id="__INITIAL_DATA__"')
               ? html.replace(/<script id="__INITIAL_DATA__" type="application\/json">[\s\S]*?<\/script>/, '')
               : html;
+            injected = injectPageVersionDataLayer(injected, payload);
+            if (locals.abTestedPage && !res.headersSent) {
+              res.setHeader("Cache-Control", htmlDocumentCacheControlFor(res));
+            }
 
             if (!injected.includes('storage.googleapis.com')) {
               const gcsHints =
