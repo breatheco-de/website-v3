@@ -67,6 +67,18 @@ props:
         type: string
         required: false
         description: Pre-formatted duration, e.g. "2h"
+      series_index:
+        type: string
+        required: false
+        description: 1-based day in the series. Day N shows when series_total is 2 or more.
+      series_total:
+        type: string
+        required: false
+        description: Sessions in the series, including finished ones.
+      series_note:
+        type: string
+        required: false
+        description: Popover copy on the day badge. Empty hides the popover.
       starts_in_label:
         type: string
         required: false

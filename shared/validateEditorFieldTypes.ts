@@ -65,7 +65,56 @@ export type EditorHint = {
   on_error?: string;
 };
 
-export type FieldMappingValue = string | { source: string; default: string | null };
+/** Other rows from the same database cache. The YAML stores column names, not cell text. */
+export const ROWS_FILTER_MAX = 50;
+
+export type RowsFilter = {
+  /** Column compared on every other row. */
+  rows_property_slug: string;
+  /** Column on the row being filled. Its cell is the value to compare. */
+  value_from_current_row: string;
+};
+
+export type RowsFilterMapping = {
+  rows_filters: RowsFilter[];
+};
+
+export type FieldMappingValue = string | { source: string; default: string | null } | RowsFilterMapping;
+
+export function isRowsFilterMapping(value: unknown): value is RowsFilterMapping {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Array.isArray((value as { rows_filters?: unknown }).rows_filters);
+}
+
+/** Keep filters that name both columns. Incomplete rows are dropped. */
+export function parseRowsFilters(value: unknown): RowsFilter[] {
+  if (!isRowsFilterMapping(value)) return [];
+  const out: RowsFilter[] = [];
+  for (const raw of value.rows_filters) {
+    if (!raw || typeof raw !== "object") continue;
+    const rows = String((raw as RowsFilter).rows_property_slug ?? "").trim();
+    const current = String((raw as RowsFilter).value_from_current_row ?? "").trim();
+    if (!rows || !current) continue;
+    out.push({ rows_property_slug: rows, value_from_current_row: current });
+  }
+  return out;
+}
+
+/** Closed-row summary, e.g. `event_group = this row · event_group`. */
+export function rowsFilterSummary(filters: RowsFilter[]): string {
+  if (filters.length === 0) return "No filters";
+  return filters
+    .map((f) => `${f.rows_property_slug} = this row · ${f.value_from_current_row}`)
+    .join(" and ");
+}
+
+/** Column path or `function:` string. A rows-filter mapping has no source. */
+export function fieldMappingSource(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (isRowsFilterMapping(value) || !value || typeof value !== "object") return null;
+  const source = (value as { source?: unknown }).source;
+  return typeof source === "string" ? source : null;
+}
 
 export type EditorFieldIssue = {
   severity: "error" | "warning";
@@ -84,7 +133,9 @@ export function mergeEditorHints(
 
 export function mappingSourceString(value: FieldMappingValue | undefined): string {
   if (!value) return "";
-  return typeof value === "object" ? value.source : value;
+  if (typeof value === "string") return value;
+  if (isRowsFilterMapping(value)) return "";
+  return value.source ?? "";
 }
 
 export function mappingDefault(
@@ -218,6 +269,7 @@ export function validateEditorConfig(
 
   for (const key of mappingKeys) {
     if (skipFieldWithoutEditor(key, hints)) continue;
+    if (isRowsFilterMapping(mapping[key])) continue;
     const hint = hints[key];
     if (!hint?.type) {
       issues.push({

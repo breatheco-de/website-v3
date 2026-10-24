@@ -16,6 +16,12 @@ export const workshopCarouselItemSchema = z
     description: z.string().optional(),
     /** Pre-formatted duration, e.g. "2h" */
     duration_label: z.string().optional(),
+    /** 1-based day. A Day N badge shows when series_total is 2 or more. */
+    series_index: z.union([z.string(), z.number()]).optional(),
+    /** Sessions in the series, including finished ones. */
+    series_total: z.union([z.string(), z.number()]).optional(),
+    /** Popover copy on the day badge. Empty hides the popover. */
+    series_note: z.string().optional(),
     /** Pre-formatted relative start, e.g. "Starts in 3 days" */
     starts_in_label: z.string().optional(),
     /** ISO datetime — used with ending_at to mark the card as live */

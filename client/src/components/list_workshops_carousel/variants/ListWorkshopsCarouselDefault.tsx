@@ -9,6 +9,7 @@ import { UniversalImage } from "@/components/UniversalImage";
 import { useInternalNav } from "@/hooks/useInternalNav";
 import { cn } from "@/lib/utils";
 import { coerceToHtml, coerceToText } from "@/lib/variable-manager";
+import { HoverCard, HoverCardContent, HoverCardPortal, HoverCardTrigger } from "@/components/ui/hover-card";
 
 interface ListWorkshopsCarouselProps {
   data: ListWorkshopsCarouselSection;
@@ -42,6 +43,45 @@ function isItemLive(item: WorkshopCarouselItem, now: number): boolean {
   return Number.isNaN(end) || end > now;
 }
 
+const SERIES_DAY_GREEN = "#25BF6C";
+
+/** Day label for a series. Hidden unless the series has at least two sessions. */
+function seriesDayBadge(index: unknown, total: unknown, locale: string): { label: string } | null {
+  const day = Number(index);
+  const count = Number(total);
+  if (!Number.isFinite(day) || !Number.isFinite(count) || count < 2 || day < 1) return null;
+  const es = locale.toLowerCase().startsWith("es");
+  const label = es ? `Día ${Math.floor(day)}` : `Day ${Math.floor(day)}`;
+  return { label };
+}
+
+function SeriesDayBadge({ label, note, testId }: { label: string; note?: string; testId: string }) {
+  const text = (note ?? "").trim();
+  const className =
+    "inline-flex items-center rounded-full px-2.5 py-[5.5px] text-xs font-bold leading-none text-white";
+  if (!text) {
+    return (
+      <span className={className} style={{ backgroundColor: SERIES_DAY_GREEN }} data-testid={testId}>
+        {label}
+      </span>
+    );
+  }
+  return (
+    <HoverCard openDelay={200} closeDelay={100}>
+      <HoverCardTrigger asChild>
+        <button type="button" className={className} style={{ backgroundColor: SERIES_DAY_GREEN }} data-testid={testId}>
+          {label}
+        </button>
+      </HoverCardTrigger>
+      <HoverCardPortal>
+        <HoverCardContent side="top" collisionPadding={12} className="z-50 w-72 text-center text-sm">
+          {text}
+        </HoverCardContent>
+      </HoverCardPortal>
+    </HoverCard>
+  );
+}
+
 function WorkshopCard({
   item,
   index,
@@ -66,6 +106,8 @@ function WorkshopCard({
   const hostName = coerceToText(item.host_name);
   const langDisplay = resolveLangDisplay(item);
   const durationLabel = coerceToText(item.duration_label);
+  const seriesDay = seriesDayBadge(item.series_index, item.series_total, coerceToText(item.lang) || "en");
+  const seriesNote = coerceToText(item.series_note);
   const startsInLabel = coerceToText(item.starts_in_label);
   const techIds = item.technology_image_ids?.filter(Boolean) ?? [];
 
@@ -90,6 +132,13 @@ function WorkshopCard({
     >
       <div className="flex items-center justify-between gap-2 min-h-6 mb-1.5">
         <div className="flex items-center gap-2 min-w-0">
+          {seriesDay && (
+            <SeriesDayBadge
+              label={seriesDay.label}
+              note={seriesNote}
+              testId={`workshop-series-day-${index}`}
+            />
+          )}
           {techIds.map((id, techIndex) => (
             <UniversalImage
               key={`${id}-${techIndex}`}

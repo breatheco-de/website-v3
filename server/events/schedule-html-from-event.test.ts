@@ -215,6 +215,84 @@ describe("scheduleHtmlFromEvent", () => {
     ci.buildUrl = () => "/en/blog/news/post";
   });
 
+  it("rebuilds only refreshed rows that pass the content type page filter", () => {
+    ci.getContentTypes = () => ["workshop"];
+    ci.getContentTypeConfig = () => ({
+      directory: "workshop",
+      url_pattern: { en: "/en/workshop/:slug", es: "/es/workshop/:slug" },
+      database: { slug: "workshops" },
+      entry_filters: [{ item_property_slug: "status", value: "ACTIVE" }],
+    });
+    ci.buildUrl = (_type: string, locale: string, slug: string) => `/${locale}/workshop/${slug}`;
+    (ci as { getDatabase: () => { getLastGoodItems: (name: string) => { items: Record<string, unknown>[] } } }).getDatabase =
+      () => ({
+        getLastGoodItems: () => ({
+          items: [
+            { slug: "live-one", lang: "en", status: "ACTIVE" },
+            { slug: "done-one", lang: "en", status: "FINISHED" },
+            { slug: "done-es", lang: "es", status: "FINISHED" },
+          ],
+        }),
+      });
+    scheduleHtmlFromEvent(
+      event("database_refreshed", {
+        payload: {
+          dbName: "workshops",
+          rows: [
+            { slug: "live-one", locale: "en", params: {} },
+            { slug: "done-one", locale: "en", params: {} },
+            { slug: "done-es", locale: "es", params: {} },
+          ],
+        },
+      }),
+      site,
+    );
+    expect(scheduleDatabaseReaderRebuild).toHaveBeenCalledTimes(1);
+    expect(scheduleSavedHtmlPaths).toHaveBeenCalledTimes(1);
+    expect(scheduleSavedHtmlPaths).toHaveBeenCalledWith(
+      "site_test",
+      ["/en/workshop/live-one"],
+      "/tmp/site_test",
+      { deleteIfSlow: false },
+    );
+    ci.getContentTypes = () => [];
+    ci.getContentTypeConfig = () => ({ directory: "blog" });
+    ci.buildUrl = () => "/en/blog/news/post";
+    delete (ci as { getDatabase?: unknown }).getDatabase;
+  });
+
+  it("still rebuilds database readers when every refreshed row fails the page filter", () => {
+    ci.getContentTypes = () => ["workshop"];
+    ci.getContentTypeConfig = () => ({
+      directory: "workshop",
+      url_pattern: { en: "/en/workshop/:slug" },
+      database: { slug: "workshops" },
+      entry_filters: [{ item_property_slug: "status", value: "ACTIVE" }],
+    });
+    ci.buildUrl = (_type: string, locale: string, slug: string) => `/${locale}/workshop/${slug}`;
+    (ci as { getDatabase: () => { getLastGoodItems: () => { items: Record<string, unknown>[] } } }).getDatabase =
+      () => ({
+        getLastGoodItems: () => ({
+          items: [{ slug: "done-one", lang: "en", status: "FINISHED" }],
+        }),
+      });
+    scheduleHtmlFromEvent(
+      event("database_refreshed", {
+        payload: {
+          dbName: "workshops",
+          rows: [{ slug: "done-one", locale: "en", params: {} }],
+        },
+      }),
+      site,
+    );
+    expect(scheduleDatabaseReaderRebuild).toHaveBeenCalledTimes(1);
+    expect(scheduleSavedHtmlPaths).not.toHaveBeenCalled();
+    ci.getContentTypes = () => [];
+    ci.getContentTypeConfig = () => ({ directory: "blog" });
+    ci.buildUrl = () => "/en/blog/news/post";
+    delete (ci as { getDatabase?: unknown }).getDatabase;
+  });
+
   it("rebuilds the public url when a row path is a folder spelling", () => {
     ci.resolveUrl = (url: string) =>
       url === "/es/ubicacion/berlin-germany" || url === "/es/ubicacion/berlin-alemania"

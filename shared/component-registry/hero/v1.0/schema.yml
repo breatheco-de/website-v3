@@ -3958,6 +3958,10 @@ variant_props:
     badge:
       type: string
       required: false
+    series_note:
+      type: string
+      required: false
+      description: Popover copy on the day badge. Empty hides the popover. Day and total come from the entry.
     description:
       type: string
       required: false

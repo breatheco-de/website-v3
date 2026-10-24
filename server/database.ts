@@ -2,7 +2,8 @@ import fs from "fs";
 import { getDefaultContentFolder } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
-import { getAllTypes, getContentTypeConfig, getLocaleKey, getFieldMapping, getFullFieldMapping, RESERVED_IMAGE_FIELD, RESERVED_SLUG_FIELD, RESERVED_LOCALE_FIELD, applyImageAliasToEntry, applySlugAliasToEntry, applyLocaleAliasToEntry } from "./content-types";
+import { getAllTypes, getContentTypeConfig, getLocaleKey, getFieldMapping, getFullFieldMapping, getRowsFilterFields, RESERVED_IMAGE_FIELD, RESERVED_SLUG_FIELD, RESERVED_LOCALE_FIELD, applyImageAliasToEntry, applySlugAliasToEntry, applyLocaleAliasToEntry } from "./content-types";
+import { applyRowsFilterFields } from "./database-single-loader";
 import { diffRefreshedDatabaseRows, type RefreshedDatabaseRow } from "./database-refresh-diff";
 import { getValueByPath, resolveFieldValue, isTransformer, compileTransformer, runTransformer } from "./transform";
 import { ExternalImageCacher } from "./external-image-cacher";
@@ -1162,10 +1163,15 @@ export class DatabaseManager {
 
     const ctMapping = getFieldMapping(contentType, this.contentRoot);
     const fullMapping = getFullFieldMapping(contentType, this.contentRoot);
-    if ((!ctMapping || Object.keys(ctMapping).length === 0) && !fullMapping?.[RESERVED_IMAGE_FIELD] && !fullMapping?.[RESERVED_SLUG_FIELD]) {
+    const withRows = applyRowsFilterFields(
+      rawItems,
+      getRowsFilterFields(contentType, this.contentRoot),
+      { contentType },
+    );
+    if ((!ctMapping || Object.keys(ctMapping).length === 0) && !fullMapping?.[RESERVED_IMAGE_FIELD] && !fullMapping?.[RESERVED_SLUG_FIELD] && withRows === rawItems) {
       return rawItems;
     }
-    return applyContentTypeMapping(rawItems, ctMapping || {}, contentType, fullMapping);
+    return applyContentTypeMapping(withRows, ctMapping || {}, contentType, fullMapping);
   }
 
   /**

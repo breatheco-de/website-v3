@@ -25,6 +25,7 @@ import { contentIndex } from "../content-index";
 import { markFileAsModified } from "../sync-state";
 import { child } from "../logger";
 import { enrollmentCardIds } from "@shared/resolveProductScope";
+import { buildServerPageTracking } from "../tracking-page-context";
 
 const log = child({ module: "routes/funnel" });
 
@@ -189,6 +190,12 @@ export function registerFunnelRoutes(app: Express): void {
           ...enrollmentWarnings,
         ],
         relativePath: relPath,
+        tracking: buildServerPageTracking({
+          contentRoot,
+          contentType,
+          slug,
+          data: { funnel },
+        }),
       });
     } catch (err) {
       log.error({ err }, "GET funnel");

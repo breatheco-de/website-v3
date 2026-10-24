@@ -505,6 +505,8 @@ export const heroWorkshopSchema = z.object({
   back_label: z.string().optional(),
   back_url: z.string().optional(),
   badge: z.string().optional(),
+  /** Popover copy on the day badge. Empty hides the popover. Day and total stay on the entry. */
+  series_note: z.string().optional(),
   title: z.string().optional(),
   description: z.string().optional(),
   /** Event schedule (ISO datetimes + optional date-line icon). */
