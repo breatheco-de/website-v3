@@ -25,6 +25,7 @@ import { canonicalHtmlCachePath, listStoredHtmlCacheKeys, parseHtmlCacheKey } fr
 import { sitesInheritingThemeFrom } from "../theme-config";
 import { isSharedTemplateBasename } from "../shared-layout-paths";
 import type { RefreshedDatabaseRow } from "../database-refresh-diff";
+import type { ContentTypeConfig } from "../content-types";
 import type { ContentEvent } from "./types";
 
 export type HtmlEventSite = {
@@ -66,14 +67,39 @@ function isLocalDatabase(ci: ContentIndex, dbName: string): boolean {
   }
 }
 
+/** Page slugs for this type, from the database copy the refresh already stored. Null when the type has no page gate. */
+function pageKeys(ci: ContentIndex, dbName: string, config: ContentTypeConfig): Set<string> | null {
+  const filters = (config.entry_filters ?? []).filter((filter) => String(filter?.item_property_slug ?? "").trim());
+  if (filters.length === 0) return null;
+  let items: Record<string, unknown>[] = [];
+  try {
+    items = ci.getDatabase().getLastGoodItems(dbName)?.items ?? [];
+  } catch {
+    items = [];
+  }
+  const keys = new Set<string>();
+  for (const item of items) {
+    const slug = String(item.slug ?? "");
+    if (!slug) continue;
+    const passes = filters.every(
+      (filter) => String(item[filter.item_property_slug] ?? "") === String(filter.value ?? ""),
+    );
+    if (!passes) continue;
+    const locale = String(item.locale ?? item.lang ?? item._locale ?? "");
+    keys.add(`${locale}\0${slug}`);
+  }
+  return keys;
+}
+
 function refreshedRowPaths(ci: ContentIndex, dbName: string, rows: RefreshedDatabaseRow[]): string[] {
   const paths: string[] = [];
   for (const contentType of ci.getContentTypes()) {
     const config = ci.getContentTypeConfig(contentType);
     if (config?.database?.slug !== dbName || !config.url_pattern) continue;
+    const keys = pageKeys(ci, dbName, config);
     const locales = Object.keys(config.url_pattern).filter((locale) => locale !== "default");
     for (const row of rows) {
-      if (!row.slug) continue;
+      if (!row.slug || (keys && !keys.has(`${row.locale ?? ""}\0${row.slug}`))) continue;
       const useLocales = row.locale ? [row.locale] : locales.length > 0 ? locales : ["en"];
       for (const locale of useLocales) {
         const pathname = ci.buildUrl(contentType, locale, row.slug, row.params);
