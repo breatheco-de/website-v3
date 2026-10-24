@@ -70,6 +70,18 @@ export interface DatabaseConfig {
 
 const VALID_DB_NAME = /^[a-z0-9_-]+$/;
 
+/** True when the new config has vector search on and it was just enabled or its fields changed. */
+export function vectorSearchNeedsSync(
+  before: VectorSearchConfig | undefined,
+  after: VectorSearchConfig | undefined,
+): boolean {
+  if (!after?.enabled || !Array.isArray(after.fields) || after.fields.length === 0) return false;
+  if (!before?.enabled) return true;
+  const a = before.fields ?? [];
+  const b = after.fields;
+  return a.length !== b.length || a.some((f, i) => f !== b[i]);
+}
+
 function setValueByPath(obj: Record<string, unknown>, dotPath: string, value: unknown): void {
   const parts = dotPath.split(".");
   let current: Record<string, unknown> = obj;
@@ -724,8 +736,28 @@ export class DatabaseManager {
     this.configs.set(name, config);
   }
 
+  /** Absolute path of this site's content folder. */
+  getContentRoot(): string {
+    return this.contentRoot;
+  }
+
+  /** Enqueue a background vector index sync (Sidequest `vector_index` queue). Never embeds here. */
+  queueVectorIndex(
+    name: string,
+    reason: import("./vector-index-queue").VectorIndexReason,
+    opts: { rebuild?: boolean } = {},
+  ): Promise<import("./vector-index-queue").EnqueueVectorIndexResult> {
+    return import("./vector-index-queue")
+      .then(({ enqueueVectorIndexSync }) => enqueueVectorIndexSync(this.contentRoot, name, reason, opts))
+      .catch((err) => {
+        log.warn({ err, database: name }, "[DatabaseManager] Vector index enqueue failed");
+        return { queued: false };
+      });
+  }
+
   update(name: string, config: DatabaseConfig, author = "api"): void {
     this.validateName(name);
+    const previousVs = this.configs.get(name)?.vector_search;
     this.writeToDisk(name, config);
     markFileAsModified(`db/${name}/config.yml`, author, undefined, this.contentRoot);
     // If staff/MCP switched to (or fixed) local source, ensure the items file exists.
@@ -738,6 +770,10 @@ export class DatabaseManager {
     this.configs.set(name, config);
     this.memoryCache.delete(name);
     this.clearMappedMemo(name);
+    // Turning vector search off keeps the collection (shown as "Not in use"); re-enabling reuses it.
+    if (vectorSearchNeedsSync(previousVs, config.vector_search)) {
+      void this.queueVectorIndex(name, "config_changed");
+    }
   }
 
   delete(name: string): void {
@@ -750,6 +786,16 @@ export class DatabaseManager {
     this.memoryCache.delete(name);
     this.cache.clear(name);
     this.clearMappedMemo(name);
+    // Unit tests must never touch a developer's local Qdrant.
+    if (process.env.VITEST) return;
+    const contentRoot = this.contentRoot;
+    setJobState(name, "index", { status: "idle", ready: false }, contentRoot);
+    void import("./vector-search")
+      .then(async ({ deleteCollection, siteCollectionName, legacyCollectionName }) => {
+        await deleteCollection(siteCollectionName(contentRoot, name));
+        await deleteCollection(legacyCollectionName(name));
+      })
+      .catch((err) => log.warn({ err, database: name }, "[DatabaseManager] Vector collection cleanup failed"));
   }
 
   private scheduleExternalImages(
@@ -818,7 +864,7 @@ export class DatabaseManager {
   async fetchItems(
     name: string,
     forceRefresh = false,
-    opts?: { skipRefreshEvent?: boolean },
+    opts?: { skipRefreshEvent?: boolean; skipVectorIndex?: boolean },
   ): Promise<{
     items: Record<string, unknown>[];
     raw_count: number;
@@ -948,14 +994,8 @@ export class DatabaseManager {
     if (!opts?.skipRefreshEvent) this.noteRefreshDiff(name, previousItems, items);
 
     const vsConfig = (config as DatabaseConfig).vector_search;
-    if (vsConfig?.enabled && vsConfig.fields?.length > 0) {
-      import("./vector-search").then(({ indexItems }) => {
-        indexItems(name, items, vsConfig.fields).catch((err) => {
-          log.error({ err: err }, `[DatabaseManager] Background vector indexing failed for "${name}":`);
-        });
-      }).catch((err) => {
-        log.error({ err: err }, `[DatabaseManager] Failed to import vector-search module:`);
-      });
+    if (!opts?.skipVectorIndex && vsConfig?.enabled && vsConfig.fields?.length > 0) {
+      this.queueVectorIndex(name, "fetch");
     }
 
     return { ...entry, from_cache: false };

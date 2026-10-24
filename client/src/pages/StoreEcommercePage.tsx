@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import JsonViewer from "@/components/editing/JsonViewer";
 import { PrivateHistoryBackButton } from "@/components/private/PrivateHistoryBackButton";
+import { SAMPLE_PAGE_TRACKING_CODES } from "@shared/tracking-context";
 
 interface EcommerceEventRow {
   name: string;
@@ -65,9 +66,10 @@ const SAMPLE_VISITOR_CONTEXT: Record<string, unknown> = {
   ppc_tracking_id: "Cj0KCQjw…",
 };
 
-function buildFullSamplePayload(sample: Record<string, unknown>): Record<string, unknown> {
-  // Event sample wins on key clashes (e.g. user_id from trackEcommerce).
-  return { ...SAMPLE_VISITOR_CONTEXT, ...sample };
+function buildFullSamplePayload(row: EcommerceEventRow): Record<string, unknown> {
+  // Event sample wins on key clashes (e.g. user_id, the single item_id picked).
+  // Off-site events (learn.4geeks) don't carry this site's page product / persona.
+  return { ...SAMPLE_VISITOR_CONTEXT, ...(row.wired ? SAMPLE_PAGE_TRACKING_CODES : {}), ...row.sample };
 }
 
 export default function StoreEcommercePage() {
@@ -85,7 +87,7 @@ export default function StoreEcommercePage() {
   const fullSampleJson = useMemo(
     () =>
       fullSampleEvent
-        ? JSON.stringify(buildFullSamplePayload(fullSampleEvent.sample), null, 2)
+        ? JSON.stringify(buildFullSamplePayload(fullSampleEvent), null, 2)
         : "",
     [fullSampleEvent],
   );
@@ -309,6 +311,9 @@ export default function StoreEcommercePage() {
               ). <code className="font-mono text-xs">user_id</code>, language, and location are
               normally always set; geo coords depend on the geo lookup; UTMs only include keys
               present for that visit (values below are examples).
+              {fullSampleEvent?.wired
+                ? " product / persona list every product and persona of the page's funnel as short codes; item_id is the one product picked."
+                : ""}
             </DialogDescription>
           </DialogHeader>
           <div

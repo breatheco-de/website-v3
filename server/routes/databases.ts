@@ -5,7 +5,7 @@ import { storage } from "../storage";
 import { geoGet, geoSet } from "../geo-cache";
 import { getQueueStats, enqueueOptimization, getPendingOptimizations, getFailedEntries, retryFailedImages, resetOptimizeSession, getOptimizeSession, enqueueExternalImage } from "../image-registry";
 import { getAllQueueState } from "../image-queue-state";
-import { getAllJobStates, type DbJobState } from "../db-job-state";
+import { displayIndexStatus, getAllJobStates, type DbJobState } from "../db-job-state";
 import { countDatabaseCacheErrors } from "../../scripts/validation/shared/databaseHealthChecks";
 import { getValidationCacheService } from "../services/validationCacheService";
 import { getDatabaseUsage } from "../database-usage";
@@ -910,12 +910,14 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         res.status(400).json({ error: "Semantic search is not enabled for this database" });
         return;
       }
-      const cached = await dbm.fetchItems(name, false);
-      const { indexItems } = await import("../vector-search");
-      indexItems(name, cached.items, vsConfig.fields).catch((err: unknown) => {
-        log.error({ err: err }, `[reindex] Background indexing error for "${name}":`);
+      const cached = await dbm.fetchItems(name, false, { skipVectorIndex: true });
+      const queued = await dbm.queueVectorIndex(name, "manual");
+      res.json({
+        success: true,
+        queued: queued.queued || queued.deduped === true,
+        ...(queued.deduped ? { already_queued: true } : {}),
+        count: cached.items.length,
       });
-      res.json({ success: true, count: cached.items.length });
     } catch (err: unknown) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
@@ -933,8 +935,15 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
       const state = allStates[req.params.name] ?? defaultState;
       const { getDatabaseSearchCacheStats } = await import("../database-search");
       const searchCache = getDatabaseSearchCacheStats(req.params.name);
+      let index = state.index;
+      if (index.status === "queued") {
+        const { getEngineStatus } = await import("../jobs/queue");
+        const workerRunning = (await getEngineStatus()).status === "running";
+        index = { ...index, status: displayIndexStatus(index, workerRunning) };
+      }
       res.json({
         ...state,
+        index,
         search_cache: {
           memoryEntries: searchCache.memoryEntries,
           lastWrittenAt: searchCache.lastWrittenAt,

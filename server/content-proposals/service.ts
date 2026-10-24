@@ -9414,7 +9414,7 @@ async function indexProposalSearch(site: string, proposal: ProposalRecord): Prom
 
 async function findSimilarProposals(site: string, query: string): Promise<SimilarProposal[]> {
   const { search } = await import("../vector-search");
-  const hits = await search(proposalCollection(site), query, 8);
+  const { hits } = await search(proposalCollection(site), query, 8);
   return hits.map((h) => ({ id: h.slug, title: h.slug, score: h.score }));
 }
 

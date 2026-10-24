@@ -334,6 +334,9 @@ export type JobEnqueueOpts = {
   uniqueWhileAlive?: boolean;
   delayMs?: number;
   queue?: string;
+  /** Total attempts including the first run; retries use exponential backoff from retryDelayMs. */
+  maxAttempts?: number;
+  retryDelayMs?: number;
 };
 
 export type ConfigureJobQueueOpts = {
@@ -401,6 +404,8 @@ export async function configureJobQueue(opts?: ConfigureJobQueueOpts): Promise<v
       { name: "html_rebuild", concurrency: 2, priority: 40, state: "active" },
       // Large sweeps (theme, Tag Manager container id). A page save on html_rebuild is claimed first.
       { name: "html_rebuild_bulk", concurrency: 1, priority: 10, state: "active" },
+      // Qdrant embedding syncs can run for minutes on large databases; never ahead of HTML work.
+      { name: "vector_index", concurrency: 1, priority: 5, state: "active" },
     ],
   });
   configured = true;
@@ -507,6 +512,12 @@ export async function enqueueJob(
   }
   if (opts?.delayMs && opts.delayMs > 0) {
     builder = builder.availableAt(new Date(Date.now() + opts.delayMs));
+  }
+  if (opts?.maxAttempts && opts.maxAttempts > 0) {
+    builder = builder.maxAttempts(opts.maxAttempts);
+    if (opts.retryDelayMs && opts.retryDelayMs > 0) {
+      builder = builder.retryDelay(opts.retryDelayMs).backoffStrategy("exponential");
+    }
   }
   try {
     await builder.enqueue(payload);

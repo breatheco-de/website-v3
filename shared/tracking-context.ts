@@ -34,6 +34,22 @@ export type PageTrackingContext = {
 
 export type TrackingMode = "codes" | "ids";
 
+/** Example values for staff sample payloads (two products, two personas). Codes match the ids. */
+export const SAMPLE_PAGE_TRACKING_CODES = {
+  product: "aie,afx",
+  persona: "cc,exp",
+  product_persona: "aie:cc,afx:exp",
+  funnel_stage: "consideration",
+  content_key: "landing:apply",
+} as const satisfies PageTrackingContext;
+
+/** Same example as full ids, as the lead ledger / CRM receive it. */
+export const SAMPLE_PAGE_TRACKING_IDS = {
+  product: "ai-engineering,ai-flex",
+  persona: "the-career-changer,the-explorer",
+  product_persona: "ai-engineering:the-career-changer,ai-flex:the-explorer",
+} as const;
+
 export type TrackingKeyLookup = {
   productBySlug: Map<string, TrackingKeyProduct>;
   productByCode: Map<string, TrackingKeyProduct>;

@@ -9,7 +9,8 @@ function getStatePath(contentRoot?: string): string {
   return path.join(root, ".db-job-state.json");
 }
 
-export type JobStatus = "idle" | "running" | "done" | "error";
+/** `waiting_worker` is derived for display (queued while the Sidequest worker is down); never persisted. */
+export type JobStatus = "idle" | "queued" | "waiting_worker" | "running" | "done" | "error";
 
 export interface JobState {
   status: JobStatus;
@@ -19,6 +20,16 @@ export interface JobState {
   startedAt?: string;
   finishedAt?: string;
   error?: string;
+  queuedAt?: string;
+  /** Vector index: rows embedded / left as-is / removed in the last run. */
+  embedded?: number;
+  unchanged?: number;
+  deleted?: number;
+  /** Vector index: the site-scoped collection is fully built and may be searched. */
+  ready?: boolean;
+  collection?: string;
+  /** Vector index: last time a run changed the collection (search caches older than this are stale). */
+  changedAt?: string;
 }
 
 export interface DbJobState {
@@ -30,54 +41,83 @@ type AllState = Record<string, DbJobState>;
 
 const DEFAULT_JOB_STATE: JobState = { status: "idle" };
 
-let stateCache: AllState | null = null;
+/**
+ * The web process and the Sidequest worker both write this file, so every read
+ * re-checks the file's mtime/size and every write merges into the latest copy.
+ */
+const stateCache = new Map<string, { mtimeMs: number; size: number; state: AllState }>();
 
-function load(): AllState {
-  if (stateCache) return stateCache;
+function statFile(filePath: string): { mtimeMs: number; size: number } | null {
   try {
-    const content = fs.readFileSync(getStatePath(), "utf8");
-    stateCache = JSON.parse(content) as AllState;
+    const st = fs.statSync(filePath);
+    return { mtimeMs: st.mtimeMs, size: st.size };
   } catch {
-    stateCache = {};
+    return null;
   }
-  return stateCache;
 }
 
-function persist(): void {
+function load(contentRoot?: string): AllState {
+  const filePath = getStatePath(contentRoot);
+  const st = statFile(filePath);
+  const hit = stateCache.get(filePath);
+  if (!st) {
+    if (hit && hit.mtimeMs === -1) return hit.state;
+    const empty: AllState = {};
+    stateCache.set(filePath, { mtimeMs: -1, size: 0, state: empty });
+    return empty;
+  }
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.state;
+  let state: AllState;
   try {
-    fs.writeFileSync(
-      getStatePath(),
-      JSON.stringify(stateCache ?? {}, null, 2) + "\n",
-      "utf8"
-    );
+    state = JSON.parse(fs.readFileSync(filePath, "utf8")) as AllState;
+  } catch {
+    state = hit?.state ?? {};
+  }
+  stateCache.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, state });
+  return state;
+}
+
+function persist(contentRoot: string | undefined, state: AllState): void {
+  const filePath = getStatePath(contentRoot);
+  const tmp = `${filePath}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n", "utf8");
+    fs.renameSync(tmp, filePath);
+    const st = statFile(filePath);
+    if (st) stateCache.set(filePath, { ...st, state });
   } catch (err) {
     log.error({ err: err }, "[DbJobState] Failed to persist:");
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      // tmp never written
+    }
   }
 }
 
-export function getJobState(dbName: string): DbJobState {
-  const state = load();
+export function getJobState(dbName: string, contentRoot?: string): DbJobState {
+  const state = load(contentRoot);
   return state[dbName] ?? { fetch: DEFAULT_JOB_STATE, index: DEFAULT_JOB_STATE };
 }
 
 export function getAllJobStates(contentRoot?: string): Record<string, DbJobState> {
-  try {
-    const content = fs.readFileSync(getStatePath(contentRoot), "utf8");
-    return JSON.parse(content) as Record<string, DbJobState>;
-  } catch {
-    return {};
-  }
+  return load(contentRoot);
 }
 
 export function setJobState(
   dbName: string,
   jobType: "fetch" | "index",
-  patch: Partial<JobState>
+  patch: Partial<JobState>,
+  contentRoot?: string,
 ): void {
-  const state = load();
-  if (!state[dbName]) {
-    state[dbName] = { fetch: { status: "idle" }, index: { status: "idle" } };
-  }
-  state[dbName][jobType] = { ...state[dbName][jobType], ...patch };
-  persist();
+  const state = { ...load(contentRoot) };
+  const current = state[dbName] ?? { fetch: { status: "idle" as const }, index: { status: "idle" as const } };
+  state[dbName] = { ...current, [jobType]: { ...current[jobType], ...patch } };
+  persist(contentRoot, state);
+}
+
+/** Display status: a queued job with no live worker shows as waiting_worker. */
+export function displayIndexStatus(index: JobState, workerRunning: boolean): JobStatus {
+  if (index.status === "queued" && !workerRunning) return "waiting_worker";
+  return index.status;
 }

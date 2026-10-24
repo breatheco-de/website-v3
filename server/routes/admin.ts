@@ -2752,33 +2752,56 @@ export function registerAdminRoutes(app: Express): void {
       const auth = await requireAdminAuth(req, res);
       if (!auth.authorized) return;
 
-      const { getStatus } = await import("../vector-search");
-      const { getAllJobStates } = await import("../db-job-state");
+      const { getStatus, siteCollectionName, legacyCollectionName } = await import("../vector-search");
+      const { getAllJobStates, displayIndexStatus } = await import("../db-job-state");
       const status = await getStatus();
       const pointsByCollection = new Map(
         status.collections.map((c) => [c.name, c.points_count]),
       );
-      const jobStates = getAllJobStates(getContentRoot(res));
+      const contentRoot = getContentRoot(res);
+      const jobStates = getAllJobStates(contentRoot);
       const dbm = getDB(res);
+      const workerRunning = (await getEngineStatus()).status === "running";
+      const inUse = new Set<string>();
+      const knownSiteCollections = new Set<string>();
 
       const databases = dbm.list().map(({ name, config }) => {
         const vs = config.vector_search;
         const fields = Array.isArray(vs?.fields) ? vs.fields : [];
         const semanticEnabled = Boolean(vs?.enabled && fields.length > 0);
-        const index = jobStates[name]?.index ?? { status: "idle" as const };
+        const rawIndex = jobStates[name]?.index ?? { status: "idle" as const };
+        const index = { ...rawIndex, status: displayIndexStatus(rawIndex, workerRunning) };
+        const collection = siteCollectionName(contentRoot, name);
+        const legacy = legacyCollectionName(name);
+        knownSiteCollections.add(collection);
+        const ready = rawIndex.ready === true && rawIndex.collection === collection;
+        const served = ready ? collection : pointsByCollection.has(legacy) ? legacy : null;
+        if (semanticEnabled) {
+          inUse.add(collection);
+          if (!ready && served) inUse.add(served);
+        }
         return {
           name,
           label: config.name || name,
           semantic_enabled: semanticEnabled,
           fields,
-          collection_points: pointsByCollection.has(name)
-            ? (pointsByCollection.get(name) as number)
+          collection,
+          ready,
+          served_collection: served,
+          collection_points: pointsByCollection.has(collection)
+            ? (pointsByCollection.get(collection) as number)
             : null,
           index,
         };
       });
+      // Collections of this site's databases that nothing searches (vector search turned off).
+      const unusedCollections = status.collections
+        .map((c) => c.name)
+        .filter((n) => knownSiteCollections.has(n) && !inUse.has(n));
 
       res.json({
+        worker_running: workerRunning,
+        unused_collections: unusedCollections,
         available: status.available,
         url: status.url,
         host: status.host,
@@ -2822,6 +2845,32 @@ export function registerAdminRoutes(app: Express): void {
         ok: false,
         error: err instanceof Error ? err.message : "Failed to test Qdrant connection",
       });
+    }
+  });
+
+  api.post(app, "/api/admin/qdrant/rebuild/:name", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const auth = await requireAdminAuth(req, res);
+      if (!auth.authorized) return;
+
+      const name = req.params.name;
+      const dbm = getDB(res);
+      if (!dbm.exists(name)) {
+        return res.status(404).json({ error: `Database "${name}" not found` });
+      }
+      const vs = dbm.get(name).vector_search;
+      if (!vs?.enabled || !vs.fields?.length) {
+        return res.status(400).json({ error: "Semantic search is not enabled for this database" });
+      }
+      const result = await dbm.queueVectorIndex(name, "rebuild", { rebuild: true });
+      res.json({
+        success: true,
+        queued: result.queued || result.deduped === true,
+        ...(result.deduped ? { already_queued: true } : {}),
+      });
+    } catch (err) {
+      log.error({ err }, "[Qdrant Rebuild POST] Error:");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Failed to queue rebuild" });
     }
   });
 

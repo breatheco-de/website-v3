@@ -712,6 +712,18 @@ app.use((req, res, next) => {
       .finally(() => {
         warmupComplete = true;
         log("warmup complete — serving full SSR on /");
+        import("./vector-index-reconcile")
+          .then(({ startVectorIndexReconcile }) =>
+            startVectorIndexReconcile(() =>
+              [...getSiteContextMap().values()].map((ctx) => ({
+                contentRoot: ctx.contentRoot,
+                database: ctx.database,
+              })),
+            ),
+          )
+          .catch((err) => {
+            logger.warn({ err, worker: "VectorIndex" }, "failed to start vector index reconcile");
+          });
         // Low-priority: component insights rebuild (after warmup; does not block listen)
         import("./component-insights")
           .then(({ runStartupInsightsRebuild }) => runStartupInsightsRebuild())

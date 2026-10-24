@@ -6,6 +6,19 @@ window_days: 6
 
 entries:
   - date: "2026-10-23"
+    summary: "Semantic search indexes heal themselves: incremental Sidequest sync into site-scoped Qdrant collections"
+    agent_impact:
+      - "reindex_database now only queues an incremental sync on the Sidequest vector_index queue: rows whose text_hash changed are re-embedded, removed rows deleted. The current index keeps serving until it finishes (keyword matching if none exists yet); Qdrant failures retry 5 times with backoff; jobs wait if the worker is down. No MCP rebuild-from-scratch (admin UI only)."
+      - "create_or_update_database patches that enable vector_search or change its fields auto-queue the sync (warning vector_index_auto_queued, next_actions []). Do not follow up with reindex_database. Item CRUD still needs reindex: true or reindex_database."
+      - "Collections are named <contentFolder>__<dbName> (e.g. site_4geeks-com__testimonials); legacy bare-name collections serve until the first sync finishes, then are deleted. Rows without slug/id are keyed by locale + hash of the embedded text."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/databases.ts
+      - mcp-server/explain/semantic_search.md
+      - mcp-server/explain/local_databases.md
+      - server/vector-search.ts
+      - server/jobs/definitions/vector-index-sync.ts
+  - date: "2026-10-23"
     summary: "Products and personas get tracking short keys; every event and lead carries the page's product / persona"
     agent_impact:
       - "create_or_update_product accepts short_key, personas[].short_key and rename_short_key. Every write fills that product's missing keys (warning short_keys_assigned). Saved keys are locked: action_required confirm_short_key_rename / pick_another_short_key on short_key_locked / short_key_conflict / invalid_short_key. get_product returns tracking_keys.taken_product / taken_persona. Keys: 2-6 [a-z0-9], unique per site (persona keys across all products), retired keys never reused."

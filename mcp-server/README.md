@@ -60,7 +60,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `list_databases` / `list_database_items` / `get_database_item` | Private DB discovery + read (all sources; list=summary, get=full; optional `refresh`). Caps: `databases_edit_data` or `databases_manage` |
 | `add_database_item` / `add_database_items` / `update_database_item` / `update_database_items` / `delete_database_item` | Local YAML item CRUD (FAQ etc.; bulk max 40). Cap: `databases_edit_data` for that slug |
 | `create_or_update_database` | Create bank (empty local items) or deep-patch config (`confirm:true`). Cap: `databases_manage` |
-| `reindex_database` | Vector reindex after item writes or vector_search definition patches (`databases_manage`) |
+| `reindex_database` | Queue an incremental vector sync (Sidequest) after item writes (`databases_manage`); vector_search definition patches auto-queue it |
 | `list_products` / `get_product` / `create_or_update_product` | Product inventory, sidecar read/create/patch (confirm). Audience: `content_edit_structure`. Sellable flags: `product_manage`. Removed hidden unless `include_removed`. |
 | `list_variables` | Site facts catalog (`variables.yml`): catalog by default; `names` → conditions, token, usage, `context` / `context.entry` (page audience, `literal_ok`). Read-only; `content_view`. |
 | `get_product_funnel` / `get_product_funnel_analytics` | Product conversion journey (read-only; `update_product_funnel` retired) |

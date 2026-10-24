@@ -5,7 +5,11 @@
 
 import { getUserIdFromCookie } from "./sessionBootstrap";
 import { useQuery } from "@tanstack/react-query";
-import { PAGE_TRACKING_KEYS, type PageTrackingContext } from "@shared/tracking-context";
+import {
+  PAGE_TRACKING_KEYS,
+  SAMPLE_PAGE_TRACKING_IDS,
+  type PageTrackingContext,
+} from "@shared/tracking-context";
 
 let pageContext: PageTrackingContext | null = null;
 let pageContextPath: string | null = null;
@@ -102,7 +106,6 @@ export const TRACKING_EVENTS = [
   "page_view",
   "experiment_exposure",
   "cta_click",
-  "video_play",
   "video_start",
   "video_progress",
   "video_complete",
@@ -608,9 +611,7 @@ export const SAMPLE_LEAD_PAYLOAD: Record<string, unknown> = {
   phone: "+13055550100",
   program: "ai-engineering",
   /** Full ids (the CRM / ledger never get short codes); "all" / "none" sentinels. */
-  product: "ai-engineering",
-  persona: "the-career-changer",
-  product_persona: "ai-engineering:the-career-changer",
+  ...SAMPLE_PAGE_TRACKING_IDS,
   location: "miami-usa",
   region: "us",
   coupon: "",

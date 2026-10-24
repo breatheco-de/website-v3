@@ -45,6 +45,9 @@ import { useToast } from "@/hooks/use-toast";
 import { getGtmWebStatus, type GtmWebStatus } from "@/lib/gtm-web";
 import { apiRequest, apiFetch, queryClient } from "@/lib/queryClient";
 import { TRACKING_EVENTS } from "@/lib/tracking";
+import { TRACKING_EVENT_DOCS, eventDoc } from "@/lib/tracking-event-docs";
+import { SAMPLE_PAGE_TRACKING_CODES } from "@shared/tracking-context";
+import { EventDocPopover } from "@/components/settings/EventDocPopover";
 import { cn } from "@/lib/utils";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { MetricsAccessGate } from "@/components/MetricsAccessGate";
@@ -1433,13 +1436,7 @@ interface EventGroup {
 }
 
 /** Page product / persona codes merged into every event once the site's switch is on. */
-const SAMPLE_PAGE_TRACKING = {
-  product: "aie",
-  persona: "cc",
-  product_persona: "aie:cc",
-  funnel_stage: "decision",
-  content_key: "landing:apply",
-};
+const SAMPLE_PAGE_TRACKING = SAMPLE_PAGE_TRACKING_CODES;
 
 function withPageTracking(
   payloads: Record<string, Record<string, unknown>>,
@@ -1462,8 +1459,8 @@ const GENERAL_EVENT_PAYLOADS: Record<string, Record<string, unknown>> = withPage
   experiment_exposure: {
     event: "experiment_exposure",
     user_id: SAMPLE_USER_ID,
-    experiment_id: "hero-variant-test",
-    variant: "B",
+    experiment_id: "landing:apply:en@2026-10-01",
+    variant: "b",
   },
   cta_click: {
     event: "cta_click",
@@ -1474,13 +1471,6 @@ const GENERAL_EVENT_PAYLOADS: Record<string, Record<string, unknown>> = withPage
     label: "Apply Now",
     destination: "/en/apply",
     page_path: "/en/coding-bootcamp",
-  },
-  video_play: {
-    event: "video_play",
-    user_id: SAMPLE_USER_ID,
-    video_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-    video_provider: "youtube",
-    page: "/en/apply",
   },
   video_start: {
     event: "video_start",
@@ -1522,11 +1512,6 @@ const GENERAL_EVENT_PAYLOADS: Record<string, Record<string, unknown>> = withPage
     section_index: 3,
   },
 });
-
-const GENERAL_EVENT_TRIGGERS: Record<string, string> = {
-  cta_click: "Click on a link or button inside a page section (section-tracking.ts)",
-  scroll_depth: "Once per page view at 25, 50, 75 and 90% scrolled (section-tracking.ts)",
-};
 
 interface UsageEntry {
   file: string;
@@ -1595,9 +1580,7 @@ function CollapsibleEventGroup({
                   {group.events.map((ev) => (
                     <tr key={ev.name} className="border-b last:border-0">
                       <td className="py-2 pr-4 align-middle">
-                        <Badge variant="secondary" className="font-mono text-xs">
-                          {ev.name}
-                        </Badge>
+                        <EventDocPopover name={ev.name} />
                       </td>
                       <td className="py-2 pr-4 align-middle text-muted-foreground text-xs">{ev.trigger}</td>
                       <td className="py-2 align-middle text-right">
@@ -1633,14 +1616,12 @@ function EventsSection() {
   const routeEvents: TrackingEvent[] = [
     {
       name: "page tracking context object",
-      trigger:
-        "Every content page (no event): written by the server before Tag Manager on first load, then on each navigation. Keys a page doesn't have are pushed empty so the previous page's values clear.",
+      trigger: eventDoc("page tracking context object")!.trigger,
       payload: { ...SAMPLE_PAGE_TRACKING, tracking_truncated: undefined },
     },
     {
       name: "website-route-change",
-      trigger:
-        "Client-side navigation (not first load), sent once the new page's product / persona are known (at most ~2s, or right away when the visitor leaves)",
+      trigger: eventDoc("website-route-change")!.trigger,
       payload: {
         event: "website-route-change",
         pagePath: "/en/apply",
@@ -1652,7 +1633,7 @@ function EventsSection() {
   const visitorContextEvents: TrackingEvent[] = [
     {
       name: "visitor context object",
-      trigger: "Once on first load, after geo + user ID resolve",
+      trigger: eventDoc("visitor context object")!.trigger,
       payload: {
         user_id: SAMPLE_USER_ID,
         visitor_location_city: "Miami",
@@ -1670,7 +1651,7 @@ function EventsSection() {
 
   const generalEvents: TrackingEvent[] = TRACKING_EVENTS.map((name) => ({
     name,
-    trigger: GENERAL_EVENT_TRIGGERS[name] ?? "Various interactions",
+    trigger: TRACKING_EVENT_DOCS[name].trigger,
     payload: GENERAL_EVENT_PAYLOADS[name] ?? { event: name, user_id: SAMPLE_USER_ID },
   }));
 
@@ -1687,7 +1668,7 @@ function EventsSection() {
     },
     {
       title: "General Events",
-      description: "Fired via track for page views, clicks, file video playback, and other interactions. YouTube plays are Tag Manager gtm.video events, not these. Defined in TRACKING_EVENTS.",
+      description: "Page views, A/B test exposure, clicks, scrolling and uploaded-video playback. YouTube plays are Tag Manager gtm.video events, not these. Click an event name to see what it means and when it fires.",
       events: generalEvents,
     },
   ];

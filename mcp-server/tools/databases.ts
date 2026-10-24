@@ -1524,16 +1524,16 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         }
 
         const paths = [`db/${database}/config.yml`];
-        const next_actions: NextAction[] = needsReindex
+        const warnings: McpWarning[] = needsReindex
           ? [
+              ...defWarnings,
               {
-                tool: "reindex_database",
-                reason: "vector_search was enabled or changed; reindex so semantic search matches the new config",
-                args_hint: { database, site },
-                priority: "recommended",
+                code: "vector_index_auto_queued",
+                message:
+                  "vector_search was enabled or its fields changed: a background sync was queued automatically (Sidequest vector_index queue). Do not call reindex_database. The current index (or keyword matching if none) serves until the worker finishes; if the worker is down the job waits.",
               },
             ]
-          : [];
+          : defWarnings;
 
         return ok(
           {
@@ -1544,15 +1544,23 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
             paths,
           },
           {
-            warnings: defWarnings,
+            warnings,
             side_effects: [
               {
                 kind: "database_config_patch",
                 summary: `Patched db/${database}/config.yml (deep merge; sync-state pending)`,
                 paths,
               },
+              ...(needsReindex
+                ? [
+                    {
+                      kind: "vector_reindex",
+                      summary: `Queued incremental vector sync for ${database} into the site-scoped collection <contentFolder>__${database}`,
+                    },
+                  ]
+                : []),
             ],
-            next_actions,
+            next_actions: [],
           },
         );
       } catch (e) {
@@ -1563,8 +1571,8 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
 
   mcp.tool(
     "reindex_database",
-    "Trigger vector reindex for a database with vector_search.enabled. Requires databases_manage. " +
-      "Call after item CRUD, or after create_or_update_database patches that enable/change vector_search, so semantic search includes new/changed rows.",
+    "Queue an incremental vector sync for a database with vector_search.enabled (re-embeds only changed rows). Requires databases_manage. " +
+      "Call after item CRUD so semantic search includes new/changed rows. Not needed after create_or_update_database vector_search changes (auto-queued).",
     {
       database: z.string(),
       ...requiredAgentSessionIdField,
@@ -1597,7 +1605,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
 
         return ok(
           {
-            message: `Reindex started for ${database}`,
+            message: `Reindex queued for ${database}`,
             database,
             ...data,
           },
@@ -1605,13 +1613,18 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
             warnings: [
               {
                 code: "reindex_async",
-                message: "Indexing runs in the background; check job-status / Semantic Index KPI until done.",
+                message:
+                  "Runs in the Sidequest worker (queue vector_index), not now. The current index keeps serving until it finishes (keyword matching if none exists yet). If the worker is down the job waits; Qdrant failures retry 5 times with backoff. Check job-status / Semantic Index KPI until done.",
+              },
+              {
+                code: "reindex_no_rebuild",
+                message: "Incremental only. A full rebuild from scratch is admin UI only (Settings → AI → Qdrant → Read more (advanced)); there is no MCP rebuild.",
               },
             ],
             side_effects: [
               {
                 kind: "vector_reindex",
-                summary: `Queued Qdrant reindex for ${database}; search-result cache cleared on success`,
+                summary: `Queued incremental sync for ${database}: re-embeds rows whose text_hash changed, deletes removed rows, writes collection <contentFolder>__${database}; rows without slug/id are keyed by locale + text hash; search-result cache (GCS) cleared only when something changed`,
               },
             ],
             next_actions: [],

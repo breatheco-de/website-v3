@@ -23,6 +23,9 @@ import { randomUUID } from "node:crypto";
 import { createSidequestWorkerLogger } from "./sidequest-worker-logger";
 import { flushTick, startTick } from "../process-stats";
 
+// Lets shared modules tell the worker apart from web, MCP and scripts (see vector-index-queue).
+process.env.WEBLIFY_PROCESS = process.env.WEBLIFY_PROCESS || "sidequest";
+
 const log = createSidequestWorkerLogger();
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
